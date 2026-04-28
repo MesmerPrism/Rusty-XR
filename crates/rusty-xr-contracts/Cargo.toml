@@ -1,0 +1,11 @@
+[package]
+name = "rusty-xr-contracts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Framework-neutral XR data contracts for Rusty XR."
+
+[lints]
+workspace = true
+

@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/rusty-xr-contracts",
+    "crates/rusty-xr-runtime-config",
+    "crates/rusty-xr-lsl",
+    "crates/rusty-xr-quest-diagnostics",
+    "crates/rusty-xr-camera-model",
+    "crates/rusty-xr-depth-model",
+    "crates/rusty-xr-sdf",
+    "crates/rusty-xr-particles",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/MesmerPrism/Rusty-XR"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+

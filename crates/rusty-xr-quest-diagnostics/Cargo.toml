@@ -1,0 +1,11 @@
+[package]
+name = "rusty-xr-quest-diagnostics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Reusable Quest diagnostics models and helpers for Rusty XR."
+
+[lints]
+workspace = true
+

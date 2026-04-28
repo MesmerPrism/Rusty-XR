@@ -1,0 +1,11 @@
+[package]
+name = "rusty-xr-lsl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Lab Streaming Layer models and utilities for Rusty XR."
+
+[lints]
+workspace = true
+
