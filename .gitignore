@@ -2,6 +2,8 @@
 /.idea/
 /.vscode/
 *.rs.bk
+__pycache__/
+*.pyc
 *.pdb
 *.dSYM/
 artifacts/
@@ -15,4 +17,9 @@ screenshots/
 *.pfx
 *.rgba
 *.u16le
-
+.graphify_*
+graphify-out/
+.codex-tmp*
+/generated/
+/schema-out/
+/boundary-scan-out/

@@ -1,0 +1,309 @@
+# Media Pipeline, Windows Streaming, And Permissions
+
+Rusty XR should make media-pipeline integration easier without becoming an
+app-specific Quest shell. This document records the public, reusable shape for
+Quest media capture, Windows streaming, and permission handling.
+
+## Media Sources
+
+Keep these sources separate:
+
+- Native passthrough layer: compositor-owned passthrough. It is not an app
+  texture and should not be documented as sampleable app media.
+- Passthrough Camera API / Android Camera2: raw forward-facing camera frames for
+  CV/ML and custom app processing. On supported Quest devices this requires
+  headset camera permission and camera metadata handling.
+- MediaProjection: final display or selected app-window capture. Use this when
+  the goal is to represent what the user sees, including app UI and overlays.
+- App render payloads: app-owned frames, particles, depth summaries, counters,
+  or synthetic debug visuals.
+
+Public Rusty XR crates should model metadata, timestamps, frame descriptors,
+runtime counters, and stream status. The Android app shell owns the actual
+MediaProjection, Camera2, OpenXR, Vulkan, encoder, socket, or ADB integration.
+
+## Plain Stereo And Feedback Surface Layout
+
+`rusty-xr-contracts` includes public layout contracts for app-owned projected
+media surfaces:
+
+- `StereoMediaLayout` selects mono, side-by-side, top/bottom, or separate-eye
+  source UV layout.
+- `PlainStereoLayer` describes a projected source surface, content fitting mode,
+  pose, opacity, and optional border.
+- `VisualFeedbackBorder` computes four simple rectangular border segments around
+  the fitted content rectangle.
+- `FeedbackBorderTuning` carries public border-only tuning values from custom
+  stereo camera work.
+- `VisualFeedbackLayerTuning` carries public scalar knobs for the
+  MediaProjection/composite feedback surface used by the border.
+- `StereoLayerPerformanceHints` records adapter performance levers for custom
+  stereo and feedback layers.
+
+Use these for raw camera overlays, MediaProjection feedback insets, debug
+surfaces, or future renderer adapters. They are intentionally layout-only. They
+do not implement compositor passthrough, OpenXR composition submission, Camera2
+or Passthrough Camera API acquisition, Android hardware-buffer import, Vulkan
+external-format sampling, or downstream guide/effect stacks.
+
+The public border baseline is:
+
+| Knob | Public default | Meaning |
+| --- | --- | --- |
+| `inner_coverage` | `0.18` | Coverage value where border feedback is still fully mixed. |
+| `outer_coverage` | `0.82` | Coverage value where border feedback fades out. |
+| `feedback_mix` | `1.0` | Maximum feedback contribution for the border. |
+| `pullback` | `0.14` | Adapter hint for pulling feedback samples inward from the edge. |
+| `swirl_strength` | `0.58` | Adapter hint for border-only recursive motion. |
+| `zoom` | `0.22` | Adapter hint for border-only recursive zoom. |
+| `edge_boost` | `0.46` | Adapter hint for strengthening edge-derived border response. |
+| `rounded_radius` | `(0.50, 0.39)` | Rounded-rectangle border shape radius in normalized content space. |
+| `rounded_feather` | `0.12` | Border shape feather. |
+| `corner_radius` | `0.08` | Rounded-corner radius. |
+| `dark_edge_bleed_inset` | `0.25` | How far dark edge-adjacent feedback may bleed inward. |
+| `dark_edge_cutoff` | `0.22` | Luma cutoff for dark edge-adjacent feedback. |
+| `dark_edge_feather` | `0.16` | Feather around the dark-edge cutoff. |
+
+Do not confuse this border tuning with downstream effect layers. The public
+repo may carry these border scalar values and layout helpers; it should not
+carry private image-processing passes, effect maps, geometric-effect
+implementations, scene behavior, or project-specific shader code.
+
+The public composite feedback baseline is:
+
+| Knob | Public default | Meaning |
+| --- | --- | --- |
+| `feedback_intensity` | `1.10` | Overall recursive feedback intensity. |
+| `border_gain` | `1.25` | Border-region feedback gain. |
+| `fill_gain` | `0.72` | Interior/fill feedback gain. |
+| `feedback_floor` | `0.0` | Minimum source feedback response. |
+| `feedback_gain` | `1.45` | Screen-composite feedback amplification. |
+| `feedback_warp` | `0.085` | Adapter hint for border-feedback UV perturbation; Rusty XR does not implement the shader. |
+| `feedback_zoom` | `0.095` | Adapter hint for recursive zoom on the feedback surface. |
+| `organic_noise_scale` | `5.0` | Adapter hint for coarse animated border variation. |
+| `organic_noise_amount` | `0.16` | Amount of organic variation. |
+| `low_confidence_threshold` | `0.25` | Optional confidence threshold for adapters that have a confidence signal. |
+| `low_confidence_softness` | `0.12` | Optional confidence feather. |
+
+### Custom Stereo Layer Performance Levers
+
+Public adapters should expose these levers rather than baking private scene
+behavior into the core:
+
+- Prefer opaque GPU-sampled camera buffers for the visible stereo layer. On the
+  validated Quest path this meant Android hardware buffers and Vulkan
+  external-format / YCbCr-aware sampling. CPU-readable YUV is useful for
+  capture/debug, but it should not be the default visible path.
+- Keep the native compositor passthrough layer, raw camera overlay, and
+  MediaProjection feedback surface separate. They have different permissions,
+  timing, and sampling rules.
+- For MediaProjection feedback, treat the source as monoscopic RGBA unless the
+  app explicitly publishes stereo metadata. Sample the full UV range for both
+  eyes and preserve the source aspect for the inset.
+- Keep environment depth off for ordinary border/stereo feedback. Start/acquire
+  depth only for explicit visual-debug, mapping, or readback modes.
+- Keep environment cubes and physics workers off unless the current scene
+  consumes them.
+- Keep the final mobile XR shader interface small. In local Quest validation,
+  the compact interface budget was `11` vertex attributes and `7` descriptors;
+  larger projection-heavy shaders hit Adreno link limits.
+- Reuse descriptor pools for offscreen feedback or guide passes. The first
+  multi-pass validation rendered, but descriptor-pool churn was the main
+  avoidable cost.
+- Coalesce camera-frame-ready and render-loop wakeups so headset camera
+  callbacks do not produce unbounded main-loop churn.
+
+## Windows Streaming Shape
+
+Use one of these app-shell patterns:
+
+- Device to Windows socket: the Quest app connects to a Windows receiver through
+  `adb reverse tcp:<port> tcp:<port>` during development.
+- Windows to device socket: the Quest app hosts a local server and Windows
+  connects through `adb forward tcp:<port> tcp:<port>`.
+- App-private file export: the Quest app writes frames into its app-private
+  files directory and a Windows tool pulls files through `adb shell run-as`.
+- Network transport: the Quest app sends frames over LAN using an app-owned
+  protocol. This requires normal network permissions but still belongs to the
+  shell.
+
+The public helper at `tools/media-pipeline/frame_receiver.py` implements a
+small Windows-side receiver for the first pattern. It is intentionally generic:
+it receives length-prefixed frame packets, writes payloads and metadata to a
+local folder, and does not know any package name or private visual behavior.
+
+## Frame Receiver Protocol
+
+`frame_receiver.py` listens for TCP connections. Each frame packet is:
+
+```text
+u32 little-endian JSON header byte length
+UTF-8 JSON header
+payload bytes, length from header.byte_len
+```
+
+Required JSON header fields:
+
+- `byte_len`: payload byte count
+
+Recommended JSON header fields:
+
+- `frame_index`
+- `timestamp_ns`
+- `width`
+- `height`
+- `format`, such as `rgba8888`, `png`, `jpeg`, or `depth_u16le`
+- `stream`, such as `composite`, `left_camera`, `right_camera`, or `depth`
+
+Example development setup:
+
+```powershell
+python tools\media-pipeline\frame_receiver.py --port 8787 --output artifacts\media-stream
+adb reverse tcp:8787 tcp:8787
+```
+
+The app shell can then connect from the headset to `127.0.0.1:8787` and send
+packets using the protocol above.
+
+## Permission Taxonomy
+
+Android permissions fall into several categories. The app shell should document
+which category each feature uses.
+
+### Manifest / Install-Time Permissions
+
+These are declared in `AndroidManifest.xml` and granted automatically when the
+APK is installed if the platform allows them.
+
+Typical media-pipeline examples:
+
+- `android.permission.INTERNET` for socket streaming.
+- `android.permission.ACCESS_NETWORK_STATE` for network diagnostics.
+- `android.permission.FOREGROUND_SERVICE`.
+- `android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION` when targeting
+  Android 14+ and using a foreground service for MediaProjection.
+
+These can be "granted in the APK" only in the sense that declaring them in the
+manifest is enough. A launcher does not need to request a headset popup for
+normal install-time permissions.
+
+Signature permissions are also install-time, but third-party apps do not get
+them unless signed with the defining certificate. Do not design public Rusty XR
+features around signature permissions.
+
+### Runtime / Dangerous Permissions
+
+Runtime permissions must be declared in the manifest and requested by a visible
+activity before use. Requesting them spawns the system/headset permission popup.
+
+Typical media-pipeline examples:
+
+- `android.permission.CAMERA` for Android camera access.
+- `horizonos.permission.HEADSET_CAMERA` for Quest passthrough camera access on
+  supported Horizon OS versions.
+- `android.permission.RECORD_AUDIO` if the media pipeline captures microphone
+  audio.
+- `android.permission.POST_NOTIFICATIONS` when target/API behavior requires a
+  notification runtime grant.
+
+Request them when the user starts the feature, not at app launch. In an Android
+shell this means checking the permission, explaining the need in app UI, then
+calling the platform runtime permission request API from the foreground
+activity. For example, request camera/headset-camera permission immediately
+before opening Camera2 or the Passthrough Camera API.
+
+During development, a Windows launcher using ADB can usually grant ordinary
+declared runtime permissions with:
+
+```powershell
+adb shell pm grant <package> <permission>
+```
+
+or install with:
+
+```powershell
+adb install -g <apk>
+```
+
+Do not treat ADB grants as a substitute for production UX. Some OEM or
+headset-specific privacy surfaces may still require user action in the headset,
+and every runtime permission must be checked before use.
+
+To force the popup to reappear during tests after a denial:
+
+```powershell
+adb shell pm clear-permission-flags <package> <permission> user-set user-fixed
+```
+
+Then relaunch the app and request the permission again from the foreground
+activity.
+
+### MediaProjection Consent
+
+MediaProjection is not just a manifest permission. The app must request user
+consent for each capture session by calling
+`MediaProjectionManager.createScreenCaptureIntent()` from a visible activity.
+That intent produces the system/headset consent UI. The returned token is
+single-use for `createVirtualDisplay()` on Android 14+.
+
+For Android 14+ targets using a foreground service, declare the
+MediaProjection foreground-service permissions and service type in the
+manifest, but request screen-capture consent before starting or using the
+foreground service.
+
+A custom launcher should not try to bypass MediaProjection consent. It can
+install, launch, set debug properties, prepare `adb reverse`, and watch logs,
+but the app must still trigger the consent flow in headset.
+
+### Special Permissions
+
+Special permissions are neither normal install-time permissions nor runtime
+dialogs. They route the user to system settings or an OEM-specific surface.
+
+Examples include drawing over other apps, all-files access, or exact alarms.
+Avoid these in the public media pipeline unless there is a strong product need.
+If a downstream app uses one, it should present rationale UI, launch the
+corresponding settings intent, and re-check state when the user returns.
+
+## Headset Popup Flow
+
+Use this app-side flow for permissions that require the user to approve inside
+the headset:
+
+1. User starts a feature such as "Start camera stream" or "Start display
+   capture".
+2. App checks the required permission or consent state.
+3. App shows a short in-app rationale if the user has not already granted it.
+4. App invokes the platform request:
+   - Runtime permission: request the manifest permission from the foreground
+     activity.
+   - MediaProjection: launch `createScreenCaptureIntent()`.
+   - Special permission: launch the relevant system settings intent.
+5. User accepts in headset.
+6. App receives the result, opens the camera/projection, and starts streaming.
+7. App handles denial by disabling only the feature that needed the permission.
+
+## Public Tool Boundary
+
+Rusty XR can include generic Windows receivers, frame protocol definitions,
+metadata contracts, visual feedback border layout, and diagnostic models. It
+should not include private package names, private launch scripts, app-specific
+stream defaults, signing keys, device serials, captured frame payloads, or
+project-specific visual behavior.
+
+## Source References
+
+- Android permissions overview:
+  <https://developer.android.com/guide/topics/permissions/overview>
+- Android runtime permissions:
+  <https://developer.android.com/training/permissions/requesting>
+- Android special permissions:
+  <https://developer.android.com/training/permissions/requesting-special>
+- Android MediaProjection:
+  <https://developer.android.com/media/grow/media-projection>
+- Android 14 foreground service types:
+  <https://developer.android.com/about/versions/14/changes/fgs-types-required>
+- Android 14 MediaProjection behavior changes:
+  <https://developer.android.com/about/versions/14/behavior-changes-14>
+- Meta Passthrough Camera API overview:
+  <https://developers.meta.com/horizon/documentation/unity/unity-pca-overview/>

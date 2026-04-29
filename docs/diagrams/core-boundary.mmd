@@ -1,0 +1,20 @@
+flowchart LR
+  shell["Downstream App Shell"]
+  adapters["Optional Thin Adapters"]
+  core["Rusty XR Public Core"]
+  examples["Clean Public Examples"]
+  docs["Public Docs And Diagrams"]
+  validation["Synthetic Tests"]
+
+  shell -->|"depends on"| core
+  shell -->|"may host"| adapters
+  adapters -->|"convert platform state"| core
+  examples -->|"demonstrate"| core
+  docs -->|"explain"| core
+  validation -->|"protects"| core
+
+  shell_owned["Shell Owned: package identity, signing, permissions, native runtime, renderer, assets, release payloads"]
+  core_owned["Core Owned: plain contracts, small helpers, diagnostics, schemas, docs, tests"]
+
+  shell -.-> shell_owned
+  core -.-> core_owned

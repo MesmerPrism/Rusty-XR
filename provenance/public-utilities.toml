@@ -1,0 +1,120 @@
+# Public provenance metadata for Rusty XR utility extraction.
+
+format_version = 1
+
+[[utility]]
+crate = "rusty-xr-contracts"
+source_family = "framework-neutral XR contract extraction"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Plain camera, depth, hand, layer, interaction, render, timing, and view contracts are reusable across app shells and examples."
+license_assumptions = "Authored for this MIT repository; upstream concepts are treated as behavioral references unless separately licensed and attributed."
+scrubbed_private_dependencies = ["package identity", "downstream visual effect stacks", "app-specific scene behavior", "generated captures"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "rusty-xr-runtime-config"
+source_family = "cross-shell runtime profile workflows"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Generic runtime keys and typed values let app shells map private aliases onto public configuration without publishing those aliases."
+license_assumptions = "Authored for this MIT repository."
+scrubbed_private_dependencies = ["downstream Android properties", "release profile names", "study-specific keys"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "rusty-xr-ble"
+source_family = "Android and Windows BLE workflow notes"
+extraction_date = "2026-04-29"
+public_safe_rationale = "UUIDs, GATT paths, operations, scan snapshots, and Android permission models are general protocol contracts."
+license_assumptions = "Authored for this MIT repository from public BLE concepts and local workflow knowledge."
+scrubbed_private_dependencies = ["device identities", "Bluetooth adapter handles", "runtime permission UI code"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "rusty-xr-lsl"
+source_family = "Lab Streaming Layer data-model workflows"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Stream descriptors, channel schemas, endpoint status, telemetry, and staleness helpers are backend-neutral."
+license_assumptions = "Authored for this MIT repository; native liblsl remains optional and external."
+scrubbed_private_dependencies = ["downstream stream names", "native lsl runtime path", "study session identifiers"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "rusty-xr-polar"
+source_family = "public Polar H10 protocol references"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Polar H10 GATT identifiers, HR/RR decoding, ECG/ACC frame contracts, PMD command builders, and public LSL schemas are reusable sensor utilities."
+license_assumptions = "Authored for this MIT repository with attribution expected to the public Polar BLE SDK and MesmerPrism PolarH10 docs."
+scrubbed_private_dependencies = ["downstream biofeedback behavior", "app-specific signal logic", "device pairing state"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "rusty-xr-camera-model"
+source_family = "public camera metadata and projection workflows"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Intrinsics scaling, projection, back-projection, and timestamp matching are app-neutral camera utilities."
+license_assumptions = "Authored for this MIT repository."
+scrubbed_private_dependencies = ["native camera acquisition", "captured media", "platform texture handles"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "rusty-xr-depth-model"
+source_family = "Quest and OpenXR depth diagnostics"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Depth readiness classification and frame summaries separate public status from platform provider ownership."
+license_assumptions = "Authored for this MIT repository."
+scrubbed_private_dependencies = ["native provider calls", "downstream depth captures", "scene-specific meshing behavior"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "rusty-xr-sdf"
+source_family = "SDF and scan-fusion contract extraction"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Packed SDF grids, sparse TSDF snapshots, scan samples, and mesh snapshots are reusable data contracts."
+license_assumptions = "Authored for this MIT repository; algorithmic imports require separate license review."
+scrubbed_private_dependencies = ["worker ownership", "captured room scans", "downstream physics adapters"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "rusty-xr-particles"
+source_family = "low-dependency particle experiment contracts"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Simple particle state, deterministic clocks, and render payload conversion are reusable without downstream simulation semantics."
+license_assumptions = "Authored for this MIT repository."
+scrubbed_private_dependencies = ["downstream simulation behavior", "downstream visual feedback behavior", "renderer backend code"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "tools"
+source_family = "public utility foundation"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Docs link checks, schema export, and boundary scanning keep the public repo stable as examples are added."
+license_assumptions = "Authored for this MIT repository."
+scrubbed_private_dependencies = ["machine-specific scanner term lists", "local path rules", "pre-push machine hooks"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "rusty-xr-contracts/examples/plain_stereo_feedback_layout"
+source_family = "synthetic public media-layout example"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Demonstrates public layer and border layout contracts without native capture, APK packaging, headset hardware, or downstream app behavior."
+license_assumptions = "Authored for this MIT repository."
+scrubbed_private_dependencies = ["native capture implementation", "Quest APK integration", "downstream image-processing effects"]
+review_status = "first-example"
+
+[[utility]]
+crate = "rusty-xr-contracts/room"
+source_family = "public room mesh and capture lifecycle contract extraction"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Room mesh state, semantic surface ranges, and capture lifecycle metadata are shared by scan, depth, diagnostics, examples, and operator tooling."
+license_assumptions = "Authored for this MIT repository from public XR data-model concepts and local workflow requirements."
+scrubbed_private_dependencies = ["native provider implementation", "generated room captures", "downstream scene behavior"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "tools/schema/quest-app-catalog"
+source_family = "public companion/operator catalog metadata"
+extraction_date = "2026-04-29"
+public_safe_rationale = "A stable catalog schema lets public example APK metadata flow to companion tools without sharing APK bytes or build systems."
+license_assumptions = "Authored for this MIT repository and aligned with the public Rusty XR Companion Apps catalog shape."
+scrubbed_private_dependencies = ["private package identities", "local APK paths", "signing material", "release payload bytes"]
+review_status = "foundation-pass"

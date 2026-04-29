@@ -1,0 +1,23 @@
+flowchart TD
+  candidate["Reusable Candidate"]
+  source_check["License And Provenance Check"]
+  boundary["Public Boundary Check"]
+  contract["Small Public Contract"]
+  helper["Deterministic Helper"]
+  tests["Synthetic Unit Tests"]
+  docs["Public Docs And Pages"]
+  adapter["Optional Adapter Later"]
+  downstream["Downstream Integration"]
+  reject["Keep Downstream"]
+
+  candidate --> source_check
+  source_check --> boundary
+  boundary -->|"generic and testable"| contract
+  boundary -->|"app-specific behavior"| reject
+  contract --> helper
+  contract --> tests
+  helper --> tests
+  tests --> docs
+  docs --> adapter
+  adapter --> downstream
+  reject -->|"document only if sanitized"| docs

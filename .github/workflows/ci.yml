@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust:
+    name: Rust workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust components
+        run: rustup component add rustfmt clippy
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Test default features
+        run: cargo test --workspace
+      - name: Test all features
+        run: cargo test --workspace --all-features
+      - name: Test all feature examples
+        run: cargo test --workspace --all-features --examples
+      - name: Run synthetic layout example
+        run: cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --features serde
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Doctests
+        run: cargo test --doc --workspace --all-features
+      - name: Rustdoc
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+
+  utility-checks:
+    name: Docs, schemas, and boundary scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Python utilities
+        run: python -m py_compile tools/docs/check_links.py tools/schema/export_schemas.py tools/schema/check_quest_app_catalog.py tools/boundary-scan/rusty_xr_boundary_scan.py
+      - name: Check local docs and Pages links
+        run: python tools/docs/check_links.py --repo-root .
+      - name: Check schema export
+        run: python tools/schema/export_schemas.py --check
+      - name: Check Quest app catalog fixture
+        run: python tools/schema/check_quest_app_catalog.py tools/schema/fixtures/quest-app-catalog.example.json
+      - name: Boundary scan
+        run: python tools/boundary-scan/rusty_xr_boundary_scan.py --repo-root . --github-annotations

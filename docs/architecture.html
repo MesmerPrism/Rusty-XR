@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Architecture | Rusty XR</title>
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="brand-mark">RX</span><span class="brand-title"><strong>Rusty XR</strong><span>Architecture</span></span></a>
+      <nav class="top-nav" data-nav aria-label="Primary">
+        <a href="index.html">Overview</a>
+        <a href="architecture.html">Architecture</a>
+        <a href="boundaries.html">Boundaries</a>
+        <a href="workflow.html">Workflow</a>
+        <a href="diagrams.html">Diagrams</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div class="kicker">Architecture</div>
+      <h1>Shells own platforms. Rusty XR owns contracts.</h1>
+      <p>The public workspace is useful when application shells can depend on shared models without inheriting a product's renderer, permissions, assets, or release pipeline.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Dependency Direction</h2>
+      <div class="figure-shell">
+        <pre data-mermaid-source="diagrams/core-boundary.mmd"></pre>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Crate Map</h2>
+      <div class="figure-shell">
+        <pre data-mermaid-source="diagrams/crate-map.mmd"></pre>
+      </div>
+    </section>
+
+    <section class="grid cols-2">
+      <article class="panel">
+        <h2>Stable Center</h2>
+        <p><code>rusty-xr-contracts</code> is the shared center for plain data: math, poses, frame timing, eye views, camera/depth metadata, hand snapshots, media layers, interaction rays, room mesh state, capture lifecycle metadata, render payloads, and counters.</p>
+      </article>
+      <article class="panel">
+        <h2>Outer Utility Crates</h2>
+        <p>Utility crates build on contracts without pulling in native platform dependencies. This keeps tests fast and lets downstream shells choose their own Android, OpenXR, Vulkan, Makepad, Unity, or LSL integration strategy.</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Graphify Audit Snapshot</h2>
+      <p>The latest local graphify audit of the public repo found <strong>607 nodes</strong>, <strong>830 edges</strong>, and <strong>25 communities</strong>. The most connected public abstractions were <code>Vec3</code>, <code>PlainStereoLayer</code>, implementation-plan sections, <code>Quat</code>, and <code>PackedSdfGrid</code>. The graph output is kept out of the public site; this page only records the sanitized architectural takeaway.</p>
+    </section>
+  </main>
+
+  <footer class="footer"><div class="footer-inner">Architecture map for the public Rusty XR workspace.</div></footer>
+  <script type="module" src="assets/site.js"></script>
+</body>
+</html>

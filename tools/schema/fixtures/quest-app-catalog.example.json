@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "rusty.xr.quest-app-catalog.v1",
+  "apps": [
+    {
+      "id": "example-user-apk",
+      "label": "User supplied Quest APK",
+      "packageName": "com.example.questapp",
+      "activityName": null,
+      "apkFile": null,
+      "description": "Placeholder target. Replace this metadata or select an APK from the companion app."
+    }
+  ],
+  "deviceProfiles": [
+    {
+      "id": "balanced-dev",
+      "label": "Balanced development",
+      "properties": [
+        {
+          "key": "debug.oculus.cpuLevel",
+          "value": "2"
+        },
+        {
+          "key": "debug.oculus.gpuLevel",
+          "value": "2"
+        }
+      ],
+      "description": "Generic development profile for moderate thermal load."
+    }
+  ],
+  "runtimeProfiles": [
+    {
+      "id": "example-runtime",
+      "label": "Example runtime profile",
+      "values": {
+        "example.enabled": "true"
+      },
+      "description": "Placeholder profile for apps that consume a target-specific config file."
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Workflow | Rusty XR</title>
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="brand-mark">RX</span><span class="brand-title"><strong>Rusty XR</strong><span>Workflow</span></span></a>
+      <nav class="top-nav" data-nav aria-label="Primary">
+        <a href="index.html">Overview</a>
+        <a href="architecture.html">Architecture</a>
+        <a href="boundaries.html">Boundaries</a>
+        <a href="workflow.html">Workflow</a>
+        <a href="diagrams.html">Diagrams</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div class="kicker">Workflow</div>
+      <h1>Contracts first, examples second, adapters last.</h1>
+      <p>The current workflow keeps the public surface small enough to review while still giving downstream app shells a shared vocabulary.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Implementation Loop</h2>
+      <ol>
+        <li>Choose the smallest public crate that owns the concept.</li>
+        <li>Add or refine framework-neutral contracts before moving behavior.</li>
+        <li>Add synthetic tests and public docs.</li>
+        <li>Run formatting, tests, and clippy.</li>
+        <li>Only then route downstream consumers through the public contract.</li>
+      </ol>
+    </section>
+
+    <section class="grid cols-3">
+      <article class="card">
+        <h3>Validate</h3>
+        <p><code>cargo fmt --all --check</code>, <code>cargo test --workspace</code>, and <code>cargo clippy --workspace --all-targets -- -D warnings</code>.</p>
+      </article>
+      <article class="card">
+        <h3>Document</h3>
+        <p>Update the implementation plan, relevant topical docs, and the Pages layer when a crate becomes materially more useful.</p>
+      </article>
+      <article class="card">
+        <h3>Publish</h3>
+        <p>Tag usable crate sets only after examples and docs show how downstream shells should consume them.</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Pages Deployment</h2>
+      <p>Serve GitHub Pages from the repository <code>docs/</code> folder. See <a href="PAGES_SETUP.md">PAGES_SETUP.md</a> for the exact repository setting and local preview command.</p>
+    </section>
+  </main>
+
+  <footer class="footer"><div class="footer-inner">Workflow guidance for Rusty XR contributors and agents.</div></footer>
+  <script type="module" src="assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Diagrams | Rusty XR</title>
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="brand-mark">RX</span><span class="brand-title"><strong>Rusty XR</strong><span>Diagrams</span></span></a>
+      <nav class="top-nav" data-nav aria-label="Primary">
+        <a href="index.html">Overview</a>
+        <a href="architecture.html">Architecture</a>
+        <a href="boundaries.html">Boundaries</a>
+        <a href="workflow.html">Workflow</a>
+        <a href="diagrams.html">Diagrams</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div class="kicker">Mermaid Maps</div>
+      <h1>Quick maps for the public repo.</h1>
+      <p>These diagrams summarize dependency direction, crate responsibilities, media/data flow, and the extraction gate used to protect the public/downstream boundary.</p>
+    </section>
+
+    <section class="grid cols-2">
+      <article class="diagram-card">
+        <h3>Core Boundary</h3>
+        <p>Shows which responsibilities belong to downstream shells and which belong to Rusty XR.</p>
+        <div class="figure-shell"><pre data-mermaid-source="diagrams/core-boundary.mmd"></pre></div>
+        <div class="figure-actions"><a class="button-link primary" href="diagrams/viewer.html#core-boundary">Open viewer</a></div>
+      </article>
+      <article class="diagram-card">
+        <h3>Crate Map</h3>
+        <p>Shows the current public workspace around the central contract crate.</p>
+        <div class="figure-shell"><pre data-mermaid-source="diagrams/crate-map.mmd"></pre></div>
+        <div class="figure-actions"><a class="button-link primary" href="diagrams/viewer.html#crate-map">Open viewer</a></div>
+      </article>
+      <article class="diagram-card">
+        <h3>Extraction Workflow</h3>
+        <p>Shows the gate a reusable idea should pass before it becomes public code.</p>
+        <div class="figure-shell"><pre data-mermaid-source="diagrams/extraction-workflow.mmd"></pre></div>
+        <div class="figure-actions"><a class="button-link primary" href="diagrams/viewer.html#extraction-workflow">Open viewer</a></div>
+      </article>
+      <article class="diagram-card">
+        <h3>Media And Biofeedback Flow</h3>
+        <p>Shows how camera/media descriptors and BLE/LSL/Polar data stay contract-first.</p>
+        <div class="figure-shell"><pre data-mermaid-source="diagrams/media-biofeedback-flow.mmd"></pre></div>
+        <div class="figure-actions"><a class="button-link primary" href="diagrams/viewer.html#media-biofeedback-flow">Open viewer</a></div>
+      </article>
+    </section>
+  </main>
+
+  <footer class="footer"><div class="footer-inner">Mermaid diagrams for public Rusty XR orientation.</div></footer>
+  <script type="module" src="assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "theme": "base",
+  "themeVariables": {
+    "fontFamily": "Segoe UI, system-ui, sans-serif",
+    "fontSize": "14px",
+    "background": "transparent",
+    "primaryColor": "#ffffff",
+    "primaryTextColor": "#1e2527",
+    "primaryBorderColor": "#0f766e",
+    "secondaryColor": "#eef5f3",
+    "secondaryTextColor": "#1e2527",
+    "secondaryBorderColor": "#2563a6",
+    "tertiaryColor": "#fff7ed",
+    "tertiaryTextColor": "#1e2527",
+    "tertiaryBorderColor": "#a16207",
+    "lineColor": "#647176",
+    "clusterBkg": "#f6f7f4",
+    "clusterBorder": "#d8e0dc"
+  },
+  "themeCSS": ".node rect,.node circle,.node ellipse,.node polygon,.node path,.label-container{rx:8px!important;ry:8px!important;} .cluster rect{rx:8px!important;ry:8px!important;} .nodeLabel,.edgeLabel{font-weight:600;} .edgeLabel rect,.labelBkg{fill:#ffffff!important;stroke:#d8e0dc!important;stroke-width:1px!important;} .flowchart-link,.edgePath path{stroke:#647176!important;stroke-width:1.8px!important;}",
+  "flowchart": {
+    "useMaxWidth": false,
+    "htmlLabels": true,
+    "curve": "linear",
+    "nodeSpacing": 42,
+    "rankSpacing": 62,
+    "padding": 18
+  }
+}

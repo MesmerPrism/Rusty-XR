@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+python "$repo_root/tools/boundary-scan/rusty_xr_boundary_scan.py" \
+  --repo-root "$repo_root"
+
+if [ -n "${RUSTY_XR_PRIVATE_BOUNDARY_CONFIG:-}" ] && [ -f "$RUSTY_XR_PRIVATE_BOUNDARY_CONFIG" ]; then
+  python "$repo_root/tools/boundary-scan/rusty_xr_boundary_scan.py" \
+    --repo-root "$repo_root" \
+    --config "$RUSTY_XR_PRIVATE_BOUNDARY_CONFIG"
+fi

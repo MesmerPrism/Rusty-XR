@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rusty XR</title>
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">RX</span>
+        <span class="brand-title">
+          <strong>Rusty XR</strong>
+          <span>Public Rust-native XR contracts and workflow utilities</span>
+        </span>
+      </a>
+      <nav class="top-nav" data-nav aria-label="Primary">
+        <a href="index.html">Overview</a>
+        <a href="architecture.html">Architecture</a>
+        <a href="boundaries.html">Boundaries</a>
+        <a href="workflow.html">Workflow</a>
+        <a href="diagrams.html">Diagrams</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div class="kicker">Public Core</div>
+      <h1>Reusable XR data contracts before framework adapters.</h1>
+      <p>Rusty XR keeps shared Rust/XR concepts small, typed, testable, and independent of any one application shell. App repositories keep package identity, native platform integration, rendering policy, assets, releases, and target-device validation.</p>
+      <ul class="tag-list">
+        <li>Plain Rust contracts</li>
+        <li>Quest and Android diagnostics</li>
+        <li>Camera, depth, SDF, particles</li>
+        <li>BLE, LSL, Polar H10 models</li>
+        <li>Optional adapters later</li>
+      </ul>
+    </section>
+
+    <section class="grid cols-3">
+      <div class="metric">
+        <strong>10</strong>
+        <p>Workspace crates currently tracked in the public core.</p>
+      </div>
+      <div class="metric">
+        <strong>30</strong>
+        <p>Public source and documentation files in the latest graphify audit.</p>
+      </div>
+      <div class="metric">
+        <strong>0</strong>
+        <p>Sensitive private names found by the current public boundary scan.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Current Shape</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Area</th><th>Public Surface</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Core contracts</td><td>Math, pose, timing, views, camera/depth metadata, hands, render payloads, layers, counters, interaction rays, room mesh state, and capture lifecycle metadata.</td><td>In progress</td></tr>
+            <tr><td>Runtime config</td><td>Generic runtime keys, typed values, config maps, Android property naming helpers.</td><td>In progress</td></tr>
+            <tr><td>BLE / LSL / Polar</td><td>BLE permission and GATT models, LSL stream schemas, Polar H10 HR/RR/ECG/ACC helpers.</td><td>In progress</td></tr>
+            <tr><td>Quest diagnostics</td><td>Device readiness, package launch state, frame-rate summaries, runtime counters.</td><td>In progress</td></tr>
+            <tr><td>Camera / depth / SDF</td><td>Projection helpers, timestamp matching, depth readiness, packed SDF, sparse TSDF snapshots.</td><td>In progress</td></tr>
+            <tr><td>Particles</td><td>Deterministic particle storage, seeded sphere helper, fixed-step clock, render payload generation.</td><td>In progress</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid cols-2">
+      <article class="panel">
+        <h2>What Belongs Here</h2>
+        <ul>
+          <li>Framework-neutral data contracts.</li>
+          <li>Small deterministic helpers with synthetic tests.</li>
+          <li>Documentation for public shell boundaries and workflows.</li>
+          <li>Examples authored cleanly for this repository.</li>
+        </ul>
+      </article>
+      <article class="panel">
+        <h2>What Stays Downstream</h2>
+        <ul>
+          <li>App package identity, signing, release payloads, and launch scripts.</li>
+          <li>Native Android/OpenXR/Vulkan/renderer ownership.</li>
+          <li>Product-specific scenes, tuning, shader behavior, and generated data.</li>
+          <li>Non-public planning notes and raw audit artifacts.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Start Here</h2>
+      <div class="grid cols-3">
+        <a class="card" href="architecture.html">
+          <h3>Architecture</h3>
+          <p>See dependency direction, crate roles, and the shell/core split.</p>
+        </a>
+        <a class="card" href="boundaries.html">
+          <h3>Boundaries</h3>
+          <p>Check what can move into public Rusty XR before extracting code.</p>
+        </a>
+        <a class="card" href="diagrams.html">
+          <h3>Diagrams</h3>
+          <p>Open the Mermaid maps for crate flow, media flow, and extraction workflow.</p>
+        </a>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Utility Foundation</h2>
+      <p>The first example is a synthetic contracts-only layout demo. Hardware, APK, and native-adapter examples remain deferred until the public utility surface is stable. The repo now tracks opt-in serialization, schema export, adapter policy, provenance, and boundary scanning as first-class checks.</p>
+      <div class="grid cols-3">
+        <a class="card" href="SERIALIZATION_AND_SCHEMA_POLICY.md">
+          <h3>Serialization</h3>
+          <p>Serde is opt-in and schemas are generated to ignored locations first.</p>
+        </a>
+        <a class="card" href="FEATURE_AND_ADAPTER_POLICY.md">
+          <h3>Adapters</h3>
+          <p>Native integrations stay behind explicit features or separate adapter crates.</p>
+        </a>
+        <a class="card" href="PROVENANCE.md">
+          <h3>Provenance</h3>
+          <p>Public utility entries record broad source families without leaking private paths.</p>
+        </a>
+        <a class="card" href="API_SURFACE_REVIEW.md">
+          <h3>API Review</h3>
+          <p>Current public surface decisions before adapters and APK examples.</p>
+        </a>
+        <a class="card" href="RUSTY_XR_COMPANION_INTEGRATION.md">
+          <h3>Companion</h3>
+          <p>Shared catalog schema for future public example APK metadata.</p>
+        </a>
+        <a class="card" href="https://github.com/MesmerPrism/Rusty-XR/tree/main/crates/rusty-xr-contracts/examples">
+          <h3>First Example</h3>
+          <p>Run the plain stereo feedback layout demo without headset hardware.</p>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">Rusty XR is MIT licensed and acknowledges Makepad as an enabling foundation.</div>
+  </footer>
+
+  <script type="module" src="assets/site.js"></script>
+</body>
+</html>

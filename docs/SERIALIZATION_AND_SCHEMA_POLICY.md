@@ -1,0 +1,77 @@
+# Serialization And Schema Policy
+
+Rusty XR keeps serialization opt-in. Pure Rust consumers should be able to use
+the core crates without pulling in `serde`, JSON tooling, native SDKs, or
+downstream app dependencies.
+
+## Serde Feature
+
+- Each public utility crate exposes a `serde` feature.
+- The `serde` feature derives `Serialize` and `Deserialize` for stable public
+  data contracts.
+- Default features stay dependency-light.
+- Crates that contain public contracts from another Rusty XR crate forward the
+  dependency feature, for example `rusty-xr-particles/serde` enables
+  `rusty-xr-contracts/serde`.
+- Runtime adapters may serialize their own platform state, but private package
+  identity, signing details, generated captures, and app-specific aliases must
+  stay in downstream repos.
+
+## Round-Trip Tests
+
+Every crate with a `serde` feature should carry at least one representative
+round-trip test. The CI baseline runs:
+
+```powershell
+cargo test --workspace --all-features
+```
+
+That verifies the optional serialization path without making serde mandatory
+for normal builds.
+
+## Schema Export
+
+Rusty XR currently uses a small custom schema export script instead of
+`schemars`. That is deliberate: the public contract shapes are still settling,
+and hand-reviewed schemas are easier to keep stable while examples and adapters
+are deferred.
+
+Run:
+
+```powershell
+python tools/schema/export_schemas.py --out generated/schemas
+```
+
+The generated location is ignored by git. Commit schema artifacts only after the
+contract has stabilized and the file has been reviewed as a public API.
+
+CI validates that schema generation works with:
+
+```powershell
+python tools/schema/export_schemas.py --check
+```
+
+Quest app catalogs can also be checked directly:
+
+```powershell
+python tools/schema/check_quest_app_catalog.py tools/schema/fixtures/quest-app-catalog.example.json
+```
+
+## Initial Public Schemas
+
+The initial export covers:
+
+- Runtime configuration.
+- LSL telemetry and stream descriptors.
+- Camera frame metadata.
+- Depth frame summaries.
+- Plain stereo layer descriptors.
+- Quest session manifests.
+- Quest app catalogs for Rusty XR Companion metadata.
+- Capture source and room mesh source states.
+- Semantic room mesh snapshots.
+- Polar accelerometer frames.
+- Scan surface samples.
+
+Future schemas should be added only after the corresponding contract has tests
+and a clear downstream use.

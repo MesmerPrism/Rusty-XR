@@ -1,0 +1,24 @@
+flowchart LR
+  camera["Camera Or Media Source"]
+  shell["App Shell Adapter"]
+  media_contracts["Camera, Depth, Layer, Render Contracts"]
+  receiver["Generic Windows Frame Receiver"]
+
+  sensor["BLE Sensor"]
+  ble["rusty-xr-ble"]
+  polar["rusty-xr-polar"]
+  lsl["rusty-xr-lsl"]
+  app_logic["App Or Experiment Logic"]
+
+  camera --> shell
+  shell --> media_contracts
+  media_contracts --> app_logic
+  shell --> receiver
+
+  sensor --> shell
+  shell --> ble
+  ble --> polar
+  polar --> lsl
+  lsl --> app_logic
+
+  app_logic -->|"render payloads, counters, diagnostics"| media_contracts

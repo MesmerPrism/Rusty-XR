@@ -1,0 +1,70 @@
+{
+  "exclude_globs": [
+    ".git/**",
+    "target/**",
+    "graphify-out/**",
+    "generated/**",
+    "schema-out/**",
+    "boundary-scan-out/**",
+    "tools/boundary-scan/public-boundary-scan.json"
+  ],
+  "allowed_path_globs": [],
+  "text_extensions": [
+    ".css",
+    ".html",
+    ".js",
+    ".json",
+    ".md",
+    ".mmd",
+    ".ps1",
+    ".py",
+    ".rs",
+    ".toml",
+    ".txt",
+    ".yml",
+    ".yaml"
+  ],
+  "blocked_extensions": [
+    ".aab",
+    ".apk",
+    ".jks",
+    ".keystore",
+    ".p12",
+    ".pfx",
+    ".rgba",
+    ".u16le"
+  ],
+  "deny_terms": [
+    {
+      "term": "TODO_PRIVATE_PACKAGE_ID",
+      "reason": "placeholder package identity should not ship in public docs or examples",
+      "allowed_path_globs": []
+    },
+    {
+      "term": "BEGIN PRIVATE KEY",
+      "reason": "private key material",
+      "allowed_path_globs": []
+    },
+    {
+      "term": "BEGIN RSA PRIVATE KEY",
+      "reason": "private key material",
+      "allowed_path_globs": []
+    },
+    {
+      "term": "ANDROID_KEYSTORE_PASSWORD",
+      "reason": "signing secret placeholder",
+      "allowed_path_globs": []
+    },
+    {
+      "term": "adbkey",
+      "reason": "ADB key material reference",
+      "allowed_path_globs": []
+    }
+  ],
+  "deny_regex": [
+    {
+      "pattern": "[A-Za-z]:\\\\\\\\Users\\\\\\\\[^\\r\\n`\"'<>) ]+",
+      "reason": "local Windows user path"
+    }
+  ]
+}

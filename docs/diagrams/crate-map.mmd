@@ -1,0 +1,28 @@
+flowchart TB
+  contracts["rusty-xr-contracts"]
+  runtime["runtime-config"]
+  ble["ble"]
+  lsl["lsl"]
+  polar["polar"]
+  quest["quest-diagnostics"]
+  camera["camera-model"]
+  depth["depth-model"]
+  sdf["sdf"]
+  particles["particles"]
+
+  contracts --> camera
+  contracts --> depth
+  contracts --> sdf
+  contracts --> particles
+  contracts --> quest
+  ble --> polar
+  lsl --> polar
+  lsl --> particles
+  runtime --> quest
+
+  contracts -.->|"math, poses, views, hands, layers, render payloads"| shared["Shared Public Vocabulary"]
+  runtime -.->|"keys and typed values"| shared
+  camera -.->|"projection and timestamps"| shared
+  depth -.->|"readiness and summaries"| shared
+  sdf -.->|"grids, meshes, sparse scan snapshots"| shared
+  particles -.->|"state, fixed steps, payloads"| shared

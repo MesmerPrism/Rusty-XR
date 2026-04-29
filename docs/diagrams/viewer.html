@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Diagram Viewer | Rusty XR</title>
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="../index.html"><span class="brand-mark">RX</span><span class="brand-title"><strong>Rusty XR</strong><span>Diagram viewer</span></span></a>
+      <nav class="top-nav" aria-label="Primary">
+        <a href="../index.html">Overview</a>
+        <a href="../architecture.html">Architecture</a>
+        <a href="../boundaries.html">Boundaries</a>
+        <a href="../workflow.html">Workflow</a>
+        <a href="../diagrams.html" aria-current="page">Diagrams</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="viewer-layout">
+      <aside class="panel viewer-nav">
+        <h2>Diagrams</h2>
+        <div id="diagram-nav" class="nav-list"></div>
+      </aside>
+      <section class="panel">
+        <h1 id="diagram-title" class="section-title">Diagram</h1>
+        <p id="diagram-description"></p>
+        <div class="figure-actions">
+          <button id="toggle-source" type="button">Source</button>
+          <a id="source-link" class="button-link" href="#" target="_blank" rel="noreferrer">Source file</a>
+        </div>
+        <div id="diagram-stage" class="figure-shell viewer-stage"></div>
+        <div id="source-panel" class="source-panel" hidden><pre id="source-code"></pre></div>
+      </section>
+    </section>
+  </main>
+
+  <footer class="footer"><div class="footer-inner">Diagram viewer for Rusty XR public docs.</div></footer>
+  <script type="module" src="../assets/diagram-viewer.js"></script>
+</body>
+</html>

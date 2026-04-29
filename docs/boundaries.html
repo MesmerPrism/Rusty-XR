@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Boundaries | Rusty XR</title>
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="brand-mark">RX</span><span class="brand-title"><strong>Rusty XR</strong><span>Public boundaries</span></span></a>
+      <nav class="top-nav" data-nav aria-label="Primary">
+        <a href="index.html">Overview</a>
+        <a href="architecture.html">Architecture</a>
+        <a href="boundaries.html">Boundaries</a>
+        <a href="workflow.html">Workflow</a>
+        <a href="diagrams.html">Diagrams</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div class="kicker">Boundary Check</div>
+      <h1>Publish the reusable contract, not the downstream behavior.</h1>
+      <p>Rusty XR should make downstream XR apps easier to build while keeping product-specific behavior, device artifacts, private research logic, and release ownership outside the public core.</p>
+    </section>
+
+    <section class="grid cols-2">
+      <article class="panel">
+        <h2>Public Candidates</h2>
+        <ul>
+          <li>Plain XR, camera, depth, SDF, hand, interaction, media-layer, and render contracts.</li>
+          <li>Generic runtime configuration, diagnostic, permission, stream, and manifest models.</li>
+          <li>Small math, projection, decoding, sampling, validation, and layout helpers.</li>
+          <li>Public examples authored from synthetic or intentionally public data.</li>
+        </ul>
+      </article>
+      <article class="panel">
+        <h2>Keep Downstream</h2>
+        <ul>
+          <li>App-specific package names, signing data, release payloads, local device paths, and generated captures.</li>
+          <li>Private scenes, shader behavior, tuning constants, session logic, and product parity details.</li>
+          <li>Native platform ownership such as Android lifecycle, OpenXR sessions, renderer setup, and permission prompts.</li>
+          <li>Raw planning notes, raw graphify outputs, and private source paths.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Extraction Gate</h2>
+      <div class="figure-shell">
+        <pre data-mermaid-source="diagrams/extraction-workflow.mmd"></pre>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Review Checklist</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Question</th><th>Expected answer before publishing</th></tr></thead>
+          <tbody>
+            <tr><td>Can it build without downstream repos?</td><td>Yes. Pure crates should compile and test from this repo alone.</td></tr>
+            <tr><td>Can it be tested with synthetic fixtures?</td><td>Yes. Add unit tests for parsing, math, validation, sampling, or payload behavior.</td></tr>
+            <tr><td>Does it expose app-specific names or behavior?</td><td>No. Use generic names and keep product behavior downstream.</td></tr>
+            <tr><td>Does it need a native framework?</td><td>Only in an optional adapter, not in pure contracts.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer"><div class="footer-inner">Boundary guidance for public Rusty XR extraction work.</div></footer>
+  <script type="module" src="assets/site.js"></script>
+</body>
+</html>

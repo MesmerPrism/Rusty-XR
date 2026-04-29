@@ -1,0 +1,26 @@
+[
+  {
+    "id": "core-boundary",
+    "title": "Core Boundary",
+    "description": "Dependency direction and responsibility split between downstream shells and the public Rusty XR core.",
+    "source": "core-boundary.mmd"
+  },
+  {
+    "id": "crate-map",
+    "title": "Crate Map",
+    "description": "Current public crate roles and how utility crates sit around the central contract crate.",
+    "source": "crate-map.mmd"
+  },
+  {
+    "id": "extraction-workflow",
+    "title": "Extraction Workflow",
+    "description": "The public/downstream gate for moving reusable ideas into Rusty XR.",
+    "source": "extraction-workflow.mmd"
+  },
+  {
+    "id": "media-biofeedback-flow",
+    "title": "Media And Biofeedback Flow",
+    "description": "Camera, media, BLE, LSL, and Polar data flow through public contracts before adapters.",
+    "source": "media-biofeedback-flow.mmd"
+  }
+]
