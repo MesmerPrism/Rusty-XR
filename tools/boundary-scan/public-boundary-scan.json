@@ -3,6 +3,7 @@
     ".git/**",
     "target/**",
     "graphify-out/**",
+    "examples/**/build/**",
     "generated/**",
     "schema-out/**",
     "boundary-scan-out/**",

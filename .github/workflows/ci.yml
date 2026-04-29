@@ -44,5 +44,7 @@ jobs:
         run: python tools/schema/export_schemas.py --check
       - name: Check Quest app catalog fixture
         run: python tools/schema/check_quest_app_catalog.py tools/schema/fixtures/quest-app-catalog.example.json
+      - name: Check minimal Quest APK catalog
+        run: python tools/schema/check_quest_app_catalog.py examples/quest-minimal-apk/catalog/rusty-xr-quest-minimal.catalog.json
       - name: Boundary scan
         run: python tools/boundary-scan/rusty_xr_boundary_scan.py --repo-root . --github-annotations

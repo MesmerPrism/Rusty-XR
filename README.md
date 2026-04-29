@@ -38,12 +38,15 @@ the workspace.
 
 The public examples are synthetic contracts-only demos:
 [crates/rusty-xr-contracts/examples/README.md](crates/rusty-xr-contracts/examples/README.md).
+The first APK-producing example is a minimal Rust-native Android smoke test:
+[examples/quest-minimal-apk/README.md](examples/quest-minimal-apk/README.md).
 
 They can be run without headset hardware or downstream app code:
 
 ```powershell
 cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --features serde
 cargo run -p rusty-xr-contracts --example composite_feedback_session --features serde
+powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
 ```
 
 ## Makepad Acknowledgement

@@ -116,6 +116,18 @@ must be authored as a clean example for Rusty XR. It should use synthetic data
 where possible, avoid private package names and assets, and avoid copying
 private rendering behavior.
 
-The first public examples should stay headless or desktop-testable until the
-core contracts are stable. A Quest APK example should be added only when it can
-be built and documented without relying on private downstream repositories.
+The first public APK example is `examples/quest-minimal-apk/`. It is a
+Rust-native Android smoke test: a Java activity loads a Rust `cdylib`, displays
+synthetic Rusty XR contract JSON, and emits basic frame-callback status. It is
+not an OpenXR scene and does not touch passthrough camera, MediaProjection,
+environment depth, Vulkan texture import, or native compositor layers.
+
+Build it locally with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
+```
+
+The APK is written under `examples/quest-minimal-apk/build/`, which is ignored.
+Use the catalog in `examples/quest-minimal-apk/catalog/` to install, launch,
+and verify it through Rusty XR Companion Apps.

@@ -62,7 +62,10 @@ If a candidate is ambiguous, add the smaller contract first and leave concrete b
 The first public examples are synthetic contracts-only demos:
 `cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --features serde`.
 `cargo run -p rusty-xr-contracts --example composite_feedback_session --features serde`.
-Hardware, APK, and native-adapter examples remain deferred until the utility
+The first public APK-producing example is a minimal Rust-native Android smoke
+test:
+`powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1`.
+Hardware/OpenXR/native-adapter examples remain deferred until the utility
 surface review passes.
 
 ## Crate Map
@@ -160,6 +163,7 @@ Keep Bluetooth and LSL transport code out of pure crates:
 ```powershell
 cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --features serde
 cargo run -p rusty-xr-contracts --example composite_feedback_session --features serde
+powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
 ```
 
 6. Run validation:

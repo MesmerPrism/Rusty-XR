@@ -1,0 +1,27 @@
+[package]
+name = "rusty-xr-quest-minimal-native"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Rust native library for the public Rusty XR minimal Quest APK example."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "rusty-xr-quest-minimal-json"
+path = "src/main.rs"
+
+[dependencies]
+jni = "0.21"
+rusty-xr-contracts = { path = "../../../crates/rusty-xr-contracts", features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

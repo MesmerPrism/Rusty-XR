@@ -41,6 +41,18 @@ The synthetic `composite_feedback_session` Rust example emits a catalog hint
 using this schema version, but it does not publish an APK or require the
 Companion app to run.
 
+The first APK-producing public example is `examples/quest-minimal-apk/`. Its
+catalog is:
+
+```text
+examples/quest-minimal-apk/catalog/rusty-xr-quest-minimal.catalog.json
+```
+
+The catalog points at the local debug APK output path under the example's
+ignored `build/` directory. Rusty XR core owns the source and metadata;
+Companion owns install, launch, stop, device profile, cast, and verification
+flows.
+
 Validate a catalog with:
 
 ```powershell

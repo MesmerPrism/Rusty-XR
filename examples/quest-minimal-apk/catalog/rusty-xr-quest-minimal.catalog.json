@@ -6,16 +6,8 @@
       "label": "Rusty XR Minimal Quest APK",
       "packageName": "com.example.rustyxr.minimal",
       "activityName": ".MainActivity",
-      "apkFile": "../../../examples/quest-minimal-apk/build/outputs/rusty-xr-quest-minimal-debug.apk",
+      "apkFile": "../build/outputs/rusty-xr-quest-minimal-debug.apk",
       "description": "Public Rust-native Android smoke-test APK. Build it locally; APK bytes are ignored and not committed."
-    },
-    {
-      "id": "example-user-apk",
-      "label": "User supplied Quest APK",
-      "packageName": "com.example.questapp",
-      "activityName": null,
-      "apkFile": null,
-      "description": "Placeholder target. Replace this metadata or select an APK from the companion app."
     }
   ],
   "deviceProfiles": [
@@ -58,15 +50,7 @@
         "rustyxr.example": "quest-minimal-apk",
         "rustyxr.contracts": "synthetic"
       },
-      "description": "Documents that the minimal APK displays synthetic Rusty XR contract JSON and frame callback status."
-    },
-    {
-      "id": "example-runtime",
-      "label": "Example runtime profile",
-      "values": {
-        "example.enabled": "true"
-      },
-      "description": "Placeholder profile for apps that consume a target-specific config file."
+      "description": "Documents that this APK displays synthetic Rusty XR contract JSON and frame callback status."
     }
   ]
 }

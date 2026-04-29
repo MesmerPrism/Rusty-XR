@@ -111,6 +111,15 @@ scrubbed_private_dependencies = ["runtime permission implementation", "native ca
 review_status = "synthetic-example"
 
 [[utility]]
+crate = "examples/quest-minimal-apk"
+source_family = "public authored APK smoke test"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Provides the first public APK-producing Rusty XR example while keeping native capture and OpenXR adapters deferred."
+license_assumptions = "Authored for this MIT repository."
+scrubbed_private_dependencies = ["private package identity", "downstream app shell", "private visual effects", "signing material"]
+review_status = "public-apk-smoke-test"
+
+[[utility]]
 crate = "rusty-xr-contracts/room"
 source_family = "public room mesh and capture lifecycle contract extraction"
 extraction_date = "2026-04-29"
