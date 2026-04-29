@@ -59,8 +59,9 @@ Do not add:
 
 If a candidate is ambiguous, add the smaller contract first and leave concrete behavior in the app shell.
 
-The first public example is a synthetic contracts-only layout demo:
+The first public examples are synthetic contracts-only demos:
 `cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --features serde`.
+`cargo run -p rusty-xr-contracts --example composite_feedback_session --features serde`.
 Hardware, APK, and native-adapter examples remain deferred until the utility
 surface review passes.
 
@@ -158,6 +159,7 @@ Keep Bluetooth and LSL transport code out of pure crates:
 
 ```powershell
 cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --features serde
+cargo run -p rusty-xr-contracts --example composite_feedback_session --features serde
 ```
 
 6. Run validation:

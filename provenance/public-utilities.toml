@@ -102,6 +102,15 @@ scrubbed_private_dependencies = ["native capture implementation", "Quest APK int
 review_status = "first-example"
 
 [[utility]]
+crate = "rusty-xr-contracts/examples/composite_feedback_session"
+source_family = "synthetic public session-contract example"
+extraction_date = "2026-04-29"
+public_safe_rationale = "Demonstrates layer layout, capture lifecycle state, room/depth diagnostics, and companion catalog metadata without native capture or APK payloads."
+license_assumptions = "Authored for this MIT repository."
+scrubbed_private_dependencies = ["runtime permission implementation", "native capture implementation", "APK build output", "downstream visual effects"]
+review_status = "synthetic-example"
+
+[[utility]]
 crate = "rusty-xr-contracts/room"
 source_family = "public room mesh and capture lifecycle contract extraction"
 extraction_date = "2026-04-29"

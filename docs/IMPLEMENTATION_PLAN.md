@@ -243,6 +243,7 @@ responsibilities.
 - [x] Add first synthetic public example for a contracts-only feedback layout.
 - [x] Add room mesh/capture lifecycle contracts and companion catalog schema
   alignment.
+- [x] Add synthetic composite feedback session example.
 - [ ] Re-audit utility surface before tagging.
 - [ ] Add hardware, APK, and native-adapter examples only after the utility
   surface review passes.
@@ -275,5 +276,5 @@ responsibilities.
 | Serialization and schemas | In progress | Opt-in `serde` features, round-trip tests, and custom schema export script added. |
 | Boundary scanner and provenance | In progress | Public scanner CLI/config and public utility provenance metadata added. |
 | Feature and adapter policy | `[x]` | Adapter feature names, separate-crate rule, and pre-adapter boundary requirements documented. |
-| Public examples | In progress | First synthetic contracts-only feedback layout example added; hardware, APK, and native-adapter examples remain deferred. |
+| Public examples | In progress | Synthetic layout and composite feedback session examples added; hardware, APK, and native-adapter examples remain deferred. |
 | Optional adapters | `[ ]` | Deferred until contracts stabilize. |

@@ -21,5 +21,10 @@ name = "plain_stereo_feedback_layout"
 path = "examples/plain_stereo_feedback_layout.rs"
 required-features = ["serde"]
 
+[[example]]
+name = "composite_feedback_session"
+path = "examples/composite_feedback_session.rs"
+required-features = ["serde"]
+
 [lints]
 workspace = true

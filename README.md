@@ -36,13 +36,14 @@ the workspace.
 
 ## Examples
 
-The first public example is a synthetic contracts-only layout demo:
+The public examples are synthetic contracts-only demos:
 [crates/rusty-xr-contracts/examples/README.md](crates/rusty-xr-contracts/examples/README.md).
 
-It can be run without headset hardware or downstream app code:
+They can be run without headset hardware or downstream app code:
 
 ```powershell
 cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --features serde
+cargo run -p rusty-xr-contracts --example composite_feedback_session --features serde
 ```
 
 ## Makepad Acknowledgement

@@ -37,6 +37,10 @@ Catalogs should use:
 This lets future public example APK metadata be shared with the Companion app
 without making either repository depend on the other's build system.
 
+The synthetic `composite_feedback_session` Rust example emits a catalog hint
+using this schema version, but it does not publish an APK or require the
+Companion app to run.
+
 Validate a catalog with:
 
 ```powershell

@@ -19,3 +19,19 @@ cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --feature
 The example demonstrates the contract boundary only. Platform adapters remain
 responsible for runtime permissions, frame capture, texture import, renderer
 integration, and layer submission.
+
+## Composite Feedback Session
+
+`composite_feedback_session.rs` builds on the layout example by adding
+synthetic session diagnostics: display-composite capture source state,
+app-render source state, room mesh state, environment-depth state, and a
+Companion catalog hint for future public APK metadata.
+
+Run it with:
+
+```powershell
+cargo run -p rusty-xr-contracts --example composite_feedback_session --features serde
+```
+
+This is still a no-hardware example. It does not request permissions, stream
+pixels, build an APK, or submit native compositor layers.

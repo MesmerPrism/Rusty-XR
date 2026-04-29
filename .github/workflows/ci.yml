@@ -22,6 +22,8 @@ jobs:
         run: cargo test --workspace --all-features --examples
       - name: Run synthetic layout example
         run: cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --features serde
+      - name: Run synthetic composite feedback example
+        run: cargo run -p rusty-xr-contracts --example composite_feedback_session --features serde
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Doctests

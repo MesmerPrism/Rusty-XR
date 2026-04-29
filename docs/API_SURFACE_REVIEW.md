@@ -5,7 +5,7 @@ APK, or native-adapter examples are added.
 
 ## Current Decision
 
-The public core is stable enough for additional synthetic examples and schema
+The public core is stable enough for synthetic examples and schema
 alignment work. It is not yet stable enough for a first public tag or for
 native Quest, Android, OpenXR, Vulkan, Makepad, BLE-native, or LSL-native
 adapters.
@@ -32,6 +32,8 @@ adapters.
   identity in downstream or companion repositories.
 - Use `quest-app-catalog.schema.json` as the shared metadata shape for public
   example APK listings when example APKs are later published.
+- Keep session-level examples synthetic until an adapter can prove permission,
+  capture, transport, and launch behavior without downstream private wiring.
 
 ## Deferred
 
