@@ -30,6 +30,12 @@ use std::{
 };
 
 #[cfg(target_os = "android")]
+mod acamera_sys;
+
+#[cfg(target_os = "android")]
+mod native_camera;
+
+#[cfg(target_os = "android")]
 mod openxr_vulkan;
 
 #[cfg(target_os = "android")]
@@ -370,6 +376,7 @@ impl StereoProjectionControls {
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) struct RuntimeConfig {
     pub(crate) camera_tier: CameraCompositeTier,
+    pub(crate) camera_acquisition: String,
     pub(crate) camera_enabled: bool,
     pub(crate) media_projection_enabled: bool,
     pub(crate) allow_cpu_fallback: bool,
@@ -394,12 +401,14 @@ pub(crate) struct RuntimeConfig {
     pub(crate) visual_release_accepted: bool,
     pub(crate) xr_render_scale: f32,
     pub(crate) xr_fixed_foveation_level: u8,
+    pub(crate) openxr_passthrough_probe: OpenXrPassthroughProbeMode,
 }
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             camera_tier: CameraCompositeTier::CpuDiagnosticFlatCopy,
+            camera_acquisition: "java-camera2".to_string(),
             camera_enabled: true,
             media_projection_enabled: false,
             allow_cpu_fallback: true,
@@ -424,7 +433,44 @@ impl Default for RuntimeConfig {
             visual_release_accepted: false,
             xr_render_scale: 0.75,
             xr_fixed_foveation_level: 0,
+            openxr_passthrough_probe: OpenXrPassthroughProbeMode::Off,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum OpenXrPassthroughProbeMode {
+    Off,
+    Client,
+    Warmup,
+}
+
+impl Default for OpenXrPassthroughProbeMode {
+    fn default() -> Self {
+        Self::Off
+    }
+}
+
+impl OpenXrPassthroughProbeMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "off" | "false" | "0" | "disabled" | "none" => Some(Self::Off),
+            "client" | "true" | "1" | "enabled" | "probe" => Some(Self::Client),
+            "warmup" | "pulse" | "brief" => Some(Self::Warmup),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Client => "client",
+            Self::Warmup => "warmup",
+        }
+    }
+
+    pub(crate) fn enabled(self) -> bool {
+        self != Self::Off
     }
 }
 
@@ -636,8 +682,9 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraColorMode={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} fixedFoveationLevel={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraColorMode={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} fixedFoveationLevel={} openxrPassthroughProbe={}",
         config.camera_tier.stable_id(),
+        config.camera_acquisition.as_str(),
         config.camera_enabled,
         config.media_projection_enabled,
         config.allow_cpu_fallback,
@@ -664,7 +711,8 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_texture_transform.is_explicit_visual_check(),
         config.visual_release_accepted,
         config.xr_render_scale,
-        config.xr_fixed_foveation_level
+        config.xr_fixed_foveation_level,
+        config.openxr_passthrough_probe.stable_id()
     ));
 }
 
@@ -1075,6 +1123,7 @@ fn gpu_descriptor_cache_key(descriptor: &CameraGpuBufferDescriptor) -> String {
 #[serde(rename_all = "camelCase")]
 struct JavaRuntimeConfig {
     camera_tier: Option<String>,
+    camera_acquisition: Option<String>,
     camera_enabled: Option<bool>,
     media_projection_enabled: Option<bool>,
     allow_cpu_fallback: Option<bool>,
@@ -1115,6 +1164,7 @@ struct JavaRuntimeConfig {
     visual_acceptance_token: Option<String>,
     xr_render_scale: Option<f32>,
     xr_fixed_foveation_level: Option<u8>,
+    openxr_passthrough_probe: Option<String>,
 }
 
 fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
@@ -1126,6 +1176,10 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
     let defaults = RuntimeConfig::default();
     RuntimeConfig {
         camera_tier,
+        camera_acquisition: bridge
+            .camera_acquisition
+            .clone()
+            .unwrap_or(defaults.camera_acquisition),
         camera_enabled: bridge.camera_enabled.unwrap_or(true),
         media_projection_enabled: bridge.media_projection_enabled.unwrap_or(false),
         allow_cpu_fallback: bridge.allow_cpu_fallback.unwrap_or(true),
@@ -1207,6 +1261,11 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
         xr_fixed_foveation_level: bridge
             .xr_fixed_foveation_level
             .unwrap_or(defaults.xr_fixed_foveation_level),
+        openxr_passthrough_probe: bridge
+            .openxr_passthrough_probe
+            .as_deref()
+            .and_then(OpenXrPassthroughProbeMode::parse)
+            .unwrap_or(defaults.openxr_passthrough_probe),
     }
 }
 
@@ -1630,6 +1689,39 @@ pub extern "system" fn Java_com_example_rustyxr_composite_CompositeLayerActivity
     log_jni_event(&mut env, "activity", event_json);
 }
 
+#[cfg(target_os = "android")]
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "system" fn Java_com_example_rustyxr_composite_CompositeLayerActivity_nativeStartNativeCamera(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    config_json: JString<'_>,
+) -> jboolean {
+    let config_json = env
+        .get_string(&config_json)
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "{}".to_string());
+    match native_camera::start_from_json(&config_json) {
+        Ok(()) => 1,
+        Err(error) => {
+            log_error(format!(
+                "Rusty XR native camera acquisition failed: {error}"
+            ));
+            0
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "system" fn Java_com_example_rustyxr_composite_CompositeLayerActivity_nativeStopNativeCamera(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+) {
+    native_camera::stop();
+}
+
 #[allow(non_snake_case)]
 #[no_mangle]
 pub extern "system" fn Java_com_example_rustyxr_composite_MediaProjectionStreamService_nativeMediaProjectionEvent(
@@ -2003,7 +2095,7 @@ mod tests {
         contract_json, public_camera_metadata, public_runtime_config, CameraColorMode,
         CameraOrientationDiagnosticMode, CameraProjectionMode, JavaCameraExtrinsics,
         JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind,
-        JavaRuntimeConfig, StereoSourceEyeMapping,
+        JavaRuntimeConfig, OpenXrPassthroughProbeMode, StereoSourceEyeMapping,
     };
     use rusty_xr_contracts::{
         CameraCompositeTier, CameraImageRotation, CameraPixelDomainKind, ImageSize,
@@ -2153,6 +2245,7 @@ mod tests {
     fn runtime_config_parses_public_projection_and_render_knobs() {
         let config = public_runtime_config(&JavaRuntimeConfig {
             camera_tier: Some("gpu-projected".to_string()),
+            camera_acquisition: Some("native-ndk".to_string()),
             camera_enabled: Some(true),
             media_projection_enabled: Some(false),
             allow_cpu_fallback: Some(false),
@@ -2197,9 +2290,11 @@ mod tests {
             visual_acceptance_token: Some("manual-visual-accepted".to_string()),
             xr_render_scale: Some(0.75),
             xr_fixed_foveation_level: Some(0),
+            openxr_passthrough_probe: Some("client".to_string()),
         });
 
         assert_eq!(config.camera_tier, CameraCompositeTier::GpuProjected);
+        assert_eq!(config.camera_acquisition, "native-ndk");
         assert_eq!(config.cpu_upload_hz, 0);
         assert!(!config.allow_cpu_fallback);
         assert_eq!(config.camera_projection_fov_y_degrees, 92.0);
@@ -2242,6 +2337,10 @@ mod tests {
         assert!(config.camera_texture_transform.is_explicit_visual_check());
         assert_eq!(config.xr_render_scale, 0.75);
         assert_eq!(config.xr_fixed_foveation_level, 0);
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Client
+        );
     }
 
     #[test]

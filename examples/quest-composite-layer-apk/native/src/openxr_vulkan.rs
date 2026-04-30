@@ -7,7 +7,7 @@ use std::{
 use crate::{
     gpu_probe_counters, latest_headset_camera_frame, latest_headset_camera_gpu_frame,
     latest_headset_stereo_camera_gpu_frame, log_error, log_info, runtime_config,
-    HeadsetCameraFrame, HeadsetCameraGpuFrame, StereoGpuCameraFrame,
+    HeadsetCameraFrame, HeadsetCameraGpuFrame, OpenXrPassthroughProbeMode, StereoGpuCameraFrame,
 };
 use android_activity::{InputStatus, MainEvent, PollEvent};
 use ash::vk::{self, Handle};
@@ -46,6 +46,12 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
     enabled_extensions.khr_vulkan_enable2 = true;
     if available_extensions.fb_display_refresh_rate {
         enabled_extensions.fb_display_refresh_rate = true;
+    }
+    let passthrough_probe_requested = runtime_config().openxr_passthrough_probe.enabled();
+    if available_extensions.fb_passthrough && passthrough_probe_requested {
+        enabled_extensions.fb_passthrough = true;
+    } else if passthrough_probe_requested {
+        log_info("Rusty XR OpenXR passthrough extension unavailable".to_string());
     }
     if available_extensions.fb_swapchain_update_state
         && available_extensions.fb_foveation
@@ -306,6 +312,109 @@ fn refresh_rate_list_label(values: &[f32]) -> String {
     label
 }
 
+struct OpenXrPassthroughProbe {
+    mode: OpenXrPassthroughProbeMode,
+    passthrough: xr::Passthrough,
+    _layer: xr::PassthroughLayerFB,
+    start_frame: u64,
+    paused: bool,
+}
+
+impl OpenXrPassthroughProbe {
+    fn tick(&mut self, frame_count: u64) {
+        if self.mode != OpenXrPassthroughProbeMode::Warmup || self.paused {
+            return;
+        }
+        if frame_count.saturating_sub(self.start_frame) < 6 {
+            return;
+        }
+        match self.passthrough.pause() {
+            Ok(()) => {
+                self.paused = true;
+                log_info(format!(
+                    "Rusty XR OpenXR passthrough probe paused mode={} afterFrames={}",
+                    self.mode.stable_id(),
+                    frame_count.saturating_sub(self.start_frame)
+                ));
+            }
+            Err(error) => {
+                self.paused = true;
+                log_error(format!(
+                    "Rusty XR OpenXR passthrough probe pause failed mode={} error={error}",
+                    self.mode.stable_id()
+                ));
+            }
+        }
+    }
+}
+
+fn ensure_openxr_passthrough_probe<G: xr::Graphics>(
+    instance: &xr::Instance,
+    session: &xr::Session<G>,
+    existing: Option<OpenXrPassthroughProbe>,
+    mode: OpenXrPassthroughProbeMode,
+    start_frame: u64,
+) -> Option<OpenXrPassthroughProbe> {
+    if let Some(existing) = existing {
+        return Some(existing);
+    }
+    if !mode.enabled() {
+        return None;
+    }
+    if instance.exts().fb_passthrough.is_none() {
+        log_info(format!(
+            "Rusty XR OpenXR passthrough probe requested mode={} but XR_FB_passthrough is unavailable",
+            mode.stable_id()
+        ));
+        return None;
+    }
+
+    match create_openxr_passthrough_probe(session, mode, start_frame) {
+        Ok(probe) => {
+            log_info(format!(
+                "Rusty XR OpenXR passthrough probe active mode={}",
+                probe.mode.stable_id()
+            ));
+            Some(probe)
+        }
+        Err(error) => {
+            log_error(format!(
+                "Rusty XR OpenXR passthrough probe failed mode={} error={error}",
+                mode.stable_id()
+            ));
+            None
+        }
+    }
+}
+
+fn create_openxr_passthrough_probe<G: xr::Graphics>(
+    session: &xr::Session<G>,
+    mode: OpenXrPassthroughProbeMode,
+    start_frame: u64,
+) -> Result<OpenXrPassthroughProbe, String> {
+    let flags = xr::PassthroughFlagsFB::IS_RUNNING_AT_CREATION;
+    let passthrough = session
+        .create_passthrough(flags)
+        .map_err(|error| format!("xrCreatePassthroughFB: {error}"))?;
+    let layer = session
+        .create_passthrough_layer(
+            &passthrough,
+            flags,
+            xr::PassthroughLayerPurposeFB::RECONSTRUCTION,
+        )
+        .map_err(|error| format!("xrCreatePassthroughLayerFB: {error}"))?;
+    layer
+        .resume()
+        .map_err(|error| format!("xrPassthroughLayerResumeFB: {error}"))?;
+    Ok(OpenXrPassthroughProbe {
+        mode,
+        passthrough,
+        _layer: layer,
+        start_frame,
+        paused: false,
+    })
+}
+
 unsafe fn run_vulkan(
     app: android_activity::AndroidApp,
     xr_instance: xr::Instance,
@@ -516,6 +625,7 @@ unsafe fn run_vulkan(
     );
     let mut last_logged_gpu_frame_index: Option<u64> = None;
     let mut last_logged_prepared_stereo_frame_index: Option<u64> = None;
+    let mut openxr_passthrough_probe: Option<OpenXrPassthroughProbe> = None;
     let mut frame_pacing_window_start = Instant::now();
     let mut frame_pacing_window_frames = 0_u64;
 
@@ -542,6 +652,13 @@ unsafe fn run_vulkan(
                                 .begin(VIEW_TYPE)
                                 .map_err(|error| format!("begin OpenXR session: {error}"))?;
                             session_running = true;
+                            openxr_passthrough_probe = ensure_openxr_passthrough_probe(
+                                &xr_instance,
+                                &session,
+                                openxr_passthrough_probe,
+                                runtime_config().openxr_passthrough_probe,
+                                frame_count,
+                            );
                             frame_pacing_window_start = Instant::now();
                             frame_pacing_window_frames = 0;
                         }
@@ -550,6 +667,7 @@ unsafe fn run_vulkan(
                                 .end()
                                 .map_err(|error| format!("end OpenXR session: {error}"))?;
                             session_running = false;
+                            openxr_passthrough_probe = None;
                         }
                         xr::SessionState::EXITING | xr::SessionState::LOSS_PENDING => {
                             break 'main_loop;
@@ -1272,6 +1390,9 @@ unsafe fn run_vulkan(
             .map_err(|error| format!("end OpenXR frame: {error}"))?;
 
         frame_count += 1;
+        if let Some(probe) = openxr_passthrough_probe.as_mut() {
+            probe.tick(frame_count);
+        }
         frame_pacing_window_frames += 1;
         if frame_count == 1 || frame_count % 120 == 0 {
             let config = runtime_config();
@@ -1287,11 +1408,12 @@ unsafe fn run_vulkan(
             let observed_openxr_fps = frame_pacing_window_frames as f64 / window_secs;
             let avg_frame_ms = window_secs * 1000.0 / frame_pacing_window_frames.max(1) as f64;
             log_info(format!(
-                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraEnabled={} mediaProjection={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz=72 activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fixedFoveationEnabled={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} importCacheLimit={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={} gpuImportCacheHit={} gpuImportCacheMiss={} gpuImportCacheEvict={}",
+                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz=72 activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fixedFoveationEnabled={} openxrPassthroughProbe={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} importCacheLimit={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={} gpuImportCacheHit={} gpuImportCacheMiss={} gpuImportCacheEvict={}",
                 frame_count,
                 swapchain.resolution.width,
                 swapchain.resolution.height,
                 config.camera_tier.stable_id(),
+                config.camera_acquisition.as_str(),
                 config.camera_enabled,
                 config.media_projection_enabled,
                 observed_openxr_fps,
@@ -1302,6 +1424,10 @@ unsafe fn run_vulkan(
                 config.xr_render_scale,
                 config.xr_fixed_foveation_level,
                 swapchain.foveation_enabled,
+                openxr_passthrough_probe
+                    .as_ref()
+                    .map(|probe| probe.mode.stable_id())
+                    .unwrap_or("off"),
                 PIPELINE_DEPTH,
                 gpu_success,
                 gpu_failure,

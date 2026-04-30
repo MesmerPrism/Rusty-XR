@@ -250,6 +250,12 @@ preferred performance path. The performant shape is:
   hardware-buffer readers can have different queue, timestamp, and AE-policy
   behavior. Compare those as explicit modules or runtime profiles instead of
   silently changing the camera path under an existing profile.
+- Keep OpenXR passthrough-client state separate from raw camera acquisition.
+  Optional passthrough features and scene permissions can affect whether a
+  Quest runtime exposes `XR_FB_passthrough`, but creating a passthrough
+  client/layer is not the same thing as delivering fresh raw camera buffers.
+  Always measure camera-frame progression and runtime camera-compute load when
+  this probe is enabled.
 - Keep environment depth, environment cubes, TSDF/readback, physics workers,
   and MediaProjection disabled unless the active runtime mode consumes them.
 
@@ -287,6 +293,17 @@ Current public Quest profile findings:
 - A mono `PRIVATE` GPU-buffer probe at `1280x960` continued to deliver live
   frames, so the next useful comparison is Java Camera2 concurrent stereo
   against a lower-level/native hardware-buffer reader module.
+- The first native-reader probe reproduced the intended lower-level ownership
+  shape with `ACamera*`, `AImageReader` `PRIVATE` GPU-sampled buffers,
+  acquire-latest handling, immediate `AImage` deletion after taking an
+  `AHardwareBuffer` reference, and latest-pair publication. Direct side-camera
+  sessions still showed stale progression on the tested runtime, so the next
+  acquisition comparison is source/session shape and timestamp behavior, not
+  another Java queue-depth tweak.
+- Optional `XR_FB_passthrough` client/layer probing exposed a real runtime
+  capability boundary, but did not by itself fix camera progression. Keep
+  `client` and `warmup` as diagnostics for extension exposure and runtime
+  state, not as default color/performance profiles.
 
 ### Autonomous Quest Camera Profile Runs
 

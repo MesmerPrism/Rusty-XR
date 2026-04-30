@@ -178,6 +178,20 @@ frames, so the next public split should compare Java Camera2 concurrent stereo
 against a lower-level/native hardware-buffer reader path without changing the
 projection or border surface.
 
+That lower-level path is now represented as an opt-in native acquisition
+probe, not as a replacement for the Java Camera2 example. It uses Android NDK
+`ACamera*` sessions and `AImageReader` `PRIVATE` GPU-sampled buffers, logs the
+native camera sources it sees, and publishes the latest stereo pair into the
+same Vulkan projection path. Early headset runs showed that this ownership
+shape alone does not guarantee fresh stereo progression; the remaining
+acquisition diff is the effective source/session/timestamp behavior.
+
+OpenXR passthrough-client probing belongs in a separate bucket. Optional
+passthrough and scene manifest declarations can make `XR_FB_passthrough`
+available, and `client` / `warmup` probes can verify runtime client state, but
+they do not change the raw-camera color model or prove that camera buffers are
+fresh.
+
 The renderer then applies an explicit `CameraTextureTransform` after projection
 UV calculation and before sampling imported camera textures. That transform is
 separate from Camera2 `SENSOR_ORIENTATION`; opaque GPU camera buffers can need a

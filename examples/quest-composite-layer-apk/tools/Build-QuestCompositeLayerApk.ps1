@@ -8,6 +8,8 @@ param(
     [string]$OpenXrLoaderPath = '',
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
+    [ValidateRange(29, 35)]
+    [int]$TargetSdkVersion = 35,
     [switch]$SkipRustBuild
 )
 
@@ -242,7 +244,7 @@ Invoke-Tool -File $aapt2 -Arguments @(
     '-I', $androidJar,
     '--manifest', (Join-Path $exampleRoot 'AndroidManifest.xml'),
     '--min-sdk-version', '29',
-    '--target-sdk-version', '35'
+    '--target-sdk-version', $TargetSdkVersion.ToString()
 )
 
 $javaSources = Get-ChildItem -LiteralPath (Join-Path $exampleRoot 'src') -Recurse -File -Filter '*.java' |

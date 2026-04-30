@@ -28,6 +28,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final int DEFAULT_CAMERA_FPS_MIN = 0;
     private static final int DEFAULT_CAMERA_FPS_MAX = 0;
     private static final int DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES = 8;
+    private static final String DEFAULT_CAMERA_ACQUISITION = "java-camera2";
     private static final String DEFAULT_CAMERA_TIER = "cpu-diagnostic-flat-copy";
     private static final String DEFAULT_CAMERA_STEREO_LAYOUT = "mono";
     private static final boolean DEFAULT_CAMERA_ALLOW_CPU_FALLBACK = true;
@@ -52,6 +53,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final String DEFAULT_CAMERA_ORIENTATION_DIAGNOSTIC_MODE = "off";
     private static final float DEFAULT_XR_RENDER_SCALE = 0.75f;
     private static final int DEFAULT_XR_FIXED_FOVEATION_LEVEL = 0;
+    private static final String DEFAULT_OPENXR_PASSTHROUGH_PROBE = "off";
 
     private MediaProjectionManager mediaProjectionManager;
 
@@ -62,6 +64,8 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static native String contractJson();
     private static native void nativeActivityEvent(String eventJson);
     private static native void nativeRuntimeConfig(String configJson);
+    private static native boolean nativeStartNativeCamera(String configJson);
+    private static native void nativeStopNativeCamera();
 
     @Override
     protected void onCreate(Bundle bundle) {
@@ -224,6 +228,10 @@ public final class CompositeLayerActivity extends NativeActivity {
         return stringExtra("rustyxr.cameraStereoLayout", DEFAULT_CAMERA_STEREO_LAYOUT);
     }
 
+    private String cameraAcquisition() {
+        return stringExtra("rustyxr.cameraAcquisition", DEFAULT_CAMERA_ACQUISITION);
+    }
+
     private boolean allowCpuFallback() {
         return booleanExtra("rustyxr.cameraAllowCpuFallback", DEFAULT_CAMERA_ALLOW_CPU_FALLBACK);
     }
@@ -239,6 +247,8 @@ public final class CompositeLayerActivity extends NativeActivity {
         StringBuilder builder = new StringBuilder(256);
         builder.append('{');
         appendJsonString(builder, "cameraTier", tier);
+        builder.append(',');
+        appendJsonString(builder, "cameraAcquisition", cameraAcquisition());
         builder.append(",\"cameraEnabled\":").append(cameraEnabled);
         builder.append(",\"mediaProjectionEnabled\":").append(mediaProjectionEnabled);
         builder.append(",\"allowCpuFallback\":").append(allowCpuFallback());
@@ -297,6 +307,8 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"xrRenderScale\":").append(floatJson(floatExtra("rustyxr.xrRenderScale", DEFAULT_XR_RENDER_SCALE)));
         builder.append(",\"xrFixedFoveationLevel\":").append(fixedFoveationLevel);
         builder.append(',');
+        appendJsonString(builder, "openxrPassthroughProbe", stringExtra("rustyxr.openxrPassthroughProbe", DEFAULT_OPENXR_PASSTHROUGH_PROBE));
+        builder.append(',');
         appendJsonString(builder, "stereoLayout", cameraStereoLayout());
         builder.append('}');
 
@@ -327,6 +339,11 @@ public final class CompositeLayerActivity extends NativeActivity {
     }
 
     private void startHeadsetCamera() {
+        if ("native-ndk".equals(cameraAcquisition())) {
+            startNativeHeadsetCamera();
+            return;
+        }
+
         Intent serviceIntent = new Intent(this, HeadsetCameraService.class);
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_WIDTH, intExtra("rustyxr.cameraWidth", DEFAULT_CAMERA_SIZE));
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_HEIGHT, intExtra("rustyxr.cameraHeight", DEFAULT_CAMERA_SIZE));
@@ -444,6 +461,46 @@ public final class CompositeLayerActivity extends NativeActivity {
         }
     }
 
+    private void startNativeHeadsetCamera() {
+        String configJson = nativeCameraConfigJson();
+        try {
+            if (nativeStartNativeCamera(configJson)) {
+                Log.i(TAG, "Native NDK headset camera acquisition started");
+                sendNativeEvent("headsetCameraNativeStarted");
+            } else {
+                Log.e(TAG, "Native NDK headset camera acquisition failed to start");
+                sendNativeEvent("headsetCameraNativeStartFailed");
+            }
+        } catch (RuntimeException error) {
+            Log.e(TAG, "Could not start native NDK headset camera acquisition", error);
+            sendNativeEvent("headsetCameraNativeStartFailed");
+        } catch (UnsatisfiedLinkError error) {
+            Log.e(TAG, "Native NDK headset camera bridge unavailable", error);
+            sendNativeEvent("headsetCameraNativeStartUnavailable");
+        }
+    }
+
+    private String nativeCameraConfigJson() {
+        StringBuilder builder = new StringBuilder(256);
+        builder.append('{');
+        builder.append("\"width\":").append(Math.max(1, intExtra("rustyxr.cameraWidth", DEFAULT_CAMERA_SIZE)));
+        builder.append(",\"height\":").append(Math.max(1, intExtra("rustyxr.cameraHeight", DEFAULT_CAMERA_SIZE)));
+        builder.append(",\"maxDimension\":").append(Math.max(1, intExtra("rustyxr.cameraMaxDimension", DEFAULT_CAMERA_MAX_DIMENSION)));
+        builder.append(",\"preferredSquare\":").append(Math.max(0, intExtra("rustyxr.cameraPreferredSquare", DEFAULT_CAMERA_SIZE)));
+        builder.append(",\"readerMaxImages\":").append(Math.max(2, intExtra("rustyxr.cameraStereoImageReaderMaxImages", 3)));
+        builder.append(",\"stereoPairMaxDeltaNs\":").append(Math.max(0L, longExtra("rustyxr.cameraStereoPairMaxDeltaNs", 5_000_000L)));
+        builder.append(',');
+        appendJsonString(builder, "requestedTier", cameraTier());
+        builder.append(',');
+        appendJsonString(builder, "requestedStereoLayout", cameraStereoLayout());
+        builder.append(',');
+        appendJsonString(builder, "leftCameraId", stringExtra("rustyxr.nativeLeftCameraId", ""));
+        builder.append(',');
+        appendJsonString(builder, "rightCameraId", stringExtra("rustyxr.nativeRightCameraId", ""));
+        builder.append('}');
+        return builder.toString();
+    }
+
     private void requestMediaProjection() {
         if (mediaProjectionManager == null) {
             Log.w(TAG, "MediaProjectionManager is unavailable");
@@ -505,6 +562,11 @@ public final class CompositeLayerActivity extends NativeActivity {
 
     @Override
     protected void onDestroy() {
+        try {
+            nativeStopNativeCamera();
+        } catch (UnsatisfiedLinkError ignored) {
+            // Older local APKs may not have the optional native camera bridge.
+        }
         stopService(new Intent(this, MediaProjectionStreamService.class));
         stopService(new Intent(this, HeadsetCameraService.class));
         sendNativeEvent("activityDestroyed");

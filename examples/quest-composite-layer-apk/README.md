@@ -66,6 +66,10 @@ or set `RUSTY_XR_OPENXR_LOADER`.
 powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -OpenXrLoaderPath C:\path\to\libopenxr_loader.so
 ```
 
+The script defaults to target SDK `35`. Use `-TargetSdkVersion 33` only as a
+local compatibility probe when comparing headset camera behavior across
+runtime/permission policy, and record that value with the run artifacts.
+
 The output APK is:
 
 ```text
@@ -173,6 +177,11 @@ Useful launch extras:
   alignment. The `gpu-projected` tier is reserved for metadata-backed
   projection and must keep `alignedProjection=false` when pose or stereo
   metadata is missing.
+- `rustyxr.cameraAcquisition`: `java-camera2` by default. Set
+  `native-ndk` only for the experimental native acquisition probe, which uses
+  Android NDK `ACamera*` plus `AImageReader` `PRIVATE` hardware buffers and
+  feeds the same Vulkan projection path. Keep this as a separate acquisition
+  axis from projection, border, and shader color checks.
 - `rustyxr.cameraWidth` / `rustyxr.cameraHeight`: requested camera target
   dimensions. The default profile requests `1280x1280`. Explicit non-square
   requests, such as `1280x960`, are honored when the runtime exposes that size
@@ -267,6 +276,11 @@ Useful launch extras:
   cadence.
 - `rustyxr.mediaProjection`: `false` by default; set `true` only when the
   final screen should be streamed back to Windows.
+- `rustyxr.openxrPassthroughProbe`: `off` by default. `client` creates an
+  optional `XR_FB_passthrough` client/layer for runtime-state diagnostics;
+  `warmup` creates and resumes the layer briefly, then pauses passthrough.
+  This does not replace the custom camera composite and should be tested
+  separately from acquisition and color changes.
 
 Camera delivery cadence and render cadence are separate. The GPU path can
 request an AE target range for the Camera2 producer, while the OpenXR renderer
@@ -393,6 +407,12 @@ The catalog keeps camera path experiments as separate runtime profiles:
   projection, border, and sampler as the `0.65` performance profile, but uses a
   smaller separate-eye `ImageReader` pool. It isolates Java Camera2 queue depth
   from color and projection.
+- `camera-stereo-gpu-composite-native-ndk-065`: same render scale, projection,
+  border, and sampler as the `0.65` performance profile, but swaps Java
+  Camera2 acquisition for an experimental native `ACamera*` / `AImageReader`
+  hardware-buffer path with no explicit AE target and reader max images `3`.
+  It is an acquisition probe, not a release candidate until camera-frame
+  progression remains live.
 
 Do not stack the shader-side YCbCr decode on top of an external sampler that is
 already presenting RGB. The hardware-buffer import log reports
@@ -420,6 +440,22 @@ compare it against a lower-level/native hardware-buffer reader path before
 changing projection, border, or shader color math again. The fixed-foveation
 diagnostic path is still not release-ready on runtimes that enumerate null
 fragment-density image handles.
+
+The native-reader follow-up keeps that module split explicit. It reproduces
+the lower-level ownership shape of `ACamera*` sessions plus `AImageReader`
+`PRIVATE` GPU-sampled buffers and logs native source enumeration, side-frame
+counts, stereo-pair publication, and the active acquisition label. On the
+tested runtime, direct native side-camera sessions still showed stale
+progression in one side stream, so the next comparison is source/session shape
+and timestamp behavior rather than another Java Camera2 queue-depth tweak.
+
+The optional OpenXR passthrough probe is a separate runtime-state check. The
+manifest includes optional passthrough and scene declarations so runtimes can
+advertise `XR_FB_passthrough` when available. Creating a passthrough
+client/layer confirmed the extension exposure path, but did not fix stale
+native acquisition; the always-on client mode can add runtime camera-compute
+load. Use `warmup` as the lighter probe when testing whether passthrough-client
+state affects camera availability.
 
 ## Autonomous Camera Profile Runs
 

@@ -30,6 +30,11 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
   -Serial <serial> `
   -RuntimeProfile camera-stereo-gpu-composite-reader-max-3-065 `
   -CaptureHzdbScreencap
+
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
+  -Serial <serial> `
+  -RuntimeProfile camera-stereo-gpu-composite-native-ndk-065 `
+  -CaptureHzdbScreencap
 ```
 
 Use `-Override key=value` to test variables without adding a new catalog entry.
@@ -43,6 +48,13 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
   -Override 'rustyxr.cameraTargetFps=0,rustyxr.cameraStereoImageReaderMaxImages=3' `
   -CaptureHzdbScreencap
 ```
+
+Native acquisition and OpenXR passthrough-client state are separate axes. To
+test runtime passthrough exposure without adding a catalog profile, use
+`-Override 'rustyxr.openxrPassthroughProbe=warmup'` or
+`-Override 'rustyxr.openxrPassthroughProbe=client'`. Always compare those runs
+against camera-frame progression; passthrough-client state is not a substitute
+for live camera delivery.
 
 Each run captures battery, power, VR power manager, activity/window state,
 logcat, a screen capture, optional `hzdb` screenshots, and a validation report.

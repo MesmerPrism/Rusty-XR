@@ -82,6 +82,29 @@ lower-level/native hardware-buffer reader path as a separate module/profile
 before changing projection geometry, border behavior, or shader color math
 again.
 
+The public example now includes an opt-in native acquisition probe through
+`rustyxr.cameraAcquisition=native-ndk`. That probe opens lower-level Android
+NDK `ACamera*` sessions, creates `AImageReader` outputs with
+`AIMAGE_FORMAT_PRIVATE` plus GPU-sampled hardware-buffer usage, calls
+`AImageReader_acquireLatestImage`, takes an `AHardwareBuffer` reference,
+deletes the `AImage` immediately, and publishes only the newest stereo pair
+into the same Vulkan projection path. On the tested runtime, direct native
+side-camera sessions matched those ownership details but still produced stale
+camera progression in one side stream, so "native NDK" by itself is not yet a
+validated fix. The next native tests should compare the effective camera source
+and session shape, not keep retesting Java queue depth.
+
+`rustyxr.openxrPassthroughProbe` is a separate OpenXR runtime-state diagnostic.
+`client` creates an `XR_FB_passthrough` client/layer and leaves it running;
+`warmup` creates and resumes the layer briefly, then pauses the passthrough
+while keeping the app's camera-rendering path unchanged. The manifest declares
+optional passthrough and scene permissions so runtimes that gate
+`XR_FB_passthrough` exposure can advertise the extension. In headset tests,
+this exposed the extension and changed runtime client state, but it did not
+fix stale native camera progression; the always-on client mode also added
+runtime camera-compute load. Treat it as a capability/session-state probe, not
+as a color or performance candidate.
+
 Do not interpret a single green/discolored shader-decode run as evidence about
 Camera2 acquisition. First return to `external-rgb`, then change acquisition
 knobs.
