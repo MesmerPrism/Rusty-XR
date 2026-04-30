@@ -1,8 +1,8 @@
 # Quest Visual Source Taxonomy
 
-Rusty XR keeps raw headset-camera compositing separate from final-display
-inspection and streaming paths. These sources are related, but they are not
-interchangeable.
+Rusty XR keeps raw headset-camera compositing, runtime environment depth,
+final-display inspection, and operator streaming paths separate. These sources
+are related, but they are not interchangeable.
 
 ## Native Platform Passthrough Compositor
 
@@ -33,6 +33,52 @@ pose fields, and up to `60 fps` Camera2 ranges. Delivered sizes can vary by
 runtime and model; both `1280x1280` and `1280x960` have been observed. Treat
 those IDs and sizes as diagnostics from that runtime, not as portable
 requirements.
+
+## Environment Depth
+
+Environment depth is a runtime-generated depth texture exposed through the
+public Depth API / `XR_META_environment_depth` style contract. It is not raw
+depth-sensor data, raw infrared camera data, projector output, or a low-level
+sensor-fusion feed. Public app code should treat it as a black-box depth image
+with metadata supplied by the runtime.
+
+The native OpenXR shape is provider-based: create the provider, start it,
+acquire the latest available environment-depth image during the XR frame, use
+the returned swapchain image and per-eye metadata, then release it with the
+frame. A runtime may report that no depth image is available for the current
+frame. Public code should model that as normal runtime state instead of a hard
+failure.
+
+The returned depth image metadata includes the depth swapchain index, `nearZ`,
+`farZ`, and per-eye view pose/FOV data. Swapchain width and height are reported
+separately. The texture should be treated as depth-buffer-style data: metric
+reconstruction needs the supplied near/far values, per-eye FOV/pose, and the
+adapter's projection or inverse-projection math. Do not assume raw samples are
+already linear meters unless an adapter explicitly documents that conversion.
+
+Quest device models can differ internally in how the runtime estimates depth,
+but the public app-facing contract remains an environment-depth texture. Public
+Rusty XR docs and contracts should not rely on raw depth hardware access,
+infrared tracking frames, projector frames, or private compositor
+representations.
+
+Confidence should be optional in public contracts. The public Meta
+environment-depth image structure does not require a separate confidence image,
+so an absent confidence payload is a valid state. If an adapter derives a local
+confidence signal from neighborhood consistency, edge checks, or temporal
+stability, label it as app-derived rather than runtime-supplied.
+
+The API exposes acquisition at most once per XR frame and the cadence of new
+depth images is runtime-controlled. When an adapter needs latency or rate
+measurement, store an explicit runtime capture timestamp when the platform
+provides one. Do not infer the runtime's depth cadence from exported dataset
+stride, display-stream cadence, or operator capture rate.
+
+Observed depth resolutions and formats are useful diagnostics, not portable
+requirements. A public frame descriptor should record width, height, format
+such as `depth_u16le` or `D16_UNORM`, eye/layer identity, byte length,
+near/far, per-eye view metadata, optional runtime capture time, and whether a
+confidence payload exists.
 
 ## Paired Stereo Camera Provider
 

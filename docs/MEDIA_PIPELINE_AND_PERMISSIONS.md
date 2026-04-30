@@ -13,6 +13,9 @@ Keep these sources separate:
 - Passthrough Camera API / Android Camera2: raw forward-facing camera frames for
   CV/ML and custom app processing. On supported Quest devices this requires
   headset camera permission and camera metadata handling.
+- Environment depth: runtime-generated depth texture for occlusion,
+  diagnostics, mapping, or readback. It is not a raw depth sensor stream, not a
+  raw RGB camera source, and not final-display capture.
 - MediaProjection: final display or selected app-window capture. Use this when
   the goal is to represent what the user sees, including app UI and overlays.
   It is not the camera source for a camera-driven custom projection layer.
@@ -22,6 +25,41 @@ Keep these sources separate:
 Public Rusty XR crates should model metadata, timestamps, frame descriptors,
 runtime counters, and stream status. The Android app shell owns the actual
 MediaProjection, Camera2, OpenXR, Vulkan, encoder, socket, or ADB integration.
+
+### Environment Depth Capture Shape
+
+Public environment-depth tooling should describe what an adapter received from
+the runtime, not claim access to private sensors or compositor internals. A
+portable depth frame descriptor should include:
+
+- width, height, and byte length
+- format, such as `depth_u16le`, `D16_UNORM`, or an adapter-specific public
+  enum
+- eye index, array-layer index, or stereo layer count
+- near/far depth range supplied by the runtime
+- per-eye view pose/FOV metadata when available
+- frame index and app timestamp
+- optional runtime capture timestamp for latency or cadence measurement
+- optional confidence payload only when a provider actually supplies or derives
+  one
+
+Raw environment-depth samples should not be treated as direct meters by
+default. Store the raw format and projection metadata, then reconstruct metric
+depth through the adapter's documented near/far and projection path. If a
+capture uses a `u16` payload, the metadata must still say whether those values
+are normalized depth, millimeters, or another documented encoding.
+
+Runtime depth cadence is not a fixed app-controlled rate. An app can acquire
+the latest available depth image during an XR frame, but a runtime may return
+no new image. For cadence and latency diagnostics, prefer a runtime-provided
+depth capture timestamp over counts from strided exports or display-capture
+streams.
+
+Keep final-display capture and environment-depth capture separate. A
+MediaProjection stream can show what the headset presented after app UI and
+overlays are composited, but it cannot recover the runtime's raw
+environment-depth image or the raw camera frames used by a custom projection
+layer.
 
 ## Plain Stereo And Feedback Surface Layout
 
@@ -246,10 +284,13 @@ Recommended JSON header fields:
 
 - `frame_index`
 - `timestamp_ns`
+- `capture_time_ns` for runtime-supplied depth capture time when available
 - `width`
 - `height`
 - `format`, such as `rgba8888`, `png`, `jpeg`, or `depth_u16le`
 - `stream`, such as `composite`, `left_camera`, `right_camera`, or `depth`
+- `eye` or `layer_index` for per-eye depth or camera payloads
+- `near_z` and `far_z` for environment-depth payloads when available
 
 Example development setup:
 
@@ -423,3 +464,13 @@ project-specific visual behavior.
   <https://developer.android.com/about/versions/14/behavior-changes-14>
 - Meta Passthrough Camera API overview:
   <https://developers.meta.com/horizon/documentation/unity/unity-pca-overview/>
+- Meta Depth API overview:
+  <https://developers.meta.com/horizon/documentation/unity/unity-depthapi-overview/>
+- OpenXR `xrAcquireEnvironmentDepthImageMETA`:
+  <https://registry.khronos.org/OpenXR/specs/1.1/man/html/xrAcquireEnvironmentDepthImageMETA.html>
+- OpenXR `XrEnvironmentDepthImageMETA`:
+  <https://registry.khronos.org/OpenXR/specs/1.1/man/html/XrEnvironmentDepthImageMETA.html>
+- OpenXR `XrEnvironmentDepthImageTimestampMETA`:
+  <https://registry.khronos.org/OpenXR/specs/1.1/man/html/XrEnvironmentDepthImageTimestampMETA.html>
+- Unity Meta OpenXR occlusion platform support:
+  <https://docs.unity.cn/Packages/com.unity.xr.meta-openxr%402.1/manual/features/occlusion/platform-support.html>

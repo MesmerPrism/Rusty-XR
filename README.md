@@ -67,8 +67,8 @@ hardware validation:
 powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -OpenXrLoaderPath C:\path\to\libopenxr_loader.so
 ```
 
-Quest raw camera, platform passthrough, MediaProjection, and operator casting
-sources are intentionally distinct. See
+Quest raw camera, platform passthrough, environment depth, MediaProjection, and
+operator casting sources are intentionally distinct. See
 [docs/QUEST_VISUAL_SOURCE_TAXONOMY.md](docs/QUEST_VISUAL_SOURCE_TAXONOMY.md)
 before interpreting camera-composite diagnostics.
 

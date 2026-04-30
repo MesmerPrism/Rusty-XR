@@ -1,7 +1,12 @@
 //! Depth frame and environment-depth contracts for Rusty XR.
 //!
 //! This crate keeps environment-depth state and payload summaries generic. It
+//! models runtime-generated depth textures, not raw low-level sensor feeds. It
 //! does not own provider creation, OpenXR extension calls, or app policy.
+//!
+//! Public adapters should make depth encoding explicit. Raw samples are not
+//! assumed to be metric depth unless the descriptor carries a documented
+//! conversion, and confidence payloads are optional.
 //!
 //! Enable the `serde` feature when depth summaries need to be serialized for
 //! diagnostics, manifests, or operator tooling.
