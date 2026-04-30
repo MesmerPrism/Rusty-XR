@@ -151,6 +151,19 @@ quad-surface mode is intentionally still marked as visually gated because
 performance and final color parity with optimized downstream renderers remain
 open work.
 
+Camera color and renderer-performance experiments are separate from projection
+mapping. The baseline projected profile uses Vulkan `PRIVATE` hardware-buffer
+import, `external-rgb`, fixed foveation off, render scale `0.75`, and the same
+public border and projection path. The `0.65` performance profile changes only
+OpenXR render scale to test fragment-load headroom. The shader-side YCbCr
+profile changes only the color decode assumption to `Cr/Y/Cb` BT.601 narrow
+range, and should be used only when hardware-buffer diagnostics show the
+sampler is exposing channel-packed data instead of converted RGB. The
+fixed-foveation profile changes only the OpenXR fragment-density-map path and
+remains experimental until headset logs show a created foveated swapchain,
+valid foveation image handles, no framebuffer or driver failure, and stable
+frame cadence.
+
 The renderer then applies an explicit `CameraTextureTransform` after projection
 UV calculation and before sampling imported camera textures. That transform is
 separate from Camera2 `SENSOR_ORIENTATION`; opaque GPU camera buffers can need a

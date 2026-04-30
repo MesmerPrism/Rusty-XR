@@ -343,11 +343,49 @@ missing.
 
 The current Quest Camera2 hardware-buffer path is sampled through Vulkan
 external-format import, and the public projected stereo profiles use
-`rustyxr.cameraColorMode=external-cr-y-cb-bt601-narrow` with
+`rustyxr.cameraColorMode=external-rgb` with
 `rustyxr.cameraColorContrast=1.1`, `rustyxr.cameraColorBrightness=0.04`, and
-`rustyxr.cameraColorSaturation=1.0`. Use `external-rgb` only when a
-device/runtime exposes already normalized RGB at the shader boundary; this
-switch does not move the live path back to CPU-readable YUV frames.
+`rustyxr.cameraColorSaturation=1.0`. Use
+`external-cr-y-cb-bt601-narrow` only as a diagnostic switch when a
+device/runtime exposes YCbCr-like channels at the shader boundary; this switch
+does not move the live path back to CPU-readable YUV frames.
+
+The catalog keeps camera path experiments as separate runtime profiles:
+
+- `camera-stereo-gpu-composite`: aligned Vulkan hardware-buffer baseline. It
+  keeps fixed foveation off and uses `external-rgb`, so it is the profile to
+  use when validating projection, border behavior, CPU-upload avoidance, import
+  cache reuse, and Camera2 delivery cadence.
+- `camera-stereo-gpu-composite-performance-065`: same aligned Vulkan RGB path,
+  but with `rustyxr.xrRenderScale=0.65`. Use this to separate shader/fragment
+  headroom from camera delivery cadence without changing projection, border, or
+  color assumptions.
+- `camera-stereo-gpu-composite-ycbcr-diagnostic`: same projection and border,
+  but with shader-side `Cr/Y/Cb` BT.601 narrow-range decode. Use this only
+  when `Vulkan imported Camera2 hardware buffer` diagnostics show the external
+  sampler is not already converting to RGB.
+- `camera-stereo-gpu-composite-foveation-experimental`: same sampler and
+  projection settings, but enables the OpenXR fixed-foveation/fragment-density
+  path. It is diagnostic until logs show `fixedFoveationEnabled=true`, no
+  null fragment-density image handles, no framebuffer creation failure or
+  driver crash, stable OpenXR cadence, and no stale camera frames.
+
+Do not stack the shader-side YCbCr decode on top of an external sampler that is
+already presenting RGB. The hardware-buffer import log reports
+`suggestedYcbcrModel`, `suggestedYcbcrRange`, component mapping, external
+format, Vulkan format, import cache size, and cache miss/eviction counters so a
+test run can identify which path is active.
+
+On the April 30, 2026 Quest headset validation pass, increasing the Vulkan
+hardware-buffer import cache to match the stereo producer pool removed import
+evictions after warm-up. The aligned projected path held `72 FPS` at
+`rustyxr.xrRenderScale=0.65`, while the `0.75` baseline remained useful for
+geometry/color comparison but did not hold display cadence on that run. The
+same run showed Camera2 accepting a `60-60` AE range for a `72-72` request and
+delivering below display cadence, so camera delivery FPS must be evaluated
+separately from OpenXR submit FPS. The fixed-foveation diagnostic path is still
+not release-ready on runtimes that enumerate null fragment-density image
+handles.
 
 ## Run Through Companion
 

@@ -25,8 +25,10 @@ const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
 const CAMERA_CPU_UPLOAD_MIN_INTERVAL_NS: i64 = 250_000_000;
 const CAMERA_CPU_UPLOAD_HZ_LABEL: u32 = 4;
 const XR_RENDER_SCALE_DEFAULT: f32 = 0.75;
-const GPU_CAMERA_IMPORT_CACHE_LIMIT: usize = 4;
+const GPU_CAMERA_IMPORT_CACHE_LIMIT: usize = 16;
 const GPU_CAMERA_PROJECTION_UNIFORM_SLOTS: u32 = 3;
+const XR_FRAGMENT_DENSITY_MAP_FORMAT: vk::Format = vk::Format::R8G8_UNORM;
+const XR_FOVEATION_DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
 pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
     let entry = unsafe { xr::Entry::load().map_err(|error| format!("load OpenXR: {error}"))? };
@@ -44,6 +46,24 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
     enabled_extensions.khr_vulkan_enable2 = true;
     if available_extensions.fb_display_refresh_rate {
         enabled_extensions.fb_display_refresh_rate = true;
+    }
+    if available_extensions.fb_swapchain_update_state
+        && available_extensions.fb_foveation
+        && available_extensions.fb_foveation_configuration
+        && available_extensions.fb_foveation_vulkan
+    {
+        enabled_extensions.fb_swapchain_update_state = true;
+        enabled_extensions.fb_foveation = true;
+        enabled_extensions.fb_foveation_configuration = true;
+        enabled_extensions.fb_foveation_vulkan = true;
+    } else {
+        log_info(format!(
+            "Rusty XR OpenXR fixed foveation extensions unavailable swapchainUpdate={} foveation={} foveationConfig={} foveationVulkan={}",
+            available_extensions.fb_swapchain_update_state,
+            available_extensions.fb_foveation,
+            available_extensions.fb_foveation_configuration,
+            available_extensions.fb_foveation_vulkan
+        ));
     }
 
     let xr_instance = unsafe {
@@ -335,6 +355,8 @@ unsafe fn run_vulkan(
         vk_physical_device,
         ash::khr::sampler_ycbcr_conversion::NAME,
     )?;
+    let fragment_density_map_supported =
+        query_fragment_density_map_support(&vk_instance, vk_physical_device)?;
     let mut sampler_ycbcr_features = vk::PhysicalDeviceSamplerYcbcrConversionFeatures::default();
     let mut feature_query =
         vk::PhysicalDeviceFeatures2::default().push_next(&mut sampler_ycbcr_features);
@@ -346,6 +368,10 @@ unsafe fn run_vulkan(
         ahb_extension_supported,
         sampler_ycbcr_supported,
         sampler_ycbcr_extension_supported
+    ));
+    log_info(format!(
+        "Rusty XR Vulkan fixed foveation support fragmentDensityMap={}",
+        fragment_density_map_supported
     ));
 
     let queue_family_index = vk_instance
@@ -373,15 +399,24 @@ unsafe fn run_vulkan(
     if sampler_ycbcr_extension_supported {
         device_extension_ptrs.push(ash::khr::sampler_ycbcr_conversion::NAME.as_ptr());
     }
+    if fragment_density_map_supported {
+        device_extension_ptrs.push(ash::ext::fragment_density_map::NAME.as_ptr());
+    }
     let queue_priorities = [1.0_f32];
     let queue_infos = [vk::DeviceQueueCreateInfo::default()
         .queue_family_index(queue_family_index)
         .queue_priorities(&queue_priorities)];
-    let device_info = vk::DeviceCreateInfo::default()
+    let mut fragment_density_map_features =
+        vk::PhysicalDeviceFragmentDensityMapFeaturesEXT::default()
+            .fragment_density_map(fragment_density_map_supported);
+    let mut device_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_infos)
         .enabled_extension_names(&device_extension_ptrs)
         .push_next(&mut sampler_ycbcr_enable)
         .push_next(&mut multiview_features);
+    if fragment_density_map_supported {
+        device_info = device_info.push_next(&mut fragment_density_map_features);
+    }
 
     let vk_device = {
         let raw = xr_instance
@@ -398,46 +433,18 @@ unsafe fn run_vulkan(
     };
     let queue = vk_device.get_device_queue(queue_family_index, 0);
 
-    let view_mask = !(!0 << VIEW_COUNT);
-    let attachments = [vk::AttachmentDescription {
-        format: COLOR_FORMAT,
-        samples: vk::SampleCountFlags::TYPE_1,
-        load_op: vk::AttachmentLoadOp::CLEAR,
-        store_op: vk::AttachmentStoreOp::STORE,
-        initial_layout: vk::ImageLayout::UNDEFINED,
-        final_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        ..Default::default()
-    }];
-    let color_refs = [vk::AttachmentReference {
-        attachment: 0,
-        layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-    }];
-    let subpasses = [vk::SubpassDescription::default()
-        .color_attachments(&color_refs)
-        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)];
-    let dependencies = [vk::SubpassDependency {
-        src_subpass: vk::SUBPASS_EXTERNAL,
-        dst_subpass: 0,
-        src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-        dst_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-        dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-        ..Default::default()
-    }];
-    let view_masks = [view_mask];
-    let correlation_masks = [view_mask];
-    let mut multiview = vk::RenderPassMultiviewCreateInfo::default()
-        .view_masks(&view_masks)
-        .correlation_masks(&correlation_masks);
-    let render_pass = vk_device
-        .create_render_pass(
-            &vk::RenderPassCreateInfo::default()
-                .attachments(&attachments)
-                .subpasses(&subpasses)
-                .dependencies(&dependencies)
-                .push_next(&mut multiview),
-            None,
-        )
-        .map_err(|error| format!("create render pass: {error}"))?;
+    let startup_config = runtime_config();
+    let fixed_foveation_render_path = startup_config.xr_fixed_foveation_level > 0
+        && fragment_density_map_supported
+        && xr_instance.exts().fb_swapchain_update_state.is_some()
+        && xr_instance.exts().fb_foveation.is_some()
+        && xr_instance.exts().fb_foveation_configuration.is_some()
+        && xr_instance.exts().fb_foveation_vulkan.is_some();
+    let render_pass = create_openxr_render_pass(&vk_device, fixed_foveation_render_path)?;
+    log_info(format!(
+        "Rusty XR OpenXR render pass fragmentDensityMap={} requestedFixedFoveationLevel={}",
+        fixed_foveation_render_path, startup_config.xr_fixed_foveation_level
+    ));
 
     let (session, mut frame_wait, mut frame_stream) = xr_instance
         .create_session::<xr::Vulkan>(
@@ -599,7 +606,9 @@ unsafe fn run_vulkan(
             &session,
             system,
             &vk_device,
+            &memory_properties,
             render_pass,
+            fixed_foveation_render_path,
             &mut swapchain,
         )?;
         let (view_state_flags, views) = session
@@ -1134,6 +1143,27 @@ unsafe fn run_vulkan(
         } else {
             [0.08, 0.12, 0.30, 1.0]
         };
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue { float32: clear },
+            },
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 0.0],
+                },
+            },
+        ];
+        let clear_values = if swapchain.foveation_enabled {
+            &clear_values[..2]
+        } else {
+            &clear_values[..1]
+        };
         vk_device.cmd_begin_render_pass(
             cmd,
             &vk::RenderPassBeginInfo::default()
@@ -1143,9 +1173,7 @@ unsafe fn run_vulkan(
                     offset: vk::Offset2D::default(),
                     extent: swapchain.resolution,
                 })
-                .clear_values(&[vk::ClearValue {
-                    color: vk::ClearColorValue { float32: clear },
-                }]),
+                .clear_values(clear_values),
             vk::SubpassContents::INLINE,
         );
         if let Some((ref stereo_frame, descriptor_index)) = prepared_stereo_camera {
@@ -1259,7 +1287,7 @@ unsafe fn run_vulkan(
             let observed_openxr_fps = frame_pacing_window_frames as f64 / window_secs;
             let avg_frame_ms = window_secs * 1000.0 / frame_pacing_window_frames.max(1) as f64;
             log_info(format!(
-                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraEnabled={} mediaProjection={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz=72 activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={}",
+                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraEnabled={} mediaProjection={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz=72 activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fixedFoveationEnabled={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} importCacheLimit={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={} gpuImportCacheHit={} gpuImportCacheMiss={} gpuImportCacheEvict={}",
                 frame_count,
                 swapchain.resolution.width,
                 swapchain.resolution.height,
@@ -1273,14 +1301,19 @@ unsafe fn run_vulkan(
                 refresh_rate_label(active_display_refresh_hz),
                 config.xr_render_scale,
                 config.xr_fixed_foveation_level,
+                swapchain.foveation_enabled,
                 PIPELINE_DEPTH,
                 gpu_success,
                 gpu_failure,
                 gpu_cache_size,
                 gpu_camera_renderer.imports.len(),
+                GPU_CAMERA_IMPORT_CACHE_LIMIT,
                 gpu_camera_renderer.stereo_descriptors.len(),
                 gpu_camera_renderer.import_success_count,
-                gpu_camera_renderer.import_failure_count
+                gpu_camera_renderer.import_failure_count,
+                gpu_camera_renderer.import_cache_hit_count,
+                gpu_camera_renderer.import_cache_miss_count,
+                gpu_camera_renderer.import_cache_evict_count
             ));
             frame_pacing_window_start = Instant::now();
             frame_pacing_window_frames = 0;
@@ -1298,6 +1331,14 @@ unsafe fn run_vulkan(
     if let Some(swapchain) = swapchain {
         for buffer in swapchain.buffers {
             vk_device.destroy_framebuffer(buffer.framebuffer, None);
+            if buffer.fragment_density != vk::ImageView::null() {
+                vk_device.destroy_image_view(buffer.fragment_density, None);
+            }
+            if let Some(depth) = buffer.depth {
+                vk_device.destroy_image_view(depth.view, None);
+                vk_device.destroy_image(depth.image, None);
+                vk_device.free_memory(depth.memory, None);
+            }
             vk_device.destroy_image_view(buffer.color, None);
         }
     }
@@ -1320,7 +1361,9 @@ unsafe fn ensure_swapchain<'a>(
     session: &xr::Session<xr::Vulkan>,
     system: xr::SystemId,
     vk_device: &ash::Device,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
     render_pass: vk::RenderPass,
+    fixed_foveation_render_path: bool,
     swapchain: &'a mut Option<Swapchain>,
 ) -> Result<&'a mut Swapchain, String> {
     if swapchain.is_none() {
@@ -1347,26 +1390,22 @@ unsafe fn ensure_swapchain<'a>(
         let render_scale = sanitized_render_scale(config.xr_render_scale);
         let fixed_foveation_level = config.xr_fixed_foveation_level;
         let resolution = scaled_extent(recommended_resolution, render_scale);
-        let handle = session
-            .create_swapchain(&xr::SwapchainCreateInfo {
-                create_flags: xr::SwapchainCreateFlags::EMPTY,
-                usage_flags: xr::SwapchainUsageFlags::COLOR_ATTACHMENT
-                    | xr::SwapchainUsageFlags::SAMPLED
-                    | xr::SwapchainUsageFlags::TRANSFER_DST,
-                format: COLOR_FORMAT.as_raw() as _,
-                sample_count: 1,
-                width: resolution.width,
-                height: resolution.height,
-                face_count: 1,
-                array_size: VIEW_COUNT,
-                mip_count: 1,
-            })
-            .map_err(|error| format!("create OpenXR swapchain: {error}"))?;
-        let images = handle
-            .enumerate_images()
-            .map_err(|error| format!("enumerate OpenXR swapchain images: {error}"))?;
-        let mut buffers = Vec::with_capacity(images.len());
-        for color_image in images {
+        let use_fixed_foveation = fixed_foveation_level > 0 && fixed_foveation_render_path;
+        if fixed_foveation_level > 0 && !use_fixed_foveation {
+            log_error(format!(
+                "Rusty XR fixed foveation requested level={} but required OpenXR/Vulkan fragment-density path is unavailable",
+                fixed_foveation_level
+            ));
+        }
+        let created_swapchain = create_openxr_swapchain(
+            xr_instance,
+            session,
+            resolution,
+            fixed_foveation_level,
+            use_fixed_foveation,
+        )?;
+        let mut buffers = Vec::with_capacity(created_swapchain.color_images.len());
+        for (index, color_image) in created_swapchain.color_images.iter().copied().enumerate() {
             let color_image = vk::Image::from_raw(color_image);
             let color = vk_device
                 .create_image_view(
@@ -1384,7 +1423,54 @@ unsafe fn ensure_swapchain<'a>(
                     None,
                 )
                 .map_err(|error| format!("create Vulkan swapchain image view: {error}"))?;
-            let attachments = [color];
+            let fragment_density = if created_swapchain.fixed_foveation_enabled {
+                let fragment_density_image = created_swapchain
+                    .fragment_density_images
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| {
+                        "OpenXR foveation image count did not match swapchain image count"
+                            .to_string()
+                    })?;
+                if fragment_density_image == 0 {
+                    return Err(format!(
+                        "OpenXR foveation image handle was null for swapchain image {index}"
+                    ));
+                }
+                create_fragment_density_image_view(
+                    vk_device,
+                    vk::Image::from_raw(fragment_density_image),
+                )?
+            } else {
+                vk::ImageView::null()
+            };
+            let depth = if created_swapchain.fixed_foveation_enabled {
+                Some(create_foveation_depth_attachment(
+                    vk_device,
+                    memory_properties,
+                    resolution,
+                )?)
+            } else {
+                None
+            };
+            let mut attachments = vec![color];
+            if let Some(depth) = &depth {
+                attachments.push(depth.view);
+            }
+            if fragment_density != vk::ImageView::null() {
+                attachments.push(fragment_density);
+            }
+            if created_swapchain.fixed_foveation_enabled {
+                log_info(format!(
+                    "Rusty XR OpenXR foveation framebuffer plan index={} colorImage=0x{:x} colorView=0x{:x} depthView=0x{:x} fragmentDensityView=0x{:x} attachments={}",
+                    index,
+                    color_image.as_raw(),
+                    color.as_raw(),
+                    depth.as_ref().map(|value| value.view.as_raw()).unwrap_or_default(),
+                    fragment_density.as_raw(),
+                    attachments.len()
+                ));
+            }
             let framebuffer = vk_device
                 .create_framebuffer(
                     &vk::FramebufferCreateInfo::default()
@@ -1399,30 +1485,345 @@ unsafe fn ensure_swapchain<'a>(
             buffers.push(Framebuffer {
                 framebuffer,
                 color,
+                depth,
+                fragment_density,
                 image: color_image,
             });
         }
 
         log_info(format!(
-            "Rusty XR OpenXR swapchain created {}x{} from recommended {}x{} scale={} fixedFoveationLevel={} with {} image(s)",
+            "Rusty XR OpenXR swapchain created {}x{} from recommended {}x{} scale={} fixedFoveationLevel={} fixedFoveationEnabled={} fragmentDensityMapImages={} with {} image(s)",
             resolution.width,
             resolution.height,
             recommended_resolution.width,
             recommended_resolution.height,
             render_scale,
             fixed_foveation_level,
+            created_swapchain.fixed_foveation_enabled,
+            created_swapchain.fragment_density_images.len(),
             buffers.len()
         ));
         *swapchain = Some(Swapchain {
-            handle,
+            handle: created_swapchain.handle,
             buffers,
             resolution,
+            foveation_enabled: created_swapchain.fixed_foveation_enabled,
         });
     }
 
     swapchain
         .as_mut()
         .ok_or_else(|| "swapchain was not initialized".to_string())
+}
+
+struct OpenXrSwapchainImages {
+    handle: xr::Swapchain<xr::Vulkan>,
+    color_images: Vec<u64>,
+    fragment_density_images: Vec<u64>,
+    fixed_foveation_enabled: bool,
+}
+
+unsafe fn create_openxr_swapchain(
+    xr_instance: &xr::Instance,
+    session: &xr::Session<xr::Vulkan>,
+    resolution: vk::Extent2D,
+    fixed_foveation_level: u8,
+    use_fixed_foveation: bool,
+) -> Result<OpenXrSwapchainImages, String> {
+    let mut foveation_create_info = xr::sys::SwapchainCreateInfoFoveationFB {
+        ty: xr::sys::SwapchainCreateInfoFoveationFB::TYPE,
+        next: ptr::null_mut(),
+        flags: xr::sys::SwapchainCreateFoveationFlagsFB::FRAGMENT_DENSITY_MAP,
+    };
+    let create_info = xr::sys::SwapchainCreateInfo {
+        ty: xr::sys::SwapchainCreateInfo::TYPE,
+        next: if use_fixed_foveation {
+            &mut foveation_create_info as *mut _ as *const _
+        } else {
+            ptr::null()
+        },
+        create_flags: xr::sys::SwapchainCreateFlags::EMPTY,
+        usage_flags: xr::sys::SwapchainUsageFlags::COLOR_ATTACHMENT
+            | xr::sys::SwapchainUsageFlags::SAMPLED
+            | xr::sys::SwapchainUsageFlags::TRANSFER_DST,
+        format: COLOR_FORMAT.as_raw() as _,
+        sample_count: 1,
+        width: resolution.width,
+        height: resolution.height,
+        face_count: 1,
+        array_size: VIEW_COUNT,
+        mip_count: 1,
+    };
+    log_info(format!(
+        "Rusty XR OpenXR swapchain request {}x{} fixedFoveationLevel={} fixedFoveationRequested={}",
+        resolution.width, resolution.height, fixed_foveation_level, use_fixed_foveation
+    ));
+    let mut raw_handle = xr::sys::Swapchain::NULL;
+    ensure_xr_success(
+        (xr_instance.fp().create_swapchain)(session.as_raw(), &create_info, &mut raw_handle),
+        "xrCreateSwapchain",
+    )?;
+
+    let handle = xr::Swapchain::from_raw(session.clone(), raw_handle);
+    let mut fixed_foveation_enabled = false;
+    if use_fixed_foveation {
+        let level = desired_fixed_foveation_level(fixed_foveation_level)
+            .ok_or_else(|| "invalid fixed foveation level".to_string())?;
+        match enable_openxr_fixed_foveation(xr_instance, session, &handle, level) {
+            Ok(()) => {
+                fixed_foveation_enabled = true;
+            }
+            Err(error) => {
+                log_error(format!(
+                    "Rusty XR OpenXR fixed foveation enable failed; continuing without foveation: {error}"
+                ));
+            }
+        }
+    }
+
+    let (color_images, fragment_density_images) = if fixed_foveation_enabled {
+        enumerate_openxr_foveation_swapchain_images(xr_instance, &handle)?
+    } else {
+        (
+            handle
+                .enumerate_images()
+                .map_err(|error| format!("enumerate OpenXR swapchain images: {error}"))?,
+            Vec::new(),
+        )
+    };
+    log_info(format!(
+        "Rusty XR OpenXR swapchain image enumeration fixedFoveationEnabled={} colorImages={} fragmentDensityImages={}",
+        fixed_foveation_enabled,
+        color_images.len(),
+        fragment_density_images.len()
+    ));
+
+    Ok(OpenXrSwapchainImages {
+        handle,
+        color_images,
+        fragment_density_images,
+        fixed_foveation_enabled,
+    })
+}
+
+fn desired_fixed_foveation_level(level: u8) -> Option<xr::FoveationLevelFB> {
+    match level {
+        0 => None,
+        1 => Some(xr::FoveationLevelFB::LOW),
+        2 => Some(xr::FoveationLevelFB::MEDIUM),
+        _ => Some(xr::FoveationLevelFB::HIGH),
+    }
+}
+
+unsafe fn enable_openxr_fixed_foveation(
+    xr_instance: &xr::Instance,
+    session: &xr::Session<xr::Vulkan>,
+    swapchain: &xr::Swapchain<xr::Vulkan>,
+    level: xr::FoveationLevelFB,
+) -> Result<(), String> {
+    let update_swapchain = xr_instance
+        .exts()
+        .fb_swapchain_update_state
+        .as_ref()
+        .ok_or_else(|| "XR_FB_swapchain_update_state is unavailable".to_string())?;
+    let profile = session
+        .create_foveation_profile(Some(xr::FoveationLevelProfile {
+            level,
+            vertical_offset: 0.0,
+            dynamic: xr::FoveationDynamicFB::DISABLED,
+        }))
+        .map_err(|error| format!("xrCreateFoveationProfileFB: {error}"))?;
+    let state = xr::sys::SwapchainStateFoveationFB {
+        ty: xr::sys::SwapchainStateFoveationFB::TYPE,
+        next: ptr::null_mut(),
+        flags: xr::sys::SwapchainStateFoveationFlagsFB::EMPTY,
+        profile: profile.as_raw(),
+    };
+    ensure_xr_success(
+        (update_swapchain.update_swapchain)(
+            swapchain.as_raw(),
+            &state as *const _ as *const xr::sys::SwapchainStateBaseHeaderFB,
+        ),
+        "xrUpdateSwapchainFB",
+    )?;
+    Ok(())
+}
+
+unsafe fn enumerate_openxr_foveation_swapchain_images(
+    xr_instance: &xr::Instance,
+    swapchain: &xr::Swapchain<xr::Vulkan>,
+) -> Result<(Vec<u64>, Vec<u64>), String> {
+    let mut image_count = 0;
+    ensure_xr_success(
+        (xr_instance.fp().enumerate_swapchain_images)(
+            swapchain.as_raw(),
+            0,
+            &mut image_count,
+            ptr::null_mut(),
+        ),
+        "xrEnumerateSwapchainImages(count)",
+    )?;
+    let mut color_images = vec![
+        xr::sys::SwapchainImageVulkanKHR {
+            ty: xr::sys::SwapchainImageVulkanKHR::TYPE,
+            next: ptr::null_mut(),
+            image: 0,
+        };
+        image_count as usize
+    ];
+    let mut fragment_density_images = vec![
+        xr::sys::SwapchainImageFoveationVulkanFB {
+            ty: xr::sys::SwapchainImageFoveationVulkanFB::TYPE,
+            next: ptr::null_mut(),
+            image: 0,
+            width: 0,
+            height: 0,
+        };
+        image_count as usize
+    ];
+    for (color, fragment_density) in color_images
+        .iter_mut()
+        .zip(fragment_density_images.iter_mut())
+    {
+        color.next = fragment_density as *mut _ as *mut _;
+    }
+    let mut enumerated = 0;
+    ensure_xr_success(
+        (xr_instance.fp().enumerate_swapchain_images)(
+            swapchain.as_raw(),
+            image_count,
+            &mut enumerated,
+            color_images.as_mut_ptr() as *mut xr::sys::SwapchainImageBaseHeader,
+        ),
+        "xrEnumerateSwapchainImages",
+    )?;
+    color_images.truncate(enumerated as usize);
+    fragment_density_images.truncate(enumerated as usize);
+    for (index, (color, fragment_density)) in color_images
+        .iter()
+        .zip(fragment_density_images.iter())
+        .enumerate()
+    {
+        log_info(format!(
+            "Rusty XR OpenXR foveation image index={} colorImage=0x{:x} fragmentDensityImage=0x{:x} fragmentDensitySize={}x{}",
+            index,
+            color.image,
+            fragment_density.image,
+            fragment_density.width,
+            fragment_density.height
+        ));
+    }
+    Ok((
+        color_images.into_iter().map(|image| image.image).collect(),
+        fragment_density_images
+            .into_iter()
+            .map(|image| image.image)
+            .collect(),
+    ))
+}
+
+unsafe fn create_fragment_density_image_view(
+    device: &ash::Device,
+    image: vk::Image,
+) -> Result<vk::ImageView, String> {
+    device
+        .create_image_view(
+            &vk::ImageViewCreateInfo::default()
+                .image(image)
+                .view_type(vk::ImageViewType::TYPE_2D)
+                .format(XR_FRAGMENT_DENSITY_MAP_FORMAT)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                }),
+            None,
+        )
+        .map_err(|error| format!("create fragment density image view: {error}"))
+}
+
+unsafe fn create_foveation_depth_attachment(
+    device: &ash::Device,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
+    resolution: vk::Extent2D,
+) -> Result<DepthAttachment, String> {
+    let image = device
+        .create_image(
+            &vk::ImageCreateInfo::default()
+                .image_type(vk::ImageType::TYPE_2D)
+                .format(XR_FOVEATION_DEPTH_FORMAT)
+                .extent(vk::Extent3D {
+                    width: resolution.width.max(1),
+                    height: resolution.height.max(1),
+                    depth: 1,
+                })
+                .mip_levels(1)
+                .array_layers(VIEW_COUNT)
+                .samples(vk::SampleCountFlags::TYPE_1)
+                .tiling(vk::ImageTiling::OPTIMAL)
+                .usage(vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                .initial_layout(vk::ImageLayout::UNDEFINED),
+            None,
+        )
+        .map_err(|error| format!("create foveation depth image: {error}"))?;
+    let requirements = device.get_image_memory_requirements(image);
+    let memory_type_index = match find_memory_type(
+        memory_properties,
+        requirements.memory_type_bits,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    ) {
+        Ok(index) => index,
+        Err(error) => {
+            device.destroy_image(image, None);
+            return Err(error);
+        }
+    };
+    let memory = match device.allocate_memory(
+        &vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type_index),
+        None,
+    ) {
+        Ok(memory) => memory,
+        Err(error) => {
+            device.destroy_image(image, None);
+            return Err(format!("allocate foveation depth memory: {error}"));
+        }
+    };
+    if let Err(error) = device.bind_image_memory(image, memory, 0) {
+        device.free_memory(memory, None);
+        device.destroy_image(image, None);
+        return Err(format!("bind foveation depth memory: {error}"));
+    }
+    let view = match device.create_image_view(
+        &vk::ImageViewCreateInfo::default()
+            .image(image)
+            .view_type(vk::ImageViewType::TYPE_2D_ARRAY)
+            .format(XR_FOVEATION_DEPTH_FORMAT)
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::DEPTH,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: VIEW_COUNT,
+            }),
+        None,
+    ) {
+        Ok(view) => view,
+        Err(error) => {
+            device.free_memory(memory, None);
+            device.destroy_image(image, None);
+            return Err(format!("create foveation depth image view: {error}"));
+        }
+    };
+    Ok(DepthAttachment {
+        image,
+        view,
+        memory,
+    })
 }
 
 unsafe fn ensure_camera_upload<'a>(
@@ -1710,6 +2111,144 @@ fn image_size_label(size: ImageSize) -> String {
     format!("{}x{}", size.width, size.height)
 }
 
+unsafe fn create_openxr_render_pass(
+    device: &ash::Device,
+    use_fragment_density_map: bool,
+) -> Result<vk::RenderPass, String> {
+    let color_attachment = vk::AttachmentDescription {
+        format: COLOR_FORMAT,
+        samples: vk::SampleCountFlags::TYPE_1,
+        load_op: vk::AttachmentLoadOp::CLEAR,
+        store_op: vk::AttachmentStoreOp::STORE,
+        initial_layout: vk::ImageLayout::UNDEFINED,
+        final_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        ..Default::default()
+    };
+    let depth_attachment = vk::AttachmentDescription {
+        format: XR_FOVEATION_DEPTH_FORMAT,
+        samples: vk::SampleCountFlags::TYPE_1,
+        load_op: vk::AttachmentLoadOp::CLEAR,
+        store_op: vk::AttachmentStoreOp::DONT_CARE,
+        stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+        stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+        initial_layout: vk::ImageLayout::UNDEFINED,
+        final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        ..Default::default()
+    };
+    let fragment_density_attachment = vk::AttachmentDescription {
+        format: XR_FRAGMENT_DENSITY_MAP_FORMAT,
+        samples: vk::SampleCountFlags::TYPE_1,
+        load_op: vk::AttachmentLoadOp::DONT_CARE,
+        store_op: vk::AttachmentStoreOp::DONT_CARE,
+        stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+        stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+        initial_layout: vk::ImageLayout::FRAGMENT_DENSITY_MAP_OPTIMAL_EXT,
+        final_layout: vk::ImageLayout::FRAGMENT_DENSITY_MAP_OPTIMAL_EXT,
+        ..Default::default()
+    };
+    let attachments = if use_fragment_density_map {
+        vec![
+            color_attachment,
+            depth_attachment,
+            fragment_density_attachment,
+        ]
+    } else {
+        vec![color_attachment]
+    };
+    let color_refs = [vk::AttachmentReference {
+        attachment: 0,
+        layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+    }];
+    let fragment_density_ref = vk::AttachmentReference {
+        attachment: 2,
+        layout: vk::ImageLayout::FRAGMENT_DENSITY_MAP_OPTIMAL_EXT,
+    };
+    let depth_ref = vk::AttachmentReference {
+        attachment: 1,
+        layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+    let mut subpass = vk::SubpassDescription::default()
+        .color_attachments(&color_refs)
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS);
+    if use_fragment_density_map {
+        subpass = subpass.depth_stencil_attachment(&depth_ref);
+    }
+    let subpasses = [subpass];
+    let depth_stage = if use_fragment_density_map {
+        vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+    } else {
+        vk::PipelineStageFlags::empty()
+    };
+    let depth_access = if use_fragment_density_map {
+        vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE
+    } else {
+        vk::AccessFlags::empty()
+    };
+    let fdm_stage = if use_fragment_density_map {
+        vk::PipelineStageFlags::FRAGMENT_DENSITY_PROCESS_EXT
+    } else {
+        vk::PipelineStageFlags::empty()
+    };
+    let fdm_access = if use_fragment_density_map {
+        vk::AccessFlags::FRAGMENT_DENSITY_MAP_READ_EXT
+    } else {
+        vk::AccessFlags::empty()
+    };
+    let dependencies = [vk::SubpassDependency {
+        src_subpass: vk::SUBPASS_EXTERNAL,
+        dst_subpass: 0,
+        src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT | depth_stage | fdm_stage,
+        dst_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT | depth_stage | fdm_stage,
+        dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE | depth_access | fdm_access,
+        ..Default::default()
+    }];
+    let view_mask = !(!0 << VIEW_COUNT);
+    let view_masks = [view_mask];
+    let correlation_masks = [view_mask];
+    let mut multiview = vk::RenderPassMultiviewCreateInfo::default()
+        .view_masks(&view_masks)
+        .correlation_masks(&correlation_masks);
+    let mut fragment_density_info = vk::RenderPassFragmentDensityMapCreateInfoEXT::default()
+        .fragment_density_map_attachment(fragment_density_ref);
+    let mut render_pass_info = vk::RenderPassCreateInfo::default()
+        .attachments(&attachments)
+        .subpasses(&subpasses)
+        .dependencies(&dependencies);
+    if use_fragment_density_map {
+        render_pass_info = render_pass_info.push_next(&mut fragment_density_info);
+    }
+    render_pass_info = render_pass_info.push_next(&mut multiview);
+    device
+        .create_render_pass(&render_pass_info, None)
+        .map_err(|error| format!("create render pass: {error}"))
+}
+
+unsafe fn query_fragment_density_map_support(
+    instance: &ash::Instance,
+    physical_device: vk::PhysicalDevice,
+) -> Result<bool, String> {
+    if !physical_device_supports_extension(
+        instance,
+        physical_device,
+        ash::ext::fragment_density_map::NAME,
+    )? {
+        return Ok(false);
+    }
+
+    let mut features = vk::PhysicalDeviceFragmentDensityMapFeaturesEXT::default();
+    let mut features2 = vk::PhysicalDeviceFeatures2::default().push_next(&mut features);
+    instance.get_physical_device_features2(physical_device, &mut features2);
+    if features.fragment_density_map != vk::TRUE {
+        return Ok(false);
+    }
+
+    let format_props = instance
+        .get_physical_device_format_properties(physical_device, XR_FRAGMENT_DENSITY_MAP_FORMAT);
+    Ok(format_props
+        .optimal_tiling_features
+        .contains(vk::FormatFeatureFlags::FRAGMENT_DENSITY_MAP_EXT))
+}
+
 unsafe fn physical_device_supports_extension(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
@@ -1907,6 +2446,9 @@ struct GpuCameraRenderer {
     stereo_descriptors: Vec<GpuCameraStereoDescriptor>,
     import_success_count: u64,
     import_failure_count: u64,
+    import_cache_hit_count: u64,
+    import_cache_miss_count: u64,
+    import_cache_evict_count: u64,
     last_failure: Option<String>,
 }
 
@@ -1932,6 +2474,9 @@ impl GpuCameraRenderer {
             stereo_descriptors: Vec::new(),
             import_success_count: 0,
             import_failure_count: 0,
+            import_cache_hit_count: 0,
+            import_cache_miss_count: 0,
+            import_cache_evict_count: 0,
             last_failure: None,
         }
     }
@@ -2056,12 +2601,14 @@ impl GpuCameraRenderer {
     ) -> Result<usize, String> {
         let key = GpuCameraImportKey::from_frame(frame);
         if let Some(index) = self.imports.iter().position(|import| import.key == key) {
+            self.import_cache_hit_count = self.import_cache_hit_count.saturating_add(1);
             if self.imports[index].needs_layout_transition {
                 transition_imported_camera_image(device, cmd, self.imports[index].image);
                 self.imports[index].needs_layout_transition = false;
             }
             return Ok(index);
         }
+        self.import_cache_miss_count = self.import_cache_miss_count.saturating_add(1);
 
         let mut format_props = vk::AndroidHardwareBufferFormatPropertiesANDROID::default();
         let mut properties =
@@ -2109,6 +2656,7 @@ impl GpuCameraRenderer {
             let old = self.imports.remove(0);
             self.destroy_stereo_descriptors_for_key(device, old.key);
             old.destroy(device);
+            self.import_cache_evict_count = self.import_cache_evict_count.saturating_add(1);
         }
 
         let resources = self
@@ -2130,7 +2678,7 @@ impl GpuCameraRenderer {
         transition_imported_camera_image(device, cmd, self.imports[index].image);
         self.imports[index].needs_layout_transition = false;
         log_info(format!(
-            "Rusty XR Vulkan imported Camera2 hardware buffer size={}x{} nativeFormat={} externalFormat={} vkFormat={:?} allocationSize={} memoryTypeBits=0x{:x} importCacheSize={}",
+            "Rusty XR Vulkan imported Camera2 hardware buffer size={}x{} nativeFormat={} externalFormat={} vkFormat={:?} allocationSize={} memoryTypeBits=0x{:x} suggestedYcbcrModel={:?} suggestedYcbcrRange={:?} samplerYcbcrComponents={:?} suggestedXChromaOffset={:?} suggestedYChromaOffset={:?} importCacheSize={} importCacheLimit={} importCacheMiss={} importCacheEvict={}",
             frame.width,
             frame.height,
             frame.descriptor.native_format.unwrap_or_default(),
@@ -2138,7 +2686,15 @@ impl GpuCameraRenderer {
             format_key.format,
             allocation_size,
             memory_type_bits,
-            self.imports.len()
+            format_props.suggested_ycbcr_model,
+            format_props.suggested_ycbcr_range,
+            format_props.sampler_ycbcr_conversion_components,
+            format_props.suggested_x_chroma_offset,
+            format_props.suggested_y_chroma_offset,
+            self.imports.len(),
+            GPU_CAMERA_IMPORT_CACHE_LIMIT,
+            self.import_cache_miss_count,
+            self.import_cache_evict_count
         ));
         Ok(index)
     }
@@ -3198,6 +3754,11 @@ unsafe fn create_gpu_camera_pipeline(
         .color_write_mask(vk::ColorComponentFlags::RGBA)];
     let color_blend =
         vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachment);
+    let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
+        .depth_test_enable(false)
+        .depth_write_enable(false)
+        .depth_compare_op(vk::CompareOp::ALWAYS)
+        .stencil_test_enable(false);
     let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
     let dynamic = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
     let create_info = [vk::GraphicsPipelineCreateInfo::default()
@@ -3208,6 +3769,7 @@ unsafe fn create_gpu_camera_pipeline(
         .rasterization_state(&rasterization)
         .multisample_state(&multisample)
         .color_blend_state(&color_blend)
+        .depth_stencil_state(&depth_stencil)
         .dynamic_state(&dynamic)
         .layout(pipeline_layout)
         .render_pass(render_pass)
@@ -3424,12 +3986,21 @@ struct Swapchain {
     handle: xr::Swapchain<xr::Vulkan>,
     buffers: Vec<Framebuffer>,
     resolution: vk::Extent2D,
+    foveation_enabled: bool,
 }
 
 struct Framebuffer {
     framebuffer: vk::Framebuffer,
     color: vk::ImageView,
+    depth: Option<DepthAttachment>,
+    fragment_density: vk::ImageView,
     image: vk::Image,
+}
+
+struct DepthAttachment {
+    image: vk::Image,
+    view: vk::ImageView,
+    memory: vk::DeviceMemory,
 }
 
 struct CameraUpload {

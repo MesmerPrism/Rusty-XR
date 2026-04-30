@@ -212,6 +212,9 @@ preferred performance path. The performant shape is:
 - Keep projection and per-eye selection in shader space; do not CPU-resample
   into full-eye staging buffers at camera frame rate.
 - Keep render/buffer scale configurable for full-view custom projection.
+  Keep a lower-scale performance profile available when a device can import
+  camera buffers cleanly but the full projected shader path cannot hold display
+  cadence at the baseline scale.
 - Keep fixed foveation off for edge-sensitive projection paths unless a device
   test proves the fragment-density map does not introduce visible edge or tile
   artifacts.
@@ -223,6 +226,15 @@ preferred performance path. The performant shape is:
   bake constants where possible, and avoid adding live draw variables casually.
 - Reuse descriptor pools and external-buffer imports; repeated allocation per
   camera frame or per guide pass can dominate memory and CPU.
+- Size the imported hardware-buffer cache to the camera producer's retained
+  buffer pool. If the stereo `ImageReader` can rotate through several buffers
+  per eye but the Vulkan cache is smaller than the combined left/right pool,
+  the renderer can re-import buffers every frame and lose the intended GPU
+  fast path.
+- Track OpenXR frame cadence, camera delivery FPS, and import churn as separate
+  counters. A renderer can hold display cadence while the Camera2 producer
+  delivers below display cadence, and stale-camera-frame diagnosis needs both
+  numbers in the same run.
 - Coalesce camera-frame wakeups so callbacks cannot queue unbounded render-loop
   messages.
 - For separate left/right Camera2 streams, treat timestamp matching as a soft
@@ -247,7 +259,10 @@ On the current opaque Camera2 hardware-buffer path, the Vulkan sampler-YCbCr
 conversion presents normalized RGB at the projection shader boundary. Keep
 manual BT.601-style channel decode as a diagnostic switch for devices that
 expose channel-packed values, but do not stack that decode on top of the
-external sampler's conversion.
+external sampler's conversion. Log the external format, Vulkan format,
+suggested YCbCr model/range, component mapping, and active camera color mode
+with each import test so RGB-sampler and shader-decode paths can be compared
+without changing projection or border behavior.
 
 For eye alignment, scale camera intrinsics from the source metadata pixel
 domain into the delivered per-eye stream domain before projection. A
