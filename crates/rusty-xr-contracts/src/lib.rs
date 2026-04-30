@@ -30,8 +30,11 @@ pub mod time;
 pub mod view;
 
 pub use camera::{
-    CameraExtrinsics, CameraFrameMetadata, CameraIntrinsics, CameraSourceId, ImageSize,
-    StereoCameraFrameMetadata,
+    CameraCompositeTier, CameraExtrinsics, CameraFrameMetadata, CameraFrameMetadataFlags,
+    CameraGpuBufferDescriptor, CameraImageRotation, CameraIntrinsics, CameraPixelDomain,
+    CameraPixelDomainKind, CameraPoseSource, CameraProjectionStatus, CameraSourceDiagnostic,
+    CameraSourceDiagnosticsReport, CameraSourceId, CameraTextureTransform, ImageSize,
+    StereoCameraCalibrationProfile, StereoCameraCandidateDiagnostic, StereoCameraFrameMetadata,
 };
 pub use depth::{
     ConfidenceFormat, DepthFormat, DepthFrameDescriptor, DepthPayloadDescriptor,

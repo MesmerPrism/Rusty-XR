@@ -73,7 +73,7 @@ Reusable descriptors for app-owned projected mono/stereo media layers,
 side-by-side or separate-eye source layouts, aspect-fit content rectangles, and
 simple visual feedback/content borders. Public tuning may include border-only
 coverage/radius/edge/feedback scalar values and adapter performance hints for
-custom stereo and MediaProjection feedback layers.
+custom stereo and optional screen-feedback layers.
 
 These contracts do not implement privileged compositor passthrough layers, the
 Passthrough Camera API, MediaProjection, OpenXR composition submission, Vulkan
@@ -174,12 +174,15 @@ Current Quest media implementation status:
   Windows frame receiver, plain stereo layer descriptors, border tuning,
   composite-feedback tuning, performance hints, and visual feedback border
   layout.
-- Public Rusty XR does not yet include native Quest OpenXR passthrough
-  composition code, Passthrough Camera API / Camera2 acquisition, environment
-  depth provider start/acquire code, Android hardware-buffer import, Vulkan
-  external-format sampling, or APK shell integration.
-- Future native support should arrive as thin optional adapters after the
-  contracts have enough synthetic tests and at least one clean public example.
+- Public Rusty XR now includes a clean Quest example APK that demonstrates a
+  Camera2/headset-camera custom layer with OpenXR/Vulkan submission, Android
+  hardware-buffer import, GPU sampling, paired left/right Camera2 streams,
+  public Camera2 intrinsics/pose metadata, display-eye screen-to-camera
+  homographies, and the public soft visual-feedback border.
+- MediaProjection remains a final-screen inspection stream only; it is not the
+  raw camera source for the custom layer.
+- Future native support should still stay in thin optional adapters or public
+  examples rather than becoming private app-shell behavior inside core crates.
 
 BLE, LSL, and Polar H10 data-pipeline integration is documented in
 [BLE_LSL_POLAR_PIPELINE.md](BLE_LSL_POLAR_PIPELINE.md). Public crates may model
@@ -277,5 +280,5 @@ responsibilities.
 | Serialization and schemas | In progress | Opt-in `serde` features, round-trip tests, and custom schema export script added. |
 | Boundary scanner and provenance | In progress | Public scanner CLI/config and public utility provenance metadata added. |
 | Feature and adapter policy | `[x]` | Adapter feature names, separate-crate rule, and pre-adapter boundary requirements documented. |
-| Public examples | In progress | Synthetic layout and composite feedback session examples added; minimal Rust-native Android APK smoke test added; hardware/OpenXR/native-adapter examples remain deferred. |
+| Public examples | In progress | Synthetic layout and composite feedback session examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming. |
 | Optional adapters | `[ ]` | Deferred until contracts stabilize. |

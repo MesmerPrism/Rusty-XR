@@ -1,0 +1,190 @@
+{
+  "schemaVersion": "rusty.xr.quest-app-catalog.v1",
+  "apps": [
+    {
+      "id": "rusty-xr-quest-composite-layer",
+      "label": "Rusty XR Quest Camera Composite Layer",
+      "packageName": "com.example.rustyxr.composite",
+      "activityName": ".CompositeLayerActivity",
+      "apkFile": "../build/outputs/rusty-xr-quest-composite-layer-debug.apk",
+      "description": "Public immersive Quest example with explicit synthetic, CPU diagnostic, GPU camera-buffer probe, and projected stereo camera tiers plus optional MediaProjection screen streaming."
+    }
+  ],
+  "deviceProfiles": [
+    {
+      "id": "xr-composite-smoke-test",
+      "label": "XR composite smoke test",
+      "properties": [
+        {
+          "key": "debug.oculus.cpuLevel",
+          "value": "3"
+        },
+        {
+          "key": "debug.oculus.gpuLevel",
+          "value": "3"
+        }
+      ],
+      "description": "Short Quest verification profile for the immersive composite-layer example."
+    }
+  ],
+  "runtimeProfiles": [
+    {
+      "id": "synthetic-composite-layer",
+      "label": "Synthetic layer smoke test",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "synthetic",
+        "rustyxr.camera": "false",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "synthetic",
+        "rustyxr.depth": "off"
+      },
+      "description": "Runs the OpenXR layer without camera or screen capture for lifecycle and renderer isolation."
+    },
+    {
+      "id": "camera-source-diagnostics",
+      "label": "Camera source diagnostics",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "camera-source-diagnostics",
+        "rustyxr.camera": "true",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "headset-camera",
+        "rustyxr.depth": "off"
+      },
+      "description": "Enumerates public Camera2 source capabilities and writes camera-source-diagnostics.json into the verification bundle when --out is enabled."
+    },
+    {
+      "id": "camera-diagnostic-cpu-copy",
+      "label": "Camera diagnostic CPU copy",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "cpu-diagnostic-flat-copy",
+        "rustyxr.camera": "true",
+        "rustyxr.cameraWidth": "1280",
+        "rustyxr.cameraHeight": "1280",
+        "rustyxr.cameraPreferredSquare": "1280",
+        "rustyxr.cameraMaxDimension": "1920",
+        "rustyxr.cameraProjectionFovYDegrees": "92",
+        "rustyxr.cameraPreviewFovYDegrees": "60",
+        "rustyxr.cameraProjectionScale": "0.75",
+        "rustyxr.cameraRawOverlayOverscan": "1.06",
+        "rustyxr.cameraFullViewOverlayOverscan": "2.10",
+        "rustyxr.cameraEdgeFade": "0.12",
+        "rustyxr.cameraStereoLayout": "mono",
+        "rustyxr.xrRenderScale": "0.75",
+        "rustyxr.xrFixedFoveationLevel": "0",
+        "rustyxr.cameraAllowCpuFallback": "true",
+        "rustyxr.cameraCpuUploadHz": "4",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "headset-camera",
+        "rustyxr.depth": "off"
+      },
+      "description": "Runs the OpenXR diagnostic flat camera copy from mono headset Camera2 frames with MediaProjection disabled for renderer isolation."
+    },
+    {
+      "id": "camera-gpu-buffer-probe",
+      "label": "Camera GPU buffer probe",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "gpu-buffer-probe",
+        "rustyxr.camera": "true",
+        "rustyxr.cameraWidth": "1280",
+        "rustyxr.cameraHeight": "1280",
+        "rustyxr.cameraPreferredSquare": "1280",
+        "rustyxr.cameraMaxDimension": "1920",
+        "rustyxr.cameraProjectionFovYDegrees": "92",
+        "rustyxr.cameraPreviewFovYDegrees": "60",
+        "rustyxr.cameraProjectionScale": "0.75",
+        "rustyxr.cameraRawOverlayOverscan": "1.06",
+        "rustyxr.cameraFullViewOverlayOverscan": "2.10",
+        "rustyxr.cameraEdgeFade": "0.12",
+        "rustyxr.cameraStereoLayout": "separate",
+        "rustyxr.xrRenderScale": "0.75",
+        "rustyxr.xrFixedFoveationLevel": "0",
+        "rustyxr.cameraAllowCpuFallback": "false",
+        "rustyxr.cameraCpuUploadHz": "0",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "headset-camera",
+        "rustyxr.depth": "off"
+      },
+      "description": "Requests Camera2 PRIVATE hardware buffers and validates GPU-buffer availability without claiming metadata-backed stereo alignment."
+    },
+    {
+      "id": "camera-stereo-gpu-composite",
+      "label": "Camera stereo GPU composite",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "gpu-projected",
+        "rustyxr.camera": "true",
+        "rustyxr.cameraWidth": "1280",
+        "rustyxr.cameraHeight": "1280",
+        "rustyxr.cameraPreferredSquare": "1280",
+        "rustyxr.cameraMaxDimension": "1920",
+        "rustyxr.cameraProjectionFovYDegrees": "92",
+        "rustyxr.cameraPreviewFovYDegrees": "60",
+        "rustyxr.cameraProjectionScale": "0.75",
+        "rustyxr.cameraRawOverlayOverscan": "1.06",
+        "rustyxr.cameraFullViewOverlayOverscan": "2.10",
+        "rustyxr.cameraEdgeFade": "0.12",
+        "rustyxr.cameraTextureRotation": "rotate0",
+        "rustyxr.cameraTextureFlipX": "false",
+        "rustyxr.cameraTextureFlipY": "false",
+        "rustyxr.cameraTextureMirror": "false",
+        "rustyxr.cameraTextureTransformSource": "public-quest-visual-check",
+        "rustyxr.cameraTextureTransformReason": "Quest Camera2 hardware-buffer UVs are projected with no post-projection texture flip; FlipY remains a diagnostic override for other devices or drivers",
+        "rustyxr.leftCameraTextureRotation": "rotate0",
+        "rustyxr.leftCameraTextureFlipX": "false",
+        "rustyxr.leftCameraTextureFlipY": "false",
+        "rustyxr.leftCameraTextureMirror": "false",
+        "rustyxr.rightCameraTextureRotation": "rotate0",
+        "rustyxr.rightCameraTextureFlipX": "false",
+        "rustyxr.rightCameraTextureFlipY": "false",
+        "rustyxr.rightCameraTextureMirror": "false",
+        "rustyxr.cameraSourceEyeMapping": "left-right",
+        "rustyxr.cameraOrientationDiagnosticMode": "off",
+        "rustyxr.visualReleaseAccepted": "true",
+        "rustyxr.visualAcceptanceToken": "manual-visual-accepted",
+        "rustyxr.cameraStereoLayout": "separate",
+        "rustyxr.cameraStereoPairMaxDeltaNs": "5000000",
+        "rustyxr.xrRenderScale": "0.75",
+        "rustyxr.xrFixedFoveationLevel": "0",
+        "rustyxr.cameraAllowCpuFallback": "false",
+        "rustyxr.cameraCpuUploadHz": "0",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "headset-camera",
+        "rustyxr.depth": "off"
+      },
+      "description": "Final stereo profile. Verification fails unless one projection-status line reports paired left/right GPU buffers, platform or public estimated-profile pose, activeTier=gpu-projected, alignedProjection=true, and explicit manual visual acceptance."
+    },
+    {
+      "id": "media-projection-stream",
+      "label": "MediaProjection stream",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "cpu-diagnostic-flat-copy",
+        "rustyxr.camera": "true",
+        "rustyxr.cameraWidth": "1280",
+        "rustyxr.cameraHeight": "1280",
+        "rustyxr.cameraPreferredSquare": "1280",
+        "rustyxr.cameraMaxDimension": "1920",
+        "rustyxr.cameraProjectionFovYDegrees": "92",
+        "rustyxr.cameraPreviewFovYDegrees": "60",
+        "rustyxr.cameraProjectionScale": "0.75",
+        "rustyxr.cameraRawOverlayOverscan": "1.06",
+        "rustyxr.cameraFullViewOverlayOverscan": "2.10",
+        "rustyxr.cameraEdgeFade": "0.12",
+        "rustyxr.cameraStereoLayout": "mono",
+        "rustyxr.xrRenderScale": "0.75",
+        "rustyxr.xrFixedFoveationLevel": "0",
+        "rustyxr.cameraAllowCpuFallback": "true",
+        "rustyxr.cameraCpuUploadHz": "4",
+        "rustyxr.mediaProjection": "true",
+        "rustyxr.mediaProjectionDelayMs": "5000",
+        "rustyxr.source": "headset-camera",
+        "rustyxr.stream": "display-composite-rgba"
+      },
+      "description": "Runs the diagnostic flat camera copy and requests MediaProjection consent only to stream the final screen to a Windows receiver over adb reverse."
+    }
+  ]
+}

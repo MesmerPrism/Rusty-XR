@@ -432,6 +432,27 @@ impl FeedbackBorderTuning {
         dark_edge_feather: 0.16,
     };
 
+    /// Softer raw-camera border preset for public Quest custom camera overlays.
+    ///
+    /// This keeps the visible layer as a direct camera sample and only tunes
+    /// the border blend/shape response. It intentionally excludes downstream
+    /// downstream image processing and project-specific visual layers.
+    pub const SOFT_RAW_CAMERA_BORDER: Self = Self {
+        inner_coverage: 0.30,
+        outer_coverage: 0.88,
+        feedback_mix: 0.62,
+        pullback: 0.16,
+        swirl_strength: 0.18,
+        zoom: 0.12,
+        edge_boost: 0.50,
+        rounded_radius: Vec2::new(0.47, 0.36),
+        rounded_feather: 0.10,
+        corner_radius: 0.08,
+        dark_edge_bleed_inset: 0.16,
+        dark_edge_cutoff: 0.25,
+        dark_edge_feather: 0.14,
+    };
+
     pub fn is_valid(self) -> bool {
         unit(self.inner_coverage)
             && unit(self.outer_coverage)
@@ -760,6 +781,20 @@ mod tests {
         near(tuning.feedback_mix_at_coverage(0.18).unwrap(), 1.0);
         near(tuning.feedback_mix_at_coverage(0.82).unwrap(), 0.0);
         near(tuning.feedback_mix_at_coverage(1.0).unwrap(), 0.0);
+        assert!(tuning.is_valid());
+    }
+
+    #[test]
+    fn soft_raw_camera_border_uses_public_soft_blend_curve() {
+        let tuning = FeedbackBorderTuning::SOFT_RAW_CAMERA_BORDER;
+
+        near(tuning.feedback_mix_at_coverage(0.0).unwrap(), 0.62);
+        near(tuning.feedback_mix_at_coverage(0.30).unwrap(), 0.62);
+        near(tuning.feedback_mix_at_coverage(0.88).unwrap(), 0.0);
+        near(tuning.feedback_mix_at_coverage(1.0).unwrap(), 0.0);
+        near(tuning.rounded_radius.x, 0.47);
+        near(tuning.rounded_radius.y, 0.36);
+        near(tuning.dark_edge_bleed_inset, 0.16);
         assert!(tuning.is_valid());
     }
 

@@ -15,6 +15,7 @@ Keep these sources separate:
   headset camera permission and camera metadata handling.
 - MediaProjection: final display or selected app-window capture. Use this when
   the goal is to represent what the user sees, including app UI and overlays.
+  It is not the camera source for a camera-driven custom projection layer.
 - App render payloads: app-owned frames, particles, depth summaries, counters,
   or synthetic debug visuals.
 
@@ -35,12 +36,12 @@ media surfaces:
   the fitted content rectangle.
 - `FeedbackBorderTuning` carries public border-only tuning values from custom
   stereo camera work.
-- `VisualFeedbackLayerTuning` carries public scalar knobs for the
-  MediaProjection/composite feedback surface used by the border.
+- `VisualFeedbackLayerTuning` carries public scalar knobs for optional
+  screen-composite feedback surfaces and border adapters.
 - `StereoLayerPerformanceHints` records adapter performance levers for custom
   stereo and feedback layers.
 
-Use these for raw camera overlays, MediaProjection feedback insets, debug
+Use these for raw camera overlays, optional screen-feedback insets, debug
 surfaces, or future renderer adapters. They are intentionally layout-only. They
 do not implement compositor passthrough, OpenXR composition submission, Camera2
 or Passthrough Camera API acquisition, Android hardware-buffer import, Vulkan
@@ -63,6 +64,26 @@ The public border baseline is:
 | `dark_edge_bleed_inset` | `0.25` | How far dark edge-adjacent feedback may bleed inward. |
 | `dark_edge_cutoff` | `0.22` | Luma cutoff for dark edge-adjacent feedback. |
 | `dark_edge_feather` | `0.16` | Feather around the dark-edge cutoff. |
+
+The public soft raw-camera border preset is intended for the Quest stereo
+camera overlay example when the visible layer remains a direct raw camera
+sample and the border should blend gently back into the projection:
+
+| Knob | Public soft raw-camera value | Meaning |
+| --- | --- | --- |
+| `inner_coverage` | `0.30` | Coverage value where the soft border is still fully mixed. |
+| `outer_coverage` | `0.88` | Coverage value where the border contribution fades out. |
+| `feedback_mix` | `0.62` | Maximum border blend contribution. |
+| `pullback` | `0.16` | Inward camera-sample pullback for the border bleed. |
+| `swirl_strength` | `0.18` | Mild public border-only motion hint. |
+| `zoom` | `0.12` | Mild public border-only zoom hint. |
+| `edge_boost` | `0.50` | Edge-derived border response boost. |
+| `rounded_radius` | `(0.47, 0.36)` | Rounded/oval border shape radius in normalized content space. |
+| `rounded_feather` | `0.10` | Border shape feather. |
+| `corner_radius` | `0.08` | Rounded-corner radius. |
+| `dark_edge_bleed_inset` | `0.16` | How far dark edge-adjacent feedback may bleed inward. |
+| `dark_edge_cutoff` | `0.25` | Luma cutoff for dark edge-adjacent feedback. |
+| `dark_edge_feather` | `0.14` | Feather around the dark-edge cutoff. |
 
 Do not confuse this border tuning with downstream effect layers. The public
 repo may carry these border scalar values and layout helpers; it should not
@@ -95,11 +116,16 @@ behavior into the core:
   external-format / YCbCr-aware sampling. CPU-readable YUV is useful for
   capture/debug, but it should not be the default visible path.
 - Keep the native compositor passthrough layer, raw camera overlay, and
-  MediaProjection feedback surface separate. They have different permissions,
-  timing, and sampling rules.
-- For MediaProjection feedback, treat the source as monoscopic RGBA unless the
-  app explicitly publishes stereo metadata. Sample the full UV range for both
-  eyes and preserve the source aspect for the inset.
+  optional MediaProjection screen-capture surface separate. They have different
+  permissions, timing, and sampling rules.
+- In a camera-driven custom composite example, the visible layer source should
+  be the headset camera path. MediaProjection should be reserved for
+  final-screen capture to Windows so operators and test harnesses can inspect
+  what the headset is showing.
+- For optional final-screen surfaces sourced from MediaProjection, treat the
+  source as monoscopic RGBA unless the app explicitly publishes stereo
+  metadata. Sample the full UV range for both eyes and preserve the source
+  aspect for the inset.
 - Keep environment depth off for ordinary border/stereo feedback. Start/acquire
   depth only for explicit visual-debug, mapping, or readback modes.
 - Keep environment cubes and physics workers off unless the current scene
@@ -112,6 +138,76 @@ behavior into the core:
   avoidable cost.
 - Coalesce camera-frame-ready and render-loop wakeups so headset camera
   callbacks do not produce unbounded main-loop churn.
+
+The current public Quest composite-layer example exposes three camera path
+tiers:
+
+- Tier 0: synthetic OpenXR/Vulkan smoke test, no camera.
+- Tier 1: CPU diagnostic flat camera copy. It converts `YUV_420_888` to RGBA,
+  preserves the raw camera source aspect, stages below source resolution, and
+  copies the same mono image into both eye swapchain array layers. It does not
+  claim camera/view alignment.
+- Tier 2: intended GPU-projected headset-camera path. The public example now
+  has an Android hardware-buffer bridge for paired Camera2 `PRIVATE` frames.
+  It reports `activeTier=gpu-projected` only when imported left/right buffers,
+  scaled per-eye intrinsics, valid per-eye pose/extrinsics, and the projection
+  shader are active together with explicit per-eye camera texture orientation,
+  source-eye mapping, and the visual-inspection release gate.
+
+The Java bridge passes public metadata to Rust for diagnostics and projection:
+source label, camera ID, delivered size, timestamp, optional sensor
+orientation, optional active-array or sensor pixel domains, optional focal
+length and principal point, Camera2 lens-pose translation/rotation/reference
+when available, requested/active tier labels, transport labels, GPU-buffer
+descriptors when available, and explicit flags for missing intrinsics or
+missing pose.
+
+That CPU path is useful for bring-up and diagnostics, but it is not the
+preferred performance path. The performant shape is:
+
+- Import camera frames as GPU-sampled hardware buffers instead of converting
+  `YUV_420_888` to RGBA on CPU.
+- If a CPU diagnostic path is kept, throttle it at the ImageReader/acquisition
+  boundary; throttling only after CPU conversion still burns the frame budget.
+- Keep CPU diagnostic staging previews below source resolution. Full-resolution
+  per-eye projection belongs in shader space or a GPU camera texture path.
+- Keep projection and per-eye selection in shader space; do not CPU-resample
+  into full-eye staging buffers at camera frame rate.
+- Keep render/buffer scale configurable for full-view custom projection.
+- Keep fixed foveation off for edge-sensitive projection paths unless a device
+  test proves the fragment-density map does not introduce visible edge or tile
+  artifacts.
+- Keep final XR shader interfaces small. Move guide work to offscreen passes,
+  bake constants where possible, and avoid adding live draw variables casually.
+- Reuse descriptor pools and external-buffer imports; repeated allocation per
+  camera frame or per guide pass can dominate memory and CPU.
+- Coalesce camera-frame wakeups so callbacks cannot queue unbounded render-loop
+  messages.
+- Keep environment depth, environment cubes, TSDF/readback, physics workers,
+  and MediaProjection disabled unless the active runtime mode consumes them.
+
+Production adapters should use GPU-sampled camera buffers, Android
+hardware-buffer import, external-format or YCbCr-aware Vulkan sampling, and a
+small projection shader. A Tier 2 launch must not be reported as aligned unless
+the GPU texture, intrinsics, source camera pose/extrinsics, explicit per-eye
+camera texture orientation, source-eye mapping, and visual inspection gate are
+all active.
+
+For eye alignment, scale camera intrinsics from the source metadata pixel
+domain into the delivered per-eye stream domain before projection. A
+side-by-side stream halves the delivered width per eye, a top-bottom stream
+halves the delivered height per eye, and separate-eye streams use the full
+delivered image per eye. A real aligned renderer should, for each eye, compute
+the world point on the head-anchored camera surface, transform that point into
+the active source camera frame when pose metadata exists, project through the
+scaled intrinsics, and sample the camera texture. Camera2
+`LENS_POSE_REFERENCE_GYROSCOPE` must first be resolved through the current
+head/tracking basis; it is not already OpenXR eye space. If intrinsics or pose
+metadata is missing, the renderer should fall back to a visible/logged
+diagnostic flat copy. Mono Camera2 fallback should be labeled as mono fallback,
+not true stereo alignment. For opaque GPU camera buffers, apply any public
+per-eye `CameraTextureTransform` after projection UV calculation and before
+sampling; this texture transform is separate from Camera2 sensor orientation.
 
 ## Windows Streaming Shape
 
@@ -255,6 +351,19 @@ A custom launcher should not try to bypass MediaProjection consent. It can
 install, launch, set debug properties, prepare `adb reverse`, and watch logs,
 but the app must still trigger the consent flow in headset.
 
+On current Quest system UI, the MediaProjection flow can include an additional
+`Select view you want to share` panel after the first consent prompt. Treat this
+as a headset/user step: select `Entire view`, then press `Share` in the
+headset. ADB shell taps and UIAutomator inspection can see parts of this panel
+on some firmware versions, but they cannot reliably select the view or enable
+the final share action. A public launcher or validation harness should report
+the blocked state instead of claiming it can clear the selector automatically.
+
+When validating a display-composite stream, distinguish app failure from a
+receiver that intentionally exits after one frame. A short-lived Windows
+receiver can close the socket after proving the first payload, which may make
+the app log a broken pipe even though capture and transport were working.
+
 ### Special Permissions
 
 Special permissions are neither normal install-time permissions nor runtime
@@ -282,6 +391,13 @@ the headset:
 5. User accepts in headset.
 6. App receives the result, opens the camera/projection, and starts streaming.
 7. App handles denial by disabling only the feature that needed the permission.
+
+For Quest OpenXR examples, validate the renderer separately from
+MediaProjection consent. First launch with display capture disabled and confirm
+OpenXR reaches `READY` / `FOCUSED`, camera frames are received, and the custom
+layer submits frames. Then repeat with MediaProjection enabled and complete the
+headset consent/selector flow. This keeps a blocked consent overlay from being
+misdiagnosed as an OpenXR, Camera2, or Vulkan renderer failure.
 
 ## Public Tool Boundary
 

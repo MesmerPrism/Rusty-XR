@@ -113,8 +113,9 @@ import, and Makepad widget code.
 
 Next likely public step:
 
-- Add a small public example that computes a 16:9 MediaProjection feedback inset
-  and border layout, then emits the rectangles as JSON or render payload data.
+- Complete the first public Quest example's GPU-sampled camera-buffer renderer
+  after the public hardware-buffer metadata probe, while keeping MediaProjection
+  as an optional final-screen stream to Windows.
 
 ## Strong Public Candidates
 
@@ -128,7 +129,7 @@ Next likely public step:
 | Scene mesh semantic fallback | Local semantic mesh builders | Plane/box semantic mesh contracts and maybe tiny mesh generators | Low |
 | Plain projected stereo media layer | Local custom stereo layer work | Optional adapter around public `PlainStereoLayer`; native renderer provides textures and draw calls | Low if shader/effect stack stays downstream |
 | Border tuning and performance hints | Local custom stereo/feedback docs and code | Public scalar tuning structs and performance policies for adapter authors | Low if kept data-only |
-| Visual feedback border example | Local composite-feedback and capture docs | Public border/inset layout example for MediaProjection feedback surfaces | Low if kept as geometry/layout only |
+| Visual feedback border example | Local composite-feedback and capture docs | Public border/inset layout example for optional screen-feedback or camera-composite surfaces | Low if kept as geometry/layout only |
 | Depth-readback novelty gates | Local TSDF/depth integration experiments | Generic novelty score and readback cadence policy | Medium; constants need public names and tests |
 | Surface-net chunk extraction | Local depth debug mesh experiments | TSDF-to-chunked debug mesh extraction over public sparse snapshot | Medium; more algorithmic code and attribution needed |
 | Depth support/impact planes | Local depth query experiments | Support-plane and impact-plane summaries for particles/physics | Medium; keep physics adapters optional |

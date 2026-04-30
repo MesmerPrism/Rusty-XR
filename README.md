@@ -40,14 +40,32 @@ The public examples are synthetic contracts-only demos:
 [crates/rusty-xr-contracts/examples/README.md](crates/rusty-xr-contracts/examples/README.md).
 The first APK-producing example is a minimal Rust-native Android smoke test:
 [examples/quest-minimal-apk/README.md](examples/quest-minimal-apk/README.md).
+The first immersive Quest example is a Rust/OpenXR/Vulkan APK with explicit
+synthetic, CPU diagnostic, GPU-buffer probe, and paired-camera GPU projection
+tiers. MediaProjection is optional and is used only to stream the final headset
+screen back to Windows for inspection:
+[examples/quest-composite-layer-apk/README.md](examples/quest-composite-layer-apk/README.md).
 
-They can be run without headset hardware or downstream app code:
+The contracts examples and minimal APK can be run without headset hardware or
+downstream app code:
 
 ```powershell
 cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --features serde
 cargo run -p rusty-xr-contracts --example composite_feedback_session --features serde
 powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
 ```
+
+The immersive Quest example requires a Quest-compatible OpenXR loader and
+hardware validation:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -OpenXrLoaderPath C:\path\to\libopenxr_loader.so
+```
+
+Quest raw camera, platform passthrough, MediaProjection, and operator casting
+sources are intentionally distinct. See
+[docs/QUEST_VISUAL_SOURCE_TAXONOMY.md](docs/QUEST_VISUAL_SOURCE_TAXONOMY.md)
+before interpreting camera-composite diagnostics.
 
 ## Makepad Acknowledgement
 

@@ -1,0 +1,36 @@
+[package]
+name = "rusty-xr-quest-composite-native"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+license = "MIT"
+publish = false
+description = "Rust native library for the public Rusty XR Quest composite-layer APK example."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "rusty-xr-quest-composite-json"
+path = "src/main.rs"
+
+[dependencies]
+jni = "0.21"
+rusty-xr-camera-model = { path = "../../../crates/rusty-xr-camera-model", features = ["serde"] }
+rusty-xr-contracts = { path = "../../../crates/rusty-xr-contracts", features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6.1", features = ["native-activity"] }
+ash = "0.38"
+ndk-sys = "0.6"
+ndk-context = "0.1"
+openxr = "0.21.1"
+
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

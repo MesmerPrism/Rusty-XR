@@ -53,6 +53,23 @@ ignored `build/` directory. Rusty XR core owns the source and metadata;
 Companion owns install, launch, stop, device profile, cast, and verification
 flows.
 
+The first immersive public example is
+`examples/quest-composite-layer-apk/`. Its catalog declares separate runtime
+profiles for `synthetic-composite-layer`, `camera-diagnostic-cpu-copy`,
+`camera-source-diagnostics`, `camera-gpu-buffer-probe`,
+`camera-stereo-gpu-composite`, and optional `media-projection-stream`.
+Runtime-profile `values` are passed as Activity launch extras by the Companion
+app; MediaProjection profile values must not be interpreted as the render
+source for the custom layer.
+
+The `camera-stereo-gpu-composite` profile is the accepted public raw-camera
+reference path for the tested Quest Camera2 provider: paired `PRIVATE`
+hardware buffers, platform intrinsics/pose metadata, display-eye
+screen-to-camera homographies, `rotate0` per-source texture orientation, and
+explicit manual visual acceptance. New device/runtime variants should rerun
+`camera-source-diagnostics` and keep the manual visual gate until orientation,
+eye mapping, head-motion stability, and border behavior are inspected.
+
 Validate a catalog with:
 
 ```powershell

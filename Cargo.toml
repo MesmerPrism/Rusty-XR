@@ -12,6 +12,7 @@ members = [
     "crates/rusty-xr-sdf",
     "crates/rusty-xr-particles",
     "examples/quest-minimal-apk/native",
+    "examples/quest-composite-layer-apk/native",
 ]
 
 [workspace.package]

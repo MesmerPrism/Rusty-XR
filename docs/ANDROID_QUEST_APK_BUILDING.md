@@ -109,12 +109,55 @@ commands and app identifiers belong to the shell repo.
 For media streaming and permission taxonomy, see
 [MEDIA_PIPELINE_AND_PERMISSIONS.md](MEDIA_PIPELINE_AND_PERMISSIONS.md).
 
+## Quest OpenXR Bring-Up Lessons
+
+Quest OpenXR session readiness is sensitive to the Android context passed to
+the OpenXR loader and instance creation path. If a Rust Android shell uses
+`android-activity`, do not assume the value exposed through `ndk-context` is
+the foreground `Activity`. It may be the application object, which is useful
+for many Android calls but is not sufficient for Quest OpenXR session readiness.
+
+Use the active `AndroidApp` pointers when initializing the Android OpenXR
+loader and creating the instance:
+
+- `AndroidApp::vm_as_ptr()` for the Java VM
+- `AndroidApp::activity_as_ptr()` for the current Activity
+
+The failure mode can be misleading. The app may create an OpenXR instance and
+still remain visually stuck on the loading/black screen. Common log signals are
+runtime warnings about a legacy or non-context OpenXR client,
+`xrCreateSession: Activity is not yet in the ready state`, and a session that
+never advances beyond `OpenXR state IDLE`.
+
+Durable success signals are:
+
+- the app logs that the Android OpenXR loader was initialized with the Activity
+  context
+- the OpenXR session advances through `READY`, `SYNCHRONIZED`, `VISIBLE`, and
+  `FOCUSED`
+- swapchains are created at headset eye resolution
+- frame logs continue after the first submitted frame
+- for camera-driven examples, logcat reports camera frames being received and
+  uploaded before the headset view, cast, or screenshot shows the submitted
+  custom layer
+
+Also wait for Android lifecycle foreground readiness before creating the
+OpenXR/Vulkan session. A practical custom-shell gate is to wait until the app is
+resumed, focused, and has a native window. When debugging renderer bring-up,
+launch once with MediaProjection disabled so a capture consent overlay is not
+mistaken for an OpenXR session failure. Validate camera-only rendering before
+adding screen-streaming capture.
+
+Keep the immersive VR Activity separate from the Android launcher entrypoint
+when needed. A launcher alias or small launcher Activity can expose a normal
+app icon, while the OpenXR Activity remains focused on VR lifecycle and runtime
+requirements.
+
 ## Public Example Policy
 
-Future public examples may include a minimal Rust Android/OpenXR shell, but it
-must be authored as a clean example for Rusty XR. It should use synthetic data
-where possible, avoid private package names and assets, and avoid copying
-private rendering behavior.
+Public examples that include Android or OpenXR code must be authored as clean
+examples for Rusty XR. They should use synthetic data where possible, avoid
+private package names and assets, and avoid copying private rendering behavior.
 
 The first public APK example is `examples/quest-minimal-apk/`. It is a
 Rust-native Android smoke test: a Java activity loads a Rust `cdylib`, displays
@@ -131,3 +174,38 @@ powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Buil
 The APK is written under `examples/quest-minimal-apk/build/`, which is ignored.
 Use the catalog in `examples/quest-minimal-apk/catalog/` to install, launch,
 and verify it through Rusty XR Companion Apps.
+
+The first public immersive APK example is
+`examples/quest-composite-layer-apk/`. It builds a Rust/OpenXR/Vulkan Quest APK
+that requests headset-camera access and exposes explicit renderer tiers:
+synthetic smoke test, CPU diagnostic flat camera copy, GPU-buffer probe, and
+the paired-camera GPU projected headset-camera path. The accepted stereo path
+uses GPU-imported Camera2 `PRIVATE` buffers plus metadata-backed shader
+projection; probe and CPU tiers remain available for bring-up. Java bridges
+public camera metadata to Rust,
+including selected camera ID, delivered size, timestamp, optional sensor
+orientation, optional pixel-domain and intrinsics data, requested/active tier
+labels, transport labels, GPU hardware-buffer descriptors when available, and
+explicit missing intrinsics / missing pose flags.
+
+The Tier 2 profile requests Camera2 `PRIVATE` frames and probes their
+`HardwareBuffer` / `AHardwareBuffer` descriptors without staging RGBA on CPU,
+but it logs fallback while the projection shader/import renderer or pose-backed
+stereo metadata is unavailable. The example does not claim true camera/view
+alignment in that state. Full-rate custom projection should import GPU-sampled
+camera hardware buffers instead of relying on the example's CPU YUV/RGBA copy
+path. The diagnostic CPU path is throttled at the ImageReader boundary with
+`rustyxr.cameraCpuUploadHz` so skipped frames do not still pay conversion cost.
+MediaProjection remains optional and is used only to stream the final headset
+screen to a Windows receiver for inspection.
+
+Build it locally with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -OpenXrLoaderPath C:\path\to\libopenxr_loader.so
+```
+
+The APK is written under `examples/quest-composite-layer-apk/build/`, which is
+ignored. Its catalog can be used with Rusty XR Companion Apps for install,
+launch, runtime-profile extras, log capture, screenshot/cast inspection, and
+media-receiver validation.

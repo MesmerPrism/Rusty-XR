@@ -65,8 +65,32 @@ The first public examples are synthetic contracts-only demos:
 The first public APK-producing example is a minimal Rust-native Android smoke
 test:
 `powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1`.
-Hardware/OpenXR/native-adapter examples remain deferred until the utility
-surface review passes.
+The first public immersive Quest example is a clean camera-driven
+Rust/OpenXR/Vulkan custom-layer APK. It exposes `synthetic-composite-layer`,
+`camera-source-diagnostics`, `camera-diagnostic-cpu-copy`,
+`camera-gpu-buffer-probe`, `camera-stereo-gpu-composite`, and
+optional `media-projection-stream` runtime profiles. MediaProjection in that example is
+only a Windows/operator final-screen stream, not the custom-layer source:
+`powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -OpenXrLoaderPath C:\path\to\libopenxr_loader.so`.
+Its camera profile should keep the public raw-feed defaults consistent: prefer a
+`1280x1280` square source, cap preferred formats at `1920`, use camera FOV
+`92`, preview FOV `60`, raw overscan `1.06`, full-view overscan `2.10`,
+edge fade `0.12`, and scale intrinsics into the delivered per-eye stream domain
+before projection.
+For Quest performance, treat render/buffer scale `0.75`, fixed foveation level
+`0`, GPU-sampled camera hardware buffers, shader-space projection, coalesced
+camera wakeups, bounded external-buffer imports, descriptor reuse, and gated
+depth/env/physics work as the public target profile. The CPU YUV/RGBA example
+path is only a bring-up harness; if it is enabled, throttle it before CPU
+conversion at the ImageReader/acquisition boundary and keep the CPU staging
+preview below source resolution. The Tier 2 public example uses Camera2
+`PRIVATE` hardware buffers, retained AHardwareBuffer lifetime, Vulkan import,
+paired left/right source handling when exposed, platform or public estimated
+pose metadata, and display-eye screen-to-camera homographies. Keep the final
+verifier gated by one structured projection-status line plus manual visual
+acceptance; do not stage APKs, screenshots, logs, or verifier bundles.
+Keep future hardware/native-adapter examples synthetic and public-authored
+unless the user explicitly approves a sanitized extraction.
 
 ## Crate Map
 
@@ -115,6 +139,22 @@ catalog metadata. Keep the shared shape aligned through
 `quest-app-catalog.schema.json`; do not copy Windows app shell code or APK
 payloads into this core repo.
 
+Quest OpenXR Activity-context rule:
+
+- In Rust Android shells using `android-activity`, do not assume
+  `ndk-context` is the foreground Activity. For Quest OpenXR loader and
+  instance creation, use `AndroidApp::vm_as_ptr()` and
+  `AndroidApp::activity_as_ptr()`.
+- If the wrong context is passed, the app may create an instance but remain at
+  `OpenXR state IDLE`, with runtime warnings about a legacy/non-context client
+  or `xrCreateSession: Activity is not yet in the ready state`.
+- Wait for Android foreground readiness before creating the OpenXR/Vulkan
+  session: resumed, focused, and native window available.
+- For first-pass debugging, launch with MediaProjection disabled so a consent
+  overlay is not mistaken for an OpenXR session failure.
+- Success signals are `READY`, `SYNCHRONIZED`, `VISIBLE`, `FOCUSED`, swapchain
+  creation, recurring frame logs, and headset-visible content.
+
 ## Media Pipeline And Permissions
 
 Keep media sources separate:
@@ -124,6 +164,10 @@ Keep media sources separate:
 - MediaProjection: final display or app-window capture, including app UI/overlays.
 - App render payloads: app-owned frames, particles, depth summaries, counters, or synthetic debug visuals.
 - Plain feedback borders: public layout geometry, approved border tuning, approved visual-feedback scalar knobs, and performance hints only; no private downstream image-processing passes, effect-map implementations, geometric-effect implementation, scene behavior, or project-specific shader code.
+
+For camera-driven custom-layer examples, do not describe MediaProjection as the
+render source. The render source is headset camera / Camera2; MediaProjection
+only streams the final screen to Windows for operator or harness inspection.
 
 For Windows streaming, prefer generic tools and protocols:
 
@@ -138,6 +182,10 @@ Permission rules:
 - Runtime/dangerous permissions: declare and request from a foreground Activity to spawn the headset popup. Camera/headset-camera, microphone, Android 12+ Nearby Devices permissions for Bluetooth scan/connect/advertise, legacy scan-location permission, and notifications belong here when required by target API/platform behavior.
 - Development launcher grants: ADB can usually grant declared ordinary runtime permissions with `pm grant` or `install -g`; do not treat this as production UX.
 - MediaProjection: request user consent with `MediaProjectionManager.createScreenCaptureIntent()` for each capture session; a launcher cannot bypass this.
+- Quest MediaProjection selector: current system UI may show `Select view you
+  want to share`; the user must select `Entire view` and press `Share` in the
+  headset. Do not document ADB taps or UIAutomator as a reliable way to clear
+  this panel.
 - Special permissions: route users to settings or OEM-specific surfaces; avoid them in public examples unless necessary.
 
 When documenting a new media feature, state which permissions are manifest-only, which a launcher can grant for development, and which must be requested in-headset by the app.
@@ -164,6 +212,7 @@ Keep Bluetooth and LSL transport code out of pure crates:
 cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --features serde
 cargo run -p rusty-xr-contracts --example composite_feedback_session --features serde
 powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
+powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -OpenXrLoaderPath C:\path\to\libopenxr_loader.so
 ```
 
 6. Run validation:
