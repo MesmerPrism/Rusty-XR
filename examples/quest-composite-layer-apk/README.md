@@ -190,6 +190,13 @@ Useful launch extras:
   deltas for release validation. The Java pending-pair queue stays small, but
   the stereo `ImageReader` uses a deeper opaque-buffer pool so Vulkan-retained
   `AHardwareBuffer` imports do not starve Camera2.
+- `rustyxr.cameraStereoImageReaderMaxImages`: max image count for each
+  separate-eye `PRIVATE` `ImageReader`. The default public profile uses `8` so
+  Java `Image` ownership, Camera2 producer buffers, and Vulkan-retained
+  hardware-buffer imports have enough slack to avoid producer starvation.
+  `3` is kept as an explicit acquisition diagnostic because some lower-level
+  camera stacks retain fewer images; test it separately from AE target FPS
+  changes.
 - `rustyxr.cameraSourceEyeMapping`: `left-right` or `right-left`. It controls
   whether the display left eye samples the left/source-0 camera or the
   right/source-1 camera. This is a runtime visual diagnostic knob because
@@ -350,6 +357,13 @@ external-format import, and the public projected stereo profiles use
 device/runtime exposes YCbCr-like channels at the shader boundary; this switch
 does not move the live path back to CPU-readable YUV frames.
 
+The April 30, 2026 headset comparison pass confirmed this distinction on the
+current public Vulkan path: the combined immutable-sampler `external-rgb` mode
+is the usable baseline, while combined-sampler
+`external-cr-y-cb-bt601-narrow` can produce a strongly green/discolored image.
+Treat that result as a sampler/decode diagnostic, not as evidence that
+projection, source-eye mapping, or the border regressed.
+
 The catalog keeps camera path experiments as separate runtime profiles:
 
 - `camera-stereo-gpu-composite`: aligned Vulkan hardware-buffer baseline. It
@@ -381,11 +395,38 @@ hardware-buffer import cache to match the stereo producer pool removed import
 evictions after warm-up. The aligned projected path held `72 FPS` at
 `rustyxr.xrRenderScale=0.65`, while the `0.75` baseline remained useful for
 geometry/color comparison but did not hold display cadence on that run. The
-same run showed Camera2 accepting a `60-60` AE range for a `72-72` request and
+same run showed Camera2 applying a `60-60` AE range for a `72-72` request and
 delivering below display cadence, so camera delivery FPS must be evaluated
-separately from OpenXR submit FPS. The fixed-foveation diagnostic path is still
-not release-ready on runtimes that enumerate null fragment-density image
-handles.
+separately from OpenXR submit FPS. The next acquisition probes are:
+
+- `camera-stereo-gpu-composite-no-ae-target-065`: keep the combined
+  `external-rgb` sampler, render scale `0.65`, and public projection/border
+  path, but send no explicit AE FPS target.
+- `camera-stereo-gpu-composite-reader-max-3-065`: keep the same baseline but
+  reduce each separate-eye `ImageReader` max image count to `3`.
+
+Run those before revisiting sampler shape or shader color math. The
+fixed-foveation diagnostic path is still not release-ready on runtimes that
+enumerate null fragment-density image handles.
+
+## Autonomous Camera Profile Runs
+
+The public workflow helpers in `tools/quest-camera-profile` launch catalog
+runtime profiles, capture power/wake/VR-power snapshots, record logcat and
+screenshots, reject black-camera or standby-transition windows, and compare
+local screenshots with per-ROI color metrics. See
+`docs/QUEST_CAMERA_PROFILE_WORKFLOW.md` for the current test plan and
+validation gates.
+
+Example:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 -Serial <serial> -RuntimeProfile camera-stereo-gpu-composite-no-ae-target-065 -CaptureHzdbScreencap
+```
+
+The generated screenshots, log bundles, manifests, validation JSON, and
+comparison reports belong under ignored `artifacts/` folders and must not be
+committed.
 
 ## Run Through Companion
 

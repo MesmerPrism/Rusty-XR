@@ -164,6 +164,15 @@ remains experimental until headset logs show a created foveated swapchain,
 valid foveation image handles, no framebuffer or driver failure, and stable
 frame cadence.
 
+Recent public profile testing narrowed the next useful axis. On the current
+combined immutable-sampler Vulkan path, `external-rgb` is the usable public
+baseline and shader-side `Cr/Y/Cb` decode can produce a green/discolored image
+because the sampler is already presenting RGB-like values. The next camera
+probes therefore keep projection, border, sampler, and color controls stable
+while changing acquisition parameters: first run with no explicit Camera2 AE
+FPS target, then run with separate-eye `ImageReader` max images reduced to
+`3`, and only then combine those acquisition settings.
+
 The renderer then applies an explicit `CameraTextureTransform` after projection
 UV calculation and before sampling imported camera textures. That transform is
 separate from Camera2 `SENSOR_ORIENTATION`; opaque GPU camera buffers can need a

@@ -80,6 +80,7 @@ public final class HeadsetCameraService extends Service {
     public static final String EXTRA_ESTIMATED_RIGHT_POSE_QZ = "estimatedRightPoseQz";
     public static final String EXTRA_ESTIMATED_RIGHT_POSE_QW = "estimatedRightPoseQw";
     public static final String EXTRA_STEREO_PAIR_MAX_DELTA_NS = "stereoPairMaxDeltaNs";
+    public static final String EXTRA_STEREO_IMAGE_READER_MAX_IMAGES = "stereoImageReaderMaxImages";
 
     private static final String TAG = "RustyXrHeadsetCamera";
     private static final String HEADSET_CAMERA_PERMISSION = "horizonos.permission.HEADSET_CAMERA";
@@ -88,7 +89,7 @@ public final class HeadsetCameraService extends Service {
     private static final int DEFAULT_CPU_UPLOAD_HZ = 4;
     private static final long DEFAULT_STEREO_PAIR_MAX_DELTA_NS = 5_000_000L;
     private static final int STEREO_PENDING_QUEUE_LIMIT = 3;
-    private static final int STEREO_IMAGE_READER_MAX_IMAGES = 8;
+    private static final int DEFAULT_STEREO_IMAGE_READER_MAX_IMAGES = 8;
     private static final String CAMERA_SOURCE_DIAGNOSTICS_FILE = "camera-source-diagnostics.json";
     private static final String TIER_SOURCE_DIAGNOSTICS = "camera-source-diagnostics";
     private static final String TIER_CPU_DIAGNOSTIC = "cpu-diagnostic-flat-copy";
@@ -148,6 +149,7 @@ public final class HeadsetCameraService extends Service {
     private float estimatedRightPoseQz;
     private float estimatedRightPoseQw = 1.0f;
     private long stereoPairMaxDeltaNs = DEFAULT_STEREO_PAIR_MAX_DELTA_NS;
+    private int stereoImageReaderMaxImages = DEFAULT_STEREO_IMAGE_READER_MAX_IMAGES;
     private int activeImageFormat = ImageFormat.YUV_420_888;
     private long cpuFrameIntervalNs;
     private long lastDeliveredTimestampNs = Long.MIN_VALUE;
@@ -257,6 +259,7 @@ public final class HeadsetCameraService extends Service {
         estimatedRightPoseQz = intent != null ? intent.getFloatExtra(EXTRA_ESTIMATED_RIGHT_POSE_QZ, 0.0f) : 0.0f;
         estimatedRightPoseQw = intent != null ? intent.getFloatExtra(EXTRA_ESTIMATED_RIGHT_POSE_QW, 1.0f) : 1.0f;
         stereoPairMaxDeltaNs = intent != null ? intent.getLongExtra(EXTRA_STEREO_PAIR_MAX_DELTA_NS, DEFAULT_STEREO_PAIR_MAX_DELTA_NS) : DEFAULT_STEREO_PAIR_MAX_DELTA_NS;
+        stereoImageReaderMaxImages = intent != null ? intent.getIntExtra(EXTRA_STEREO_IMAGE_READER_MAX_IMAGES, DEFAULT_STEREO_IMAGE_READER_MAX_IMAGES) : DEFAULT_STEREO_IMAGE_READER_MAX_IMAGES;
         if (cameraTier == null || cameraTier.trim().isEmpty()) {
             cameraTier = TIER_CPU_DIAGNOSTIC;
         }
@@ -281,6 +284,7 @@ public final class HeadsetCameraService extends Service {
         cameraFpsMin = Math.max(0, cameraFpsMin);
         cameraFpsMax = Math.max(0, cameraFpsMax);
         stereoPairMaxDeltaNs = Math.max(1L, stereoPairMaxDeltaNs);
+        stereoImageReaderMaxImages = Math.max(2, stereoImageReaderMaxImages);
         cpuFrameIntervalNs = cpuUploadHz > 0 ? Math.max(1L, 1_000_000_000L / cpuUploadHz) : Long.MAX_VALUE;
         lastDeliveredTimestampNs = Long.MIN_VALUE;
         frameIndex = 0;
@@ -683,6 +687,7 @@ public final class HeadsetCameraService extends Service {
         appendFpsRequest(builder);
         builder.append(",\"stereoPairPolicy\":\"latest-pair-soft-timestamp-target\"");
         builder.append(",\"stereoPairSoftTargetNs\":").append(stereoPairMaxDeltaNs);
+        builder.append(",\"stereoImageReaderMaxImages\":").append(stereoImageReaderMaxImages);
         builder.append(',');
         appendJsonString(builder, "selectedProvider", selected != null ? selected.providerKind : "none");
         builder.append(',');
@@ -1073,12 +1078,12 @@ public final class HeadsetCameraService extends Service {
             choice.leftSize.getWidth(),
             choice.leftSize.getHeight(),
             ImageFormat.PRIVATE,
-            STEREO_IMAGE_READER_MAX_IMAGES);
+            stereoImageReaderMaxImages);
         rightImageReader = ImageReader.newInstance(
             choice.rightSize.getWidth(),
             choice.rightSize.getHeight(),
             ImageFormat.PRIVATE,
-            STEREO_IMAGE_READER_MAX_IMAGES);
+            stereoImageReaderMaxImages);
         leftImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
             @Override
             public void onImageAvailable(ImageReader reader) {
@@ -1103,6 +1108,7 @@ public final class HeadsetCameraService extends Service {
             " stereoLayout=separate" +
             " poseSource=" + stereoPoseSourceLabel(choice) +
             " pairMaxDeltaNs=" + stereoPairMaxDeltaNs +
+            " imageReaderMaxImages=" + stereoImageReaderMaxImages +
             " score=" + choice.score);
         sendNativeEvent("headsetCameraStereoOpening");
 

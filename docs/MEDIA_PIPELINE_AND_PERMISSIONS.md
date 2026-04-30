@@ -264,6 +264,42 @@ suggested YCbCr model/range, component mapping, and active camera color mode
 with each import test so RGB-sampler and shader-decode paths can be compared
 without changing projection or border behavior.
 
+Current public Quest profile findings:
+
+- The combined immutable-sampler `external-rgb` path is the usable baseline for
+  the projected stereo example on the tested runtime.
+- The combined-sampler `external-cr-y-cb-bt601-narrow` path can be strongly
+  green/discolored when the external sampler already presents RGB-like values.
+  Keep it as a diagnostic for raw-channel exposure, not as a default public
+  profile.
+- Render cadence and camera cadence must be measured separately. A profile can
+  submit OpenXR frames at `72 Hz` while Camera2 delivers paired camera buffers
+  below display cadence.
+- The next acquisition probes should keep projection and border behavior
+  unchanged while testing no explicit AE FPS request and a smaller stereo
+  `ImageReader` max-image count.
+
+### Autonomous Quest Camera Profile Runs
+
+`tools/quest-camera-profile` contains generic public helpers for repeatable
+Quest camera profile runs:
+
+- `Invoke-QuestCameraProfileRun.ps1` launches a catalog runtime profile,
+  captures power/wake/VR-power snapshots, records logcat and screenshots, and
+  writes a run manifest under ignored `artifacts/`.
+- `Validate-QuestCameraRun.py` rejects black-camera screenshots and log
+  windows that contain sleep, screen-off, session-exit, or automation-disable
+  signals.
+- `Compare-QuestCameraImages.py` compares two local screenshots by ROIs and
+  writes RGB/luma/saturation metrics plus a contact sheet.
+
+Use these tools to keep profile comparisons systematic. A useful run records
+the active runtime profile, camera color mode, requested/applied Camera2 AE FPS
+range, observed camera-pair FPS, CPU upload count, hardware-buffer import cache
+state, OpenXR frame cadence, render scale, foveation state, power state, and
+VR-power/proximity state. Reject the run before comparing color if the headset
+entered standby or the camera ROIs are black.
+
 For eye alignment, scale camera intrinsics from the source metadata pixel
 domain into the delivered per-eye stream domain before projection. A
 side-by-side stream halves the delivered width per eye, a top-bottom stream

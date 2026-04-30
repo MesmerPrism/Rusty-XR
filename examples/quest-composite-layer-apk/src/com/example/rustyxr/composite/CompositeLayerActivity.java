@@ -27,6 +27,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final int DEFAULT_CAMERA_TARGET_FPS = 0;
     private static final int DEFAULT_CAMERA_FPS_MIN = 0;
     private static final int DEFAULT_CAMERA_FPS_MAX = 0;
+    private static final int DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES = 8;
     private static final String DEFAULT_CAMERA_TIER = "cpu-diagnostic-flat-copy";
     private static final String DEFAULT_CAMERA_STEREO_LAYOUT = "mono";
     private static final boolean DEFAULT_CAMERA_ALLOW_CPU_FALLBACK = true;
@@ -233,6 +234,7 @@ public final class CompositeLayerActivity extends NativeActivity {
         int cameraTargetFps = Math.max(0, intExtra("rustyxr.cameraTargetFps", DEFAULT_CAMERA_TARGET_FPS));
         int cameraFpsMin = Math.max(0, intExtra("rustyxr.cameraFpsMin", DEFAULT_CAMERA_FPS_MIN));
         int cameraFpsMax = Math.max(0, intExtra("rustyxr.cameraFpsMax", DEFAULT_CAMERA_FPS_MAX));
+        int stereoImageReaderMaxImages = Math.max(2, intExtra("rustyxr.cameraStereoImageReaderMaxImages", DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES));
         int fixedFoveationLevel = Math.max(0, intExtra("rustyxr.xrFixedFoveationLevel", DEFAULT_XR_FIXED_FOVEATION_LEVEL));
         StringBuilder builder = new StringBuilder(256);
         builder.append('{');
@@ -244,6 +246,7 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraTargetFps\":").append(cameraTargetFps);
         builder.append(",\"cameraFpsMin\":").append(cameraFpsMin);
         builder.append(",\"cameraFpsMax\":").append(cameraFpsMax);
+        builder.append(",\"cameraStereoImageReaderMaxImages\":").append(stereoImageReaderMaxImages);
         builder.append(",\"cameraProjectionFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraProjectionFovYDegrees", DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES)));
         builder.append(",\"cameraPreviewFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraPreviewFovYDegrees", DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES)));
         builder.append(",\"cameraProjectionScale\":").append(floatJson(floatExtra("rustyxr.cameraProjectionScale", DEFAULT_CAMERA_PROJECTION_SCALE)));
@@ -345,6 +348,9 @@ public final class CompositeLayerActivity extends NativeActivity {
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_CAMERA_FPS_MAX,
             intExtra("rustyxr.cameraFpsMax", DEFAULT_CAMERA_FPS_MAX));
+        serviceIntent.putExtra(
+            HeadsetCameraService.EXTRA_STEREO_IMAGE_READER_MAX_IMAGES,
+            intExtra("rustyxr.cameraStereoImageReaderMaxImages", DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES));
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_CAMERA_TIER, cameraTier());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_STEREO_LAYOUT, cameraStereoLayout());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_ALLOW_CPU_FALLBACK, allowCpuFallback());

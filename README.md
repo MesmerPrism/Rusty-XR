@@ -50,6 +50,9 @@ The current raw-camera example has two public projected stereo modes:
 GPU-buffer path and the public soft feedback border, but `quad-surface` is
 still an A/B comparison profile rather than the final performance or color
 reference.
+Current camera color and cadence work is tracked as explicit runtime profiles
+and reusable headset-run tools:
+[docs/QUEST_CAMERA_PROFILE_WORKFLOW.md](docs/QUEST_CAMERA_PROFILE_WORKFLOW.md).
 
 The contracts examples and minimal APK can be run without headset hardware or
 downstream app code:
