@@ -63,11 +63,18 @@ function Invoke-ProcessCapture {
         [int]$TimeoutSeconds = 120
     )
 
+    $quotedArguments = $ArgumentList | ForEach-Object {
+        if ($_ -match '\s') {
+            '"' + ($_ -replace '"', '\"') + '"'
+        }
+        else {
+            $_
+        }
+    }
+
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $FileName
-    foreach ($argument in $ArgumentList) {
-        [void]$startInfo.ArgumentList.Add($argument)
-    }
+    $startInfo.Arguments = $quotedArguments -join " "
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
@@ -112,11 +119,19 @@ function Invoke-AdbBinaryCapture {
         [int]$TimeoutSeconds = 30
     )
 
+    $argumentList = Get-AdbArguments -Arguments $Arguments
+    $quotedArguments = $argumentList | ForEach-Object {
+        if ($_ -match '\s') {
+            '"' + ($_ -replace '"', '\"') + '"'
+        }
+        else {
+            $_
+        }
+    }
+
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $Adb
-    foreach ($argument in (Get-AdbArguments -Arguments $Arguments)) {
-        [void]$startInfo.ArgumentList.Add($argument)
-    }
+    $startInfo.Arguments = $quotedArguments -join " "
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
