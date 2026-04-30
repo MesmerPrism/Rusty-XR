@@ -93,6 +93,9 @@ and is designed to publish directly from the repository `docs/` folder.
 
 The Android / Quest APK responsibility split is documented in
 [docs/ANDROID_QUEST_APK_BUILDING.md](docs/ANDROID_QUEST_APK_BUILDING.md).
+The source workspace and catalog verification flow with Rusty XR Companion
+Apps is documented in
+[docs/RUSTY_XR_COMPANION_INTEGRATION.md](docs/RUSTY_XR_COMPANION_INTEGRATION.md).
 
 Media-pipeline streaming and APK permission guidance is documented in
 [docs/MEDIA_PIPELINE_AND_PERMISSIONS.md](docs/MEDIA_PIPELINE_AND_PERMISSIONS.md).
@@ -119,6 +122,14 @@ boundary with Rusty XR Companion Apps is tracked in
 A raw, portable AI-agent skill for working on this repository lives at
 [skills/rusty-xr-builder/SKILL.md](skills/rusty-xr-builder/SKILL.md). It is
 written so it can be copied into Codex-style or Claude-style skill workflows.
+
+For local Quest verification with Rusty XR Companion Apps, keep both public
+repos as siblings under one workspace folder and run the companion CLI
+workspace guide from the companion repo:
+
+```powershell
+dotnet run --project .\src\RustyXr.Companion.Cli -- workspace guide --root <workspace>
+```
 
 ## License
 

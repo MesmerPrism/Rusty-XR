@@ -42,6 +42,9 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
     let mut enabled_extensions = xr::ExtensionSet::default();
     enabled_extensions.khr_android_create_instance = true;
     enabled_extensions.khr_vulkan_enable2 = true;
+    if available_extensions.fb_display_refresh_rate {
+        enabled_extensions.fb_display_refresh_rate = true;
+    }
 
     let xr_instance = unsafe {
         create_android_instance(
@@ -213,6 +216,76 @@ fn ensure_xr_success(result: xr::sys::Result, operation: &str) -> Result<(), Str
     Ok(())
 }
 
+fn configure_display_refresh_rate<G>(instance: &xr::Instance, session: &xr::Session<G>) {
+    const TARGET_DISPLAY_REFRESH_HZ: f32 = 72.0;
+
+    if instance.exts().fb_display_refresh_rate.is_none() {
+        log_info("Rusty XR OpenXR display refresh extension unavailable; using runtime default");
+        return;
+    }
+
+    let supported = match session.enumerate_display_refresh_rates() {
+        Ok(rates) => rates,
+        Err(error) => {
+            log_error(format!(
+                "Rusty XR could not enumerate OpenXR display refresh rates: {error}"
+            ));
+            return;
+        }
+    };
+    let current = session.get_display_refresh_rate().ok();
+    let target = supported
+        .iter()
+        .copied()
+        .find(|rate| (*rate - TARGET_DISPLAY_REFRESH_HZ).abs() <= 0.05);
+
+    if let Some(target) = target {
+        match session.request_display_refresh_rate(target) {
+            Ok(()) => log_info(format!(
+                "Rusty XR requested OpenXR display refresh {:.1}Hz current={} supported={}",
+                target,
+                refresh_rate_label(current),
+                refresh_rate_list_label(&supported)
+            )),
+            Err(error) => log_error(format!(
+                "Rusty XR could not request OpenXR display refresh {:.1}Hz current={} supported={} error={error}",
+                target,
+                refresh_rate_label(current),
+                refresh_rate_list_label(&supported)
+            )),
+        }
+    } else {
+        log_error(format!(
+            "Rusty XR OpenXR display refresh target {:.1}Hz is not in supported rates current={} supported={}",
+            TARGET_DISPLAY_REFRESH_HZ,
+            refresh_rate_label(current),
+            refresh_rate_list_label(&supported)
+        ));
+    }
+}
+
+fn refresh_rate_label(value: Option<f32>) -> String {
+    value
+        .map(|rate| format!("{rate:.1}"))
+        .unwrap_or_else(|| "unavailable".to_string())
+}
+
+fn refresh_rate_list_label(values: &[f32]) -> String {
+    if values.is_empty() {
+        return "[]".to_string();
+    }
+
+    let mut label = String::from("[");
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            label.push(',');
+        }
+        label.push_str(&format!("{value:.1}"));
+    }
+    label.push(']');
+    label
+}
+
 unsafe fn run_vulkan(
     app: android_activity::AndroidApp,
     xr_instance: xr::Instance,
@@ -378,6 +451,7 @@ unsafe fn run_vulkan(
             },
         )
         .map_err(|error| format!("create OpenXR Vulkan session: {error}"))?;
+    configure_display_refresh_rate(&xr_instance, &session);
 
     let reference_space = session
         .create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)
@@ -435,6 +509,8 @@ unsafe fn run_vulkan(
     );
     let mut last_logged_gpu_frame_index: Option<u64> = None;
     let mut last_logged_prepared_stereo_frame_index: Option<u64> = None;
+    let mut frame_pacing_window_start = Instant::now();
+    let mut frame_pacing_window_frames = 0_u64;
 
     'main_loop: loop {
         pump_android_events(&app, &mut app_running);
@@ -459,6 +535,8 @@ unsafe fn run_vulkan(
                                 .begin(VIEW_TYPE)
                                 .map_err(|error| format!("begin OpenXR session: {error}"))?;
                             session_running = true;
+                            frame_pacing_window_start = Instant::now();
+                            frame_pacing_window_frames = 0;
                         }
                         xr::SessionState::STOPPING => {
                             session
@@ -471,6 +549,13 @@ unsafe fn run_vulkan(
                         }
                         _ => {}
                     }
+                }
+                xr::Event::DisplayRefreshRateChangedFB(event) => {
+                    log_info(format!(
+                        "Rusty XR OpenXR display refresh changed from {:.1}Hz to {:.1}Hz",
+                        event.from_display_refresh_rate(),
+                        event.to_display_refresh_rate()
+                    ));
                 }
                 xr::Event::InstanceLossPending(_) => break 'main_loop,
                 xr::Event::EventsLost(event) => {
@@ -562,6 +647,7 @@ unsafe fn run_vulkan(
             .map_err(|error| format!("reset Vulkan fence: {error}"))?;
 
         let config = runtime_config();
+        let record_started = Instant::now();
         if config.camera_tier == CameraCompositeTier::GpuProjected {
             if let Some(stereo_frame) = latest_headset_stereo_camera_gpu_frame() {
                 if last_logged_gpu_frame_index != Some(stereo_frame.index)
@@ -1099,11 +1185,13 @@ unsafe fn run_vulkan(
         vk_device
             .end_command_buffer(cmd)
             .map_err(|error| format!("end Vulkan command buffer: {error}"))?;
+        let record_ms = record_started.elapsed().as_secs_f64() * 1000.0;
 
         swapchain
             .handle
             .wait_image(xr::Duration::INFINITE)
             .map_err(|error| format!("wait OpenXR swapchain image: {error}"))?;
+        let submit_started = Instant::now();
         vk_device
             .queue_submit(
                 queue,
@@ -1111,9 +1199,7 @@ unsafe fn run_vulkan(
                 fences[frame],
             )
             .map_err(|error| format!("submit Vulkan queue: {error}"))?;
-        vk_device
-            .wait_for_fences(&[fences[frame]], true, u64::MAX)
-            .map_err(|error| format!("wait submitted Vulkan fence: {error}"))?;
+        let submit_ms = submit_started.elapsed().as_secs_f64() * 1000.0;
         swapchain
             .handle
             .release_image()
@@ -1158,21 +1244,46 @@ unsafe fn run_vulkan(
             .map_err(|error| format!("end OpenXR frame: {error}"))?;
 
         frame_count += 1;
+        frame_pacing_window_frames += 1;
         if frame_count == 1 || frame_count % 120 == 0 {
             let config = runtime_config();
             let (gpu_success, gpu_failure, gpu_cache_size) = gpu_probe_counters();
+            let active_display_refresh_hz = if xr_instance.exts().fb_display_refresh_rate.is_some()
+            {
+                session.get_display_refresh_rate().ok()
+            } else {
+                None
+            };
+            let window_elapsed = frame_pacing_window_start.elapsed();
+            let window_secs = window_elapsed.as_secs_f64().max(0.001);
+            let observed_openxr_fps = frame_pacing_window_frames as f64 / window_secs;
+            let avg_frame_ms = window_secs * 1000.0 / frame_pacing_window_frames.max(1) as f64;
             log_info(format!(
-                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraEnabled={} mediaProjection={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={}",
+                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraEnabled={} mediaProjection={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz=72 activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={}",
                 frame_count,
                 swapchain.resolution.width,
                 swapchain.resolution.height,
                 config.camera_tier.stable_id(),
                 config.camera_enabled,
                 config.media_projection_enabled,
+                observed_openxr_fps,
+                avg_frame_ms,
+                record_ms,
+                submit_ms,
+                refresh_rate_label(active_display_refresh_hz),
+                config.xr_render_scale,
+                config.xr_fixed_foveation_level,
+                PIPELINE_DEPTH,
                 gpu_success,
                 gpu_failure,
-                gpu_cache_size
+                gpu_cache_size,
+                gpu_camera_renderer.imports.len(),
+                gpu_camera_renderer.stereo_descriptors.len(),
+                gpu_camera_renderer.import_success_count,
+                gpu_camera_renderer.import_failure_count
             ));
+            frame_pacing_window_start = Instant::now();
+            frame_pacing_window_frames = 0;
         }
         frame = (frame + 1) % PIPELINE_DEPTH as usize;
     }

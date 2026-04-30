@@ -85,12 +85,18 @@ confidence payload exists.
 The desired public Tier 2 path is a paired stereo provider:
 
 - left and right GPU-importable buffers
-- timestamps close enough to pair
+- timestamps tracked against a soft pairing target
 - per-eye delivered image domains
 - per-eye intrinsics
 - sensor orientation
 - platform pose/extrinsics, or an explicit user-supplied public calibration
   profile
+
+The public Camera2 bridge keeps the latest available left/right pair even when
+separate streams exceed the soft timestamp target. That avoids starving the
+OpenXR renderer with stale buffers; release validation must still inspect the
+logged pair deltas, `softPairOverMax` count, and headset comfort before
+claiming the provider is good enough for a device build.
 
 The `camera-stereo-gpu-composite` profile is the public reference example for
 this path on the tested Quest Camera2 provider. It must not pass verification

@@ -19,6 +19,12 @@ Rusty XR Companion Apps owns:
 - public catalog files that point to local APKs or release assets
 - Windows release packaging
 
+The companion release can install or update the operator-side tools that are
+reasonable to manage in a per-user cache: Android platform-tools / `adb`, Meta
+`hzdb`, and `scrcpy`. Rust/Cargo, Android SDK/NDK/JDK, OpenXR loader binaries,
+and signing identity remain explicit local build inputs for machines that build
+APK bytes from source.
+
 ## Shared Catalog Shape
 
 The current shared connection point is `quest-app-catalog.schema.json`.
@@ -81,6 +87,43 @@ the same validator can be pointed at the Companion sample catalog:
 
 ```powershell
 python tools/schema/check_quest_app_catalog.py ..\Rusty-XR-Companion-Apps\samples\quest-session-kit\apk-catalog.example.json
+```
+
+## Source Workspace
+
+The recommended local source layout is:
+
+```text
+<workspace>\Rusty-XR
+<workspace>\Rusty-XR-Companion-Apps
+```
+
+From `Rusty-XR-Companion-Apps`, run:
+
+```powershell
+dotnet run --project .\src\RustyXr.Companion.Cli -- workspace guide --root <workspace>
+```
+
+That command prints the expected catalog paths, APK output paths, and install /
+launch / verification commands for the public Rusty XR minimal and
+composite-layer examples.
+
+Minimal APK loop:
+
+```powershell
+cd <workspace>\Rusty-XR
+powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
+cd <workspace>\Rusty-XR-Companion-Apps
+dotnet run --project .\src\RustyXr.Companion.Cli -- catalog verify --path ..\Rusty-XR\examples\quest-minimal-apk\catalog\rusty-xr-quest-minimal.catalog.json --app rusty-xr-quest-minimal --serial <serial> --install --launch --device-profile perf-smoke-test --runtime-profile minimal-contract-log --settle-ms 4000 --out .\artifacts\verify
+```
+
+Composite-layer APK loop:
+
+```powershell
+cd <workspace>\Rusty-XR
+powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -OpenXrLoaderPath <path-to-libopenxr_loader.so>
+cd <workspace>\Rusty-XR-Companion-Apps
+dotnet run --project .\src\RustyXr.Companion.Cli -- catalog verify --path ..\Rusty-XR\examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json --app rusty-xr-quest-composite-layer --serial <serial> --stop-catalog-apps --install --launch --device-profile xr-composite-smoke-test --runtime-profile camera-stereo-gpu-composite --settle-ms 9000 --logcat-lines 1400 --out .\artifacts\verify
 ```
 
 ## Boundary

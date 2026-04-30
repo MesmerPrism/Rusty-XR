@@ -87,7 +87,8 @@ public final class HeadsetCameraService extends Service {
     private static final int DEFAULT_MAX_DIMENSION = 1920;
     private static final int DEFAULT_CPU_UPLOAD_HZ = 4;
     private static final long DEFAULT_STEREO_PAIR_MAX_DELTA_NS = 5_000_000L;
-    private static final int STEREO_RING_LIMIT = 3;
+    private static final int STEREO_PENDING_QUEUE_LIMIT = 3;
+    private static final int STEREO_IMAGE_READER_MAX_IMAGES = 8;
     private static final String CAMERA_SOURCE_DIAGNOSTICS_FILE = "camera-source-diagnostics.json";
     private static final String TIER_SOURCE_DIAGNOSTICS = "camera-source-diagnostics";
     private static final String TIER_CPU_DIAGNOSTIC = "cpu-diagnostic-flat-copy";
@@ -159,6 +160,7 @@ public final class HeadsetCameraService extends Service {
     private long stereoRightReceivedCount;
     private long stereoPairedCount;
     private long stereoDroppedCount;
+    private long stereoSoftPairOverMaxCount;
     private long stereoPairDeltaTotalNs;
     private long stereoPairDeltaMaxNs;
     private Range<Integer> monoAppliedAeFpsRange;
@@ -288,6 +290,7 @@ public final class HeadsetCameraService extends Service {
         stereoRightReceivedCount = 0;
         stereoPairedCount = 0;
         stereoDroppedCount = 0;
+        stereoSoftPairOverMaxCount = 0;
         stereoPairDeltaTotalNs = 0;
         stereoPairDeltaMaxNs = 0;
         monoAppliedAeFpsRange = null;
@@ -678,6 +681,8 @@ public final class HeadsetCameraService extends Service {
         appendJsonString(builder, "requestedTier", cameraTier);
         builder.append(',');
         appendFpsRequest(builder);
+        builder.append(",\"stereoPairPolicy\":\"latest-pair-soft-timestamp-target\"");
+        builder.append(",\"stereoPairSoftTargetNs\":").append(stereoPairMaxDeltaNs);
         builder.append(',');
         appendJsonString(builder, "selectedProvider", selected != null ? selected.providerKind : "none");
         builder.append(',');
@@ -1068,12 +1073,12 @@ public final class HeadsetCameraService extends Service {
             choice.leftSize.getWidth(),
             choice.leftSize.getHeight(),
             ImageFormat.PRIVATE,
-            STEREO_RING_LIMIT);
+            STEREO_IMAGE_READER_MAX_IMAGES);
         rightImageReader = ImageReader.newInstance(
             choice.rightSize.getWidth(),
             choice.rightSize.getHeight(),
             ImageFormat.PRIVATE,
-            STEREO_RING_LIMIT);
+            STEREO_IMAGE_READER_MAX_IMAGES);
         leftImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
             @Override
             public void onImageAvailable(ImageReader reader) {
@@ -1519,7 +1524,7 @@ public final class HeadsetCameraService extends Service {
     private void enqueueStereoFrame(PendingGpuImage frame) {
         ArrayDeque<PendingGpuImage> queue = frame.leftEye ? leftFrames : rightFrames;
         queue.addLast(frame);
-        while (queue.size() > STEREO_RING_LIMIT) {
+        while (queue.size() > STEREO_PENDING_QUEUE_LIMIT) {
             PendingGpuImage dropped = queue.removeFirst();
             dropped.close();
             stereoDroppedCount++;
@@ -1549,18 +1554,34 @@ public final class HeadsetCameraService extends Service {
                 continue;
             }
 
-            PendingGpuImage leftHead = leftFrames.peekFirst();
-            PendingGpuImage rightHead = rightFrames.peekFirst();
-            if (leftHead == null || rightHead == null) {
-                return;
+            PendingGpuImage latestLeft = leftFrames.removeLast();
+            PendingGpuImage latestRight = rightFrames.removeLast();
+            stereoDroppedCount += closePendingQueue(leftFrames);
+            stereoDroppedCount += closePendingQueue(rightFrames);
+            long latestDelta = Math.abs(latestLeft.timestampNs - latestRight.timestampNs);
+            if (latestDelta > stereoPairMaxDeltaNs) {
+                stereoSoftPairOverMaxCount++;
+                if (stereoSoftPairOverMaxCount == 1 || stereoSoftPairOverMaxCount % 120 == 0) {
+                    Log.w(TAG, "Stereo headset camera pair exceeded soft timestamp target" +
+                        " deltaNs=" + latestDelta +
+                        " softTargetNs=" + stereoPairMaxDeltaNs +
+                        " overSoftTarget=" + stereoSoftPairOverMaxCount +
+                        " leftTs=" + latestLeft.timestampNs +
+                        " rightTs=" + latestRight.timestampNs +
+                        " dropped=" + stereoDroppedCount);
+                }
             }
-            if (leftHead.timestampNs <= rightHead.timestampNs) {
-                leftFrames.removeFirst().close();
-            } else {
-                rightFrames.removeFirst().close();
-            }
-            stereoDroppedCount++;
+            deliverStereoPair(latestLeft, latestRight, latestDelta);
         }
+    }
+
+    private long closePendingQueue(ArrayDeque<PendingGpuImage> queue) {
+        long closed = 0;
+        while (!queue.isEmpty()) {
+            queue.removeFirst().close();
+            closed++;
+        }
+        return closed;
     }
 
     private void deliverStereoPair(PendingGpuImage left, PendingGpuImage right, long pairDeltaNs) {
@@ -1602,8 +1623,11 @@ public final class HeadsetCameraService extends Service {
                     " leftTs=" + left.timestampNs +
                     " rightTs=" + right.timestampNs +
                     " deltaNs=" + pairDeltaNs +
+                    " softTargetNs=" + stereoPairMaxDeltaNs +
+                    " overSoftTarget=" + (pairDeltaNs > stereoPairMaxDeltaNs) +
                     " avgDeltaNs=" + avgDelta +
                     " maxDeltaNs=" + stereoPairDeltaMaxNs +
+                    " softPairOverMax=" + stereoSoftPairOverMaxCount +
                     " observedPairFps=" + fpsLabel(stereoPairDeliveryStats.observedFps()) +
                     " requestedAeFpsRange=" + rangeLabel(requestedCameraFpsRange()) +
                     " leftAppliedAeFpsRange=" + rangeLabel(leftAppliedAeFpsRange != null ? leftAppliedAeFpsRange : logicalStereoAppliedAeFpsRange) +

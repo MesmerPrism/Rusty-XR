@@ -215,12 +215,24 @@ preferred performance path. The performant shape is:
 - Keep fixed foveation off for edge-sensitive projection paths unless a device
   test proves the fragment-density map does not introduce visible edge or tile
   artifacts.
+- Keep the OpenXR submit path pipelined. Submit Vulkan work to an in-flight
+  command/fence slot, release the swapchain image, and wait on that fence only
+  when the same slot is reused; an immediate post-submit fence wait removes
+  useful CPU/GPU overlap.
 - Keep final XR shader interfaces small. Move guide work to offscreen passes,
   bake constants where possible, and avoid adding live draw variables casually.
 - Reuse descriptor pools and external-buffer imports; repeated allocation per
   camera frame or per guide pass can dominate memory and CPU.
 - Coalesce camera-frame wakeups so callbacks cannot queue unbounded render-loop
   messages.
+- For separate left/right Camera2 streams, treat timestamp matching as a soft
+  quality target. Publish the latest available pair to avoid starving the
+  renderer, close older queued buffers promptly, and log pair deltas plus
+  over-target counts for validation.
+- Size opaque stereo `ImageReader` queues for the imported-buffer lifetime, not
+  just the Java pending-pair queue. Vulkan memory and descriptor caches can
+  retain a few `AHardwareBuffer` images after Java has closed its `Image`, so a
+  too-small `maxImages` value can starve Camera2 and produce stale frames.
 - Keep environment depth, environment cubes, TSDF/readback, physics workers,
   and MediaProjection disabled unless the active runtime mode consumes them.
 
@@ -230,6 +242,12 @@ small projection shader. A Tier 2 launch must not be reported as aligned unless
 the GPU texture, intrinsics, source camera pose/extrinsics, explicit per-eye
 camera texture orientation, source-eye mapping, and visual inspection gate are
 all active.
+
+On the current opaque Camera2 hardware-buffer path, the Vulkan sampler-YCbCr
+conversion presents normalized RGB at the projection shader boundary. Keep
+manual BT.601-style channel decode as a diagnostic switch for devices that
+expose channel-packed values, but do not stack that decode on top of the
+external sampler's conversion.
 
 For eye alignment, scale camera intrinsics from the source metadata pixel
 domain into the delivered per-eye stream domain before projection. A

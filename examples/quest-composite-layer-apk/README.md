@@ -182,8 +182,14 @@ Useful launch extras:
 - `rustyxr.cameraStereoLayout`: `mono`, `side-by-side`, `top-bottom`, or
   `separate`. The final stereo profile requests `separate`; it must not be
   treated as successful unless paired left/right GPU buffers are active.
-- `rustyxr.cameraStereoPairMaxDeltaNs`: maximum left/right timestamp delta for
+- `rustyxr.cameraStereoPairMaxDeltaNs`: soft left/right timestamp target for
   pairing separate GPU camera frames. The public profile uses `5000000`.
+  Separate Camera2 streams can drift outside that target under concurrent
+  delivery, so the service publishes the latest available left/right pair
+  instead of starving the renderer, and logs `softPairOverMax` plus per-pair
+  deltas for release validation. The Java pending-pair queue stays small, but
+  the stereo `ImageReader` uses a deeper opaque-buffer pool so Vulkan-retained
+  `AHardwareBuffer` imports do not starve Camera2.
 - `rustyxr.cameraSourceEyeMapping`: `left-right` or `right-left`. It controls
   whether the display left eye samples the left/source-0 camera or the
   right/source-1 camera. This is a runtime visual diagnostic knob because
@@ -207,9 +213,9 @@ Useful launch extras:
 - `rustyxr.cameraColorContrast`, `rustyxr.cameraColorBrightness`, and
   `rustyxr.cameraColorSaturation`: public tone controls applied after any
   external-format normalization and before luma or border feedback is resolved.
-  The quad-surface profile uses a small contrast/brightness lift so the
-  camera-driven border and the projected raw feed stay in the same color
-  domain.
+  The final projected stereo profile and the quad-surface A/B profile use a
+  small contrast/brightness lift so the camera-driven border and the projected
+  raw feed stay in the same color domain.
 - `rustyxr.cameraOrientationDiagnosticMode`: `off`,
   `cycle-source-eye-mapping`, `cycle-left-texture-transform`,
   `cycle-right-texture-transform`, or `cycle-all`. Cycling modes are for live
@@ -241,8 +247,9 @@ Useful launch extras:
   keeping the custom OpenXR layer running.
 - `rustyxr.cameraTargetFps`: optional Camera2 sensor-delivery request. When set
   without `rustyxr.cameraFpsMin` / `rustyxr.cameraFpsMax`, the service requests
-  a fixed `CONTROL_AE_TARGET_FPS_RANGE` such as `30-30` or `60-60` if that is
-  the nearest supported range.
+  a fixed `CONTROL_AE_TARGET_FPS_RANGE`; the final projected stereo profiles
+  request `72-72`, then log the selected supported range if the Camera2 HAL
+  chooses a lower or wider range.
 - `rustyxr.cameraFpsMin` / `rustyxr.cameraFpsMax`: optional Camera2 AE target
   FPS range request. This is an exposure/capture request to the Android camera
   stack, not a hard delivery guarantee. Horizon OS, the Camera2 HAL, stream
@@ -255,7 +262,9 @@ Useful launch extras:
 Camera delivery cadence and render cadence are separate. The GPU path can
 request an AE target range for the Camera2 producer, while the OpenXR renderer
 continues submitting at the headset display cadence and reuses the latest
-available camera buffer between deliveries. Use logcat lines beginning with
+available camera buffer between deliveries. When `XR_FB_display_refresh_rate`
+is exposed, the example requests `72 Hz` and logs `activeDisplayRefreshHz` in
+the recurring `OpenXR frame` line. Use logcat lines beginning with
 `Camera2 AE FPS range` and `Camera2 delivery stats` to compare the requested
 range, applied supported range, and observed image timestamp cadence.
 Android documents
@@ -267,7 +276,11 @@ lists a `60Hz` data rate for the public PCA stack. In live validation on the
 paired Quest 3S `50/51` Camera2 path,
 `30-30` was honored at about `29.85 FPS`, while `60-60` was accepted by
 Camera2 but delivered about `49.9 FPS` with the current concurrent
-`1280x1280` stereo GPU-buffer configuration.
+`1280x1280` stereo GPU-buffer configuration. If `72-72` is not supported or
+does not deliver at display cadence on a device build, treat the
+`Camera2 AE FPS range`, `Camera2 delivery stats`, and
+`Stereo headset camera pair` lines as the concrete capture-side blocker while
+the OpenXR renderer continues targeting `72 Hz`.
 
 Treat selected Camera2 IDs as runtime diagnostics, not portable requirements.
 The public selector preference is: stereo source when exposed by an adapter,
@@ -329,13 +342,12 @@ falls back to a flat diagnostic surface when pose or true stereo metadata is
 missing.
 
 The current Quest Camera2 hardware-buffer path is sampled through Vulkan
-sampler-YCbCr conversion, so the public quad-surface profile keeps
-`rustyxr.cameraColorMode=external-rgb` and uses
+external-format import, and the public projected stereo profiles use
+`rustyxr.cameraColorMode=external-cr-y-cb-bt601-narrow` with
 `rustyxr.cameraColorContrast=1.1`, `rustyxr.cameraColorBrightness=0.04`, and
-`rustyxr.cameraColorSaturation=1.0`. If another device/runtime exposes
-camera values that are not already normalized RGB at the shader boundary,
-`external-cr-y-cb-bt601-narrow` remains available as a diagnostic profile
-switch without moving the live path back to CPU-readable YUV frames.
+`rustyxr.cameraColorSaturation=1.0`. Use `external-rgb` only when a
+device/runtime exposes already normalized RGB at the shader boundary; this
+switch does not move the live path back to CPU-readable YUV frames.
 
 ## Run Through Companion
 
@@ -395,9 +407,15 @@ harnesses should treat this as a required manual step.
 - logcat contains `Rusty XR camera path config`
 - logcat advances from `OpenXR state IDLE` to `READY`, `SYNCHRONIZED`,
   `VISIBLE`, and `FOCUSED`
-- logcat reports swapchain creation and recurring `OpenXR frame` messages
+- logcat reports swapchain creation and recurring `OpenXR frame` messages with
+  `observedOpenXrFps`, `avgFrameMs`, `activeDisplayRefreshHz`,
+  `fenceSync=slot-reuse`, import-cache counts, and descriptor-cache counts
 - logcat contains `Headset camera capture session running`
 - logcat contains `Rusty XR received headset camera frame`
+- logcat contains `Camera2 delivery stats` and `Stereo headset camera pair`
+  lines; the stereo pair line reports `softTargetNs`, `overSoftTarget`, and
+  `softPairOverMax` so timestamp drift is visible without dropping the latest
+  camera pair
 - with `camera-diagnostic-cpu-copy`, logcat contains
   `Rusty XR uploaded diagnostic flat camera copy frame`
 - with `camera-gpu-buffer-probe`, logcat contains

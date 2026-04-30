@@ -24,6 +24,28 @@ Use this skill to work on the public Rusty XR repository.
 13. Inspect the relevant crate before editing.
 14. Keep changes public, dependency-light, and testable without downstream app repos.
 
+## Companion Source Workspace
+
+When Rusty XR Companion Apps is available for local Quest install, launch, cast,
+diagnostics, and catalog verification, prefer this sibling layout:
+
+```text
+<workspace>\Rusty-XR
+<workspace>\Rusty-XR-Companion-Apps
+```
+
+From the companion repo, run:
+
+```powershell
+dotnet run --project .\src\RustyXr.Companion.Cli -- workspace guide --root <workspace>
+```
+
+Use Rusty XR to build public example APKs into ignored example `build\`
+folders. Use Companion to install, launch, apply device/runtime profiles, pull
+diagnostics, capture logcat, and write verification bundles. Companion manages
+`adb`, `hzdb`, and `scrcpy`; Rust/Cargo, Android SDK/NDK/JDK, OpenXR loader
+binaries, and signing material remain local build inputs.
+
 ## Public Boundary
 
 Rusty XR may contain:
