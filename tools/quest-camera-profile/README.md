@@ -62,10 +62,15 @@ python .\tools\quest-camera-profile\Validate-QuestCameraRun.py `
   --out .\artifacts\quest-camera-profile-runs\<run>\<label>-validation.json
 ```
 
-The validator rejects obvious black-camera screenshots and log windows with
-sleep, screen-off, session-exit, or automation-disable signals. A run can hold
+The validator rejects obvious black-camera screenshots, log windows with
+screen-off, power-sleep, session-exit, or automation-disable signals, and runs
+where `Rusty XR final projection status` shows stale camera frames while
+OpenXR keeps rendering. Meta shell sleep-timeout lines are warnings to compare
+against the captured power and VR-power snapshots; by themselves they are not
+treated as proof that the headset display entered standby. A run can hold
 OpenXR display cadence and still be invalid for color comparison if the camera
-ROIs are black or the headset entered a standby transition during launch.
+ROIs are black or the camera frame counter only advances a few frames across
+hundreds of OpenXR frames.
 
 ## Compare Screenshots
 

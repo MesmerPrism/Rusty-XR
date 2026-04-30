@@ -76,6 +76,8 @@ A run should be rejected for color comparison when any of these are true:
 - the screenshot is missing, empty, or camera-content ROIs are black-like
 - logcat includes a sleep, screen-off, session-exit, or automation-disable
   transition during the capture window
+- `Rusty XR final projection status` shows that the OpenXR loop kept
+  rendering while the camera frame counter barely advanced
 - the app silently falls back to CPU camera uploads for a GPU profile
 - hardware-buffer import cache misses or evictions continue after warm-up
 - the profile changes projection, border, sampler, and acquisition at the same
@@ -94,6 +96,13 @@ Track these signals together:
 - hardware-buffer import cache hits, misses, evictions, and size
 - OpenXR display FPS, frame time, render scale, fixed-foveation state, and
   compositor tear/stale-frame signals
+
+Treat Meta shell `Start sleep timeout`, `Sleep timeout exceeded`, and
+`WaitForWake` lines as warning signals to inspect against the captured power
+and VR-power snapshots. Reject the run when those warnings line up with actual
+screen-off, power sleep, session exit, or automation-disable signals. If the
+headset remains awake and mounted, stale camera-frame progression is still its
+own invalid condition.
 
 Weak charging should be recorded because it can make unattended runs unreliable
 if the battery continues to drain while plugged in. It is a run-quality

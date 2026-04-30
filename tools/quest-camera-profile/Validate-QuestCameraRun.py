@@ -33,9 +33,19 @@ CRITICAL_LOG_PATTERNS = [
 
 WARNING_LOG_PATTERNS = [
     r"Start sleep timeout",
+    r"Sleep timeout exceeded",
+    r"WaitForWake: VrThread entering waiting state",
     r"Invalid PTS from input surface: 0",
     r"CameraComputeCapability: WatchdogProbe",
+    r"Camera3-Stream: returnBuffer: Stream .* timestamp .* is not increasing",
+    r"Stereo headset camera pair exceeded soft timestamp target",
+    r"CompositorVR: Slice tear due to CPU delay",
 ]
+
+PROJECTION_STATUS_RE = re.compile(
+    r"Rusty XR final projection status frame=(?P<camera>\d+) "
+    r"openXrFrameCount=(?P<openxr>\d+)"
+)
 
 
 def load_rgb(path: Path) -> np.ndarray:
@@ -126,6 +136,53 @@ def match_patterns(text: str, patterns: list[str]) -> list[dict]:
     return matches
 
 
+def summarize_projection_progress(text: str) -> dict:
+    samples = [
+        {
+            "cameraFrame": int(match.group("camera")),
+            "openXrFrameCount": int(match.group("openxr")),
+        }
+        for match in PROJECTION_STATUS_RE.finditer(text)
+    ]
+    if not samples:
+        return {
+            "status": "warning",
+            "reason": "missing-final-projection-status",
+            "sampleCount": 0,
+        }
+
+    first = samples[0]
+    last = samples[-1]
+    openxr_delta = last["openXrFrameCount"] - first["openXrFrameCount"]
+    camera_delta = last["cameraFrame"] - first["cameraFrame"]
+    ratio = camera_delta / openxr_delta if openxr_delta > 0 else 0.0
+
+    stale_by_absolute_count = (
+        last["openXrFrameCount"] >= 720 and last["cameraFrame"] < 30
+    )
+    stale_by_progression = openxr_delta >= 600 and camera_delta < 30
+    if stale_by_absolute_count or stale_by_progression:
+        status = "invalid"
+        reason = "stale-camera-frame-progression"
+    elif openxr_delta >= 600 and ratio < 0.20:
+        status = "warning"
+        reason = "low-camera-frame-progression"
+    else:
+        status = "ok"
+        reason = "camera-frame-progression-present"
+
+    return {
+        "status": status,
+        "reason": reason,
+        "sampleCount": len(samples),
+        "first": first,
+        "last": last,
+        "cameraFrameDelta": camera_delta,
+        "openXrFrameDelta": openxr_delta,
+        "cameraPerOpenXrFrameRatio": ratio,
+    }
+
+
 def read_text_auto(path: Path) -> str:
     data = path.read_bytes()
     if data.startswith(b"\xff\xfe"):
@@ -156,9 +213,16 @@ def summarize_log(path: Path) -> dict:
     text = read_text_auto(path)
     critical = match_patterns(text, CRITICAL_LOG_PATTERNS)
     warnings = match_patterns(text, WARNING_LOG_PATTERNS)
+    projection_progress = summarize_projection_progress(text)
     if critical:
         status = "invalid"
         reason = "critical-power-or-session-log-signal"
+    elif projection_progress["status"] == "invalid":
+        status = "invalid"
+        reason = projection_progress["reason"]
+    elif projection_progress["status"] == "warning":
+        status = "warning"
+        reason = projection_progress["reason"]
     elif warnings:
         status = "warning"
         reason = "warning-log-signal"
@@ -171,6 +235,7 @@ def summarize_log(path: Path) -> dict:
         "path": str(path),
         "criticalMatches": critical,
         "warningMatches": warnings,
+        "projectionProgress": projection_progress,
     }
 
 
