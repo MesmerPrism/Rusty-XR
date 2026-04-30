@@ -45,6 +45,11 @@ synthetic, CPU diagnostic, GPU-buffer probe, and paired-camera GPU projection
 tiers. MediaProjection is optional and is used only to stream the final headset
 screen back to Windows for inspection:
 [examples/quest-composite-layer-apk/README.md](examples/quest-composite-layer-apk/README.md).
+The current raw-camera example has two public projected stereo modes:
+`display-screen-homography` and `quad-surface`. Both use the paired Camera2
+GPU-buffer path and the public soft feedback border, but `quad-surface` is
+still an A/B comparison profile rather than the final performance or color
+reference.
 
 The contracts examples and minimal APK can be run without headset hardware or
 downstream app code:

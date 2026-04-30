@@ -34,6 +34,27 @@ The rendered path is intentionally simple. It proves the app-visible camera
 route, layer submission, catalog, permissions, and Windows streaming workflow
 without including downstream visual-effect behavior.
 
+## Current Status And Known Gaps
+
+The public stereo stack now has two working projected-camera modes:
+
+- `display-screen-homography`: the fullscreen Vulkan multiview path. This is
+  the current accepted public baseline for the paired Camera2 GPU-buffer
+  projection and public soft feedback border.
+- `quad-surface`: an A/B comparison path that reconstructs the content-surface
+  coordinates a head-anchored quad would rasterize while still running through
+  the public Vulkan fullscreen plumbing.
+
+Both modes share the same paired Camera2 `PRIVATE` hardware-buffer import,
+per-eye intrinsics/pose projection, explicit source-eye mapping, texture
+orientation controls, and camera-driven border coordinate path. The
+quad-surface profile is useful enough for collaboration and diagnosis, but it
+is not yet the expected final performance or color reference. Optimized
+downstream implementations can still be faster and can differ in final tone
+mapping. Treat remaining quad-surface performance and color differences as an
+open public example task, not as a blocker for the documented camera-stack
+architecture.
+
 ## Build
 
 The build script uses Android SDK, NDK, OpenJDK, `aapt2`, `d8`, `zipalign`,
@@ -178,6 +199,17 @@ Useful launch extras:
   for paths that expose a different texture origin; flat diagnostic surfaces
   may need a different transform because they do not use the same projection UV
   path.
+- `rustyxr.cameraColorMode`: `external-rgb` by default. Use
+  `external-cr-y-cb-bt601-narrow` when the external sampler exposes
+  narrow-range BT.601-like channels in the observed `Cr/Y/Cb` order instead of
+  already normalized RGB. The mode is applied before raw projection color,
+  luma, and border feedback are resolved.
+- `rustyxr.cameraColorContrast`, `rustyxr.cameraColorBrightness`, and
+  `rustyxr.cameraColorSaturation`: public tone controls applied after any
+  external-format normalization and before luma or border feedback is resolved.
+  The quad-surface profile uses a small contrast/brightness lift so the
+  camera-driven border and the projected raw feed stay in the same color
+  domain.
 - `rustyxr.cameraOrientationDiagnosticMode`: `off`,
   `cycle-source-eye-mapping`, `cycle-left-texture-transform`,
   `cycle-right-texture-transform`, or `cycle-all`. Cycling modes are for live
@@ -207,8 +239,35 @@ Useful launch extras:
   at the ImageReader boundary so the OpenXR frame loop can continue submitting
   between camera uploads. Use `0` to disable CPU camera frame delivery while
   keeping the custom OpenXR layer running.
+- `rustyxr.cameraTargetFps`: optional Camera2 sensor-delivery request. When set
+  without `rustyxr.cameraFpsMin` / `rustyxr.cameraFpsMax`, the service requests
+  a fixed `CONTROL_AE_TARGET_FPS_RANGE` such as `30-30` or `60-60` if that is
+  the nearest supported range.
+- `rustyxr.cameraFpsMin` / `rustyxr.cameraFpsMax`: optional Camera2 AE target
+  FPS range request. This is an exposure/capture request to the Android camera
+  stack, not a hard delivery guarantee. Horizon OS, the Camera2 HAL, stream
+  size/format, exposure, lighting, concurrent-camera use, thermal state, and
+  stream min-frame-duration limits can still produce a lower or different
+  cadence.
 - `rustyxr.mediaProjection`: `false` by default; set `true` only when the
   final screen should be streamed back to Windows.
+
+Camera delivery cadence and render cadence are separate. The GPU path can
+request an AE target range for the Camera2 producer, while the OpenXR renderer
+continues submitting at the headset display cadence and reuses the latest
+available camera buffer between deliveries. Use logcat lines beginning with
+`Camera2 AE FPS range` and `Camera2 delivery stats` to compare the requested
+range, applied supported range, and observed image timestamp cadence.
+Android documents
+[`CONTROL_AE_TARGET_FPS_RANGE`](https://developer.android.com/reference/android/hardware/camera2/CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE)
+as an auto-exposure target range whose actual maximum can still be capped by
+stream min-frame durations; Meta's
+[Passthrough Camera API overview](https://developers.meta.com/horizon/documentation/unity/unity-pca-overview/#performance)
+lists a `60Hz` data rate for the public PCA stack. In live validation on the
+paired Quest 3S `50/51` Camera2 path,
+`30-30` was honored at about `29.85 FPS`, while `60-60` was accepted by
+Camera2 but delivered about `49.9 FPS` with the current concurrent
+`1280x1280` stereo GPU-buffer configuration.
 
 Treat selected Camera2 IDs as runtime diagnostics, not portable requirements.
 The public selector preference is: stereo source when exposed by an adapter,
@@ -226,10 +285,33 @@ The alignment renderer logic is: build the head-anchored camera-content surface
 once, project that surface through each current OpenXR display-eye view/FOV
 into fullscreen display UV, compose that display-eye mapping with the selected
 Camera2 source projection, and send one screen-to-camera homography per
-display eye to the shader. The shader samples the mapped source camera texture
-while keeping a separate content UV domain for the public soft border. When
-intrinsics or pose metadata is missing, this example logs the fallback reason
-and remains a GPU-buffer probe.
+display eye to the shader. Because this public sample renders with a fullscreen
+multiview pass rather than an actual projected quad mesh, it also sends
+per-eye screen-to-content-surface and content-surface-to-screen homographies in
+a uniform buffer. The shader samples the mapped source camera texture while
+reconstructing the same content UV domain that a real head-anchored quad would
+have produced. The border's guide, edge, and trail samples are routed through
+the same final display-eye projection mapping before sampling camera content.
+The brightness trigger for border bleed uses the current final projected camera
+sample at that display pixel, with a small projected-neighborhood smooth, so
+the soft bleed follows dark regions in the visible stereo composite instead of
+raw left/right texture UVs, fullscreen screen UVs, or an inward guide sample.
+`rustyxr.cameraProjectionMode` selects the display mapping used by the
+projected profile. The default `display-screen-homography` mode renders a
+fullscreen multiview pass and composes display-eye screen UVs back into the
+head-anchored content surface before sampling the source camera. The
+`quad-surface` comparison mode uses the same display-eye homography to recover
+the content-surface UV that a real head-anchored quad would have rasterized,
+then projects that surface point into the selected Camera2 source. This keeps
+camera projection, per-eye source selection, and border sampling equivalent to
+the accepted fullscreen path while leaving a stable launch switch for future
+mesh-quad A/B work. Use the comparison mode for projection-geometry, sampler,
+and color checks; do not treat it as a different camera source or downstream
+effect stack. Current validation keeps this mode visually gated because its
+performance and final color still need optimization against downstream
+reference implementations.
+When intrinsics or pose metadata is missing, this example logs the fallback
+reason and remains a GPU-buffer probe.
 If a profile supplies an estimated calibration pose, diagnostics say
 `poseSource=estimated-profile`; no default estimated pose is baked into the
 public example. The Tier 1 profile visibly uses the diagnostic flat camera
@@ -245,6 +327,15 @@ projection/overscan/edge fade, a bounded external-buffer import cache, and no
 environment-depth, environment-cube, physics, or MediaProjection work. It still
 falls back to a flat diagnostic surface when pose or true stereo metadata is
 missing.
+
+The current Quest Camera2 hardware-buffer path is sampled through Vulkan
+sampler-YCbCr conversion, so the public quad-surface profile keeps
+`rustyxr.cameraColorMode=external-rgb` and uses
+`rustyxr.cameraColorContrast=1.1`, `rustyxr.cameraColorBrightness=0.04`, and
+`rustyxr.cameraColorSaturation=1.0`. If another device/runtime exposes
+camera values that are not already normalized RGB at the shader boundary,
+`external-cr-y-cb-bt601-narrow` remains available as a diagnostic profile
+switch without moving the live path back to CPU-readable YUV frames.
 
 ## Run Through Companion
 

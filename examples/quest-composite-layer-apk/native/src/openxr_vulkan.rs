@@ -15,8 +15,8 @@ use openxr as xr;
 use openxr::sys::Handle as _;
 use rusty_xr_camera_model::{
     camera_basis_from_camera2_reference_pose_relative_to_center, full_view_content_uv_scale,
-    head_anchored_preview_surface_corners, project_camera_point, scale_intrinsics_to_image,
-    screen_to_camera_uv_homography, surface_to_camera_uv_homography,
+    head_anchored_preview_surface_corners, invert_homography, project_camera_point,
+    scale_intrinsics_to_image, screen_to_camera_uv_homography, surface_to_camera_uv_homography,
     surface_to_eye_screen_uv_homography, CameraBasis, CameraCompositeTier, CameraPixelDomain,
     ImageSize, Quat, TrackingBasis, Vec3,
 };
@@ -26,7 +26,7 @@ const CAMERA_CPU_UPLOAD_MIN_INTERVAL_NS: i64 = 250_000_000;
 const CAMERA_CPU_UPLOAD_HZ_LABEL: u32 = 4;
 const XR_RENDER_SCALE_DEFAULT: f32 = 0.75;
 const GPU_CAMERA_IMPORT_CACHE_LIMIT: usize = 4;
-const CAMERA_BORDER_OPACITY: f32 = 1.0;
+const GPU_CAMERA_PROJECTION_UNIFORM_SLOTS: u32 = 3;
 
 pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
     let entry = unsafe { xr::Entry::load().map_err(|error| format!("load OpenXR: {error}"))? };
@@ -429,6 +429,7 @@ unsafe fn run_vulkan(
         &vk_instance,
         &vk_device,
         memory_properties,
+        properties.limits.min_uniform_buffer_offset_alignment,
         render_pass,
         gpu_camera_import_supported,
     );
@@ -832,7 +833,7 @@ unsafe fn run_vulkan(
                             &views,
                             swapchain.resolution,
                         )
-                        .1;
+                        .2;
                         if last_logged_prepared_stereo_frame_index != Some(stereo_frame.index)
                             && (stereo_frame.index == 0 || stereo_frame.index % 120 == 0)
                         {
@@ -863,7 +864,7 @@ unsafe fn run_vulkan(
                                     controls.source_eye_mapping,
                                 );
                             log_info(format!(
-                                "Rusty XR GPU stereo camera draw prepared frame {} requestedTier={} activeTier={} alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true cpuUploadCount=0 poseSource={} poseReference={} poseConvention={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} orientationAccepted={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} importCacheSize={} stereoDescriptorCacheSize={} projectionShaderPath={} projectionMetadataReady={} fallbackReason={}",
+                                "Rusty XR GPU stereo camera draw prepared frame {} requestedTier={} activeTier={} alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true cpuUploadCount=0 poseSource={} poseReference={} poseConvention={} projectionMode={} cameraColorMode={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} orientationAccepted={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} importCacheSize={} stereoDescriptorCacheSize={} projectionShaderPath={} projectionMetadataReady={} fallbackReason={}",
                                 stereo_frame.index,
                                 config.camera_tier.stable_id(),
                                 if projection_active { "gpu-projected" } else { "gpu-buffer-probe" },
@@ -871,6 +872,11 @@ unsafe fn run_vulkan(
                                 pose_source,
                                 pose_reference,
                                 pose_convention,
+                                config.camera_projection_mode.stable_id(),
+                                config.camera_color_mode.stable_id(),
+                                config.camera_color_contrast,
+                                config.camera_color_brightness,
+                                config.camera_color_saturation,
                                 controls.source_eye_mapping.stable_id(),
                                 display_left_camera_id,
                                 display_right_camera_id,
@@ -928,7 +934,7 @@ unsafe fn run_vulkan(
                                 controls.left_texture_transform.is_explicit_visual_check()
                                     && controls.right_texture_transform.is_explicit_visual_check();
                             log_info(format!(
-                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface=head-anchored-content-surface-via-openxr-eye-view coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz=72 visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={}",
+                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraColorMode={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz=72 visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={}",
                                 stereo_frame.index,
                                 frame_count,
                                 session_focused,
@@ -936,6 +942,11 @@ unsafe fn run_vulkan(
                                 pose_source,
                                 pose_reference,
                                 pose_convention,
+                                config.camera_projection_mode.stable_id(),
+                                config.camera_color_mode.stable_id(),
+                                config.camera_color_contrast,
+                                config.camera_color_brightness,
+                                config.camera_color_saturation,
                                 controls.source_eye_mapping.stable_id(),
                                 display_left_camera_id,
                                 display_right_camera_id,
@@ -944,6 +955,7 @@ unsafe fn run_vulkan(
                                 config.camera_texture_transform.source_label.as_str(),
                                 config.camera_texture_transform.reason.as_str(),
                                 orientation_accepted,
+                                config.camera_projection_mode.projection_surface_label(),
                                 gpu_camera_renderer.imports.len(),
                                 gpu_camera_renderer.stereo_descriptors.len(),
                                 if config.visual_release_accepted { "accepted" } else { "required" },
@@ -1777,6 +1789,7 @@ unsafe fn copy_diagnostic_camera_to_swapchain(
 struct GpuCameraRenderer {
     ahb: Option<ash::android::external_memory_android_hardware_buffer::Device>,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
+    projection_uniform_alignment: vk::DeviceSize,
     render_pass: vk::RenderPass,
     resources: Option<GpuCameraPipelineResources>,
     imports: Vec<GpuCameraImport>,
@@ -1791,6 +1804,7 @@ impl GpuCameraRenderer {
         instance: &ash::Instance,
         device: &ash::Device,
         memory_properties: vk::PhysicalDeviceMemoryProperties,
+        projection_uniform_alignment: vk::DeviceSize,
         render_pass: vk::RenderPass,
         import_supported: bool,
     ) -> Self {
@@ -1800,6 +1814,7 @@ impl GpuCameraRenderer {
         Self {
             ahb,
             memory_properties,
+            projection_uniform_alignment,
             render_pass,
             resources: None,
             imports: Vec::new(),
@@ -1971,6 +1986,8 @@ impl GpuCameraRenderer {
             self.destroy_resources(device);
             self.resources = Some(create_gpu_camera_pipeline_resources(
                 device,
+                &self.memory_properties,
+                self.projection_uniform_alignment,
                 self.render_pass,
                 format_key,
                 &format_props,
@@ -2043,6 +2060,17 @@ impl GpuCameraRenderer {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent: resolution,
         }];
+        let push = CameraProjectionPush::from_frame(frame, config);
+        let uniforms = CameraProjectionUniforms::identity();
+        let uniform_offset = resources.projection_uniform_offset(0);
+        if let Err(error) =
+            update_camera_projection_uniforms(device, resources, uniform_offset, &uniforms)
+        {
+            log_error(format!(
+                "Rusty XR update mono camera projection uniforms failed: {error}"
+            ));
+            return;
+        }
         device.cmd_set_viewport(cmd, 0, &viewport);
         device.cmd_set_scissor(cmd, 0, &scissor);
         device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, resources.pipeline);
@@ -2052,9 +2080,8 @@ impl GpuCameraRenderer {
             resources.pipeline_layout,
             0,
             &[import.descriptor_set],
-            &[],
+            &[uniform_offset],
         );
-        let push = CameraProjectionPush::from_frame(frame, config);
         let push_bytes = std::slice::from_raw_parts(
             (&push as *const CameraProjectionPush).cast::<u8>(),
             std::mem::size_of::<CameraProjectionPush>(),
@@ -2099,6 +2126,21 @@ impl GpuCameraRenderer {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent: resolution,
         }];
+        let controls = config.stereo_projection_controls(frame_count);
+        let (push, uniforms, projection_active) =
+            CameraProjectionPush::from_stereo_frame(frame, config, &controls, views, resolution);
+        if config.camera_tier == CameraCompositeTier::GpuProjected && !projection_active {
+            return;
+        }
+        let uniform_offset = resources.projection_uniform_offset(frame_count);
+        if let Err(error) =
+            update_camera_projection_uniforms(device, resources, uniform_offset, &uniforms)
+        {
+            log_error(format!(
+                "Rusty XR update stereo camera projection uniforms failed: {error}"
+            ));
+            return;
+        }
         device.cmd_set_viewport(cmd, 0, &viewport);
         device.cmd_set_scissor(cmd, 0, &scissor);
         device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, resources.pipeline);
@@ -2108,14 +2150,8 @@ impl GpuCameraRenderer {
             resources.pipeline_layout,
             0,
             &[descriptor.descriptor_set],
-            &[],
+            &[uniform_offset],
         );
-        let controls = config.stereo_projection_controls(frame_count);
-        let (push, projection_active) =
-            CameraProjectionPush::from_stereo_frame(frame, config, &controls, views, resolution);
-        if config.camera_tier == CameraCompositeTier::GpuProjected && !projection_active {
-            return;
-        }
         let push_bytes = std::slice::from_raw_parts(
             (&push as *const CameraProjectionPush).cast::<u8>(),
             std::mem::size_of::<CameraProjectionPush>(),
@@ -2209,6 +2245,10 @@ struct GpuCameraPipelineResources {
     descriptor_pool: vk::DescriptorPool,
     pipeline_layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
+    projection_uniform_buffer: vk::Buffer,
+    projection_uniform_memory: vk::DeviceMemory,
+    projection_uniform_stride: vk::DeviceSize,
+    projection_uniform_slots: u32,
 }
 
 impl GpuCameraPipelineResources {
@@ -2217,8 +2257,15 @@ impl GpuCameraPipelineResources {
         device.destroy_pipeline_layout(self.pipeline_layout, None);
         device.destroy_descriptor_pool(self.descriptor_pool, None);
         device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+        device.destroy_buffer(self.projection_uniform_buffer, None);
+        device.free_memory(self.projection_uniform_memory, None);
         device.destroy_sampler(self.sampler, None);
         device.destroy_sampler_ycbcr_conversion(self.sampler_ycbcr_conversion, None);
+    }
+
+    fn projection_uniform_offset(&self, frame_count: u64) -> u32 {
+        let slot = frame_count % self.projection_uniform_slots.max(1) as u64;
+        (slot * self.projection_uniform_stride) as u32
     }
 }
 
@@ -2259,7 +2306,7 @@ impl GpuCameraStereoDescriptor {
 #[derive(Clone, Copy)]
 struct CameraProjectionPush {
     params: [f32; 4],
-    border_color: [f32; 4],
+    color_adjust: [f32; 4],
     left_h0: [f32; 4],
     left_h1: [f32; 4],
     left_h2: [f32; 4],
@@ -2268,9 +2315,68 @@ struct CameraProjectionPush {
     right_h2: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CameraProjectionUniforms {
+    left_screen_to_surface_h0: [f32; 4],
+    left_screen_to_surface_h1: [f32; 4],
+    left_screen_to_surface_h2: [f32; 4],
+    right_screen_to_surface_h0: [f32; 4],
+    right_screen_to_surface_h1: [f32; 4],
+    right_screen_to_surface_h2: [f32; 4],
+    left_surface_to_screen_h0: [f32; 4],
+    left_surface_to_screen_h1: [f32; 4],
+    left_surface_to_screen_h2: [f32; 4],
+    right_surface_to_screen_h0: [f32; 4],
+    right_surface_to_screen_h1: [f32; 4],
+    right_surface_to_screen_h2: [f32; 4],
+}
+
+impl CameraProjectionUniforms {
+    fn identity() -> Self {
+        let h = identity_homography();
+        Self::from_rows(&h, &h, &h, &h)
+    }
+
+    fn from_mappings(
+        left: &DisplayEyeProjectionMapping,
+        right: &DisplayEyeProjectionMapping,
+    ) -> Self {
+        Self::from_rows(
+            &left.screen_to_surface,
+            &right.screen_to_surface,
+            &left.surface_to_screen,
+            &right.surface_to_screen,
+        )
+    }
+
+    fn from_rows(
+        left_screen_to_surface: &[[f32; 3]; 3],
+        right_screen_to_surface: &[[f32; 3]; 3],
+        left_surface_to_screen: &[[f32; 3]; 3],
+        right_surface_to_screen: &[[f32; 3]; 3],
+    ) -> Self {
+        Self {
+            left_screen_to_surface_h0: pack_homography_row(left_screen_to_surface[0]),
+            left_screen_to_surface_h1: pack_homography_row(left_screen_to_surface[1]),
+            left_screen_to_surface_h2: pack_homography_row(left_screen_to_surface[2]),
+            right_screen_to_surface_h0: pack_homography_row(right_screen_to_surface[0]),
+            right_screen_to_surface_h1: pack_homography_row(right_screen_to_surface[1]),
+            right_screen_to_surface_h2: pack_homography_row(right_screen_to_surface[2]),
+            left_surface_to_screen_h0: pack_homography_row(left_surface_to_screen[0]),
+            left_surface_to_screen_h1: pack_homography_row(left_surface_to_screen[1]),
+            left_surface_to_screen_h2: pack_homography_row(left_surface_to_screen[2]),
+            right_surface_to_screen_h0: pack_homography_row(right_surface_to_screen[0]),
+            right_surface_to_screen_h1: pack_homography_row(right_surface_to_screen[1]),
+            right_surface_to_screen_h2: pack_homography_row(right_surface_to_screen[2]),
+        }
+    }
+}
+
 impl CameraProjectionPush {
     fn from_frame(_frame: &HeadsetCameraGpuFrame, config: &crate::RuntimeConfig) -> Self {
         let mono_flags = config.camera_texture_transform.shader_flags() & 0x1f;
+        let packed_flags = (mono_flags | (mono_flags << 5)) | config.camera_color_mode.shader_bit();
         let content_uv_scale = full_view_content_uv_scale(
             config.camera_full_view_overlay_overscan,
             config.camera_raw_overlay_overscan,
@@ -2281,9 +2387,9 @@ impl CameraProjectionPush {
                 config.camera_raw_overlay_overscan.max(1.0),
                 config.camera_edge_fade.clamp(0.0, 0.5),
                 content_uv_scale,
-                (mono_flags | (mono_flags << 5)) as f32,
+                packed_flags as f32,
             ],
-            border_color: [1.0, 1.0, 1.0, CAMERA_BORDER_OPACITY],
+            color_adjust: config.camera_color_adjust_push(),
             left_h0: [1.0, 0.0, 0.0, 0.0],
             left_h1: [0.0, 1.0, 0.0, 0.0],
             left_h2: [0.0, 0.0, 1.0, 0.0],
@@ -2299,7 +2405,7 @@ impl CameraProjectionPush {
         controls: &crate::StereoProjectionControls,
         views: &[xr::View],
         resolution: vk::Extent2D,
-    ) -> (Self, bool) {
+    ) -> (Self, CameraProjectionUniforms, bool) {
         let content_uv_scale = full_view_content_uv_scale(
             config.camera_full_view_overlay_overscan,
             config.camera_raw_overlay_overscan,
@@ -2310,9 +2416,9 @@ impl CameraProjectionPush {
                 config.camera_raw_overlay_overscan.max(1.0),
                 config.camera_edge_fade.clamp(0.0, 0.5),
                 content_uv_scale,
-                controls.packed_shader_flags() as f32,
+                (controls.packed_shader_flags() | config.camera_color_mode.shader_bit()) as f32,
             ],
-            border_color: [1.0, 1.0, 1.0, CAMERA_BORDER_OPACITY],
+            color_adjust: config.camera_color_adjust_push(),
             left_h0: [1.0, 0.0, 0.0, 0.0],
             left_h1: [0.0, 1.0, 0.0, 0.0],
             left_h2: [0.0, 0.0, 1.0, 0.0],
@@ -2323,28 +2429,42 @@ impl CameraProjectionPush {
         if !controls.left_texture_transform.is_explicit_visual_check()
             || !controls.right_texture_transform.is_explicit_visual_check()
         {
-            return (push, false);
+            return (push, CameraProjectionUniforms::identity(), false);
         }
 
         if let Some((left, right)) =
             projected_stereo_homographies(frame, config, controls, views, resolution)
         {
             push.params[0] = -config.camera_raw_overlay_overscan.max(1.0);
-            push.left_h0 = [left.rows[0][0], left.rows[0][1], left.rows[0][2], 0.0];
-            push.left_h1 = [left.rows[1][0], left.rows[1][1], left.rows[1][2], 0.0];
-            push.left_h2 = [left.rows[2][0], left.rows[2][1], left.rows[2][2], 0.0];
-            push.right_h0 = [right.rows[0][0], right.rows[0][1], right.rows[0][2], 0.0];
-            push.right_h1 = [right.rows[1][0], right.rows[1][1], right.rows[1][2], 0.0];
-            push.right_h2 = [right.rows[2][0], right.rows[2][1], right.rows[2][2], 0.0];
-            return (push, true);
+            push.left_h0 = pack_homography_row(left.screen_to_camera[0]);
+            push.left_h1 = pack_homography_row(left.screen_to_camera[1]);
+            push.left_h2 = pack_homography_row(left.screen_to_camera[2]);
+            push.right_h0 = pack_homography_row(right.screen_to_camera[0]);
+            push.right_h1 = pack_homography_row(right.screen_to_camera[1]);
+            push.right_h2 = pack_homography_row(right.screen_to_camera[2]);
+            return (
+                push,
+                CameraProjectionUniforms::from_mappings(&left, &right),
+                true,
+            );
         }
-        (push, false)
+        (push, CameraProjectionUniforms::identity(), false)
     }
 }
 
 #[derive(Clone, Copy)]
-struct PlaneToCameraHomography {
-    rows: [[f32; 3]; 3],
+struct DisplayEyeProjectionMapping {
+    screen_to_camera: [[f32; 3]; 3],
+    screen_to_surface: [[f32; 3]; 3],
+    surface_to_screen: [[f32; 3]; 3],
+}
+
+fn identity_homography() -> [[f32; 3]; 3] {
+    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+}
+
+fn pack_homography_row(row: [f32; 3]) -> [f32; 4] {
+    [row[0], row[1], row[2], 0.0]
 }
 
 fn projected_stereo_homographies(
@@ -2353,7 +2473,7 @@ fn projected_stereo_homographies(
     controls: &crate::StereoProjectionControls,
     views: &[xr::View],
     resolution: vk::Extent2D,
-) -> Option<(PlaneToCameraHomography, PlaneToCameraHomography)> {
+) -> Option<(DisplayEyeProjectionMapping, DisplayEyeProjectionMapping)> {
     let left_extrinsics = frame.left.metadata.extrinsics?;
     let right_extrinsics = frame.right.metadata.extrinsics?;
     if !left_extrinsics.is_valid() || !right_extrinsics.is_valid() {
@@ -2394,7 +2514,7 @@ fn projected_display_eye_homography(
     display_view: &xr::View,
     resolution: vk::Extent2D,
     reference_center: Vec3,
-) -> Option<PlaneToCameraHomography> {
+) -> Option<DisplayEyeProjectionMapping> {
     let intrinsics = frame.metadata.intrinsics?;
     let source_domain = frame.metadata.intrinsics_domain?;
     let scaled = scale_intrinsics_to_image(
@@ -2455,9 +2575,20 @@ fn projected_display_eye_homography(
     .ok()?;
     let surface_to_camera =
         surface_to_camera_uv_homography(surface_corners, camera_basis, scaled).ok()?;
-    screen_to_camera_uv_homography(surface_to_screen, surface_to_camera)
-        .ok()
-        .map(|rows| PlaneToCameraHomography { rows })
+    // Both public projection modes render through the same fullscreen
+    // multiview pass today. Reconstruct the head-anchored content-surface UV
+    // from the current display-eye geometry so the shader samples the camera
+    // feed as if a real quad had supplied rasterized surface coordinates.
+    // The mode remains visible in logs/catalogs so a future mesh-quad backend
+    // can be A/B tested without changing launch profiles.
+    let screen_to_surface = invert_homography(surface_to_screen)?;
+    let screen_to_camera =
+        screen_to_camera_uv_homography(surface_to_screen, surface_to_camera).ok()?;
+    Some(DisplayEyeProjectionMapping {
+        screen_to_camera,
+        screen_to_surface,
+        surface_to_screen,
+    })
 }
 
 fn eye_basis_from_view(view: &xr::View) -> Option<CameraBasis> {
@@ -2524,6 +2655,8 @@ fn fov_aspect(fov: xr::Fovf) -> Option<f32> {
 
 unsafe fn create_gpu_camera_pipeline_resources(
     device: &ash::Device,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
+    projection_uniform_alignment: vk::DeviceSize,
     render_pass: vk::RenderPass,
     format_key: GpuCameraFormatKey,
     format_props: &vk::AndroidHardwareBufferFormatPropertiesANDROID<'_>,
@@ -2573,6 +2706,11 @@ unsafe fn create_gpu_camera_pipeline_resources(
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
             .immutable_samplers(&immutable_samplers),
+        vk::DescriptorSetLayoutBinding::default()
+            .binding(2)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT),
     ];
     let descriptor_set_layout = device
         .create_descriptor_set_layout(
@@ -2580,18 +2718,30 @@ unsafe fn create_gpu_camera_pipeline_resources(
             None,
         )
         .map_err(|error| format!("create camera descriptor set layout: {error}"))?;
-    let pool_sizes = [vk::DescriptorPoolSize::default()
-        .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .descriptor_count((GPU_CAMERA_IMPORT_CACHE_LIMIT as u32) * 4)];
+    let max_descriptor_sets = (GPU_CAMERA_IMPORT_CACHE_LIMIT as u32) * 2;
+    let pool_sizes = [
+        vk::DescriptorPoolSize::default()
+            .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count((GPU_CAMERA_IMPORT_CACHE_LIMIT as u32) * 4),
+        vk::DescriptorPoolSize::default()
+            .ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+            .descriptor_count(max_descriptor_sets),
+    ];
     let descriptor_pool = device
         .create_descriptor_pool(
             &vk::DescriptorPoolCreateInfo::default()
                 .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
                 .pool_sizes(&pool_sizes)
-                .max_sets((GPU_CAMERA_IMPORT_CACHE_LIMIT as u32) * 2),
+                .max_sets(max_descriptor_sets),
             None,
         )
         .map_err(|error| format!("create camera descriptor pool: {error}"))?;
+    let (projection_uniform_buffer, projection_uniform_memory, projection_uniform_stride) =
+        create_camera_projection_uniform_buffer(
+            device,
+            memory_properties,
+            projection_uniform_alignment,
+        )?;
 
     let push_ranges = [vk::PushConstantRange::default()
         .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT)
@@ -2616,6 +2766,10 @@ unsafe fn create_gpu_camera_pipeline_resources(
         descriptor_pool,
         pipeline_layout,
         pipeline,
+        projection_uniform_buffer,
+        projection_uniform_memory,
+        projection_uniform_stride,
+        projection_uniform_slots: GPU_CAMERA_PROJECTION_UNIFORM_SLOTS,
     })
 }
 
@@ -2646,6 +2800,10 @@ unsafe fn allocate_camera_descriptor_set(
         .sampler(resources.sampler)
         .image_view(right_image_view)
         .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
+    let projection_info = [vk::DescriptorBufferInfo::default()
+        .buffer(resources.projection_uniform_buffer)
+        .offset(0)
+        .range(std::mem::size_of::<CameraProjectionUniforms>() as vk::DeviceSize)];
     let writes = [
         vk::WriteDescriptorSet::default()
             .dst_set(descriptor_set)
@@ -2657,9 +2815,97 @@ unsafe fn allocate_camera_descriptor_set(
             .dst_binding(1)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .image_info(&right_info),
+        vk::WriteDescriptorSet::default()
+            .dst_set(descriptor_set)
+            .dst_binding(2)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+            .buffer_info(&projection_info),
     ];
     device.update_descriptor_sets(&writes, &[]);
     Ok(descriptor_set)
+}
+
+unsafe fn create_camera_projection_uniform_buffer(
+    device: &ash::Device,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
+    min_uniform_alignment: vk::DeviceSize,
+) -> Result<(vk::Buffer, vk::DeviceMemory, vk::DeviceSize), String> {
+    let uniform_size = std::mem::size_of::<CameraProjectionUniforms>() as vk::DeviceSize;
+    let stride = align_uniform_stride(uniform_size, min_uniform_alignment.max(16));
+    let total_size = stride * GPU_CAMERA_PROJECTION_UNIFORM_SLOTS.max(1) as vk::DeviceSize;
+    let buffer = device
+        .create_buffer(
+            &vk::BufferCreateInfo::default()
+                .size(total_size)
+                .usage(vk::BufferUsageFlags::UNIFORM_BUFFER)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE),
+            None,
+        )
+        .map_err(|error| format!("create camera projection uniform buffer: {error}"))?;
+    let requirements = device.get_buffer_memory_requirements(buffer);
+    let memory_type_index = match find_memory_type(
+        memory_properties,
+        requirements.memory_type_bits,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    ) {
+        Ok(index) => index,
+        Err(error) => {
+            device.destroy_buffer(buffer, None);
+            return Err(error);
+        }
+    };
+    let memory = match device.allocate_memory(
+        &vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type_index),
+        None,
+    ) {
+        Ok(memory) => memory,
+        Err(error) => {
+            device.destroy_buffer(buffer, None);
+            return Err(format!(
+                "allocate camera projection uniform memory: {error}"
+            ));
+        }
+    };
+    if let Err(error) = device.bind_buffer_memory(buffer, memory, 0) {
+        device.free_memory(memory, None);
+        device.destroy_buffer(buffer, None);
+        return Err(format!("bind camera projection uniform memory: {error}"));
+    }
+    Ok((buffer, memory, stride))
+}
+
+fn align_uniform_stride(value: vk::DeviceSize, alignment: vk::DeviceSize) -> vk::DeviceSize {
+    if alignment <= 1 {
+        value
+    } else {
+        ((value + alignment - 1) / alignment) * alignment
+    }
+}
+
+unsafe fn update_camera_projection_uniforms(
+    device: &ash::Device,
+    resources: &GpuCameraPipelineResources,
+    offset: u32,
+    uniforms: &CameraProjectionUniforms,
+) -> Result<(), String> {
+    let byte_len = std::mem::size_of::<CameraProjectionUniforms>() as vk::DeviceSize;
+    let mapped = device
+        .map_memory(
+            resources.projection_uniform_memory,
+            offset as vk::DeviceSize,
+            byte_len,
+            vk::MemoryMapFlags::empty(),
+        )
+        .map_err(|error| format!("map camera projection uniform memory: {error}"))?;
+    std::ptr::copy_nonoverlapping(
+        (uniforms as *const CameraProjectionUniforms).cast::<u8>(),
+        mapped.cast::<u8>(),
+        byte_len as usize,
+    );
+    device.unmap_memory(resources.projection_uniform_memory);
+    Ok(())
 }
 
 unsafe fn import_camera_hardware_buffer(

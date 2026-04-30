@@ -231,6 +231,78 @@ impl StereoSourceEyeMapping {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CameraProjectionMode {
+    #[default]
+    DisplayScreenHomography,
+    QuadSurface,
+}
+
+impl CameraProjectionMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "display-screen-homography"
+            | "screen-homography"
+            | "display-eye-homography"
+            | "fullscreen"
+            | "default" => Some(Self::DisplayScreenHomography),
+            "quad-surface" | "quadSurface" | "content-surface" | "surface" | "quad-style" => {
+                Some(Self::QuadSurface)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::DisplayScreenHomography => "display-screen-homography",
+            Self::QuadSurface => "quad-surface",
+        }
+    }
+
+    pub(crate) const fn projection_surface_label(self) -> &'static str {
+        match self {
+            Self::DisplayScreenHomography => "head-anchored-content-surface-via-openxr-eye-view",
+            Self::QuadSurface => "head-anchored-content-surface-quad-emulated",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CameraColorMode {
+    #[default]
+    ExternalRgb,
+    ExternalCrYCbBt601Narrow,
+}
+
+impl CameraColorMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "external-rgb" | "rgb" | "default" => Some(Self::ExternalRgb),
+            "external-cr-y-cb-bt601-narrow"
+            | "external-ycbcr-bt601-narrow"
+            | "cr-y-cb-bt601-narrow"
+            | "bt601-narrow"
+            | "quest-external-bt601" => Some(Self::ExternalCrYCbBt601Narrow),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::ExternalRgb => "external-rgb",
+            Self::ExternalCrYCbBt601Narrow => "external-cr-y-cb-bt601-narrow",
+        }
+    }
+
+    pub(crate) const fn shader_bit(self) -> u32 {
+        match self {
+            Self::ExternalRgb => 0,
+            Self::ExternalCrYCbBt601Narrow => 1 << 11,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum CameraOrientationDiagnosticMode {
     #[default]
     Off,
@@ -313,6 +385,11 @@ pub(crate) struct RuntimeConfig {
     pub(crate) left_camera_texture_transform: CameraTextureTransform,
     pub(crate) right_camera_texture_transform: CameraTextureTransform,
     pub(crate) source_eye_mapping: StereoSourceEyeMapping,
+    pub(crate) camera_projection_mode: CameraProjectionMode,
+    pub(crate) camera_color_mode: CameraColorMode,
+    pub(crate) camera_color_contrast: f32,
+    pub(crate) camera_color_brightness: f32,
+    pub(crate) camera_color_saturation: f32,
     pub(crate) orientation_diagnostic_mode: CameraOrientationDiagnosticMode,
     pub(crate) visual_release_accepted: bool,
     pub(crate) xr_render_scale: f32,
@@ -338,6 +415,11 @@ impl Default for RuntimeConfig {
             left_camera_texture_transform: CameraTextureTransform::default(),
             right_camera_texture_transform: CameraTextureTransform::default(),
             source_eye_mapping: StereoSourceEyeMapping::default(),
+            camera_projection_mode: CameraProjectionMode::default(),
+            camera_color_mode: CameraColorMode::default(),
+            camera_color_contrast: 1.0,
+            camera_color_brightness: 0.0,
+            camera_color_saturation: 1.0,
             orientation_diagnostic_mode: CameraOrientationDiagnosticMode::Off,
             visual_release_accepted: false,
             xr_render_scale: 0.75,
@@ -347,6 +429,15 @@ impl Default for RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    pub(crate) fn camera_color_adjust_push(&self) -> [f32; 4] {
+        [
+            self.camera_color_contrast.max(0.0),
+            self.camera_color_brightness,
+            self.camera_color_saturation.max(0.0),
+            1.0,
+        ]
+    }
+
     pub(crate) fn stereo_projection_controls(&self, frame_count: u64) -> StereoProjectionControls {
         let mut controls = StereoProjectionControls {
             source_eye_mapping: self.source_eye_mapping,
@@ -545,13 +636,18 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} fixedFoveationLevel={}",
+        "Rusty XR camera path config requestedTier={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraColorMode={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} fixedFoveationLevel={}",
         config.camera_tier.stable_id(),
         config.camera_enabled,
         config.media_projection_enabled,
         config.allow_cpu_fallback,
         config.cpu_upload_hz,
         config.stereo_layout,
+        config.camera_projection_mode.stable_id(),
+        config.camera_color_mode.stable_id(),
+        config.camera_color_contrast,
+        config.camera_color_brightness,
+        config.camera_color_saturation,
         config.camera_projection_fov_y_degrees,
         config.camera_preview_fov_y_degrees,
         config.camera_projection_scale,
@@ -996,6 +1092,11 @@ struct JavaRuntimeConfig {
     camera_texture_mirror: Option<bool>,
     camera_texture_transform_source: Option<String>,
     camera_texture_transform_reason: Option<String>,
+    camera_projection_mode: Option<String>,
+    camera_color_mode: Option<String>,
+    camera_color_contrast: Option<f32>,
+    camera_color_brightness: Option<f32>,
+    camera_color_saturation: Option<f32>,
     left_camera_texture_rotation: Option<String>,
     left_camera_texture_flip_x: Option<bool>,
     left_camera_texture_flip_y: Option<bool>,
@@ -1066,6 +1167,31 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             .as_deref()
             .and_then(StereoSourceEyeMapping::parse)
             .unwrap_or_default(),
+        camera_projection_mode: bridge
+            .camera_projection_mode
+            .as_deref()
+            .and_then(CameraProjectionMode::parse)
+            .unwrap_or_default(),
+        camera_color_mode: bridge
+            .camera_color_mode
+            .as_deref()
+            .and_then(CameraColorMode::parse)
+            .unwrap_or_default(),
+        camera_color_contrast: finite_positive_or(
+            bridge.camera_color_contrast,
+            defaults.camera_color_contrast,
+        )
+        .clamp(0.0, 4.0),
+        camera_color_brightness: finite_or(
+            bridge.camera_color_brightness,
+            defaults.camera_color_brightness,
+        )
+        .clamp(-1.0, 1.0),
+        camera_color_saturation: finite_positive_or(
+            bridge.camera_color_saturation,
+            defaults.camera_color_saturation,
+        )
+        .clamp(0.0, 4.0),
         orientation_diagnostic_mode: bridge
             .camera_orientation_diagnostic_mode
             .as_deref()
@@ -1165,6 +1291,10 @@ fn finite_positive_or(value: Option<f32>, fallback: f32) -> f32 {
     value
         .filter(|value| value.is_finite() && *value > 0.0)
         .unwrap_or(fallback)
+}
+
+fn finite_or(value: Option<f32>, fallback: f32) -> f32 {
+    value.filter(|value| value.is_finite()).unwrap_or(fallback)
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -1870,10 +2000,10 @@ fn keep_activity_alive_after_error(app: android_activity::AndroidApp) {
 #[cfg(test)]
 mod tests {
     use super::{
-        contract_json, public_camera_metadata, public_runtime_config,
-        CameraOrientationDiagnosticMode, JavaCameraExtrinsics, JavaCameraFrameMetadata,
-        JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind, JavaRuntimeConfig,
-        StereoSourceEyeMapping,
+        contract_json, public_camera_metadata, public_runtime_config, CameraColorMode,
+        CameraOrientationDiagnosticMode, CameraProjectionMode, JavaCameraExtrinsics,
+        JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind,
+        JavaRuntimeConfig, StereoSourceEyeMapping,
     };
     use rusty_xr_contracts::{
         CameraCompositeTier, CameraImageRotation, CameraPixelDomainKind, ImageSize,
@@ -2040,6 +2170,11 @@ mod tests {
             camera_texture_mirror: Some(false),
             camera_texture_transform_source: Some("public-live-check".to_string()),
             camera_texture_transform_reason: Some("upright texture validation".to_string()),
+            camera_projection_mode: Some("quad-surface".to_string()),
+            camera_color_mode: Some("external-rgb".to_string()),
+            camera_color_contrast: Some(1.1),
+            camera_color_brightness: Some(0.04),
+            camera_color_saturation: Some(1.0),
             left_camera_texture_rotation: Some("rotate180".to_string()),
             left_camera_texture_flip_x: Some(true),
             left_camera_texture_flip_y: Some(false),
@@ -2091,6 +2226,14 @@ mod tests {
             config.source_eye_mapping,
             StereoSourceEyeMapping::DisplayLeftFromRightSource
         );
+        assert_eq!(
+            config.camera_projection_mode,
+            CameraProjectionMode::QuadSurface
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(config.camera_color_contrast, 1.1);
+        assert_eq!(config.camera_color_brightness, 0.04);
+        assert_eq!(config.camera_color_saturation, 1.0);
         assert_eq!(
             config.orientation_diagnostic_mode,
             CameraOrientationDiagnosticMode::CycleSourceEyeMapping

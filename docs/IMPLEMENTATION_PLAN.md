@@ -178,7 +178,11 @@ Current Quest media implementation status:
   Camera2/headset-camera custom layer with OpenXR/Vulkan submission, Android
   hardware-buffer import, GPU sampling, paired left/right Camera2 streams,
   public Camera2 intrinsics/pose metadata, display-eye screen-to-camera
-  homographies, and the public soft visual-feedback border.
+  homographies, a quad-surface comparison profile, and the public soft
+  visual-feedback border. The fullscreen mapping and quad-surface mapping both
+  exercise the core stereo camera stack, but the quad-surface profile remains
+  an optimization/color-parity task rather than the final performance
+  reference.
 - MediaProjection remains a final-screen inspection stream only; it is not the
   raw camera source for the custom layer.
 - Future native support should still stay in thin optional adapters or public

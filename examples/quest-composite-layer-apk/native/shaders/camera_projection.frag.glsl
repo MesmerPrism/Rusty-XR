@@ -2,10 +2,24 @@
 
 layout(set = 0, binding = 0) uniform sampler2D u_camera_left;
 layout(set = 0, binding = 1) uniform sampler2D u_camera_right;
+layout(set = 0, binding = 2, std140) uniform CameraProjectionSurfaceMap {
+    vec4 left_screen_to_surface_h0;
+    vec4 left_screen_to_surface_h1;
+    vec4 left_screen_to_surface_h2;
+    vec4 right_screen_to_surface_h0;
+    vec4 right_screen_to_surface_h1;
+    vec4 right_screen_to_surface_h2;
+    vec4 left_surface_to_screen_h0;
+    vec4 left_surface_to_screen_h1;
+    vec4 left_surface_to_screen_h2;
+    vec4 right_surface_to_screen_h0;
+    vec4 right_surface_to_screen_h1;
+    vec4 right_surface_to_screen_h2;
+} surface_map;
 
 layout(push_constant) uniform CameraProjectionPush {
     vec4 params;
-    vec4 border_color;
+    vec4 color_adjust;
     vec4 left_h0;
     vec4 left_h1;
     vec4 left_h2;
@@ -46,6 +60,34 @@ float luma(vec3 color) {
     return clamp(dot(color, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
 }
 
+vec3 decode_external_camera_sample(vec3 raw_sample) {
+    float y = clamp((raw_sample.y - (16.0 / 255.0)) * (255.0 / 219.0), 0.0, 1.0);
+    float cb = (raw_sample.z - (128.0 / 255.0)) * (255.0 / 224.0);
+    float cr = (raw_sample.x - (128.0 / 255.0)) * (255.0 / 224.0);
+    float r = y + 1.402 * cr;
+    float g = y - 0.344136 * cb - 0.714136 * cr;
+    float b = y + 1.772 * cb;
+    return clamp01(vec3(r, g, b));
+}
+
+vec4 normalize_camera_sample(vec4 raw_sample) {
+    int packed_flags = int(floor(pc.params.w + 0.5));
+    if ((packed_flags & 2048) == 0) {
+        return raw_sample;
+    }
+    return vec4(decode_external_camera_sample(raw_sample.rgb), raw_sample.a);
+}
+
+vec3 apply_camera_color_adjust(vec3 color) {
+    float contrast = max(pc.color_adjust.x, 0.0);
+    float brightness = pc.color_adjust.y;
+    float saturation = max(pc.color_adjust.z, 0.0);
+    vec3 contrasted = ((color - vec3(0.5)) * contrast) + vec3(0.5);
+    float luminance = dot(contrasted, vec3(0.2126, 0.7152, 0.0722));
+    vec3 saturated = mix(vec3(luminance), contrasted, saturation);
+    return clamp01(saturated + vec3(brightness));
+}
+
 vec2 apply_camera_texture_transform(vec2 uv, int flags) {
     int turns = flags & 3;
     if (turns == 1) {
@@ -83,9 +125,11 @@ vec2 apply_homography(vec2 uv, vec4 h0, vec4 h1, vec4 h2, out bool valid) {
 }
 
 vec4 sample_source_eye_raw(int source_eye, vec2 uv) {
-    return source_eye == 0
+    vec4 raw_sample = source_eye == 0
         ? texture(u_camera_left, uv)
         : texture(u_camera_right, uv);
+    vec4 normalized = normalize_camera_sample(raw_sample);
+    return vec4(apply_camera_color_adjust(normalized.rgb), normalized.a);
 }
 
 vec4 sample_source_eye_clamped(int source_eye, vec2 uv) {
@@ -97,6 +141,60 @@ vec4 sample_source_eye_oriented(int source_eye, vec2 uv, int transform_flags) {
         source_eye,
         apply_camera_texture_transform(uv, transform_flags)
     );
+}
+
+vec2 surface_uv_from_content_uv(vec2 content_uv, float content_uv_scale) {
+    return (content_uv - vec2(0.5)) / max(content_uv_scale, 1.0) + vec2(0.5);
+}
+
+vec2 content_uv_from_screen_uv(vec2 screen_uv, int display_eye, bool projected, out bool valid) {
+    if (!projected) {
+        valid = true;
+        return screen_uv;
+    }
+    return display_eye == 0
+        ? apply_homography(
+            screen_uv,
+            surface_map.left_screen_to_surface_h0,
+            surface_map.left_screen_to_surface_h1,
+            surface_map.left_screen_to_surface_h2,
+            valid
+        )
+        : apply_homography(
+            screen_uv,
+            surface_map.right_screen_to_surface_h0,
+            surface_map.right_screen_to_surface_h1,
+            surface_map.right_screen_to_surface_h2,
+            valid
+        );
+}
+
+vec2 screen_uv_from_content_uv(
+    vec2 content_uv,
+    int display_eye,
+    bool projected,
+    float content_uv_scale,
+    out bool valid
+) {
+    if (!projected) {
+        valid = true;
+        return surface_uv_from_content_uv(content_uv, content_uv_scale);
+    }
+    return display_eye == 0
+        ? apply_homography(
+            content_uv,
+            surface_map.left_surface_to_screen_h0,
+            surface_map.left_surface_to_screen_h1,
+            surface_map.left_surface_to_screen_h2,
+            valid
+        )
+        : apply_homography(
+            content_uv,
+            surface_map.right_surface_to_screen_h0,
+            surface_map.right_surface_to_screen_h1,
+            surface_map.right_surface_to_screen_h2,
+            valid
+        );
 }
 
 vec2 projected_camera_uv(
@@ -122,6 +220,47 @@ vec2 projected_camera_uv(
         uv.x <= 1.0 &&
         uv.y <= 1.0;
     return uv;
+}
+
+vec4 sample_projected_content_source(
+    vec2 content_uv,
+    int display_eye,
+    bool projected,
+    float content_uv_scale,
+    out bool valid,
+    out int source_eye,
+    out int transform_flags,
+    out vec2 camera_uv
+) {
+    int packed_flags = int(floor(pc.params.w + 0.5));
+    source_eye = source_eye_for_display_eye(display_eye, packed_flags);
+    transform_flags = transform_flags_for_source_eye(source_eye, packed_flags);
+    bool surface_valid = true;
+    vec2 projection_uv = projected
+        ? screen_uv_from_content_uv(
+            content_uv,
+            display_eye,
+            projected,
+            content_uv_scale,
+            surface_valid
+        )
+        : clamp(content_uv, vec2(0.0), vec2(1.0));
+    camera_uv = projected_camera_uv(
+        projection_uv,
+        display_eye,
+        transform_flags,
+        projected,
+        valid
+    );
+    valid = valid && surface_valid;
+    if (valid) {
+        return sample_source_eye_raw(source_eye, camera_uv);
+    }
+    return sample_source_eye_oriented(
+        source_eye,
+        clamp(content_uv, vec2(0.0), vec2(1.0)),
+        transform_flags
+    );
 }
 
 float projection_coverage(vec2 projected_uv, bool valid, float edge_fade) {
@@ -209,6 +348,28 @@ float source_luma(vec2 sample_uv, int source_eye, int transform_flags) {
     return luma(sample_source_eye_oriented(source_eye, sample_uv, transform_flags).rgb);
 }
 
+float projected_source_luma(
+    vec2 content_uv,
+    int display_eye,
+    bool projected,
+    float content_uv_scale
+) {
+    bool valid = false;
+    int source_eye = 0;
+    int transform_flags = 0;
+    vec2 camera_uv = vec2(0.0);
+    return luma(sample_projected_content_source(
+        content_uv,
+        display_eye,
+        projected,
+        content_uv_scale,
+        valid,
+        source_eye,
+        transform_flags,
+        camera_uv
+    ).rgb);
+}
+
 float guide_luma(vec2 sample_uv, int source_eye, int transform_flags) {
     vec2 texel = camera_texel_size(source_eye);
     float center = source_luma(sample_uv, source_eye, transform_flags);
@@ -220,12 +381,42 @@ float guide_luma(vec2 sample_uv, int source_eye, int transform_flags) {
     return clamp(center * 0.42 + sides * 0.145, 0.0, 1.0);
 }
 
+float projected_guide_luma(
+    vec2 content_uv,
+    int display_eye,
+    bool projected,
+    float content_uv_scale
+) {
+    vec2 step_size = vec2(1.0 / 2048.0);
+    float center = projected_source_luma(content_uv, display_eye, projected, content_uv_scale);
+    float sides =
+        projected_source_luma(content_uv + vec2(step_size.x * 3.0, 0.0), display_eye, projected, content_uv_scale) +
+        projected_source_luma(content_uv - vec2(step_size.x * 3.0, 0.0), display_eye, projected, content_uv_scale) +
+        projected_source_luma(content_uv + vec2(0.0, step_size.y * 3.0), display_eye, projected, content_uv_scale) +
+        projected_source_luma(content_uv - vec2(0.0, step_size.y * 3.0), display_eye, projected, content_uv_scale);
+    return clamp(center * 0.42 + sides * 0.145, 0.0, 1.0);
+}
+
 float source_edge_strength(vec2 sample_uv, int source_eye, int transform_flags) {
     vec2 step_size = max(camera_texel_size(source_eye) * 2.0, vec2(1.0 / 2048.0));
     float left = source_luma(sample_uv - vec2(step_size.x, 0.0), source_eye, transform_flags);
     float right = source_luma(sample_uv + vec2(step_size.x, 0.0), source_eye, transform_flags);
     float up = source_luma(sample_uv - vec2(0.0, step_size.y), source_eye, transform_flags);
     float down = source_luma(sample_uv + vec2(0.0, step_size.y), source_eye, transform_flags);
+    return smoothstep(0.025, 0.18, length(vec2(right - left, down - up)));
+}
+
+float projected_source_edge_strength(
+    vec2 content_uv,
+    int display_eye,
+    bool projected,
+    float content_uv_scale
+) {
+    vec2 step_size = vec2(2.0 / 2048.0);
+    float left = projected_source_luma(content_uv - vec2(step_size.x, 0.0), display_eye, projected, content_uv_scale);
+    float right = projected_source_luma(content_uv + vec2(step_size.x, 0.0), display_eye, projected, content_uv_scale);
+    float up = projected_source_luma(content_uv - vec2(0.0, step_size.y), display_eye, projected, content_uv_scale);
+    float down = projected_source_luma(content_uv + vec2(0.0, step_size.y), display_eye, projected, content_uv_scale);
     return smoothstep(0.025, 0.18, length(vec2(right - left, down - up)));
 }
 
@@ -261,10 +452,15 @@ vec3 brightness_gradient_color(float t) {
 
 vec3 resolve_fov_border_color(
     vec2 content_uv,
+    int display_eye,
     int source_eye,
     int transform_flags,
     vec2 raw_projected_uv,
-    float coverage
+    float coverage,
+    bool projected,
+    float content_uv_scale,
+    float guide_brightness,
+    float raw_feedback_signal
 ) {
     vec2 center = vec2(0.5);
     vec2 clamped_uv = clamp(raw_projected_uv, vec2(0.002), vec2(0.998));
@@ -284,13 +480,8 @@ vec3 resolve_fov_border_color(
     float radial_length = max(length(radial), 0.0001);
     vec2 radial_dir = radial / radial_length;
     vec2 tangent = vec2(-radial_dir.y, radial_dir.x);
-    vec2 guide_uv = clamp_border_seed_uv(
-        center + screen_dir * clamp(screen_radius * 0.50, 0.04, 0.36)
-    );
-    float guide_brightness = guide_luma(guide_uv, source_eye, transform_flags);
-    float guide_edge = source_edge_strength(guide_uv, source_eye, transform_flags);
     float dark_signal = 1.0 - smoothstep(0.10, 0.55, guide_brightness);
-    float geometry_signal = clamp(max(guide_edge, dark_signal * 0.72), 0.0, 1.0);
+    float geometry_signal = clamp(max(raw_feedback_signal, dark_signal * 0.72), 0.0, 1.0);
     float local_feedback = smoothstep(0.08, 0.72, geometry_signal);
     float organic = 0.5 + 0.5 * sin(dot(edge_seed, vec2(12.1, 7.7)) + border_amount * 1.70);
     float swirl_gain = BORDER_SWIRL_STRENGTH *
@@ -308,7 +499,20 @@ vec3 resolve_fov_border_color(
     vec2 trail_anchor = center + ((mirrored_seed - inward) - center) / zoom;
     vec2 trail_a_uv = clamp_border_seed_uv(trail_anchor + tangent * angle * 0.040);
 
-    vec3 base = sample_source_eye_oriented(source_eye, trail_a_uv, transform_flags).rgb;
+    bool trail_valid = false;
+    int trail_source_eye = source_eye;
+    int trail_transform_flags = transform_flags;
+    vec2 trail_camera_uv = vec2(0.0);
+    vec3 base = sample_projected_content_source(
+        trail_a_uv,
+        display_eye,
+        projected,
+        content_uv_scale,
+        trail_valid,
+        trail_source_eye,
+        trail_transform_flags,
+        trail_camera_uv
+    ).rgb;
     float base_luma = luma(base);
     float guide_mix_luma = mix(guide_brightness, base_luma, 0.35);
     vec3 gradient = brightness_gradient_color(
@@ -371,47 +575,70 @@ float resolve_fov_border_composite_mix(
 
 vec3 resolve_fov_border_composite(
     vec2 content_uv,
+    int display_eye,
     int source_eye,
     int transform_flags,
     vec3 center_color,
     vec2 raw_projected_uv,
     float coverage,
     bool projection_valid,
-    float edge_fade
+    float edge_fade,
+    bool projected,
+    float content_uv_scale
 ) {
     vec2 center = vec2(0.5);
     vec2 screen_delta = content_uv - center;
     float screen_radius = max(length(screen_delta), 0.0001);
-    vec2 guide_uv = clamp_border_seed_uv(
-        center + (screen_delta / screen_radius) * clamp(screen_radius * 0.50, 0.04, 0.36)
-    );
-    float guide_brightness = guide_luma(guide_uv, source_eye, transform_flags);
-    float raw_feedback_signal = max(
-        source_edge_strength(guide_uv, source_eye, transform_flags),
-        1.0 - smoothstep(0.10, 0.55, guide_brightness)
-    );
-    float border_mix = resolve_fov_border_composite_mix(
-        content_uv,
-        guide_brightness,
-        raw_feedback_signal
-    );
     float oval_distance = resolve_camera_oval_distance(content_uv);
     float noise = bleed_noise(content_uv);
     float spatial_gate = resolve_brightness_bleed_spatial_gate(oval_distance, noise);
-    float projection_gap_mix = (1.0 - coverage)
-        * resolve_camera_oval_border_mix_from_distance(oval_distance)
-        * spatial_gate;
+    float oval_shape_mix = resolve_camera_oval_border_mix_from_distance(oval_distance);
+    float projection_gap_mix = (1.0 - coverage) * oval_shape_mix * spatial_gate;
     float coverage_mix = resolve_fov_border_mix(coverage) * (1.0 - smoothstep(0.0, max(edge_fade, 0.0001), coverage));
     float invalid_boost = projection_valid ? 0.0 : projection_gap_mix;
+    float cheap_border_hint = max(projection_gap_mix, max(coverage_mix, invalid_boost));
+    if (spatial_gate <= 0.0001 && cheap_border_hint <= 0.0001) {
+        return center_color;
+    }
+    vec2 guide_uv = clamp_border_seed_uv(
+        center + (screen_delta / screen_radius) * clamp(screen_radius * 0.50, 0.04, 0.36)
+    );
+    float guide_brightness = projected_guide_luma(guide_uv, display_eye, projected, content_uv_scale);
+    float guide_feedback_signal = max(
+        projected_source_edge_strength(guide_uv, display_eye, projected, content_uv_scale),
+        1.0 - smoothstep(0.10, 0.55, guide_brightness)
+    );
+    float raw_border_brightness = luma(center_color);
+    float smoothed_border_brightness = projected_guide_luma(
+        content_uv,
+        display_eye,
+        projected,
+        content_uv_scale
+    );
+    float border_brightness = mix(smoothed_border_brightness, raw_border_brightness, 0.20);
+    float border_feedback_signal = 1.0 - smoothstep(0.10, 0.55, border_brightness);
+    float border_mix = resolve_fov_border_composite_mix(
+        content_uv,
+        border_brightness,
+        border_feedback_signal
+    );
     float resolved_border_mix = max(max(border_mix, projection_gap_mix), max(coverage_mix, invalid_boost));
+    if (resolved_border_mix <= 0.0001) {
+        return center_color;
+    }
     vec3 border_color = resolve_fov_border_color(
         content_uv,
+        display_eye,
         source_eye,
         transform_flags,
         raw_projected_uv,
-        min(coverage, 1.0 - resolved_border_mix)
+        min(coverage, 1.0 - resolved_border_mix),
+        projected,
+        content_uv_scale,
+        guide_brightness,
+        guide_feedback_signal
     );
-    return mix(center_color, border_color, clamp(resolved_border_mix, 0.0, pc.border_color.a));
+    return mix(center_color, border_color, clamp(resolved_border_mix, 0.0, pc.color_adjust.a));
 }
 
 void main() {
@@ -425,7 +652,16 @@ void main() {
     float content_uv_scale = max(pc.params.z, 1.0);
 
     vec2 local_uv = vec2(0.5) + ((v_surface_uv - vec2(0.5)) / overscan);
-    vec2 content_uv = (v_surface_uv - vec2(0.5)) * content_uv_scale + vec2(0.5);
+    bool content_surface_valid = true;
+    vec2 projected_content_uv = content_uv_from_screen_uv(
+        v_surface_uv,
+        eye,
+        projected,
+        content_surface_valid
+    );
+    vec2 content_uv = projected
+        ? projected_content_uv
+        : (v_surface_uv - vec2(0.5)) * content_uv_scale + vec2(0.5);
     vec2 sample_content_uv = projected ? content_uv : clamp(local_uv, vec2(0.0), vec2(1.0));
     vec2 projection_uv = projected ? v_surface_uv : sample_content_uv;
 
@@ -437,6 +673,7 @@ void main() {
         projected,
         projection_valid
     );
+    projection_valid = projection_valid && content_surface_valid;
     float coverage = projection_coverage(raw_projected_uv, projection_valid, max(edge_fade, 0.012));
 
     vec3 center_color = projection_valid
@@ -452,13 +689,16 @@ void main() {
 
     vec3 color = resolve_fov_border_composite(
         sample_content_uv,
+        eye,
         source_eye,
         transform_flags,
         center_color,
         raw_projected_uv,
         coverage,
         projection_valid,
-        edge_fade
+        edge_fade,
+        projected,
+        content_uv_scale
     );
 
     float surface_edge_distance = min(

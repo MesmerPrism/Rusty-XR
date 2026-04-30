@@ -199,6 +199,15 @@ path. The diagnostic CPU path is throttled at the ImageReader boundary with
 MediaProjection remains optional and is used only to stream the final headset
 screen to a Windows receiver for inspection.
 
+Current live validation has moved the public example beyond the probe-only
+state for the tested paired Camera2 provider: both the fullscreen
+`display-screen-homography` profile and the `quad-surface` comparison profile
+can render paired GPU-imported camera buffers with metadata-backed projection
+and the public soft feedback border. The comparison profile remains
+intentionally cautionary. It is useful for collaborators investigating
+head-anchored quad geometry, sampler behavior, and tone controls, but it is not
+yet the expected final performance or color reference.
+
 Build it locally with:
 
 ```powershell

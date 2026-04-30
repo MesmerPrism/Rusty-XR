@@ -37,6 +37,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
@@ -46,6 +47,9 @@ public final class HeadsetCameraService extends Service {
     public static final String EXTRA_PREFERRED_SQUARE_SIZE = "preferredSquareSize";
     public static final String EXTRA_MAX_DIMENSION = "maxDimension";
     public static final String EXTRA_CPU_UPLOAD_HZ = "cpuUploadHz";
+    public static final String EXTRA_CAMERA_TARGET_FPS = "cameraTargetFps";
+    public static final String EXTRA_CAMERA_FPS_MIN = "cameraFpsMin";
+    public static final String EXTRA_CAMERA_FPS_MAX = "cameraFpsMax";
     public static final String EXTRA_CAMERA_TIER = "cameraTier";
     public static final String EXTRA_STEREO_LAYOUT = "stereoLayout";
     public static final String EXTRA_ALLOW_CPU_FALLBACK = "allowCpuFallback";
@@ -110,6 +114,9 @@ public final class HeadsetCameraService extends Service {
     private int preferredSquareSize;
     private int maxDimension;
     private int cpuUploadHz;
+    private int cameraTargetFps;
+    private int cameraFpsMin;
+    private int cameraFpsMax;
     private String cameraTier;
     private String stereoLayout;
     private boolean allowCpuFallback;
@@ -154,6 +161,14 @@ public final class HeadsetCameraService extends Service {
     private long stereoDroppedCount;
     private long stereoPairDeltaTotalNs;
     private long stereoPairDeltaMaxNs;
+    private Range<Integer> monoAppliedAeFpsRange;
+    private Range<Integer> logicalStereoAppliedAeFpsRange;
+    private Range<Integer> leftAppliedAeFpsRange;
+    private Range<Integer> rightAppliedAeFpsRange;
+    private final DeliveryStats monoDeliveryStats = new DeliveryStats();
+    private final DeliveryStats leftDeliveryStats = new DeliveryStats();
+    private final DeliveryStats rightDeliveryStats = new DeliveryStats();
+    private final DeliveryStats stereoPairDeliveryStats = new DeliveryStats();
     private boolean leftStereoSessionRunning;
     private boolean rightStereoSessionRunning;
 
@@ -207,6 +222,9 @@ public final class HeadsetCameraService extends Service {
         preferredSquareSize = intent != null ? intent.getIntExtra(EXTRA_PREFERRED_SQUARE_SIZE, DEFAULT_PREFERRED_SQUARE_SIZE) : DEFAULT_PREFERRED_SQUARE_SIZE;
         maxDimension = intent != null ? intent.getIntExtra(EXTRA_MAX_DIMENSION, DEFAULT_MAX_DIMENSION) : DEFAULT_MAX_DIMENSION;
         cpuUploadHz = intent != null ? intent.getIntExtra(EXTRA_CPU_UPLOAD_HZ, DEFAULT_CPU_UPLOAD_HZ) : DEFAULT_CPU_UPLOAD_HZ;
+        cameraTargetFps = intent != null ? intent.getIntExtra(EXTRA_CAMERA_TARGET_FPS, 0) : 0;
+        cameraFpsMin = intent != null ? intent.getIntExtra(EXTRA_CAMERA_FPS_MIN, 0) : 0;
+        cameraFpsMax = intent != null ? intent.getIntExtra(EXTRA_CAMERA_FPS_MAX, 0) : 0;
         cameraTier = intent != null ? intent.getStringExtra(EXTRA_CAMERA_TIER) : TIER_CPU_DIAGNOSTIC;
         stereoLayout = intent != null ? intent.getStringExtra(EXTRA_STEREO_LAYOUT) : "mono";
         allowCpuFallback = intent == null || intent.getBooleanExtra(EXTRA_ALLOW_CPU_FALLBACK, true);
@@ -257,6 +275,9 @@ public final class HeadsetCameraService extends Service {
         preferredSquareSize = Math.max(1, preferredSquareSize);
         maxDimension = Math.max(preferredSquareSize, maxDimension);
         cpuUploadHz = Math.max(0, cpuUploadHz);
+        cameraTargetFps = Math.max(0, cameraTargetFps);
+        cameraFpsMin = Math.max(0, cameraFpsMin);
+        cameraFpsMax = Math.max(0, cameraFpsMax);
         stereoPairMaxDeltaNs = Math.max(1L, stereoPairMaxDeltaNs);
         cpuFrameIntervalNs = cpuUploadHz > 0 ? Math.max(1L, 1_000_000_000L / cpuUploadHz) : Long.MAX_VALUE;
         lastDeliveredTimestampNs = Long.MIN_VALUE;
@@ -269,6 +290,14 @@ public final class HeadsetCameraService extends Service {
         stereoDroppedCount = 0;
         stereoPairDeltaTotalNs = 0;
         stereoPairDeltaMaxNs = 0;
+        monoAppliedAeFpsRange = null;
+        logicalStereoAppliedAeFpsRange = null;
+        leftAppliedAeFpsRange = null;
+        rightAppliedAeFpsRange = null;
+        monoDeliveryStats.reset();
+        leftDeliveryStats.reset();
+        rightDeliveryStats.reset();
+        stereoPairDeliveryStats.reset();
         leftFrames.clear();
         rightFrames.clear();
 
@@ -380,6 +409,7 @@ public final class HeadsetCameraService extends Service {
                 " preferredSquare=" + preferredSquareSize +
                 " maxDimension=" + maxDimension +
                 " cpuUploadHz=" + cpuUploadHz +
+                " requestedAeFpsRange=" + rangeLabel(requestedCameraFpsRange()) +
                 " allowCpuFallback=" + allowCpuFallback +
                 " requestedStereoLayout=" + stereoLayout +
                 " poseSource=" + monoPoseSource(choice) +
@@ -647,6 +677,8 @@ public final class HeadsetCameraService extends Service {
         builder.append(',');
         appendJsonString(builder, "requestedTier", cameraTier);
         builder.append(',');
+        appendFpsRequest(builder);
+        builder.append(',');
         appendJsonString(builder, "selectedProvider", selected != null ? selected.providerKind : "none");
         builder.append(',');
         appendJsonString(builder, "fallbackReason", fallbackReason);
@@ -883,6 +915,105 @@ public final class HeadsetCameraService extends Service {
         return best * 1000L;
     }
 
+    private Range<Integer> requestedCameraFpsRange() {
+        int min = cameraFpsMin;
+        int max = cameraFpsMax;
+        if (min <= 0 && max <= 0 && cameraTargetFps > 0) {
+            min = cameraTargetFps;
+            max = cameraTargetFps;
+        } else if (cameraTargetFps > 0) {
+            if (min <= 0) {
+                min = cameraTargetFps;
+            }
+            if (max <= 0) {
+                max = cameraTargetFps;
+            }
+        }
+        if (min <= 0 && max <= 0) {
+            return null;
+        }
+        if (min <= 0) {
+            min = max;
+        }
+        if (max <= 0) {
+            max = min;
+        }
+        if (min > max) {
+            int tmp = min;
+            min = max;
+            max = tmp;
+        }
+        return new Range<Integer>(Integer.valueOf(min), Integer.valueOf(max));
+    }
+
+    private Range<Integer> selectAeTargetFpsRange(Range<Integer>[] supported) {
+        Range<Integer> requested = requestedCameraFpsRange();
+        if (requested == null || supported == null || supported.length == 0) {
+            return null;
+        }
+
+        Range<Integer> best = null;
+        long bestScore = Long.MIN_VALUE;
+        int requestedMin = requested.getLower().intValue();
+        int requestedMax = requested.getUpper().intValue();
+        boolean fixedRequest = requestedMin == requestedMax;
+        for (int i = 0; i < supported.length; i++) {
+            Range<Integer> range = supported[i];
+            if (range == null || range.getLower() == null || range.getUpper() == null) {
+                continue;
+            }
+
+            int lower = range.getLower().intValue();
+            int upper = range.getUpper().intValue();
+            long score = 0L;
+            score -= Math.abs(lower - requestedMin) * 10_000L;
+            score -= Math.abs(upper - requestedMax) * 10_000L;
+            if (lower <= requestedMin && upper >= requestedMax) {
+                score += 1_000_000_000L;
+            }
+            if (fixedRequest && lower <= requestedMin && upper >= requestedMin) {
+                score += 500_000_000L;
+                score -= (long) (upper - lower) * 1_000L;
+            }
+            if (lower == requestedMin && upper == requestedMax) {
+                score += 2_000_000_000L;
+            }
+            score += upper;
+            if (best == null || score > bestScore) {
+                best = range;
+                bestScore = score;
+            }
+        }
+        return best;
+    }
+
+    private Range<Integer> applyAeTargetFpsRange(
+        CaptureRequest.Builder builder,
+        Range<Integer>[] supported,
+        String streamLabel) {
+        Range<Integer> requested = requestedCameraFpsRange();
+        if (requested == null) {
+            Log.i(TAG, "Camera2 AE FPS range " + streamLabel +
+                " requested=device-controlled supported=" + rangeArrayLabel(supported));
+            return null;
+        }
+
+        Range<Integer> selected = selectAeTargetFpsRange(supported);
+        if (selected == null) {
+            Log.w(TAG, "Camera2 AE FPS range " + streamLabel +
+                " requested=" + rangeLabel(requested) +
+                " selected=none supported=" + rangeArrayLabel(supported));
+            return null;
+        }
+
+        builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, selected);
+        Log.i(TAG, "Camera2 AE FPS range " + streamLabel +
+            " requested=" + rangeLabel(requested) +
+            " selected=" + rangeLabel(selected) +
+            " supported=" + rangeArrayLabel(supported));
+        return selected;
+    }
+
     private void startCaptureSession() {
         if (cameraDevice == null || imageReader == null) {
             return;
@@ -900,6 +1031,11 @@ public final class HeadsetCameraService extends Service {
                             CaptureRequest.Builder builder =
                                 cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                             builder.addTarget(surface);
+                            CameraChoice choice = activeCameraChoice;
+                            monoAppliedAeFpsRange = applyAeTargetFpsRange(
+                                builder,
+                                choice != null ? choice.fpsRanges : null,
+                                "mono cameraId=" + (choice != null ? choice.cameraId : "unknown"));
                             session.setRepeatingRequest(builder.build(), null, cameraHandler);
                             Log.i(TAG, "Headset camera capture session running");
                             sendNativeEvent("headsetCameraRunning");
@@ -1089,6 +1225,17 @@ public final class HeadsetCameraService extends Service {
                             CaptureRequest.Builder builder =
                                 device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                             builder.addTarget(surface);
+                            CameraSourceInfo source = leftEye ? choice.leftSource : choice.rightSource;
+                            Range<Integer> appliedRange = applyAeTargetFpsRange(
+                                builder,
+                                source != null ? source.fpsRanges : null,
+                                (leftEye ? "stereo-left" : "stereo-right") +
+                                    " cameraId=" + (leftEye ? choice.leftPhysicalId : choice.rightPhysicalId));
+                            if (leftEye) {
+                                leftAppliedAeFpsRange = appliedRange;
+                            } else {
+                                rightAppliedAeFpsRange = appliedRange;
+                            }
                             session.setRepeatingRequest(builder.build(), null, cameraHandler);
                             if (leftEye) {
                                 leftStereoSessionRunning = true;
@@ -1149,6 +1296,10 @@ public final class HeadsetCameraService extends Service {
                                 cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                             builder.addTarget(leftSurface);
                             builder.addTarget(rightSurface);
+                            logicalStereoAppliedAeFpsRange = applyAeTargetFpsRange(
+                                builder,
+                                choice.leftSource != null ? choice.leftSource.fpsRanges : null,
+                                "stereo-logical cameraId=" + choice.logicalCameraId);
                             session.setRepeatingRequest(builder.build(), null, cameraHandler);
                             Log.i(TAG, "Stereo headset camera capture session running provider=" + choice.providerKind);
                             sendNativeEvent("headsetCameraStereoRunning");
@@ -1185,6 +1336,14 @@ public final class HeadsetCameraService extends Service {
             if (image == null) {
                 return;
             }
+
+            monoDeliveryStats.record(image.getTimestamp());
+            maybeLogDeliveryStats(
+                "mono",
+                activeCameraChoice != null ? activeCameraChoice.cameraId : "unknown",
+                monoDeliveryStats,
+                monoAppliedAeFpsRange,
+                60);
 
             if (activeImageFormat == ImageFormat.PRIVATE) {
                 deliverGpuHardwareBufferFrame(image);
@@ -1299,6 +1458,20 @@ public final class HeadsetCameraService extends Service {
             if (image == null) {
                 return;
             }
+            DeliveryStats stats = leftEye ? leftDeliveryStats : rightDeliveryStats;
+            stats.record(image.getTimestamp());
+            Range<Integer> appliedRange = leftEye ? leftAppliedAeFpsRange : rightAppliedAeFpsRange;
+            if (appliedRange == null && logicalStereoAppliedAeFpsRange != null) {
+                appliedRange = logicalStereoAppliedAeFpsRange;
+            }
+            maybeLogDeliveryStats(
+                leftEye ? "stereo-left" : "stereo-right",
+                activeStereoChoice != null
+                    ? (leftEye ? activeStereoChoice.leftPhysicalId : activeStereoChoice.rightPhysicalId)
+                    : "unknown",
+                stats,
+                appliedRange,
+                120);
             buffer = image.getHardwareBuffer();
             if (buffer == null) {
                 stereoDroppedCount++;
@@ -1393,6 +1566,8 @@ public final class HeadsetCameraService extends Service {
     private void deliverStereoPair(PendingGpuImage left, PendingGpuImage right, long pairDeltaNs) {
         try {
             long pairIndex = stereoPairedCount;
+            long midpointTs = left.timestampNs / 2L + right.timestampNs / 2L;
+            stereoPairDeliveryStats.record(midpointTs);
             boolean accepted = nativeHeadsetStereoCameraHardwareBufferFrame(
                 left.width,
                 left.height,
@@ -1429,6 +1604,10 @@ public final class HeadsetCameraService extends Service {
                     " deltaNs=" + pairDeltaNs +
                     " avgDeltaNs=" + avgDelta +
                     " maxDeltaNs=" + stereoPairDeltaMaxNs +
+                    " observedPairFps=" + fpsLabel(stereoPairDeliveryStats.observedFps()) +
+                    " requestedAeFpsRange=" + rangeLabel(requestedCameraFpsRange()) +
+                    " leftAppliedAeFpsRange=" + rangeLabel(leftAppliedAeFpsRange != null ? leftAppliedAeFpsRange : logicalStereoAppliedAeFpsRange) +
+                    " rightAppliedAeFpsRange=" + rangeLabel(rightAppliedAeFpsRange != null ? rightAppliedAeFpsRange : logicalStereoAppliedAeFpsRange) +
                     " leftReceived=" + stereoLeftReceivedCount +
                     " rightReceived=" + stereoRightReceivedCount +
                     " paired=" + stereoPairedCount +
@@ -1479,6 +1658,7 @@ public final class HeadsetCameraService extends Service {
         builder.append(",\"deliveredWidth\":").append(image.getWidth());
         builder.append(",\"deliveredHeight\":").append(image.getHeight());
         builder.append(",\"timestampNs\":").append(image.getTimestamp());
+        appendFpsTelemetry(builder, requestedCameraFpsRange(), monoAppliedAeFpsRange, monoDeliveryStats);
         if (sensorOrientation != null) {
             builder.append(",\"sensorOrientationDegrees\":").append(sensorOrientation.intValue());
         }
@@ -1570,6 +1750,15 @@ public final class HeadsetCameraService extends Service {
         builder.append(",\"deliveredWidth\":").append(image.getWidth());
         builder.append(",\"deliveredHeight\":").append(image.getHeight());
         builder.append(",\"timestampNs\":").append(image.getTimestamp());
+        Range<Integer> appliedRange = leftEye ? leftAppliedAeFpsRange : rightAppliedAeFpsRange;
+        if (appliedRange == null && logicalStereoAppliedAeFpsRange != null) {
+            appliedRange = logicalStereoAppliedAeFpsRange;
+        }
+        appendFpsTelemetry(
+            builder,
+            requestedCameraFpsRange(),
+            appliedRange,
+            leftEye ? leftDeliveryStats : rightDeliveryStats);
         if (source != null && source.sensorOrientationDegrees != null) {
             builder.append(",\"sensorOrientationDegrees\":").append(source.sensorOrientationDegrees.intValue());
         }
@@ -1822,6 +2011,90 @@ public final class HeadsetCameraService extends Service {
             return "paired stereo GPU buffers with public estimated-profile pose";
         }
         return "paired stereo GPU buffers missing valid per-eye pose/extrinsics";
+    }
+
+    private void maybeLogDeliveryStats(
+        String streamLabel,
+        String cameraId,
+        DeliveryStats stats,
+        Range<Integer> appliedRange,
+        long cadence) {
+        if (!stats.shouldLog(cadence)) {
+            return;
+        }
+        Log.i(TAG, "Camera2 delivery stats stream=" + streamLabel +
+            " cameraId=" + cameraId +
+            " frameCount=" + stats.count +
+            " observedFps=" + fpsLabel(stats.observedFps()) +
+            " requestedAeFpsRange=" + rangeLabel(requestedCameraFpsRange()) +
+            " appliedAeFpsRange=" + rangeLabel(appliedRange) +
+            " firstTimestampNs=" + stats.firstTimestampNs +
+            " lastTimestampNs=" + stats.lastTimestampNs);
+    }
+
+    private void appendFpsRequest(StringBuilder builder) {
+        builder.append("\"cameraFpsRequest\":{");
+        builder.append("\"targetFps\":").append(cameraTargetFps);
+        builder.append(",\"minFps\":").append(cameraFpsMin);
+        builder.append(",\"maxFps\":").append(cameraFpsMax);
+        Range<Integer> normalized = requestedCameraFpsRange();
+        if (normalized != null) {
+            builder.append(",\"normalizedMin\":").append(normalized.getLower().intValue());
+            builder.append(",\"normalizedMax\":").append(normalized.getUpper().intValue());
+        }
+        builder.append('}');
+    }
+
+    private static void appendFpsTelemetry(
+        StringBuilder builder,
+        Range<Integer> requestedRange,
+        Range<Integer> appliedRange,
+        DeliveryStats stats) {
+        appendRangeObject(builder, "requestedAeFpsRange", requestedRange);
+        appendRangeObject(builder, "appliedAeFpsRange", appliedRange);
+        if (stats != null && stats.count > 1) {
+            builder.append(",\"observedDeliveryFps\":").append(fpsLabel(stats.observedFps()));
+        }
+    }
+
+    private static void appendRangeObject(StringBuilder builder, String key, Range<Integer> range) {
+        if (range == null) {
+            return;
+        }
+        builder.append(",\"").append(key).append("\":{");
+        builder.append("\"min\":").append(range.getLower().intValue());
+        builder.append(",\"max\":").append(range.getUpper().intValue());
+        builder.append('}');
+    }
+
+    private static String rangeArrayLabel(Range<Integer>[] ranges) {
+        if (ranges == null || ranges.length == 0) {
+            return "[]";
+        }
+        StringBuilder builder = new StringBuilder();
+        builder.append('[');
+        for (int i = 0; i < ranges.length; i++) {
+            if (i > 0) {
+                builder.append(',');
+            }
+            builder.append(rangeLabel(ranges[i]));
+        }
+        builder.append(']');
+        return builder.toString();
+    }
+
+    private static String rangeLabel(Range<Integer> range) {
+        if (range == null) {
+            return "device-controlled";
+        }
+        return range.getLower().intValue() + "-" + range.getUpper().intValue();
+    }
+
+    private static String fpsLabel(double value) {
+        if (Double.isNaN(value) || Double.isInfinite(value) || value < 0.0) {
+            return "0.00";
+        }
+        return String.format(Locale.US, "%.2f", value);
     }
 
     private void appendPlatformExtrinsics(
@@ -2323,6 +2596,47 @@ public final class HeadsetCameraService extends Service {
         }
     }
 
+    private static final class DeliveryStats {
+        long count;
+        long firstTimestampNs;
+        long lastTimestampNs;
+        long lastLoggedCount;
+
+        void reset() {
+            count = 0L;
+            firstTimestampNs = 0L;
+            lastTimestampNs = 0L;
+            lastLoggedCount = 0L;
+        }
+
+        void record(long timestampNs) {
+            if (count == 0L) {
+                firstTimestampNs = timestampNs;
+            }
+            lastTimestampNs = timestampNs;
+            count++;
+        }
+
+        double observedFps() {
+            if (count < 2L || lastTimestampNs <= firstTimestampNs) {
+                return 0.0;
+            }
+            return ((double) (count - 1L) * 1_000_000_000.0) /
+                (double) (lastTimestampNs - firstTimestampNs);
+        }
+
+        boolean shouldLog(long cadence) {
+            if (count == 0L) {
+                return false;
+            }
+            if (count == 1L || count - lastLoggedCount >= cadence) {
+                lastLoggedCount = count;
+                return true;
+            }
+            return false;
+        }
+    }
+
     private static final class CameraChoice {
         final String cameraId;
         final Size size;
@@ -2336,6 +2650,7 @@ public final class HeadsetCameraService extends Service {
         final float[] lensPoseTranslation;
         final float[] lensPoseRotation;
         final Integer lensPoseReference;
+        final Range<Integer>[] fpsRanges;
 
         CameraChoice(
             String cameraId,
@@ -2354,6 +2669,8 @@ public final class HeadsetCameraService extends Service {
             this.lensPoseTranslation = characteristics.get(CameraCharacteristics.LENS_POSE_TRANSLATION);
             this.lensPoseRotation = characteristics.get(CameraCharacteristics.LENS_POSE_ROTATION);
             this.lensPoseReference = characteristics.get(CameraCharacteristics.LENS_POSE_REFERENCE);
+            Range<Integer>[] ranges = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
+            this.fpsRanges = ranges != null ? ranges : new Range[0];
         }
     }
 }
