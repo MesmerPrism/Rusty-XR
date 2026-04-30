@@ -335,6 +335,8 @@
         "rustyxr.example": "quest-composite-layer-apk",
         "rustyxr.cameraTier": "gpu-projected",
         "rustyxr.cameraAcquisition": "native-ndk",
+        "rustyxr.nativeSourceMode": "synthetic-dual-back",
+        "rustyxr.cameraStartDelayMs": "0",
         "rustyxr.camera": "true",
         "rustyxr.cameraWidth": "1280",
         "rustyxr.cameraHeight": "1280",

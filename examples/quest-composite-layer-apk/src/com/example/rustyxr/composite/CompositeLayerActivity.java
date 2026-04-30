@@ -21,6 +21,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final int NOTIFICATION_PERMISSION_REQUEST = 8702;
     private static final int CAMERA_PERMISSION_REQUEST = 8704;
     private static final long DEFAULT_MEDIA_PROJECTION_DELAY_MS = 5000;
+    private static final long DEFAULT_CAMERA_START_DELAY_MS = 0;
     private static final int DEFAULT_CAMERA_SIZE = 1280;
     private static final int DEFAULT_CAMERA_MAX_DIMENSION = 1920;
     private static final int DEFAULT_CAMERA_CPU_UPLOAD_HZ = 4;
@@ -93,7 +94,18 @@ public final class CompositeLayerActivity extends NativeActivity {
         sendRuntimeConfig(cameraEnabled, mediaProjectionEnabled);
 
         if (cameraEnabled) {
-            requestHeadsetCameraPermissionsOrStart();
+            long cameraStartDelay = cameraStartDelayMs();
+            if (cameraStartDelay > 0) {
+                Log.i(TAG, "Delaying headset camera start by " + cameraStartDelay + " ms");
+                new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        requestHeadsetCameraPermissionsOrStart();
+                    }
+                }, cameraStartDelay);
+            } else {
+                requestHeadsetCameraPermissionsOrStart();
+            }
         } else {
             sendNativeEvent("headsetCameraDisabledByIntent");
         }
@@ -220,6 +232,11 @@ public final class CompositeLayerActivity extends NativeActivity {
         return Math.max(0, delay);
     }
 
+    private long cameraStartDelayMs() {
+        long delay = longExtra("rustyxr.cameraStartDelayMs", DEFAULT_CAMERA_START_DELAY_MS);
+        return Math.max(0, delay);
+    }
+
     private String cameraTier() {
         return stringExtra("rustyxr.cameraTier", DEFAULT_CAMERA_TIER);
     }
@@ -257,6 +274,9 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraFpsMin\":").append(cameraFpsMin);
         builder.append(",\"cameraFpsMax\":").append(cameraFpsMax);
         builder.append(",\"cameraStereoImageReaderMaxImages\":").append(stereoImageReaderMaxImages);
+        builder.append(",\"cameraStartDelayMs\":").append(cameraStartDelayMs());
+        builder.append(',');
+        appendJsonString(builder, "nativeSourceMode", stringExtra("rustyxr.nativeSourceMode", "auto"));
         builder.append(",\"cameraProjectionFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraProjectionFovYDegrees", DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES)));
         builder.append(",\"cameraPreviewFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraPreviewFovYDegrees", DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES)));
         builder.append(",\"cameraProjectionScale\":").append(floatJson(floatExtra("rustyxr.cameraProjectionScale", DEFAULT_CAMERA_PROJECTION_SCALE)));
@@ -493,6 +513,8 @@ public final class CompositeLayerActivity extends NativeActivity {
         appendJsonString(builder, "requestedTier", cameraTier());
         builder.append(',');
         appendJsonString(builder, "requestedStereoLayout", cameraStereoLayout());
+        builder.append(',');
+        appendJsonString(builder, "sourceMode", stringExtra("rustyxr.nativeSourceMode", "auto"));
         builder.append(',');
         appendJsonString(builder, "leftCameraId", stringExtra("rustyxr.nativeLeftCameraId", ""));
         builder.append(',');

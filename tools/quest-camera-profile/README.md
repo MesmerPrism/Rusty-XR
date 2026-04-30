@@ -56,6 +56,17 @@ test runtime passthrough exposure without adding a catalog profile, use
 against camera-frame progression; passthrough-client state is not a substitute
 for live camera delivery.
 
+To test acquisition lifecycle timing without changing projection or color, use
+the native profile with a start delay and a log label:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
+  -Serial <serial> `
+  -RuntimeProfile camera-stereo-gpu-composite-native-ndk-065 `
+  -Override 'rustyxr.cameraStartDelayMs=2500,rustyxr.nativeSourceMode=delayed-synthetic-dual-back' `
+  -CaptureHzdbScreencap
+```
+
 Each run captures battery, power, VR power manager, activity/window state,
 logcat, a screen capture, optional `hzdb` screenshots, and a validation report.
 The harness uses a timed `hzdb` proximity hold when available; it intentionally

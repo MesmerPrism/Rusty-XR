@@ -182,6 +182,13 @@ Useful launch extras:
   Android NDK `ACamera*` plus `AImageReader` `PRIVATE` hardware buffers and
   feeds the same Vulkan projection path. Keep this as a separate acquisition
   axis from projection, border, and shader color checks.
+- `rustyxr.cameraStartDelayMs`: optional delay before requesting/starting the
+  headset camera. Use it to test acquisition lifecycle timing without changing
+  projection, border, or shader code.
+- `rustyxr.nativeSourceMode`: free-form label for native acquisition source
+  experiments. It is logged with native camera selection so headset runs can
+  distinguish automatic synthetic dual-back selection, explicit side IDs, and
+  other source-shape probes.
 - `rustyxr.cameraWidth` / `rustyxr.cameraHeight`: requested camera target
   dimensions. The default profile requests `1280x1280`. Explicit non-square
   requests, such as `1280x960`, are honored when the runtime exposes that size
@@ -411,8 +418,8 @@ The catalog keeps camera path experiments as separate runtime profiles:
   border, and sampler as the `0.65` performance profile, but swaps Java
   Camera2 acquisition for an experimental native `ACamera*` / `AImageReader`
   hardware-buffer path with no explicit AE target and reader max images `3`.
-  It is an acquisition probe, not a release candidate until camera-frame
-  progression remains live.
+  It logs all NDK camera-source topology it can see and is an acquisition
+  probe, not a release candidate until camera-frame progression remains live.
 
 Do not stack the shader-side YCbCr decode on top of an external sampler that is
 already presenting RGB. The hardware-buffer import log reports

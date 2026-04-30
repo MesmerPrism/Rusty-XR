@@ -32,6 +32,7 @@ struct NativeCameraConfig {
     stereo_pair_max_delta_ns: Option<u64>,
     requested_tier: Option<String>,
     requested_stereo_layout: Option<String>,
+    source_mode: Option<String>,
     left_camera_id: Option<String>,
     right_camera_id: Option<String>,
 }
@@ -66,6 +67,10 @@ impl NativeCameraConfig {
         self.requested_stereo_layout
             .as_deref()
             .unwrap_or("separate")
+    }
+
+    fn source_mode(&self) -> &str {
+        self.source_mode.as_deref().unwrap_or("auto")
     }
 }
 
@@ -130,6 +135,7 @@ impl NativeCameraSession {
                 reader_max_images: config.reader_max_images(),
                 requested_tier: config.requested_tier().to_string(),
                 requested_stereo_layout: config.requested_stereo_layout().to_string(),
+                source_mode: config.source_mode().to_string(),
                 pair_state: Mutex::new(NativePairState::default()),
                 pair_index: AtomicU64::new(0),
                 left_received_count: AtomicU64::new(0),
@@ -200,7 +206,7 @@ impl NativeCameraSession {
             };
 
             log_info(format!(
-                "Rusty XR native ACamera stereo acquisition running leftId={} rightId={} size={}x{} readerMaxImages={} requestedTier={} stereoLayout={} aeFps=unset",
+                "Rusty XR native ACamera stereo acquisition running leftId={} rightId={} size={}x{} readerMaxImages={} requestedTier={} stereoLayout={} sourceMode={} aeFps=unset",
                 context.left_info.camera_id,
                 context.right_info.camera_id,
                 width,
@@ -208,6 +214,7 @@ impl NativeCameraSession {
                 context.reader_max_images,
                 context.requested_tier,
                 context.requested_stereo_layout,
+                context.source_mode,
             ));
 
             Ok(Self {
@@ -488,6 +495,7 @@ struct NativeStereoContext {
     reader_max_images: i32,
     requested_tier: String,
     requested_stereo_layout: String,
+    source_mode: String,
     pair_state: Mutex<NativePairState>,
     pair_index: AtomicU64,
     left_received_count: AtomicU64,
@@ -778,6 +786,8 @@ struct NativeCameraSource {
     camera_id_c: CString,
     lens_facing: u8,
     logical_multi_camera: bool,
+    physical_camera_ids: Vec<String>,
+    sensor_sync_type: Option<u8>,
     sensor_orientation_degrees: Option<i32>,
     private_sizes: Vec<(u32, u32)>,
     active_array_domain: Option<NativePixelDomain>,
@@ -834,6 +844,7 @@ impl NativeCameraSideInfo {
                     stereo_pair_max_delta_ns: None,
                     requested_tier: None,
                     requested_stereo_layout: None,
+                    source_mode: None,
                     left_camera_id: None,
                     right_camera_id: None,
                 },
@@ -1033,9 +1044,33 @@ fn select_stereo_sources(
                 left.camera_id, right.camera_id
             )
         })?;
+    let baseline_meters = stereo_baseline_meters(left.pose_translation, right.pose_translation);
+    let selection_kind = if config
+        .left_camera_id
+        .as_deref()
+        .map(|value| !value.is_empty())
+        .unwrap_or(false)
+        || config
+            .right_camera_id
+            .as_deref()
+            .map(|value| !value.is_empty())
+            .unwrap_or(false)
+    {
+        "explicit-dual-side"
+    } else {
+        "synthetic-dual-back"
+    };
     log_info(format!(
-        "Rusty XR native ACamera selected stereo sources left={} right={} size={}x{}",
-        left.camera_id, right.camera_id, shared_size.0, shared_size.1
+        "Rusty XR native ACamera selected stereo side sources selectionKind={} sourceMode={} left={} right={} size={}x{} sensorSync=approximate baselineMeters={}",
+        selection_kind,
+        config.source_mode(),
+        left.camera_id,
+        right.camera_id,
+        shared_size.0,
+        shared_size.1,
+        baseline_meters
+            .map(|value| format!("{value:.5}"))
+            .unwrap_or_else(|| "missing".to_string())
     ));
     Ok((left, right, shared_size))
 }
@@ -1156,9 +1191,9 @@ unsafe fn camera_source_from_metadata(
     let lens_facing = metadata_u8(metadata, ACAMERA_LENS_FACING)?;
     let capabilities = metadata_u8_vec(metadata, ACAMERA_REQUEST_AVAILABLE_CAPABILITIES);
     let private_sizes = metadata_private_output_sizes(metadata);
-    if private_sizes.is_empty() {
-        return None;
-    }
+    let physical_camera_ids =
+        metadata_string_list(metadata, ACAMERA_LOGICAL_MULTI_CAMERA_PHYSICAL_IDS);
+    let sensor_sync_type = metadata_u8(metadata, ACAMERA_LOGICAL_MULTI_CAMERA_SENSOR_SYNC_TYPE);
     let active_array_domain = metadata_rect_domain(
         metadata,
         ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE,
@@ -1182,6 +1217,8 @@ unsafe fn camera_source_from_metadata(
         logical_multi_camera: capabilities.iter().any(|capability| {
             *capability == ACAMERA_REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA
         }),
+        physical_camera_ids,
+        sensor_sync_type,
         sensor_orientation_degrees: metadata_i32(metadata, ACAMERA_SENSOR_ORIENTATION),
         private_sizes,
         active_array_domain,
@@ -1196,10 +1233,15 @@ unsafe fn camera_source_from_metadata(
 
 fn log_native_camera_source(source: &NativeCameraSource) {
     log_info(format!(
-        "Rusty XR native ACamera source cameraId={} facing={} logicalMultiCamera={} privateSizes={} poseX={} poseReference={}",
+        "Rusty XR native ACamera source cameraId={} facing={} logicalMultiCamera={} physicalIds={} sensorSync={} privateSizes={} poseX={} poseReference={}",
         source.camera_id,
         lens_facing_label(source.lens_facing),
         source.logical_multi_camera,
+        format_string_list(&source.physical_camera_ids),
+        source
+            .sensor_sync_type
+            .map(sensor_sync_type_label)
+            .unwrap_or("missing"),
         format_sizes(&source.private_sizes),
         source
             .pose_translation
@@ -1212,7 +1254,18 @@ fn log_native_camera_source(source: &NativeCameraSource) {
     ));
 }
 
+fn format_string_list(values: &[String]) -> String {
+    if values.is_empty() {
+        "-".to_string()
+    } else {
+        values.join("|")
+    }
+}
+
 fn format_sizes(sizes: &[(u32, u32)]) -> String {
+    if sizes.is_empty() {
+        return "-".to_string();
+    }
     let mut values = sizes
         .iter()
         .take(8)
@@ -1222,6 +1275,26 @@ fn format_sizes(sizes: &[(u32, u32)]) -> String {
         values.push(format!("...+{}", sizes.len() - values.len()));
     }
     values.join("|")
+}
+
+fn stereo_baseline_meters(
+    left_pose: Option<[f32; 3]>,
+    right_pose: Option<[f32; 3]>,
+) -> Option<f32> {
+    let left_pose = left_pose?;
+    let right_pose = right_pose?;
+    let dx = right_pose[0] - left_pose[0];
+    let dy = right_pose[1] - left_pose[1];
+    let dz = right_pose[2] - left_pose[2];
+    Some((dx * dx + dy * dy + dz * dz).sqrt())
+}
+
+fn sensor_sync_type_label(value: u8) -> &'static str {
+    match value {
+        ACAMERA_LOGICAL_MULTI_CAMERA_SENSOR_SYNC_TYPE_APPROXIMATE => "approximate",
+        ACAMERA_LOGICAL_MULTI_CAMERA_SENSOR_SYNC_TYPE_CALIBRATED => "calibrated",
+        _ => "unknown",
+    }
 }
 
 fn lens_facing_label(value: u8) -> &'static str {
@@ -1258,6 +1331,28 @@ unsafe fn metadata_u8_vec(metadata: *const ACameraMetadata, tag: u32) -> Vec<u8>
         return Vec::new();
     }
     std::slice::from_raw_parts(entry.data.u8_, entry.count as usize).to_vec()
+}
+
+unsafe fn metadata_string_list(metadata: *const ACameraMetadata, tag: u32) -> Vec<String> {
+    let Some(entry) = metadata_entry(metadata, tag) else {
+        return Vec::new();
+    };
+    if entry.data.u8_.is_null() || entry.count == 0 {
+        return Vec::new();
+    }
+
+    std::slice::from_raw_parts(entry.data.u8_, entry.count as usize)
+        .split(|byte| *byte == 0)
+        .filter_map(|chunk| {
+            if chunk.is_empty() {
+                None
+            } else {
+                std::str::from_utf8(chunk)
+                    .ok()
+                    .map(|value| value.to_string())
+            }
+        })
+        .collect()
 }
 
 unsafe fn metadata_i32(metadata: *const ACameraMetadata, tag: u32) -> Option<i32> {

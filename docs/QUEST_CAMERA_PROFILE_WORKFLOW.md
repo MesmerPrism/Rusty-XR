@@ -94,6 +94,15 @@ camera progression in one side stream, so "native NDK" by itself is not yet a
 validated fix. The next native tests should compare the effective camera source
 and session shape, not keep retesting Java queue depth.
 
+The native probe now logs every NDK camera ID that exposes lens-facing metadata,
+including logical multi-camera capability, physical camera IDs, sensor sync
+type, available `PRIVATE` output sizes, pose X, and pose reference. It also
+logs whether the selected stereo source came from automatic synthetic dual-back
+selection or explicit side IDs. Use `rustyxr.cameraStartDelayMs=<ms>` to test
+acquisition lifecycle timing without changing projection/border/shader code,
+and `rustyxr.nativeSourceMode=<label>` to tag native-source experiments in
+logs.
+
 `rustyxr.openxrPassthroughProbe` is a separate OpenXR runtime-state diagnostic.
 `client` creates an `XR_FB_passthrough` client/layer and leaves it running;
 `warmup` creates and resumes the layer briefly, then pauses the passthrough

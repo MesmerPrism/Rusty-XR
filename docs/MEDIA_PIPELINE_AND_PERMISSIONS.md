@@ -250,6 +250,12 @@ preferred performance path. The performant shape is:
   hardware-buffer readers can have different queue, timestamp, and AE-policy
   behavior. Compare those as explicit modules or runtime profiles instead of
   silently changing the camera path under an existing profile.
+- Log camera topology before treating an acquisition path as equivalent. Native
+  probes should record all visible NDK camera IDs, logical multi-camera
+  capability, physical camera IDs, sensor sync type, `PRIVATE` sizes, and the
+  selected synthetic or explicit stereo side source. When testing lifecycle
+  timing, prefer a launch-extra delay such as `rustyxr.cameraStartDelayMs`
+  instead of changing projection, border, or shader code in the same run.
 - Keep OpenXR passthrough-client state separate from raw camera acquisition.
   Optional passthrough features and scene permissions can affect whether a
   Quest runtime exposes `XR_FB_passthrough`, but creating a passthrough
@@ -300,6 +306,10 @@ Current public Quest profile findings:
   sessions still showed stale progression on the tested runtime, so the next
   acquisition comparison is source/session shape and timestamp behavior, not
   another Java queue-depth tweak.
+- The native probe logs source topology and supports delayed camera startup.
+  Treat those as acquisition-lifecycle diagnostics: they should explain whether
+  two runs are using the same effective stereo source before color or stale
+  frame conclusions are compared.
 - Optional `XR_FB_passthrough` client/layer probing exposed a real runtime
   capability boundary, but did not by itself fix camera progression. Keep
   `client` and `warmup` as diagnostics for extension exposure and runtime
