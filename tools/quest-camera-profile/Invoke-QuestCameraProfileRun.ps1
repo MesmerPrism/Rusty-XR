@@ -207,10 +207,31 @@ function Format-RemoteShellArg {
     return "'" + ($Value -replace "'", "'\\''") + "'"
 }
 
+function Expand-OverrideItems {
+    param([string[]]$Items)
+    $expanded = @()
+    foreach ($item in $Items) {
+        foreach ($part in ($item -split ",")) {
+            $trimmed = $part.Trim()
+            if ($trimmed.Length -ge 2) {
+                $first = $trimmed.Substring(0, 1)
+                $last = $trimmed.Substring($trimmed.Length - 1, 1)
+                if (($first -eq "'" -and $last -eq "'") -or ($first -eq '"' -and $last -eq '"')) {
+                    $trimmed = $trimmed.Substring(1, $trimmed.Length - 2)
+                }
+            }
+            if ($trimmed) {
+                $expanded += $trimmed
+            }
+        }
+    }
+    return $expanded
+}
+
 function Convert-Overrides {
     param([string[]]$Items)
     $values = @{}
-    foreach ($item in $Items) {
+    foreach ($item in (Expand-OverrideItems -Items $Items)) {
         $parts = $item.Split("=", 2)
         if ($parts.Count -ne 2 -or -not $parts[0]) {
             throw "Override must be key=value: $item"

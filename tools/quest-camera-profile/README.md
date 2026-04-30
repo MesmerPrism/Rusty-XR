@@ -32,15 +32,15 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
   -CaptureHzdbScreencap
 ```
 
-`-Override key=value` can be repeated to test one variable without adding a
-new catalog entry:
+Use `-Override key=value` to test variables without adding a new catalog entry.
+When invoking the script through `powershell -File`, pass multiple overrides as
+a comma-separated list in one `-Override` argument:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
   -Serial <serial> `
   -RuntimeProfile camera-stereo-gpu-composite-performance-065 `
-  -Override rustyxr.cameraTargetFps=0 `
-  -Override rustyxr.cameraStereoImageReaderMaxImages=3 `
+  -Override 'rustyxr.cameraTargetFps=0,rustyxr.cameraStereoImageReaderMaxImages=3' `
   -CaptureHzdbScreencap
 ```
 

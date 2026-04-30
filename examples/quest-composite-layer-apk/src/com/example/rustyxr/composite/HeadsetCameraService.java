@@ -535,7 +535,7 @@ public final class HeadsetCameraService extends Service {
             if (source.logicalMultiCamera && source.physicalCameraIds.size() >= 2 && !source.privateSizes.isEmpty()) {
                 List<String> physical = new ArrayList<String>(source.physicalCameraIds);
                 Collections.sort(physical);
-                Size size = choosePreferredSize(source.privateSizes);
+                Size size = choosePreferredSize(source);
                 StereoCandidateInfo candidate = new StereoCandidateInfo(
                     "logical-physical",
                     physical.get(0),
@@ -578,9 +578,9 @@ public final class HeadsetCameraService extends Service {
                 if (accepted) {
                     score = Long.valueOf(scoreStereoPair(
                         leftSource,
-                        choosePreferredSize(leftSource.privateSizes),
+                        choosePreferredSize(leftSource),
                         rightSource,
-                        choosePreferredSize(rightSource.privateSizes)));
+                        choosePreferredSize(rightSource)));
                 }
                 candidates.add(new StereoCandidateInfo(
                     "concurrent-separate",
@@ -595,8 +595,8 @@ public final class HeadsetCameraService extends Service {
                     StereoCameraChoice candidateChoice = StereoCameraChoice.concurrentSeparate(
                         leftSource,
                         rightSource,
-                        choosePreferredSize(leftSource.privateSizes),
-                        choosePreferredSize(rightSource.privateSizes));
+                        choosePreferredSize(leftSource),
+                        choosePreferredSize(rightSource));
                     if (bestConcurrent == null || candidateChoice.score > bestConcurrent.score) {
                         bestConcurrent = candidateChoice;
                     }
@@ -624,22 +624,16 @@ public final class HeadsetCameraService extends Service {
         return false;
     }
 
-    private Size choosePreferredSize(List<Size> sizes) {
+    private Size choosePreferredSize(CameraSourceInfo source) {
+        return choosePreferredSize(source.characteristics, source.privateSizes);
+    }
+
+    private Size choosePreferredSize(CameraCharacteristics characteristics, List<Size> sizes) {
         Size best = null;
         long bestScore = Long.MIN_VALUE;
         for (int i = 0; i < sizes.size(); i++) {
             Size size = sizes.get(i);
-            long pixels = (long) size.getWidth() * (long) size.getHeight();
-            long score = pixels;
-            if (size.getWidth() == preferredSquareSize && size.getHeight() == preferredSquareSize) {
-                score += 1_000_000_000L;
-            }
-            if (size.getWidth() == size.getHeight()) {
-                score += 100_000_000L;
-            }
-            if (size.getWidth() > maxDimension || size.getHeight() > maxDimension) {
-                score -= 2_000_000_000L;
-            }
+            long score = scoreSize(characteristics, size);
             if (score > bestScore) {
                 bestScore = score;
                 best = size;
@@ -855,7 +849,7 @@ public final class HeadsetCameraService extends Service {
         } else {
             score -= 10_000_000_000L;
         }
-        if (width == height) {
+        if (width == height && targetWidth == targetHeight) {
             score += 1_000_000_000L;
         }
 

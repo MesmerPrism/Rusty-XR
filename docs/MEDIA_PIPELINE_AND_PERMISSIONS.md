@@ -245,6 +245,11 @@ preferred performance path. The performant shape is:
   just the Java pending-pair queue. Vulkan memory and descriptor caches can
   retain a few `AHardwareBuffer` images after Java has closed its `Image`, so a
   too-small `maxImages` value can starve Camera2 and produce stale frames.
+- Keep acquisition implementations modular. A Java Camera2 concurrent-stereo
+  path is useful as a public Vulkan example, but lower-level/native
+  hardware-buffer readers can have different queue, timestamp, and AE-policy
+  behavior. Compare those as explicit modules or runtime profiles instead of
+  silently changing the camera path under an existing profile.
 - Keep environment depth, environment cubes, TSDF/readback, physics workers,
   and MediaProjection disabled unless the active runtime mode consumes them.
 
@@ -275,9 +280,13 @@ Current public Quest profile findings:
 - Render cadence and camera cadence must be measured separately. A profile can
   submit OpenXR frames at `72 Hz` while Camera2 delivers paired camera buffers
   below display cadence.
-- The next acquisition probes should keep projection and border behavior
-  unchanged while testing no explicit AE FPS request and a smaller stereo
-  `ImageReader` max-image count.
+- The simple Java Camera2 acquisition probes did not close the stale-frame gap
+  on the tested runtime: no explicit AE FPS request, a smaller stereo
+  `ImageReader` max-image count, a wider pair window, and a `1280x960`
+  separate-eye size all still produced stale concurrent-stereo progression.
+- A mono `PRIVATE` GPU-buffer probe at `1280x960` continued to deliver live
+  frames, so the next useful comparison is Java Camera2 concurrent stereo
+  against a lower-level/native hardware-buffer reader module.
 
 ### Autonomous Quest Camera Profile Runs
 

@@ -174,9 +174,11 @@ Useful launch extras:
   projection and must keep `alignedProjection=false` when pose or stereo
   metadata is missing.
 - `rustyxr.cameraWidth` / `rustyxr.cameraHeight`: requested camera target
-  dimensions. The default profile requests `1280x1280`.
+  dimensions. The default profile requests `1280x1280`. Explicit non-square
+  requests, such as `1280x960`, are honored when the runtime exposes that size
+  and the preferred-square override is disabled.
 - `rustyxr.cameraPreferredSquare`: preferred square Camera2 size. The default
-  is `1280`.
+  is `1280`. Set it to `0` when testing a non-square acquisition size.
 - `rustyxr.cameraMaxDimension`: preferred maximum Camera2 dimension before
   larger formats are deprioritized. The default is `1920`.
 - `rustyxr.cameraStereoLayout`: `mono`, `side-by-side`, `top-bottom`, or
@@ -383,6 +385,14 @@ The catalog keeps camera path experiments as separate runtime profiles:
   path. It is diagnostic until logs show `fixedFoveationEnabled=true`, no
   null fragment-density image handles, no framebuffer creation failure or
   driver crash, stable OpenXR cadence, and no stale camera frames.
+- `camera-stereo-gpu-composite-no-ae-target-065`: same render scale,
+  projection, border, and sampler as the `0.65` performance profile, but sends
+  no explicit Camera2 AE FPS target. It isolates acquisition policy from color
+  and projection.
+- `camera-stereo-gpu-composite-reader-max-3-065`: same render scale,
+  projection, border, and sampler as the `0.65` performance profile, but uses a
+  smaller separate-eye `ImageReader` pool. It isolates Java Camera2 queue depth
+  from color and projection.
 
 Do not stack the shader-side YCbCr decode on top of an external sampler that is
 already presenting RGB. The hardware-buffer import log reports
@@ -397,17 +407,19 @@ evictions after warm-up. The aligned projected path held `72 FPS` at
 geometry/color comparison but did not hold display cadence on that run. The
 same run showed Camera2 applying a `60-60` AE range for a `72-72` request and
 delivering below display cadence, so camera delivery FPS must be evaluated
-separately from OpenXR submit FPS. The next acquisition probes are:
+separately from OpenXR submit FPS.
 
-- `camera-stereo-gpu-composite-no-ae-target-065`: keep the combined
-  `external-rgb` sampler, render scale `0.65`, and public projection/border
-  path, but send no explicit AE FPS target.
-- `camera-stereo-gpu-composite-reader-max-3-065`: keep the same baseline but
-  reduce each separate-eye `ImageReader` max image count to `3`.
-
-Run those before revisiting sampler shape or shader color math. The
-fixed-foveation diagnostic path is still not release-ready on runtimes that
-enumerate null fragment-density image handles.
+The follow-up acquisition probes ruled out several simple Java Camera2 knobs
+as standalone fixes. No explicit AE target, `ImageReader` max images `3`, a
+wider stereo-pair window, and a lower `1280x960` separate-eye size did not stop
+the concurrent-separate stereo path from stalling on the tested runtime. A mono
+`PRIVATE` GPU-buffer probe at `1280x960` did keep receiving live frames, which
+points the next public iteration toward separating acquisition modules:
+document and preserve the Java Camera2 concurrent-stereo Vulkan path, then
+compare it against a lower-level/native hardware-buffer reader path before
+changing projection, border, or shader color math again. The fixed-foveation
+diagnostic path is still not release-ready on runtimes that enumerate null
+fragment-density image handles.
 
 ## Autonomous Camera Profile Runs
 

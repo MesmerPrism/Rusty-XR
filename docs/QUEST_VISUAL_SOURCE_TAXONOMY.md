@@ -167,11 +167,16 @@ frame cadence.
 Recent public profile testing narrowed the next useful axis. On the current
 combined immutable-sampler Vulkan path, `external-rgb` is the usable public
 baseline and shader-side `Cr/Y/Cb` decode can produce a green/discolored image
-because the sampler is already presenting RGB-like values. The next camera
-probes therefore keep projection, border, sampler, and color controls stable
-while changing acquisition parameters: first run with no explicit Camera2 AE
-FPS target, then run with separate-eye `ImageReader` max images reduced to
-`3`, and only then combine those acquisition settings.
+because the sampler is already presenting RGB-like values. Follow-up
+acquisition probes kept projection, border, sampler, and color controls stable
+while changing one Camera2 parameter at a time. No explicit AE FPS target,
+separate-eye `ImageReader` max images reduced to `3`, a wider stereo-pair
+window, and a lower `1280x960` separate-eye size did not fix stale progression
+in the concurrent-separate Java Camera2 stereo path on the tested runtime. A
+mono Camera2 `PRIVATE` GPU-buffer probe at `1280x960` continued to deliver live
+frames, so the next public split should compare Java Camera2 concurrent stereo
+against a lower-level/native hardware-buffer reader path without changing the
+projection or border surface.
 
 The renderer then applies an explicit `CameraTextureTransform` after projection
 UV calculation and before sampling imported camera textures. That transform is

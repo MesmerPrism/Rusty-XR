@@ -25,6 +25,15 @@ renderer. Camera2 producer cadence is also separate from OpenXR submit cadence:
 the renderer can submit at `72 Hz` while the paired Camera2 streams deliver
 new buffers below display rate.
 
+The April 30, 2026 acquisition probes narrowed the remaining blocker. A mono
+Camera2 `PRIVATE` GPU-buffer probe at `1280x960` delivered ongoing frames while
+the OpenXR loop held `72 Hz`, which means the public hardware-buffer import and
+Vulkan sampling path are not globally broken. The concurrent separate stereo
+Camera2 path can still stall with only a handful of new camera frames across
+many OpenXR frames, even when power and VR-power snapshots report the headset
+awake, mounted, and under a timed proximity hold. Those stale runs also showed
+Camera HAL warnings about non-increasing stream timestamps.
+
 The shader-side `external-cr-y-cb-bt601-narrow` mode is now a diagnostic, not a
 release candidate, for this public Vulkan path. When used with the current
 combined immutable sampler, it can produce a strongly green/discolored image,
@@ -32,7 +41,7 @@ which is consistent with applying a manual YCbCr decode to values that the
 external sampler already presents like RGB. Keep this mode for devices or
 adapter paths that truly expose channel-packed values at the shader boundary.
 
-## Acquisition Difference To Test Next
+## Acquisition Findings And Next Axis
 
 The next focused axis is camera acquisition, not projection or border
 geometry. The current public Java Camera2 path uses:
@@ -46,8 +55,8 @@ geometry. The current public Java Camera2 path uses:
   runtime applying `60-60`
 
 Some lower-level downstream camera stacks use a smaller retained image pool and
-do not make the same explicit AE target request. To isolate that difference,
-test one public variable at a time:
+do not make the same explicit AE target request. The public profile keeps those
+differences as isolated catalog probes:
 
 1. `camera-stereo-gpu-composite-no-ae-target-065`: keep the combined
    `external-rgb` sampler and render scale `0.65`, but set
@@ -55,10 +64,23 @@ test one public variable at a time:
    `rustyxr.cameraFpsMax=0`.
 2. `camera-stereo-gpu-composite-reader-max-3-065`: keep the same public camera
    profile but set `rustyxr.cameraStereoImageReaderMaxImages=3`.
-3. Only after those probes are valid, combine the settings with
-   `-Override rustyxr.cameraTargetFps=0 -Override
-   rustyxr.cameraStereoImageReaderMaxImages=3` and compare color, camera-pair
-   cadence, stale-frame behavior, and OpenXR frame pacing.
+3. The same settings can be combined with a single PowerShell override string,
+   for example `-Override
+   'rustyxr.cameraTargetFps=0,rustyxr.cameraStereoImageReaderMaxImages=3'`,
+   after the individual probes pass the workflow gates.
+
+On the tested runtime, rerunning those probes with the current validator did
+not resolve the concurrent-stereo stale-frame condition. Lowering the requested
+separate-eye size from `1280x1280` to `1280x960` also did not fix that
+condition, while the mono GPU-buffer probe at the same height continued to
+deliver live Camera2 frames. Treat the no-AE-target and max-images-3 profiles
+as useful regression probes, but not as the current most likely parity fix.
+
+The next serious public module split is acquisition: keep the Java Camera2
+concurrent-separate Vulkan example as a documented path, and add or compare a
+lower-level/native hardware-buffer reader path as a separate module/profile
+before changing projection geometry, border behavior, or shader color math
+again.
 
 Do not interpret a single green/discolored shader-decode run as evidence about
 Camera2 acquisition. First return to `external-rgb`, then change acquisition
