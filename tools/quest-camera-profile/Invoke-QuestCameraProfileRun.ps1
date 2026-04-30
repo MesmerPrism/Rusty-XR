@@ -193,8 +193,18 @@ function Add-AmExtra {
     else {
         $LaunchArgs.Add("--es")
         $LaunchArgs.Add($Key)
-        $LaunchArgs.Add($Value)
+        $LaunchArgs.Add((Format-RemoteShellArg -Value $Value))
     }
+}
+
+function Format-RemoteShellArg {
+    param([string]$Value)
+
+    if ($Value -notmatch '\s') {
+        return $Value
+    }
+
+    return "'" + ($Value -replace "'", "'\\''") + "'"
 }
 
 function Convert-Overrides {
