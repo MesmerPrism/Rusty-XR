@@ -288,8 +288,8 @@ responsibilities.
 | Plain stereo / feedback layers | In progress | Public mono/stereo media layer descriptors, source UV layout helpers, aspect-fit content rectangles, visual feedback border segments, border tuning, composite-feedback tuning, and performance hints added. |
 | Native platform passthrough descriptors | In progress | Public Meta/OpenXR layer-purpose, placement, opacity, edge, color-map, BCS, and LUT descriptors added with contracts-only examples. |
 | Visual strobe descriptors | In progress | Public full-field and passthrough-LUT strobe profile descriptors, display-frame frequency plans, 120 Hz constraints, and safety warnings added with a no-hardware example. |
-| Depth model | In progress | Depth readiness and frame summary helpers added. |
-| SDF model | In progress | Packed SDF grid, sampling, bounds, and triangle mesh snapshot contracts added. |
+| Depth model | In progress | Depth readiness, frame summary, per-view metadata, infinite-far range, cadence, and readback-policy helpers added. |
+| SDF model | In progress | Packed SDF grid, sampling, bounds, triangle mesh snapshots, and data-only depth support/impact query contracts added. |
 | Particle and animation primitives | In progress | Minimal particle state, fixed-step clock, and render payload generation added. |
 | XR canvas and hand interaction | In progress | Public ray/canvas hit-test contracts, hand-menu anchors, activation modes, and hand influence points added. |
 | Sparse scan / TSDF contracts | In progress | Public sparse TSDF samples, snapshots, scan surface samples, and scan-fusion stats added. |

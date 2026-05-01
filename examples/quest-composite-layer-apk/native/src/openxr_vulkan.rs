@@ -7,8 +7,8 @@ use std::{
 use crate::{
     gpu_probe_counters, latest_headset_camera_frame, latest_headset_camera_gpu_frame,
     latest_headset_stereo_camera_gpu_frame, log_error, log_info, runtime_config,
-    HeadsetCameraFrame, HeadsetCameraGpuFrame, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
-    OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
+    EnvironmentDepthMode, HeadsetCameraFrame, HeadsetCameraGpuFrame, OpenXrColorFormatMode,
+    OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
 };
 use android_activity::{InputStatus, MainEvent, PollEvent};
 use ash::vk::{self, Handle};
@@ -30,6 +30,12 @@ const GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX: usize = crate::CAMERA_IMPORT_CACHE_LIMI
 const GPU_CAMERA_PROJECTION_UNIFORM_SLOTS: u32 = 3;
 const XR_FRAGMENT_DENSITY_MAP_FORMAT: vk::Format = vk::Format::R8G8_UNORM;
 const XR_FOVEATION_DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
+const XR_ENVIRONMENT_DEPTH_FORMAT: vk::Format = vk::Format::D16_UNORM;
+const XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS: f32 = 20.0;
+const XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_FLAGS: u32 = 8;
+const XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL: &str = "rotate0+flipY";
+const XR_ENVIRONMENT_DEPTH_DESCRIPTOR_LAYOUT: vk::ImageLayout =
+    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
 
 fn effective_camera_import_cache_limit(limit: usize) -> usize {
     limit.clamp(2, GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX)
@@ -51,6 +57,12 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
     enabled_extensions.khr_vulkan_enable2 = true;
     if available_extensions.fb_display_refresh_rate {
         enabled_extensions.fb_display_refresh_rate = true;
+    }
+    let depth_requested = runtime_config().environment_depth_mode.enabled();
+    if available_extensions.meta_environment_depth {
+        enabled_extensions.meta_environment_depth = true;
+    } else if depth_requested {
+        log_info("Rusty XR OpenXR environment-depth extension unavailable".to_string());
     }
     let passthrough_probe_requested = runtime_config().openxr_passthrough_probe.enabled();
     if available_extensions.fb_passthrough && passthrough_probe_requested {
@@ -110,6 +122,7 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
         .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
         .map_err(|error| format!("get HMD system: {error}"))?;
     let passthrough_lut_max_resolution = query_passthrough_lut_max_resolution(&xr_instance, system);
+    let environment_depth_properties = query_environment_depth_properties(&xr_instance, system);
     let environment_blend_mode = xr_instance
         .enumerate_environment_blend_modes(system, VIEW_TYPE)
         .map_err(|error| format!("enumerate environment blend modes: {error}"))?
@@ -141,6 +154,7 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
             environment_blend_mode,
             vk_target_version,
             passthrough_lut_max_resolution,
+            environment_depth_properties,
         )
     }
 }
@@ -284,6 +298,60 @@ fn query_passthrough_lut_max_resolution(
         lut_properties.max_color_lut_resolution
     ));
     Some(lut_properties.max_color_lut_resolution)
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct EnvironmentDepthProperties {
+    extension_available: bool,
+    supports_environment_depth: bool,
+    supports_hand_removal: bool,
+}
+
+fn query_environment_depth_properties(
+    instance: &xr::Instance,
+    system: xr::SystemId,
+) -> EnvironmentDepthProperties {
+    if instance.exts().meta_environment_depth.is_none() {
+        return EnvironmentDepthProperties::default();
+    }
+
+    let mut depth_properties = xr::sys::SystemEnvironmentDepthPropertiesMETA {
+        ty: xr::sys::SystemEnvironmentDepthPropertiesMETA::TYPE,
+        next: ptr::null_mut(),
+        supports_environment_depth: false.into(),
+        supports_hand_removal: false.into(),
+    };
+    let mut system_properties =
+        xr::sys::SystemProperties::out(&mut depth_properties as *mut _ as *mut _);
+    let result = unsafe {
+        (instance.fp().get_system_properties)(
+            instance.as_raw(),
+            system,
+            system_properties.as_mut_ptr(),
+        )
+    };
+    if result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+        log_error(format!(
+            "Rusty XR could not query environment-depth properties: {result:?}"
+        ));
+        return EnvironmentDepthProperties {
+            extension_available: true,
+            ..EnvironmentDepthProperties::default()
+        };
+    }
+
+    let properties = EnvironmentDepthProperties {
+        extension_available: true,
+        supports_environment_depth: depth_properties.supports_environment_depth.into(),
+        supports_hand_removal: depth_properties.supports_hand_removal.into(),
+    };
+    log_info(format!(
+        "Rusty XR OpenXR environment-depth properties extensionAvailable={} supportsEnvironmentDepth={} supportsHandRemoval={}",
+        properties.extension_available,
+        properties.supports_environment_depth,
+        properties.supports_hand_removal
+    ));
+    properties
 }
 
 fn sync_display_refresh_rate<G>(
@@ -580,6 +648,593 @@ impl FullFieldFlickerStats {
         self.last_report_switches = self.switches;
         self.last_report_missed = self.missed_half_cycles;
     }
+}
+
+struct OpenXrEnvironmentDepthProbe {
+    mode: EnvironmentDepthMode,
+    extension: xr::raw::EnvironmentDepthMETA,
+    provider: xr::sys::EnvironmentDepthProviderMETA,
+    swapchain: xr::sys::EnvironmentDepthSwapchainMETA,
+    depth_images: Vec<u64>,
+    width: u32,
+    height: u32,
+    supports_hand_removal: bool,
+    hand_removal_enabled: bool,
+    start_frame: u64,
+    window_start: Instant,
+    window_frame_count: u64,
+    window_attempts: u64,
+    window_acquired: u64,
+    window_unavailable: u64,
+    window_errors: u64,
+    window_unique_capture_times: u64,
+    window_acquire_cpu_ms: f64,
+    total_attempts: u64,
+    total_acquired: u64,
+    total_unavailable: u64,
+    total_errors: u64,
+    total_unique_capture_times: u64,
+    repeated_capture_time_count: u64,
+    last_capture_time_ns: Option<i64>,
+    last_acquired_frame: Option<u64>,
+    last_swapchain_index: Option<u32>,
+    last_near_z: f32,
+    last_far_z: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct EnvironmentDepthVisualFrame {
+    frame_count: u64,
+    swapchain_index: u32,
+    near_z: f32,
+    far_z: f32,
+    capture_time_ns: i64,
+}
+
+impl OpenXrEnvironmentDepthProbe {
+    fn acquire(
+        &mut self,
+        reference_space: &xr::Space,
+        display_time: xr::Time,
+        frame_count: u64,
+    ) -> Option<EnvironmentDepthVisualFrame> {
+        self.window_frame_count = self.window_frame_count.saturating_add(1);
+        self.window_attempts = self.window_attempts.saturating_add(1);
+        self.total_attempts = self.total_attempts.saturating_add(1);
+
+        let acquire_info = xr::sys::EnvironmentDepthImageAcquireInfoMETA {
+            ty: xr::sys::EnvironmentDepthImageAcquireInfoMETA::TYPE,
+            next: ptr::null(),
+            space: reference_space.as_raw(),
+            display_time,
+        };
+        let mut timestamp = xr::sys::EnvironmentDepthImageTimestampMETA {
+            ty: xr::sys::EnvironmentDepthImageTimestampMETA::TYPE,
+            next: ptr::null(),
+            capture_time: xr::Time::from_nanos(0),
+        };
+        let empty_view = xr::sys::EnvironmentDepthImageViewMETA {
+            ty: xr::sys::EnvironmentDepthImageViewMETA::TYPE,
+            next: ptr::null(),
+            fov: xr::sys::Fovf::default(),
+            pose: xr::sys::Posef::default(),
+        };
+        let mut image = xr::sys::EnvironmentDepthImageMETA {
+            ty: xr::sys::EnvironmentDepthImageMETA::TYPE,
+            next: &mut timestamp as *mut _ as *const _,
+            swapchain_index: 0,
+            near_z: 0.0,
+            far_z: 0.0,
+            views: [empty_view; 2],
+        };
+
+        let started = Instant::now();
+        let result = unsafe {
+            (self.extension.acquire_environment_depth_image)(
+                self.provider,
+                &acquire_info,
+                &mut image,
+            )
+        };
+        let acquire_ms = started.elapsed().as_secs_f64() * 1000.0;
+        self.window_acquire_cpu_ms += acquire_ms;
+
+        if result == xr::sys::Result::ENVIRONMENT_DEPTH_NOT_AVAILABLE_META {
+            self.window_unavailable = self.window_unavailable.saturating_add(1);
+            self.total_unavailable = self.total_unavailable.saturating_add(1);
+            self.report_status_if_due(frame_count, acquire_ms, false);
+            return None;
+        }
+        if result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+            self.window_errors = self.window_errors.saturating_add(1);
+            self.total_errors = self.total_errors.saturating_add(1);
+            log_error(format!(
+                "Rusty XR environment depth acquire failed frame={} result={result:?}",
+                frame_count
+            ));
+            self.report_status_if_due(frame_count, acquire_ms, false);
+            return None;
+        }
+
+        self.window_acquired = self.window_acquired.saturating_add(1);
+        self.total_acquired = self.total_acquired.saturating_add(1);
+        let capture_time_ns = timestamp.capture_time.as_nanos();
+        if self.last_capture_time_ns == Some(capture_time_ns) {
+            self.repeated_capture_time_count = self.repeated_capture_time_count.saturating_add(1);
+        } else {
+            self.window_unique_capture_times = self.window_unique_capture_times.saturating_add(1);
+            self.total_unique_capture_times = self.total_unique_capture_times.saturating_add(1);
+            self.last_capture_time_ns = Some(capture_time_ns);
+        }
+        self.last_acquired_frame = Some(frame_count);
+        self.last_swapchain_index = Some(image.swapchain_index);
+        self.last_near_z = image.near_z;
+        self.last_far_z = image.far_z;
+
+        if self.total_acquired == 1 {
+            log_info(format!(
+                "Rusty XR environment depth first frame swapchainIndex={} size={}x{} depthFormat=VK_FORMAT_D16_UNORM layerCount={} nearZ={} farZ={} captureTimeNs={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth depthVisualEncoding=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={}",
+                image.swapchain_index,
+                self.width,
+                self.height,
+                VIEW_COUNT,
+                image.near_z,
+                image.far_z,
+                capture_time_ns,
+                XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
+                XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL
+            ));
+        }
+        self.report_status_if_due(frame_count, acquire_ms, true);
+        if self.mode.visualizes() {
+            Some(EnvironmentDepthVisualFrame {
+                frame_count,
+                swapchain_index: image.swapchain_index,
+                near_z: image.near_z,
+                far_z: image.far_z,
+                capture_time_ns,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn depth_image_handles(&self) -> &[u64] {
+        &self.depth_images
+    }
+
+    fn visual_clear_color(&self, frame_count: u64) -> Option<[f32; 4]> {
+        if !self.mode.visualizes() {
+            return None;
+        }
+        let pulse = if frame_count % 60 < 30 { 0.05 } else { 0.0 };
+        if self.total_errors > 0 && self.last_acquired_frame.is_none() {
+            return Some([0.34 + pulse, 0.02, 0.03, 1.0]);
+        }
+        if self
+            .last_acquired_frame
+            .map(|last| frame_count.saturating_sub(last) <= 3)
+            .unwrap_or(false)
+        {
+            return Some([0.02, 0.22 + pulse, 0.08, 1.0]);
+        }
+        if self.total_unavailable > 0 {
+            return Some([0.28 + pulse, 0.17, 0.02, 1.0]);
+        }
+        Some([0.02, 0.08 + pulse, 0.18, 1.0])
+    }
+
+    fn report_status_if_due(&mut self, frame_count: u64, last_acquire_ms: f64, acquired: bool) {
+        if frame_count != self.start_frame
+            && frame_count % 120 != 0
+            && !(acquired && self.total_acquired == 1)
+        {
+            return;
+        }
+
+        let elapsed = self.window_start.elapsed().as_secs_f64().max(0.001);
+        let observed_openxr_fps = self.window_frame_count as f64 / elapsed;
+        let observed_acquire_hz = self.window_attempts as f64 / elapsed;
+        let observed_unique_depth_hz = self.window_unique_capture_times as f64 / elapsed;
+        let avg_acquire_ms = if self.window_attempts > 0 {
+            self.window_acquire_cpu_ms / self.window_attempts as f64
+        } else {
+            0.0
+        };
+        log_info(format!(
+            "Rusty XR environment depth status frame={} depthEnabled=true mode={} extensionAvailable=true supported=true providerCreated=true providerRunning=true swapchainCreated=true size={}x{} depthFormat=VK_FORMAT_D16_UNORM layerCount={} swapchainIndex={} openXrFrameCount={} observedOpenXrFps={:.1} acquireAttempts={} acquiredFrames={} unavailableFrames={} acquireErrors={} uniqueCaptureTimes={} repeatedCaptureTimes={} observedAcquireHz={:.1} observedDepthHz={:.1} lastAcquireCpuMs={:.3} avgAcquireCpuMs={:.3} captureTimeNs={} nearZ={} farZ={} handRemovalSupported={} handRemovalEnabled={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth visualizer={} depthVisualEncoding=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} depthVisualEyeMapping=left-layer-0-right-layer-1",
+            frame_count,
+            self.mode.stable_id(),
+            self.width,
+            self.height,
+            VIEW_COUNT,
+            self.last_swapchain_index
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            frame_count,
+            observed_openxr_fps,
+            self.total_attempts,
+            self.total_acquired,
+            self.total_unavailable,
+            self.total_errors,
+            self.total_unique_capture_times,
+            self.repeated_capture_time_count,
+            observed_acquire_hz,
+            observed_unique_depth_hz,
+            last_acquire_ms,
+            avg_acquire_ms,
+            self.last_capture_time_ns
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            self.last_near_z,
+            self.last_far_z,
+            self.supports_hand_removal,
+            self.hand_removal_enabled,
+            self.mode.visualizes(),
+            XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
+            XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL
+        ));
+        self.window_start = Instant::now();
+        self.window_frame_count = 0;
+        self.window_attempts = 0;
+        self.window_acquired = 0;
+        self.window_unavailable = 0;
+        self.window_errors = 0;
+        self.window_unique_capture_times = 0;
+        self.window_acquire_cpu_ms = 0.0;
+    }
+}
+
+impl Drop for OpenXrEnvironmentDepthProbe {
+    fn drop(&mut self) {
+        unsafe {
+            let stop_result = (self.extension.stop_environment_depth_provider)(self.provider);
+            if stop_result.into_raw() < xr::sys::Result::SUCCESS.into_raw()
+                && stop_result != xr::sys::Result::ERROR_HANDLE_INVALID
+            {
+                log_error(format!(
+                    "Rusty XR environment depth provider stop during drop failed result={stop_result:?}"
+                ));
+            }
+            if self.swapchain != xr::sys::EnvironmentDepthSwapchainMETA::NULL {
+                let destroy_swapchain_result =
+                    (self.extension.destroy_environment_depth_swapchain)(self.swapchain);
+                if destroy_swapchain_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR environment depth swapchain destroy failed result={destroy_swapchain_result:?}"
+                    ));
+                }
+                self.swapchain = xr::sys::EnvironmentDepthSwapchainMETA::NULL;
+            }
+            if self.provider != xr::sys::EnvironmentDepthProviderMETA::NULL {
+                let destroy_provider_result =
+                    (self.extension.destroy_environment_depth_provider)(self.provider);
+                if destroy_provider_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR environment depth provider destroy failed result={destroy_provider_result:?}"
+                    ));
+                }
+                self.provider = xr::sys::EnvironmentDepthProviderMETA::NULL;
+            }
+        }
+    }
+}
+
+fn sync_openxr_environment_depth_probe<G: xr::Graphics>(
+    instance: &xr::Instance,
+    session: &xr::Session<G>,
+    existing: Option<OpenXrEnvironmentDepthProbe>,
+    mode: EnvironmentDepthMode,
+    hand_removal_enabled: bool,
+    properties: EnvironmentDepthProperties,
+    start_frame: u64,
+) -> Option<OpenXrEnvironmentDepthProbe> {
+    let effective_hand_removal_enabled = hand_removal_enabled && properties.supports_hand_removal;
+    if let Some(existing) = existing {
+        if existing.mode == mode && existing.hand_removal_enabled == effective_hand_removal_enabled
+        {
+            return Some(existing);
+        }
+        if mode.enabled() {
+            log_info(format!(
+                "Rusty XR environment depth probe switching from {} to {}",
+                existing.mode.stable_id(),
+                mode.stable_id()
+            ));
+        } else {
+            log_info(format!(
+                "Rusty XR environment depth probe disabled from {}",
+                existing.mode.stable_id()
+            ));
+        }
+    }
+    if !mode.enabled() {
+        return None;
+    }
+    if !properties.extension_available || instance.exts().meta_environment_depth.is_none() {
+        log_info(format!(
+            "Rusty XR environment depth requested mode={} but XR_META_environment_depth is unavailable",
+            mode.stable_id()
+        ));
+        return None;
+    }
+    if !properties.supports_environment_depth {
+        log_info(format!(
+            "Rusty XR environment depth requested mode={} but system properties report unsupported",
+            mode.stable_id()
+        ));
+        return None;
+    }
+
+    match create_openxr_environment_depth_probe(
+        instance,
+        session,
+        mode,
+        effective_hand_removal_enabled,
+        properties,
+        start_frame,
+    ) {
+        Ok(probe) => {
+            log_info(format!(
+                "Rusty XR environment depth probe active mode={} size={}x{} handRemovalEnabled={} visualizer={}",
+                probe.mode.stable_id(),
+                probe.width,
+                probe.height,
+                probe.hand_removal_enabled,
+                probe.mode.visualizes()
+            ));
+            Some(probe)
+        }
+        Err(error) => {
+            log_error(format!(
+                "Rusty XR environment depth probe failed mode={} error={error}",
+                mode.stable_id()
+            ));
+            None
+        }
+    }
+}
+
+fn openxr_environment_depth_probe_reuses_existing(
+    existing: Option<&OpenXrEnvironmentDepthProbe>,
+    mode: EnvironmentDepthMode,
+    hand_removal_enabled: bool,
+    properties: EnvironmentDepthProperties,
+) -> bool {
+    let effective_hand_removal_enabled = hand_removal_enabled && properties.supports_hand_removal;
+    existing
+        .map(|probe| {
+            probe.mode == mode && probe.hand_removal_enabled == effective_hand_removal_enabled
+        })
+        .unwrap_or(false)
+}
+
+fn create_openxr_environment_depth_probe<G: xr::Graphics>(
+    instance: &xr::Instance,
+    session: &xr::Session<G>,
+    mode: EnvironmentDepthMode,
+    hand_removal_enabled: bool,
+    properties: EnvironmentDepthProperties,
+    start_frame: u64,
+) -> Result<OpenXrEnvironmentDepthProbe, String> {
+    let extension = *instance
+        .exts()
+        .meta_environment_depth
+        .as_ref()
+        .ok_or_else(|| "XR_META_environment_depth function table is unavailable".to_string())?;
+    let provider_info = xr::sys::EnvironmentDepthProviderCreateInfoMETA {
+        ty: xr::sys::EnvironmentDepthProviderCreateInfoMETA::TYPE,
+        next: ptr::null(),
+        create_flags: xr::sys::EnvironmentDepthProviderCreateFlagsMETA::EMPTY,
+    };
+    let mut provider = xr::sys::EnvironmentDepthProviderMETA::NULL;
+    let result = unsafe {
+        (extension.create_environment_depth_provider)(
+            session.as_raw(),
+            &provider_info,
+            &mut provider,
+        )
+    };
+    ensure_xr_success(result, "xrCreateEnvironmentDepthProviderMETA")?;
+
+    let swapchain_info = xr::sys::EnvironmentDepthSwapchainCreateInfoMETA {
+        ty: xr::sys::EnvironmentDepthSwapchainCreateInfoMETA::TYPE,
+        next: ptr::null(),
+        create_flags: xr::sys::EnvironmentDepthSwapchainCreateFlagsMETA::EMPTY,
+    };
+    let mut swapchain = xr::sys::EnvironmentDepthSwapchainMETA::NULL;
+    let result = unsafe {
+        (extension.create_environment_depth_swapchain)(provider, &swapchain_info, &mut swapchain)
+    };
+    if let Err(error) = ensure_xr_success(result, "xrCreateEnvironmentDepthSwapchainMETA") {
+        unsafe {
+            let destroy_result = (extension.destroy_environment_depth_provider)(provider);
+            if destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR environment depth provider cleanup after swapchain create failed result={destroy_result:?}"
+                ));
+            }
+        }
+        return Err(error);
+    }
+
+    let mut swapchain_state = xr::sys::EnvironmentDepthSwapchainStateMETA {
+        ty: xr::sys::EnvironmentDepthSwapchainStateMETA::TYPE,
+        next: ptr::null_mut(),
+        width: 0,
+        height: 0,
+    };
+    let result = unsafe {
+        (extension.get_environment_depth_swapchain_state)(swapchain, &mut swapchain_state)
+    };
+    if let Err(error) = ensure_xr_success(result, "xrGetEnvironmentDepthSwapchainStateMETA") {
+        unsafe {
+            let destroy_swapchain_result =
+                (extension.destroy_environment_depth_swapchain)(swapchain);
+            if destroy_swapchain_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR environment depth swapchain cleanup failed result={destroy_swapchain_result:?}"
+                ));
+            }
+            let destroy_provider_result = (extension.destroy_environment_depth_provider)(provider);
+            if destroy_provider_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR environment depth provider cleanup failed result={destroy_provider_result:?}"
+                ));
+            }
+        }
+        return Err(error);
+    }
+
+    let depth_images = match unsafe {
+        enumerate_openxr_environment_depth_swapchain_images(&extension, swapchain)
+    } {
+        Ok(images) => images,
+        Err(error) => {
+            unsafe {
+                let destroy_swapchain_result =
+                    (extension.destroy_environment_depth_swapchain)(swapchain);
+                if destroy_swapchain_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR environment depth swapchain cleanup after image enumeration failed result={destroy_swapchain_result:?}"
+                    ));
+                }
+                let destroy_provider_result =
+                    (extension.destroy_environment_depth_provider)(provider);
+                if destroy_provider_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR environment depth provider cleanup after image enumeration failed result={destroy_provider_result:?}"
+                    ));
+                }
+            }
+            return Err(error);
+        }
+    };
+
+    if hand_removal_enabled {
+        let hand_removal_info = xr::sys::EnvironmentDepthHandRemovalSetInfoMETA {
+            ty: xr::sys::EnvironmentDepthHandRemovalSetInfoMETA::TYPE,
+            next: ptr::null(),
+            enabled: true.into(),
+        };
+        let result =
+            unsafe { (extension.set_environment_depth_hand_removal)(provider, &hand_removal_info) };
+        if result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+            log_error(format!(
+                "Rusty XR environment depth hand removal request failed result={result:?}"
+            ));
+        }
+    }
+
+    let result = unsafe { (extension.start_environment_depth_provider)(provider) };
+    if let Err(error) = ensure_xr_success(result, "xrStartEnvironmentDepthProviderMETA") {
+        unsafe {
+            let destroy_swapchain_result =
+                (extension.destroy_environment_depth_swapchain)(swapchain);
+            if destroy_swapchain_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR environment depth swapchain cleanup after start failed result={destroy_swapchain_result:?}"
+                ));
+            }
+            let destroy_provider_result = (extension.destroy_environment_depth_provider)(provider);
+            if destroy_provider_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR environment depth provider cleanup after start failed result={destroy_provider_result:?}"
+                ));
+            }
+        }
+        return Err(error);
+    }
+
+    Ok(OpenXrEnvironmentDepthProbe {
+        mode,
+        extension,
+        provider,
+        swapchain,
+        depth_images,
+        width: swapchain_state.width,
+        height: swapchain_state.height,
+        supports_hand_removal: properties.supports_hand_removal,
+        hand_removal_enabled,
+        start_frame,
+        window_start: Instant::now(),
+        window_frame_count: 0,
+        window_attempts: 0,
+        window_acquired: 0,
+        window_unavailable: 0,
+        window_errors: 0,
+        window_unique_capture_times: 0,
+        window_acquire_cpu_ms: 0.0,
+        total_attempts: 0,
+        total_acquired: 0,
+        total_unavailable: 0,
+        total_errors: 0,
+        total_unique_capture_times: 0,
+        repeated_capture_time_count: 0,
+        last_capture_time_ns: None,
+        last_acquired_frame: None,
+        last_swapchain_index: None,
+        last_near_z: 0.0,
+        last_far_z: 0.0,
+    })
+}
+
+unsafe fn enumerate_openxr_environment_depth_swapchain_images(
+    extension: &xr::raw::EnvironmentDepthMETA,
+    swapchain: xr::sys::EnvironmentDepthSwapchainMETA,
+) -> Result<Vec<u64>, String> {
+    let mut image_count = 0;
+    ensure_xr_success(
+        (extension.enumerate_environment_depth_swapchain_images)(
+            swapchain,
+            0,
+            &mut image_count,
+            ptr::null_mut(),
+        ),
+        "xrEnumerateEnvironmentDepthSwapchainImagesMETA(count)",
+    )?;
+    if image_count == 0 {
+        return Err("environment depth swapchain returned no Vulkan images".to_string());
+    }
+
+    let mut images = vec![
+        xr::sys::SwapchainImageVulkanKHR {
+            ty: xr::sys::SwapchainImageVulkanKHR::TYPE,
+            next: ptr::null_mut(),
+            image: 0,
+        };
+        image_count as usize
+    ];
+    let mut enumerated = 0;
+    ensure_xr_success(
+        (extension.enumerate_environment_depth_swapchain_images)(
+            swapchain,
+            image_count,
+            &mut enumerated,
+            images.as_mut_ptr() as *mut xr::sys::SwapchainImageBaseHeader,
+        ),
+        "xrEnumerateEnvironmentDepthSwapchainImagesMETA",
+    )?;
+    images.truncate(enumerated as usize);
+    if images.is_empty() {
+        return Err(
+            "environment depth swapchain image enumeration returned zero images".to_string(),
+        );
+    }
+    for (index, image) in images.iter().enumerate() {
+        if image.image == 0 {
+            return Err(format!(
+                "environment depth swapchain image {index} returned a null VkImage"
+            ));
+        }
+        log_info(format!(
+            "Rusty XR environment depth swapchain image index={} image=0x{:x} format=VK_FORMAT_D16_UNORM arrayLayers={}",
+            index,
+            image.image,
+            VIEW_COUNT
+        ));
+    }
+    Ok(images.into_iter().map(|image| image.image).collect())
 }
 
 struct OpenXrPassthroughProbe {
@@ -1243,6 +1898,7 @@ unsafe fn run_vulkan(
     environment_blend_mode: xr::EnvironmentBlendMode,
     vk_target_version: u32,
     passthrough_lut_max_resolution: Option<u32>,
+    environment_depth_properties: EnvironmentDepthProperties,
 ) -> Result<(), String> {
     let vk_entry = ash::Entry::load().map_err(|error| format!("load Vulkan: {error}"))?;
     let vk_app_info = vk::ApplicationInfo::default()
@@ -1457,8 +2113,10 @@ unsafe fn run_vulkan(
         render_pass,
         gpu_camera_import_supported,
     );
+    let mut environment_depth_visualizer = EnvironmentDepthVisualizer::new(render_pass);
     let mut last_logged_gpu_frame_index: Option<u64> = None;
     let mut last_logged_prepared_stereo_frame_index: Option<u64> = None;
+    let mut openxr_environment_depth_probe: Option<OpenXrEnvironmentDepthProbe> = None;
     let mut openxr_passthrough_probe: Option<OpenXrPassthroughProbe> = None;
     let mut full_field_flicker = FullFieldFlickerStats::default();
     let mut frame_pacing_window_start = Instant::now();
@@ -1487,11 +2145,31 @@ unsafe fn run_vulkan(
                                 .begin(VIEW_TYPE)
                                 .map_err(|error| format!("begin OpenXR session: {error}"))?;
                             session_running = true;
+                            let config = runtime_config();
+                            if openxr_environment_depth_probe.is_some()
+                                && !openxr_environment_depth_probe_reuses_existing(
+                                    openxr_environment_depth_probe.as_ref(),
+                                    config.environment_depth_mode,
+                                    config.environment_depth_hand_removal,
+                                    environment_depth_properties,
+                                )
+                            {
+                                environment_depth_visualizer.destroy(&vk_device);
+                            }
+                            openxr_environment_depth_probe = sync_openxr_environment_depth_probe(
+                                &xr_instance,
+                                &session,
+                                openxr_environment_depth_probe,
+                                config.environment_depth_mode,
+                                config.environment_depth_hand_removal,
+                                environment_depth_properties,
+                                frame_count,
+                            );
                             openxr_passthrough_probe = sync_openxr_passthrough_probe(
                                 &xr_instance,
                                 &session,
                                 openxr_passthrough_probe,
-                                runtime_config().openxr_passthrough_probe,
+                                config.openxr_passthrough_probe,
                                 frame_count,
                                 passthrough_lut_max_resolution,
                             );
@@ -1503,6 +2181,13 @@ unsafe fn run_vulkan(
                                 .end()
                                 .map_err(|error| format!("end OpenXR session: {error}"))?;
                             session_running = false;
+                            vk_device.wait_for_fences(&fences, true, u64::MAX).map_err(
+                                |error| {
+                                    format!("wait Vulkan fences before depth shutdown: {error}")
+                                },
+                            )?;
+                            environment_depth_visualizer.destroy(&vk_device);
+                            openxr_environment_depth_probe = None;
                             openxr_passthrough_probe = None;
                         }
                         xr::SessionState::EXITING | xr::SessionState::LOSS_PENDING => {
@@ -1607,11 +2292,26 @@ unsafe fn run_vulkan(
         vk_device
             .wait_for_fences(&[fences[frame]], true, u64::MAX)
             .map_err(|error| format!("wait Vulkan fence: {error}"))?;
+        let config = runtime_config();
+        if openxr_environment_depth_probe.is_some()
+            && !openxr_environment_depth_probe_reuses_existing(
+                openxr_environment_depth_probe.as_ref(),
+                config.environment_depth_mode,
+                config.environment_depth_hand_removal,
+                environment_depth_properties,
+            )
+        {
+            vk_device
+                .wait_for_fences(&fences, true, u64::MAX)
+                .map_err(|error| {
+                    format!("wait Vulkan fences before depth visualizer reconfiguration: {error}")
+                })?;
+            environment_depth_visualizer.destroy(&vk_device);
+        }
         vk_device
             .reset_fences(&[fences[frame]])
             .map_err(|error| format!("reset Vulkan fence: {error}"))?;
 
-        let config = runtime_config();
         sync_display_refresh_rate(
             &xr_instance,
             &session,
@@ -1626,6 +2326,42 @@ unsafe fn run_vulkan(
             frame_count,
             passthrough_lut_max_resolution,
         );
+        openxr_environment_depth_probe = sync_openxr_environment_depth_probe(
+            &xr_instance,
+            &session,
+            openxr_environment_depth_probe,
+            config.environment_depth_mode,
+            config.environment_depth_hand_removal,
+            environment_depth_properties,
+            frame_count,
+        );
+        let mut depth_visual_frame: Option<EnvironmentDepthVisualFrame> = None;
+        let depth_visual_clear = if let Some(probe) = openxr_environment_depth_probe.as_mut() {
+            let acquired_depth_visual_frame = probe.acquire(
+                &reference_space,
+                frame_state.predicted_display_time,
+                frame_count,
+            );
+            if let Some(frame) = acquired_depth_visual_frame {
+                match environment_depth_visualizer.prepare(&vk_device, probe.depth_image_handles())
+                {
+                    Ok(true) => {
+                        depth_visual_frame = Some(frame);
+                    }
+                    Ok(false) => {}
+                    Err(error) => {
+                        if frame_count == 0 || frame_count % 120 == 0 {
+                            log_error(format!(
+                                "Rusty XR environment depth visualizer prepare failed: {error}"
+                            ));
+                        }
+                    }
+                }
+            }
+            probe.visual_clear_color(frame_count)
+        } else {
+            None
+        };
         if let Some(probe) = openxr_passthrough_probe.as_mut() {
             probe.apply_style(
                 &xr_instance,
@@ -2141,7 +2877,9 @@ unsafe fn run_vulkan(
             frame_state.predicted_display_time,
             frame_count,
         );
-        let clear = if config.full_field_flicker_hz > 0.0 {
+        let clear = if let Some(clear) = depth_visual_clear {
+            clear
+        } else if config.full_field_flicker_hz > 0.0 {
             if full_field_red {
                 [1.0, 0.0, 0.0, 1.0]
             } else {
@@ -2210,6 +2948,9 @@ unsafe fn run_vulkan(
                 gpu_frame,
                 &config,
             );
+        }
+        if let Some(frame) = depth_visual_frame {
+            environment_depth_visualizer.record_draw(&vk_device, cmd, swapchain.resolution, frame);
         }
         vk_device.cmd_end_render_pass(cmd);
 
@@ -2337,7 +3078,7 @@ unsafe fn run_vulkan(
             let observed_openxr_fps = frame_pacing_window_frames as f64 / window_secs;
             let avg_frame_ms = window_secs * 1000.0 / frame_pacing_window_frames.max(1) as f64;
             log_info(format!(
-                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz={} activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fixedFoveationEnabled={} openxrPassthroughProbe={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} importCacheLimit={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={} gpuImportCacheHit={} gpuImportCacheMiss={} gpuImportCacheEvict={}",
+                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} environmentDepthMode={} environmentDepthActive={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz={} activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fixedFoveationEnabled={} openxrPassthroughProbe={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} importCacheLimit={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={} gpuImportCacheHit={} gpuImportCacheMiss={} gpuImportCacheEvict={}",
                 frame_count,
                 swapchain.resolution.width,
                 swapchain.resolution.height,
@@ -2345,6 +3086,8 @@ unsafe fn run_vulkan(
                 config.camera_acquisition.as_str(),
                 config.camera_enabled,
                 config.media_projection_enabled,
+                config.environment_depth_mode.stable_id(),
+                openxr_environment_depth_probe.is_some(),
                 observed_openxr_fps,
                 avg_frame_ms,
                 record_ms,
@@ -2377,10 +3120,13 @@ unsafe fn run_vulkan(
         frame = (frame + 1) % PIPELINE_DEPTH as usize;
     }
 
-    drop((session, frame_wait, frame_stream, reference_space));
     vk_device
         .wait_for_fences(&fences, true, u64::MAX)
         .map_err(|error| format!("final Vulkan fence wait: {error}"))?;
+    environment_depth_visualizer.destroy(&vk_device);
+    drop(openxr_environment_depth_probe.take());
+    drop(openxr_passthrough_probe.take());
+    drop((session, frame_wait, frame_stream, reference_space));
     for fence in fences {
         vk_device.destroy_fence(fence, None);
     }
@@ -5293,4 +6039,450 @@ struct CameraCopy {
     buffer: vk::Buffer,
     width: u32,
     height: u32,
+}
+
+struct EnvironmentDepthVisualizer {
+    render_pass: vk::RenderPass,
+    resources: Option<EnvironmentDepthVisualizerResources>,
+    last_draw_failure_frame: Option<u64>,
+}
+
+impl EnvironmentDepthVisualizer {
+    const fn new(render_pass: vk::RenderPass) -> Self {
+        Self {
+            render_pass,
+            resources: None,
+            last_draw_failure_frame: None,
+        }
+    }
+
+    unsafe fn prepare(
+        &mut self,
+        device: &ash::Device,
+        depth_image_handles: &[u64],
+    ) -> Result<bool, String> {
+        if depth_image_handles.is_empty() {
+            self.destroy(device);
+            return Ok(false);
+        }
+        if self
+            .resources
+            .as_ref()
+            .map(|resources| resources.matches_images(depth_image_handles))
+            .unwrap_or(false)
+        {
+            return Ok(true);
+        }
+
+        self.destroy(device);
+        let resources = create_environment_depth_visualizer_resources(
+            device,
+            self.render_pass,
+            depth_image_handles,
+        )?;
+        self.resources = Some(resources);
+        Ok(true)
+    }
+
+    unsafe fn record_draw(
+        &mut self,
+        device: &ash::Device,
+        cmd: vk::CommandBuffer,
+        resolution: vk::Extent2D,
+        frame: EnvironmentDepthVisualFrame,
+    ) {
+        let Some(resources) = self.resources.as_ref() else {
+            return;
+        };
+        let Some(descriptor_set) = resources
+            .descriptor_sets
+            .get(frame.swapchain_index as usize)
+            .copied()
+        else {
+            if self.last_draw_failure_frame != Some(frame.frame_count) {
+                log_error(format!(
+                    "Rusty XR environment depth visualizer missing descriptor for swapchainIndex={} descriptorCount={}",
+                    frame.swapchain_index,
+                    resources.descriptor_sets.len()
+                ));
+                self.last_draw_failure_frame = Some(frame.frame_count);
+            }
+            return;
+        };
+
+        let viewport = [vk::Viewport {
+            x: 0.0,
+            y: 0.0,
+            width: resolution.width as f32,
+            height: resolution.height as f32,
+            min_depth: 0.0,
+            max_depth: 1.0,
+        }];
+        let scissor = [vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: resolution,
+        }];
+        let push = EnvironmentDepthVisualizationPush {
+            params: [
+                XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
+                frame.near_z,
+                if frame.far_z.is_finite() {
+                    frame.far_z
+                } else {
+                    -1.0
+                },
+                if frame.far_z.is_finite() { 0.0 } else { 1.0 },
+            ],
+            transform: [
+                XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_FLAGS as f32,
+                0.0,
+                0.0,
+                0.0,
+            ],
+        };
+
+        device.cmd_set_viewport(cmd, 0, &viewport);
+        device.cmd_set_scissor(cmd, 0, &scissor);
+        device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, resources.pipeline);
+        device.cmd_bind_descriptor_sets(
+            cmd,
+            vk::PipelineBindPoint::GRAPHICS,
+            resources.pipeline_layout,
+            0,
+            &[descriptor_set],
+            &[],
+        );
+        let push_bytes = std::slice::from_raw_parts(
+            (&push as *const EnvironmentDepthVisualizationPush).cast::<u8>(),
+            std::mem::size_of::<EnvironmentDepthVisualizationPush>(),
+        );
+        device.cmd_push_constants(
+            cmd,
+            resources.pipeline_layout,
+            vk::ShaderStageFlags::FRAGMENT,
+            0,
+            push_bytes,
+        );
+        device.cmd_draw(cmd, 3, 1, 0, 0);
+        if frame.frame_count == 0 || frame.frame_count % 120 == 0 {
+            log_info(format!(
+                "Rusty XR environment depth visualizer draw frame={} swapchainIndex={} captureTimeNs={} renderTarget={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} grayscale=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth",
+                frame.frame_count,
+                frame.swapchain_index,
+                frame.capture_time_ns,
+                resolution.width,
+                resolution.height,
+                VIEW_COUNT,
+                XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
+                XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL
+            ));
+        }
+    }
+
+    unsafe fn destroy(&mut self, device: &ash::Device) {
+        if let Some(resources) = self.resources.take() {
+            resources.destroy(device);
+        }
+    }
+}
+
+struct EnvironmentDepthVisualizerResources {
+    image_handles: Vec<u64>,
+    image_views: Vec<vk::ImageView>,
+    sampler: vk::Sampler,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_sets: Vec<vk::DescriptorSet>,
+    pipeline_layout: vk::PipelineLayout,
+    pipeline: vk::Pipeline,
+}
+
+impl EnvironmentDepthVisualizerResources {
+    fn matches_images(&self, depth_image_handles: &[u64]) -> bool {
+        self.image_handles == depth_image_handles
+    }
+
+    unsafe fn destroy(self, device: &ash::Device) {
+        device.destroy_pipeline(self.pipeline, None);
+        device.destroy_pipeline_layout(self.pipeline_layout, None);
+        device.destroy_descriptor_pool(self.descriptor_pool, None);
+        device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+        for image_view in self.image_views {
+            device.destroy_image_view(image_view, None);
+        }
+        device.destroy_sampler(self.sampler, None);
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct EnvironmentDepthVisualizationPush {
+    params: [f32; 4],
+    transform: [f32; 4],
+}
+
+unsafe fn create_environment_depth_visualizer_resources(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    depth_image_handles: &[u64],
+) -> Result<EnvironmentDepthVisualizerResources, String> {
+    let sampler = device
+        .create_sampler(
+            &vk::SamplerCreateInfo::default()
+                .mag_filter(vk::Filter::NEAREST)
+                .min_filter(vk::Filter::NEAREST)
+                .mipmap_mode(vk::SamplerMipmapMode::NEAREST)
+                .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+                .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+                .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+                .border_color(vk::BorderColor::FLOAT_OPAQUE_BLACK),
+            None,
+        )
+        .map_err(|error| format!("create environment depth sampler: {error}"))?;
+
+    let descriptor_binding = [vk::DescriptorSetLayoutBinding::default()
+        .binding(0)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT)];
+    let descriptor_set_layout = match device.create_descriptor_set_layout(
+        &vk::DescriptorSetLayoutCreateInfo::default().bindings(&descriptor_binding),
+        None,
+    ) {
+        Ok(layout) => layout,
+        Err(error) => {
+            device.destroy_sampler(sampler, None);
+            return Err(format!(
+                "create environment depth descriptor set layout: {error}"
+            ));
+        }
+    };
+
+    let descriptor_count = depth_image_handles.len() as u32;
+    let pool_sizes = [vk::DescriptorPoolSize::default()
+        .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .descriptor_count(descriptor_count)];
+    let descriptor_pool = match device.create_descriptor_pool(
+        &vk::DescriptorPoolCreateInfo::default()
+            .pool_sizes(&pool_sizes)
+            .max_sets(descriptor_count),
+        None,
+    ) {
+        Ok(pool) => pool,
+        Err(error) => {
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            device.destroy_sampler(sampler, None);
+            return Err(format!("create environment depth descriptor pool: {error}"));
+        }
+    };
+
+    let push_ranges = [vk::PushConstantRange::default()
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+        .offset(0)
+        .size(std::mem::size_of::<EnvironmentDepthVisualizationPush>() as u32)];
+    let set_layouts = [descriptor_set_layout];
+    let pipeline_layout = match device.create_pipeline_layout(
+        &vk::PipelineLayoutCreateInfo::default()
+            .set_layouts(&set_layouts)
+            .push_constant_ranges(&push_ranges),
+        None,
+    ) {
+        Ok(layout) => layout,
+        Err(error) => {
+            device.destroy_descriptor_pool(descriptor_pool, None);
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            device.destroy_sampler(sampler, None);
+            return Err(format!("create environment depth pipeline layout: {error}"));
+        }
+    };
+
+    let pipeline =
+        match create_environment_depth_visualization_pipeline(device, render_pass, pipeline_layout)
+        {
+            Ok(pipeline) => pipeline,
+            Err(error) => {
+                device.destroy_pipeline_layout(pipeline_layout, None);
+                device.destroy_descriptor_pool(descriptor_pool, None);
+                device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+                device.destroy_sampler(sampler, None);
+                return Err(error);
+            }
+        };
+
+    let mut image_views = Vec::with_capacity(depth_image_handles.len());
+    for (index, image_handle) in depth_image_handles.iter().copied().enumerate() {
+        let image = vk::Image::from_raw(image_handle);
+        match device.create_image_view(
+            &vk::ImageViewCreateInfo::default()
+                .image(image)
+                .view_type(vk::ImageViewType::TYPE_2D_ARRAY)
+                .format(XR_ENVIRONMENT_DEPTH_FORMAT)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::DEPTH,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: VIEW_COUNT,
+                }),
+            None,
+        ) {
+            Ok(view) => image_views.push(view),
+            Err(error) => {
+                for view in image_views {
+                    device.destroy_image_view(view, None);
+                }
+                device.destroy_pipeline(pipeline, None);
+                device.destroy_pipeline_layout(pipeline_layout, None);
+                device.destroy_descriptor_pool(descriptor_pool, None);
+                device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+                device.destroy_sampler(sampler, None);
+                return Err(format!(
+                    "create environment depth image view index={index}: {error}"
+                ));
+            }
+        }
+    }
+
+    let descriptor_set_layouts = vec![descriptor_set_layout; depth_image_handles.len()];
+    let descriptor_sets = match device.allocate_descriptor_sets(
+        &vk::DescriptorSetAllocateInfo::default()
+            .descriptor_pool(descriptor_pool)
+            .set_layouts(&descriptor_set_layouts),
+    ) {
+        Ok(sets) => sets,
+        Err(error) => {
+            for view in image_views {
+                device.destroy_image_view(view, None);
+            }
+            device.destroy_pipeline(pipeline, None);
+            device.destroy_pipeline_layout(pipeline_layout, None);
+            device.destroy_descriptor_pool(descriptor_pool, None);
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            device.destroy_sampler(sampler, None);
+            return Err(format!(
+                "allocate environment depth descriptor sets: {error}"
+            ));
+        }
+    };
+
+    for (descriptor_set, image_view) in descriptor_sets.iter().copied().zip(image_views.iter()) {
+        let image_info = [vk::DescriptorImageInfo::default()
+            .sampler(sampler)
+            .image_view(*image_view)
+            .image_layout(XR_ENVIRONMENT_DEPTH_DESCRIPTOR_LAYOUT)];
+        let writes = [vk::WriteDescriptorSet::default()
+            .dst_set(descriptor_set)
+            .dst_binding(0)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .image_info(&image_info)];
+        device.update_descriptor_sets(&writes, &[]);
+    }
+
+    log_info(format!(
+        "Rusty XR environment depth visualizer resources images={} format=VK_FORMAT_D16_UNORM imageViewType=TYPE_2D_ARRAY layers={} descriptorLayout={:?} visualMaxMeters={}",
+        depth_image_handles.len(),
+        VIEW_COUNT,
+        XR_ENVIRONMENT_DEPTH_DESCRIPTOR_LAYOUT,
+        XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS
+    ));
+
+    Ok(EnvironmentDepthVisualizerResources {
+        image_handles: depth_image_handles.to_vec(),
+        image_views,
+        sampler,
+        descriptor_set_layout,
+        descriptor_pool,
+        descriptor_sets,
+        pipeline_layout,
+        pipeline,
+    })
+}
+
+unsafe fn create_environment_depth_visualization_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
+) -> Result<vk::Pipeline, String> {
+    let vertex_words = spirv_words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/camera_projection.vert.spv"
+    )))?;
+    let fragment_words = spirv_words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/environment_depth_visualization.frag.spv"
+    )))?;
+    let vertex_module = device
+        .create_shader_module(
+            &vk::ShaderModuleCreateInfo::default().code(&vertex_words),
+            None,
+        )
+        .map_err(|error| format!("create environment depth vertex shader module: {error}"))?;
+    let fragment_module = match device.create_shader_module(
+        &vk::ShaderModuleCreateInfo::default().code(&fragment_words),
+        None,
+    ) {
+        Ok(module) => module,
+        Err(error) => {
+            device.destroy_shader_module(vertex_module, None);
+            return Err(format!(
+                "create environment depth fragment shader module: {error}"
+            ));
+        }
+    };
+    let entry = CString::new("main").expect("static shader entry point is valid");
+    let stages = [
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vertex_module)
+            .name(&entry),
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(fragment_module)
+            .name(&entry),
+    ];
+    let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
+    let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+    let viewport_state = vk::PipelineViewportStateCreateInfo::default()
+        .viewport_count(1)
+        .scissor_count(1);
+    let rasterization = vk::PipelineRasterizationStateCreateInfo::default()
+        .polygon_mode(vk::PolygonMode::FILL)
+        .cull_mode(vk::CullModeFlags::NONE)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .line_width(1.0);
+    let multisample = vk::PipelineMultisampleStateCreateInfo::default()
+        .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+    let color_blend_attachment = [vk::PipelineColorBlendAttachmentState::default()
+        .blend_enable(false)
+        .color_write_mask(vk::ColorComponentFlags::RGBA)];
+    let color_blend =
+        vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachment);
+    let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
+        .depth_test_enable(false)
+        .depth_write_enable(false)
+        .depth_compare_op(vk::CompareOp::ALWAYS)
+        .stencil_test_enable(false);
+    let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+    let dynamic = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+    let create_info = [vk::GraphicsPipelineCreateInfo::default()
+        .stages(&stages)
+        .vertex_input_state(&vertex_input)
+        .input_assembly_state(&input_assembly)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterization)
+        .multisample_state(&multisample)
+        .color_blend_state(&color_blend)
+        .depth_stencil_state(&depth_stencil)
+        .dynamic_state(&dynamic)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0)];
+    let pipeline_result =
+        device.create_graphics_pipelines(vk::PipelineCache::null(), &create_info, None);
+    device.destroy_shader_module(fragment_module, None);
+    device.destroy_shader_module(vertex_module, None);
+    pipeline_result
+        .map(|mut pipelines| pipelines.remove(0))
+        .map_err(|(_, error)| format!("create environment depth graphics pipeline: {error}"))
 }

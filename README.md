@@ -43,8 +43,12 @@ The first APK-producing example is a minimal Rust-native Android smoke test:
 [examples/quest-minimal-apk/README.md](examples/quest-minimal-apk/README.md).
 The first immersive Quest example is a Rust/OpenXR/Vulkan APK with explicit
 synthetic, CPU diagnostic, GPU-buffer probe, and paired-camera GPU projection
-tiers. MediaProjection is optional and is used only to stream the final headset
-screen back to Windows for inspection:
+tiers. It also includes an explicit environment-depth diagnostics profile that
+starts the OpenXR environment-depth provider, logs depth resolution, near/far
+range, runtime capture timestamps, acquire cost, observed depth cadence, and
+confidence availability, and renders a stereo grayscale depth texture diagnostic
+in headset. MediaProjection is optional and is used
+only to stream the final headset screen back to Windows for inspection:
 [examples/quest-composite-layer-apk/README.md](examples/quest-composite-layer-apk/README.md).
 The current raw-camera example has two public projected stereo modes:
 `display-screen-homography` and `quad-surface`. Both use the paired Camera2

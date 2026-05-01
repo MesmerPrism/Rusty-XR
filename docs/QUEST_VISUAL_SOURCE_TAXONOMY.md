@@ -71,6 +71,9 @@ separately. The texture should be treated as depth-buffer-style data: metric
 reconstruction needs the supplied near/far values, per-eye FOV/pose, and the
 adapter's projection or inverse-projection math. Do not assume raw samples are
 already linear meters unless an adapter explicitly documents that conversion.
+Some runtimes can report an infinite far plane; public contracts should treat
+that as a valid runtime range and use an explicit visualization cutoff when
+displaying the texture.
 
 Quest device models can differ internally in how the runtime estimates depth,
 but the public app-facing contract remains an environment-depth texture. Public
@@ -95,6 +98,17 @@ requirements. A public frame descriptor should record width, height, format
 such as `depth_u16le` or `D16_UNORM`, eye/layer identity, byte length,
 near/far, per-eye view metadata, optional runtime capture time, and whether a
 confidence payload exists.
+
+The `environment-depth-diagnostics` profile in the public composite-layer
+example is the first hardware-facing diagnostic for this source class. It
+checks extension support, provider start, swapchain creation, acquire status,
+runtime capture timestamp progression, repeated capture timestamps, observed
+depth cadence, acquire CPU cost, near/far range, hand-removal support, and
+explicit confidence-source reporting. Its current headset visual samples the
+runtime `D16_UNORM` stereo depth texture directly as per-eye grayscale, maps
+layer `0` to the left eye and layer `1` to the right eye, applies the same
+rotate/flip UV transform semantics used by the camera projection shader, and
+uses an explicit maximum-meter cutoff for infinite or very distant depth.
 
 ## Paired Stereo Camera Provider
 

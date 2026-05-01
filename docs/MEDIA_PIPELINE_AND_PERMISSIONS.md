@@ -68,7 +68,24 @@ Runtime depth cadence is not a fixed app-controlled rate. An app can acquire
 the latest available depth image during an XR frame, but a runtime may return
 no new image. For cadence and latency diagnostics, prefer a runtime-provided
 depth capture timestamp over counts from strided exports or display-capture
-streams.
+streams. Count unique runtime capture timestamps separately from acquired
+frames because a runtime can return the same depth image across multiple XR
+frames.
+
+The public composite-layer example exposes this as the
+`environment-depth-diagnostics` runtime profile. That profile keeps app camera
+and MediaProjection paths off, acquires at most one environment-depth image per
+OpenXR frame, and logs provider support, swapchain size, near/far range,
+runtime capture timestamp progression, repeated capture timestamps, observed
+acquire/depth rates, average acquire CPU cost, hand-removal state, and explicit
+confidence source/payload availability. Its visual mode samples the runtime
+stereo depth texture as per-eye grayscale and records the texture transform used
+for inspection.
+
+Keep CPU readback, TSDF integration, mesh extraction, and physics/query use
+separate from GPU-only depth visualization. Readback or mapping adapters should
+be explicitly enabled, throttled by a public policy, and measured separately
+from provider start/acquire and fragment-shader visualization cost.
 
 Keep final-display capture and environment-depth capture separate. A
 MediaProjection stream can show what the headset presented after app UI and

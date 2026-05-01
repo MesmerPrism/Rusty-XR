@@ -60,18 +60,18 @@ review_status = "foundation-pass"
 crate = "rusty-xr-depth-model"
 source_family = "Quest and OpenXR depth diagnostics"
 extraction_date = "2026-04-29"
-public_safe_rationale = "Depth readiness classification and frame summaries separate public status from platform provider ownership."
-license_assumptions = "Authored for this MIT repository."
-scrubbed_private_dependencies = ["native provider calls", "downstream depth captures", "scene-specific meshing behavior"]
+public_safe_rationale = "Depth readiness classification, per-view frame metadata, cadence summaries, and readback policies separate public status from platform provider ownership."
+license_assumptions = "Authored for this MIT repository; public Makepad depth concepts are treated as behavioral reference only."
+scrubbed_private_dependencies = ["native provider calls", "downstream depth captures", "scene-specific meshing behavior", "shader-language backend code"]
 review_status = "foundation-pass"
 
 [[utility]]
 crate = "rusty-xr-sdf"
 source_family = "SDF and scan-fusion contract extraction"
 extraction_date = "2026-04-29"
-public_safe_rationale = "Packed SDF grids, sparse TSDF snapshots, scan samples, and mesh snapshots are reusable data contracts."
-license_assumptions = "Authored for this MIT repository; algorithmic imports require separate license review."
-scrubbed_private_dependencies = ["worker ownership", "captured room scans", "downstream physics adapters"]
+public_safe_rationale = "Packed SDF grids, sparse TSDF snapshots, scan samples, mesh snapshots, and depth query surface summaries are reusable data contracts."
+license_assumptions = "Authored for this MIT repository; public Makepad depth-query concepts are treated as behavioral reference only and algorithmic imports require separate license review."
+scrubbed_private_dependencies = ["worker ownership", "captured room scans", "downstream physics adapters", "scene-specific query constants"]
 review_status = "foundation-pass"
 
 [[utility]]

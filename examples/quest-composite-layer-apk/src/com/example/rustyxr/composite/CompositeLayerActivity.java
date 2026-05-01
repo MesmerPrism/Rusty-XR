@@ -64,6 +64,8 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_XR_RENDER_SCALE = 0.75f;
     private static final int DEFAULT_XR_FIXED_FOVEATION_LEVEL = 0;
     private static final String DEFAULT_XR_COLOR_FORMAT = "rgba8-srgb";
+    private static final String DEFAULT_ENVIRONMENT_DEPTH_MODE = "off";
+    private static final boolean DEFAULT_ENVIRONMENT_DEPTH_HAND_REMOVAL = false;
     private static final String DEFAULT_OPENXR_PASSTHROUGH_PROBE = "off";
     private static final String DEFAULT_PASSTHROUGH_STYLE_MODE = "none";
     private static final float DEFAULT_PASSTHROUGH_OPACITY = 1.0f;
@@ -382,6 +384,9 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"xrFixedFoveationLevel\":").append(fixedFoveationLevel);
         builder.append(',');
         appendJsonString(builder, "xrColorFormat", stringExtra("rustyxr.xrColorFormat", DEFAULT_XR_COLOR_FORMAT));
+        builder.append(',');
+        appendJsonString(builder, "environmentDepthMode", stringExtra("rustyxr.depth", DEFAULT_ENVIRONMENT_DEPTH_MODE));
+        builder.append(",\"environmentDepthHandRemoval\":").append(booleanExtra("rustyxr.depthHandRemoval", DEFAULT_ENVIRONMENT_DEPTH_HAND_REMOVAL));
         builder.append(',');
         appendJsonString(builder, "openxrPassthroughProbe", stringExtra("rustyxr.openxrPassthroughProbe", DEFAULT_OPENXR_PASSTHROUGH_PROBE));
         builder.append(',');

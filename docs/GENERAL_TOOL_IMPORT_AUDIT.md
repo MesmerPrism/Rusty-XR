@@ -130,9 +130,9 @@ Next likely public step:
 | Plain projected stereo media layer | Local custom stereo layer work | Optional adapter around public `PlainStereoLayer`; native renderer provides textures and draw calls | Low if shader/effect stack stays downstream |
 | Border tuning and performance hints | Local custom stereo/feedback docs and code | Public scalar tuning structs and performance policies for adapter authors | Low if kept data-only |
 | Visual feedback border example | Local composite-feedback and capture docs | Public border/inset layout example for optional screen-feedback or camera-composite surfaces | Low if kept as geometry/layout only |
-| Depth-readback novelty gates | Local TSDF/depth integration experiments | Generic novelty score and readback cadence policy | Medium; constants need public names and tests |
+| Depth-readback novelty gates | Local TSDF/depth integration experiments | Generic novelty score and readback cadence policy | Medium; initial readback policy is public, but novelty scoring still needs public names and tests |
 | Surface-net chunk extraction | Local depth debug mesh experiments | TSDF-to-chunked debug mesh extraction over public sparse snapshot | Medium; more algorithmic code and attribution needed |
-| Depth support/impact planes | Local depth query experiments | Support-plane and impact-plane summaries for particles/physics | Medium; keep physics adapters optional |
+| Depth support/impact planes | Local depth query experiments | Support-plane and impact-plane summaries for particles/physics | Medium; initial data-only contracts are public, while physics adapters remain optional |
 | Scan package manifest | Local capture and scan workflows | JSON-friendly capture package descriptors, stream manifests, frame indexes | Low |
 
 ## Defer Or Keep Adapter-Only
@@ -159,7 +159,9 @@ Next likely public step:
    room mesh snapshots, and scan package manifests.
 2. Add unit-tested geometry generators with Makepad attribution.
 3. Add menu/selection contracts that can drive Makepad or another UI adapter.
-4. Add sparse TSDF query helpers and support-plane summaries.
+4. Add sparse TSDF query helpers and support-plane summaries. Initial
+   support/impact plane request and summary contracts are now present; TSDF
+   evaluation helpers should remain synthetic-test-driven.
 5. Add chunked debug-mesh extraction from public sparse TSDF snapshots.
 6. Only then consider optional Makepad/OpenXR adapter crates.
 

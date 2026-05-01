@@ -589,6 +589,8 @@ pub(crate) struct RuntimeConfig {
     pub(crate) xr_display_refresh_hz: f32,
     pub(crate) xr_fixed_foveation_level: u8,
     pub(crate) xr_color_format_mode: OpenXrColorFormatMode,
+    pub(crate) environment_depth_mode: EnvironmentDepthMode,
+    pub(crate) environment_depth_hand_removal: bool,
     pub(crate) openxr_passthrough_probe: OpenXrPassthroughProbeMode,
     pub(crate) passthrough_style_mode: OpenXrPassthroughStyleMode,
     pub(crate) passthrough_opacity: f32,
@@ -644,6 +646,8 @@ impl Default for RuntimeConfig {
             xr_display_refresh_hz: 72.0,
             xr_fixed_foveation_level: 0,
             xr_color_format_mode: OpenXrColorFormatMode::default(),
+            environment_depth_mode: EnvironmentDepthMode::default(),
+            environment_depth_hand_removal: false,
             openxr_passthrough_probe: OpenXrPassthroughProbeMode::Off,
             passthrough_style_mode: OpenXrPassthroughStyleMode::default(),
             passthrough_opacity: 1.0,
@@ -658,6 +662,41 @@ impl Default for RuntimeConfig {
             passthrough_lut_flicker_hz: 0.0,
             full_field_flicker_hz: 0.0,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum EnvironmentDepthMode {
+    #[default]
+    Off,
+    Status,
+    Visualize,
+}
+
+impl EnvironmentDepthMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "off" | "false" | "0" | "disabled" | "none" => Some(Self::Off),
+            "status" | "diagnostic" | "diagnostics" | "on" | "true" | "1" => Some(Self::Status),
+            "visualize" | "visualise" | "visual" | "debug-visual" => Some(Self::Visualize),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Status => "status",
+            Self::Visualize => "visualize",
+        }
+    }
+
+    pub(crate) const fn enabled(self) -> bool {
+        !matches!(self, Self::Off)
+    }
+
+    pub(crate) const fn visualizes(self) -> bool {
+        matches!(self, Self::Visualize)
     }
 }
 
@@ -955,7 +994,7 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -997,6 +1036,8 @@ fn store_runtime_config(config_json: Option<String>) {
         config.xr_display_refresh_hz,
         config.xr_fixed_foveation_level,
         config.xr_color_format_mode.stable_id(),
+        config.environment_depth_mode.stable_id(),
+        config.environment_depth_hand_removal,
         config.openxr_passthrough_probe.stable_id(),
         config.passthrough_style_mode.stable_id(),
         config.passthrough_opacity,
@@ -1483,6 +1524,8 @@ struct JavaRuntimeConfig {
     #[serde(rename = "xrColorFormat")]
     xr_color_format_mode: Option<String>,
     openxr_passthrough_probe: Option<String>,
+    environment_depth_mode: Option<String>,
+    environment_depth_hand_removal: Option<bool>,
     passthrough_style_mode: Option<String>,
     passthrough_opacity: Option<f32>,
     passthrough_edge_r: Option<f32>,
@@ -1647,6 +1690,14 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             .as_deref()
             .and_then(OpenXrColorFormatMode::parse)
             .unwrap_or(defaults.xr_color_format_mode),
+        environment_depth_mode: bridge
+            .environment_depth_mode
+            .as_deref()
+            .and_then(EnvironmentDepthMode::parse)
+            .unwrap_or(defaults.environment_depth_mode),
+        environment_depth_hand_removal: bridge
+            .environment_depth_hand_removal
+            .unwrap_or(defaults.environment_depth_hand_removal),
         openxr_passthrough_probe: bridge
             .openxr_passthrough_probe
             .as_deref()
@@ -2793,10 +2844,10 @@ mod tests {
         contract_json, public_camera_metadata, public_runtime_config, CameraColorMode,
         CameraFeedPipelineMode, CameraImportImageLayoutMode, CameraOrientationDiagnosticMode,
         CameraPipelinePreset, CameraProjectionEffectMode, CameraProjectionMode,
-        CameraSamplerBindingMode, JavaCameraExtrinsics, JavaCameraFrameMetadata,
-        JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind, JavaRuntimeConfig,
-        OpenXrColorFormatMode, OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode,
-        StereoSourceEyeMapping,
+        CameraSamplerBindingMode, EnvironmentDepthMode, JavaCameraExtrinsics,
+        JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind,
+        JavaRuntimeConfig, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
+        OpenXrPassthroughStyleMode, StereoSourceEyeMapping,
     };
     use rusty_xr_contracts::{
         CameraCompositeTier, CameraImageRotation, CameraPixelDomainKind, ImageSize,
@@ -3002,6 +3053,8 @@ mod tests {
             xr_display_refresh_hz: Some(90.0),
             xr_fixed_foveation_level: Some(0),
             xr_color_format_mode: Some("rgba8-unorm".to_string()),
+            environment_depth_mode: Some("visualize".to_string()),
+            environment_depth_hand_removal: Some(true),
             openxr_passthrough_probe: Some("client".to_string()),
             passthrough_style_mode: Some("color-lut".to_string()),
             passthrough_opacity: Some(0.68),
@@ -3093,6 +3146,11 @@ mod tests {
             config.xr_color_format_mode,
             OpenXrColorFormatMode::Rgba8Unorm
         );
+        assert_eq!(
+            config.environment_depth_mode,
+            EnvironmentDepthMode::Visualize
+        );
+        assert!(config.environment_depth_hand_removal);
         assert_eq!(
             config.openxr_passthrough_probe,
             OpenXrPassthroughProbeMode::Client

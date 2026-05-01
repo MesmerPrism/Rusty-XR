@@ -164,6 +164,196 @@ impl ScanSurfaceSample {
     }
 }
 
+/// Role a depth-derived surface can play for an interaction or physics adapter.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DepthQuerySurfaceRole {
+    Support,
+    Impact,
+}
+
+/// A finite support or impact plane derived from depth/TSDF analysis.
+///
+/// This is a data contract. It does not require a physics engine and does not
+/// prescribe how a TSDF or depth image should be queried.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DepthSupportPlane {
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub tangent: Vec3,
+    pub bitangent: Vec3,
+    pub half_extent_tangent_meters: f32,
+    pub half_extent_bitangent_meters: f32,
+}
+
+impl DepthSupportPlane {
+    pub const fn new(
+        point: Vec3,
+        normal: Vec3,
+        tangent: Vec3,
+        bitangent: Vec3,
+        half_extent_tangent_meters: f32,
+        half_extent_bitangent_meters: f32,
+    ) -> Self {
+        Self {
+            point,
+            normal,
+            tangent,
+            bitangent,
+            half_extent_tangent_meters,
+            half_extent_bitangent_meters,
+        }
+    }
+
+    pub fn is_valid(self) -> bool {
+        let min_len_sq = 1.0e-8;
+        self.point.is_finite()
+            && self.normal.is_finite()
+            && self.tangent.is_finite()
+            && self.bitangent.is_finite()
+            && self.normal.length_squared() > min_len_sq
+            && self.tangent.length_squared() > min_len_sq
+            && self.bitangent.length_squared() > min_len_sq
+            && self.half_extent_tangent_meters.is_finite()
+            && self.half_extent_tangent_meters > 0.0
+            && self.half_extent_bitangent_meters.is_finite()
+            && self.half_extent_bitangent_meters > 0.0
+    }
+
+    pub fn quad_vertices(self) -> [Vec3; 4] {
+        let tangent = self.tangent.normalized_or(Vec3::RIGHT) * self.half_extent_tangent_meters;
+        let bitangent =
+            self.bitangent.normalized_or(Vec3::FORWARD_NEG_Z) * self.half_extent_bitangent_meters;
+        [
+            self.point - tangent - bitangent,
+            self.point + tangent - bitangent,
+            self.point + tangent + bitangent,
+            self.point - tangent + bitangent,
+        ]
+    }
+
+    pub fn supports_point(self, point: Vec3, radius_meters: f32, edge_margin_meters: f32) -> bool {
+        if !self.is_valid() || !point.is_finite() {
+            return false;
+        }
+        let radius_meters = radius_meters.max(0.0);
+        let edge_margin_meters = edge_margin_meters.max(0.0);
+        let normal = self.normal.normalized_or(Vec3::UP);
+        let tangent = self.tangent.normalized_or(Vec3::RIGHT);
+        let bitangent = self.bitangent.normalized_or(Vec3::FORWARD_NEG_Z);
+        let offset = point - self.point;
+        let signed_distance = offset.dot(normal);
+        let tangent_slack =
+            self.half_extent_tangent_meters - offset.dot(tangent).abs() - edge_margin_meters;
+        let bitangent_slack =
+            self.half_extent_bitangent_meters - offset.dot(bitangent).abs() - edge_margin_meters;
+
+        signed_distance.abs() <= radius_meters
+            && tangent_slack >= -radius_meters
+            && bitangent_slack >= -radius_meters
+    }
+}
+
+/// Public summary of a depth query surface.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DepthQuerySurfaceSummary {
+    pub role: DepthQuerySurfaceRole,
+    pub plane: DepthSupportPlane,
+    pub confidence: u8,
+    pub restitution: f32,
+}
+
+impl DepthQuerySurfaceSummary {
+    pub const fn new(
+        role: DepthQuerySurfaceRole,
+        plane: DepthSupportPlane,
+        confidence: u8,
+        restitution: f32,
+    ) -> Self {
+        Self {
+            role,
+            plane,
+            confidence,
+            restitution,
+        }
+    }
+
+    pub fn is_valid(self) -> bool {
+        self.plane.is_valid() && self.confidence > 0 && self.restitution.is_finite()
+    }
+}
+
+/// Request shape for a depth-backed support or impact query.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DepthQueryRequest {
+    pub key: u64,
+    pub center: Vec3,
+    pub predicted_center: Vec3,
+    pub velocity: Vec3,
+    pub radius_meters: f32,
+    pub max_distance_meters: f32,
+}
+
+impl DepthQueryRequest {
+    pub const fn new(
+        key: u64,
+        center: Vec3,
+        predicted_center: Vec3,
+        velocity: Vec3,
+        radius_meters: f32,
+        max_distance_meters: f32,
+    ) -> Self {
+        Self {
+            key,
+            center,
+            predicted_center,
+            velocity,
+            radius_meters,
+            max_distance_meters,
+        }
+    }
+
+    pub fn is_valid(self) -> bool {
+        self.center.is_finite()
+            && self.predicted_center.is_finite()
+            && self.velocity.is_finite()
+            && self.radius_meters.is_finite()
+            && self.radius_meters > 0.0
+            && self.max_distance_meters.is_finite()
+            && self.max_distance_meters > 0.0
+    }
+
+    pub fn travel_distance_meters(self) -> f32 {
+        (self.predicted_center - self.center).length()
+    }
+
+    pub fn might_need_impact_refresh(
+        self,
+        min_speed_mps: f32,
+        min_horizontal_speed_mps: f32,
+        min_upward_speed_mps: f32,
+        min_travel_meters: f32,
+    ) -> bool {
+        if !self.is_valid() {
+            return false;
+        }
+        let velocity_length = self.velocity.length();
+        let travel_distance = self.travel_distance_meters();
+        if velocity_length < min_speed_mps.max(0.0) && travel_distance < min_travel_meters.max(0.0)
+        {
+            return false;
+        }
+        let horizontal_speed =
+            ((self.velocity.x * self.velocity.x) + (self.velocity.z * self.velocity.z)).sqrt();
+        let upward_speed = self.velocity.y.max(0.0);
+        horizontal_speed >= min_horizontal_speed_mps.max(0.0)
+            || upward_speed >= min_upward_speed_mps.max(0.0)
+    }
+}
+
 /// Runtime scan-fusion status for diagnostics and UI.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -577,6 +767,47 @@ mod tests {
 
         assert_eq!(stats.acceptance_ratio(), Some(0.8));
         assert_eq!(ScanFusionStats::default().acceptance_ratio(), None);
+    }
+
+    #[test]
+    fn depth_support_plane_reports_quad_and_support() {
+        let plane = DepthSupportPlane::new(
+            Vec3::ZERO,
+            Vec3::UP,
+            Vec3::RIGHT,
+            Vec3::FORWARD_NEG_Z,
+            0.5,
+            0.25,
+        );
+        let quad = plane.quad_vertices();
+
+        assert!(plane.is_valid());
+        assert_eq!(quad[0], Vec3::new(-0.5, 0.0, 0.25));
+        assert!(plane.supports_point(Vec3::new(0.1, 0.02, -0.1), 0.05, 0.0));
+        assert!(!plane.supports_point(Vec3::new(0.8, 0.02, -0.1), 0.05, 0.0));
+    }
+
+    #[test]
+    fn depth_query_request_classifies_impact_refresh_need() {
+        let slow = DepthQueryRequest::new(
+            1,
+            Vec3::ZERO,
+            Vec3::new(0.01, 0.0, 0.0),
+            Vec3::new(0.05, 0.0, 0.0),
+            0.05,
+            1.0,
+        );
+        let fast = DepthQueryRequest::new(
+            1,
+            Vec3::ZERO,
+            Vec3::new(0.2, 0.0, 0.0),
+            Vec3::new(0.7, 0.0, 0.0),
+            0.05,
+            1.0,
+        );
+
+        assert!(!slow.might_need_impact_refresh(0.55, 0.4, 0.55, 0.03));
+        assert!(fast.might_need_impact_refresh(0.55, 0.4, 0.55, 0.03));
     }
 
     #[cfg(feature = "serde")]

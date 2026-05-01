@@ -7,6 +7,7 @@ use std::{
 fn main() {
     println!("cargo:rerun-if-changed=shaders/camera_projection.vert.glsl");
     println!("cargo:rerun-if-changed=shaders/camera_projection.frag.glsl");
+    println!("cargo:rerun-if-changed=shaders/environment_depth_visualization.frag.glsl");
 
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("android") {
         return;
@@ -39,6 +40,13 @@ fn main() {
         Path::new("shaders/camera_projection.frag.glsl"),
         &out_dir.join("camera_projection_separate_sampler.frag.spv"),
         &["RUSTY_XR_SEPARATE_CAMERA_SAMPLER=1"],
+    );
+    compile_shader(
+        &glslc,
+        "fragment",
+        Path::new("shaders/environment_depth_visualization.frag.glsl"),
+        &out_dir.join("environment_depth_visualization.frag.spv"),
+        &[],
     );
 }
 

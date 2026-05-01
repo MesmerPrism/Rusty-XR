@@ -55,6 +55,25 @@
       "description": "Enumerates public Camera2 source capabilities and writes camera-source-diagnostics.json into the verification bundle when --out is enabled."
     },
     {
+      "id": "environment-depth-diagnostics",
+      "label": "Environment depth diagnostics",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "synthetic",
+        "rustyxr.camera": "false",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "environment-depth",
+        "rustyxr.depth": "visualize",
+        "rustyxr.depthHandRemoval": "false",
+        "rustyxr.openxrPassthroughProbe": "client",
+        "rustyxr.passthroughStyleMode": "default",
+        "rustyxr.passthroughOpacity": "1.0",
+        "rustyxr.xrRenderScale": "0.75",
+        "rustyxr.xrFixedFoveationLevel": "0"
+      },
+      "description": "Starts the OpenXR environment-depth provider with the native passthrough layer active, acquires at most one depth image per XR frame, logs depth resolution, near/far, runtime capture timestamps, acquire cost, update cadence, confidence availability, and the depth texture UV transform, and renders the current stereo depth texture in headset as a per-eye D16 grayscale diagnostic."
+    },
+    {
       "id": "camera-diagnostic-cpu-copy",
       "label": "Camera diagnostic CPU copy",
       "values": {

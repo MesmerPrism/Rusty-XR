@@ -39,8 +39,8 @@ pub use camera::{
     StereoCameraCalibrationProfile, StereoCameraCandidateDiagnostic, StereoCameraFrameMetadata,
 };
 pub use depth::{
-    ConfidenceFormat, DepthFormat, DepthFrameDescriptor, DepthPayloadDescriptor,
-    EnvironmentDepthState,
+    ConfidenceFormat, DepthConfidenceSource, DepthFormat, DepthFrameDescriptor, DepthMetricRange,
+    DepthPayloadDescriptor, DepthViewDescriptor, EnvironmentDepthState,
 };
 pub use hand::{
     HandJointName, HandJointPose, HandJointSnapshot, HandMeshError, HandMeshSnapshot, Handedness,

@@ -127,6 +127,14 @@ The example names the camera path explicitly:
   reasons. The APK writes an app-private diagnostics JSON file, and Companion
   verification pulls it as `camera-source-diagnostics.json` when `--out` is
   used.
+- `environment-depth-diagnostics`: keeps app camera and MediaProjection paths
+  off, starts the OpenXR environment-depth provider with native passthrough
+  active, acquires at most once per XR frame, logs swapchain size, near/far
+  range, runtime capture timestamps, acquire cost, observed acquire/depth
+  cadence, hand-removal state, and confidence availability, and renders the
+  current stereo depth texture in headset as a per-eye grayscale diagnostic,
+  with the same rotate/flip UV transform semantics used by the camera
+  projection shader.
 - `camera-stereo-gpu-composite`: Tier 2 stereo projection profile. It opens
   paired left/right Camera2 `PRIVATE` streams when available, imports both
   hardware buffers, scales per-eye intrinsics into the delivered image domain,
@@ -288,6 +296,15 @@ Useful launch extras:
   `warmup` creates and resumes the layer briefly, then pauses passthrough.
   This does not replace the custom camera composite and should be tested
   separately from acquisition and color changes.
+- `rustyxr.depth`: `off` by default. `status` starts the environment-depth
+  provider and logs acquisition diagnostics without changing the render clear
+  color. `visualize` also maps acquisition state to the headset clear color:
+  blue while waiting, green after a fresh acquired depth image, amber when the
+  runtime reports no image for a frame, and red after an acquire error. This is
+  a provider/cadence/status diagnostic, not a false-color depth-map renderer.
+- `rustyxr.depthHandRemoval`: `false` by default. When supported by the
+  runtime, this requests environment-depth hand removal before provider start
+  and logs whether the setting was supported and applied.
 
 Camera delivery cadence and render cadence are separate. The GPU path can
 request an AE target range for the Camera2 producer, while the OpenXR renderer
@@ -425,6 +442,17 @@ The catalog keeps camera path experiments as separate runtime profiles:
   mirrors the same acquired buffer into both display eyes. Use it to isolate
   renderer/import progression from concurrent stereo acquisition. It is not a
   stereo-alignment proof because both eyes receive the same camera buffer.
+- `environment-depth-diagnostics`: starts the OpenXR environment-depth path
+  with native passthrough active and validates provider support, swapchain
+  creation, frame acquisition, runtime capture timestamp progression, observed
+  depth cadence, average acquire CPU cost, depth range metadata, and
+  confidence-source reporting. It renders the acquired `VK_FORMAT_D16_UNORM`
+  depth swapchain as a stereo grayscale headset diagnostic, using layer `0` for
+  the left eye and layer `1` for the right eye. The sampled depth UVs use a
+  `rotate0+flipY` transform so the depth diagnostic is upright against the
+  accepted camera projection surface. The `XR_META_environment_depth` API
+  currently exposes no confidence texture or confidence flag, so this profile
+  logs that explicitly.
 
 Do not stack the shader-side YCbCr decode on top of an external sampler that is
 already presenting RGB. The hardware-buffer import log reports
@@ -584,6 +612,16 @@ stereo camera composite.
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- catalog verify --path .\examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json --app rusty-xr-quest-composite-layer --serial <serial> --stop-catalog-apps --install --launch --device-profile xr-composite-smoke-test --runtime-profile camera-gpu-buffer-probe --settle-ms 7000 --logcat-lines 1000 --out .\artifacts\verify
 ```
 
+For environment-depth diagnostics, use the depth profile with logcat capture.
+Companion validates that the OpenXR environment-depth provider started, a
+swapchain was created, at least one image was acquired, runtime capture
+timestamps progressed, depth range metadata was reported, and confidence state
+was explicit.
+
+```powershell
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- catalog verify --path .\examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json --app rusty-xr-quest-composite-layer --serial <serial> --stop-catalog-apps --install --launch --device-profile xr-composite-smoke-test --runtime-profile environment-depth-diagnostics --settle-ms 9000 --logcat-lines 1400 --out .\artifacts\verify
+```
+
 For Windows screen-stream validation, start a Windows media receiver and
 reverse the TCP port before launching with MediaProjection enabled:
 
@@ -637,6 +675,14 @@ harnesses should treat this as a required manual step.
   `Rusty XR uploaded diagnostic flat camera copy frame`
 - with `camera-gpu-buffer-probe`, logcat contains
   `Rusty XR GPU-sampled diagnostic camera surface` or a clear GPU fallback
+- with `environment-depth-diagnostics`, logcat contains
+  `Rusty XR environment depth status` with `depthEnabled=true`,
+  `providerRunning=true`, `swapchainCreated=true`, `acquiredFrames` greater
+  than zero, nonzero `uniqueCaptureTimes`, `nearZ`, `farZ`,
+  `avgAcquireCpuMs`, `observedDepthHz`, and explicit `confidenceSource` /
+  `confidencePayload` fields. The visual profile also logs
+  `Rusty XR environment depth visualizer draw` and displays the left/right
+  runtime depth array layers as per-eye grayscale.
 - with `camera-stereo-gpu-composite`, logcat must contain one
   `Rusty XR final projection status` line with `activeTier=gpu-projected`,
   `alignedProjection=true`, `stereoLayout=Separate`,
@@ -674,6 +720,7 @@ If a one-frame Windows receiver is used, a later app-side broken pipe can be
 expected after the receiver exits. Treat the first received frame and matching
 log line as the success signal for that short validation mode.
 
-This example does not use native compositor passthrough, environment depth,
-room mesh providers, private visual-effect layers, or downstream effect-stack
-code.
+Except for the explicit passthrough and environment-depth diagnostic profiles,
+this example keeps native compositor passthrough, environment depth, room mesh
+providers, private visual-effect layers, and downstream effect-stack code out of
+ordinary camera profiles.

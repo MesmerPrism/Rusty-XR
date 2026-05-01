@@ -222,8 +222,43 @@ def schemas() -> dict[str, dict]:
                 "size": image_size(),
                 "format": enum("DepthFormat", ["Float32Meters", "Uint16Millimeters", "Uint16Raw"]),
                 "meter_scale": number(),
+                "runtime_capture_time_ns": {"type": ["integer", "null"]},
+                "depth_range": {
+                    "type": ["object", "null"],
+                    "properties": {
+                        "near_z_m": number(),
+                        "far_z_m": number(),
+                    },
+                    "required": ["near_z_m", "far_z_m"],
+                    "additionalProperties": False,
+                },
+                "layer_index": {"type": ["integer", "null"], "minimum": 0},
+                "layer_count": integer(1),
                 "has_confidence": {"type": "boolean"},
+                "confidence_source": enum(
+                    "DepthConfidenceSource",
+                    ["None", "RuntimePayload", "AppDerived", "Unknown"],
+                ),
                 "byte_len": integer(0),
+            },
+        ),
+        "environment-depth-diagnostics-summary.schema.json": obj(
+            "EnvironmentDepthDiagnosticsSummary",
+            {
+                "xr_frame_count": integer(0),
+                "acquire_attempts": integer(0),
+                "acquired_frames": integer(0),
+                "unavailable_frames": integer(0),
+                "acquire_errors": integer(0),
+                "repeated_capture_time_count": integer(0),
+                "observed_acquire_hz": number(),
+                "observed_depth_hz": number(),
+                "average_acquire_cpu_ms": number(),
+                "latest_frame": {"type": ["object", "null"]},
+                "confidence_source": enum(
+                    "DepthConfidenceSource",
+                    ["None", "RuntimePayload", "AppDerived", "Unknown"],
+                ),
             },
         ),
         "plain-stereo-layer.schema.json": obj(
