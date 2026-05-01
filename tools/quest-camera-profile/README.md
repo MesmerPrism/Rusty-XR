@@ -35,6 +35,11 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
   -Serial <serial> `
   -RuntimeProfile camera-stereo-gpu-composite-native-ndk-065 `
   -CaptureHzdbScreencap
+
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
+  -Serial <serial> `
+  -RuntimeProfile camera-stereo-gpu-composite-native-single-mirror-065 `
+  -CaptureHzdbScreencap
 ```
 
 Use `-Override key=value` to test variables without adding a new catalog entry.
@@ -67,6 +72,19 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
   -CaptureHzdbScreencap
 ```
 
+To isolate renderer/import progression from concurrent stereo camera delivery,
+use `camera-stereo-gpu-composite-native-single-mirror-065`. It opens one native
+camera source and mirrors the same hardware buffer into both display eyes. You
+can select a specific runtime camera ID for a local diagnostic run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
+  -Serial <serial> `
+  -RuntimeProfile camera-stereo-gpu-composite-native-single-mirror-065 `
+  -Override 'rustyxr.nativeLeftCameraId=<camera-id>' `
+  -CaptureHzdbScreencap
+```
+
 Each run captures battery, power, VR power manager, activity/window state,
 logcat, a screen capture, optional `hzdb` screenshots, and a validation report.
 The harness uses a timed `hzdb` proximity hold when available; it intentionally
@@ -93,7 +111,9 @@ against the captured power and VR-power snapshots; by themselves they are not
 treated as proof that the headset display entered standby. A run can hold
 OpenXR display cadence and still be invalid for color comparison if the camera
 ROIs are black or the camera frame counter only advances a few frames across
-hundreds of OpenXR frames.
+hundreds of OpenXR frames. For native acquisition runs, the validation report
+also includes native side-frame counts, camera IDs, timestamp deltas, and the
+single-camera mirror flag when those log lines are present.
 
 ## Compare Screenshots
 

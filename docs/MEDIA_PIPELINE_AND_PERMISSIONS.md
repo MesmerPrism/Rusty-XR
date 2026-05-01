@@ -306,6 +306,14 @@ Current public Quest profile findings:
   sessions still showed stale progression on the tested runtime, so the next
   acquisition comparison is source/session shape and timestamp behavior, not
   another Java queue-depth tweak.
+- The native single-camera mirror probe is a useful isolation module: it opens
+  one native camera source and mirrors the same acquired hardware buffer into
+  both display eyes. On one tested runtime, one side-camera ID delivered live
+  frames in this mode while the other side-camera ID remained sparse even when
+  opened alone. Treat exact IDs as run-local diagnostics. A successful mirror
+  run indicates that the renderer/import path can keep up, while a failing
+  stereo-native run points back at effective source/provider policy or
+  concurrent side-camera session behavior.
 - The native probe logs source topology and supports delayed camera startup.
   Treat those as acquisition-lifecycle diagnostics: they should explain whether
   two runs are using the same effective stereo source before color or stale
@@ -325,7 +333,9 @@ Quest camera profile runs:
   writes a run manifest under ignored `artifacts/`.
 - `Validate-QuestCameraRun.py` rejects black-camera screenshots and log
   windows that contain sleep, screen-off, session-exit, or automation-disable
-  signals.
+  signals. Native acquisition reports also include side-frame counts, selected
+  camera IDs, timestamp deltas, and the single-camera mirror flag when those
+  log lines are present.
 - `Compare-QuestCameraImages.py` compares two local screenshots by ROIs and
   writes RGB/luma/saturation metrics plus a contact sheet.
 

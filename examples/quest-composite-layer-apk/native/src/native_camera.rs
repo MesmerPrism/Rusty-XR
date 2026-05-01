@@ -72,6 +72,14 @@ impl NativeCameraConfig {
     fn source_mode(&self) -> &str {
         self.source_mode.as_deref().unwrap_or("auto")
     }
+
+    fn single_camera_mirror(&self) -> bool {
+        let mode = self.source_mode().to_ascii_lowercase();
+        mode == "single-back-mirror"
+            || mode == "mono-mirror"
+            || mode == "single-camera-mirror"
+            || mode == "mirror-left"
+    }
 }
 
 pub fn start_from_json(config_json: &str) -> Result<(), String> {
@@ -103,12 +111,12 @@ fn native_session_state() -> &'static Mutex<Option<NativeCameraSession>> {
 struct NativeCameraSession {
     manager: *mut ACameraManager,
     left: NativeCameraSideSession,
-    right: NativeCameraSideSession,
+    right: Option<NativeCameraSideSession>,
     context: Arc<NativeStereoContext>,
     publish_stop: Arc<AtomicBool>,
     publish_thread: Option<thread::JoinHandle<()>>,
     left_reader_context: *mut NativeReaderContext,
-    right_reader_context: *mut NativeReaderContext,
+    right_reader_context: Option<*mut NativeReaderContext>,
 }
 
 unsafe impl Send for NativeCameraSession {}
@@ -122,8 +130,13 @@ impl NativeCameraSession {
             }
 
             let sources = enumerate_camera_sources(manager)?;
-            let (left_source, right_source, selected_size) =
-                select_stereo_sources(&sources, &config)?;
+            let single_camera_mirror = config.single_camera_mirror();
+            let (left_source, right_source, selected_size) = if single_camera_mirror {
+                let (source, selected_size) = select_single_mirror_source(&sources, &config)?;
+                (source.clone(), source, selected_size)
+            } else {
+                select_stereo_sources(&sources, &config)?
+            };
             let width = selected_size.0;
             let height = selected_size.1;
 
@@ -136,6 +149,7 @@ impl NativeCameraSession {
                 requested_tier: config.requested_tier().to_string(),
                 requested_stereo_layout: config.requested_stereo_layout().to_string(),
                 source_mode: config.source_mode().to_string(),
+                single_camera_mirror,
                 pair_state: Mutex::new(NativePairState::default()),
                 pair_index: AtomicU64::new(0),
                 left_received_count: AtomicU64::new(0),
@@ -159,10 +173,14 @@ impl NativeCameraSession {
                 context: context.clone(),
                 side: NativeCameraSide::Left,
             }));
-            let right_reader_context = Box::into_raw(Box::new(NativeReaderContext {
-                context: context.clone(),
-                side: NativeCameraSide::Right,
-            }));
+            let right_reader_context = if single_camera_mirror {
+                None
+            } else {
+                Some(Box::into_raw(Box::new(NativeReaderContext {
+                    context: context.clone(),
+                    side: NativeCameraSide::Right,
+                })))
+            };
 
             let left = match NativeCameraSideSession::start(
                 manager,
@@ -175,7 +193,9 @@ impl NativeCameraSession {
                 Ok(session) => session,
                 Err(error) => {
                     drop(Box::from_raw(left_reader_context));
-                    drop(Box::from_raw(right_reader_context));
+                    if let Some(right_reader_context) = right_reader_context {
+                        drop(Box::from_raw(right_reader_context));
+                    }
                     publish_stop.store(true, Ordering::Release);
                     context.publish_queue.notify();
                     let _ = publish_thread.join();
@@ -184,29 +204,33 @@ impl NativeCameraSession {
                 }
             };
 
-            let right = match NativeCameraSideSession::start(
-                manager,
-                &right_source.camera_id_c,
-                width,
-                height,
-                context.reader_max_images,
-                right_reader_context,
-            ) {
-                Ok(session) => session,
-                Err(error) => {
-                    left.stop();
-                    drop(Box::from_raw(left_reader_context));
-                    drop(Box::from_raw(right_reader_context));
-                    publish_stop.store(true, Ordering::Release);
-                    context.publish_queue.notify();
-                    let _ = publish_thread.join();
-                    ACameraManager_delete(manager);
-                    return Err(error);
+            let right = if let Some(right_reader_context) = right_reader_context {
+                match NativeCameraSideSession::start(
+                    manager,
+                    &right_source.camera_id_c,
+                    width,
+                    height,
+                    context.reader_max_images,
+                    right_reader_context,
+                ) {
+                    Ok(session) => Some(session),
+                    Err(error) => {
+                        left.stop();
+                        drop(Box::from_raw(left_reader_context));
+                        drop(Box::from_raw(right_reader_context));
+                        publish_stop.store(true, Ordering::Release);
+                        context.publish_queue.notify();
+                        let _ = publish_thread.join();
+                        ACameraManager_delete(manager);
+                        return Err(error);
+                    }
                 }
+            } else {
+                None
             };
 
             log_info(format!(
-                "Rusty XR native ACamera stereo acquisition running leftId={} rightId={} size={}x{} readerMaxImages={} requestedTier={} stereoLayout={} sourceMode={} aeFps=unset",
+                "Rusty XR native ACamera stereo acquisition running leftId={} rightId={} size={}x{} readerMaxImages={} requestedTier={} stereoLayout={} sourceMode={} singleCameraMirror={} aeFps=unset",
                 context.left_info.camera_id,
                 context.right_info.camera_id,
                 width,
@@ -215,6 +239,7 @@ impl NativeCameraSession {
                 context.requested_tier,
                 context.requested_stereo_layout,
                 context.source_mode,
+                context.single_camera_mirror,
             ));
 
             Ok(Self {
@@ -236,9 +261,13 @@ impl NativeCameraSession {
         self.context.publish_queue.notify();
         unsafe {
             self.left.stop();
-            self.right.stop();
+            if let Some(right) = self.right {
+                right.stop();
+            }
             drop(Box::from_raw(self.left_reader_context));
-            drop(Box::from_raw(self.right_reader_context));
+            if let Some(right_reader_context) = self.right_reader_context {
+                drop(Box::from_raw(right_reader_context));
+            }
             ACameraManager_delete(self.manager);
         }
         if let Some(thread) = self.publish_thread.take() {
@@ -496,6 +525,7 @@ struct NativeStereoContext {
     requested_tier: String,
     requested_stereo_layout: String,
     source_mode: String,
+    single_camera_mirror: bool,
     pair_state: Mutex<NativePairState>,
     pair_index: AtomicU64,
     left_received_count: AtomicU64,
@@ -541,6 +571,21 @@ impl NativeStereoContext {
             timestamp_ns,
             hardware_buffer,
         };
+
+        if self.single_camera_mirror {
+            let right = NativeCameraFrame {
+                width: frame.width,
+                height: frame.height,
+                timestamp_ns: frame.timestamp_ns,
+                hardware_buffer: frame.hardware_buffer.clone(),
+            };
+            self.publish_queue.replace(NativePendingPair {
+                left: frame,
+                right,
+                pair_delta_ns: 0,
+            });
+            return Ok(());
+        }
 
         let pair = {
             let mut state = self
@@ -1073,6 +1118,44 @@ fn select_stereo_sources(
             .unwrap_or_else(|| "missing".to_string())
     ));
     Ok((left, right, shared_size))
+}
+
+fn select_single_mirror_source(
+    sources: &[NativeCameraSource],
+    config: &NativeCameraConfig,
+) -> Result<(NativeCameraSource, (u32, u32)), String> {
+    let source = if let Some(id) = config
+        .left_camera_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        sources
+            .iter()
+            .find(|source| source.camera_id == id)
+            .cloned()
+            .ok_or_else(|| format!("native mirror camera id not found: {id}"))?
+    } else {
+        select_default_side(sources, true)?
+    };
+    let selected_size = source
+        .private_sizes
+        .iter()
+        .copied()
+        .max_by_key(|(width, height)| score_size(*width, *height, config))
+        .ok_or_else(|| {
+            format!(
+                "native mirror camera source has no PRIVATE size cameraId={}",
+                source.camera_id
+            )
+        })?;
+    log_info(format!(
+        "Rusty XR native ACamera selected single mirror source selectionKind=single-back-mirror sourceMode={} cameraId={} size={}x{}",
+        config.source_mode(),
+        source.camera_id,
+        selected_size.0,
+        selected_size.1,
+    ));
+    Ok((source, selected_size))
 }
 
 fn select_default_side(

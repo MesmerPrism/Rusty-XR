@@ -47,6 +47,19 @@ PROJECTION_STATUS_RE = re.compile(
     r"openXrFrameCount=(?P<openxr>\d+)"
 )
 
+NATIVE_SIDE_FRAME_RE = re.compile(
+    r"Rusty XR native ACamera side frame side=(?P<side>\w+) "
+    r"count=(?P<count>\d+) ts=(?P<timestamp>\d+) cameraId=(?P<camera_id>\S+) "
+    r"readerMaxImages=(?P<reader_max_images>\d+)"
+)
+
+NATIVE_ACQUISITION_RE = re.compile(
+    r"Rusty XR native ACamera stereo acquisition running leftId=(?P<left_id>\S+) "
+    r"rightId=(?P<right_id>\S+) size=(?P<width>\d+)x(?P<height>\d+) "
+    r"readerMaxImages=(?P<reader_max_images>\d+) .* "
+    r"sourceMode=(?P<source_mode>\S+) singleCameraMirror=(?P<single_camera_mirror>true|false)"
+)
+
 
 def load_rgb(path: Path) -> np.ndarray:
     return np.asarray(Image.open(path).convert("RGB"), dtype=np.float32) / 255.0
@@ -183,6 +196,63 @@ def summarize_projection_progress(text: str) -> dict:
     }
 
 
+def summarize_native_side_frames(text: str) -> dict:
+    acquisition_matches = [
+        {
+            "leftId": match.group("left_id"),
+            "rightId": match.group("right_id"),
+            "size": [
+                int(match.group("width")),
+                int(match.group("height")),
+            ],
+            "readerMaxImages": int(match.group("reader_max_images")),
+            "sourceMode": match.group("source_mode"),
+            "singleCameraMirror": match.group("single_camera_mirror") == "true",
+        }
+        for match in NATIVE_ACQUISITION_RE.finditer(text)
+    ]
+    side_samples: dict[str, list[dict]] = {}
+    for match in NATIVE_SIDE_FRAME_RE.finditer(text):
+        side_samples.setdefault(match.group("side"), []).append(
+            {
+                "count": int(match.group("count")),
+                "timestampNs": int(match.group("timestamp")),
+                "cameraId": match.group("camera_id"),
+                "readerMaxImages": int(match.group("reader_max_images")),
+            }
+        )
+
+    sides = {}
+    for side, samples in side_samples.items():
+        first = samples[0]
+        last = samples[-1]
+        sides[side] = {
+            "sampleCount": len(samples),
+            "cameraId": last["cameraId"],
+            "readerMaxImages": last["readerMaxImages"],
+            "first": first,
+            "last": last,
+            "countDelta": last["count"] - first["count"],
+            "timestampDeltaNs": last["timestampNs"] - first["timestampNs"],
+        }
+
+    imbalance = None
+    if "left" in sides and "right" in sides:
+        left_last = sides["left"]["last"]["count"]
+        right_last = sides["right"]["last"]["count"]
+        imbalance = {
+            "leftLastCount": left_last,
+            "rightLastCount": right_last,
+            "absoluteDelta": abs(left_last - right_last),
+        }
+
+    return {
+        "acquisition": acquisition_matches[-1] if acquisition_matches else None,
+        "sides": sides,
+        "imbalance": imbalance,
+    }
+
+
 def read_text_auto(path: Path) -> str:
     data = path.read_bytes()
     if data.startswith(b"\xff\xfe"):
@@ -214,6 +284,7 @@ def summarize_log(path: Path) -> dict:
     critical = match_patterns(text, CRITICAL_LOG_PATTERNS)
     warnings = match_patterns(text, WARNING_LOG_PATTERNS)
     projection_progress = summarize_projection_progress(text)
+    native_side_frames = summarize_native_side_frames(text)
     if critical:
         status = "invalid"
         reason = "critical-power-or-session-log-signal"
@@ -236,6 +307,7 @@ def summarize_log(path: Path) -> dict:
         "criticalMatches": critical,
         "warningMatches": warnings,
         "projectionProgress": projection_progress,
+        "nativeSideFrames": native_side_frames,
     }
 
 

@@ -10,6 +10,9 @@ param(
     [string]$RunRoot = "artifacts\quest-camera-profile-runs",
     [int]$WarmupSeconds = 14,
     [string[]]$Override = @(),
+    [ValidateSet("com.oculus.intent.category.VR", "android.intent.category.LAUNCHER")]
+    [string]$LaunchCategory = "com.oculus.intent.category.VR",
+    [string]$LaunchActivity = "",
     [switch]$Install,
     [string]$Apk = "",
     [switch]$SkipProximityHold,
@@ -396,6 +399,9 @@ if ($DeviceProfile -and -not $device) {
 
 $packageName = [string]$app.packageName
 $component = Resolve-ActivityComponent -PackageName $packageName -ActivityName ([string]$app.activityName)
+if ($LaunchActivity) {
+    $component = Resolve-ActivityComponent -PackageName $packageName -ActivityName $LaunchActivity
+}
 $values = @{}
 foreach ($property in $profile.values.PSObject.Properties) {
     $values[$property.Name] = [string]$property.Value
@@ -436,7 +442,7 @@ if (-not $SkipProximityHold) {
 Capture-PowerSnapshot -Dir $dir -Prefix "post-proximity-hold"
 
 $launchArgs = [System.Collections.Generic.List[string]]::new()
-foreach ($item in @("shell", "am", "start", "-S", "-a", "android.intent.action.MAIN", "-c", "com.oculus.intent.category.VR", "-n", $component)) {
+foreach ($item in @("shell", "am", "start", "-S", "-a", "android.intent.action.MAIN", "-c", $LaunchCategory, "-n", $component)) {
     $launchArgs.Add($item)
 }
 foreach ($key in ($values.Keys | Sort-Object)) {
@@ -458,6 +464,8 @@ $manifest = [ordered]@{
     appId = $AppId
     packageName = $packageName
     component = $component
+    launchCategory = $LaunchCategory
+    launchActivityOverride = $LaunchActivity
     deviceProfile = $DeviceProfile
     runtimeProfile = $RuntimeProfile
     warmupSeconds = $WarmupSeconds

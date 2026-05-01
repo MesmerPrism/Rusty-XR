@@ -186,6 +186,15 @@ same Vulkan projection path. Early headset runs showed that this ownership
 shape alone does not guarantee fresh stereo progression; the remaining
 acquisition diff is the effective source/session/timestamp behavior.
 
+A second native profile, `single-back-mirror`, intentionally opens only one
+native camera source and mirrors the same hardware buffer into both display
+eyes. It is not a valid stereo alignment path, but it is an important taxonomy
+entry because it isolates acquisition source cadence from the Vulkan import
+and OpenXR renderer. When mirror mode receives live frames but the full native
+stereo profile does not, the next investigation should stay on camera
+source/provider policy and side-camera timestamp behavior rather than
+projection or border geometry.
+
 OpenXR passthrough-client probing belongs in a separate bucket. Optional
 passthrough and scene manifest declarations can make `XR_FB_passthrough`
 available, and `client` / `warmup` probes can verify runtime client state, but

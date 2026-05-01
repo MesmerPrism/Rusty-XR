@@ -420,6 +420,11 @@ The catalog keeps camera path experiments as separate runtime profiles:
   hardware-buffer path with no explicit AE target and reader max images `3`.
   It logs all NDK camera-source topology it can see and is an acquisition
   probe, not a release candidate until camera-frame progression remains live.
+- `camera-stereo-gpu-composite-native-single-mirror-065`: same native
+  hardware-buffer path, but opens one native back-facing camera source and
+  mirrors the same acquired buffer into both display eyes. Use it to isolate
+  renderer/import progression from concurrent stereo acquisition. It is not a
+  stereo-alignment proof because both eyes receive the same camera buffer.
 
 Do not stack the shader-side YCbCr decode on top of an external sampler that is
 already presenting RGB. The hardware-buffer import log reports
@@ -447,6 +452,16 @@ compare it against a lower-level/native hardware-buffer reader path before
 changing projection, border, or shader color math again. The fixed-foveation
 diagnostic path is still not release-ready on runtimes that enumerate null
 fragment-density image handles.
+
+The native single-camera mirror probe sharpened that split. On one tested
+runtime, one physical side-camera ID delivered live native frames in mirror
+mode while the other side-camera ID remained sparse even when opened alone.
+The exact IDs are runtime diagnostics, not portable requirements, but the
+result is useful: a live mirror run shows that Vulkan hardware-buffer import,
+the OpenXR render loop, and prompt `AImage` release are capable of steady frame
+progression. If the full stereo native profile still stalls, focus next on
+effective source/provider policy, side-camera timestamp behavior, or session
+shape rather than projection, border coordinates, or renderer cache churn.
 
 The native-reader follow-up keeps that module split explicit. It reproduces
 the lower-level ownership shape of `ACamera*` sessions plus `AImageReader`

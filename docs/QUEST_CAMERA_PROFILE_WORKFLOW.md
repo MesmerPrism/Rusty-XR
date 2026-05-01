@@ -103,6 +103,32 @@ acquisition lifecycle timing without changing projection/border/shader code,
 and `rustyxr.nativeSourceMode=<label>` to tag native-source experiments in
 logs.
 
+The native path also has a single-camera mirror isolation mode:
+`rustyxr.nativeSourceMode=single-back-mirror`. It opens one native back-facing
+camera source and publishes the same acquired hardware buffer to both display
+eyes. This is not stereo-alignment evidence, but it is useful for separating
+renderer/import behavior from concurrent side-camera delivery. On one tested
+runtime, the single-camera mirror profile kept live camera progression when it
+used one physical side-camera ID, while the other side-camera ID remained
+sparse even when opened alone. That points the remaining stale-frame issue
+toward effective camera source/provider policy rather than Vulkan import,
+OpenXR rendering, or callback lifetime. Treat exact camera IDs as run-local
+diagnostics, not portable requirements.
+
+Callback lifetime remains an important rule even though it is not the current
+root cause: acquire the `AHardwareBuffer` reference, release/delete the
+`AImage` promptly, and keep renderer import/descriptor work outside the image
+callback. The public native probe follows that order.
+
+Identity public color controls are also a useful probe:
+`rustyxr.cameraColorContrast=1.0`,
+`rustyxr.cameraColorBrightness=0.0`, and
+`rustyxr.cameraColorSaturation=1.0`. On the tested runtime that reduced one
+variable but did not close the raw-color gap by itself. Combined with the green
+YCbCr-diagnostic result, that keeps the next color axis focused on sampler /
+descriptor shape, range/gamma assumptions, and post-sampler calibration rather
+than stacking a second BT.601 decode into the combined-sampler default.
+
 `rustyxr.openxrPassthroughProbe` is a separate OpenXR runtime-state diagnostic.
 `client` creates an `XR_FB_passthrough` client/layer and leaves it running;
 `warmup` creates and resumes the layer briefly, then pauses the passthrough
@@ -146,6 +172,8 @@ Track these signals together:
   model/range, and component mapping
 - requested and applied Camera2 AE FPS ranges
 - observed Camera2 stream and stereo-pair FPS
+- native `ACamera` side-frame counts, camera IDs, timestamp deltas, and whether
+  single-camera mirror mode was active
 - CPU upload count
 - hardware-buffer import cache hits, misses, evictions, and size
 - OpenXR display FPS, frame time, render scale, fixed-foveation state, and
