@@ -8,6 +8,8 @@ param(
     [string]$DeviceProfile = "xr-composite-smoke-test",
     [string]$RuntimeProfile = "camera-stereo-gpu-composite-performance-065",
     [string]$CameraPipelinePreset = "",
+    [ValidateSet("", "display-screen-homography", "quad-surface")]
+    [string]$CameraProjectionMode = "",
     [string]$RunRoot = "artifacts\quest-camera-profile-runs",
     [int]$WarmupSeconds = 14,
     [string[]]$Override = @(),
@@ -414,6 +416,9 @@ foreach ($entry in (Convert-Overrides -Items $Override).GetEnumerator()) {
 if ($CameraPipelinePreset) {
     $values["rustyxr.cameraPipelinePreset"] = $CameraPipelinePreset
 }
+if ($CameraProjectionMode) {
+    $values["rustyxr.cameraProjectionMode"] = $CameraProjectionMode
+}
 
 Invoke-Adb -Arguments @("devices") | Out-File -FilePath (Join-Path $dir "adb-devices.txt") -Encoding UTF8
 
@@ -474,6 +479,7 @@ $manifest = [ordered]@{
     deviceProfile = $DeviceProfile
     runtimeProfile = $RuntimeProfile
     cameraPipelinePreset = $CameraPipelinePreset
+    cameraProjectionMode = $CameraProjectionMode
     warmupSeconds = $WarmupSeconds
     proximityHoldDurationMs = if ($SkipProximityHold) { 0 } else { $ProximityHoldDurationMs }
     captureHzdbScreencap = [bool]$CaptureHzdbScreencap

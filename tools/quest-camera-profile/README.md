@@ -56,12 +56,16 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
 
 For color-pipeline A/B runs in one installed APK, prefer the named pipeline
 preset shortcut over repeating the full set of feed, sampler, decode, tone, and
-OpenXR color-format extras:
+OpenXR color-format extras. Projection geometry is a separate axis, so use
+`-CameraProjectionMode display-screen-homography` or
+`-CameraProjectionMode quad-surface` when a run needs to compare the fullscreen
+display homography against the quad-surface coordinate reconstruction:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
   -RuntimeProfile camera-stereo-gpu-composite-native-single-mirror-065 `
   -CameraPipelinePreset raw-feed-unorm `
+  -CameraProjectionMode display-screen-homography `
   -CaptureHzdbScreencap
 ```
 
@@ -74,11 +78,20 @@ that fast path and only undims invalid projected-camera fallback pixels for
 perimeter/background A/B tests without enabling the full border composite. The
 `raw-projection-perimeter-fill-unorm` preset adds a one-sample geometry rim fill
 between that invalid-only probe and the full border composite. The
-`raw-projection-underlay-unorm` preset submits a public OpenXR passthrough
-underlay and alpha-blends the raw projection layer, which is useful when
-comparing background composition separately from raw camera sampling. The
-app-parsed runtime config log reports both the requested preset and the resolved
-feed, sampler, decode, projection-effect, tone, and swapchain settings.
+`raw-projection-soft-border-unorm` preset reuses the public border mask with a
+single projected inward sample to test lower/perimeter coverage without the full
+border composite. The `raw-projection-strong-border-unorm` preset keeps that
+single-sample shape but uses a stronger generic border mix for A/B runs where
+the soft variant does not move the lower/perimeter region enough. The
+`raw-projection-underlay-unorm` preset submits a public
+OpenXR passthrough underlay and alpha-blends the raw projection layer, which is
+useful when comparing background composition separately from raw camera
+sampling. The app-parsed runtime config log reports both the requested preset
+and the resolved feed, sampler, decode, projection-effect, tone, and swapchain
+settings.
+Projection mode remains independent from those presets so border, sampler, and
+color modules can be tested against both public geometry mappings in the same
+APK.
 
 Native acquisition and OpenXR passthrough-client state are separate axes. To
 test runtime passthrough exposure without adding a catalog profile, use

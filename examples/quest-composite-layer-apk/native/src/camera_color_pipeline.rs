@@ -6,6 +6,8 @@ pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST: u32 = 1 << 14;
 pub(crate) const CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA: u32 = 1 << 15;
 pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL: u32 = 1 << 16;
 pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL: u32 = 1 << 17;
+pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_SOFT_BORDER: u32 = 1 << 18;
+pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_STRONG_BORDER: u32 = 1 << 19;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum CameraFeedPipelineMode {
@@ -47,6 +49,8 @@ pub(crate) enum CameraProjectionEffectMode {
     RawProjectionFast,
     RawProjectionInvalidFill,
     RawProjectionPerimeterFill,
+    RawProjectionSoftBorder,
+    RawProjectionStrongBorder,
     RawProjectionUnderlay,
 }
 
@@ -70,6 +74,14 @@ impl CameraProjectionEffectMode {
             | "raw-projection-rim-fill"
             | "direct-raw-projection-perimeter-fill"
             | "fast-raw-perimeter-fill" => Some(Self::RawProjectionPerimeterFill),
+            "raw-projection-soft-border"
+            | "raw-projection-cheap-border"
+            | "direct-raw-projection-soft-border"
+            | "fast-raw-soft-border" => Some(Self::RawProjectionSoftBorder),
+            "raw-projection-strong-border"
+            | "raw-projection-strong-cheap-border"
+            | "direct-raw-projection-strong-border"
+            | "fast-raw-strong-border" => Some(Self::RawProjectionStrongBorder),
             "raw-projection-underlay"
             | "raw-projection-alpha-underlay"
             | "direct-raw-projection-underlay"
@@ -84,6 +96,8 @@ impl CameraProjectionEffectMode {
             Self::RawProjectionFast => "raw-projection-fast",
             Self::RawProjectionInvalidFill => "raw-projection-invalid-fill",
             Self::RawProjectionPerimeterFill => "raw-projection-perimeter-fill",
+            Self::RawProjectionSoftBorder => "raw-projection-soft-border",
+            Self::RawProjectionStrongBorder => "raw-projection-strong-border",
             Self::RawProjectionUnderlay => "raw-projection-underlay",
         }
     }
@@ -99,6 +113,14 @@ impl CameraProjectionEffectMode {
             Self::RawProjectionPerimeterFill => {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
                     | CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL
+            }
+            Self::RawProjectionSoftBorder => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_SOFT_BORDER
+            }
+            Self::RawProjectionStrongBorder => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_STRONG_BORDER
             }
             Self::RawProjectionUnderlay => {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST

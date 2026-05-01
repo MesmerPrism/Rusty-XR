@@ -61,6 +61,8 @@ const int CAMERA_FLAG_RAW_PROJECTION_FAST = 16384;
 const int CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA = 32768;
 const int CAMERA_FLAG_RAW_PROJECTION_INVALID_FILL = 65536;
 const int CAMERA_FLAG_RAW_PROJECTION_PERIMETER_FILL = 131072;
+const int CAMERA_FLAG_RAW_PROJECTION_SOFT_BORDER = 262144;
+const int CAMERA_FLAG_RAW_PROJECTION_STRONG_BORDER = 524288;
 
 vec3 clamp01(vec3 color) {
     return clamp(color, vec3(0.0), vec3(1.0));
@@ -719,6 +721,85 @@ vec3 resolve_raw_projection_perimeter_fill(
     return mix(center_color, fill_color, clamp(fill_mix * 0.85, 0.0, 1.0));
 }
 
+vec3 resolve_raw_projection_soft_border(
+    vec2 content_uv,
+    int display_eye,
+    int source_eye,
+    int transform_flags,
+    vec3 center_color,
+    vec3 undimmed_fallback_color,
+    vec2 raw_projected_uv,
+    float coverage,
+    bool projection_valid,
+    float edge_fade,
+    bool projected,
+    float content_uv_scale,
+    float mix_scale,
+    float seed_radius_base,
+    float seed_pullback,
+    float color_lift
+) {
+    vec2 center = vec2(0.5);
+    vec2 screen_delta = content_uv - center;
+    float screen_radius = max(length(screen_delta), 0.0001);
+    float oval_distance = resolve_camera_oval_distance(content_uv);
+    float noise = bleed_noise(content_uv);
+    float spatial_gate = resolve_brightness_bleed_spatial_gate(oval_distance, noise);
+    float oval_shape_mix = resolve_camera_oval_border_mix_from_distance(oval_distance);
+    float projection_gap_mix = (1.0 - coverage) * oval_shape_mix * spatial_gate;
+    float coverage_mix = resolve_fov_border_mix(coverage) *
+        (1.0 - smoothstep(0.0, max(edge_fade, 0.0001), coverage));
+    float invalid_boost = projection_valid ? 0.0 : projection_gap_mix;
+    float cheap_border_hint = max(projection_gap_mix, max(coverage_mix, invalid_boost));
+    if (spatial_gate <= 0.0001 && cheap_border_hint <= 0.0001) {
+        return center_color;
+    }
+
+    float border_brightness = luma(center_color);
+    float border_feedback_signal = 1.0 - smoothstep(0.10, 0.55, border_brightness);
+    float border_mix = resolve_fov_border_composite_mix(
+        content_uv,
+        border_brightness,
+        border_feedback_signal
+    );
+    float resolved_border_mix = max(max(border_mix, projection_gap_mix), max(coverage_mix, invalid_boost));
+    if (resolved_border_mix <= 0.0001) {
+        return center_color;
+    }
+
+    vec2 screen_dir = screen_delta / screen_radius;
+    float seed_radius = clamp(
+        screen_radius * (seed_radius_base - resolved_border_mix * seed_pullback),
+        0.04,
+        0.36
+    );
+    vec2 seed_uv = clamp_border_seed_uv(center + screen_dir * seed_radius);
+    bool seed_valid = false;
+    int seed_source_eye = source_eye;
+    int seed_transform_flags = transform_flags;
+    vec2 seed_camera_uv = raw_projected_uv;
+    vec3 fill_color = sample_projected_content_source(
+        seed_uv,
+        display_eye,
+        projected,
+        content_uv_scale,
+        seed_valid,
+        seed_source_eye,
+        seed_transform_flags,
+        seed_camera_uv
+    ).rgb;
+    if (!seed_valid) {
+        fill_color = undimmed_fallback_color;
+    }
+    if (color_lift > 0.0) {
+        float fill_luma = luma(fill_color);
+        fill_color = clamp01(mix(vec3(fill_luma), fill_color, 1.0 + color_lift * 2.0));
+        fill_color = clamp01(fill_color + vec3(color_lift * resolved_border_mix));
+    }
+    float mix_amount = clamp(resolved_border_mix * mix_scale, 0.0, 1.0);
+    return mix(center_color, fill_color, mix_amount);
+}
+
 void main() {
     int eye = clamp(v_eye_index, 0, 1);
     int packed_flags = int(floor(pc.params.w + 0.5));
@@ -769,25 +850,67 @@ void main() {
     bool raw_projection_fast = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_FAST) != 0;
     bool raw_projection_invalid_fill = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_INVALID_FILL) != 0;
     bool raw_projection_perimeter_fill = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_PERIMETER_FILL) != 0;
+    bool raw_projection_soft_border = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_SOFT_BORDER) != 0;
+    bool raw_projection_strong_border = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_STRONG_BORDER) != 0;
     bool passthrough_underlay_alpha = (packed_flags & CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA) != 0;
-    vec3 color = raw_projection_perimeter_fill
-        ? resolve_raw_projection_perimeter_fill(
+    vec3 color = center_color;
+    if (raw_projection_strong_border) {
+        color = resolve_raw_projection_soft_border(
+            sample_content_uv,
+            eye,
+            source_eye,
+            transform_flags,
+            center_color,
+            raw_center_color,
+            raw_projected_uv,
+            coverage,
+            projection_valid,
+            edge_fade,
+            projected,
+            content_uv_scale,
+            1.28,
+            0.43,
+            0.18,
+            0.035
+        );
+    } else if (raw_projection_soft_border) {
+        color = resolve_raw_projection_soft_border(
+            sample_content_uv,
+            eye,
+            source_eye,
+            transform_flags,
+            center_color,
+            raw_center_color,
+            raw_projected_uv,
+            coverage,
+            projection_valid,
+            edge_fade,
+            projected,
+            content_uv_scale,
+            0.78,
+            0.52,
+            0.10,
+            0.0
+        );
+    } else if (raw_projection_perimeter_fill) {
+        color = resolve_raw_projection_perimeter_fill(
             sample_content_uv,
             source_eye,
             transform_flags,
             center_color,
             raw_center_color,
             projection_valid
-        )
-        : raw_projection_invalid_fill
-        ? resolve_raw_projection_invalid_fill(
+        );
+    } else if (raw_projection_invalid_fill) {
+        color = resolve_raw_projection_invalid_fill(
             center_color,
             raw_center_color,
             projection_valid
-        )
-        : raw_projection_fast
-            ? center_color
-            : resolve_fov_border_composite(
+        );
+    } else if (raw_projection_fast) {
+        color = center_color;
+    } else {
+        color = resolve_fov_border_composite(
             sample_content_uv,
             eye,
             source_eye,
@@ -800,6 +923,7 @@ void main() {
             projected,
             content_uv_scale
         );
+    }
 
     float surface_edge_distance = min(
         min(v_surface_uv.x, 1.0 - v_surface_uv.x),

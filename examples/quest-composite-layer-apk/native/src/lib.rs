@@ -396,6 +396,8 @@ pub(crate) enum CameraPipelinePreset {
     RawProjectionFastUnorm,
     RawProjectionInvalidFillUnorm,
     RawProjectionPerimeterFillUnorm,
+    RawProjectionSoftBorderUnorm,
+    RawProjectionStrongBorderUnorm,
     RawProjectionUnderlayUnorm,
 }
 
@@ -429,6 +431,14 @@ impl CameraPipelinePreset {
             | "raw-projection-rim-fill-unorm"
             | "direct-raw-projection-perimeter-fill-unorm"
             | "fast-raw-perimeter-fill-unorm" => Some(Self::RawProjectionPerimeterFillUnorm),
+            "raw-projection-soft-border-unorm"
+            | "raw-projection-cheap-border-unorm"
+            | "direct-raw-projection-soft-border-unorm"
+            | "fast-raw-soft-border-unorm" => Some(Self::RawProjectionSoftBorderUnorm),
+            "raw-projection-strong-border-unorm"
+            | "raw-projection-strong-cheap-border-unorm"
+            | "direct-raw-projection-strong-border-unorm"
+            | "fast-raw-strong-border-unorm" => Some(Self::RawProjectionStrongBorderUnorm),
             "raw-projection-underlay-unorm"
             | "raw-projection-alpha-underlay-unorm"
             | "direct-raw-projection-underlay-unorm"
@@ -449,6 +459,8 @@ impl CameraPipelinePreset {
             Self::RawProjectionFastUnorm => "raw-projection-fast-unorm",
             Self::RawProjectionInvalidFillUnorm => "raw-projection-invalid-fill-unorm",
             Self::RawProjectionPerimeterFillUnorm => "raw-projection-perimeter-fill-unorm",
+            Self::RawProjectionSoftBorderUnorm => "raw-projection-soft-border-unorm",
+            Self::RawProjectionStrongBorderUnorm => "raw-projection-strong-border-unorm",
             Self::RawProjectionUnderlayUnorm => "raw-projection-underlay-unorm",
         }
     }
@@ -1606,6 +1618,24 @@ fn apply_camera_pipeline_preset(config: &mut RuntimeConfig) {
             CameraSamplerBindingMode::CombinedImmutableSampler,
             CameraImportImageLayoutMode::ShaderReadOnlyTransition,
             CameraProjectionEffectMode::RawProjectionPerimeterFill,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawProjectionSoftBorderUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionSoftBorder,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawProjectionStrongBorderUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionStrongBorder,
             OpenXrColorFormatMode::Rgba8Unorm,
             config.openxr_passthrough_probe,
         ),
@@ -2995,6 +3025,72 @@ mod tests {
         assert_eq!(
             config.camera_projection_effect_mode,
             CameraProjectionEffectMode::RawProjectionPerimeterFill
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Client
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_soft_border_preset_selects_soft_border() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-soft-border-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            openxr_passthrough_probe: Some("client".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionSoftBorderUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionSoftBorder
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Client
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_strong_border_preset_selects_strong_border() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-strong-border-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            openxr_passthrough_probe: Some("client".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionStrongBorderUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionStrongBorder
         );
         assert_eq!(
             config.camera_feed_pipeline_mode,
