@@ -40,6 +40,7 @@ pub enum LslStreamRole {
     PolarHeartRate,
     PolarEcg,
     PolarAccelerometer,
+    RuntimeCommand,
     Custom,
 }
 
@@ -48,6 +49,15 @@ pub const HRV_BIOFEEDBACK_STREAM_NAME: &str = "HRV_Biofeedback";
 
 /// Public HRV/biofeedback stream type used by the PolarH10 workflow docs.
 pub const HRV_BIOFEEDBACK_STREAM_TYPE: &str = "HRV";
+
+/// Public stream name for runtime configuration command samples.
+pub const XR_RUNTIME_COMMAND_STREAM_NAME: &str = "RustyXR_RuntimeCommand";
+
+/// Public stream type for runtime configuration command samples.
+pub const XR_RUNTIME_COMMAND_STREAM_TYPE: &str = "rusty.xr.runtime.command";
+
+/// Single string-channel label for runtime command payloads.
+pub const XR_RUNTIME_COMMAND_CHANNEL_LABEL: &str = "runtime_config_json";
 
 /// Public stream type for Polar heart-rate and RR data.
 pub const POLAR_HEART_RATE_STREAM_TYPE: &str = "rusty.xr.polar.heart_rate";
@@ -260,6 +270,36 @@ impl TelemetrySample {
     }
 }
 
+/// Runtime configuration command intended for a string-channel LSL sample.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeConfigCommand {
+    pub sequence: u64,
+    pub timestamp_ns: u64,
+    pub key: String,
+    pub value: String,
+}
+
+impl RuntimeConfigCommand {
+    pub fn new(
+        sequence: u64,
+        timestamp_ns: u64,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        Self {
+            sequence,
+            timestamp_ns,
+            key: key.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.key.trim().is_empty() && !self.value.trim().is_empty()
+    }
+}
+
 /// Normalized one-channel biofeedback value suitable for particles or UI.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Debug, PartialEq)]
@@ -304,6 +344,20 @@ pub fn hrv_biofeedback_descriptor() -> LslStreamDescriptor {
         LslChannelFormat::Float32,
     )
     .with_role(LslStreamRole::Biofeedback)
+}
+
+/// Returns the public runtime-command stream descriptor for live config changes.
+pub fn xr_runtime_command_descriptor() -> (LslStreamDescriptor, LslChannelSchema) {
+    (
+        LslStreamDescriptor::new(
+            XR_RUNTIME_COMMAND_STREAM_NAME,
+            XR_RUNTIME_COMMAND_STREAM_TYPE,
+            1,
+            LslChannelFormat::String,
+        )
+        .with_role(LslStreamRole::RuntimeCommand),
+        LslChannelSchema::new(vec![XR_RUNTIME_COMMAND_CHANNEL_LABEL.to_string()], None),
+    )
 }
 
 #[cfg(test)]
@@ -376,6 +430,15 @@ mod tests {
     }
 
     #[test]
+    fn runtime_config_command_requires_key_and_value() {
+        let command = RuntimeConfigCommand::new(1, 100, "cameraPipelinePreset", "raw-feed-unorm");
+
+        assert!(command.is_valid());
+        assert!(!RuntimeConfigCommand::new(1, 100, "", "raw-feed-unorm").is_valid());
+        assert!(!RuntimeConfigCommand::new(1, 100, "cameraPipelinePreset", "").is_valid());
+    }
+
+    #[test]
     fn biofeedback_reading_clamps_and_reports_freshness() {
         let reading = LslBiofeedbackReading::new(7, 100, 2.0);
 
@@ -391,6 +454,15 @@ mod tests {
 
         assert!(descriptor.is_valid());
         assert_eq!(descriptor.role, Some(LslStreamRole::Biofeedback));
+    }
+
+    #[test]
+    fn public_runtime_command_descriptor_is_valid() {
+        let (descriptor, schema) = xr_runtime_command_descriptor();
+
+        assert!(descriptor.is_valid());
+        assert_eq!(descriptor.role, Some(LslStreamRole::RuntimeCommand));
+        assert!(schema.is_valid_for(&descriptor));
     }
 
     #[cfg(feature = "serde")]

@@ -4,6 +4,8 @@ use ash::vk;
 pub(crate) const CAMERA_SHADER_FLAG_RAW_FEED: u32 = 1 << 13;
 pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST: u32 = 1 << 14;
 pub(crate) const CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA: u32 = 1 << 15;
+pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL: u32 = 1 << 16;
+pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL: u32 = 1 << 17;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum CameraFeedPipelineMode {
@@ -43,6 +45,8 @@ pub(crate) enum CameraProjectionEffectMode {
     #[default]
     BorderComposite,
     RawProjectionFast,
+    RawProjectionInvalidFill,
+    RawProjectionPerimeterFill,
     RawProjectionUnderlay,
 }
 
@@ -53,6 +57,19 @@ impl CameraProjectionEffectMode {
             "raw-projection-fast" | "direct-raw-projection" | "raw-direct" | "fast-raw" => {
                 Some(Self::RawProjectionFast)
             }
+            "raw-projection-invalid-fill"
+            | "raw-projection-invalid-only-fill"
+            | "direct-raw-projection-invalid-fill"
+            | "fast-raw-invalid-fill"
+            | "raw-projection-fill"
+            | "raw-projection-coverage-fill"
+            | "raw-projection-fast-fill"
+            | "direct-raw-projection-fill"
+            | "fast-raw-fill" => Some(Self::RawProjectionInvalidFill),
+            "raw-projection-perimeter-fill"
+            | "raw-projection-rim-fill"
+            | "direct-raw-projection-perimeter-fill"
+            | "fast-raw-perimeter-fill" => Some(Self::RawProjectionPerimeterFill),
             "raw-projection-underlay"
             | "raw-projection-alpha-underlay"
             | "direct-raw-projection-underlay"
@@ -65,6 +82,8 @@ impl CameraProjectionEffectMode {
         match self {
             Self::BorderComposite => "border-composite",
             Self::RawProjectionFast => "raw-projection-fast",
+            Self::RawProjectionInvalidFill => "raw-projection-invalid-fill",
+            Self::RawProjectionPerimeterFill => "raw-projection-perimeter-fill",
             Self::RawProjectionUnderlay => "raw-projection-underlay",
         }
     }
@@ -73,6 +92,14 @@ impl CameraProjectionEffectMode {
         match self {
             Self::BorderComposite => 0,
             Self::RawProjectionFast => CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST,
+            Self::RawProjectionInvalidFill => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL
+            }
+            Self::RawProjectionPerimeterFill => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL
+            }
             Self::RawProjectionUnderlay => {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
                     | CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA

@@ -59,6 +59,8 @@ const float BORDER_BRIGHTNESS_FEATHER = 0.14;
 const int CAMERA_FLAG_RAW_FEED = 8192;
 const int CAMERA_FLAG_RAW_PROJECTION_FAST = 16384;
 const int CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA = 32768;
+const int CAMERA_FLAG_RAW_PROJECTION_INVALID_FILL = 65536;
+const int CAMERA_FLAG_RAW_PROJECTION_PERIMETER_FILL = 131072;
 
 vec3 clamp01(vec3 color) {
     return clamp(color, vec3(0.0), vec3(1.0));
@@ -683,6 +685,40 @@ vec3 resolve_fov_border_composite(
     return mix(center_color, border_color, clamp(resolved_border_mix, 0.0, pc.color_adjust.a));
 }
 
+vec3 resolve_raw_projection_invalid_fill(
+    vec3 center_color,
+    vec3 undimmed_fallback_color,
+    bool projection_valid
+) {
+    return projection_valid ? center_color : undimmed_fallback_color;
+}
+
+vec3 resolve_raw_projection_perimeter_fill(
+    vec2 content_uv,
+    int source_eye,
+    int transform_flags,
+    vec3 center_color,
+    vec3 undimmed_fallback_color,
+    bool projection_valid
+) {
+    vec2 center = vec2(0.5);
+    vec2 delta = content_uv - center;
+    float radius = max(length(delta), 0.0001);
+    float oval_distance = resolve_camera_oval_distance(content_uv);
+    float rim_mix = resolve_camera_oval_border_mix_from_distance(oval_distance);
+    float invalid_mix = projection_valid ? 0.0 : 1.0;
+    float fill_mix = max(rim_mix, invalid_mix);
+    if (fill_mix <= 0.0001) {
+        return center_color;
+    }
+    vec2 seed_uv = clamp_border_seed_uv(
+        center + (delta / radius) * clamp(radius, 0.06, 0.48)
+    );
+    vec3 rim_color = sample_source_eye_oriented(source_eye, seed_uv, transform_flags).rgb;
+    vec3 fill_color = projection_valid ? rim_color : undimmed_fallback_color;
+    return mix(center_color, fill_color, clamp(fill_mix * 0.85, 0.0, 1.0));
+}
+
 void main() {
     int eye = clamp(v_eye_index, 0, 1);
     int packed_flags = int(floor(pc.params.w + 0.5));
@@ -718,22 +754,40 @@ void main() {
     projection_valid = projection_valid && content_surface_valid;
     float coverage = projection_coverage(raw_projected_uv, projection_valid, max(edge_fade, 0.012));
 
-    vec3 center_color = projection_valid
+    vec3 raw_center_color = projection_valid
         ? sample_source_eye_raw(source_eye, raw_projected_uv).rgb
         : sample_source_eye_oriented(
             source_eye,
             clamp_border_seed_uv(clamp(sample_content_uv, vec2(0.0), vec2(1.0))),
             transform_flags
         ).rgb;
+    vec3 center_color = raw_center_color;
     if (!projection_valid && projected) {
         center_color *= 0.12;
     }
 
     bool raw_projection_fast = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_FAST) != 0;
+    bool raw_projection_invalid_fill = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_INVALID_FILL) != 0;
+    bool raw_projection_perimeter_fill = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_PERIMETER_FILL) != 0;
     bool passthrough_underlay_alpha = (packed_flags & CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA) != 0;
-    vec3 color = raw_projection_fast
-        ? center_color
-        : resolve_fov_border_composite(
+    vec3 color = raw_projection_perimeter_fill
+        ? resolve_raw_projection_perimeter_fill(
+            sample_content_uv,
+            source_eye,
+            transform_flags,
+            center_color,
+            raw_center_color,
+            projection_valid
+        )
+        : raw_projection_invalid_fill
+        ? resolve_raw_projection_invalid_fill(
+            center_color,
+            raw_center_color,
+            projection_valid
+        )
+        : raw_projection_fast
+            ? center_color
+            : resolve_fov_border_composite(
             sample_content_uv,
             eye,
             source_eye,

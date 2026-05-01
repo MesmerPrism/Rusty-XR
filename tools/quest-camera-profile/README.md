@@ -69,12 +69,16 @@ Current public presets are `projected-srgb`, `raw-feed-unorm`,
 `projected-unorm`, `raw-feed-srgb`, `shader-decode-unorm`, and
 `separate-decode-unorm`. The `raw-projection-fast-unorm` preset keeps the raw
 feed and UNORM swapchain but skips the public border/effect shader for
-performance isolation. The `raw-projection-underlay-unorm` preset also submits
-a public OpenXR passthrough underlay and alpha-blends the raw projection layer,
-which is useful when comparing background composition separately from raw camera
-sampling. The app-parsed runtime config log reports both the
-requested preset and the resolved feed, sampler, decode, projection-effect,
-tone, and swapchain settings.
+performance isolation. The `raw-projection-invalid-fill-unorm` preset keeps
+that fast path and only undims invalid projected-camera fallback pixels for
+perimeter/background A/B tests without enabling the full border composite. The
+`raw-projection-perimeter-fill-unorm` preset adds a one-sample geometry rim fill
+between that invalid-only probe and the full border composite. The
+`raw-projection-underlay-unorm` preset submits a public OpenXR passthrough
+underlay and alpha-blends the raw projection layer, which is useful when
+comparing background composition separately from raw camera sampling. The
+app-parsed runtime config log reports both the requested preset and the resolved
+feed, sampler, decode, projection-effect, tone, and swapchain settings.
 
 Native acquisition and OpenXR passthrough-client state are separate axes. To
 test runtime passthrough exposure without adding a catalog profile, use
