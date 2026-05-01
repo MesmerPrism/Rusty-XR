@@ -29,6 +29,20 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
+pub(crate) const CAMERA_IMPORT_CACHE_LIMIT_DEFAULT: usize = 16;
+pub(crate) const CAMERA_IMPORT_CACHE_LIMIT_MAX: usize = 16;
+
+mod camera_color_pipeline;
+pub(crate) use camera_color_pipeline::{
+    CameraFeedPipelineMode, CameraProjectionEffectMode, OpenXrColorFormatMode,
+};
+
+#[cfg(target_os = "android")]
+mod acamera_sys;
+
+#[cfg(target_os = "android")]
+mod native_camera;
+
 #[cfg(target_os = "android")]
 mod openxr_vulkan;
 
@@ -272,6 +286,7 @@ pub(crate) enum CameraColorMode {
     #[default]
     ExternalRgb,
     ExternalCrYCbBt601Narrow,
+    DebugRedOnly,
 }
 
 impl CameraColorMode {
@@ -283,6 +298,7 @@ impl CameraColorMode {
             | "cr-y-cb-bt601-narrow"
             | "bt601-narrow"
             | "quest-external-bt601" => Some(Self::ExternalCrYCbBt601Narrow),
+            "debug-red-only" | "debug-r-only" | "red-only" => Some(Self::DebugRedOnly),
             _ => None,
         }
     }
@@ -291,6 +307,7 @@ impl CameraColorMode {
         match self {
             Self::ExternalRgb => "external-rgb",
             Self::ExternalCrYCbBt601Narrow => "external-cr-y-cb-bt601-narrow",
+            Self::DebugRedOnly => "debug-red-only",
         }
     }
 
@@ -298,6 +315,172 @@ impl CameraColorMode {
         match self {
             Self::ExternalRgb => 0,
             Self::ExternalCrYCbBt601Narrow => 1 << 11,
+            Self::DebugRedOnly => 1 << 12,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CameraSamplerBindingMode {
+    #[default]
+    CombinedImmutableSampler,
+    SeparateImageSampler,
+}
+
+impl CameraSamplerBindingMode {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "combined-immutable-sampler" | "combined-sampler" | "combined" | "default" => {
+                Some(Self::CombinedImmutableSampler)
+            }
+            "separate-image-sampler"
+            | "separate-sampler"
+            | "separate"
+            | "sampled-image-plus-sampler" => Some(Self::SeparateImageSampler),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::CombinedImmutableSampler => "combined-immutable-sampler",
+            Self::SeparateImageSampler => "separate-image-sampler",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CameraImportImageLayoutMode {
+    #[default]
+    ShaderReadOnlyTransition,
+    GeneralNoTransition,
+}
+
+impl CameraImportImageLayoutMode {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "shader-read-transition"
+            | "shader-read"
+            | "shader-read-only"
+            | "transition"
+            | "default" => Some(Self::ShaderReadOnlyTransition),
+            "general-no-transition" | "general" | "no-transition" | "external-general" => {
+                Some(Self::GeneralNoTransition)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::ShaderReadOnlyTransition => "shader-read-transition",
+            Self::GeneralNoTransition => "general-no-transition",
+        }
+    }
+
+    pub(crate) const fn needs_transition(self) -> bool {
+        matches!(self, Self::ShaderReadOnlyTransition)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CameraPipelinePreset {
+    #[default]
+    Manual,
+    ProjectedSrgb,
+    RawFeedUnorm,
+    ProjectedUnorm,
+    RawFeedSrgb,
+    ShaderDecodeUnorm,
+    SeparateDecodeUnorm,
+    RawProjectionFastUnorm,
+    RawProjectionInvalidFillUnorm,
+    RawProjectionPerimeterFillUnorm,
+    RawProjectionSoftBorderUnorm,
+    RawProjectionStrongBorderUnorm,
+    RawProjectionDynamicBorderUnorm,
+    RawProjectionWarmBorderUnorm,
+    RawProjectionCyclingBorderUnorm,
+    RawProjectionUnderlayUnorm,
+}
+
+impl CameraPipelinePreset {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "" | "manual" | "off" | "none" | "custom" | "default" => Some(Self::Manual),
+            "projected-srgb" | "projected-feed-srgb" | "legacy-srgb" => Some(Self::ProjectedSrgb),
+            "raw-feed-unorm" | "raw-unorm" | "rawfeed-unorm" => Some(Self::RawFeedUnorm),
+            "projected-unorm" | "projected-feed-unorm" => Some(Self::ProjectedUnorm),
+            "raw-feed-srgb" | "raw-srgb" | "rawfeed-srgb" => Some(Self::RawFeedSrgb),
+            "shader-decode-unorm" | "bt601-unorm" | "combined-decode-unorm" => {
+                Some(Self::ShaderDecodeUnorm)
+            }
+            "separate-decode-unorm" | "separate-bt601-unorm" | "reference-shape-unorm" => {
+                Some(Self::SeparateDecodeUnorm)
+            }
+            "raw-projection-fast-unorm" | "direct-raw-projection-unorm" | "fast-raw-unorm" => {
+                Some(Self::RawProjectionFastUnorm)
+            }
+            "raw-projection-invalid-fill-unorm"
+            | "raw-projection-invalid-only-fill-unorm"
+            | "direct-raw-projection-invalid-fill-unorm"
+            | "fast-raw-invalid-fill-unorm"
+            | "raw-projection-fill-unorm"
+            | "raw-projection-coverage-fill-unorm"
+            | "raw-projection-fast-fill-unorm"
+            | "direct-raw-projection-fill-unorm"
+            | "fast-raw-fill-unorm" => Some(Self::RawProjectionInvalidFillUnorm),
+            "raw-projection-perimeter-fill-unorm"
+            | "raw-projection-rim-fill-unorm"
+            | "direct-raw-projection-perimeter-fill-unorm"
+            | "fast-raw-perimeter-fill-unorm" => Some(Self::RawProjectionPerimeterFillUnorm),
+            "raw-projection-soft-border-unorm"
+            | "raw-projection-cheap-border-unorm"
+            | "direct-raw-projection-soft-border-unorm"
+            | "fast-raw-soft-border-unorm" => Some(Self::RawProjectionSoftBorderUnorm),
+            "raw-projection-strong-border-unorm"
+            | "raw-projection-strong-cheap-border-unorm"
+            | "direct-raw-projection-strong-border-unorm"
+            | "fast-raw-strong-border-unorm" => Some(Self::RawProjectionStrongBorderUnorm),
+            "raw-projection-dynamic-border-unorm"
+            | "raw-projection-feedback-border-unorm"
+            | "direct-raw-projection-dynamic-border-unorm"
+            | "fast-raw-dynamic-border-unorm" => Some(Self::RawProjectionDynamicBorderUnorm),
+            "raw-projection-warm-border-unorm"
+            | "raw-projection-warm-feedback-border-unorm"
+            | "direct-raw-projection-warm-border-unorm"
+            | "fast-raw-warm-border-unorm" => Some(Self::RawProjectionWarmBorderUnorm),
+            "raw-projection-cycling-border-unorm"
+            | "raw-projection-cycle-border-unorm"
+            | "raw-projection-spectral-border-unorm"
+            | "direct-raw-projection-cycling-border-unorm"
+            | "fast-raw-cycling-border-unorm" => Some(Self::RawProjectionCyclingBorderUnorm),
+            "raw-projection-underlay-unorm"
+            | "raw-projection-alpha-underlay-unorm"
+            | "direct-raw-projection-underlay-unorm"
+            | "fast-raw-underlay-unorm" => Some(Self::RawProjectionUnderlayUnorm),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::ProjectedSrgb => "projected-srgb",
+            Self::RawFeedUnorm => "raw-feed-unorm",
+            Self::ProjectedUnorm => "projected-unorm",
+            Self::RawFeedSrgb => "raw-feed-srgb",
+            Self::ShaderDecodeUnorm => "shader-decode-unorm",
+            Self::SeparateDecodeUnorm => "separate-decode-unorm",
+            Self::RawProjectionFastUnorm => "raw-projection-fast-unorm",
+            Self::RawProjectionInvalidFillUnorm => "raw-projection-invalid-fill-unorm",
+            Self::RawProjectionPerimeterFillUnorm => "raw-projection-perimeter-fill-unorm",
+            Self::RawProjectionSoftBorderUnorm => "raw-projection-soft-border-unorm",
+            Self::RawProjectionStrongBorderUnorm => "raw-projection-strong-border-unorm",
+            Self::RawProjectionDynamicBorderUnorm => "raw-projection-dynamic-border-unorm",
+            Self::RawProjectionWarmBorderUnorm => "raw-projection-warm-border-unorm",
+            Self::RawProjectionCyclingBorderUnorm => "raw-projection-cycling-border-unorm",
+            Self::RawProjectionUnderlayUnorm => "raw-projection-underlay-unorm",
         }
     }
 }
@@ -370,6 +553,7 @@ impl StereoProjectionControls {
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) struct RuntimeConfig {
     pub(crate) camera_tier: CameraCompositeTier,
+    pub(crate) camera_acquisition: String,
     pub(crate) camera_enabled: bool,
     pub(crate) media_projection_enabled: bool,
     pub(crate) allow_cpu_fallback: bool,
@@ -386,20 +570,45 @@ pub(crate) struct RuntimeConfig {
     pub(crate) right_camera_texture_transform: CameraTextureTransform,
     pub(crate) source_eye_mapping: StereoSourceEyeMapping,
     pub(crate) camera_projection_mode: CameraProjectionMode,
+    pub(crate) camera_pipeline_preset: CameraPipelinePreset,
+    pub(crate) camera_projection_effect_mode: CameraProjectionEffectMode,
+    pub(crate) camera_feed_pipeline_mode: CameraFeedPipelineMode,
     pub(crate) camera_color_mode: CameraColorMode,
+    pub(crate) camera_sampler_binding_mode: CameraSamplerBindingMode,
+    pub(crate) camera_import_image_layout_mode: CameraImportImageLayoutMode,
+    pub(crate) camera_import_cache_limit: usize,
+    pub(crate) camera_color_matrix: [[f32; 3]; 3],
+    pub(crate) camera_color_offset: [f32; 3],
     pub(crate) camera_color_contrast: f32,
     pub(crate) camera_color_brightness: f32,
     pub(crate) camera_color_saturation: f32,
+    pub(crate) camera_border_cycle_rate_hz: f32,
     pub(crate) orientation_diagnostic_mode: CameraOrientationDiagnosticMode,
     pub(crate) visual_release_accepted: bool,
     pub(crate) xr_render_scale: f32,
+    pub(crate) xr_display_refresh_hz: f32,
     pub(crate) xr_fixed_foveation_level: u8,
+    pub(crate) xr_color_format_mode: OpenXrColorFormatMode,
+    pub(crate) openxr_passthrough_probe: OpenXrPassthroughProbeMode,
+    pub(crate) passthrough_style_mode: OpenXrPassthroughStyleMode,
+    pub(crate) passthrough_opacity: f32,
+    pub(crate) passthrough_edge_color: [f32; 4],
+    pub(crate) passthrough_brightness: f32,
+    pub(crate) passthrough_contrast: f32,
+    pub(crate) passthrough_saturation: f32,
+    pub(crate) passthrough_color_phase: f32,
+    pub(crate) passthrough_color_amplitude: f32,
+    pub(crate) passthrough_lut_resolution: u32,
+    pub(crate) passthrough_lut_weight: f32,
+    pub(crate) passthrough_lut_flicker_hz: f32,
+    pub(crate) full_field_flicker_hz: f32,
 }
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             camera_tier: CameraCompositeTier::CpuDiagnosticFlatCopy,
+            camera_acquisition: "java-camera2".to_string(),
             camera_enabled: true,
             media_projection_enabled: false,
             allow_cpu_fallback: true,
@@ -416,14 +625,114 @@ impl Default for RuntimeConfig {
             right_camera_texture_transform: CameraTextureTransform::default(),
             source_eye_mapping: StereoSourceEyeMapping::default(),
             camera_projection_mode: CameraProjectionMode::default(),
+            camera_pipeline_preset: CameraPipelinePreset::default(),
+            camera_projection_effect_mode: CameraProjectionEffectMode::default(),
+            camera_feed_pipeline_mode: CameraFeedPipelineMode::default(),
             camera_color_mode: CameraColorMode::default(),
+            camera_sampler_binding_mode: CameraSamplerBindingMode::default(),
+            camera_import_image_layout_mode: CameraImportImageLayoutMode::default(),
+            camera_import_cache_limit: CAMERA_IMPORT_CACHE_LIMIT_DEFAULT,
+            camera_color_matrix: identity_color_matrix(),
+            camera_color_offset: [0.0, 0.0, 0.0],
             camera_color_contrast: 1.0,
             camera_color_brightness: 0.0,
             camera_color_saturation: 1.0,
+            camera_border_cycle_rate_hz: 0.18,
             orientation_diagnostic_mode: CameraOrientationDiagnosticMode::Off,
             visual_release_accepted: false,
             xr_render_scale: 0.75,
+            xr_display_refresh_hz: 72.0,
             xr_fixed_foveation_level: 0,
+            xr_color_format_mode: OpenXrColorFormatMode::default(),
+            openxr_passthrough_probe: OpenXrPassthroughProbeMode::Off,
+            passthrough_style_mode: OpenXrPassthroughStyleMode::default(),
+            passthrough_opacity: 1.0,
+            passthrough_edge_color: [0.0, 0.0, 0.0, 0.0],
+            passthrough_brightness: 0.0,
+            passthrough_contrast: 1.0,
+            passthrough_saturation: 1.0,
+            passthrough_color_phase: 0.0,
+            passthrough_color_amplitude: 0.0,
+            passthrough_lut_resolution: 32,
+            passthrough_lut_weight: 1.0,
+            passthrough_lut_flicker_hz: 0.0,
+            full_field_flicker_hz: 0.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum OpenXrPassthroughProbeMode {
+    #[default]
+    Off,
+    Client,
+    Warmup,
+    Underlay,
+}
+
+impl OpenXrPassthroughProbeMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "off" | "false" | "0" | "disabled" | "none" => Some(Self::Off),
+            "client" | "true" | "1" | "enabled" | "probe" => Some(Self::Client),
+            "warmup" | "pulse" | "brief" => Some(Self::Warmup),
+            "underlay" | "visible-underlay" | "composition-underlay" | "background" => {
+                Some(Self::Underlay)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Client => "client",
+            Self::Warmup => "warmup",
+            Self::Underlay => "underlay",
+        }
+    }
+
+    pub(crate) fn enabled(self) -> bool {
+        self != Self::Off
+    }
+
+    pub(crate) fn submits_composition_layer(self) -> bool {
+        self == Self::Underlay
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum OpenXrPassthroughStyleMode {
+    #[default]
+    None,
+    BrightnessContrastSaturation,
+    MonoToRgba,
+    ColorLut,
+}
+
+impl OpenXrPassthroughStyleMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "none" | "native" | "off" | "false" | "0" => Some(Self::None),
+            "bcs" | "brightness-contrast-saturation" | "brightness" => {
+                Some(Self::BrightnessContrastSaturation)
+            }
+            "mono-to-rgba" | "mono-rgba" | "rgba-map" | "gradient" | "audio-gradient" => {
+                Some(Self::MonoToRgba)
+            }
+            "color-lut" | "rgb-lut" | "lut" | "opponent-lut" | "lut-flicker" => {
+                Some(Self::ColorLut)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn stable_id(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::BrightnessContrastSaturation => "brightness-contrast-saturation",
+            Self::MonoToRgba => "mono-to-rgba",
+            Self::ColorLut => "color-lut",
         }
     }
 }
@@ -436,6 +745,12 @@ impl RuntimeConfig {
             self.camera_color_saturation.max(0.0),
             1.0,
         ]
+    }
+
+    pub(crate) fn camera_border_cycle_phase(&self, frame_count: u64) -> f32 {
+        let cycle_rate = self.camera_border_cycle_rate_hz.clamp(0.0, 2.0) as f64;
+        let phase = ((frame_count as f64 / 72.0) * cycle_rate).rem_euclid(1.0);
+        phase as f32
     }
 
     pub(crate) fn stereo_projection_controls(&self, frame_count: u64) -> StereoProjectionControls {
@@ -486,6 +801,10 @@ impl RuntimeConfig {
         }
         controls
     }
+}
+
+pub(crate) const fn identity_color_matrix() -> [[f32; 3]; 3] {
+    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
 }
 
 fn diagnostic_texture_transform(step: u32) -> CameraTextureTransform {
@@ -636,18 +955,29 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraColorMode={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} fixedFoveationLevel={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={}",
         config.camera_tier.stable_id(),
+        config.camera_acquisition.as_str(),
         config.camera_enabled,
         config.media_projection_enabled,
         config.allow_cpu_fallback,
         config.cpu_upload_hz,
         config.stereo_layout,
         config.camera_projection_mode.stable_id(),
+        config.camera_pipeline_preset.stable_id(),
+        config.camera_projection_effect_mode.stable_id(),
+        config.camera_feed_pipeline_mode.stable_id(),
         config.camera_color_mode.stable_id(),
+        config.camera_color_mode.shader_bit(),
+        config.camera_sampler_binding_mode.stable_id(),
+        config.camera_import_image_layout_mode.stable_id(),
+        config.camera_import_cache_limit,
+        config.camera_color_matrix,
+        config.camera_color_offset,
         config.camera_color_contrast,
         config.camera_color_brightness,
         config.camera_color_saturation,
+        config.camera_border_cycle_rate_hz,
         config.camera_projection_fov_y_degrees,
         config.camera_preview_fov_y_degrees,
         config.camera_projection_scale,
@@ -664,7 +994,22 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_texture_transform.is_explicit_visual_check(),
         config.visual_release_accepted,
         config.xr_render_scale,
-        config.xr_fixed_foveation_level
+        config.xr_display_refresh_hz,
+        config.xr_fixed_foveation_level,
+        config.xr_color_format_mode.stable_id(),
+        config.openxr_passthrough_probe.stable_id(),
+        config.passthrough_style_mode.stable_id(),
+        config.passthrough_opacity,
+        config.passthrough_edge_color,
+        config.passthrough_brightness,
+        config.passthrough_contrast,
+        config.passthrough_saturation,
+        config.passthrough_color_phase,
+        config.passthrough_color_amplitude,
+        config.passthrough_lut_resolution,
+        config.passthrough_lut_weight,
+        config.passthrough_lut_flicker_hz,
+        config.full_field_flicker_hz
     ));
 }
 
@@ -1075,6 +1420,7 @@ fn gpu_descriptor_cache_key(descriptor: &CameraGpuBufferDescriptor) -> String {
 #[serde(rename_all = "camelCase")]
 struct JavaRuntimeConfig {
     camera_tier: Option<String>,
+    camera_acquisition: Option<String>,
     camera_enabled: Option<bool>,
     media_projection_enabled: Option<bool>,
     allow_cpu_fallback: Option<bool>,
@@ -1093,10 +1439,25 @@ struct JavaRuntimeConfig {
     camera_texture_transform_source: Option<String>,
     camera_texture_transform_reason: Option<String>,
     camera_projection_mode: Option<String>,
+    #[serde(rename = "cameraPipelinePreset")]
+    camera_pipeline_preset: Option<String>,
+    #[serde(
+        rename = "cameraProjectionEffectMode",
+        alias = "cameraProjectionEffect"
+    )]
+    camera_projection_effect_mode: Option<String>,
     camera_color_mode: Option<String>,
+    camera_sampler_binding_mode: Option<String>,
+    #[serde(rename = "cameraImportImageLayout")]
+    camera_import_image_layout_mode: Option<String>,
+    camera_import_cache_limit: Option<usize>,
+    camera_color_matrix: Option<String>,
+    camera_color_offset: Option<String>,
     camera_color_contrast: Option<f32>,
     camera_color_brightness: Option<f32>,
     camera_color_saturation: Option<f32>,
+    #[serde(rename = "cameraBorderCycleHz", alias = "cameraBorderCycleRateHz")]
+    camera_border_cycle_rate_hz: Option<f32>,
     left_camera_texture_rotation: Option<String>,
     left_camera_texture_flip_x: Option<bool>,
     left_camera_texture_flip_y: Option<bool>,
@@ -1111,10 +1472,33 @@ struct JavaRuntimeConfig {
     right_camera_texture_transform_reason: Option<String>,
     camera_source_eye_mapping: Option<String>,
     camera_orientation_diagnostic_mode: Option<String>,
+    #[serde(rename = "cameraFeedMode", alias = "cameraFeedPipelineMode")]
+    camera_feed_pipeline_mode: Option<String>,
     visual_release_accepted: Option<bool>,
     visual_acceptance_token: Option<String>,
     xr_render_scale: Option<f32>,
+    #[serde(rename = "xrDisplayRefreshHz")]
+    xr_display_refresh_hz: Option<f32>,
     xr_fixed_foveation_level: Option<u8>,
+    #[serde(rename = "xrColorFormat")]
+    xr_color_format_mode: Option<String>,
+    openxr_passthrough_probe: Option<String>,
+    passthrough_style_mode: Option<String>,
+    passthrough_opacity: Option<f32>,
+    passthrough_edge_r: Option<f32>,
+    passthrough_edge_g: Option<f32>,
+    passthrough_edge_b: Option<f32>,
+    passthrough_edge_a: Option<f32>,
+    passthrough_brightness: Option<f32>,
+    passthrough_contrast: Option<f32>,
+    passthrough_saturation: Option<f32>,
+    passthrough_color_phase: Option<f32>,
+    passthrough_color_amplitude: Option<f32>,
+    passthrough_lut_resolution: Option<u32>,
+    passthrough_lut_weight: Option<f32>,
+    passthrough_lut_flicker_hz: Option<f32>,
+    #[serde(rename = "fullFieldFlickerHz")]
+    full_field_flicker_hz: Option<f32>,
 }
 
 fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
@@ -1124,8 +1508,12 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
         .and_then(CameraCompositeTier::parse)
         .unwrap_or(CameraCompositeTier::CpuDiagnosticFlatCopy);
     let defaults = RuntimeConfig::default();
-    RuntimeConfig {
+    let mut config = RuntimeConfig {
         camera_tier,
+        camera_acquisition: bridge
+            .camera_acquisition
+            .clone()
+            .unwrap_or(defaults.camera_acquisition),
         camera_enabled: bridge.camera_enabled.unwrap_or(true),
         media_projection_enabled: bridge.media_projection_enabled.unwrap_or(false),
         allow_cpu_fallback: bridge.allow_cpu_fallback.unwrap_or(true),
@@ -1172,11 +1560,48 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             .as_deref()
             .and_then(CameraProjectionMode::parse)
             .unwrap_or_default(),
+        camera_pipeline_preset: bridge
+            .camera_pipeline_preset
+            .as_deref()
+            .and_then(CameraPipelinePreset::parse)
+            .unwrap_or_default(),
+        camera_projection_effect_mode: bridge
+            .camera_projection_effect_mode
+            .as_deref()
+            .and_then(CameraProjectionEffectMode::parse)
+            .unwrap_or_default(),
+        camera_feed_pipeline_mode: bridge
+            .camera_feed_pipeline_mode
+            .as_deref()
+            .and_then(CameraFeedPipelineMode::parse)
+            .unwrap_or_default(),
         camera_color_mode: bridge
             .camera_color_mode
             .as_deref()
             .and_then(CameraColorMode::parse)
             .unwrap_or_default(),
+        camera_sampler_binding_mode: bridge
+            .camera_sampler_binding_mode
+            .as_deref()
+            .and_then(CameraSamplerBindingMode::parse)
+            .unwrap_or_default(),
+        camera_import_image_layout_mode: bridge
+            .camera_import_image_layout_mode
+            .as_deref()
+            .and_then(CameraImportImageLayoutMode::parse)
+            .unwrap_or_default(),
+        camera_import_cache_limit: bridge
+            .camera_import_cache_limit
+            .unwrap_or(defaults.camera_import_cache_limit)
+            .clamp(2, CAMERA_IMPORT_CACHE_LIMIT_MAX),
+        camera_color_matrix: parse_camera_color_matrix(
+            bridge.camera_color_matrix.as_deref(),
+            defaults.camera_color_matrix,
+        ),
+        camera_color_offset: parse_camera_color_offset(
+            bridge.camera_color_offset.as_deref(),
+            defaults.camera_color_offset,
+        ),
         camera_color_contrast: finite_positive_or(
             bridge.camera_color_contrast,
             defaults.camera_color_contrast,
@@ -1192,6 +1617,11 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             defaults.camera_color_saturation,
         )
         .clamp(0.0, 4.0),
+        camera_border_cycle_rate_hz: finite_positive_or(
+            bridge.camera_border_cycle_rate_hz,
+            defaults.camera_border_cycle_rate_hz,
+        )
+        .clamp(0.0, 2.0),
         orientation_diagnostic_mode: bridge
             .camera_orientation_diagnostic_mode
             .as_deref()
@@ -1204,10 +1634,263 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             ),
         xr_render_scale: finite_positive_or(bridge.xr_render_scale, defaults.xr_render_scale)
             .clamp(0.25, 1.5),
+        xr_display_refresh_hz: finite_positive_or(
+            bridge.xr_display_refresh_hz,
+            defaults.xr_display_refresh_hz,
+        )
+        .clamp(60.0, 144.0),
         xr_fixed_foveation_level: bridge
             .xr_fixed_foveation_level
             .unwrap_or(defaults.xr_fixed_foveation_level),
-    }
+        xr_color_format_mode: bridge
+            .xr_color_format_mode
+            .as_deref()
+            .and_then(OpenXrColorFormatMode::parse)
+            .unwrap_or(defaults.xr_color_format_mode),
+        openxr_passthrough_probe: bridge
+            .openxr_passthrough_probe
+            .as_deref()
+            .and_then(OpenXrPassthroughProbeMode::parse)
+            .unwrap_or(defaults.openxr_passthrough_probe),
+        passthrough_style_mode: bridge
+            .passthrough_style_mode
+            .as_deref()
+            .and_then(OpenXrPassthroughStyleMode::parse)
+            .unwrap_or(defaults.passthrough_style_mode),
+        passthrough_opacity: finite_positive_or(
+            bridge.passthrough_opacity,
+            defaults.passthrough_opacity,
+        )
+        .clamp(0.0, 1.0),
+        passthrough_edge_color: [
+            finite_or(
+                bridge.passthrough_edge_r,
+                defaults.passthrough_edge_color[0],
+            )
+            .clamp(0.0, 1.0),
+            finite_or(
+                bridge.passthrough_edge_g,
+                defaults.passthrough_edge_color[1],
+            )
+            .clamp(0.0, 1.0),
+            finite_or(
+                bridge.passthrough_edge_b,
+                defaults.passthrough_edge_color[2],
+            )
+            .clamp(0.0, 1.0),
+            finite_or(
+                bridge.passthrough_edge_a,
+                defaults.passthrough_edge_color[3],
+            )
+            .clamp(0.0, 1.0),
+        ],
+        passthrough_brightness: finite_or(
+            bridge.passthrough_brightness,
+            defaults.passthrough_brightness,
+        )
+        .clamp(-100.0, 100.0),
+        passthrough_contrast: finite_positive_or(
+            bridge.passthrough_contrast,
+            defaults.passthrough_contrast,
+        )
+        .clamp(0.0, 10.0),
+        passthrough_saturation: finite_positive_or(
+            bridge.passthrough_saturation,
+            defaults.passthrough_saturation,
+        )
+        .clamp(0.0, 10.0),
+        passthrough_color_phase: finite_or(
+            bridge.passthrough_color_phase,
+            defaults.passthrough_color_phase,
+        ),
+        passthrough_color_amplitude: finite_positive_or(
+            bridge.passthrough_color_amplitude,
+            defaults.passthrough_color_amplitude,
+        )
+        .clamp(0.0, 1.0),
+        passthrough_lut_resolution: bridge
+            .passthrough_lut_resolution
+            .unwrap_or(defaults.passthrough_lut_resolution)
+            .clamp(2, 64),
+        passthrough_lut_weight: finite_or(
+            bridge.passthrough_lut_weight,
+            defaults.passthrough_lut_weight,
+        )
+        .clamp(0.0, 1.0),
+        passthrough_lut_flicker_hz: finite_or(
+            bridge.passthrough_lut_flicker_hz,
+            defaults.passthrough_lut_flicker_hz,
+        )
+        .clamp(0.0, 120.0),
+        full_field_flicker_hz: finite_or(
+            bridge.full_field_flicker_hz,
+            defaults.full_field_flicker_hz,
+        )
+        .clamp(0.0, 120.0),
+    };
+    apply_camera_pipeline_preset(&mut config);
+    config
+}
+
+fn apply_camera_pipeline_preset(config: &mut RuntimeConfig) {
+    let (
+        feed_mode,
+        color_mode,
+        sampler_binding_mode,
+        import_image_layout_mode,
+        projection_effect_mode,
+        xr_color_format_mode,
+        openxr_passthrough_probe,
+    ) = match config.camera_pipeline_preset {
+        CameraPipelinePreset::Manual => return,
+        CameraPipelinePreset::ProjectedSrgb => (
+            CameraFeedPipelineMode::ProjectedFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::BorderComposite,
+            OpenXrColorFormatMode::Rgba8Srgb,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawFeedUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::BorderComposite,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::ProjectedUnorm => (
+            CameraFeedPipelineMode::ProjectedFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::BorderComposite,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawFeedSrgb => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::BorderComposite,
+            OpenXrColorFormatMode::Rgba8Srgb,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::ShaderDecodeUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalCrYCbBt601Narrow,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::BorderComposite,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::SeparateDecodeUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalCrYCbBt601Narrow,
+            CameraSamplerBindingMode::SeparateImageSampler,
+            CameraImportImageLayoutMode::GeneralNoTransition,
+            CameraProjectionEffectMode::BorderComposite,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawProjectionFastUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionFast,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawProjectionInvalidFillUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionInvalidFill,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawProjectionPerimeterFillUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionPerimeterFill,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawProjectionSoftBorderUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionSoftBorder,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawProjectionStrongBorderUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionStrongBorder,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawProjectionDynamicBorderUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionDynamicBorder,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawProjectionWarmBorderUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionWarmBorder,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawProjectionCyclingBorderUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionCyclingBorder,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::RawProjectionUnderlayUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionUnderlay,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            OpenXrPassthroughProbeMode::Underlay,
+        ),
+    };
+    config.camera_feed_pipeline_mode = feed_mode;
+    config.camera_color_mode = color_mode;
+    config.camera_sampler_binding_mode = sampler_binding_mode;
+    config.camera_import_image_layout_mode = import_image_layout_mode;
+    config.camera_projection_effect_mode = projection_effect_mode;
+    config.xr_color_format_mode = xr_color_format_mode;
+    config.openxr_passthrough_probe = openxr_passthrough_probe;
+    config.camera_color_matrix = identity_color_matrix();
+    config.camera_color_offset = [0.0, 0.0, 0.0];
+    config.camera_color_contrast = 1.0;
+    config.camera_color_brightness = 0.0;
+    config.camera_color_saturation = 1.0;
 }
 
 fn public_camera_texture_transform(bridge: &JavaRuntimeConfig) -> CameraTextureTransform {
@@ -1295,6 +1978,80 @@ fn finite_positive_or(value: Option<f32>, fallback: f32) -> f32 {
 
 fn finite_or(value: Option<f32>, fallback: f32) -> f32 {
     value.filter(|value| value.is_finite()).unwrap_or(fallback)
+}
+
+fn parse_camera_color_matrix(value: Option<&str>, fallback: [[f32; 3]; 3]) -> [[f32; 3]; 3] {
+    let Some(value) = value else {
+        return fallback;
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("identity")
+        || trimmed.eq_ignore_ascii_case("default")
+        || trimmed.eq_ignore_ascii_case("none")
+        || trimmed.eq_ignore_ascii_case("off")
+    {
+        return fallback;
+    }
+    let Some(values) = parse_f32_list(trimmed, 9) else {
+        return fallback;
+    };
+    [
+        [
+            values[0].clamp(-8.0, 8.0),
+            values[1].clamp(-8.0, 8.0),
+            values[2].clamp(-8.0, 8.0),
+        ],
+        [
+            values[3].clamp(-8.0, 8.0),
+            values[4].clamp(-8.0, 8.0),
+            values[5].clamp(-8.0, 8.0),
+        ],
+        [
+            values[6].clamp(-8.0, 8.0),
+            values[7].clamp(-8.0, 8.0),
+            values[8].clamp(-8.0, 8.0),
+        ],
+    ]
+}
+
+fn parse_camera_color_offset(value: Option<&str>, fallback: [f32; 3]) -> [f32; 3] {
+    let Some(value) = value else {
+        return fallback;
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("zero")
+        || trimmed.eq_ignore_ascii_case("default")
+        || trimmed.eq_ignore_ascii_case("none")
+        || trimmed.eq_ignore_ascii_case("off")
+    {
+        return fallback;
+    }
+    let Some(values) = parse_f32_list(trimmed, 3) else {
+        return fallback;
+    };
+    [
+        values[0].clamp(-4.0, 4.0),
+        values[1].clamp(-4.0, 4.0),
+        values[2].clamp(-4.0, 4.0),
+    ]
+}
+
+fn parse_f32_list(value: &str, expected_len: usize) -> Option<Vec<f32>> {
+    let normalized = value
+        .trim_matches(|c| matches!(c, '[' | ']' | '(' | ')'))
+        .replace([';', '|'], ",");
+    let values = normalized
+        .split([',', ' ', '\t', '\n', '\r'])
+        .filter(|part| !part.trim().is_empty())
+        .map(|part| part.trim().parse::<f32>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    if values.len() == expected_len && values.iter().all(|value| value.is_finite()) {
+        Some(values)
+    } else {
+        None
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -1628,6 +2385,39 @@ pub extern "system" fn Java_com_example_rustyxr_composite_CompositeLayerActivity
     event_json: JString<'_>,
 ) {
     log_jni_event(&mut env, "activity", event_json);
+}
+
+#[cfg(target_os = "android")]
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "system" fn Java_com_example_rustyxr_composite_CompositeLayerActivity_nativeStartNativeCamera(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    config_json: JString<'_>,
+) -> jboolean {
+    let config_json = env
+        .get_string(&config_json)
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "{}".to_string());
+    match native_camera::start_from_json(&config_json) {
+        Ok(()) => 1,
+        Err(error) => {
+            log_error(format!(
+                "Rusty XR native camera acquisition failed: {error}"
+            ));
+            0
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "system" fn Java_com_example_rustyxr_composite_CompositeLayerActivity_nativeStopNativeCamera(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+) {
+    native_camera::stop();
 }
 
 #[allow(non_snake_case)]
@@ -2001,9 +2791,12 @@ fn keep_activity_alive_after_error(app: android_activity::AndroidApp) {
 mod tests {
     use super::{
         contract_json, public_camera_metadata, public_runtime_config, CameraColorMode,
-        CameraOrientationDiagnosticMode, CameraProjectionMode, JavaCameraExtrinsics,
-        JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind,
-        JavaRuntimeConfig, StereoSourceEyeMapping,
+        CameraFeedPipelineMode, CameraImportImageLayoutMode, CameraOrientationDiagnosticMode,
+        CameraPipelinePreset, CameraProjectionEffectMode, CameraProjectionMode,
+        CameraSamplerBindingMode, JavaCameraExtrinsics, JavaCameraFrameMetadata,
+        JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind, JavaRuntimeConfig,
+        OpenXrColorFormatMode, OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode,
+        StereoSourceEyeMapping,
     };
     use rusty_xr_contracts::{
         CameraCompositeTier, CameraImageRotation, CameraPixelDomainKind, ImageSize,
@@ -2153,6 +2946,7 @@ mod tests {
     fn runtime_config_parses_public_projection_and_render_knobs() {
         let config = public_runtime_config(&JavaRuntimeConfig {
             camera_tier: Some("gpu-projected".to_string()),
+            camera_acquisition: Some("native-ndk".to_string()),
             camera_enabled: Some(true),
             media_projection_enabled: Some(false),
             allow_cpu_fallback: Some(false),
@@ -2171,10 +2965,18 @@ mod tests {
             camera_texture_transform_source: Some("public-live-check".to_string()),
             camera_texture_transform_reason: Some("upright texture validation".to_string()),
             camera_projection_mode: Some("quad-surface".to_string()),
+            camera_pipeline_preset: None,
+            camera_projection_effect_mode: Some("raw-projection-fast".to_string()),
             camera_color_mode: Some("external-rgb".to_string()),
+            camera_sampler_binding_mode: Some("separate-image-sampler".to_string()),
+            camera_import_image_layout_mode: Some("general-no-transition".to_string()),
+            camera_import_cache_limit: Some(2),
+            camera_color_matrix: Some("0.9;0.1;0;0;1;0;0;0.2;0.8".to_string()),
+            camera_color_offset: Some("-0.01;0.02;0.03".to_string()),
             camera_color_contrast: Some(1.1),
             camera_color_brightness: Some(0.04),
             camera_color_saturation: Some(1.0),
+            camera_border_cycle_rate_hz: Some(0.25),
             left_camera_texture_rotation: Some("rotate180".to_string()),
             left_camera_texture_flip_x: Some(true),
             left_camera_texture_flip_y: Some(false),
@@ -2193,13 +2995,33 @@ mod tests {
             ),
             camera_source_eye_mapping: Some("right-left".to_string()),
             camera_orientation_diagnostic_mode: Some("cycle-source-eye-mapping".to_string()),
+            camera_feed_pipeline_mode: Some("raw-feed".to_string()),
             visual_release_accepted: Some(true),
             visual_acceptance_token: Some("manual-visual-accepted".to_string()),
             xr_render_scale: Some(0.75),
+            xr_display_refresh_hz: Some(90.0),
             xr_fixed_foveation_level: Some(0),
+            xr_color_format_mode: Some("rgba8-unorm".to_string()),
+            openxr_passthrough_probe: Some("client".to_string()),
+            passthrough_style_mode: Some("color-lut".to_string()),
+            passthrough_opacity: Some(0.68),
+            passthrough_edge_r: Some(0.2),
+            passthrough_edge_g: Some(0.7),
+            passthrough_edge_b: Some(1.0),
+            passthrough_edge_a: Some(0.45),
+            passthrough_brightness: Some(8.0),
+            passthrough_contrast: Some(1.2),
+            passthrough_saturation: Some(0.85),
+            passthrough_color_phase: Some(0.25),
+            passthrough_color_amplitude: Some(0.9),
+            passthrough_lut_resolution: Some(16),
+            passthrough_lut_weight: Some(0.75),
+            passthrough_lut_flicker_hz: Some(10.0),
+            full_field_flicker_hz: Some(40.0),
         });
 
         assert_eq!(config.camera_tier, CameraCompositeTier::GpuProjected);
+        assert_eq!(config.camera_acquisition, "native-ndk");
         assert_eq!(config.cpu_upload_hz, 0);
         assert!(!config.allow_cpu_fallback);
         assert_eq!(config.camera_projection_fov_y_degrees, 92.0);
@@ -2230,10 +3052,34 @@ mod tests {
             config.camera_projection_mode,
             CameraProjectionMode::QuadSurface
         );
+        assert_eq!(config.camera_pipeline_preset, CameraPipelinePreset::Manual);
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionFast
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
         assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.camera_sampler_binding_mode,
+            CameraSamplerBindingMode::SeparateImageSampler
+        );
+        assert_eq!(
+            config.camera_import_image_layout_mode,
+            CameraImportImageLayoutMode::GeneralNoTransition
+        );
+        assert_eq!(config.camera_import_cache_limit, 2);
+        assert_eq!(
+            config.camera_color_matrix,
+            [[0.9, 0.1, 0.0], [0.0, 1.0, 0.0], [0.0, 0.2, 0.8]]
+        );
+        assert_eq!(config.camera_color_offset, [-0.01, 0.02, 0.03]);
         assert_eq!(config.camera_color_contrast, 1.1);
         assert_eq!(config.camera_color_brightness, 0.04);
         assert_eq!(config.camera_color_saturation, 1.0);
+        assert_eq!(config.camera_border_cycle_rate_hz, 0.25);
         assert_eq!(
             config.orientation_diagnostic_mode,
             CameraOrientationDiagnosticMode::CycleSourceEyeMapping
@@ -2241,7 +3087,379 @@ mod tests {
         assert!(config.visual_release_accepted);
         assert!(config.camera_texture_transform.is_explicit_visual_check());
         assert_eq!(config.xr_render_scale, 0.75);
+        assert_eq!(config.xr_display_refresh_hz, 90.0);
         assert_eq!(config.xr_fixed_foveation_level, 0);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Client
+        );
+        assert_eq!(
+            config.passthrough_style_mode,
+            OpenXrPassthroughStyleMode::ColorLut
+        );
+        assert_eq!(config.passthrough_opacity, 0.68);
+        assert_eq!(config.passthrough_edge_color, [0.2, 0.7, 1.0, 0.45]);
+        assert_eq!(config.passthrough_brightness, 8.0);
+        assert_eq!(config.passthrough_contrast, 1.2);
+        assert_eq!(config.passthrough_saturation, 0.85);
+        assert_eq!(config.passthrough_color_phase, 0.25);
+        assert_eq!(config.passthrough_color_amplitude, 0.9);
+        assert_eq!(config.passthrough_lut_resolution, 16);
+        assert_eq!(config.passthrough_lut_weight, 0.75);
+        assert_eq!(config.passthrough_lut_flicker_hz, 10.0);
+        assert_eq!(config.full_field_flicker_hz, 40.0);
+    }
+
+    #[test]
+    fn runtime_config_camera_pipeline_preset_overrides_module_axes() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("separate-decode-unorm".to_string()),
+            camera_feed_pipeline_mode: Some("projected-feed".to_string()),
+            camera_color_mode: Some("external-rgb".to_string()),
+            camera_sampler_binding_mode: Some("combined-immutable-sampler".to_string()),
+            camera_import_image_layout_mode: Some("shader-read-transition".to_string()),
+            camera_color_matrix: Some("0.9;0.1;0;0;1;0;0;0.2;0.8".to_string()),
+            camera_color_offset: Some("-0.01;0.02;0.03".to_string()),
+            camera_color_contrast: Some(1.3),
+            camera_color_brightness: Some(0.2),
+            camera_color_saturation: Some(1.8),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::SeparateDecodeUnorm
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(
+            config.camera_color_mode,
+            CameraColorMode::ExternalCrYCbBt601Narrow
+        );
+        assert_eq!(
+            config.camera_sampler_binding_mode,
+            CameraSamplerBindingMode::SeparateImageSampler
+        );
+        assert_eq!(
+            config.camera_import_image_layout_mode,
+            CameraImportImageLayoutMode::GeneralNoTransition
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::BorderComposite
+        );
+        assert_eq!(config.camera_color_matrix, super::identity_color_matrix());
+        assert_eq!(config.camera_color_offset, [0.0, 0.0, 0.0]);
+        assert_eq!(config.camera_color_contrast, 1.0);
+        assert_eq!(config.camera_color_brightness, 0.0);
+        assert_eq!(config.camera_color_saturation, 1.0);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_fast_preset_selects_fast_raw_unorm_path() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-fast-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            camera_feed_pipeline_mode: Some("projected-feed".to_string()),
+            camera_color_mode: Some("debug-red-only".to_string()),
+            camera_sampler_binding_mode: Some("separate-image-sampler".to_string()),
+            camera_import_image_layout_mode: Some("general-no-transition".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionFastUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionFast
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.camera_sampler_binding_mode,
+            CameraSamplerBindingMode::CombinedImmutableSampler
+        );
+        assert_eq!(
+            config.camera_import_image_layout_mode,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition
+        );
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_underlay_preset_selects_passthrough_underlay() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-underlay-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            openxr_passthrough_probe: Some("off".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionUnderlayUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionUnderlay
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Underlay
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_invalid_fill_preset_selects_invalid_fill() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-invalid-fill-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            openxr_passthrough_probe: Some("client".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionInvalidFillUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionInvalidFill
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Client
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_perimeter_fill_preset_selects_perimeter_fill() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-perimeter-fill-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            openxr_passthrough_probe: Some("client".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionPerimeterFillUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionPerimeterFill
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Client
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_soft_border_preset_selects_soft_border() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-soft-border-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            openxr_passthrough_probe: Some("client".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionSoftBorderUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionSoftBorder
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Client
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_strong_border_preset_selects_strong_border() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-strong-border-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            openxr_passthrough_probe: Some("client".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionStrongBorderUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionStrongBorder
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Client
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_dynamic_border_preset_selects_dynamic_border() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-dynamic-border-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            openxr_passthrough_probe: Some("client".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionDynamicBorderUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionDynamicBorder
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Client
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_warm_border_preset_selects_warm_border() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-warm-border-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionWarmBorderUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionWarmBorder
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_cycling_border_preset_selects_cycling_border() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-cycling-border-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            camera_border_cycle_rate_hz: Some(0.35),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionCyclingBorderUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionCyclingBorder
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+        assert_eq!(config.camera_border_cycle_rate_hz, 0.35);
     }
 
     #[test]

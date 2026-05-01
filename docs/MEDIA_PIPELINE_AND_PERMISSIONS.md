@@ -10,6 +10,9 @@ Keep these sources separate:
 
 - Native passthrough layer: compositor-owned passthrough. It is not an app
   texture and should not be documented as sampleable app media.
+- Rendered strobe stimulus: app-owned projection-layer flicker or documented
+  passthrough-style parameter switching. It is not a camera source and requires
+  an explicit safety gate before use.
 - Passthrough Camera API / Android Camera2: raw forward-facing camera frames for
   CV/ML and custom app processing. On supported Quest devices this requires
   headset camera permission and camera metadata handling.
@@ -25,6 +28,18 @@ Keep these sources separate:
 Public Rusty XR crates should model metadata, timestamps, frame descriptors,
 runtime counters, and stream status. The Android app shell owns the actual
 MediaProjection, Camera2, OpenXR, Vulkan, encoder, socket, or ADB integration.
+
+### Native Passthrough Style Shape
+
+`rusty-xr-contracts` includes data-only native passthrough style descriptors
+for platform adapters. They cover reconstruction and projected passthrough,
+underlay/overlay placement, opacity, edge color, mono color maps,
+brightness/contrast/saturation, and color-LUT bindings. See
+[META_PASSTHROUGH_LAYER.md](META_PASSTHROUGH_LAYER.md).
+
+These descriptors are not media frames. They do not make the compositor's
+passthrough image sampleable, and they do not replace raw camera APIs when an
+app needs pixels, timestamps, intrinsics, or camera poses.
 
 ### Environment Depth Capture Shape
 
@@ -245,6 +260,23 @@ preferred performance path. The performant shape is:
   just the Java pending-pair queue. Vulkan memory and descriptor caches can
   retain a few `AHardwareBuffer` images after Java has closed its `Image`, so a
   too-small `maxImages` value can starve Camera2 and produce stale frames.
+- Keep acquisition implementations modular. A Java Camera2 concurrent-stereo
+  path is useful as a public Vulkan example, but lower-level/native
+  hardware-buffer readers can have different queue, timestamp, and AE-policy
+  behavior. Compare those as explicit modules or runtime profiles instead of
+  silently changing the camera path under an existing profile.
+- Log camera topology before treating an acquisition path as equivalent. Native
+  probes should record all visible NDK camera IDs, logical multi-camera
+  capability, physical camera IDs, sensor sync type, `PRIVATE` sizes, and the
+  selected synthetic or explicit stereo side source. When testing lifecycle
+  timing, prefer a launch-extra delay such as `rustyxr.cameraStartDelayMs`
+  instead of changing projection, border, or shader code in the same run.
+- Keep OpenXR passthrough-client state separate from raw camera acquisition.
+  Optional passthrough features and scene permissions can affect whether a
+  Quest runtime exposes `XR_FB_passthrough`, but creating a passthrough
+  client/layer is not the same thing as delivering fresh raw camera buffers.
+  Always measure camera-frame progression and runtime camera-compute load when
+  this probe is enabled.
 - Keep environment depth, environment cubes, TSDF/readback, physics workers,
   and MediaProjection disabled unless the active runtime mode consumes them.
 
@@ -263,6 +295,71 @@ external sampler's conversion. Log the external format, Vulkan format,
 suggested YCbCr model/range, component mapping, and active camera color mode
 with each import test so RGB-sampler and shader-decode paths can be compared
 without changing projection or border behavior.
+
+Current public Quest profile findings:
+
+- The combined immutable-sampler `external-rgb` path is the usable baseline for
+  the projected stereo example on the tested runtime.
+- The combined-sampler `external-cr-y-cb-bt601-narrow` path can be strongly
+  green/discolored when the external sampler already presents RGB-like values.
+  Keep it as a diagnostic for raw-channel exposure, not as a default public
+  profile.
+- Render cadence and camera cadence must be measured separately. A profile can
+  submit OpenXR frames at `72 Hz` while Camera2 delivers paired camera buffers
+  below display cadence.
+- The simple Java Camera2 acquisition probes did not close the stale-frame gap
+  on the tested runtime: no explicit AE FPS request, a smaller stereo
+  `ImageReader` max-image count, a wider pair window, and a `1280x960`
+  separate-eye size all still produced stale concurrent-stereo progression.
+- A mono `PRIVATE` GPU-buffer probe at `1280x960` continued to deliver live
+  frames, so the next useful comparison is Java Camera2 concurrent stereo
+  against a lower-level/native hardware-buffer reader module.
+- The first native-reader probe reproduced the intended lower-level ownership
+  shape with `ACamera*`, `AImageReader` `PRIVATE` GPU-sampled buffers,
+  acquire-latest handling, immediate `AImage` deletion after taking an
+  `AHardwareBuffer` reference, and latest-pair publication. Direct side-camera
+  sessions still showed stale progression on the tested runtime, so the next
+  acquisition comparison is source/session shape and timestamp behavior, not
+  another Java queue-depth tweak.
+- The native single-camera mirror probe is a useful isolation module: it opens
+  one native camera source and mirrors the same acquired hardware buffer into
+  both display eyes. On one tested runtime, one side-camera ID delivered live
+  frames in this mode while the other side-camera ID remained sparse even when
+  opened alone. Treat exact IDs as run-local diagnostics. A successful mirror
+  run indicates that the renderer/import path can keep up, while a failing
+  stereo-native run points back at effective source/provider policy or
+  concurrent side-camera session behavior.
+- The native probe logs source topology and supports delayed camera startup.
+  Treat those as acquisition-lifecycle diagnostics: they should explain whether
+  two runs are using the same effective stereo source before color or stale
+  frame conclusions are compared.
+- Optional `XR_FB_passthrough` client/layer probing exposed a real runtime
+  capability boundary, but did not by itself fix camera progression. Keep
+  `client` and `warmup` as diagnostics for extension exposure and runtime
+  state, not as default color/performance profiles.
+
+### Autonomous Quest Camera Profile Runs
+
+`tools/quest-camera-profile` contains generic public helpers for repeatable
+Quest camera profile runs:
+
+- `Invoke-QuestCameraProfileRun.ps1` launches a catalog runtime profile,
+  captures power/wake/VR-power snapshots, records logcat and screenshots, and
+  writes a run manifest under ignored `artifacts/`.
+- `Validate-QuestCameraRun.py` rejects black-camera screenshots and log
+  windows that contain sleep, screen-off, session-exit, or automation-disable
+  signals. Native acquisition reports also include side-frame counts, selected
+  camera IDs, timestamp deltas, and the single-camera mirror flag when those
+  log lines are present.
+- `Compare-QuestCameraImages.py` compares two local screenshots by ROIs and
+  writes RGB/luma/saturation metrics plus a contact sheet.
+
+Use these tools to keep profile comparisons systematic. A useful run records
+the active runtime profile, camera color mode, requested/applied Camera2 AE FPS
+range, observed camera-pair FPS, CPU upload count, hardware-buffer import cache
+state, OpenXR frame cadence, render scale, foveation state, power state, and
+VR-power/proximity state. Reject the run before comparing color if the headset
+entered standby or the camera ROIs are black.
 
 For eye alignment, scale camera intrinsics from the source metadata pixel
 domain into the delivered per-eye stream domain before projection. A

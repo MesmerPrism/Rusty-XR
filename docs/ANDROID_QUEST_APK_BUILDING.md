@@ -214,6 +214,12 @@ Build it locally with:
 powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -OpenXrLoaderPath C:\path\to\libopenxr_loader.so
 ```
 
+The composite-layer build script defaults to target SDK `35`. It accepts
+`-TargetSdkVersion 33` as an explicit local probe for headset camera and
+permission-policy comparisons; do not treat that switch as a parity fix unless
+the corresponding run artifacts show fresh camera progression and stable frame
+cadence.
+
 The APK is written under `examples/quest-composite-layer-apk/build/`, which is
 ignored. Its catalog can be used with Rusty XR Companion Apps for install,
 launch, runtime-profile extras, log capture, screenshot/cast inspection, and

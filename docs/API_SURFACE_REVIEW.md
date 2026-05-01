@@ -13,8 +13,10 @@ LSL-native adapters.
 ## Surface That Can Be Used By Examples
 
 - `rusty-xr-contracts`: math, pose, timing, camera/depth metadata, hands,
-  interaction rays, plain media layers, render payloads, runtime counters, room
-  mesh source state, semantic room mesh snapshots, and capture lifecycle state.
+  interaction rays, plain media layers, native passthrough style descriptors,
+  safety-gated visual strobe descriptors, render payloads, runtime counters,
+  room mesh source state, semantic room mesh snapshots, and capture lifecycle
+  state.
 - `rusty-xr-runtime-config`: generic runtime keys, values, and Android property
   naming helpers.
 - `rusty-xr-ble`, `rusty-xr-lsl`, and `rusty-xr-polar`: protocol/data models
@@ -41,6 +43,9 @@ LSL-native adapters.
 ## Deferred
 
 - Native Quest passthrough or environment-depth adapters.
+- Native passthrough handle creation, frame submission, mesh upload, and LUT
+  allocation.
+- Presentation of intentional strobing stimuli without an explicit safety gate.
 - Native camera acquisition or platform texture import.
 - Runtime permission prompt implementations.
 - Hardware APK examples beyond the minimal smoke-test shell.

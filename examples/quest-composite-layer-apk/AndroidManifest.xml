@@ -13,6 +13,15 @@
         android:name="oculus.software.handtracking"
         android:required="false"
         android:version="1" />
+    <uses-feature
+        android:name="com.oculus.feature.PASSTHROUGH"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera2.full"
+        android:required="false" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -21,6 +30,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="horizonos.permission.HEADSET_CAMERA" />
+    <uses-permission android:name="com.oculus.permission.USE_SCENE" />
+    <uses-permission android:name="horizonos.permission.USE_SCENE" />
     <uses-permission android:name="org.khronos.openxr.permission.OPENXR" />
     <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
     <uses-permission android:name="oculus.permission.handtracking" />

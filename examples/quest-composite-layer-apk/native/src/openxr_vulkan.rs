@@ -7,7 +7,8 @@ use std::{
 use crate::{
     gpu_probe_counters, latest_headset_camera_frame, latest_headset_camera_gpu_frame,
     latest_headset_stereo_camera_gpu_frame, log_error, log_info, runtime_config,
-    HeadsetCameraFrame, HeadsetCameraGpuFrame, StereoGpuCameraFrame,
+    HeadsetCameraFrame, HeadsetCameraGpuFrame, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
+    OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
 };
 use android_activity::{InputStatus, MainEvent, PollEvent};
 use ash::vk::{self, Handle};
@@ -25,10 +26,14 @@ const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
 const CAMERA_CPU_UPLOAD_MIN_INTERVAL_NS: i64 = 250_000_000;
 const CAMERA_CPU_UPLOAD_HZ_LABEL: u32 = 4;
 const XR_RENDER_SCALE_DEFAULT: f32 = 0.75;
-const GPU_CAMERA_IMPORT_CACHE_LIMIT: usize = 16;
+const GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX: usize = crate::CAMERA_IMPORT_CACHE_LIMIT_MAX;
 const GPU_CAMERA_PROJECTION_UNIFORM_SLOTS: u32 = 3;
 const XR_FRAGMENT_DENSITY_MAP_FORMAT: vk::Format = vk::Format::R8G8_UNORM;
 const XR_FOVEATION_DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
+
+fn effective_camera_import_cache_limit(limit: usize) -> usize {
+    limit.clamp(2, GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX)
+}
 
 pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
     let entry = unsafe { xr::Entry::load().map_err(|error| format!("load OpenXR: {error}"))? };
@@ -46,6 +51,17 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
     enabled_extensions.khr_vulkan_enable2 = true;
     if available_extensions.fb_display_refresh_rate {
         enabled_extensions.fb_display_refresh_rate = true;
+    }
+    let passthrough_probe_requested = runtime_config().openxr_passthrough_probe.enabled();
+    if available_extensions.fb_passthrough && passthrough_probe_requested {
+        enabled_extensions.fb_passthrough = true;
+        if available_extensions.meta_passthrough_color_lut {
+            enabled_extensions.meta_passthrough_color_lut = true;
+        } else {
+            log_info("Rusty XR OpenXR passthrough color LUT extension unavailable".to_string());
+        }
+    } else if passthrough_probe_requested {
+        log_info("Rusty XR OpenXR passthrough extension unavailable".to_string());
     }
     if available_extensions.fb_swapchain_update_state
         && available_extensions.fb_foveation
@@ -93,6 +109,7 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
     let system = xr_instance
         .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
         .map_err(|error| format!("get HMD system: {error}"))?;
+    let passthrough_lut_max_resolution = query_passthrough_lut_max_resolution(&xr_instance, system);
     let environment_blend_mode = xr_instance
         .enumerate_environment_blend_modes(system, VIEW_TYPE)
         .map_err(|error| format!("enumerate environment blend modes: {error}"))?
@@ -123,6 +140,7 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
             system,
             environment_blend_mode,
             vk_target_version,
+            passthrough_lut_max_resolution,
         )
     }
 }
@@ -236,11 +254,53 @@ fn ensure_xr_success(result: xr::sys::Result, operation: &str) -> Result<(), Str
     Ok(())
 }
 
-fn configure_display_refresh_rate<G>(instance: &xr::Instance, session: &xr::Session<G>) {
-    const TARGET_DISPLAY_REFRESH_HZ: f32 = 72.0;
+fn query_passthrough_lut_max_resolution(
+    instance: &xr::Instance,
+    system: xr::SystemId,
+) -> Option<u32> {
+    instance.exts().meta_passthrough_color_lut.as_ref()?;
+    let mut lut_properties = xr::sys::SystemPassthroughColorLutPropertiesMETA {
+        ty: xr::sys::SystemPassthroughColorLutPropertiesMETA::TYPE,
+        next: ptr::null(),
+        max_color_lut_resolution: 0,
+    };
+    let mut system_properties =
+        xr::sys::SystemProperties::out(&mut lut_properties as *mut _ as *mut _);
+    let result = unsafe {
+        (instance.fp().get_system_properties)(
+            instance.as_raw(),
+            system,
+            system_properties.as_mut_ptr(),
+        )
+    };
+    if result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+        log_error(format!(
+            "Rusty XR could not query passthrough LUT properties: {result:?}"
+        ));
+        return None;
+    }
+    log_info(format!(
+        "Rusty XR OpenXR passthrough LUT maxResolution={}",
+        lut_properties.max_color_lut_resolution
+    ));
+    Some(lut_properties.max_color_lut_resolution)
+}
 
+fn sync_display_refresh_rate<G>(
+    instance: &xr::Instance,
+    session: &xr::Session<G>,
+    target_display_refresh_hz: f32,
+    last_requested_hz: &mut Option<f32>,
+) {
     if instance.exts().fb_display_refresh_rate.is_none() {
         log_info("Rusty XR OpenXR display refresh extension unavailable; using runtime default");
+        *last_requested_hz = Some(target_display_refresh_hz);
+        return;
+    }
+    if last_requested_hz
+        .map(|last| (last - target_display_refresh_hz).abs() <= 0.05)
+        .unwrap_or(false)
+    {
         return;
     }
 
@@ -257,16 +317,19 @@ fn configure_display_refresh_rate<G>(instance: &xr::Instance, session: &xr::Sess
     let target = supported
         .iter()
         .copied()
-        .find(|rate| (*rate - TARGET_DISPLAY_REFRESH_HZ).abs() <= 0.05);
+        .find(|rate| (*rate - target_display_refresh_hz).abs() <= 0.05);
 
     if let Some(target) = target {
         match session.request_display_refresh_rate(target) {
-            Ok(()) => log_info(format!(
-                "Rusty XR requested OpenXR display refresh {:.1}Hz current={} supported={}",
-                target,
-                refresh_rate_label(current),
-                refresh_rate_list_label(&supported)
-            )),
+            Ok(()) => {
+                *last_requested_hz = Some(target);
+                log_info(format!(
+                    "Rusty XR requested OpenXR display refresh {:.1}Hz current={} supported={}",
+                    target,
+                    refresh_rate_label(current),
+                    refresh_rate_list_label(&supported)
+                ));
+            }
             Err(error) => log_error(format!(
                 "Rusty XR could not request OpenXR display refresh {:.1}Hz current={} supported={} error={error}",
                 target,
@@ -277,10 +340,11 @@ fn configure_display_refresh_rate<G>(instance: &xr::Instance, session: &xr::Sess
     } else {
         log_error(format!(
             "Rusty XR OpenXR display refresh target {:.1}Hz is not in supported rates current={} supported={}",
-            TARGET_DISPLAY_REFRESH_HZ,
+            target_display_refresh_hz,
             refresh_rate_label(current),
             refresh_rate_list_label(&supported)
         ));
+        *last_requested_hz = Some(target_display_refresh_hz);
     }
 }
 
@@ -306,12 +370,879 @@ fn refresh_rate_list_label(values: &[f32]) -> String {
     label
 }
 
+struct PassthroughLutResources {
+    extension: xr::raw::PassthroughColorLutMETA,
+    source: xr::sys::PassthroughColorLutMETA,
+    target: xr::sys::PassthroughColorLutMETA,
+    signature: String,
+}
+
+impl Drop for PassthroughLutResources {
+    fn drop(&mut self) {
+        for (label, handle) in [("source", self.source), ("target", self.target)] {
+            let result = unsafe { (self.extension.destroy_passthrough_color_lut)(handle) };
+            if result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR OpenXR passthrough LUT destroy failed {label}: {result:?}"
+                ));
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct PassthroughLutFlickerStats {
+    target_bits: Option<u32>,
+    start_predicted_ns: i64,
+    last_half_cycle: i64,
+    switches: u64,
+    missed_half_cycles: u64,
+    last_report_instant: Option<Instant>,
+    last_report_frame: u64,
+    last_report_switches: u64,
+    last_report_missed: u64,
+}
+
+impl PassthroughLutFlickerStats {
+    fn reset(&mut self) {
+        if self.target_bits.is_some() {
+            *self = Self::default();
+        }
+    }
+
+    fn tick(
+        &mut self,
+        target_cycle_hz: f32,
+        predicted_display_time: xr::Time,
+        frame_count: u64,
+    ) -> bool {
+        let target_bits = target_cycle_hz.to_bits();
+        let predicted_ns = predicted_display_time.as_nanos();
+        if self.target_bits != Some(target_bits) || predicted_ns < self.start_predicted_ns {
+            self.target_bits = Some(target_bits);
+            self.start_predicted_ns = predicted_ns;
+            self.last_half_cycle = 0;
+            self.switches = 0;
+            self.missed_half_cycles = 0;
+            self.last_report_instant = Some(Instant::now());
+            self.last_report_frame = frame_count;
+            self.last_report_switches = 0;
+            self.last_report_missed = 0;
+        }
+
+        let elapsed_seconds =
+            (predicted_ns - self.start_predicted_ns).max(0) as f64 / 1_000_000_000.0;
+        let half_cycle = (elapsed_seconds * target_cycle_hz as f64 * 2.0).floor() as i64;
+        if half_cycle != self.last_half_cycle {
+            let skipped = (half_cycle - self.last_half_cycle)
+                .unsigned_abs()
+                .saturating_sub(1);
+            self.switches = self.switches.saturating_add(1);
+            self.missed_half_cycles = self.missed_half_cycles.saturating_add(skipped);
+            self.last_half_cycle = half_cycle;
+        }
+
+        self.report_if_due(target_cycle_hz, frame_count);
+        (self.last_half_cycle & 1) != 0
+    }
+
+    fn report_if_due(&mut self, target_cycle_hz: f32, frame_count: u64) {
+        let now = Instant::now();
+        let Some(last_report) = self.last_report_instant else {
+            self.last_report_instant = Some(now);
+            return;
+        };
+        let elapsed = now.duration_since(last_report).as_secs_f64();
+        if elapsed < 2.0 {
+            return;
+        }
+        let delta_switches = self.switches.saturating_sub(self.last_report_switches);
+        let delta_frames = frame_count.saturating_sub(self.last_report_frame);
+        let delta_missed = self
+            .missed_half_cycles
+            .saturating_sub(self.last_report_missed);
+        let observed_switch_hz = delta_switches as f64 / elapsed;
+        let observed_cycle_hz = observed_switch_hz * 0.5;
+        let observed_frame_hz = delta_frames as f64 / elapsed;
+        log_info(format!(
+            "Rusty XR passthrough LUT flicker stats targetCycleHz={:.2} targetSwitchHz={:.2} observedCycleHz={:.2} observedSwitchHz={:.2} observedFrameHz={:.2} frames={} switches={} missedHalfCycles={} totalSwitches={} totalMissedHalfCycles={}",
+            target_cycle_hz,
+            target_cycle_hz * 2.0,
+            observed_cycle_hz,
+            observed_switch_hz,
+            observed_frame_hz,
+            delta_frames,
+            delta_switches,
+            delta_missed,
+            self.switches,
+            self.missed_half_cycles
+        ));
+        self.last_report_instant = Some(now);
+        self.last_report_frame = frame_count;
+        self.last_report_switches = self.switches;
+        self.last_report_missed = self.missed_half_cycles;
+    }
+}
+
+#[derive(Default)]
+struct FullFieldFlickerStats {
+    target_bits: Option<u32>,
+    start_predicted_ns: i64,
+    last_half_cycle: i64,
+    switches: u64,
+    missed_half_cycles: u64,
+    last_report_instant: Option<Instant>,
+    last_report_frame: u64,
+    last_report_switches: u64,
+    last_report_missed: u64,
+}
+
+impl FullFieldFlickerStats {
+    fn reset(&mut self) {
+        if self.target_bits.is_some() {
+            *self = Self::default();
+        }
+    }
+
+    fn tick(
+        &mut self,
+        target_cycle_hz: f32,
+        predicted_display_time: xr::Time,
+        frame_count: u64,
+    ) -> bool {
+        if target_cycle_hz <= 0.0 {
+            self.reset();
+            return false;
+        }
+        let target_bits = target_cycle_hz.to_bits();
+        let predicted_ns = predicted_display_time.as_nanos();
+        if self.target_bits != Some(target_bits) || predicted_ns < self.start_predicted_ns {
+            self.target_bits = Some(target_bits);
+            self.start_predicted_ns = predicted_ns;
+            self.last_half_cycle = 0;
+            self.switches = 0;
+            self.missed_half_cycles = 0;
+            self.last_report_instant = Some(Instant::now());
+            self.last_report_frame = frame_count;
+            self.last_report_switches = 0;
+            self.last_report_missed = 0;
+        }
+
+        let elapsed_seconds =
+            (predicted_ns - self.start_predicted_ns).max(0) as f64 / 1_000_000_000.0;
+        let half_cycle = (elapsed_seconds * target_cycle_hz as f64 * 2.0).floor() as i64;
+        if half_cycle != self.last_half_cycle {
+            let skipped = (half_cycle - self.last_half_cycle)
+                .unsigned_abs()
+                .saturating_sub(1);
+            self.switches = self.switches.saturating_add(1);
+            self.missed_half_cycles = self.missed_half_cycles.saturating_add(skipped);
+            self.last_half_cycle = half_cycle;
+        }
+
+        self.report_if_due(target_cycle_hz, frame_count);
+        (self.last_half_cycle & 1) == 0
+    }
+
+    fn report_if_due(&mut self, target_cycle_hz: f32, frame_count: u64) {
+        let now = Instant::now();
+        let Some(last_report) = self.last_report_instant else {
+            self.last_report_instant = Some(now);
+            return;
+        };
+        let elapsed = now.duration_since(last_report).as_secs_f64();
+        if elapsed < 2.0 {
+            return;
+        }
+        let delta_switches = self.switches.saturating_sub(self.last_report_switches);
+        let delta_frames = frame_count.saturating_sub(self.last_report_frame);
+        let delta_missed = self
+            .missed_half_cycles
+            .saturating_sub(self.last_report_missed);
+        let observed_switch_hz = delta_switches as f64 / elapsed;
+        let observed_cycle_hz = observed_switch_hz * 0.5;
+        let observed_frame_hz = delta_frames as f64 / elapsed;
+        log_info(format!(
+            "Rusty XR full-field flicker stats targetCycleHz={:.2} targetSwitchHz={:.2} observedCycleHz={:.2} observedSwitchHz={:.2} observedFrameHz={:.2} frames={} switches={} missedHalfCycles={} totalSwitches={} totalMissedHalfCycles={}",
+            target_cycle_hz,
+            target_cycle_hz * 2.0,
+            observed_cycle_hz,
+            observed_switch_hz,
+            observed_frame_hz,
+            delta_frames,
+            delta_switches,
+            delta_missed,
+            self.switches,
+            self.missed_half_cycles
+        ));
+        self.last_report_instant = Some(now);
+        self.last_report_frame = frame_count;
+        self.last_report_switches = self.switches;
+        self.last_report_missed = self.missed_half_cycles;
+    }
+}
+
+struct OpenXrPassthroughProbe {
+    mode: OpenXrPassthroughProbeMode,
+    fb_passthrough: xr::raw::PassthroughFB,
+    passthrough: xr::sys::PassthroughFB,
+    layer: xr::sys::PassthroughLayerFB,
+    start_frame: u64,
+    paused: bool,
+    last_style_signature: Option<String>,
+    lut_max_resolution: Option<u32>,
+    lut_resources: Option<PassthroughLutResources>,
+    lut_flicker: PassthroughLutFlickerStats,
+}
+
+impl OpenXrPassthroughProbe {
+    fn tick(&mut self, frame_count: u64) {
+        if self.mode != OpenXrPassthroughProbeMode::Warmup || self.paused {
+            return;
+        }
+        if frame_count.saturating_sub(self.start_frame) < 6 {
+            return;
+        }
+        let result = unsafe { (self.fb_passthrough.passthrough_pause)(self.passthrough) };
+        if result.into_raw() >= xr::sys::Result::SUCCESS.into_raw() {
+            self.paused = true;
+            log_info(format!(
+                "Rusty XR OpenXR passthrough probe paused mode={} afterFrames={}",
+                self.mode.stable_id(),
+                frame_count.saturating_sub(self.start_frame)
+            ));
+        } else {
+            self.paused = true;
+            log_error(format!(
+                "Rusty XR OpenXR passthrough probe pause failed mode={} result={result:?}",
+                self.mode.stable_id()
+            ));
+        }
+    }
+
+    fn submits_composition_layer(&self) -> bool {
+        self.mode.submits_composition_layer() && !self.paused
+    }
+
+    fn apply_style(
+        &mut self,
+        instance: &xr::Instance,
+        config: &RuntimeConfig,
+        predicted_display_time: xr::Time,
+        frame_count: u64,
+    ) {
+        let flicker_state = self.lut_flicker_state(config, predicted_display_time, frame_count);
+        let signature = passthrough_style_signature(config, flicker_state);
+        if self.last_style_signature.as_deref() == Some(signature.as_str()) {
+            return;
+        }
+
+        match apply_passthrough_layer_style(instance, self, config, flicker_state) {
+            Ok(()) => {
+                self.last_style_signature = Some(signature);
+                if flicker_state.is_none()
+                    || self.lut_flicker.switches <= 1
+                    || frame_count % 120 == 0
+                {
+                    log_info(format!(
+                        "Rusty XR OpenXR passthrough style applied mode={} opacity={} edge={:?} bcs=({},{},{}) colorPhase={} colorAmplitude={} lutResolution={} lutWeight={} lutFlickerHz={} flickerState={}",
+                        config.passthrough_style_mode.stable_id(),
+                        config.passthrough_opacity,
+                        config.passthrough_edge_color,
+                        config.passthrough_brightness,
+                        config.passthrough_contrast,
+                        config.passthrough_saturation,
+                        config.passthrough_color_phase,
+                        config.passthrough_color_amplitude,
+                        config.passthrough_lut_resolution,
+                        config.passthrough_lut_weight,
+                        config.passthrough_lut_flicker_hz,
+                        flicker_state
+                            .map(|state| if state { "target" } else { "source" })
+                            .unwrap_or("static")
+                    ));
+                }
+            }
+            Err(error) => {
+                self.last_style_signature = Some(signature);
+                log_error(format!(
+                    "Rusty XR OpenXR passthrough style failed mode={} error={error}",
+                    config.passthrough_style_mode.stable_id()
+                ));
+            }
+        }
+    }
+
+    fn lut_flicker_state(
+        &mut self,
+        config: &RuntimeConfig,
+        predicted_display_time: xr::Time,
+        frame_count: u64,
+    ) -> Option<bool> {
+        if config.passthrough_style_mode != OpenXrPassthroughStyleMode::ColorLut
+            || config.passthrough_lut_flicker_hz <= 0.0
+        {
+            self.lut_flicker.reset();
+            return None;
+        }
+        Some(self.lut_flicker.tick(
+            config.passthrough_lut_flicker_hz,
+            predicted_display_time,
+            frame_count,
+        ))
+    }
+}
+
+impl Drop for OpenXrPassthroughProbe {
+    fn drop(&mut self) {
+        self.lut_resources = None;
+        unsafe {
+            if self.layer != xr::sys::PassthroughLayerFB::NULL {
+                let pause_result = (self.fb_passthrough.passthrough_layer_pause)(self.layer);
+                if pause_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR OpenXR passthrough layer pause during drop failed result={pause_result:?}"
+                    ));
+                }
+                let destroy_result = (self.fb_passthrough.destroy_passthrough_layer)(self.layer);
+                if destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR OpenXR passthrough layer destroy failed result={destroy_result:?}"
+                    ));
+                }
+                self.layer = xr::sys::PassthroughLayerFB::NULL;
+            }
+            if self.passthrough != xr::sys::PassthroughFB::NULL {
+                let pause_result = (self.fb_passthrough.passthrough_pause)(self.passthrough);
+                if pause_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR OpenXR passthrough pause during drop failed result={pause_result:?}"
+                    ));
+                }
+                let destroy_result = (self.fb_passthrough.destroy_passthrough)(self.passthrough);
+                if destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR OpenXR passthrough destroy failed result={destroy_result:?}"
+                    ));
+                }
+                self.passthrough = xr::sys::PassthroughFB::NULL;
+            }
+        }
+    }
+}
+
+fn sync_openxr_passthrough_probe<G: xr::Graphics>(
+    instance: &xr::Instance,
+    session: &xr::Session<G>,
+    existing: Option<OpenXrPassthroughProbe>,
+    mode: OpenXrPassthroughProbeMode,
+    start_frame: u64,
+    passthrough_lut_max_resolution: Option<u32>,
+) -> Option<OpenXrPassthroughProbe> {
+    if let Some(existing) = existing {
+        if existing.mode == mode {
+            return Some(existing);
+        }
+        if mode.enabled() {
+            log_info(format!(
+                "Rusty XR OpenXR passthrough probe switching from {} to {}",
+                existing.mode.stable_id(),
+                mode.stable_id()
+            ));
+        } else {
+            log_info(format!(
+                "Rusty XR OpenXR passthrough probe disabled from {}",
+                existing.mode.stable_id()
+            ));
+        }
+    }
+    if !mode.enabled() {
+        return None;
+    }
+    if instance.exts().fb_passthrough.is_none() {
+        log_info(format!(
+            "Rusty XR OpenXR passthrough probe requested mode={} but XR_FB_passthrough is unavailable",
+            mode.stable_id()
+        ));
+        return None;
+    }
+
+    match create_openxr_passthrough_probe(
+        instance,
+        session,
+        mode,
+        start_frame,
+        passthrough_lut_max_resolution,
+    ) {
+        Ok(probe) => {
+            log_info(format!(
+                "Rusty XR OpenXR passthrough probe active mode={}",
+                probe.mode.stable_id()
+            ));
+            Some(probe)
+        }
+        Err(error) => {
+            log_error(format!(
+                "Rusty XR OpenXR passthrough probe failed mode={} error={error}",
+                mode.stable_id()
+            ));
+            None
+        }
+    }
+}
+
+fn create_openxr_passthrough_probe<G: xr::Graphics>(
+    instance: &xr::Instance,
+    session: &xr::Session<G>,
+    mode: OpenXrPassthroughProbeMode,
+    start_frame: u64,
+    passthrough_lut_max_resolution: Option<u32>,
+) -> Result<OpenXrPassthroughProbe, String> {
+    let fb_passthrough = *instance
+        .exts()
+        .fb_passthrough
+        .as_ref()
+        .ok_or_else(|| "XR_FB_passthrough function table is unavailable".to_string())?;
+    let flags = xr::PassthroughFlagsFB::IS_RUNNING_AT_CREATION;
+    let passthrough_info = xr::sys::PassthroughCreateInfoFB {
+        ty: xr::sys::PassthroughCreateInfoFB::TYPE,
+        next: ptr::null(),
+        flags,
+    };
+    let mut passthrough = xr::sys::PassthroughFB::NULL;
+    let result = unsafe {
+        (fb_passthrough.create_passthrough)(session.as_raw(), &passthrough_info, &mut passthrough)
+    };
+    ensure_xr_success(result, "xrCreatePassthroughFB")?;
+
+    let layer_info = xr::sys::PassthroughLayerCreateInfoFB {
+        ty: xr::sys::PassthroughLayerCreateInfoFB::TYPE,
+        next: ptr::null(),
+        passthrough,
+        flags,
+        purpose: xr::PassthroughLayerPurposeFB::RECONSTRUCTION,
+    };
+    let mut layer = xr::sys::PassthroughLayerFB::NULL;
+    let result = unsafe {
+        (fb_passthrough.create_passthrough_layer)(session.as_raw(), &layer_info, &mut layer)
+    };
+    if let Err(error) = ensure_xr_success(result, "xrCreatePassthroughLayerFB") {
+        let destroy_result = unsafe { (fb_passthrough.destroy_passthrough)(passthrough) };
+        if destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+            log_error(format!(
+                "Rusty XR OpenXR passthrough cleanup after layer create failed result={destroy_result:?}"
+            ));
+        }
+        return Err(error);
+    }
+
+    let result = unsafe { (fb_passthrough.passthrough_layer_resume)(layer) };
+    if let Err(error) = ensure_xr_success(result, "xrPassthroughLayerResumeFB") {
+        unsafe {
+            let layer_destroy_result = (fb_passthrough.destroy_passthrough_layer)(layer);
+            if layer_destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR OpenXR passthrough layer cleanup after resume failed result={layer_destroy_result:?}"
+                ));
+            }
+            let passthrough_destroy_result = (fb_passthrough.destroy_passthrough)(passthrough);
+            if passthrough_destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR OpenXR passthrough cleanup after resume failed result={passthrough_destroy_result:?}"
+                ));
+            }
+        }
+        return Err(error);
+    }
+
+    Ok(OpenXrPassthroughProbe {
+        mode,
+        fb_passthrough,
+        passthrough,
+        layer,
+        start_frame,
+        paused: false,
+        last_style_signature: None,
+        lut_max_resolution: passthrough_lut_max_resolution,
+        lut_resources: None,
+        lut_flicker: PassthroughLutFlickerStats::default(),
+    })
+}
+
+fn passthrough_style_signature(config: &RuntimeConfig, flicker_state: Option<bool>) -> String {
+    format!(
+        "{}:{}:{:?}:{}:{}:{}:{}:{}:{}:{}:{}:{:?}",
+        config.passthrough_style_mode.stable_id(),
+        config.passthrough_opacity.to_bits(),
+        config.passthrough_edge_color.map(f32::to_bits),
+        config.passthrough_brightness.to_bits(),
+        config.passthrough_contrast.to_bits(),
+        config.passthrough_saturation.to_bits(),
+        config.passthrough_color_phase.to_bits(),
+        config.passthrough_color_amplitude.to_bits(),
+        config.passthrough_lut_resolution,
+        config.passthrough_lut_weight.to_bits(),
+        config.passthrough_lut_flicker_hz.to_bits(),
+        flicker_state
+    )
+}
+
+fn apply_passthrough_layer_style(
+    instance: &xr::Instance,
+    probe: &mut OpenXrPassthroughProbe,
+    config: &RuntimeConfig,
+    flicker_state: Option<bool>,
+) -> Result<(), String> {
+    let Some(fb_passthrough) = instance.exts().fb_passthrough.as_ref() else {
+        return Err("XR_FB_passthrough function table is unavailable".to_string());
+    };
+    let layer = probe.layer;
+
+    let edge_color = xr::sys::Color4f {
+        r: config.passthrough_edge_color[0],
+        g: config.passthrough_edge_color[1],
+        b: config.passthrough_edge_color[2],
+        a: config.passthrough_edge_color[3],
+    };
+    match config.passthrough_style_mode {
+        OpenXrPassthroughStyleMode::None => {
+            let style = xr::sys::PassthroughStyleFB {
+                ty: xr::sys::PassthroughStyleFB::TYPE,
+                next: ptr::null(),
+                texture_opacity_factor: config.passthrough_opacity,
+                edge_color,
+            };
+            let result = unsafe { (fb_passthrough.passthrough_layer_set_style)(layer, &style) };
+            ensure_xr_success(result, "xrPassthroughLayerSetStyleFB")
+        }
+        OpenXrPassthroughStyleMode::BrightnessContrastSaturation => {
+            let bcs = xr::sys::PassthroughBrightnessContrastSaturationFB {
+                ty: xr::sys::PassthroughBrightnessContrastSaturationFB::TYPE,
+                next: ptr::null(),
+                brightness: config.passthrough_brightness,
+                contrast: config.passthrough_contrast,
+                saturation: config.passthrough_saturation,
+            };
+            let style = xr::sys::PassthroughStyleFB {
+                ty: xr::sys::PassthroughStyleFB::TYPE,
+                next: &bcs as *const _ as *const _,
+                texture_opacity_factor: config.passthrough_opacity,
+                edge_color,
+            };
+            let result = unsafe { (fb_passthrough.passthrough_layer_set_style)(layer, &style) };
+            ensure_xr_success(result, "xrPassthroughLayerSetStyleFB")
+        }
+        OpenXrPassthroughStyleMode::MonoToRgba => {
+            let color_map = passthrough_rgba_color_map(config);
+            let map = xr::sys::PassthroughColorMapMonoToRgbaFB {
+                ty: xr::sys::PassthroughColorMapMonoToRgbaFB::TYPE,
+                next: ptr::null(),
+                texture_color_map: color_map,
+            };
+            let style = xr::sys::PassthroughStyleFB {
+                ty: xr::sys::PassthroughStyleFB::TYPE,
+                next: &map as *const _ as *const _,
+                texture_opacity_factor: config.passthrough_opacity,
+                edge_color,
+            };
+            let result = unsafe { (fb_passthrough.passthrough_layer_set_style)(layer, &style) };
+            ensure_xr_success(result, "xrPassthroughLayerSetStyleFB")
+        }
+        OpenXrPassthroughStyleMode::ColorLut => {
+            let Some(meta_lut) = instance.exts().meta_passthrough_color_lut.as_ref() else {
+                return Err(
+                    "XR_META_passthrough_color_lut function table is unavailable".to_string(),
+                );
+            };
+            ensure_passthrough_lut_resources(probe, *meta_lut, config)?;
+            let resources = probe
+                .lut_resources
+                .as_ref()
+                .ok_or_else(|| "passthrough LUT resources were not created".to_string())?;
+            if let Some(use_target) = flicker_state {
+                let lut = xr::sys::PassthroughColorMapInterpolatedLutMETA {
+                    ty: xr::sys::PassthroughColorMapInterpolatedLutMETA::TYPE,
+                    next: ptr::null(),
+                    source_color_lut: resources.source,
+                    target_color_lut: resources.target,
+                    weight: if use_target { 1.0 } else { 0.0 },
+                };
+                let style = xr::sys::PassthroughStyleFB {
+                    ty: xr::sys::PassthroughStyleFB::TYPE,
+                    next: &lut as *const _ as *const _,
+                    texture_opacity_factor: config.passthrough_opacity,
+                    edge_color,
+                };
+                let result = unsafe { (fb_passthrough.passthrough_layer_set_style)(layer, &style) };
+                ensure_xr_success(result, "xrPassthroughLayerSetStyleFB")
+            } else {
+                let lut = xr::sys::PassthroughColorMapLutMETA {
+                    ty: xr::sys::PassthroughColorMapLutMETA::TYPE,
+                    next: ptr::null(),
+                    color_lut: resources.source,
+                    weight: config.passthrough_lut_weight,
+                };
+                let style = xr::sys::PassthroughStyleFB {
+                    ty: xr::sys::PassthroughStyleFB::TYPE,
+                    next: &lut as *const _ as *const _,
+                    texture_opacity_factor: config.passthrough_opacity,
+                    edge_color,
+                };
+                let result = unsafe { (fb_passthrough.passthrough_layer_set_style)(layer, &style) };
+                ensure_xr_success(result, "xrPassthroughLayerSetStyleFB")
+            }
+        }
+    }
+}
+
+fn ensure_passthrough_lut_resources(
+    probe: &mut OpenXrPassthroughProbe,
+    extension: xr::raw::PassthroughColorLutMETA,
+    config: &RuntimeConfig,
+) -> Result<(), String> {
+    let resolution = effective_passthrough_lut_resolution(
+        config.passthrough_lut_resolution,
+        probe.lut_max_resolution,
+    );
+    let signature = format!(
+        "{}:{}:{}",
+        resolution,
+        config.passthrough_color_phase.to_bits(),
+        config.passthrough_color_amplitude.to_bits()
+    );
+    if probe
+        .lut_resources
+        .as_ref()
+        .map(|resources| resources.signature.as_str() == signature.as_str())
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    let source_data = passthrough_rgb_lut_data(
+        resolution,
+        config.passthrough_color_phase,
+        config.passthrough_color_amplitude,
+        false,
+    );
+    let target_data = passthrough_rgb_lut_data(
+        resolution,
+        config.passthrough_color_phase,
+        config.passthrough_color_amplitude,
+        true,
+    );
+    let source = create_passthrough_color_lut(
+        extension,
+        probe.passthrough,
+        resolution,
+        &source_data,
+        "source",
+    )?;
+    let target = match create_passthrough_color_lut(
+        extension,
+        probe.passthrough,
+        resolution,
+        &target_data,
+        "target",
+    ) {
+        Ok(target) => target,
+        Err(error) => {
+            let destroy_result = unsafe { (extension.destroy_passthrough_color_lut)(source) };
+            if destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR OpenXR passthrough LUT cleanup failed after target create error: {destroy_result:?}"
+                ));
+            }
+            return Err(error);
+        }
+    };
+    probe.lut_resources = Some(PassthroughLutResources {
+        extension,
+        source,
+        target,
+        signature,
+    });
+    log_info(format!(
+        "Rusty XR OpenXR passthrough LUT resources created resolution={} bytesPerLut={} colorPhase={} colorAmplitude={}",
+        resolution,
+        source_data.len(),
+        config.passthrough_color_phase,
+        config.passthrough_color_amplitude
+    ));
+    Ok(())
+}
+
+fn create_passthrough_color_lut(
+    extension: xr::raw::PassthroughColorLutMETA,
+    passthrough: xr::sys::PassthroughFB,
+    resolution: u32,
+    data: &[u8],
+    label: &str,
+) -> Result<xr::sys::PassthroughColorLutMETA, String> {
+    let create_info = xr::sys::PassthroughColorLutCreateInfoMETA {
+        ty: xr::sys::PassthroughColorLutCreateInfoMETA::TYPE,
+        next: ptr::null(),
+        channels: xr::sys::PassthroughColorLutChannelsMETA::RGB,
+        resolution,
+        data: xr::sys::PassthroughColorLutDataMETA {
+            buffer_size: data.len() as u32,
+            buffer: data.as_ptr(),
+        },
+    };
+    let mut color_lut = xr::sys::PassthroughColorLutMETA::NULL;
+    let result = unsafe {
+        (extension.create_passthrough_color_lut)(passthrough, &create_info, &mut color_lut)
+    };
+    ensure_xr_success(result, &format!("xrCreatePassthroughColorLutMETA({label})"))?;
+    Ok(color_lut)
+}
+
+fn effective_passthrough_lut_resolution(requested: u32, max_resolution: Option<u32>) -> u32 {
+    let capped = requested.clamp(2, max_resolution.unwrap_or(64).max(2));
+    if capped.is_power_of_two() {
+        capped
+    } else if capped >= 32 {
+        32
+    } else if capped >= 16 {
+        16
+    } else if capped >= 8 {
+        8
+    } else if capped >= 4 {
+        4
+    } else {
+        2
+    }
+}
+
+fn passthrough_rgb_lut_data(
+    resolution: u32,
+    phase: f32,
+    amplitude: f32,
+    inverted: bool,
+) -> Vec<u8> {
+    let mut data = Vec::with_capacity((resolution * resolution * resolution * 3) as usize);
+    let denominator = (resolution - 1).max(1) as f32;
+    let phase_offset = if inverted { 0.5 } else { 0.0 };
+    let amplitude = amplitude.clamp(0.0, 1.0);
+    for b in 0..resolution {
+        for g in 0..resolution {
+            for r in 0..resolution {
+                let input = [
+                    r as f32 / denominator,
+                    g as f32 / denominator,
+                    b as f32 / denominator,
+                ];
+                let luminance =
+                    (0.2126 * input[0] + 0.7152 * input[1] + 0.0722 * input[2]).clamp(0.0, 1.0);
+                let palette =
+                    opponent_cosine_palette(luminance + phase.rem_euclid(1.0) + phase_offset);
+                for channel in 0..3 {
+                    let value = input[channel] * (1.0 - amplitude) + palette[channel] * amplitude;
+                    data.push(unit_float_to_u8(value));
+                }
+            }
+        }
+    }
+    data
+}
+
+fn opponent_cosine_palette(position: f32) -> [f32; 3] {
+    let angle = std::f32::consts::TAU * position.rem_euclid(1.0);
+    [
+        0.5 + 0.5 * angle.cos(),
+        0.5 + 0.5 * (angle - (2.0 * std::f32::consts::PI / 3.0)).cos(),
+        0.5 + 0.5 * (angle + (2.0 * std::f32::consts::PI / 3.0)).cos(),
+    ]
+}
+
+fn unit_float_to_u8(value: f32) -> u8 {
+    (value.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+fn passthrough_rgba_color_map(config: &RuntimeConfig) -> [xr::sys::Color4f; 256] {
+    let phase = config.passthrough_color_phase.rem_euclid(1.0);
+    let amplitude = config.passthrough_color_amplitude.clamp(0.0, 1.0);
+    std::array::from_fn(|index| {
+        let luminance = index as f32 / 255.0;
+        let position = (luminance + phase).rem_euclid(1.0);
+        let gradient = public_passthrough_gradient(position);
+        xr::sys::Color4f {
+            r: luminance * (1.0 - amplitude) + gradient.r * amplitude,
+            g: luminance * (1.0 - amplitude) + gradient.g * amplitude,
+            b: luminance * (1.0 - amplitude) + gradient.b * amplitude,
+            a: 1.0,
+        }
+    })
+}
+
+fn public_passthrough_gradient(position: f32) -> xr::sys::Color4f {
+    let stops = [
+        (
+            0.00,
+            xr::sys::Color4f {
+                r: 0.03,
+                g: 0.04,
+                b: 0.10,
+                a: 1.0,
+            },
+        ),
+        (
+            0.34,
+            xr::sys::Color4f {
+                r: 0.05,
+                g: 0.62,
+                b: 0.95,
+                a: 1.0,
+            },
+        ),
+        (
+            0.68,
+            xr::sys::Color4f {
+                r: 0.88,
+                g: 0.18,
+                b: 0.58,
+                a: 1.0,
+            },
+        ),
+        (
+            1.00,
+            xr::sys::Color4f {
+                r: 0.96,
+                g: 0.86,
+                b: 0.24,
+                a: 1.0,
+            },
+        ),
+    ];
+    for pair in stops.windows(2) {
+        let (left_position, left_color) = pair[0];
+        let (right_position, right_color) = pair[1];
+        if position <= right_position {
+            let span = (right_position - left_position).max(f32::EPSILON);
+            let amount = ((position - left_position) / span).clamp(0.0, 1.0);
+            return mix_xr_color(left_color, right_color, amount);
+        }
+    }
+    stops[stops.len() - 1].1
+}
+
+fn mix_xr_color(left: xr::sys::Color4f, right: xr::sys::Color4f, amount: f32) -> xr::sys::Color4f {
+    let inverse = 1.0 - amount;
+    xr::sys::Color4f {
+        r: left.r * inverse + right.r * amount,
+        g: left.g * inverse + right.g * amount,
+        b: left.b * inverse + right.b * amount,
+        a: left.a * inverse + right.a * amount,
+    }
+}
+
 unsafe fn run_vulkan(
     app: android_activity::AndroidApp,
     xr_instance: xr::Instance,
     system: xr::SystemId,
     environment_blend_mode: xr::EnvironmentBlendMode,
     vk_target_version: u32,
+    passthrough_lut_max_resolution: Option<u32>,
 ) -> Result<(), String> {
     let vk_entry = ash::Entry::load().map_err(|error| format!("load Vulkan: {error}"))?;
     let vk_app_info = vk::ApplicationInfo::default()
@@ -440,10 +1371,16 @@ unsafe fn run_vulkan(
         && xr_instance.exts().fb_foveation.is_some()
         && xr_instance.exts().fb_foveation_configuration.is_some()
         && xr_instance.exts().fb_foveation_vulkan.is_some();
-    let render_pass = create_openxr_render_pass(&vk_device, fixed_foveation_render_path)?;
+    let xr_color_format_mode = startup_config.xr_color_format_mode;
+    let xr_color_format = xr_color_format_mode.vk_format();
+    let render_pass =
+        create_openxr_render_pass(&vk_device, fixed_foveation_render_path, xr_color_format)?;
     log_info(format!(
-        "Rusty XR OpenXR render pass fragmentDensityMap={} requestedFixedFoveationLevel={}",
-        fixed_foveation_render_path, startup_config.xr_fixed_foveation_level
+        "Rusty XR OpenXR render pass fragmentDensityMap={} requestedFixedFoveationLevel={} xrColorFormat={} vkFormat={:?}",
+        fixed_foveation_render_path,
+        startup_config.xr_fixed_foveation_level,
+        xr_color_format_mode.stable_id(),
+        xr_color_format
     ));
 
     let (session, mut frame_wait, mut frame_stream) = xr_instance
@@ -458,7 +1395,13 @@ unsafe fn run_vulkan(
             },
         )
         .map_err(|error| format!("create OpenXR Vulkan session: {error}"))?;
-    configure_display_refresh_rate(&xr_instance, &session);
+    let mut last_requested_display_refresh_hz = None;
+    sync_display_refresh_rate(
+        &xr_instance,
+        &session,
+        startup_config.xr_display_refresh_hz,
+        &mut last_requested_display_refresh_hz,
+    );
 
     let reference_space = session
         .create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)
@@ -516,6 +1459,8 @@ unsafe fn run_vulkan(
     );
     let mut last_logged_gpu_frame_index: Option<u64> = None;
     let mut last_logged_prepared_stereo_frame_index: Option<u64> = None;
+    let mut openxr_passthrough_probe: Option<OpenXrPassthroughProbe> = None;
+    let mut full_field_flicker = FullFieldFlickerStats::default();
     let mut frame_pacing_window_start = Instant::now();
     let mut frame_pacing_window_frames = 0_u64;
 
@@ -542,6 +1487,14 @@ unsafe fn run_vulkan(
                                 .begin(VIEW_TYPE)
                                 .map_err(|error| format!("begin OpenXR session: {error}"))?;
                             session_running = true;
+                            openxr_passthrough_probe = sync_openxr_passthrough_probe(
+                                &xr_instance,
+                                &session,
+                                openxr_passthrough_probe,
+                                runtime_config().openxr_passthrough_probe,
+                                frame_count,
+                                passthrough_lut_max_resolution,
+                            );
                             frame_pacing_window_start = Instant::now();
                             frame_pacing_window_frames = 0;
                         }
@@ -550,6 +1503,7 @@ unsafe fn run_vulkan(
                                 .end()
                                 .map_err(|error| format!("end OpenXR session: {error}"))?;
                             session_running = false;
+                            openxr_passthrough_probe = None;
                         }
                         xr::SessionState::EXITING | xr::SessionState::LOSS_PENDING => {
                             break 'main_loop;
@@ -608,6 +1562,8 @@ unsafe fn run_vulkan(
             &vk_device,
             &memory_properties,
             render_pass,
+            xr_color_format_mode,
+            xr_color_format,
             fixed_foveation_render_path,
             &mut swapchain,
         )?;
@@ -656,6 +1612,28 @@ unsafe fn run_vulkan(
             .map_err(|error| format!("reset Vulkan fence: {error}"))?;
 
         let config = runtime_config();
+        sync_display_refresh_rate(
+            &xr_instance,
+            &session,
+            config.xr_display_refresh_hz,
+            &mut last_requested_display_refresh_hz,
+        );
+        openxr_passthrough_probe = sync_openxr_passthrough_probe(
+            &xr_instance,
+            &session,
+            openxr_passthrough_probe,
+            config.openxr_passthrough_probe,
+            frame_count,
+            passthrough_lut_max_resolution,
+        );
+        if let Some(probe) = openxr_passthrough_probe.as_mut() {
+            probe.apply_style(
+                &xr_instance,
+                &config,
+                frame_state.predicted_display_time,
+                frame_count,
+            );
+        }
         let record_started = Instant::now();
         if config.camera_tier == CameraCompositeTier::GpuProjected {
             if let Some(stereo_frame) = latest_headset_stereo_camera_gpu_frame() {
@@ -918,7 +1896,14 @@ unsafe fn run_vulkan(
         let mut prepared_stereo_camera: Option<(StereoGpuCameraFrame, usize)> = None;
         if config.camera_tier == CameraCompositeTier::GpuProjected {
             if let Some(stereo_frame) = latest_headset_stereo_camera_gpu_frame() {
-                match gpu_camera_renderer.prepare_stereo_frame(&vk_device, cmd, &stereo_frame) {
+                match gpu_camera_renderer.prepare_stereo_frame(
+                    &vk_device,
+                    cmd,
+                    &stereo_frame,
+                    config.camera_sampler_binding_mode,
+                    config.camera_import_image_layout_mode,
+                    config.camera_import_cache_limit,
+                ) {
                     Ok(Some(descriptor_index)) => {
                         let controls = config.stereo_projection_controls(frame_count);
                         let projection_active = CameraProjectionPush::from_stereo_frame(
@@ -959,7 +1944,7 @@ unsafe fn run_vulkan(
                                     controls.source_eye_mapping,
                                 );
                             log_info(format!(
-                                "Rusty XR GPU stereo camera draw prepared frame {} requestedTier={} activeTier={} alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true cpuUploadCount=0 poseSource={} poseReference={} poseConvention={} projectionMode={} cameraColorMode={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} orientationAccepted={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} importCacheSize={} stereoDescriptorCacheSize={} projectionShaderPath={} projectionMetadataReady={} fallbackReason={}",
+                                "Rusty XR GPU stereo camera draw prepared frame {} requestedTier={} activeTier={} alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true cpuUploadCount=0 poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} orientationAccepted={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} importCacheSize={} stereoDescriptorCacheSize={} projectionShaderPath={} projectionMetadataReady={} fallbackReason={}",
                                 stereo_frame.index,
                                 config.camera_tier.stable_id(),
                                 if projection_active { "gpu-projected" } else { "gpu-buffer-probe" },
@@ -968,10 +1953,14 @@ unsafe fn run_vulkan(
                                 pose_reference,
                                 pose_convention,
                                 config.camera_projection_mode.stable_id(),
+                                config.camera_feed_pipeline_mode.stable_id(),
                                 config.camera_color_mode.stable_id(),
+                                config.camera_color_mode.shader_bit(),
                                 config.camera_color_contrast,
                                 config.camera_color_brightness,
                                 config.camera_color_saturation,
+                                config.camera_import_image_layout_mode.stable_id(),
+                                config.camera_import_cache_limit,
                                 controls.source_eye_mapping.stable_id(),
                                 display_left_camera_id,
                                 display_right_camera_id,
@@ -1029,7 +2018,7 @@ unsafe fn run_vulkan(
                                 controls.left_texture_transform.is_explicit_visual_check()
                                     && controls.right_texture_transform.is_explicit_visual_check();
                             log_info(format!(
-                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraColorMode={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz=72 visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={}",
+                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz=72 visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={}",
                                 stereo_frame.index,
                                 frame_count,
                                 session_focused,
@@ -1038,10 +2027,14 @@ unsafe fn run_vulkan(
                                 pose_reference,
                                 pose_convention,
                                 config.camera_projection_mode.stable_id(),
+                                config.camera_feed_pipeline_mode.stable_id(),
                                 config.camera_color_mode.stable_id(),
+                                config.camera_color_mode.shader_bit(),
                                 config.camera_color_contrast,
                                 config.camera_color_brightness,
                                 config.camera_color_saturation,
+                                config.camera_import_image_layout_mode.stable_id(),
+                                config.camera_import_cache_limit,
                                 controls.source_eye_mapping.stable_id(),
                                 display_left_camera_id,
                                 display_right_camera_id,
@@ -1087,7 +2080,14 @@ unsafe fn run_vulkan(
             }
         } else if config.camera_tier == CameraCompositeTier::GpuBufferProbe {
             if let Some(gpu_frame) = latest_headset_camera_gpu_frame() {
-                match gpu_camera_renderer.prepare_frame(&vk_device, cmd, &gpu_frame) {
+                match gpu_camera_renderer.prepare_frame(
+                    &vk_device,
+                    cmd,
+                    &gpu_frame,
+                    config.camera_sampler_binding_mode,
+                    config.camera_import_image_layout_mode,
+                    config.camera_import_cache_limit,
+                ) {
                     Ok(Some(import_index)) => {
                         if gpu_frame.index == 0 || gpu_frame.index % 120 == 0 {
                             let projection = gpu_projection_readiness(&gpu_frame);
@@ -1136,7 +2136,20 @@ unsafe fn run_vulkan(
             }
         }
 
-        let clear = if config.camera_tier == CameraCompositeTier::GpuProjected {
+        let full_field_red = full_field_flicker.tick(
+            config.full_field_flicker_hz,
+            frame_state.predicted_display_time,
+            frame_count,
+        );
+        let clear = if config.full_field_flicker_hz > 0.0 {
+            if full_field_red {
+                [1.0, 0.0, 0.0, 1.0]
+            } else {
+                [0.0, 0.0, 0.0, 1.0]
+            }
+        } else if config.openxr_passthrough_probe.submits_composition_layer() {
+            [0.0, 0.0, 0.0, 0.0]
+        } else if config.camera_tier == CameraCompositeTier::GpuProjected {
             [0.0, 0.0, 0.0, 1.0]
         } else if frame_count % 120 < 60 {
             [0.02, 0.22, 0.26, 1.0]
@@ -1260,18 +2273,55 @@ unsafe fn run_vulkan(
                         .image_rect(rect),
                 ),
         ];
+        let projection_layer_flags = if config.openxr_passthrough_probe.submits_composition_layer()
+        {
+            xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA
+                | xr::CompositionLayerFlags::UNPREMULTIPLIED_ALPHA
+        } else {
+            xr::CompositionLayerFlags::EMPTY
+        };
         let projection_layer = xr::CompositionLayerProjection::new()
+            .layer_flags(projection_layer_flags)
             .space(&reference_space)
             .views(&projection_views);
+        let passthrough_composition_layer = openxr_passthrough_probe
+            .as_ref()
+            .filter(|probe| probe.submits_composition_layer())
+            .map(|probe| xr::sys::CompositionLayerPassthroughFB {
+                ty: xr::sys::CompositionLayerPassthroughFB::TYPE,
+                next: ptr::null(),
+                flags: xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA,
+                space: xr::sys::Space::NULL,
+                layer_handle: probe.layer,
+            });
+        let mut layers: Vec<&xr::CompositionLayerBase<xr::Vulkan>> =
+            Vec::with_capacity(if passthrough_composition_layer.is_some() {
+                2
+            } else {
+                1
+            });
+        if let Some(layer) = passthrough_composition_layer.as_ref() {
+            // The openxr crate does not re-export this FB layer builder, but the raw
+            // struct has the standard composition-layer header prefix expected here.
+            let layer_base: &xr::CompositionLayerBase<xr::Vulkan> = unsafe {
+                &*(layer as *const xr::sys::CompositionLayerPassthroughFB
+                    as *const xr::CompositionLayerBase<xr::Vulkan>)
+            };
+            layers.push(layer_base);
+        }
+        layers.push(&projection_layer);
         frame_stream
             .end(
                 frame_state.predicted_display_time,
                 environment_blend_mode,
-                &[&projection_layer],
+                &layers,
             )
             .map_err(|error| format!("end OpenXR frame: {error}"))?;
 
         frame_count += 1;
+        if let Some(probe) = openxr_passthrough_probe.as_mut() {
+            probe.tick(frame_count);
+        }
         frame_pacing_window_frames += 1;
         if frame_count == 1 || frame_count % 120 == 0 {
             let config = runtime_config();
@@ -1287,27 +2337,33 @@ unsafe fn run_vulkan(
             let observed_openxr_fps = frame_pacing_window_frames as f64 / window_secs;
             let avg_frame_ms = window_secs * 1000.0 / frame_pacing_window_frames.max(1) as f64;
             log_info(format!(
-                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraEnabled={} mediaProjection={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz=72 activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fixedFoveationEnabled={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} importCacheLimit={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={} gpuImportCacheHit={} gpuImportCacheMiss={} gpuImportCacheEvict={}",
+                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz={} activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fixedFoveationEnabled={} openxrPassthroughProbe={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} importCacheLimit={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={} gpuImportCacheHit={} gpuImportCacheMiss={} gpuImportCacheEvict={}",
                 frame_count,
                 swapchain.resolution.width,
                 swapchain.resolution.height,
                 config.camera_tier.stable_id(),
+                config.camera_acquisition.as_str(),
                 config.camera_enabled,
                 config.media_projection_enabled,
                 observed_openxr_fps,
                 avg_frame_ms,
                 record_ms,
                 submit_ms,
+                config.xr_display_refresh_hz,
                 refresh_rate_label(active_display_refresh_hz),
                 config.xr_render_scale,
                 config.xr_fixed_foveation_level,
                 swapchain.foveation_enabled,
+                openxr_passthrough_probe
+                    .as_ref()
+                    .map(|probe| probe.mode.stable_id())
+                    .unwrap_or("off"),
                 PIPELINE_DEPTH,
                 gpu_success,
                 gpu_failure,
                 gpu_cache_size,
                 gpu_camera_renderer.imports.len(),
-                GPU_CAMERA_IMPORT_CACHE_LIMIT,
+                config.camera_import_cache_limit,
                 gpu_camera_renderer.stereo_descriptors.len(),
                 gpu_camera_renderer.import_success_count,
                 gpu_camera_renderer.import_failure_count,
@@ -1363,6 +2419,8 @@ unsafe fn ensure_swapchain<'a>(
     vk_device: &ash::Device,
     memory_properties: &vk::PhysicalDeviceMemoryProperties,
     render_pass: vk::RenderPass,
+    color_format_mode: OpenXrColorFormatMode,
+    color_format: vk::Format,
     fixed_foveation_render_path: bool,
     swapchain: &'a mut Option<Swapchain>,
 ) -> Result<&'a mut Swapchain, String> {
@@ -1401,6 +2459,8 @@ unsafe fn ensure_swapchain<'a>(
             xr_instance,
             session,
             resolution,
+            color_format_mode,
+            color_format,
             fixed_foveation_level,
             use_fixed_foveation,
         )?;
@@ -1412,7 +2472,7 @@ unsafe fn ensure_swapchain<'a>(
                     &vk::ImageViewCreateInfo::default()
                         .image(color_image)
                         .view_type(vk::ImageViewType::TYPE_2D_ARRAY)
-                        .format(COLOR_FORMAT)
+                        .format(color_format)
                         .subresource_range(vk::ImageSubresourceRange {
                             aspect_mask: vk::ImageAspectFlags::COLOR,
                             base_mip_level: 0,
@@ -1492,12 +2552,14 @@ unsafe fn ensure_swapchain<'a>(
         }
 
         log_info(format!(
-            "Rusty XR OpenXR swapchain created {}x{} from recommended {}x{} scale={} fixedFoveationLevel={} fixedFoveationEnabled={} fragmentDensityMapImages={} with {} image(s)",
+            "Rusty XR OpenXR swapchain created {}x{} from recommended {}x{} scale={} xrColorFormat={} vkFormat={:?} fixedFoveationLevel={} fixedFoveationEnabled={} fragmentDensityMapImages={} with {} image(s)",
             resolution.width,
             resolution.height,
             recommended_resolution.width,
             recommended_resolution.height,
             render_scale,
+            color_format_mode.stable_id(),
+            color_format,
             fixed_foveation_level,
             created_swapchain.fixed_foveation_enabled,
             created_swapchain.fragment_density_images.len(),
@@ -1527,6 +2589,8 @@ unsafe fn create_openxr_swapchain(
     xr_instance: &xr::Instance,
     session: &xr::Session<xr::Vulkan>,
     resolution: vk::Extent2D,
+    color_format_mode: OpenXrColorFormatMode,
+    color_format: vk::Format,
     fixed_foveation_level: u8,
     use_fixed_foveation: bool,
 ) -> Result<OpenXrSwapchainImages, String> {
@@ -1546,7 +2610,7 @@ unsafe fn create_openxr_swapchain(
         usage_flags: xr::sys::SwapchainUsageFlags::COLOR_ATTACHMENT
             | xr::sys::SwapchainUsageFlags::SAMPLED
             | xr::sys::SwapchainUsageFlags::TRANSFER_DST,
-        format: COLOR_FORMAT.as_raw() as _,
+        format: color_format.as_raw() as _,
         sample_count: 1,
         width: resolution.width,
         height: resolution.height,
@@ -1555,8 +2619,13 @@ unsafe fn create_openxr_swapchain(
         mip_count: 1,
     };
     log_info(format!(
-        "Rusty XR OpenXR swapchain request {}x{} fixedFoveationLevel={} fixedFoveationRequested={}",
-        resolution.width, resolution.height, fixed_foveation_level, use_fixed_foveation
+        "Rusty XR OpenXR swapchain request {}x{} xrColorFormat={} vkFormat={:?} fixedFoveationLevel={} fixedFoveationRequested={}",
+        resolution.width,
+        resolution.height,
+        color_format_mode.stable_id(),
+        color_format,
+        fixed_foveation_level,
+        use_fixed_foveation
     ));
     let mut raw_handle = xr::sys::Swapchain::NULL;
     ensure_xr_success(
@@ -2114,9 +3183,10 @@ fn image_size_label(size: ImageSize) -> String {
 unsafe fn create_openxr_render_pass(
     device: &ash::Device,
     use_fragment_density_map: bool,
+    color_format: vk::Format,
 ) -> Result<vk::RenderPass, String> {
     let color_attachment = vk::AttachmentDescription {
-        format: COLOR_FORMAT,
+        format: color_format,
         samples: vk::SampleCountFlags::TYPE_1,
         load_op: vk::AttachmentLoadOp::CLEAR,
         store_op: vk::AttachmentStoreOp::STORE,
@@ -2486,6 +3556,9 @@ impl GpuCameraRenderer {
         device: &ash::Device,
         cmd: vk::CommandBuffer,
         frame: &HeadsetCameraGpuFrame,
+        sampler_binding_mode: crate::CameraSamplerBindingMode,
+        import_image_layout_mode: crate::CameraImportImageLayoutMode,
+        import_cache_limit: usize,
     ) -> Result<Option<usize>, String> {
         if self.ahb.is_none() {
             self.last_failure = Some(
@@ -2495,7 +3568,14 @@ impl GpuCameraRenderer {
             return Ok(None);
         }
 
-        match self.prepare_frame_inner(device, cmd, frame) {
+        match self.prepare_frame_inner(
+            device,
+            cmd,
+            frame,
+            sampler_binding_mode,
+            import_image_layout_mode,
+            import_cache_limit,
+        ) {
             Ok(index) => {
                 self.import_success_count = self.import_success_count.saturating_add(1);
                 self.last_failure = None;
@@ -2514,6 +3594,9 @@ impl GpuCameraRenderer {
         device: &ash::Device,
         cmd: vk::CommandBuffer,
         frame: &StereoGpuCameraFrame,
+        sampler_binding_mode: crate::CameraSamplerBindingMode,
+        import_image_layout_mode: crate::CameraImportImageLayoutMode,
+        import_cache_limit: usize,
     ) -> Result<Option<usize>, String> {
         if self.ahb.is_none() {
             self.last_failure = Some(
@@ -2523,7 +3606,14 @@ impl GpuCameraRenderer {
             return Ok(None);
         }
 
-        match self.prepare_stereo_frame_inner(device, cmd, frame) {
+        match self.prepare_stereo_frame_inner(
+            device,
+            cmd,
+            frame,
+            sampler_binding_mode,
+            import_image_layout_mode,
+            import_cache_limit,
+        ) {
             Ok(index) => {
                 self.import_success_count = self.import_success_count.saturating_add(1);
                 self.last_failure = None;
@@ -2542,11 +3632,29 @@ impl GpuCameraRenderer {
         device: &ash::Device,
         cmd: vk::CommandBuffer,
         frame: &StereoGpuCameraFrame,
+        sampler_binding_mode: crate::CameraSamplerBindingMode,
+        import_image_layout_mode: crate::CameraImportImageLayoutMode,
+        import_cache_limit: usize,
     ) -> Result<usize, String> {
+        let import_cache_limit = effective_camera_import_cache_limit(import_cache_limit);
         let left_key = GpuCameraImportKey::from_frame(&frame.left);
         let right_key = GpuCameraImportKey::from_frame(&frame.right);
-        let _left_index = self.prepare_frame_inner(device, cmd, &frame.left)?;
-        let _right_index = self.prepare_frame_inner(device, cmd, &frame.right)?;
+        let _left_index = self.prepare_frame_inner(
+            device,
+            cmd,
+            &frame.left,
+            sampler_binding_mode,
+            import_image_layout_mode,
+            import_cache_limit,
+        )?;
+        let _right_index = self.prepare_frame_inner(
+            device,
+            cmd,
+            &frame.right,
+            sampler_binding_mode,
+            import_image_layout_mode,
+            import_cache_limit,
+        )?;
 
         if let Some(index) = self.stereo_descriptors.iter().position(|descriptor| {
             descriptor.left_key == left_key && descriptor.right_key == right_key
@@ -2573,7 +3681,7 @@ impl GpuCameraRenderer {
             .as_ref()
             .ok_or_else(|| "GPU camera pipeline resources were not initialized".to_string())?;
 
-        while self.stereo_descriptors.len() >= GPU_CAMERA_IMPORT_CACHE_LIMIT {
+        while self.stereo_descriptors.len() >= import_cache_limit {
             let old = self.stereo_descriptors.remove(0);
             old.destroy(device);
         }
@@ -2598,11 +3706,22 @@ impl GpuCameraRenderer {
         device: &ash::Device,
         cmd: vk::CommandBuffer,
         frame: &HeadsetCameraGpuFrame,
+        sampler_binding_mode: crate::CameraSamplerBindingMode,
+        import_image_layout_mode: crate::CameraImportImageLayoutMode,
+        import_cache_limit: usize,
     ) -> Result<usize, String> {
+        let import_cache_limit = effective_camera_import_cache_limit(import_cache_limit);
         let key = GpuCameraImportKey::from_frame(frame);
         if let Some(index) = self.imports.iter().position(|import| import.key == key) {
             self.import_cache_hit_count = self.import_cache_hit_count.saturating_add(1);
-            if self.imports[index].needs_layout_transition {
+            if self.imports[index].needs_layout_transition
+                && self.resources.as_ref().is_some_and(|resources| {
+                    resources
+                        .format_key
+                        .import_image_layout_mode
+                        .needs_transition()
+                })
+            {
                 transition_imported_camera_image(device, cmd, self.imports[index].image);
                 self.imports[index].needs_layout_transition = false;
             }
@@ -2632,6 +3751,8 @@ impl GpuCameraRenderer {
                 format_props.format
             },
             external_format: format_props.external_format,
+            sampler_binding_mode,
+            import_image_layout_mode,
         };
         if self
             .resources
@@ -2652,7 +3773,7 @@ impl GpuCameraRenderer {
             )?);
         }
 
-        while self.imports.len() >= GPU_CAMERA_IMPORT_CACHE_LIMIT {
+        while self.imports.len() >= import_cache_limit {
             let old = self.imports.remove(0);
             self.destroy_stereo_descriptors_for_key(device, old.key);
             old.destroy(device);
@@ -2675,15 +3796,19 @@ impl GpuCameraRenderer {
         )?;
         self.imports.push(import);
         let index = self.imports.len() - 1;
-        transition_imported_camera_image(device, cmd, self.imports[index].image);
+        if format_key.import_image_layout_mode.needs_transition() {
+            transition_imported_camera_image(device, cmd, self.imports[index].image);
+        }
         self.imports[index].needs_layout_transition = false;
         log_info(format!(
-            "Rusty XR Vulkan imported Camera2 hardware buffer size={}x{} nativeFormat={} externalFormat={} vkFormat={:?} allocationSize={} memoryTypeBits=0x{:x} suggestedYcbcrModel={:?} suggestedYcbcrRange={:?} samplerYcbcrComponents={:?} suggestedXChromaOffset={:?} suggestedYChromaOffset={:?} importCacheSize={} importCacheLimit={} importCacheMiss={} importCacheEvict={}",
+            "Rusty XR Vulkan imported Camera2 hardware buffer size={}x{} nativeFormat={} externalFormat={} vkFormat={:?} samplerBindingMode={} importImageLayout={} allocationSize={} memoryTypeBits=0x{:x} suggestedYcbcrModel={:?} suggestedYcbcrRange={:?} samplerYcbcrComponents={:?} suggestedXChromaOffset={:?} suggestedYChromaOffset={:?} importCacheSize={} importCacheLimit={} importCacheMiss={} importCacheEvict={}",
             frame.width,
             frame.height,
             frame.descriptor.native_format.unwrap_or_default(),
             format_key.external_format,
             format_key.format,
+            format_key.sampler_binding_mode.stable_id(),
+            format_key.import_image_layout_mode.stable_id(),
             allocation_size,
             memory_type_bits,
             format_props.suggested_ycbcr_model,
@@ -2692,7 +3817,7 @@ impl GpuCameraRenderer {
             format_props.suggested_x_chroma_offset,
             format_props.suggested_y_chroma_offset,
             self.imports.len(),
-            GPU_CAMERA_IMPORT_CACHE_LIMIT,
+            import_cache_limit,
             self.import_cache_miss_count,
             self.import_cache_evict_count
         ));
@@ -2728,7 +3853,7 @@ impl GpuCameraRenderer {
             extent: resolution,
         }];
         let push = CameraProjectionPush::from_frame(frame, config);
-        let uniforms = CameraProjectionUniforms::identity();
+        let uniforms = CameraProjectionUniforms::identity().with_color_config(config);
         let uniform_offset = resources.projection_uniform_offset(0);
         if let Err(error) =
             update_camera_projection_uniforms(device, resources, uniform_offset, &uniforms)
@@ -2796,6 +3921,7 @@ impl GpuCameraRenderer {
         let controls = config.stereo_projection_controls(frame_count);
         let (push, uniforms, projection_active) =
             CameraProjectionPush::from_stereo_frame(frame, config, &controls, views, resolution);
+        let uniforms = uniforms.with_border_cycle_phase(config, frame_count);
         if config.camera_tier == CameraCompositeTier::GpuProjected && !projection_active {
             return;
         }
@@ -2880,6 +4006,8 @@ impl GpuCameraRenderer {
 struct GpuCameraFormatKey {
     format: vk::Format,
     external_format: u64,
+    sampler_binding_mode: crate::CameraSamplerBindingMode,
+    import_image_layout_mode: crate::CameraImportImageLayoutMode,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2997,6 +4125,10 @@ struct CameraProjectionUniforms {
     right_surface_to_screen_h0: [f32; 4],
     right_surface_to_screen_h1: [f32; 4],
     right_surface_to_screen_h2: [f32; 4],
+    color_matrix_r0: [f32; 4],
+    color_matrix_r1: [f32; 4],
+    color_matrix_r2: [f32; 4],
+    color_offset: [f32; 4],
 }
 
 impl CameraProjectionUniforms {
@@ -3036,14 +4168,54 @@ impl CameraProjectionUniforms {
             right_surface_to_screen_h0: pack_homography_row(right_surface_to_screen[0]),
             right_surface_to_screen_h1: pack_homography_row(right_surface_to_screen[1]),
             right_surface_to_screen_h2: pack_homography_row(right_surface_to_screen[2]),
+            color_matrix_r0: [1.0, 0.0, 0.0, 0.0],
+            color_matrix_r1: [0.0, 1.0, 0.0, 0.0],
+            color_matrix_r2: [0.0, 0.0, 1.0, 0.0],
+            color_offset: [0.0, 0.0, 0.0, 0.0],
         }
+    }
+
+    fn with_color_config(mut self, config: &crate::RuntimeConfig) -> Self {
+        self.color_matrix_r0 = [
+            config.camera_color_matrix[0][0],
+            config.camera_color_matrix[0][1],
+            config.camera_color_matrix[0][2],
+            0.0,
+        ];
+        self.color_matrix_r1 = [
+            config.camera_color_matrix[1][0],
+            config.camera_color_matrix[1][1],
+            config.camera_color_matrix[1][2],
+            0.0,
+        ];
+        self.color_matrix_r2 = [
+            config.camera_color_matrix[2][0],
+            config.camera_color_matrix[2][1],
+            config.camera_color_matrix[2][2],
+            0.0,
+        ];
+        self.color_offset = [
+            config.camera_color_offset[0],
+            config.camera_color_offset[1],
+            config.camera_color_offset[2],
+            0.0,
+        ];
+        self
+    }
+
+    fn with_border_cycle_phase(mut self, config: &crate::RuntimeConfig, frame_count: u64) -> Self {
+        self.color_offset[3] = config.camera_border_cycle_phase(frame_count);
+        self
     }
 }
 
 impl CameraProjectionPush {
     fn from_frame(_frame: &HeadsetCameraGpuFrame, config: &crate::RuntimeConfig) -> Self {
         let mono_flags = config.camera_texture_transform.shader_flags() & 0x1f;
-        let packed_flags = (mono_flags | (mono_flags << 5)) | config.camera_color_mode.shader_bit();
+        let packed_flags = (mono_flags | (mono_flags << 5))
+            | config.camera_color_mode.shader_bit()
+            | config.camera_feed_pipeline_mode.shader_bit()
+            | config.camera_projection_effect_mode.shader_bit();
         let content_uv_scale = full_view_content_uv_scale(
             config.camera_full_view_overlay_overscan,
             config.camera_raw_overlay_overscan,
@@ -3083,7 +4255,10 @@ impl CameraProjectionPush {
                 config.camera_raw_overlay_overscan.max(1.0),
                 config.camera_edge_fade.clamp(0.0, 0.5),
                 content_uv_scale,
-                (controls.packed_shader_flags() | config.camera_color_mode.shader_bit()) as f32,
+                (controls.packed_shader_flags()
+                    | config.camera_color_mode.shader_bit()
+                    | config.camera_feed_pipeline_mode.shader_bit()
+                    | config.camera_projection_effect_mode.shader_bit()) as f32,
             ],
             color_adjust: config.camera_color_adjust_push(),
             left_h0: [1.0, 0.0, 0.0, 0.0],
@@ -3096,7 +4271,11 @@ impl CameraProjectionPush {
         if !controls.left_texture_transform.is_explicit_visual_check()
             || !controls.right_texture_transform.is_explicit_visual_check()
         {
-            return (push, CameraProjectionUniforms::identity(), false);
+            return (
+                push,
+                CameraProjectionUniforms::identity().with_color_config(config),
+                false,
+            );
         }
 
         if let Some((left, right)) =
@@ -3111,11 +4290,15 @@ impl CameraProjectionPush {
             push.right_h2 = pack_homography_row(right.screen_to_camera[2]);
             return (
                 push,
-                CameraProjectionUniforms::from_mappings(&left, &right),
+                CameraProjectionUniforms::from_mappings(&left, &right).with_color_config(config),
                 true,
             );
         }
-        (push, CameraProjectionUniforms::identity(), false)
+        (
+            push,
+            CameraProjectionUniforms::identity().with_color_config(config),
+            false,
+        )
     }
 }
 
@@ -3362,38 +4545,75 @@ unsafe fn create_gpu_camera_pipeline_resources(
         .map_err(|error| format!("create camera sampler: {error}"))?;
 
     let immutable_samplers = [sampler];
-    let descriptor_binding = [
-        vk::DescriptorSetLayoutBinding::default()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .immutable_samplers(&immutable_samplers),
-        vk::DescriptorSetLayoutBinding::default()
-            .binding(1)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .immutable_samplers(&immutable_samplers),
-        vk::DescriptorSetLayoutBinding::default()
-            .binding(2)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT),
-    ];
+    let descriptor_binding = match format_key.sampler_binding_mode {
+        crate::CameraSamplerBindingMode::CombinedImmutableSampler => vec![
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+                .immutable_samplers(&immutable_samplers),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(1)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+                .immutable_samplers(&immutable_samplers),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(2)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+        ],
+        crate::CameraSamplerBindingMode::SeparateImageSampler => vec![
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(0)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(1)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(2)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(3)
+                .descriptor_type(vk::DescriptorType::SAMPLER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+        ],
+    };
     let descriptor_set_layout = device
         .create_descriptor_set_layout(
             &vk::DescriptorSetLayoutCreateInfo::default().bindings(&descriptor_binding),
             None,
         )
         .map_err(|error| format!("create camera descriptor set layout: {error}"))?;
-    let max_descriptor_sets = (GPU_CAMERA_IMPORT_CACHE_LIMIT as u32) * 2;
-    let pool_sizes = [
-        vk::DescriptorPoolSize::default()
-            .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count((GPU_CAMERA_IMPORT_CACHE_LIMIT as u32) * 4),
-        vk::DescriptorPoolSize::default()
-            .ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-            .descriptor_count(max_descriptor_sets),
-    ];
+    let max_descriptor_sets = (GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX as u32) * 2;
+    let pool_sizes = match format_key.sampler_binding_mode {
+        crate::CameraSamplerBindingMode::CombinedImmutableSampler => vec![
+            vk::DescriptorPoolSize::default()
+                .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .descriptor_count((GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX as u32) * 4),
+            vk::DescriptorPoolSize::default()
+                .ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+                .descriptor_count(max_descriptor_sets),
+        ],
+        crate::CameraSamplerBindingMode::SeparateImageSampler => vec![
+            vk::DescriptorPoolSize::default()
+                .ty(vk::DescriptorType::SAMPLED_IMAGE)
+                .descriptor_count((GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX as u32) * 4),
+            vk::DescriptorPoolSize::default()
+                .ty(vk::DescriptorType::SAMPLER)
+                .descriptor_count(max_descriptor_sets),
+            vk::DescriptorPoolSize::default()
+                .ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+                .descriptor_count(max_descriptor_sets),
+        ],
+    };
     let descriptor_pool = device
         .create_descriptor_pool(
             &vk::DescriptorPoolCreateInfo::default()
@@ -3423,7 +4643,12 @@ unsafe fn create_gpu_camera_pipeline_resources(
             None,
         )
         .map_err(|error| format!("create camera pipeline layout: {error}"))?;
-    let pipeline = create_gpu_camera_pipeline(device, render_pass, pipeline_layout)?;
+    let pipeline = create_gpu_camera_pipeline(
+        device,
+        render_pass,
+        pipeline_layout,
+        format_key.sampler_binding_mode,
+    )?;
 
     Ok(GpuCameraPipelineResources {
         format_key,
@@ -3459,36 +4684,74 @@ unsafe fn allocate_camera_descriptor_set(
             return Err(format!("allocate camera descriptor set: {error}"));
         }
     };
+    let image_layout =
+        camera_import_descriptor_layout(resources.format_key.import_image_layout_mode);
     let left_info = [vk::DescriptorImageInfo::default()
         .sampler(resources.sampler)
         .image_view(left_image_view)
-        .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
+        .image_layout(image_layout)];
     let right_info = [vk::DescriptorImageInfo::default()
         .sampler(resources.sampler)
         .image_view(right_image_view)
-        .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
+        .image_layout(image_layout)];
     let projection_info = [vk::DescriptorBufferInfo::default()
         .buffer(resources.projection_uniform_buffer)
         .offset(0)
         .range(std::mem::size_of::<CameraProjectionUniforms>() as vk::DeviceSize)];
-    let writes = [
-        vk::WriteDescriptorSet::default()
-            .dst_set(descriptor_set)
-            .dst_binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&left_info),
-        vk::WriteDescriptorSet::default()
-            .dst_set(descriptor_set)
-            .dst_binding(1)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&right_info),
-        vk::WriteDescriptorSet::default()
-            .dst_set(descriptor_set)
-            .dst_binding(2)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-            .buffer_info(&projection_info),
-    ];
-    device.update_descriptor_sets(&writes, &[]);
+    match resources.format_key.sampler_binding_mode {
+        crate::CameraSamplerBindingMode::CombinedImmutableSampler => {
+            let writes = [
+                vk::WriteDescriptorSet::default()
+                    .dst_set(descriptor_set)
+                    .dst_binding(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(&left_info),
+                vk::WriteDescriptorSet::default()
+                    .dst_set(descriptor_set)
+                    .dst_binding(1)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(&right_info),
+                vk::WriteDescriptorSet::default()
+                    .dst_set(descriptor_set)
+                    .dst_binding(2)
+                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+                    .buffer_info(&projection_info),
+            ];
+            device.update_descriptor_sets(&writes, &[]);
+        }
+        crate::CameraSamplerBindingMode::SeparateImageSampler => {
+            let left_sampled_image = [vk::DescriptorImageInfo::default()
+                .image_view(left_image_view)
+                .image_layout(image_layout)];
+            let right_sampled_image = [vk::DescriptorImageInfo::default()
+                .image_view(right_image_view)
+                .image_layout(image_layout)];
+            let sampler_info = [vk::DescriptorImageInfo::default().sampler(resources.sampler)];
+            let writes = [
+                vk::WriteDescriptorSet::default()
+                    .dst_set(descriptor_set)
+                    .dst_binding(0)
+                    .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                    .image_info(&left_sampled_image),
+                vk::WriteDescriptorSet::default()
+                    .dst_set(descriptor_set)
+                    .dst_binding(1)
+                    .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                    .image_info(&right_sampled_image),
+                vk::WriteDescriptorSet::default()
+                    .dst_set(descriptor_set)
+                    .dst_binding(2)
+                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+                    .buffer_info(&projection_info),
+                vk::WriteDescriptorSet::default()
+                    .dst_set(descriptor_set)
+                    .dst_binding(3)
+                    .descriptor_type(vk::DescriptorType::SAMPLER)
+                    .image_info(&sampler_info),
+            ];
+            device.update_descriptor_sets(&writes, &[]);
+        }
+    }
     Ok(descriptor_set)
 }
 
@@ -3685,7 +4948,7 @@ unsafe fn import_camera_hardware_buffer(
         image_view,
         descriptor_set,
         descriptor_pool: resources.descriptor_pool,
-        needs_layout_transition: true,
+        needs_layout_transition: format_key.import_image_layout_mode.needs_transition(),
         _hardware_buffer: frame.hardware_buffer.clone(),
     })
 }
@@ -3694,15 +4957,23 @@ unsafe fn create_gpu_camera_pipeline(
     device: &ash::Device,
     render_pass: vk::RenderPass,
     pipeline_layout: vk::PipelineLayout,
+    sampler_binding_mode: crate::CameraSamplerBindingMode,
 ) -> Result<vk::Pipeline, String> {
     let vertex_words = spirv_words(include_bytes!(concat!(
         env!("OUT_DIR"),
         "/camera_projection.vert.spv"
     )))?;
-    let fragment_words = spirv_words(include_bytes!(concat!(
-        env!("OUT_DIR"),
-        "/camera_projection.frag.spv"
-    )))?;
+    let fragment_words = match sampler_binding_mode {
+        crate::CameraSamplerBindingMode::CombinedImmutableSampler => spirv_words(include_bytes!(
+            concat!(env!("OUT_DIR"), "/camera_projection.frag.spv")
+        ))?,
+        crate::CameraSamplerBindingMode::SeparateImageSampler => {
+            spirv_words(include_bytes!(concat!(
+                env!("OUT_DIR"),
+                "/camera_projection_separate_sampler.frag.spv"
+            )))?
+        }
+    };
     let vertex_module = device
         .create_shader_module(
             &vk::ShaderModuleCreateInfo::default().code(&vertex_words),
@@ -3791,6 +5062,15 @@ fn spirv_words(bytes: &[u8]) -> Result<Vec<u32>, String> {
         .chunks_exact(4)
         .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
         .collect())
+}
+
+fn camera_import_descriptor_layout(mode: crate::CameraImportImageLayoutMode) -> vk::ImageLayout {
+    match mode {
+        crate::CameraImportImageLayoutMode::ShaderReadOnlyTransition => {
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+        }
+        crate::CameraImportImageLayoutMode::GeneralNoTransition => vk::ImageLayout::GENERAL,
+    }
 }
 
 unsafe fn transition_imported_camera_image(
@@ -3969,7 +5249,6 @@ fn drain_input_events(app: &android_activity::AndroidApp) {
     }
 }
 
-const COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_SRGB;
 const VIEW_COUNT: u32 = 2;
 const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
 const PIPELINE_DEPTH: u32 = 2;

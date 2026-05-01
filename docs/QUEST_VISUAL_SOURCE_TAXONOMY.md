@@ -1,8 +1,9 @@
 # Quest Visual Source Taxonomy
 
 Rusty XR keeps raw headset-camera compositing, runtime environment depth,
-final-display inspection, and operator streaming paths separate. These sources
-are related, but they are not interchangeable.
+native passthrough styling, rendered strobe stimuli, final-display inspection,
+and operator streaming paths separate. These sources are related, but they are
+not interchangeable.
 
 ## Native Platform Passthrough Compositor
 
@@ -11,6 +12,21 @@ mixed reality. It is useful and often the best user-facing background layer,
 but it is not exposed to this public example as a sampleable app camera
 texture. A custom camera projection layer must use camera frames that the app
 can receive, timestamp, and sample.
+
+Public style descriptors for reconstruction, projected passthrough, opacity,
+edge rendering, mono color maps, brightness/contrast/saturation, and color LUT
+bindings live in [META_PASSTHROUGH_LAYER.md](META_PASSTHROUGH_LAYER.md). Those
+descriptors are adapter input, not proof that the app can sample the runtime's
+final passthrough image.
+
+## Rendered Strobe Stimuli
+
+Intentional strobing is an app-rendered or compositor-style-parameter stimulus,
+not a camera source. Public descriptors for full-field red/black flicker and
+phase-inverted passthrough LUT flicker live in
+[VISUAL_STROBE_PROFILES.md](VISUAL_STROBE_PROFILES.md). These profiles are
+safety-gated research stimuli and must not be treated as normal UI animation,
+camera diagnostics, or medical/wellness features.
 
 ## Raw Camera Sources
 
@@ -163,6 +179,43 @@ fixed-foveation profile changes only the OpenXR fragment-density-map path and
 remains experimental until headset logs show a created foveated swapchain,
 valid foveation image handles, no framebuffer or driver failure, and stable
 frame cadence.
+
+Recent public profile testing narrowed the next useful axis. On the current
+combined immutable-sampler Vulkan path, `external-rgb` is the usable public
+baseline and shader-side `Cr/Y/Cb` decode can produce a green/discolored image
+because the sampler is already presenting RGB-like values. Follow-up
+acquisition probes kept projection, border, sampler, and color controls stable
+while changing one Camera2 parameter at a time. No explicit AE FPS target,
+separate-eye `ImageReader` max images reduced to `3`, a wider stereo-pair
+window, and a lower `1280x960` separate-eye size did not fix stale progression
+in the concurrent-separate Java Camera2 stereo path on the tested runtime. A
+mono Camera2 `PRIVATE` GPU-buffer probe at `1280x960` continued to deliver live
+frames, so the next public split should compare Java Camera2 concurrent stereo
+against a lower-level/native hardware-buffer reader path without changing the
+projection or border surface.
+
+That lower-level path is now represented as an opt-in native acquisition
+probe, not as a replacement for the Java Camera2 example. It uses Android NDK
+`ACamera*` sessions and `AImageReader` `PRIVATE` GPU-sampled buffers, logs the
+native camera sources it sees, and publishes the latest stereo pair into the
+same Vulkan projection path. Early headset runs showed that this ownership
+shape alone does not guarantee fresh stereo progression; the remaining
+acquisition diff is the effective source/session/timestamp behavior.
+
+A second native profile, `single-back-mirror`, intentionally opens only one
+native camera source and mirrors the same hardware buffer into both display
+eyes. It is not a valid stereo alignment path, but it is an important taxonomy
+entry because it isolates acquisition source cadence from the Vulkan import
+and OpenXR renderer. When mirror mode receives live frames but the full native
+stereo profile does not, the next investigation should stay on camera
+source/provider policy and side-camera timestamp behavior rather than
+projection or border geometry.
+
+OpenXR passthrough-client probing belongs in a separate bucket. Optional
+passthrough and scene manifest declarations can make `XR_FB_passthrough`
+available, and `client` / `warmup` probes can verify runtime client state, but
+they do not change the raw-camera color model or prove that camera buffers are
+fresh.
 
 The renderer then applies an explicit `CameraTextureTransform` after projection
 UV calculation and before sampling imported camera textures. That transform is

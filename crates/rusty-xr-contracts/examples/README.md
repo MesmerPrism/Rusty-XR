@@ -35,3 +35,54 @@ cargo run -p rusty-xr-contracts --example composite_feedback_session --features 
 
 This is still a no-hardware example. It does not request permissions, stream
 pixels, build an APK, or submit native compositor layers.
+
+## Meta Passthrough Style Catalog
+
+`meta_passthrough_style_catalog.rs` emits a public catalog of native
+compositor-passthrough layer descriptors: neutral reconstruction underlay,
+overlay with opacity/edge/BCS tuning, mono-to-mono luminance remap,
+projected-mesh mono-to-RGBA color map, and a runtime LUT binding.
+
+Run it with:
+
+```powershell
+cargo run -p rusty-xr-contracts --example meta_passthrough_style_catalog --features serde
+```
+
+The example does not create OpenXR handles, submit layers, upload projection
+meshes, or allocate LUTs. It shows the contract shape a native adapter can
+translate into `XR_FB_passthrough` / `XR_META_passthrough_color_lut` calls.
+
+## Audio-Reactive Passthrough Style
+
+`audio_reactive_passthrough_style.rs` demonstrates a generic public control
+pattern where normalized phase and amplitude values drive a mono-to-RGBA
+passthrough color map and edge alpha.
+
+Run it with:
+
+```powershell
+cargo run -p rusty-xr-contracts --example audio_reactive_passthrough_style --features serde
+```
+
+The example uses synthetic controls and public gradient stops. It does not open
+a microphone, analyze live audio, submit OpenXR layers, or reproduce any
+downstream visual-effect tuning.
+
+## Visual Strobe Profiles
+
+`visual_strobe_profiles.rs` emits a public catalog of intentional visual
+strobe descriptors: full-field red/black profiles and phase-inverted
+passthrough LUT profiles at 10, 40, and 60 Hz, each with a 120 Hz timing plan
+and explicit safety warning.
+
+Run it with:
+
+```powershell
+cargo run -p rusty-xr-contracts --example visual_strobe_profiles --features serde
+```
+
+The example does not draw or flash anything. It prints descriptors only.
+Applications that actually present these stimuli must require explicit opt-in
+and should follow the warnings in
+`docs/VISUAL_STROBE_PROFILES.md`.

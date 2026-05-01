@@ -66,6 +66,10 @@ or set `RUSTY_XR_OPENXR_LOADER`.
 powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -OpenXrLoaderPath C:\path\to\libopenxr_loader.so
 ```
 
+The script defaults to target SDK `35`. Use `-TargetSdkVersion 33` only as a
+local compatibility probe when comparing headset camera behavior across
+runtime/permission policy, and record that value with the run artifacts.
+
 The output APK is:
 
 ```text
@@ -173,10 +177,24 @@ Useful launch extras:
   alignment. The `gpu-projected` tier is reserved for metadata-backed
   projection and must keep `alignedProjection=false` when pose or stereo
   metadata is missing.
+- `rustyxr.cameraAcquisition`: `java-camera2` by default. Set
+  `native-ndk` only for the experimental native acquisition probe, which uses
+  Android NDK `ACamera*` plus `AImageReader` `PRIVATE` hardware buffers and
+  feeds the same Vulkan projection path. Keep this as a separate acquisition
+  axis from projection, border, and shader color checks.
+- `rustyxr.cameraStartDelayMs`: optional delay before requesting/starting the
+  headset camera. Use it to test acquisition lifecycle timing without changing
+  projection, border, or shader code.
+- `rustyxr.nativeSourceMode`: free-form label for native acquisition source
+  experiments. It is logged with native camera selection so headset runs can
+  distinguish automatic synthetic dual-back selection, explicit side IDs, and
+  other source-shape probes.
 - `rustyxr.cameraWidth` / `rustyxr.cameraHeight`: requested camera target
-  dimensions. The default profile requests `1280x1280`.
+  dimensions. The default profile requests `1280x1280`. Explicit non-square
+  requests, such as `1280x960`, are honored when the runtime exposes that size
+  and the preferred-square override is disabled.
 - `rustyxr.cameraPreferredSquare`: preferred square Camera2 size. The default
-  is `1280`.
+  is `1280`. Set it to `0` when testing a non-square acquisition size.
 - `rustyxr.cameraMaxDimension`: preferred maximum Camera2 dimension before
   larger formats are deprioritized. The default is `1920`.
 - `rustyxr.cameraStereoLayout`: `mono`, `side-by-side`, `top-bottom`, or
@@ -190,6 +208,13 @@ Useful launch extras:
   deltas for release validation. The Java pending-pair queue stays small, but
   the stereo `ImageReader` uses a deeper opaque-buffer pool so Vulkan-retained
   `AHardwareBuffer` imports do not starve Camera2.
+- `rustyxr.cameraStereoImageReaderMaxImages`: max image count for each
+  separate-eye `PRIVATE` `ImageReader`. The default public profile uses `8` so
+  Java `Image` ownership, Camera2 producer buffers, and Vulkan-retained
+  hardware-buffer imports have enough slack to avoid producer starvation.
+  `3` is kept as an explicit acquisition diagnostic because some lower-level
+  camera stacks retain fewer images; test it separately from AE target FPS
+  changes.
 - `rustyxr.cameraSourceEyeMapping`: `left-right` or `right-left`. It controls
   whether the display left eye samples the left/source-0 camera or the
   right/source-1 camera. This is a runtime visual diagnostic knob because
@@ -258,6 +283,11 @@ Useful launch extras:
   cadence.
 - `rustyxr.mediaProjection`: `false` by default; set `true` only when the
   final screen should be streamed back to Windows.
+- `rustyxr.openxrPassthroughProbe`: `off` by default. `client` creates an
+  optional `XR_FB_passthrough` client/layer for runtime-state diagnostics;
+  `warmup` creates and resumes the layer briefly, then pauses passthrough.
+  This does not replace the custom camera composite and should be tested
+  separately from acquisition and color changes.
 
 Camera delivery cadence and render cadence are separate. The GPU path can
 request an AE target range for the Camera2 producer, while the OpenXR renderer
@@ -350,6 +380,13 @@ external-format import, and the public projected stereo profiles use
 device/runtime exposes YCbCr-like channels at the shader boundary; this switch
 does not move the live path back to CPU-readable YUV frames.
 
+The April 30, 2026 headset comparison pass confirmed this distinction on the
+current public Vulkan path: the combined immutable-sampler `external-rgb` mode
+is the usable baseline, while combined-sampler
+`external-cr-y-cb-bt601-narrow` can produce a strongly green/discolored image.
+Treat that result as a sampler/decode diagnostic, not as evidence that
+projection, source-eye mapping, or the border regressed.
+
 The catalog keeps camera path experiments as separate runtime profiles:
 
 - `camera-stereo-gpu-composite`: aligned Vulkan hardware-buffer baseline. It
@@ -369,6 +406,25 @@ The catalog keeps camera path experiments as separate runtime profiles:
   path. It is diagnostic until logs show `fixedFoveationEnabled=true`, no
   null fragment-density image handles, no framebuffer creation failure or
   driver crash, stable OpenXR cadence, and no stale camera frames.
+- `camera-stereo-gpu-composite-no-ae-target-065`: same render scale,
+  projection, border, and sampler as the `0.65` performance profile, but sends
+  no explicit Camera2 AE FPS target. It isolates acquisition policy from color
+  and projection.
+- `camera-stereo-gpu-composite-reader-max-3-065`: same render scale,
+  projection, border, and sampler as the `0.65` performance profile, but uses a
+  smaller separate-eye `ImageReader` pool. It isolates Java Camera2 queue depth
+  from color and projection.
+- `camera-stereo-gpu-composite-native-ndk-065`: same render scale, projection,
+  border, and sampler as the `0.65` performance profile, but swaps Java
+  Camera2 acquisition for an experimental native `ACamera*` / `AImageReader`
+  hardware-buffer path with no explicit AE target and reader max images `3`.
+  It logs all NDK camera-source topology it can see and is an acquisition
+  probe, not a release candidate until camera-frame progression remains live.
+- `camera-stereo-gpu-composite-native-single-mirror-065`: same native
+  hardware-buffer path, but opens one native back-facing camera source and
+  mirrors the same acquired buffer into both display eyes. Use it to isolate
+  renderer/import progression from concurrent stereo acquisition. It is not a
+  stereo-alignment proof because both eyes receive the same camera buffer.
 
 Do not stack the shader-side YCbCr decode on top of an external sampler that is
 already presenting RGB. The hardware-buffer import log reports
@@ -381,11 +437,134 @@ hardware-buffer import cache to match the stereo producer pool removed import
 evictions after warm-up. The aligned projected path held `72 FPS` at
 `rustyxr.xrRenderScale=0.65`, while the `0.75` baseline remained useful for
 geometry/color comparison but did not hold display cadence on that run. The
-same run showed Camera2 accepting a `60-60` AE range for a `72-72` request and
+same run showed Camera2 applying a `60-60` AE range for a `72-72` request and
 delivering below display cadence, so camera delivery FPS must be evaluated
-separately from OpenXR submit FPS. The fixed-foveation diagnostic path is still
-not release-ready on runtimes that enumerate null fragment-density image
-handles.
+separately from OpenXR submit FPS.
+
+The follow-up acquisition probes ruled out several simple Java Camera2 knobs
+as standalone fixes. No explicit AE target, `ImageReader` max images `3`, a
+wider stereo-pair window, and a lower `1280x960` separate-eye size did not stop
+the concurrent-separate stereo path from stalling on the tested runtime. A mono
+`PRIVATE` GPU-buffer probe at `1280x960` did keep receiving live frames, which
+points the next public iteration toward separating acquisition modules:
+document and preserve the Java Camera2 concurrent-stereo Vulkan path, then
+compare it against a lower-level/native hardware-buffer reader path before
+changing projection, border, or shader color math again. The fixed-foveation
+diagnostic path is still not release-ready on runtimes that enumerate null
+fragment-density image handles.
+
+The native single-camera mirror probe sharpened that split. On one tested
+runtime, one physical side-camera ID delivered live native frames in mirror
+mode while the other side-camera ID remained sparse even when opened alone.
+The exact IDs are runtime diagnostics, not portable requirements, but the
+result is useful: a live mirror run shows that Vulkan hardware-buffer import,
+the OpenXR render loop, and prompt `AImage` release are capable of steady frame
+progression. If the full stereo native profile still stalls, focus next on
+effective source/provider policy, side-camera timestamp behavior, or session
+shape rather than projection, border coordinates, or renderer cache churn.
+
+The native-reader follow-up keeps that module split explicit. It reproduces
+the lower-level ownership shape of `ACamera*` sessions plus `AImageReader`
+`PRIVATE` GPU-sampled buffers and logs native source enumeration, side-frame
+counts, stereo-pair publication, and the active acquisition label. On the
+tested runtime, direct native side-camera sessions still showed stale
+progression in one side stream, so the next comparison is source/session shape
+and timestamp behavior rather than another Java Camera2 queue-depth tweak.
+
+The optional OpenXR passthrough probe is a separate runtime-state check. The
+manifest includes optional passthrough and scene declarations so runtimes can
+advertise `XR_FB_passthrough` when available. Creating a passthrough
+client/layer confirmed the extension exposure path, but did not fix stale
+native acquisition; the always-on client mode can add runtime camera-compute
+load. Use `warmup` as the lighter probe when testing whether passthrough-client
+state affects camera availability.
+
+## Live Passthrough Hotload
+
+The activity uses `singleTask` launch mode and accepts a second intent while it
+is running. `onNewIntent` refreshes the native runtime config, so render/color
+parameters and native passthrough style values can be changed without
+force-stopping or reinstalling the APK.
+
+Hotload profiles in the catalog:
+
+- `passthrough-underlay-hotload-neutral`
+- `passthrough-underlay-hotload-bcs`
+- `passthrough-underlay-hotload-gradient`
+- `passthrough-underlay-hotload-lut-opponent`
+- `passthrough-underlay-hotload-lut-flicker-10hz`
+- `passthrough-underlay-hotload-lut-flicker-40hz`
+- `passthrough-underlay-hotload-lut-flicker-60hz`
+- `full-field-red-black-flicker-10hz`
+- `full-field-red-black-flicker-40hz`
+- `full-field-red-black-flicker-60hz`
+
+Strobe warning: the LUT flicker and full-field red/black flicker profiles are
+intentional high-frequency visual stimuli. They can trigger seizures or other
+adverse reactions in people with photosensitive epilepsy or other
+light-sensitive conditions, and may also cause migraine, nausea, dizziness,
+eyestrain, anxiety, or discomfort. Do not launch them around unconsenting
+bystanders. Use only with explicit informed opt-in and stop immediately if
+symptoms occur. See
+`docs/VISUAL_STROBE_PROFILES.md` for the public safety and frequency notes.
+
+Send a profile to the running headset app with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Send-QuestCompositeHotloadProfile.ps1 -Serial <serial> -RuntimeProfile passthrough-underlay-hotload-bcs
+```
+
+Ad-hoc values can be layered on top of the profile:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Send-QuestCompositeHotloadProfile.ps1 -Serial <serial> -RuntimeProfile passthrough-underlay-hotload-gradient -Override "rustyxr.passthroughColorPhase=0.42","rustyxr.passthroughColorAmplitude=1.0"
+```
+
+Live native passthrough style extras currently include
+`rustyxr.passthroughStyleMode` (`none`, `bcs`, `mono-to-rgba`, `color-lut`),
+`rustyxr.passthroughOpacity`, `rustyxr.passthroughEdgeR/G/B/A`,
+`rustyxr.passthroughBrightness`, `rustyxr.passthroughContrast`,
+`rustyxr.passthroughSaturation`, `rustyxr.passthroughColorPhase`, and
+`rustyxr.passthroughColorAmplitude`.
+
+The `color-lut` mode uses `XR_META_passthrough_color_lut` when the runtime
+exposes it. The example builds two RGB 3D LUTs: a smooth cyclic opponent-color
+palette and its half-phase inverse. `rustyxr.passthroughLutFlickerHz` is the
+full A/B cycle rate in hertz, so a 40 Hz flicker requires 80 state transitions
+per second. The native loop logs measured `passthrough LUT flicker stats`
+including observed frame rate, observed switch rate, and skipped half-cycles.
+`rustyxr.xrDisplayRefreshHz` can request a runtime display-refresh target when
+the device advertises `XR_FB_display_refresh_rate`.
+
+The `full-field-red-black-flicker-*` profiles disable passthrough and flicker
+the submitted projection-layer clear color between bright red and black. This
+uses `rustyxr.fullFieldFlickerHz`, also interpreted as full red/black cycles per
+second, and logs `full-field flicker stats` from the OpenXR frame loop. The
+10 Hz profile has integer frame timing at 120 Hz, the 40 Hz profile is
+frame-quantized at 120 Hz because each half-cycle averages 1.5 frames, and the
+60 Hz profile requires a state change every displayed frame.
+
+Camera acquisition, camera resolution, OpenXR swapchain format, and render
+scale remain launch-time settings.
+
+## Autonomous Camera Profile Runs
+
+The public workflow helpers in `tools/quest-camera-profile` launch catalog
+runtime profiles, capture power/wake/VR-power snapshots, record logcat and
+screenshots, reject black-camera or standby-transition windows, and compare
+local screenshots with per-ROI color metrics. See
+`docs/QUEST_CAMERA_PROFILE_WORKFLOW.md` for the current test plan and
+validation gates.
+
+Example:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 -Serial <serial> -RuntimeProfile camera-stereo-gpu-composite-no-ae-target-065 -CaptureHzdbScreencap
+```
+
+The generated screenshots, log bundles, manifests, validation JSON, and
+comparison reports belong under ignored `artifacts/` folders and must not be
+committed.
 
 ## Run Through Companion
 

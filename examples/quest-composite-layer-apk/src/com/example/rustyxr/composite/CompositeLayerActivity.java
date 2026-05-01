@@ -21,12 +21,15 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final int NOTIFICATION_PERMISSION_REQUEST = 8702;
     private static final int CAMERA_PERMISSION_REQUEST = 8704;
     private static final long DEFAULT_MEDIA_PROJECTION_DELAY_MS = 5000;
+    private static final long DEFAULT_CAMERA_START_DELAY_MS = 0;
     private static final int DEFAULT_CAMERA_SIZE = 1280;
     private static final int DEFAULT_CAMERA_MAX_DIMENSION = 1920;
     private static final int DEFAULT_CAMERA_CPU_UPLOAD_HZ = 4;
     private static final int DEFAULT_CAMERA_TARGET_FPS = 0;
     private static final int DEFAULT_CAMERA_FPS_MIN = 0;
     private static final int DEFAULT_CAMERA_FPS_MAX = 0;
+    private static final int DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES = 8;
+    private static final String DEFAULT_CAMERA_ACQUISITION = "java-camera2";
     private static final String DEFAULT_CAMERA_TIER = "cpu-diagnostic-flat-copy";
     private static final String DEFAULT_CAMERA_STEREO_LAYOUT = "mono";
     private static final boolean DEFAULT_CAMERA_ALLOW_CPU_FALLBACK = true;
@@ -37,10 +40,19 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_CAMERA_FULL_VIEW_OVERLAY_OVERSCAN = 2.10f;
     private static final float DEFAULT_CAMERA_EDGE_FADE = 0.12f;
     private static final String DEFAULT_CAMERA_PROJECTION_MODE = "display-screen-homography";
+    private static final String DEFAULT_CAMERA_PIPELINE_PRESET = "manual";
+    private static final String DEFAULT_CAMERA_PROJECTION_EFFECT_MODE = "border-composite";
+    private static final String DEFAULT_CAMERA_FEED_MODE = "projected-feed";
     private static final String DEFAULT_CAMERA_COLOR_MODE = "external-rgb";
+    private static final String DEFAULT_CAMERA_SAMPLER_BINDING_MODE = "combined-immutable-sampler";
+    private static final String DEFAULT_CAMERA_IMPORT_IMAGE_LAYOUT = "shader-read-transition";
+    private static final int DEFAULT_CAMERA_IMPORT_CACHE_LIMIT = 16;
+    private static final String DEFAULT_CAMERA_COLOR_MATRIX = "identity";
+    private static final String DEFAULT_CAMERA_COLOR_OFFSET = "zero";
     private static final float DEFAULT_CAMERA_COLOR_CONTRAST = 1.0f;
     private static final float DEFAULT_CAMERA_COLOR_BRIGHTNESS = 0.0f;
     private static final float DEFAULT_CAMERA_COLOR_SATURATION = 1.0f;
+    private static final float DEFAULT_CAMERA_BORDER_CYCLE_HZ = 0.18f;
     private static final String DEFAULT_CAMERA_TEXTURE_ROTATION = "rotate0";
     private static final boolean DEFAULT_CAMERA_TEXTURE_FLIP_X = false;
     private static final boolean DEFAULT_CAMERA_TEXTURE_FLIP_Y = false;
@@ -51,6 +63,24 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final String DEFAULT_CAMERA_ORIENTATION_DIAGNOSTIC_MODE = "off";
     private static final float DEFAULT_XR_RENDER_SCALE = 0.75f;
     private static final int DEFAULT_XR_FIXED_FOVEATION_LEVEL = 0;
+    private static final String DEFAULT_XR_COLOR_FORMAT = "rgba8-srgb";
+    private static final String DEFAULT_OPENXR_PASSTHROUGH_PROBE = "off";
+    private static final String DEFAULT_PASSTHROUGH_STYLE_MODE = "none";
+    private static final float DEFAULT_PASSTHROUGH_OPACITY = 1.0f;
+    private static final float DEFAULT_PASSTHROUGH_EDGE_R = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_EDGE_G = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_EDGE_B = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_EDGE_A = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_BRIGHTNESS = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_CONTRAST = 1.0f;
+    private static final float DEFAULT_PASSTHROUGH_SATURATION = 1.0f;
+    private static final float DEFAULT_PASSTHROUGH_COLOR_PHASE = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_COLOR_AMPLITUDE = 0.0f;
+    private static final int DEFAULT_PASSTHROUGH_LUT_RESOLUTION = 32;
+    private static final float DEFAULT_PASSTHROUGH_LUT_WEIGHT = 1.0f;
+    private static final float DEFAULT_PASSTHROUGH_LUT_FLICKER_HZ = 0.0f;
+    private static final float DEFAULT_FULL_FIELD_FLICKER_HZ = 0.0f;
+    private static final float DEFAULT_XR_DISPLAY_REFRESH_HZ = 72.0f;
 
     private MediaProjectionManager mediaProjectionManager;
 
@@ -61,6 +91,8 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static native String contractJson();
     private static native void nativeActivityEvent(String eventJson);
     private static native void nativeRuntimeConfig(String configJson);
+    private static native boolean nativeStartNativeCamera(String configJson);
+    private static native void nativeStopNativeCamera();
 
     @Override
     protected void onCreate(Bundle bundle) {
@@ -88,7 +120,18 @@ public final class CompositeLayerActivity extends NativeActivity {
         sendRuntimeConfig(cameraEnabled, mediaProjectionEnabled);
 
         if (cameraEnabled) {
-            requestHeadsetCameraPermissionsOrStart();
+            long cameraStartDelay = cameraStartDelayMs();
+            if (cameraStartDelay > 0) {
+                Log.i(TAG, "Delaying headset camera start by " + cameraStartDelay + " ms");
+                new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        requestHeadsetCameraPermissionsOrStart();
+                    }
+                }, cameraStartDelay);
+            } else {
+                requestHeadsetCameraPermissionsOrStart();
+            }
         } else {
             sendNativeEvent("headsetCameraDisabledByIntent");
         }
@@ -101,6 +144,17 @@ public final class CompositeLayerActivity extends NativeActivity {
                 }
             }, mediaProjectionDelayMs());
         }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        boolean cameraEnabled = shouldStartHeadsetCamera();
+        boolean mediaProjectionEnabled = shouldRequestMediaProjection();
+        sendRuntimeConfig(cameraEnabled, mediaProjectionEnabled);
+        sendNativeEvent("runtimeConfigHotloaded");
+        Log.i(TAG, "Rusty XR runtime config hotloaded from new intent");
     }
 
     private boolean shouldRequestMediaProjection() {
@@ -215,12 +269,21 @@ public final class CompositeLayerActivity extends NativeActivity {
         return Math.max(0, delay);
     }
 
+    private long cameraStartDelayMs() {
+        long delay = longExtra("rustyxr.cameraStartDelayMs", DEFAULT_CAMERA_START_DELAY_MS);
+        return Math.max(0, delay);
+    }
+
     private String cameraTier() {
         return stringExtra("rustyxr.cameraTier", DEFAULT_CAMERA_TIER);
     }
 
     private String cameraStereoLayout() {
         return stringExtra("rustyxr.cameraStereoLayout", DEFAULT_CAMERA_STEREO_LAYOUT);
+    }
+
+    private String cameraAcquisition() {
+        return stringExtra("rustyxr.cameraAcquisition", DEFAULT_CAMERA_ACQUISITION);
     }
 
     private boolean allowCpuFallback() {
@@ -233,10 +296,13 @@ public final class CompositeLayerActivity extends NativeActivity {
         int cameraTargetFps = Math.max(0, intExtra("rustyxr.cameraTargetFps", DEFAULT_CAMERA_TARGET_FPS));
         int cameraFpsMin = Math.max(0, intExtra("rustyxr.cameraFpsMin", DEFAULT_CAMERA_FPS_MIN));
         int cameraFpsMax = Math.max(0, intExtra("rustyxr.cameraFpsMax", DEFAULT_CAMERA_FPS_MAX));
+        int stereoImageReaderMaxImages = Math.max(2, intExtra("rustyxr.cameraStereoImageReaderMaxImages", DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES));
         int fixedFoveationLevel = Math.max(0, intExtra("rustyxr.xrFixedFoveationLevel", DEFAULT_XR_FIXED_FOVEATION_LEVEL));
         StringBuilder builder = new StringBuilder(256);
         builder.append('{');
         appendJsonString(builder, "cameraTier", tier);
+        builder.append(',');
+        appendJsonString(builder, "cameraAcquisition", cameraAcquisition());
         builder.append(",\"cameraEnabled\":").append(cameraEnabled);
         builder.append(",\"mediaProjectionEnabled\":").append(mediaProjectionEnabled);
         builder.append(",\"allowCpuFallback\":").append(allowCpuFallback());
@@ -244,6 +310,10 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraTargetFps\":").append(cameraTargetFps);
         builder.append(",\"cameraFpsMin\":").append(cameraFpsMin);
         builder.append(",\"cameraFpsMax\":").append(cameraFpsMax);
+        builder.append(",\"cameraStereoImageReaderMaxImages\":").append(stereoImageReaderMaxImages);
+        builder.append(",\"cameraStartDelayMs\":").append(cameraStartDelayMs());
+        builder.append(',');
+        appendJsonString(builder, "nativeSourceMode", stringExtra("rustyxr.nativeSourceMode", "auto"));
         builder.append(",\"cameraProjectionFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraProjectionFovYDegrees", DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES)));
         builder.append(",\"cameraPreviewFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraPreviewFovYDegrees", DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES)));
         builder.append(",\"cameraProjectionScale\":").append(floatJson(floatExtra("rustyxr.cameraProjectionScale", DEFAULT_CAMERA_PROJECTION_SCALE)));
@@ -253,10 +323,26 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(',');
         appendJsonString(builder, "cameraProjectionMode", stringExtra("rustyxr.cameraProjectionMode", DEFAULT_CAMERA_PROJECTION_MODE));
         builder.append(',');
+        appendJsonString(builder, "cameraPipelinePreset", stringExtra("rustyxr.cameraPipelinePreset", DEFAULT_CAMERA_PIPELINE_PRESET));
+        builder.append(',');
+        appendJsonString(builder, "cameraProjectionEffectMode", stringExtra("rustyxr.cameraProjectionEffectMode", DEFAULT_CAMERA_PROJECTION_EFFECT_MODE));
+        builder.append(',');
+        appendJsonString(builder, "cameraFeedMode", stringExtra("rustyxr.cameraFeedMode", DEFAULT_CAMERA_FEED_MODE));
+        builder.append(',');
         appendJsonString(builder, "cameraColorMode", stringExtra("rustyxr.cameraColorMode", DEFAULT_CAMERA_COLOR_MODE));
+        builder.append(',');
+        appendJsonString(builder, "cameraSamplerBindingMode", stringExtra("rustyxr.cameraSamplerBindingMode", DEFAULT_CAMERA_SAMPLER_BINDING_MODE));
+        builder.append(',');
+        appendJsonString(builder, "cameraImportImageLayout", stringExtra("rustyxr.cameraImportImageLayout", DEFAULT_CAMERA_IMPORT_IMAGE_LAYOUT));
+        builder.append(",\"cameraImportCacheLimit\":").append(Math.max(2, intExtra("rustyxr.cameraImportCacheLimit", DEFAULT_CAMERA_IMPORT_CACHE_LIMIT)));
+        builder.append(',');
+        appendJsonString(builder, "cameraColorMatrix", stringExtra("rustyxr.cameraColorMatrix", DEFAULT_CAMERA_COLOR_MATRIX));
+        builder.append(',');
+        appendJsonString(builder, "cameraColorOffset", stringExtra("rustyxr.cameraColorOffset", DEFAULT_CAMERA_COLOR_OFFSET));
         builder.append(",\"cameraColorContrast\":").append(floatJson(floatExtra("rustyxr.cameraColorContrast", DEFAULT_CAMERA_COLOR_CONTRAST)));
         builder.append(",\"cameraColorBrightness\":").append(floatJson(floatExtra("rustyxr.cameraColorBrightness", DEFAULT_CAMERA_COLOR_BRIGHTNESS)));
         builder.append(",\"cameraColorSaturation\":").append(floatJson(floatExtra("rustyxr.cameraColorSaturation", DEFAULT_CAMERA_COLOR_SATURATION)));
+        builder.append(",\"cameraBorderCycleHz\":").append(floatJson(floatExtra("rustyxr.cameraBorderCycleHz", DEFAULT_CAMERA_BORDER_CYCLE_HZ)));
         builder.append(',');
         appendJsonString(builder, "cameraTextureRotation", stringExtra("rustyxr.cameraTextureRotation", DEFAULT_CAMERA_TEXTURE_ROTATION));
         builder.append(",\"cameraTextureFlipX\":").append(booleanExtra("rustyxr.cameraTextureFlipX", DEFAULT_CAMERA_TEXTURE_FLIP_X));
@@ -292,7 +378,28 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(',');
         appendJsonString(builder, "visualAcceptanceToken", stringExtra("rustyxr.visualAcceptanceToken", ""));
         builder.append(",\"xrRenderScale\":").append(floatJson(floatExtra("rustyxr.xrRenderScale", DEFAULT_XR_RENDER_SCALE)));
+        builder.append(",\"xrDisplayRefreshHz\":").append(floatJson(floatExtra("rustyxr.xrDisplayRefreshHz", DEFAULT_XR_DISPLAY_REFRESH_HZ)));
         builder.append(",\"xrFixedFoveationLevel\":").append(fixedFoveationLevel);
+        builder.append(',');
+        appendJsonString(builder, "xrColorFormat", stringExtra("rustyxr.xrColorFormat", DEFAULT_XR_COLOR_FORMAT));
+        builder.append(',');
+        appendJsonString(builder, "openxrPassthroughProbe", stringExtra("rustyxr.openxrPassthroughProbe", DEFAULT_OPENXR_PASSTHROUGH_PROBE));
+        builder.append(',');
+        appendJsonString(builder, "passthroughStyleMode", stringExtra("rustyxr.passthroughStyleMode", DEFAULT_PASSTHROUGH_STYLE_MODE));
+        builder.append(",\"passthroughOpacity\":").append(floatJson(floatExtra("rustyxr.passthroughOpacity", DEFAULT_PASSTHROUGH_OPACITY)));
+        builder.append(",\"passthroughEdgeR\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeR", DEFAULT_PASSTHROUGH_EDGE_R)));
+        builder.append(",\"passthroughEdgeG\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeG", DEFAULT_PASSTHROUGH_EDGE_G)));
+        builder.append(",\"passthroughEdgeB\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeB", DEFAULT_PASSTHROUGH_EDGE_B)));
+        builder.append(",\"passthroughEdgeA\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeA", DEFAULT_PASSTHROUGH_EDGE_A)));
+        builder.append(",\"passthroughBrightness\":").append(floatJson(floatExtra("rustyxr.passthroughBrightness", DEFAULT_PASSTHROUGH_BRIGHTNESS)));
+        builder.append(",\"passthroughContrast\":").append(floatJson(floatExtra("rustyxr.passthroughContrast", DEFAULT_PASSTHROUGH_CONTRAST)));
+        builder.append(",\"passthroughSaturation\":").append(floatJson(floatExtra("rustyxr.passthroughSaturation", DEFAULT_PASSTHROUGH_SATURATION)));
+        builder.append(",\"passthroughColorPhase\":").append(floatJson(floatExtra("rustyxr.passthroughColorPhase", DEFAULT_PASSTHROUGH_COLOR_PHASE)));
+        builder.append(",\"passthroughColorAmplitude\":").append(floatJson(floatExtra("rustyxr.passthroughColorAmplitude", DEFAULT_PASSTHROUGH_COLOR_AMPLITUDE)));
+        builder.append(",\"passthroughLutResolution\":").append(Math.max(2, intExtra("rustyxr.passthroughLutResolution", DEFAULT_PASSTHROUGH_LUT_RESOLUTION)));
+        builder.append(",\"passthroughLutWeight\":").append(floatJson(floatExtra("rustyxr.passthroughLutWeight", DEFAULT_PASSTHROUGH_LUT_WEIGHT)));
+        builder.append(",\"passthroughLutFlickerHz\":").append(floatJson(floatExtra("rustyxr.passthroughLutFlickerHz", DEFAULT_PASSTHROUGH_LUT_FLICKER_HZ)));
+        builder.append(",\"fullFieldFlickerHz\":").append(floatJson(floatExtra("rustyxr.fullFieldFlickerHz", DEFAULT_FULL_FIELD_FLICKER_HZ)));
         builder.append(',');
         appendJsonString(builder, "stereoLayout", cameraStereoLayout());
         builder.append('}');
@@ -324,6 +431,11 @@ public final class CompositeLayerActivity extends NativeActivity {
     }
 
     private void startHeadsetCamera() {
+        if ("native-ndk".equals(cameraAcquisition())) {
+            startNativeHeadsetCamera();
+            return;
+        }
+
         Intent serviceIntent = new Intent(this, HeadsetCameraService.class);
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_WIDTH, intExtra("rustyxr.cameraWidth", DEFAULT_CAMERA_SIZE));
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_HEIGHT, intExtra("rustyxr.cameraHeight", DEFAULT_CAMERA_SIZE));
@@ -345,6 +457,9 @@ public final class CompositeLayerActivity extends NativeActivity {
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_CAMERA_FPS_MAX,
             intExtra("rustyxr.cameraFpsMax", DEFAULT_CAMERA_FPS_MAX));
+        serviceIntent.putExtra(
+            HeadsetCameraService.EXTRA_STEREO_IMAGE_READER_MAX_IMAGES,
+            intExtra("rustyxr.cameraStereoImageReaderMaxImages", DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES));
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_CAMERA_TIER, cameraTier());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_STEREO_LAYOUT, cameraStereoLayout());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_ALLOW_CPU_FALLBACK, allowCpuFallback());
@@ -438,6 +553,48 @@ public final class CompositeLayerActivity extends NativeActivity {
         }
     }
 
+    private void startNativeHeadsetCamera() {
+        String configJson = nativeCameraConfigJson();
+        try {
+            if (nativeStartNativeCamera(configJson)) {
+                Log.i(TAG, "Native NDK headset camera acquisition started");
+                sendNativeEvent("headsetCameraNativeStarted");
+            } else {
+                Log.e(TAG, "Native NDK headset camera acquisition failed to start");
+                sendNativeEvent("headsetCameraNativeStartFailed");
+            }
+        } catch (RuntimeException error) {
+            Log.e(TAG, "Could not start native NDK headset camera acquisition", error);
+            sendNativeEvent("headsetCameraNativeStartFailed");
+        } catch (UnsatisfiedLinkError error) {
+            Log.e(TAG, "Native NDK headset camera bridge unavailable", error);
+            sendNativeEvent("headsetCameraNativeStartUnavailable");
+        }
+    }
+
+    private String nativeCameraConfigJson() {
+        StringBuilder builder = new StringBuilder(256);
+        builder.append('{');
+        builder.append("\"width\":").append(Math.max(1, intExtra("rustyxr.cameraWidth", DEFAULT_CAMERA_SIZE)));
+        builder.append(",\"height\":").append(Math.max(1, intExtra("rustyxr.cameraHeight", DEFAULT_CAMERA_SIZE)));
+        builder.append(",\"maxDimension\":").append(Math.max(1, intExtra("rustyxr.cameraMaxDimension", DEFAULT_CAMERA_MAX_DIMENSION)));
+        builder.append(",\"preferredSquare\":").append(Math.max(0, intExtra("rustyxr.cameraPreferredSquare", DEFAULT_CAMERA_SIZE)));
+        builder.append(",\"readerMaxImages\":").append(Math.max(2, intExtra("rustyxr.cameraStereoImageReaderMaxImages", 3)));
+        builder.append(",\"stereoPairMaxDeltaNs\":").append(Math.max(0L, longExtra("rustyxr.cameraStereoPairMaxDeltaNs", 5_000_000L)));
+        builder.append(',');
+        appendJsonString(builder, "requestedTier", cameraTier());
+        builder.append(',');
+        appendJsonString(builder, "requestedStereoLayout", cameraStereoLayout());
+        builder.append(',');
+        appendJsonString(builder, "sourceMode", stringExtra("rustyxr.nativeSourceMode", "auto"));
+        builder.append(',');
+        appendJsonString(builder, "leftCameraId", stringExtra("rustyxr.nativeLeftCameraId", ""));
+        builder.append(',');
+        appendJsonString(builder, "rightCameraId", stringExtra("rustyxr.nativeRightCameraId", ""));
+        builder.append('}');
+        return builder.toString();
+    }
+
     private void requestMediaProjection() {
         if (mediaProjectionManager == null) {
             Log.w(TAG, "MediaProjectionManager is unavailable");
@@ -499,6 +656,11 @@ public final class CompositeLayerActivity extends NativeActivity {
 
     @Override
     protected void onDestroy() {
+        try {
+            nativeStopNativeCamera();
+        } catch (UnsatisfiedLinkError ignored) {
+            // Older local APKs may not have the optional native camera bridge.
+        }
         stopService(new Intent(this, MediaProjectionStreamService.class));
         stopService(new Intent(this, HeadsetCameraService.class));
         sendNativeEvent("activityDestroyed");

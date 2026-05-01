@@ -6,8 +6,9 @@ and workflow helpers used by Rust-native XR applications.
 The project is intended to provide a clean shared foundation for app shells and
 experiments that need common XR data models, runtime configuration helpers,
 device diagnostics, passthrough-camera abstractions, depth and SDF contracts,
-plain stereo/feedback layer descriptors and tuning hints, LSL utilities, and
-general particle or animation primitives.
+plain stereo/feedback layer descriptors and tuning hints, native
+passthrough-layer style descriptors, safety-gated visual strobe descriptors,
+LSL utilities, and general particle or animation primitives.
 
 Rusty XR is not a Quest application, not an APK distribution repo, and not a
 replacement for an app-specific shell. Application repositories remain
@@ -50,6 +51,9 @@ The current raw-camera example has two public projected stereo modes:
 GPU-buffer path and the public soft feedback border, but `quad-surface` is
 still an A/B comparison profile rather than the final performance or color
 reference.
+Current camera color and cadence work is tracked as explicit runtime profiles
+and reusable headset-run tools:
+[docs/QUEST_CAMERA_PROFILE_WORKFLOW.md](docs/QUEST_CAMERA_PROFILE_WORKFLOW.md).
 
 The contracts examples and minimal APK can be run without headset hardware or
 downstream app code:
@@ -57,6 +61,9 @@ downstream app code:
 ```powershell
 cargo run -p rusty-xr-contracts --example plain_stereo_feedback_layout --features serde
 cargo run -p rusty-xr-contracts --example composite_feedback_session --features serde
+cargo run -p rusty-xr-contracts --example meta_passthrough_style_catalog --features serde
+cargo run -p rusty-xr-contracts --example audio_reactive_passthrough_style --features serde
+cargo run -p rusty-xr-contracts --example visual_strobe_profiles --features serde
 powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
 ```
 
@@ -70,7 +77,12 @@ powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\to
 Quest raw camera, platform passthrough, environment depth, MediaProjection, and
 operator casting sources are intentionally distinct. See
 [docs/QUEST_VISUAL_SOURCE_TAXONOMY.md](docs/QUEST_VISUAL_SOURCE_TAXONOMY.md)
-before interpreting camera-composite diagnostics.
+before interpreting camera-composite diagnostics. Native compositor passthrough
+style contracts are documented in
+[docs/META_PASSTHROUGH_LAYER.md](docs/META_PASSTHROUGH_LAYER.md).
+Intentional visual strobe profiles, 120 Hz display-refresh constraints, and
+photoepilepsy warnings are documented in
+[docs/VISUAL_STROBE_PROFILES.md](docs/VISUAL_STROBE_PROFILES.md).
 
 ## Makepad Acknowledgement
 

@@ -24,12 +24,21 @@ fn main() {
         "vertex",
         Path::new("shaders/camera_projection.vert.glsl"),
         &out_dir.join("camera_projection.vert.spv"),
+        &[],
     );
     compile_shader(
         &glslc,
         "fragment",
         Path::new("shaders/camera_projection.frag.glsl"),
         &out_dir.join("camera_projection.frag.spv"),
+        &[],
+    );
+    compile_shader(
+        &glslc,
+        "fragment",
+        Path::new("shaders/camera_projection.frag.glsl"),
+        &out_dir.join("camera_projection_separate_sampler.frag.spv"),
+        &["RUSTY_XR_SEPARATE_CAMERA_SAMPLER=1"],
     );
 }
 
@@ -71,10 +80,15 @@ fn find_on_path(file_name: &str) -> Result<PathBuf, ()> {
     Err(())
 }
 
-fn compile_shader(glslc: &Path, stage: &str, source: &Path, output: &Path) {
-    let status = Command::new(glslc)
+fn compile_shader(glslc: &Path, stage: &str, source: &Path, output: &Path, defines: &[&str]) {
+    let mut command = Command::new(glslc);
+    command
         .arg("--target-env=vulkan1.1")
-        .arg(format!("-fshader-stage={stage}"))
+        .arg(format!("-fshader-stage={stage}"));
+    for define in defines {
+        command.arg(format!("-D{define}"));
+    }
+    let status = command
         .arg(source)
         .arg("-o")
         .arg(output)

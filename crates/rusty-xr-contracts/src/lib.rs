@@ -24,8 +24,10 @@ pub mod hand;
 pub mod interaction;
 pub mod layer;
 pub mod math;
+pub mod passthrough;
 pub mod render;
 pub mod room;
+pub mod strobe;
 pub mod time;
 pub mod view;
 
@@ -54,6 +56,15 @@ pub use layer::{
     VisualFeedbackBorderLayout, VisualFeedbackLayerTuning,
 };
 pub use math::{Pose, Quat, Vec2, Vec3};
+pub use passthrough::{
+    audio_reactive_mono_to_rgba_style, PassthroughColorAdjustment, PassthroughColorLutBinding,
+    PassthroughColorLutChannels, PassthroughColorLutSpec, PassthroughColorReproduction,
+    PassthroughExtensionRequirements, PassthroughGradientStop,
+    PassthroughInterpolatedColorLutBinding, PassthroughLayerPlacement, PassthroughLayerPurpose,
+    PassthroughMonoToMonoMap, PassthroughMonoToRgbaMap, PassthroughStyle, PlatformPassthroughLayer,
+    PASSTHROUGH_COLOR_MAP_SIZE, XR_FB_PASSTHROUGH_EXTENSION, XR_FB_TRIANGLE_MESH_EXTENSION,
+    XR_META_PASSTHROUGH_COLOR_LUT_EXTENSION,
+};
 pub use render::{
     ColorRgba, CounterSample, CounterValue, RenderCoordinateSpace, RenderPayload, RenderPoint,
     RuntimeCounters,
@@ -62,6 +73,12 @@ pub use room::{
     CaptureLifecycleState, CapturePermissionState, CaptureSourceKind, CaptureSourceState,
     RoomMeshCoordinateSpace, RoomMeshError, RoomMeshSemanticLabel, RoomMeshSnapshot,
     RoomMeshSourceKind, RoomMeshSourceState, RoomMeshSurface,
+};
+pub use strobe::{
+    safety_class_for_cycle_hz, StrobeFrameFeasibility, StrobeFrequencyPlan, VisualStrobeMode,
+    VisualStrobeProfile, VisualStrobeSafetyClass, FULL_FIELD_STROBE_WARNING,
+    PHOTOSENSITIVE_RISK_BAND_MAX_HZ, PHOTOSENSITIVE_RISK_BAND_MIN_HZ, WCAG_GENERAL_FLASH_LIMIT_HZ,
+    XR_FB_DISPLAY_REFRESH_RATE_EXTENSION,
 };
 pub use time::FrameTiming;
 pub use view::{Eye, EyeView, FieldOfView, StereoViews};
