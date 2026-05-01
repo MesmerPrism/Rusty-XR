@@ -3068,6 +3068,7 @@ impl GpuCameraRenderer {
         let controls = config.stereo_projection_controls(frame_count);
         let (push, uniforms, projection_active) =
             CameraProjectionPush::from_stereo_frame(frame, config, &controls, views, resolution);
+        let uniforms = uniforms.with_border_cycle_phase(config, frame_count);
         if config.camera_tier == CameraCompositeTier::GpuProjected && !projection_active {
             return;
         }
@@ -3346,6 +3347,11 @@ impl CameraProjectionUniforms {
             config.camera_color_offset[2],
             0.0,
         ];
+        self
+    }
+
+    fn with_border_cycle_phase(mut self, config: &crate::RuntimeConfig, frame_count: u64) -> Self {
+        self.color_offset[3] = config.camera_border_cycle_phase(frame_count);
         self
     }
 }

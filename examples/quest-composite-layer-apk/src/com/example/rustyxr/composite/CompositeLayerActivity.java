@@ -52,6 +52,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_CAMERA_COLOR_CONTRAST = 1.0f;
     private static final float DEFAULT_CAMERA_COLOR_BRIGHTNESS = 0.0f;
     private static final float DEFAULT_CAMERA_COLOR_SATURATION = 1.0f;
+    private static final float DEFAULT_CAMERA_BORDER_CYCLE_HZ = 0.18f;
     private static final String DEFAULT_CAMERA_TEXTURE_ROTATION = "rotate0";
     private static final boolean DEFAULT_CAMERA_TEXTURE_FLIP_X = false;
     private static final boolean DEFAULT_CAMERA_TEXTURE_FLIP_Y = false;
@@ -314,6 +315,7 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraColorContrast\":").append(floatJson(floatExtra("rustyxr.cameraColorContrast", DEFAULT_CAMERA_COLOR_CONTRAST)));
         builder.append(",\"cameraColorBrightness\":").append(floatJson(floatExtra("rustyxr.cameraColorBrightness", DEFAULT_CAMERA_COLOR_BRIGHTNESS)));
         builder.append(",\"cameraColorSaturation\":").append(floatJson(floatExtra("rustyxr.cameraColorSaturation", DEFAULT_CAMERA_COLOR_SATURATION)));
+        builder.append(",\"cameraBorderCycleHz\":").append(floatJson(floatExtra("rustyxr.cameraBorderCycleHz", DEFAULT_CAMERA_BORDER_CYCLE_HZ)));
         builder.append(',');
         appendJsonString(builder, "cameraTextureRotation", stringExtra("rustyxr.cameraTextureRotation", DEFAULT_CAMERA_TEXTURE_ROTATION));
         builder.append(",\"cameraTextureFlipX\":").append(booleanExtra("rustyxr.cameraTextureFlipX", DEFAULT_CAMERA_TEXTURE_FLIP_X));

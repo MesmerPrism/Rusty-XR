@@ -83,6 +83,14 @@ single projected inward sample to test lower/perimeter coverage without the full
 border composite. The `raw-projection-strong-border-unorm` preset keeps that
 single-sample shape but uses a stronger generic border mix for A/B runs where
 the soft variant does not move the lower/perimeter region enough. The
+`raw-projection-dynamic-border-unorm` preset keeps the strong-border geometry
+and adds a cheap dynamic color-feedback term for border color A/B tests. The
+`raw-projection-warm-border-unorm` preset keeps the same geometry while using a
+luma-preserving warm feedback term for border-color A/B tests. The
+`raw-projection-cycling-border-unorm` preset keeps that geometry and adds a
+phase-cycled generic color term for testing temporal border-color feedback; use
+`-Override 'rustyxr.cameraBorderCycleHz=<rate>'` to adjust the cycle rate in the
+same APK. The
 `raw-projection-underlay-unorm` preset submits a public
 OpenXR passthrough underlay and alpha-blends the raw projection layer, which is
 useful when comparing background composition separately from raw camera
@@ -92,6 +100,32 @@ settings.
 Projection mode remains independent from those presets so border, sampler, and
 color modules can be tested against both public geometry mappings in the same
 APK.
+
+## Runtime Control Contract
+
+The Quest example keeps A/B modules switchable through the same public runtime
+keys whether they come from this PowerShell harness, another launcher, or a
+desktop companion process that can send Android intent extras. Keep companion
+integrations on these stable keys instead of duplicating shader-specific state:
+
+| Key | Type | Purpose |
+| --- | --- | --- |
+| `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, or `raw-projection-cycling-border-unorm`. |
+| `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `display-screen-homography` or `quad-surface`. |
+| `rustyxr.cameraBorderCycleHz` | float | Adjusts the generic phase-cycled border-color rate used by `raw-projection-cycling-border-unorm`; ignored by static border presets. |
+| `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
+| `rustyxr.openxrPassthroughProbe` | string | Keeps native passthrough checks separate from camera projection: `off`, `warmup`, `client`, or `underlay`. |
+
+The app-parsed runtime config log is the authority for whether a switch was
+actually applied. It reports the requested preset and the resolved feed,
+projection-effect, sampler, import layout, color format, cycle rate, and render
+scale. A companion process should record that parsed log line alongside any
+operator note before treating a visual observation as valid.
+
+ADB is still needed for install, cold launch, Android permission grants,
+screencaps, and log capture. Lighter control channels can reuse the same key
+names for operator-driven A/B switching, but they should not invent new setting
+names unless the native runtime config parser is updated at the same time.
 
 Native acquisition and OpenXR passthrough-client state are separate axes. To
 test runtime passthrough exposure without adding a catalog profile, use
