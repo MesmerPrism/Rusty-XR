@@ -80,6 +80,14 @@ impl NativeCameraConfig {
             || mode == "single-camera-mirror"
             || mode == "mirror-left"
     }
+
+    fn deferred_dual_repeating(&self) -> bool {
+        let mode = self.source_mode().to_ascii_lowercase();
+        mode == "dual-back-deferred-repeat"
+            || mode == "deferred-dual-back"
+            || mode == "prepare-then-repeat-dual-back"
+            || mode == "synthetic-dual-back-deferred-repeat"
+    }
 }
 
 pub fn start_from_json(config_json: &str) -> Result<(), String> {
@@ -132,10 +140,11 @@ impl NativeCameraSession {
             let sources = enumerate_camera_sources(manager)?;
             let single_camera_mirror = config.single_camera_mirror();
             let (left_source, right_source, selected_size) = if single_camera_mirror {
-                let (source, selected_size) = select_single_mirror_source(&sources, &config)?;
+                let (source, selected_size) =
+                    select_single_mirror_source(manager, &sources, &config)?;
                 (source.clone(), source, selected_size)
             } else {
-                select_stereo_sources(&sources, &config)?
+                select_stereo_sources(manager, &sources, &config)?
             };
             let width = selected_size.0;
             let height = selected_size.1;
@@ -182,30 +191,31 @@ impl NativeCameraSession {
                 })))
             };
 
-            let left = match NativeCameraSideSession::start(
-                manager,
-                &left_source.camera_id_c,
-                width,
-                height,
-                context.reader_max_images,
-                left_reader_context,
-            ) {
-                Ok(session) => session,
-                Err(error) => {
-                    drop(Box::from_raw(left_reader_context));
-                    if let Some(right_reader_context) = right_reader_context {
+            let deferred_dual_repeating = !single_camera_mirror && config.deferred_dual_repeating();
+            let (left, right) = if deferred_dual_repeating {
+                let Some(right_reader_context) = right_reader_context else {
+                    unreachable!("deferred dual repeating requires a right reader context");
+                };
+                let left = match NativeCameraSideSession::prepare(
+                    manager,
+                    &left_source.camera_id_c,
+                    width,
+                    height,
+                    context.reader_max_images,
+                    left_reader_context,
+                ) {
+                    Ok(session) => session,
+                    Err(error) => {
+                        drop(Box::from_raw(left_reader_context));
                         drop(Box::from_raw(right_reader_context));
+                        publish_stop.store(true, Ordering::Release);
+                        context.publish_queue.notify();
+                        let _ = publish_thread.join();
+                        ACameraManager_delete(manager);
+                        return Err(error);
                     }
-                    publish_stop.store(true, Ordering::Release);
-                    context.publish_queue.notify();
-                    let _ = publish_thread.join();
-                    ACameraManager_delete(manager);
-                    return Err(error);
-                }
-            };
-
-            let right = if let Some(right_reader_context) = right_reader_context {
-                match NativeCameraSideSession::start(
+                };
+                let right = match NativeCameraSideSession::prepare(
                     manager,
                     &right_source.camera_id_c,
                     width,
@@ -213,7 +223,7 @@ impl NativeCameraSession {
                     context.reader_max_images,
                     right_reader_context,
                 ) {
-                    Ok(session) => Some(session),
+                    Ok(session) => session,
                     Err(error) => {
                         left.stop();
                         drop(Box::from_raw(left_reader_context));
@@ -224,13 +234,86 @@ impl NativeCameraSession {
                         ACameraManager_delete(manager);
                         return Err(error);
                     }
+                };
+                log_info(format!(
+                    "Rusty XR native ACamera deferred dual-side start prepared both sessions before repeating leftId={} rightId={} size={}x{}",
+                    context.left_info.camera_id, context.right_info.camera_id, width, height
+                ));
+                if let Err(error) = left.start_repeating(&left_source.camera_id_c) {
+                    left.stop();
+                    right.stop();
+                    drop(Box::from_raw(left_reader_context));
+                    drop(Box::from_raw(right_reader_context));
+                    publish_stop.store(true, Ordering::Release);
+                    context.publish_queue.notify();
+                    let _ = publish_thread.join();
+                    ACameraManager_delete(manager);
+                    return Err(error);
                 }
+                if let Err(error) = right.start_repeating(&right_source.camera_id_c) {
+                    left.stop();
+                    right.stop();
+                    drop(Box::from_raw(left_reader_context));
+                    drop(Box::from_raw(right_reader_context));
+                    publish_stop.store(true, Ordering::Release);
+                    context.publish_queue.notify();
+                    let _ = publish_thread.join();
+                    ACameraManager_delete(manager);
+                    return Err(error);
+                }
+                (left, Some(right))
             } else {
-                None
+                let left = match NativeCameraSideSession::start(
+                    manager,
+                    &left_source.camera_id_c,
+                    width,
+                    height,
+                    context.reader_max_images,
+                    left_reader_context,
+                ) {
+                    Ok(session) => session,
+                    Err(error) => {
+                        drop(Box::from_raw(left_reader_context));
+                        if let Some(right_reader_context) = right_reader_context {
+                            drop(Box::from_raw(right_reader_context));
+                        }
+                        publish_stop.store(true, Ordering::Release);
+                        context.publish_queue.notify();
+                        let _ = publish_thread.join();
+                        ACameraManager_delete(manager);
+                        return Err(error);
+                    }
+                };
+
+                let right = if let Some(right_reader_context) = right_reader_context {
+                    match NativeCameraSideSession::start(
+                        manager,
+                        &right_source.camera_id_c,
+                        width,
+                        height,
+                        context.reader_max_images,
+                        right_reader_context,
+                    ) {
+                        Ok(session) => Some(session),
+                        Err(error) => {
+                            left.stop();
+                            drop(Box::from_raw(left_reader_context));
+                            drop(Box::from_raw(right_reader_context));
+                            publish_stop.store(true, Ordering::Release);
+                            context.publish_queue.notify();
+                            let _ = publish_thread.join();
+                            ACameraManager_delete(manager);
+                            return Err(error);
+                        }
+                    }
+                } else {
+                    None
+                };
+                (left, right)
             };
 
             log_info(format!(
-                "Rusty XR native ACamera stereo acquisition running leftId={} rightId={} size={}x{} readerMaxImages={} requestedTier={} stereoLayout={} sourceMode={} singleCameraMirror={} aeFps=unset",
+                "Rusty XR native ACamera stereo acquisition running leftId={} rightId={} size={}x{} readerMaxImages={} requestedTier={} stereoLayout={} sourceMode={} singleCameraMirror={} deferredDualRepeating={} aeFps=unset",
                 context.left_info.camera_id,
                 context.right_info.camera_id,
                 width,
@@ -240,6 +323,7 @@ impl NativeCameraSession {
                 context.requested_stereo_layout,
                 context.source_mode,
                 context.single_camera_mirror,
+                deferred_dual_repeating,
             ));
 
             Ok(Self {
@@ -292,6 +376,36 @@ unsafe impl Send for NativeCameraSideSession {}
 
 impl NativeCameraSideSession {
     unsafe fn start(
+        manager: *mut ACameraManager,
+        camera_id: &CString,
+        width: u32,
+        height: u32,
+        reader_max_images: i32,
+        reader_context: *mut NativeReaderContext,
+    ) -> Result<Self, String> {
+        let session = Self::prepare(
+            manager,
+            camera_id,
+            width,
+            height,
+            reader_max_images,
+            reader_context,
+        )?;
+        if let Err(error) = session.start_repeating(camera_id) {
+            session.stop();
+            return Err(error);
+        }
+        log_info(format!(
+            "Rusty XR native ACamera side running cameraId={} size={}x{} readerMaxImages={} aeFps=unset",
+            camera_id.to_string_lossy(),
+            width,
+            height,
+            reader_max_images
+        ));
+        Ok(session)
+    }
+
+    unsafe fn prepare(
         manager: *mut ACameraManager,
         camera_id: &CString,
         width: u32,
@@ -443,31 +557,8 @@ impl NativeCameraSideSession {
             ));
         }
 
-        if ACameraCaptureSession_setRepeatingRequest(
-            capture_session,
-            ptr::null_mut(),
-            1,
-            &mut capture_request,
-            ptr::null_mut(),
-        ) != 0
-        {
-            ACameraCaptureSession_close(capture_session);
-            ACaptureSessionOutputContainer_free(output_container);
-            ACaptureSessionOutput_free(output);
-            ACaptureRequest_removeTarget(capture_request, target);
-            ACameraOutputTarget_free(target);
-            ANativeWindow_release(window);
-            AImageReader_delete(reader);
-            ACaptureRequest_free(capture_request);
-            ACameraDevice_close(camera_device);
-            return Err(format!(
-                "native ACamera repeating request failed cameraId={}",
-                camera_id.to_string_lossy()
-            ));
-        }
-
         log_info(format!(
-            "Rusty XR native ACamera side running cameraId={} size={}x{} readerMaxImages={} aeFps=unset",
+            "Rusty XR native ACamera side prepared cameraId={} size={}x{} readerMaxImages={} repeating=not-started",
             camera_id.to_string_lossy(),
             width,
             height,
@@ -484,6 +575,28 @@ impl NativeCameraSideSession {
             reader,
             capture_request,
         })
+    }
+
+    unsafe fn start_repeating(&self, camera_id: &CString) -> Result<(), String> {
+        let mut capture_request = self.capture_request;
+        if ACameraCaptureSession_setRepeatingRequest(
+            self.capture_session,
+            ptr::null_mut(),
+            1,
+            &mut capture_request,
+            ptr::null_mut(),
+        ) != 0
+        {
+            return Err(format!(
+                "native ACamera repeating request failed cameraId={}",
+                camera_id.to_string_lossy()
+            ));
+        }
+        log_info(format!(
+            "Rusty XR native ACamera side repeating cameraId={}",
+            camera_id.to_string_lossy()
+        ));
+        Ok(())
     }
 
     unsafe fn stop(self) {
@@ -1047,7 +1160,8 @@ unsafe extern "C" fn session_on_active(
     log_info("Rusty XR native ACamera capture session active");
 }
 
-fn select_stereo_sources(
+unsafe fn select_stereo_sources(
+    manager: *mut ACameraManager,
     sources: &[NativeCameraSource],
     config: &NativeCameraConfig,
 ) -> Result<(NativeCameraSource, NativeCameraSource, (u32, u32)), String> {
@@ -1056,11 +1170,7 @@ fn select_stereo_sources(
         .as_deref()
         .filter(|value| !value.is_empty())
     {
-        sources
-            .iter()
-            .find(|source| source.camera_id == id)
-            .cloned()
-            .ok_or_else(|| format!("native left camera id not found: {id}"))?
+        select_explicit_source(manager, sources, id, "left")?
     } else {
         select_default_side(sources, true)?
     };
@@ -1069,11 +1179,7 @@ fn select_stereo_sources(
         .as_deref()
         .filter(|value| !value.is_empty())
     {
-        sources
-            .iter()
-            .find(|source| source.camera_id == id)
-            .cloned()
-            .ok_or_else(|| format!("native right camera id not found: {id}"))?
+        select_explicit_source(manager, sources, id, "right")?
     } else {
         select_default_side(sources, false)?
     };
@@ -1120,7 +1226,8 @@ fn select_stereo_sources(
     Ok((left, right, shared_size))
 }
 
-fn select_single_mirror_source(
+unsafe fn select_single_mirror_source(
+    manager: *mut ACameraManager,
     sources: &[NativeCameraSource],
     config: &NativeCameraConfig,
 ) -> Result<(NativeCameraSource, (u32, u32)), String> {
@@ -1129,11 +1236,7 @@ fn select_single_mirror_source(
         .as_deref()
         .filter(|value| !value.is_empty())
     {
-        sources
-            .iter()
-            .find(|source| source.camera_id == id)
-            .cloned()
-            .ok_or_else(|| format!("native mirror camera id not found: {id}"))?
+        select_explicit_source(manager, sources, id, "mirror")?
     } else {
         select_default_side(sources, true)?
     };
@@ -1156,6 +1259,45 @@ fn select_single_mirror_source(
         selected_size.1,
     ));
     Ok((source, selected_size))
+}
+
+unsafe fn select_explicit_source(
+    manager: *mut ACameraManager,
+    sources: &[NativeCameraSource],
+    camera_id: &str,
+    role: &str,
+) -> Result<NativeCameraSource, String> {
+    if let Some(source) = sources
+        .iter()
+        .find(|source| source.camera_id == camera_id)
+        .cloned()
+    {
+        return Ok(source);
+    }
+
+    log_info(format!(
+        "Rusty XR native ACamera explicit {} cameraId={} not returned by camera id list; probing characteristics directly",
+        role, camera_id
+    ));
+    let source = load_camera_source_by_id(manager, camera_id)
+        .map_err(|error| {
+            format!(
+                "native {} camera id not found: {}; explicit unlisted probe failed: {}",
+                role, camera_id, error
+            )
+        })?
+        .ok_or_else(|| {
+            format!(
+                "native {} camera id not found: {}; explicit unlisted probe had incomplete metadata",
+                role, camera_id
+            )
+        })?;
+    log_info(format!(
+        "Rusty XR native ACamera accepted explicit unlisted {} cameraId={}",
+        role, camera_id
+    ));
+    log_native_camera_source(&source);
+    Ok(source)
 }
 
 fn select_default_side(
@@ -1241,21 +1383,13 @@ unsafe fn enumerate_camera_sources(
             continue;
         }
         let camera_id = CStr::from_ptr(camera_id_ptr).to_string_lossy().into_owned();
-        let Ok(camera_id_c) = CString::new(camera_id.as_str()) else {
-            continue;
-        };
-        let mut metadata = ptr::null_mut();
-        if ACameraManager_getCameraCharacteristics(manager, camera_id_c.as_ptr(), &mut metadata)
-            != 0
-            || metadata.is_null()
-        {
-            continue;
-        }
-        let source = camera_source_from_metadata(camera_id, camera_id_c, metadata);
-        ACameraMetadata_free(metadata);
-        if let Some(source) = source {
-            log_native_camera_source(&source);
-            sources.push(source);
+        match load_camera_source_by_id(manager, &camera_id) {
+            Ok(Some(source)) => {
+                log_native_camera_source(&source);
+                sources.push(source);
+            }
+            Ok(None) => {}
+            Err(_) => {}
         }
     }
 
@@ -1264,6 +1398,28 @@ unsafe fn enumerate_camera_sources(
         return Err("native ACamera enumeration returned no usable sources".to_string());
     }
     Ok(sources)
+}
+
+unsafe fn load_camera_source_by_id(
+    manager: *mut ACameraManager,
+    camera_id: &str,
+) -> Result<Option<NativeCameraSource>, String> {
+    let camera_id_c = CString::new(camera_id)
+        .map_err(|_| format!("camera id contains interior null: {camera_id:?}"))?;
+    let mut metadata = ptr::null_mut();
+    let result =
+        ACameraManager_getCameraCharacteristics(manager, camera_id_c.as_ptr(), &mut metadata);
+    if result != 0 || metadata.is_null() {
+        return Err(format!(
+            "ACameraManager_getCameraCharacteristics failed cameraId={} result={} metadataNull={}",
+            camera_id,
+            result,
+            metadata.is_null()
+        ));
+    }
+    let source = camera_source_from_metadata(camera_id.to_string(), camera_id_c, metadata);
+    ACameraMetadata_free(metadata);
+    Ok(source)
 }
 
 unsafe fn camera_source_from_metadata(

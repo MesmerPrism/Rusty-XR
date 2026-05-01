@@ -7,6 +7,7 @@ param(
     [string]$AppId = "rusty-xr-quest-composite-layer",
     [string]$DeviceProfile = "xr-composite-smoke-test",
     [string]$RuntimeProfile = "camera-stereo-gpu-composite-performance-065",
+    [string]$CameraPipelinePreset = "",
     [string]$RunRoot = "artifacts\quest-camera-profile-runs",
     [int]$WarmupSeconds = 14,
     [string[]]$Override = @(),
@@ -47,7 +48,8 @@ function Get-AdbArguments {
 
 function Invoke-Adb {
     param([string[]]$Arguments)
-    & $Adb @(Get-AdbArguments -Arguments $Arguments)
+    $adbArguments = @(Get-AdbArguments -Arguments $Arguments)
+    & $Adb @adbArguments
 }
 
 function Save-AdbTextCapture {
@@ -203,7 +205,7 @@ function Add-AmExtra {
 function Format-RemoteShellArg {
     param([string]$Value)
 
-    if ($Value -notmatch '\s') {
+    if ($Value -notmatch '[\s;&|<>$(){}*?!"]' -and -not $Value.Contains("'")) {
         return $Value
     }
 
@@ -409,6 +411,9 @@ foreach ($property in $profile.values.PSObject.Properties) {
 foreach ($entry in (Convert-Overrides -Items $Override).GetEnumerator()) {
     $values[$entry.Key] = [string]$entry.Value
 }
+if ($CameraPipelinePreset) {
+    $values["rustyxr.cameraPipelinePreset"] = $CameraPipelinePreset
+}
 
 Invoke-Adb -Arguments @("devices") | Out-File -FilePath (Join-Path $dir "adb-devices.txt") -Encoding UTF8
 
@@ -468,6 +473,7 @@ $manifest = [ordered]@{
     launchActivityOverride = $LaunchActivity
     deviceProfile = $DeviceProfile
     runtimeProfile = $RuntimeProfile
+    cameraPipelinePreset = $CameraPipelinePreset
     warmupSeconds = $WarmupSeconds
     proximityHoldDurationMs = if ($SkipProximityHold) { 0 } else { $ProximityHoldDurationMs }
     captureHzdbScreencap = [bool]$CaptureHzdbScreencap

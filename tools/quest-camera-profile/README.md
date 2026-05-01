@@ -54,10 +54,34 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
   -CaptureHzdbScreencap
 ```
 
+For color-pipeline A/B runs in one installed APK, prefer the named pipeline
+preset shortcut over repeating the full set of feed, sampler, decode, tone, and
+OpenXR color-format extras:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
+  -RuntimeProfile camera-stereo-gpu-composite-native-single-mirror-065 `
+  -CameraPipelinePreset raw-feed-unorm `
+  -CaptureHzdbScreencap
+```
+
+Current public presets are `projected-srgb`, `raw-feed-unorm`,
+`projected-unorm`, `raw-feed-srgb`, `shader-decode-unorm`, and
+`separate-decode-unorm`. The `raw-projection-fast-unorm` preset keeps the raw
+feed and UNORM swapchain but skips the public border/effect shader for
+performance isolation. The `raw-projection-underlay-unorm` preset also submits
+a public OpenXR passthrough underlay and alpha-blends the raw projection layer,
+which is useful when comparing background composition separately from raw camera
+sampling. The app-parsed runtime config log reports both the
+requested preset and the resolved feed, sampler, decode, projection-effect,
+tone, and swapchain settings.
+
 Native acquisition and OpenXR passthrough-client state are separate axes. To
 test runtime passthrough exposure without adding a catalog profile, use
 `-Override 'rustyxr.openxrPassthroughProbe=warmup'` or
-`-Override 'rustyxr.openxrPassthroughProbe=client'`. Always compare those runs
+`-Override 'rustyxr.openxrPassthroughProbe=client'`. Use
+`raw-projection-underlay-unorm` when the passthrough layer should be submitted
+as a visible underlay. Always compare those runs
 against camera-frame progression; passthrough-client state is not a substitute
 for live camera delivery.
 

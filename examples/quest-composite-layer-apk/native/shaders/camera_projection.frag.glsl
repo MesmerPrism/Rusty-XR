@@ -1,7 +1,13 @@
 #version 450
 
+#ifdef RUSTY_XR_SEPARATE_CAMERA_SAMPLER
+layout(set = 0, binding = 0) uniform texture2D u_camera_left_tex;
+layout(set = 0, binding = 1) uniform texture2D u_camera_right_tex;
+layout(set = 0, binding = 3) uniform sampler u_camera_sampler;
+#else
 layout(set = 0, binding = 0) uniform sampler2D u_camera_left;
 layout(set = 0, binding = 1) uniform sampler2D u_camera_right;
+#endif
 layout(set = 0, binding = 2, std140) uniform CameraProjectionSurfaceMap {
     vec4 left_screen_to_surface_h0;
     vec4 left_screen_to_surface_h1;
@@ -15,6 +21,10 @@ layout(set = 0, binding = 2, std140) uniform CameraProjectionSurfaceMap {
     vec4 right_surface_to_screen_h0;
     vec4 right_surface_to_screen_h1;
     vec4 right_surface_to_screen_h2;
+    vec4 color_matrix_r0;
+    vec4 color_matrix_r1;
+    vec4 color_matrix_r2;
+    vec4 color_offset;
 } surface_map;
 
 layout(push_constant) uniform CameraProjectionPush {
@@ -46,6 +56,9 @@ const float BORDER_CORNER_RADIUS = 0.08;
 const float BORDER_BRIGHTNESS_INSET = 0.16;
 const float BORDER_BRIGHTNESS_CUTOFF = 0.25;
 const float BORDER_BRIGHTNESS_FEATHER = 0.14;
+const int CAMERA_FLAG_RAW_FEED = 8192;
+const int CAMERA_FLAG_RAW_PROJECTION_FAST = 16384;
+const int CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA = 32768;
 
 vec3 clamp01(vec3 color) {
     return clamp(color, vec3(0.0), vec3(1.0));
@@ -72,10 +85,22 @@ vec3 decode_external_camera_sample(vec3 raw_sample) {
 
 vec4 normalize_camera_sample(vec4 raw_sample) {
     int packed_flags = int(floor(pc.params.w + 0.5));
+    if ((packed_flags & 4096) != 0) {
+        return vec4(raw_sample.r, 0.0, 0.0, raw_sample.a);
+    }
     if ((packed_flags & 2048) == 0) {
         return raw_sample;
     }
     return vec4(decode_external_camera_sample(raw_sample.rgb), raw_sample.a);
+}
+
+vec3 apply_camera_color_calibration(vec3 color) {
+    vec3 calibrated = vec3(
+        dot(surface_map.color_matrix_r0.xyz, color) + surface_map.color_offset.x,
+        dot(surface_map.color_matrix_r1.xyz, color) + surface_map.color_offset.y,
+        dot(surface_map.color_matrix_r2.xyz, color) + surface_map.color_offset.z
+    );
+    return clamp01(calibrated);
 }
 
 vec3 apply_camera_color_adjust(vec3 color) {
@@ -125,11 +150,22 @@ vec2 apply_homography(vec2 uv, vec4 h0, vec4 h1, vec4 h2, out bool valid) {
 }
 
 vec4 sample_source_eye_raw(int source_eye, vec2 uv) {
+#ifdef RUSTY_XR_SEPARATE_CAMERA_SAMPLER
+    vec4 raw_sample = source_eye == 0
+        ? texture(sampler2D(u_camera_left_tex, u_camera_sampler), uv)
+        : texture(sampler2D(u_camera_right_tex, u_camera_sampler), uv);
+#else
     vec4 raw_sample = source_eye == 0
         ? texture(u_camera_left, uv)
         : texture(u_camera_right, uv);
+#endif
     vec4 normalized = normalize_camera_sample(raw_sample);
-    return vec4(apply_camera_color_adjust(normalized.rgb), normalized.a);
+    int packed_flags = int(floor(pc.params.w + 0.5));
+    if ((packed_flags & CAMERA_FLAG_RAW_FEED) != 0) {
+        return normalized;
+    }
+    vec3 calibrated = apply_camera_color_calibration(normalized.rgb);
+    return vec4(apply_camera_color_adjust(calibrated), normalized.a);
 }
 
 vec4 sample_source_eye_clamped(int source_eye, vec2 uv) {
@@ -339,7 +375,13 @@ float resolve_brightness_cutoff_feedback_mix(
 }
 
 vec2 camera_texel_size(int source_eye) {
+#ifdef RUSTY_XR_SEPARATE_CAMERA_SAMPLER
+    ivec2 size = source_eye == 0
+        ? textureSize(sampler2D(u_camera_left_tex, u_camera_sampler), 0)
+        : textureSize(sampler2D(u_camera_right_tex, u_camera_sampler), 0);
+#else
     ivec2 size = source_eye == 0 ? textureSize(u_camera_left, 0) : textureSize(u_camera_right, 0);
+#endif
     vec2 dims = vec2(float(max(size.x, 1)), float(max(size.y, 1)));
     return 1.0 / dims;
 }
@@ -687,19 +729,23 @@ void main() {
         center_color *= 0.12;
     }
 
-    vec3 color = resolve_fov_border_composite(
-        sample_content_uv,
-        eye,
-        source_eye,
-        transform_flags,
-        center_color,
-        raw_projected_uv,
-        coverage,
-        projection_valid,
-        edge_fade,
-        projected,
-        content_uv_scale
-    );
+    bool raw_projection_fast = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_FAST) != 0;
+    bool passthrough_underlay_alpha = (packed_flags & CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA) != 0;
+    vec3 color = raw_projection_fast
+        ? center_color
+        : resolve_fov_border_composite(
+            sample_content_uv,
+            eye,
+            source_eye,
+            transform_flags,
+            center_color,
+            raw_projected_uv,
+            coverage,
+            projection_valid,
+            edge_fade,
+            projected,
+            content_uv_scale
+        );
 
     float surface_edge_distance = min(
         min(v_surface_uv.x, 1.0 - v_surface_uv.x),
@@ -709,5 +755,6 @@ void main() {
         ? mix(0.90, 1.0, smoothstep(0.0, edge_fade, surface_edge_distance))
         : 1.0;
     float source_edge_dim = mix(0.94, 1.0, coverage);
-    out_color = vec4(clamp01(color * surface_edge_dim * source_edge_dim), 1.0);
+    float out_alpha = passthrough_underlay_alpha ? coverage : 1.0;
+    out_color = vec4(clamp01(color * surface_edge_dim * source_edge_dim), out_alpha);
 }

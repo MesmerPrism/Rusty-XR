@@ -40,7 +40,15 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_CAMERA_FULL_VIEW_OVERLAY_OVERSCAN = 2.10f;
     private static final float DEFAULT_CAMERA_EDGE_FADE = 0.12f;
     private static final String DEFAULT_CAMERA_PROJECTION_MODE = "display-screen-homography";
+    private static final String DEFAULT_CAMERA_PIPELINE_PRESET = "manual";
+    private static final String DEFAULT_CAMERA_PROJECTION_EFFECT_MODE = "border-composite";
+    private static final String DEFAULT_CAMERA_FEED_MODE = "projected-feed";
     private static final String DEFAULT_CAMERA_COLOR_MODE = "external-rgb";
+    private static final String DEFAULT_CAMERA_SAMPLER_BINDING_MODE = "combined-immutable-sampler";
+    private static final String DEFAULT_CAMERA_IMPORT_IMAGE_LAYOUT = "shader-read-transition";
+    private static final int DEFAULT_CAMERA_IMPORT_CACHE_LIMIT = 16;
+    private static final String DEFAULT_CAMERA_COLOR_MATRIX = "identity";
+    private static final String DEFAULT_CAMERA_COLOR_OFFSET = "zero";
     private static final float DEFAULT_CAMERA_COLOR_CONTRAST = 1.0f;
     private static final float DEFAULT_CAMERA_COLOR_BRIGHTNESS = 0.0f;
     private static final float DEFAULT_CAMERA_COLOR_SATURATION = 1.0f;
@@ -54,6 +62,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final String DEFAULT_CAMERA_ORIENTATION_DIAGNOSTIC_MODE = "off";
     private static final float DEFAULT_XR_RENDER_SCALE = 0.75f;
     private static final int DEFAULT_XR_FIXED_FOVEATION_LEVEL = 0;
+    private static final String DEFAULT_XR_COLOR_FORMAT = "rgba8-srgb";
     private static final String DEFAULT_OPENXR_PASSTHROUGH_PROBE = "off";
 
     private MediaProjectionManager mediaProjectionManager;
@@ -286,7 +295,22 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(',');
         appendJsonString(builder, "cameraProjectionMode", stringExtra("rustyxr.cameraProjectionMode", DEFAULT_CAMERA_PROJECTION_MODE));
         builder.append(',');
+        appendJsonString(builder, "cameraPipelinePreset", stringExtra("rustyxr.cameraPipelinePreset", DEFAULT_CAMERA_PIPELINE_PRESET));
+        builder.append(',');
+        appendJsonString(builder, "cameraProjectionEffectMode", stringExtra("rustyxr.cameraProjectionEffectMode", DEFAULT_CAMERA_PROJECTION_EFFECT_MODE));
+        builder.append(',');
+        appendJsonString(builder, "cameraFeedMode", stringExtra("rustyxr.cameraFeedMode", DEFAULT_CAMERA_FEED_MODE));
+        builder.append(',');
         appendJsonString(builder, "cameraColorMode", stringExtra("rustyxr.cameraColorMode", DEFAULT_CAMERA_COLOR_MODE));
+        builder.append(',');
+        appendJsonString(builder, "cameraSamplerBindingMode", stringExtra("rustyxr.cameraSamplerBindingMode", DEFAULT_CAMERA_SAMPLER_BINDING_MODE));
+        builder.append(',');
+        appendJsonString(builder, "cameraImportImageLayout", stringExtra("rustyxr.cameraImportImageLayout", DEFAULT_CAMERA_IMPORT_IMAGE_LAYOUT));
+        builder.append(",\"cameraImportCacheLimit\":").append(Math.max(2, intExtra("rustyxr.cameraImportCacheLimit", DEFAULT_CAMERA_IMPORT_CACHE_LIMIT)));
+        builder.append(',');
+        appendJsonString(builder, "cameraColorMatrix", stringExtra("rustyxr.cameraColorMatrix", DEFAULT_CAMERA_COLOR_MATRIX));
+        builder.append(',');
+        appendJsonString(builder, "cameraColorOffset", stringExtra("rustyxr.cameraColorOffset", DEFAULT_CAMERA_COLOR_OFFSET));
         builder.append(",\"cameraColorContrast\":").append(floatJson(floatExtra("rustyxr.cameraColorContrast", DEFAULT_CAMERA_COLOR_CONTRAST)));
         builder.append(",\"cameraColorBrightness\":").append(floatJson(floatExtra("rustyxr.cameraColorBrightness", DEFAULT_CAMERA_COLOR_BRIGHTNESS)));
         builder.append(",\"cameraColorSaturation\":").append(floatJson(floatExtra("rustyxr.cameraColorSaturation", DEFAULT_CAMERA_COLOR_SATURATION)));
@@ -326,6 +350,8 @@ public final class CompositeLayerActivity extends NativeActivity {
         appendJsonString(builder, "visualAcceptanceToken", stringExtra("rustyxr.visualAcceptanceToken", ""));
         builder.append(",\"xrRenderScale\":").append(floatJson(floatExtra("rustyxr.xrRenderScale", DEFAULT_XR_RENDER_SCALE)));
         builder.append(",\"xrFixedFoveationLevel\":").append(fixedFoveationLevel);
+        builder.append(',');
+        appendJsonString(builder, "xrColorFormat", stringExtra("rustyxr.xrColorFormat", DEFAULT_XR_COLOR_FORMAT));
         builder.append(',');
         appendJsonString(builder, "openxrPassthroughProbe", stringExtra("rustyxr.openxrPassthroughProbe", DEFAULT_OPENXR_PASSTHROUGH_PROBE));
         builder.append(',');
