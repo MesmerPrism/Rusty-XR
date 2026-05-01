@@ -479,6 +479,74 @@ native acquisition; the always-on client mode can add runtime camera-compute
 load. Use `warmup` as the lighter probe when testing whether passthrough-client
 state affects camera availability.
 
+## Live Passthrough Hotload
+
+The activity uses `singleTask` launch mode and accepts a second intent while it
+is running. `onNewIntent` refreshes the native runtime config, so render/color
+parameters and native passthrough style values can be changed without
+force-stopping or reinstalling the APK.
+
+Hotload profiles in the catalog:
+
+- `passthrough-underlay-hotload-neutral`
+- `passthrough-underlay-hotload-bcs`
+- `passthrough-underlay-hotload-gradient`
+- `passthrough-underlay-hotload-lut-opponent`
+- `passthrough-underlay-hotload-lut-flicker-10hz`
+- `passthrough-underlay-hotload-lut-flicker-40hz`
+- `passthrough-underlay-hotload-lut-flicker-60hz`
+- `full-field-red-black-flicker-10hz`
+- `full-field-red-black-flicker-40hz`
+- `full-field-red-black-flicker-60hz`
+
+Strobe warning: the LUT flicker and full-field red/black flicker profiles are
+intentional high-frequency visual stimuli. They can trigger seizures or other
+adverse reactions in people with photosensitive epilepsy or other
+light-sensitive conditions, and may also cause migraine, nausea, dizziness,
+eyestrain, anxiety, or discomfort. Do not launch them around unconsenting
+bystanders. Use only with explicit informed opt-in and stop immediately if
+symptoms occur. See
+`docs/VISUAL_STROBE_PROFILES.md` for the public safety and frequency notes.
+
+Send a profile to the running headset app with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Send-QuestCompositeHotloadProfile.ps1 -Serial <serial> -RuntimeProfile passthrough-underlay-hotload-bcs
+```
+
+Ad-hoc values can be layered on top of the profile:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Send-QuestCompositeHotloadProfile.ps1 -Serial <serial> -RuntimeProfile passthrough-underlay-hotload-gradient -Override "rustyxr.passthroughColorPhase=0.42","rustyxr.passthroughColorAmplitude=1.0"
+```
+
+Live native passthrough style extras currently include
+`rustyxr.passthroughStyleMode` (`none`, `bcs`, `mono-to-rgba`, `color-lut`),
+`rustyxr.passthroughOpacity`, `rustyxr.passthroughEdgeR/G/B/A`,
+`rustyxr.passthroughBrightness`, `rustyxr.passthroughContrast`,
+`rustyxr.passthroughSaturation`, `rustyxr.passthroughColorPhase`, and
+`rustyxr.passthroughColorAmplitude`.
+
+The `color-lut` mode uses `XR_META_passthrough_color_lut` when the runtime
+exposes it. The example builds two RGB 3D LUTs: a smooth cyclic opponent-color
+palette and its half-phase inverse. `rustyxr.passthroughLutFlickerHz` is the
+full A/B cycle rate in hertz, so a 40 Hz flicker requires 80 state transitions
+per second. The native loop logs measured `passthrough LUT flicker stats`
+including observed frame rate, observed switch rate, and skipped half-cycles.
+`rustyxr.xrDisplayRefreshHz` can request a runtime display-refresh target when
+the device advertises `XR_FB_display_refresh_rate`.
+
+The `full-field-red-black-flicker-*` profiles disable passthrough and flicker
+the submitted projection-layer clear color between bright red and black. This
+uses `rustyxr.fullFieldFlickerHz`, also interpreted as full red/black cycles per
+second, and logs `full-field flicker stats` from the OpenXR frame loop. The
+10 Hz profile has integer frame timing at 120 Hz, the 40 Hz profile is
+frame-quantized at 120 Hz because each half-cycle averages 1.5 frames, and the
+60 Hz profile requires a state change every displayed frame.
+
+Camera acquisition, camera resolution, OpenXR swapchain format, and render
+scale remain launch-time settings.
+
 ## Autonomous Camera Profile Runs
 
 The public workflow helpers in `tools/quest-camera-profile` launch catalog

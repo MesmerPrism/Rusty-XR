@@ -26,5 +26,20 @@ name = "composite_feedback_session"
 path = "examples/composite_feedback_session.rs"
 required-features = ["serde"]
 
+[[example]]
+name = "meta_passthrough_style_catalog"
+path = "examples/meta_passthrough_style_catalog.rs"
+required-features = ["serde"]
+
+[[example]]
+name = "audio_reactive_passthrough_style"
+path = "examples/audio_reactive_passthrough_style.rs"
+required-features = ["serde"]
+
+[[example]]
+name = "visual_strobe_profiles"
+path = "examples/visual_strobe_profiles.rs"
+required-features = ["serde"]
+
 [lints]
 workspace = true

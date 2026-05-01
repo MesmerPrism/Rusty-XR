@@ -65,6 +65,22 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final int DEFAULT_XR_FIXED_FOVEATION_LEVEL = 0;
     private static final String DEFAULT_XR_COLOR_FORMAT = "rgba8-srgb";
     private static final String DEFAULT_OPENXR_PASSTHROUGH_PROBE = "off";
+    private static final String DEFAULT_PASSTHROUGH_STYLE_MODE = "none";
+    private static final float DEFAULT_PASSTHROUGH_OPACITY = 1.0f;
+    private static final float DEFAULT_PASSTHROUGH_EDGE_R = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_EDGE_G = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_EDGE_B = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_EDGE_A = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_BRIGHTNESS = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_CONTRAST = 1.0f;
+    private static final float DEFAULT_PASSTHROUGH_SATURATION = 1.0f;
+    private static final float DEFAULT_PASSTHROUGH_COLOR_PHASE = 0.0f;
+    private static final float DEFAULT_PASSTHROUGH_COLOR_AMPLITUDE = 0.0f;
+    private static final int DEFAULT_PASSTHROUGH_LUT_RESOLUTION = 32;
+    private static final float DEFAULT_PASSTHROUGH_LUT_WEIGHT = 1.0f;
+    private static final float DEFAULT_PASSTHROUGH_LUT_FLICKER_HZ = 0.0f;
+    private static final float DEFAULT_FULL_FIELD_FLICKER_HZ = 0.0f;
+    private static final float DEFAULT_XR_DISPLAY_REFRESH_HZ = 72.0f;
 
     private MediaProjectionManager mediaProjectionManager;
 
@@ -128,6 +144,17 @@ public final class CompositeLayerActivity extends NativeActivity {
                 }
             }, mediaProjectionDelayMs());
         }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        boolean cameraEnabled = shouldStartHeadsetCamera();
+        boolean mediaProjectionEnabled = shouldRequestMediaProjection();
+        sendRuntimeConfig(cameraEnabled, mediaProjectionEnabled);
+        sendNativeEvent("runtimeConfigHotloaded");
+        Log.i(TAG, "Rusty XR runtime config hotloaded from new intent");
     }
 
     private boolean shouldRequestMediaProjection() {
@@ -351,11 +378,28 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(',');
         appendJsonString(builder, "visualAcceptanceToken", stringExtra("rustyxr.visualAcceptanceToken", ""));
         builder.append(",\"xrRenderScale\":").append(floatJson(floatExtra("rustyxr.xrRenderScale", DEFAULT_XR_RENDER_SCALE)));
+        builder.append(",\"xrDisplayRefreshHz\":").append(floatJson(floatExtra("rustyxr.xrDisplayRefreshHz", DEFAULT_XR_DISPLAY_REFRESH_HZ)));
         builder.append(",\"xrFixedFoveationLevel\":").append(fixedFoveationLevel);
         builder.append(',');
         appendJsonString(builder, "xrColorFormat", stringExtra("rustyxr.xrColorFormat", DEFAULT_XR_COLOR_FORMAT));
         builder.append(',');
         appendJsonString(builder, "openxrPassthroughProbe", stringExtra("rustyxr.openxrPassthroughProbe", DEFAULT_OPENXR_PASSTHROUGH_PROBE));
+        builder.append(',');
+        appendJsonString(builder, "passthroughStyleMode", stringExtra("rustyxr.passthroughStyleMode", DEFAULT_PASSTHROUGH_STYLE_MODE));
+        builder.append(",\"passthroughOpacity\":").append(floatJson(floatExtra("rustyxr.passthroughOpacity", DEFAULT_PASSTHROUGH_OPACITY)));
+        builder.append(",\"passthroughEdgeR\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeR", DEFAULT_PASSTHROUGH_EDGE_R)));
+        builder.append(",\"passthroughEdgeG\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeG", DEFAULT_PASSTHROUGH_EDGE_G)));
+        builder.append(",\"passthroughEdgeB\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeB", DEFAULT_PASSTHROUGH_EDGE_B)));
+        builder.append(",\"passthroughEdgeA\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeA", DEFAULT_PASSTHROUGH_EDGE_A)));
+        builder.append(",\"passthroughBrightness\":").append(floatJson(floatExtra("rustyxr.passthroughBrightness", DEFAULT_PASSTHROUGH_BRIGHTNESS)));
+        builder.append(",\"passthroughContrast\":").append(floatJson(floatExtra("rustyxr.passthroughContrast", DEFAULT_PASSTHROUGH_CONTRAST)));
+        builder.append(",\"passthroughSaturation\":").append(floatJson(floatExtra("rustyxr.passthroughSaturation", DEFAULT_PASSTHROUGH_SATURATION)));
+        builder.append(",\"passthroughColorPhase\":").append(floatJson(floatExtra("rustyxr.passthroughColorPhase", DEFAULT_PASSTHROUGH_COLOR_PHASE)));
+        builder.append(",\"passthroughColorAmplitude\":").append(floatJson(floatExtra("rustyxr.passthroughColorAmplitude", DEFAULT_PASSTHROUGH_COLOR_AMPLITUDE)));
+        builder.append(",\"passthroughLutResolution\":").append(Math.max(2, intExtra("rustyxr.passthroughLutResolution", DEFAULT_PASSTHROUGH_LUT_RESOLUTION)));
+        builder.append(",\"passthroughLutWeight\":").append(floatJson(floatExtra("rustyxr.passthroughLutWeight", DEFAULT_PASSTHROUGH_LUT_WEIGHT)));
+        builder.append(",\"passthroughLutFlickerHz\":").append(floatJson(floatExtra("rustyxr.passthroughLutFlickerHz", DEFAULT_PASSTHROUGH_LUT_FLICKER_HZ)));
+        builder.append(",\"fullFieldFlickerHz\":").append(floatJson(floatExtra("rustyxr.fullFieldFlickerHz", DEFAULT_FULL_FIELD_FLICKER_HZ)));
         builder.append(',');
         appendJsonString(builder, "stereoLayout", cameraStereoLayout());
         builder.append('}');

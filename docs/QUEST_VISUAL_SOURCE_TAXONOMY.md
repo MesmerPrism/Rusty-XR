@@ -1,8 +1,9 @@
 # Quest Visual Source Taxonomy
 
 Rusty XR keeps raw headset-camera compositing, runtime environment depth,
-final-display inspection, and operator streaming paths separate. These sources
-are related, but they are not interchangeable.
+native passthrough styling, rendered strobe stimuli, final-display inspection,
+and operator streaming paths separate. These sources are related, but they are
+not interchangeable.
 
 ## Native Platform Passthrough Compositor
 
@@ -11,6 +12,21 @@ mixed reality. It is useful and often the best user-facing background layer,
 but it is not exposed to this public example as a sampleable app camera
 texture. A custom camera projection layer must use camera frames that the app
 can receive, timestamp, and sample.
+
+Public style descriptors for reconstruction, projected passthrough, opacity,
+edge rendering, mono color maps, brightness/contrast/saturation, and color LUT
+bindings live in [META_PASSTHROUGH_LAYER.md](META_PASSTHROUGH_LAYER.md). Those
+descriptors are adapter input, not proof that the app can sample the runtime's
+final passthrough image.
+
+## Rendered Strobe Stimuli
+
+Intentional strobing is an app-rendered or compositor-style-parameter stimulus,
+not a camera source. Public descriptors for full-field red/black flicker and
+phase-inverted passthrough LUT flicker live in
+[VISUAL_STROBE_PROFILES.md](VISUAL_STROBE_PROFILES.md). These profiles are
+safety-gated research stimuli and must not be treated as normal UI animation,
+camera diagnostics, or medical/wellness features.
 
 ## Raw Camera Sources
 

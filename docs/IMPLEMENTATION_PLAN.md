@@ -75,10 +75,21 @@ simple visual feedback/content borders. Public tuning may include border-only
 coverage/radius/edge/feedback scalar values and adapter performance hints for
 custom stereo and optional screen-feedback layers.
 
-These contracts do not implement privileged compositor passthrough layers, the
-Passthrough Camera API, MediaProjection, OpenXR composition submission, Vulkan
-texture import, or downstream image-processing, geometric-effect, scene, or product
-tuning stacks.
+These contracts do not implement the Passthrough Camera API, MediaProjection,
+OpenXR composition submission, Vulkan texture import, or downstream
+image-processing, geometric-effect, scene, or product tuning stacks.
+
+### Native Platform Passthrough Descriptors
+
+Reusable descriptors for compositor-owned Meta/OpenXR passthrough layers:
+runtime reconstruction, projected mesh passthrough, placement as underlay or
+overlay, opacity, edge rendering, mono color maps, brightness/contrast/
+saturation, and 3D color-LUT bindings.
+
+These contracts are data-only. They do not create OpenXR handles, submit
+`XrCompositionLayerPassthroughFB`, upload triangle meshes, allocate native LUTs,
+sample camera pixels, or ship downstream visual-effect behavior. See
+[META_PASSTHROUGH_LAYER.md](META_PASSTHROUGH_LAYER.md).
 
 ### Depth Model
 
@@ -172,8 +183,8 @@ Current Quest media implementation status:
 
 - Public Rusty XR includes camera/depth metadata, permission guidance, a generic
   Windows frame receiver, plain stereo layer descriptors, border tuning,
-  composite-feedback tuning, performance hints, and visual feedback border
-  layout.
+  composite-feedback tuning, performance hints, visual feedback border layout,
+  and native platform passthrough style descriptors.
 - Public Rusty XR now includes a clean Quest example APK that demonstrates a
   Camera2/headset-camera custom layer with OpenXR/Vulkan submission, Android
   hardware-buffer import, GPU sampling, paired left/right Camera2 streams,
@@ -252,6 +263,9 @@ responsibilities.
   alignment.
 - [x] Add synthetic composite feedback session example.
 - [x] Add first minimal Rust-native Android APK smoke-test example.
+- [x] Add native platform passthrough style descriptors and synthetic examples.
+- [x] Add safety-gated visual strobe descriptors and synthetic frequency-plan
+  examples.
 - [ ] Re-audit utility surface before tagging.
 - [ ] Add hardware, OpenXR, passthrough, media-capture, depth, and other
   native-adapter examples only after the utility surface review passes.
@@ -272,6 +286,8 @@ responsibilities.
 | Quest diagnostics | In progress | Generic readiness, package launch, and frame-rate status models added. |
 | Camera model | In progress | Intrinsics scaling, projection, back-projection, and timestamp matching helpers added. |
 | Plain stereo / feedback layers | In progress | Public mono/stereo media layer descriptors, source UV layout helpers, aspect-fit content rectangles, visual feedback border segments, border tuning, composite-feedback tuning, and performance hints added. |
+| Native platform passthrough descriptors | In progress | Public Meta/OpenXR layer-purpose, placement, opacity, edge, color-map, BCS, and LUT descriptors added with contracts-only examples. |
+| Visual strobe descriptors | In progress | Public full-field and passthrough-LUT strobe profile descriptors, display-frame frequency plans, 120 Hz constraints, and safety warnings added with a no-hardware example. |
 | Depth model | In progress | Depth readiness and frame summary helpers added. |
 | SDF model | In progress | Packed SDF grid, sampling, bounds, and triangle mesh snapshot contracts added. |
 | Particle and animation primitives | In progress | Minimal particle state, fixed-step clock, and render payload generation added. |
@@ -284,5 +300,5 @@ responsibilities.
 | Serialization and schemas | In progress | Opt-in `serde` features, round-trip tests, and custom schema export script added. |
 | Boundary scanner and provenance | In progress | Public scanner CLI/config and public utility provenance metadata added. |
 | Feature and adapter policy | `[x]` | Adapter feature names, separate-crate rule, and pre-adapter boundary requirements documented. |
-| Public examples | In progress | Synthetic layout and composite feedback session examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming. |
+| Public examples | In progress | Synthetic layout, composite feedback, passthrough style catalog, audio-reactive passthrough style, and visual strobe profile examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming. |
 | Optional adapters | `[ ]` | Deferred until contracts stabilize. |

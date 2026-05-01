@@ -586,9 +586,22 @@ pub(crate) struct RuntimeConfig {
     pub(crate) orientation_diagnostic_mode: CameraOrientationDiagnosticMode,
     pub(crate) visual_release_accepted: bool,
     pub(crate) xr_render_scale: f32,
+    pub(crate) xr_display_refresh_hz: f32,
     pub(crate) xr_fixed_foveation_level: u8,
     pub(crate) xr_color_format_mode: OpenXrColorFormatMode,
     pub(crate) openxr_passthrough_probe: OpenXrPassthroughProbeMode,
+    pub(crate) passthrough_style_mode: OpenXrPassthroughStyleMode,
+    pub(crate) passthrough_opacity: f32,
+    pub(crate) passthrough_edge_color: [f32; 4],
+    pub(crate) passthrough_brightness: f32,
+    pub(crate) passthrough_contrast: f32,
+    pub(crate) passthrough_saturation: f32,
+    pub(crate) passthrough_color_phase: f32,
+    pub(crate) passthrough_color_amplitude: f32,
+    pub(crate) passthrough_lut_resolution: u32,
+    pub(crate) passthrough_lut_weight: f32,
+    pub(crate) passthrough_lut_flicker_hz: f32,
+    pub(crate) full_field_flicker_hz: f32,
 }
 
 impl Default for RuntimeConfig {
@@ -628,25 +641,33 @@ impl Default for RuntimeConfig {
             orientation_diagnostic_mode: CameraOrientationDiagnosticMode::Off,
             visual_release_accepted: false,
             xr_render_scale: 0.75,
+            xr_display_refresh_hz: 72.0,
             xr_fixed_foveation_level: 0,
             xr_color_format_mode: OpenXrColorFormatMode::default(),
             openxr_passthrough_probe: OpenXrPassthroughProbeMode::Off,
+            passthrough_style_mode: OpenXrPassthroughStyleMode::default(),
+            passthrough_opacity: 1.0,
+            passthrough_edge_color: [0.0, 0.0, 0.0, 0.0],
+            passthrough_brightness: 0.0,
+            passthrough_contrast: 1.0,
+            passthrough_saturation: 1.0,
+            passthrough_color_phase: 0.0,
+            passthrough_color_amplitude: 0.0,
+            passthrough_lut_resolution: 32,
+            passthrough_lut_weight: 1.0,
+            passthrough_lut_flicker_hz: 0.0,
+            full_field_flicker_hz: 0.0,
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum OpenXrPassthroughProbeMode {
+    #[default]
     Off,
     Client,
     Warmup,
     Underlay,
-}
-
-impl Default for OpenXrPassthroughProbeMode {
-    fn default() -> Self {
-        Self::Off
-    }
 }
 
 impl OpenXrPassthroughProbeMode {
@@ -677,6 +698,42 @@ impl OpenXrPassthroughProbeMode {
 
     pub(crate) fn submits_composition_layer(self) -> bool {
         self == Self::Underlay
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum OpenXrPassthroughStyleMode {
+    #[default]
+    None,
+    BrightnessContrastSaturation,
+    MonoToRgba,
+    ColorLut,
+}
+
+impl OpenXrPassthroughStyleMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "none" | "native" | "off" | "false" | "0" => Some(Self::None),
+            "bcs" | "brightness-contrast-saturation" | "brightness" => {
+                Some(Self::BrightnessContrastSaturation)
+            }
+            "mono-to-rgba" | "mono-rgba" | "rgba-map" | "gradient" | "audio-gradient" => {
+                Some(Self::MonoToRgba)
+            }
+            "color-lut" | "rgb-lut" | "lut" | "opponent-lut" | "lut-flicker" => {
+                Some(Self::ColorLut)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn stable_id(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::BrightnessContrastSaturation => "brightness-contrast-saturation",
+            Self::MonoToRgba => "mono-to-rgba",
+            Self::ColorLut => "color-lut",
+        }
     }
 }
 
@@ -898,7 +955,7 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} fixedFoveationLevel={} xrColorFormat={} openxrPassthroughProbe={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -937,9 +994,22 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_texture_transform.is_explicit_visual_check(),
         config.visual_release_accepted,
         config.xr_render_scale,
+        config.xr_display_refresh_hz,
         config.xr_fixed_foveation_level,
         config.xr_color_format_mode.stable_id(),
-        config.openxr_passthrough_probe.stable_id()
+        config.openxr_passthrough_probe.stable_id(),
+        config.passthrough_style_mode.stable_id(),
+        config.passthrough_opacity,
+        config.passthrough_edge_color,
+        config.passthrough_brightness,
+        config.passthrough_contrast,
+        config.passthrough_saturation,
+        config.passthrough_color_phase,
+        config.passthrough_color_amplitude,
+        config.passthrough_lut_resolution,
+        config.passthrough_lut_weight,
+        config.passthrough_lut_flicker_hz,
+        config.full_field_flicker_hz
     ));
 }
 
@@ -1407,10 +1477,28 @@ struct JavaRuntimeConfig {
     visual_release_accepted: Option<bool>,
     visual_acceptance_token: Option<String>,
     xr_render_scale: Option<f32>,
+    #[serde(rename = "xrDisplayRefreshHz")]
+    xr_display_refresh_hz: Option<f32>,
     xr_fixed_foveation_level: Option<u8>,
     #[serde(rename = "xrColorFormat")]
     xr_color_format_mode: Option<String>,
     openxr_passthrough_probe: Option<String>,
+    passthrough_style_mode: Option<String>,
+    passthrough_opacity: Option<f32>,
+    passthrough_edge_r: Option<f32>,
+    passthrough_edge_g: Option<f32>,
+    passthrough_edge_b: Option<f32>,
+    passthrough_edge_a: Option<f32>,
+    passthrough_brightness: Option<f32>,
+    passthrough_contrast: Option<f32>,
+    passthrough_saturation: Option<f32>,
+    passthrough_color_phase: Option<f32>,
+    passthrough_color_amplitude: Option<f32>,
+    passthrough_lut_resolution: Option<u32>,
+    passthrough_lut_weight: Option<f32>,
+    passthrough_lut_flicker_hz: Option<f32>,
+    #[serde(rename = "fullFieldFlickerHz")]
+    full_field_flicker_hz: Option<f32>,
 }
 
 fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
@@ -1546,6 +1634,11 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             ),
         xr_render_scale: finite_positive_or(bridge.xr_render_scale, defaults.xr_render_scale)
             .clamp(0.25, 1.5),
+        xr_display_refresh_hz: finite_positive_or(
+            bridge.xr_display_refresh_hz,
+            defaults.xr_display_refresh_hz,
+        )
+        .clamp(60.0, 144.0),
         xr_fixed_foveation_level: bridge
             .xr_fixed_foveation_level
             .unwrap_or(defaults.xr_fixed_foveation_level),
@@ -1559,6 +1652,81 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             .as_deref()
             .and_then(OpenXrPassthroughProbeMode::parse)
             .unwrap_or(defaults.openxr_passthrough_probe),
+        passthrough_style_mode: bridge
+            .passthrough_style_mode
+            .as_deref()
+            .and_then(OpenXrPassthroughStyleMode::parse)
+            .unwrap_or(defaults.passthrough_style_mode),
+        passthrough_opacity: finite_positive_or(
+            bridge.passthrough_opacity,
+            defaults.passthrough_opacity,
+        )
+        .clamp(0.0, 1.0),
+        passthrough_edge_color: [
+            finite_or(
+                bridge.passthrough_edge_r,
+                defaults.passthrough_edge_color[0],
+            )
+            .clamp(0.0, 1.0),
+            finite_or(
+                bridge.passthrough_edge_g,
+                defaults.passthrough_edge_color[1],
+            )
+            .clamp(0.0, 1.0),
+            finite_or(
+                bridge.passthrough_edge_b,
+                defaults.passthrough_edge_color[2],
+            )
+            .clamp(0.0, 1.0),
+            finite_or(
+                bridge.passthrough_edge_a,
+                defaults.passthrough_edge_color[3],
+            )
+            .clamp(0.0, 1.0),
+        ],
+        passthrough_brightness: finite_or(
+            bridge.passthrough_brightness,
+            defaults.passthrough_brightness,
+        )
+        .clamp(-100.0, 100.0),
+        passthrough_contrast: finite_positive_or(
+            bridge.passthrough_contrast,
+            defaults.passthrough_contrast,
+        )
+        .clamp(0.0, 10.0),
+        passthrough_saturation: finite_positive_or(
+            bridge.passthrough_saturation,
+            defaults.passthrough_saturation,
+        )
+        .clamp(0.0, 10.0),
+        passthrough_color_phase: finite_or(
+            bridge.passthrough_color_phase,
+            defaults.passthrough_color_phase,
+        ),
+        passthrough_color_amplitude: finite_positive_or(
+            bridge.passthrough_color_amplitude,
+            defaults.passthrough_color_amplitude,
+        )
+        .clamp(0.0, 1.0),
+        passthrough_lut_resolution: bridge
+            .passthrough_lut_resolution
+            .unwrap_or(defaults.passthrough_lut_resolution)
+            .clamp(2, 64),
+        passthrough_lut_weight: finite_or(
+            bridge.passthrough_lut_weight,
+            defaults.passthrough_lut_weight,
+        )
+        .clamp(0.0, 1.0),
+        passthrough_lut_flicker_hz: finite_or(
+            bridge.passthrough_lut_flicker_hz,
+            defaults.passthrough_lut_flicker_hz,
+        )
+        .clamp(0.0, 120.0),
+        full_field_flicker_hz: finite_or(
+            bridge.full_field_flicker_hz,
+            defaults.full_field_flicker_hz,
+        )
+        .clamp(0.0, 120.0),
     };
     apply_camera_pipeline_preset(&mut config);
     config
@@ -1873,10 +2041,9 @@ fn parse_camera_color_offset(value: Option<&str>, fallback: [f32; 3]) -> [f32; 3
 fn parse_f32_list(value: &str, expected_len: usize) -> Option<Vec<f32>> {
     let normalized = value
         .trim_matches(|c| matches!(c, '[' | ']' | '(' | ')'))
-        .replace(';', ",")
-        .replace('|', ",");
+        .replace([';', '|'], ",");
     let values = normalized
-        .split(|c| matches!(c, ',' | ' ' | '\t' | '\n' | '\r'))
+        .split([',', ' ', '\t', '\n', '\r'])
         .filter(|part| !part.trim().is_empty())
         .map(|part| part.trim().parse::<f32>().ok())
         .collect::<Option<Vec<_>>>()?;
@@ -2628,7 +2795,8 @@ mod tests {
         CameraPipelinePreset, CameraProjectionEffectMode, CameraProjectionMode,
         CameraSamplerBindingMode, JavaCameraExtrinsics, JavaCameraFrameMetadata,
         JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind, JavaRuntimeConfig,
-        OpenXrColorFormatMode, OpenXrPassthroughProbeMode, StereoSourceEyeMapping,
+        OpenXrColorFormatMode, OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode,
+        StereoSourceEyeMapping,
     };
     use rusty_xr_contracts::{
         CameraCompositeTier, CameraImageRotation, CameraPixelDomainKind, ImageSize,
@@ -2831,9 +2999,25 @@ mod tests {
             visual_release_accepted: Some(true),
             visual_acceptance_token: Some("manual-visual-accepted".to_string()),
             xr_render_scale: Some(0.75),
+            xr_display_refresh_hz: Some(90.0),
             xr_fixed_foveation_level: Some(0),
             xr_color_format_mode: Some("rgba8-unorm".to_string()),
             openxr_passthrough_probe: Some("client".to_string()),
+            passthrough_style_mode: Some("color-lut".to_string()),
+            passthrough_opacity: Some(0.68),
+            passthrough_edge_r: Some(0.2),
+            passthrough_edge_g: Some(0.7),
+            passthrough_edge_b: Some(1.0),
+            passthrough_edge_a: Some(0.45),
+            passthrough_brightness: Some(8.0),
+            passthrough_contrast: Some(1.2),
+            passthrough_saturation: Some(0.85),
+            passthrough_color_phase: Some(0.25),
+            passthrough_color_amplitude: Some(0.9),
+            passthrough_lut_resolution: Some(16),
+            passthrough_lut_weight: Some(0.75),
+            passthrough_lut_flicker_hz: Some(10.0),
+            full_field_flicker_hz: Some(40.0),
         });
 
         assert_eq!(config.camera_tier, CameraCompositeTier::GpuProjected);
@@ -2903,6 +3087,7 @@ mod tests {
         assert!(config.visual_release_accepted);
         assert!(config.camera_texture_transform.is_explicit_visual_check());
         assert_eq!(config.xr_render_scale, 0.75);
+        assert_eq!(config.xr_display_refresh_hz, 90.0);
         assert_eq!(config.xr_fixed_foveation_level, 0);
         assert_eq!(
             config.xr_color_format_mode,
@@ -2912,6 +3097,21 @@ mod tests {
             config.openxr_passthrough_probe,
             OpenXrPassthroughProbeMode::Client
         );
+        assert_eq!(
+            config.passthrough_style_mode,
+            OpenXrPassthroughStyleMode::ColorLut
+        );
+        assert_eq!(config.passthrough_opacity, 0.68);
+        assert_eq!(config.passthrough_edge_color, [0.2, 0.7, 1.0, 0.45]);
+        assert_eq!(config.passthrough_brightness, 8.0);
+        assert_eq!(config.passthrough_contrast, 1.2);
+        assert_eq!(config.passthrough_saturation, 0.85);
+        assert_eq!(config.passthrough_color_phase, 0.25);
+        assert_eq!(config.passthrough_color_amplitude, 0.9);
+        assert_eq!(config.passthrough_lut_resolution, 16);
+        assert_eq!(config.passthrough_lut_weight, 0.75);
+        assert_eq!(config.passthrough_lut_flicker_hz, 10.0);
+        assert_eq!(config.full_field_flicker_hz, 40.0);
     }
 
     #[test]

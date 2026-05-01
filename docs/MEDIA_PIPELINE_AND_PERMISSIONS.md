@@ -10,6 +10,9 @@ Keep these sources separate:
 
 - Native passthrough layer: compositor-owned passthrough. It is not an app
   texture and should not be documented as sampleable app media.
+- Rendered strobe stimulus: app-owned projection-layer flicker or documented
+  passthrough-style parameter switching. It is not a camera source and requires
+  an explicit safety gate before use.
 - Passthrough Camera API / Android Camera2: raw forward-facing camera frames for
   CV/ML and custom app processing. On supported Quest devices this requires
   headset camera permission and camera metadata handling.
@@ -25,6 +28,18 @@ Keep these sources separate:
 Public Rusty XR crates should model metadata, timestamps, frame descriptors,
 runtime counters, and stream status. The Android app shell owns the actual
 MediaProjection, Camera2, OpenXR, Vulkan, encoder, socket, or ADB integration.
+
+### Native Passthrough Style Shape
+
+`rusty-xr-contracts` includes data-only native passthrough style descriptors
+for platform adapters. They cover reconstruction and projected passthrough,
+underlay/overlay placement, opacity, edge color, mono color maps,
+brightness/contrast/saturation, and color-LUT bindings. See
+[META_PASSTHROUGH_LAYER.md](META_PASSTHROUGH_LAYER.md).
+
+These descriptors are not media frames. They do not make the compositor's
+passthrough image sampleable, and they do not replace raw camera APIs when an
+app needs pixels, timestamps, intrinsics, or camera poses.
 
 ### Environment Depth Capture Shape
 
