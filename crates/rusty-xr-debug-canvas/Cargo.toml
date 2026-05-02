@@ -1,0 +1,20 @@
+[package]
+name = "rusty-xr-debug-canvas"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Dependency-light logical debug canvas layout primitives for Rusty XR."
+
+[features]
+default = []
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

@@ -23,7 +23,10 @@ Initial crate layout:
 - `rusty-xr-contracts`: shared XR data contracts.
 - `rusty-xr-runtime-config`: runtime configuration and launch-property helpers.
 - `rusty-xr-ble`: framework-neutral BLE and Android Bluetooth contracts.
+- `rusty-xr-debug-canvas`: normalized debug/test canvas and diagnostic HUD
+  state primitives.
 - `rusty-xr-lsl`: Lab Streaming Layer models and utilities.
+- `rusty-xr-osc`: Open Sound Control packet and UDP helpers.
 - `rusty-xr-polar`: Polar H10 data contracts and protocol helpers.
 - `rusty-xr-quest-diagnostics`: reusable Quest diagnostic status models.
 - `rusty-xr-camera-model`: camera metadata and projection helpers.
@@ -47,9 +50,13 @@ tiers. It also includes an explicit environment-depth diagnostics profile that
 starts the OpenXR environment-depth provider, logs depth resolution, near/far
 range, runtime capture timestamps, acquire cost, observed depth cadence, and
 confidence availability, and renders a stereo grayscale depth texture diagnostic
-in headset. MediaProjection is optional and is used
+in headset. The same APK has an optional generic diagnostic HUD path that can
+be driven from runtime configuration, ADB hotload intents, or future controller,
+LSL, OSC, and app-specific input adapters. MediaProjection is optional and is used
 only to stream the final headset screen back to Windows for inspection:
 [examples/quest-composite-layer-apk/README.md](examples/quest-composite-layer-apk/README.md).
+Diagnostic HUD stereo rendering options are documented in
+[docs/DIAGNOSTIC_HUD_STEREO_RENDERING.md](docs/DIAGNOSTIC_HUD_STEREO_RENDERING.md).
 The current raw-camera example has two public projected stereo modes:
 `display-screen-homography` and `quad-surface`. Both use the paired Camera2
 GPU-buffer path and the public soft feedback border, but `quad-surface` is
@@ -118,6 +125,8 @@ Media-pipeline streaming and APK permission guidance is documented in
 
 BLE, LSL, and Polar H10 data-pipeline guidance is documented in
 [docs/BLE_LSL_POLAR_PIPELINE.md](docs/BLE_LSL_POLAR_PIPELINE.md).
+OSC live-control and sensor-ingress guidance is documented in
+[docs/OSC_ADAPTER.md](docs/OSC_ADAPTER.md).
 
 General-purpose XR tool import candidates are tracked in
 [docs/GENERAL_TOOL_IMPORT_AUDIT.md](docs/GENERAL_TOOL_IMPORT_AUDIT.md).

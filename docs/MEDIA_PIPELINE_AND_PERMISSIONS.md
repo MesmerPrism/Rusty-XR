@@ -24,10 +24,14 @@ Keep these sources separate:
   It is not the camera source for a camera-driven custom projection layer.
 - App render payloads: app-owned frames, particles, depth summaries, counters,
   or synthetic debug visuals.
+- OSC control/sensor datagrams: app-owned live command or sensor packets over
+  UDP. They are not media frames and should be mapped into typed app state
+  before driving rendering or simulation.
 
 Public Rusty XR crates should model metadata, timestamps, frame descriptors,
-runtime counters, and stream status. The Android app shell owns the actual
-MediaProjection, Camera2, OpenXR, Vulkan, encoder, socket, or ADB integration.
+runtime counters, control packets, and stream status. The Android app shell
+owns the actual MediaProjection, Camera2, OpenXR, Vulkan, encoder, socket, or
+ADB integration.
 
 ### Native Passthrough Style Shape
 
@@ -407,6 +411,10 @@ Use one of these app-shell patterns:
 - Network transport: the Quest app sends frames over LAN using an app-owned
   protocol. This requires normal network permissions but still belongs to the
   shell.
+- OSC UDP ingress: the Quest app listens on a UDP port and an operator tool,
+  phone, or desktop app sends OSC datagrams over the LAN. ADB TCP
+  forward/reverse does not provide a UDP tunnel, so same-network addressing is
+  the normal public test path.
 
 The public helper at `tools/media-pipeline/frame_receiver.py` implements a
 small Windows-side receiver for the first pattern. It is intentionally generic:
@@ -448,6 +456,20 @@ adb reverse tcp:8787 tcp:8787
 
 The app shell can then connect from the headset to `127.0.0.1:8787` and send
 packets using the protocol above.
+
+## OSC Probe Protocol
+
+`rusty-xr-osc` provides a common packet codec and UDP helper. The public Quest
+example exposes an `osc-udp-listener` runtime profile that logs received packet
+summaries. Rusty XR Companion Apps can send a generic probe:
+
+```powershell
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- osc send --host <quest-lan-ip> --port 9000 --address /rusty-xr/probe --arg string:hello
+```
+
+Treat this as transport proof only. App-specific address trees and high-rate
+sensor semantics belong in downstream adapters until they stabilize into public
+contracts.
 
 ## Permission Taxonomy
 

@@ -23,6 +23,9 @@ use rusty_xr_contracts::{
     StereoLayerCameraPath, StereoLayerContentMode, StereoLayerPerformanceHints, StereoMediaLayout,
     Vec2, Vec3, VisualFeedbackBorder, VisualFeedbackBorderLayout,
 };
+use rusty_xr_debug_canvas::{
+    DiagnosticHudCommand, DiagnosticHudInputSource, DiagnosticHudState, DiagnosticHudUpdate,
+};
 use serde::Deserialize;
 use std::{
     collections::BTreeSet,
@@ -45,6 +48,9 @@ mod native_camera;
 
 #[cfg(target_os = "android")]
 mod openxr_vulkan;
+
+#[cfg(target_os = "android")]
+mod osc_ingress;
 
 #[cfg(target_os = "android")]
 pub(crate) fn log_info(message: impl AsRef<str>) {
@@ -604,6 +610,11 @@ pub(crate) struct RuntimeConfig {
     pub(crate) passthrough_lut_weight: f32,
     pub(crate) passthrough_lut_flicker_hz: f32,
     pub(crate) full_field_flicker_hz: f32,
+    pub(crate) diagnostic_hud_visible: bool,
+    pub(crate) osc_enabled: bool,
+    pub(crate) osc_overlay_enabled: bool,
+    pub(crate) osc_listen_addr: String,
+    pub(crate) osc_max_packet_bytes: usize,
 }
 
 impl Default for RuntimeConfig {
@@ -661,6 +672,11 @@ impl Default for RuntimeConfig {
             passthrough_lut_weight: 1.0,
             passthrough_lut_flicker_hz: 0.0,
             full_field_flicker_hz: 0.0,
+            diagnostic_hud_visible: false,
+            osc_enabled: false,
+            osc_overlay_enabled: true,
+            osc_listen_addr: "0.0.0.0:9000".to_string(),
+            osc_max_packet_bytes: 8192,
         }
     }
 }
@@ -884,6 +900,7 @@ struct HeadsetCameraState {
 
 static HEADSET_CAMERA_STATE: OnceLock<Mutex<HeadsetCameraState>> = OnceLock::new();
 static RUNTIME_CONFIG: OnceLock<Mutex<RuntimeConfig>> = OnceLock::new();
+static DIAGNOSTIC_HUD_STATE: OnceLock<Mutex<DiagnosticHudState>> = OnceLock::new();
 
 fn headset_camera_state() -> &'static Mutex<HeadsetCameraState> {
     HEADSET_CAMERA_STATE.get_or_init(|| Mutex::new(HeadsetCameraState::default()))
@@ -891,6 +908,14 @@ fn headset_camera_state() -> &'static Mutex<HeadsetCameraState> {
 
 fn runtime_config_state() -> &'static Mutex<RuntimeConfig> {
     RUNTIME_CONFIG.get_or_init(|| Mutex::new(RuntimeConfig::default()))
+}
+
+fn diagnostic_hud_state() -> &'static Mutex<DiagnosticHudState> {
+    DIAGNOSTIC_HUD_STATE.get_or_init(|| {
+        Mutex::new(DiagnosticHudState::new(
+            RuntimeConfig::default().diagnostic_hud_visible,
+        ))
+    })
 }
 
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -923,6 +948,29 @@ pub(crate) fn runtime_config() -> RuntimeConfig {
         .lock()
         .map(|state| state.clone())
         .unwrap_or_default()
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) fn diagnostic_hud_snapshot() -> DiagnosticHudUpdate {
+    diagnostic_hud_state()
+        .lock()
+        .map(|state| state.snapshot())
+        .unwrap_or_else(|_| {
+            DiagnosticHudState::new(RuntimeConfig::default().diagnostic_hud_visible).snapshot()
+        })
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) fn apply_diagnostic_hud_command(
+    command: DiagnosticHudCommand,
+    source: DiagnosticHudInputSource,
+) -> DiagnosticHudUpdate {
+    diagnostic_hud_state()
+        .lock()
+        .map(|mut state| state.apply(command, source))
+        .unwrap_or_else(|_| {
+            DiagnosticHudState::new(RuntimeConfig::default().diagnostic_hud_visible).snapshot()
+        })
 }
 
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -991,10 +1039,11 @@ fn store_runtime_config(config_json: Option<String>) {
     if let Ok(mut state) = runtime_config_state().lock() {
         *state = config.clone();
     }
+    sync_diagnostic_hud_state(parsed.as_ref(), &config);
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} diagnosticHudVisible={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -1050,8 +1099,69 @@ fn store_runtime_config(config_json: Option<String>) {
         config.passthrough_lut_resolution,
         config.passthrough_lut_weight,
         config.passthrough_lut_flicker_hz,
-        config.full_field_flicker_hz
+        config.full_field_flicker_hz,
+        diagnostic_hud_snapshot().visible
     ));
+
+    #[cfg(target_os = "android")]
+    {
+        log_info(format!(
+            "Rusty XR OSC config enabled={} listenAddr={} maxPacketBytes={}",
+            config.osc_enabled, config.osc_listen_addr, config.osc_max_packet_bytes
+        ));
+        osc_ingress::ensure_listener(&config);
+    }
+}
+
+fn sync_diagnostic_hud_state(parsed: Option<&JavaRuntimeConfig>, config: &RuntimeConfig) {
+    let parsed_command = parsed
+        .and_then(|bridge| bridge.diagnostic_hud_command.as_deref())
+        .and_then(parse_diagnostic_hud_command);
+    let command = parsed_command.unwrap_or(DiagnosticHudCommand::SetVisible(
+        config.diagnostic_hud_visible,
+    ));
+    let source = if parsed_command.is_some() {
+        DiagnosticHudInputSource::AdbIntent
+    } else {
+        DiagnosticHudInputSource::RuntimeConfig
+    };
+    let update = apply_diagnostic_hud_command(command, source);
+
+    #[cfg(not(target_os = "android"))]
+    let _ = update;
+
+    #[cfg(target_os = "android")]
+    if update.changed {
+        log_info(format!(
+            "Rusty XR diagnostic HUD state visible={} page={}/{} revision={} source={}",
+            update.visible,
+            update.page_index.saturating_add(1),
+            update.page_count,
+            update.revision,
+            update
+                .last_input_source
+                .map(DiagnosticHudInputSource::stable_id)
+                .unwrap_or("unknown")
+        ));
+    }
+}
+
+fn parse_diagnostic_hud_command(value: &str) -> Option<DiagnosticHudCommand> {
+    let normalized = value.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "" | "none" | "noop" => None,
+        "show" | "on" | "true" | "1" => Some(DiagnosticHudCommand::Show),
+        "hide" | "off" | "false" | "0" => Some(DiagnosticHudCommand::Hide),
+        "toggle" => Some(DiagnosticHudCommand::Toggle),
+        "next" | "next-page" | "page-next" => Some(DiagnosticHudCommand::NextPage),
+        "previous" | "prev" | "previous-page" | "page-prev" => {
+            Some(DiagnosticHudCommand::PreviousPage)
+        }
+        _ => normalized
+            .strip_prefix("page:")
+            .and_then(|page| page.parse::<usize>().ok())
+            .map(DiagnosticHudCommand::SetPage),
+    }
 }
 
 fn store_headset_camera_frame(
@@ -1542,6 +1652,14 @@ struct JavaRuntimeConfig {
     passthrough_lut_flicker_hz: Option<f32>,
     #[serde(rename = "fullFieldFlickerHz")]
     full_field_flicker_hz: Option<f32>,
+    #[serde(alias = "diagnosticsHudVisible")]
+    diagnostic_hud_visible: Option<bool>,
+    #[serde(alias = "diagnosticsHudCommand")]
+    diagnostic_hud_command: Option<String>,
+    osc_enabled: Option<bool>,
+    osc_overlay_enabled: Option<bool>,
+    osc_listen_addr: Option<String>,
+    osc_max_packet_bytes: Option<usize>,
 }
 
 fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
@@ -1778,6 +1896,29 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             defaults.full_field_flicker_hz,
         )
         .clamp(0.0, 120.0),
+        diagnostic_hud_visible: bridge
+            .diagnostic_hud_visible
+            .or(bridge.osc_overlay_enabled)
+            .unwrap_or_else(|| {
+                if bridge.osc_enabled.unwrap_or(false) {
+                    defaults.osc_overlay_enabled
+                } else {
+                    defaults.diagnostic_hud_visible
+                }
+            }),
+        osc_enabled: bridge.osc_enabled.unwrap_or(defaults.osc_enabled),
+        osc_overlay_enabled: bridge
+            .osc_overlay_enabled
+            .or(bridge.diagnostic_hud_visible)
+            .unwrap_or(defaults.osc_overlay_enabled),
+        osc_listen_addr: public_osc_listen_addr(
+            bridge.osc_listen_addr.as_deref(),
+            &defaults.osc_listen_addr,
+        ),
+        osc_max_packet_bytes: bridge
+            .osc_max_packet_bytes
+            .unwrap_or(defaults.osc_max_packet_bytes)
+            .clamp(256, rusty_xr_osc::DEFAULT_MAX_PACKET_BYTES),
     };
     apply_camera_pipeline_preset(&mut config);
     config
@@ -2029,6 +2170,16 @@ fn finite_positive_or(value: Option<f32>, fallback: f32) -> f32 {
 
 fn finite_or(value: Option<f32>, fallback: f32) -> f32 {
     value.filter(|value| value.is_finite()).unwrap_or(fallback)
+}
+
+fn public_osc_listen_addr(value: Option<&str>, fallback: &str) -> String {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return fallback.to_string();
+    };
+    if value.contains('\0') || value.len() > 128 {
+        return fallback.to_string();
+    }
+    value.to_string()
 }
 
 fn parse_camera_color_matrix(value: Option<&str>, fallback: [[f32; 3]; 3]) -> [[f32; 3]; 3] {
@@ -2841,10 +2992,10 @@ fn keep_activity_alive_after_error(app: android_activity::AndroidApp) {
 #[cfg(test)]
 mod tests {
     use super::{
-        contract_json, public_camera_metadata, public_runtime_config, CameraColorMode,
-        CameraFeedPipelineMode, CameraImportImageLayoutMode, CameraOrientationDiagnosticMode,
-        CameraPipelinePreset, CameraProjectionEffectMode, CameraProjectionMode,
-        CameraSamplerBindingMode, EnvironmentDepthMode, JavaCameraExtrinsics,
+        contract_json, parse_diagnostic_hud_command, public_camera_metadata, public_runtime_config,
+        CameraColorMode, CameraFeedPipelineMode, CameraImportImageLayoutMode,
+        CameraOrientationDiagnosticMode, CameraPipelinePreset, CameraProjectionEffectMode,
+        CameraProjectionMode, CameraSamplerBindingMode, EnvironmentDepthMode, JavaCameraExtrinsics,
         JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind,
         JavaRuntimeConfig, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
         OpenXrPassthroughStyleMode, StereoSourceEyeMapping,
@@ -2852,6 +3003,7 @@ mod tests {
     use rusty_xr_contracts::{
         CameraCompositeTier, CameraImageRotation, CameraPixelDomainKind, ImageSize,
     };
+    use rusty_xr_debug_canvas::DiagnosticHudCommand;
 
     #[test]
     fn contract_json_contains_public_identity_and_media_projection() {
@@ -3071,6 +3223,12 @@ mod tests {
             passthrough_lut_weight: Some(0.75),
             passthrough_lut_flicker_hz: Some(10.0),
             full_field_flicker_hz: Some(40.0),
+            diagnostic_hud_visible: None,
+            diagnostic_hud_command: None,
+            osc_enabled: Some(true),
+            osc_overlay_enabled: Some(false),
+            osc_listen_addr: Some("127.0.0.1:9100".to_string()),
+            osc_max_packet_bytes: Some(4096),
         });
 
         assert_eq!(config.camera_tier, CameraCompositeTier::GpuProjected);
@@ -3170,6 +3328,37 @@ mod tests {
         assert_eq!(config.passthrough_lut_weight, 0.75);
         assert_eq!(config.passthrough_lut_flicker_hz, 10.0);
         assert_eq!(config.full_field_flicker_hz, 40.0);
+        assert!(!config.diagnostic_hud_visible);
+        assert!(config.osc_enabled);
+        assert!(!config.osc_overlay_enabled);
+        assert_eq!(config.osc_listen_addr, "127.0.0.1:9100");
+        assert_eq!(config.osc_max_packet_bytes, 4096);
+    }
+
+    #[test]
+    fn runtime_config_supports_generic_diagnostic_hud_toggle_path() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            diagnostic_hud_visible: Some(true),
+            osc_overlay_enabled: Some(false),
+            ..Default::default()
+        });
+        assert!(config.diagnostic_hud_visible);
+        assert!(!config.osc_overlay_enabled);
+
+        let osc_legacy_config = public_runtime_config(&JavaRuntimeConfig {
+            osc_enabled: Some(true),
+            ..Default::default()
+        });
+        assert!(osc_legacy_config.diagnostic_hud_visible);
+
+        assert_eq!(
+            parse_diagnostic_hud_command("toggle"),
+            Some(DiagnosticHudCommand::Toggle)
+        );
+        assert_eq!(
+            parse_diagnostic_hud_command("page:2"),
+            Some(DiagnosticHudCommand::SetPage(2))
+        );
     }
 
     #[test]

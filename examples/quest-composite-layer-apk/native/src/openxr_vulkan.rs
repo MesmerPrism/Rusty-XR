@@ -1,14 +1,15 @@
 use std::{
     ffi::{CStr, CString},
     ptr,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
-    gpu_probe_counters, latest_headset_camera_frame, latest_headset_camera_gpu_frame,
-    latest_headset_stereo_camera_gpu_frame, log_error, log_info, runtime_config,
-    EnvironmentDepthMode, HeadsetCameraFrame, HeadsetCameraGpuFrame, OpenXrColorFormatMode,
-    OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
+    diagnostic_hud_snapshot, gpu_probe_counters, latest_headset_camera_frame,
+    latest_headset_camera_gpu_frame, latest_headset_stereo_camera_gpu_frame, log_error, log_info,
+    runtime_config, EnvironmentDepthMode, HeadsetCameraFrame, HeadsetCameraGpuFrame,
+    OpenXrColorFormatMode, OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode, RuntimeConfig,
+    StereoGpuCameraFrame,
 };
 use android_activity::{InputStatus, MainEvent, PollEvent};
 use ash::vk::{self, Handle};
@@ -20,6 +21,10 @@ use rusty_xr_camera_model::{
     scale_intrinsics_to_image, screen_to_camera_uv_homography, surface_to_camera_uv_homography,
     surface_to_eye_screen_uv_homography, CameraBasis, CameraCompositeTier, CameraPixelDomain,
     ImageSize, Quat, TrackingBasis, Vec3,
+};
+use rusty_xr_debug_canvas::{
+    CanvasBadge, CanvasDocument, CanvasDrawList, CanvasLayout, CanvasSection, CanvasTextRun,
+    CanvasTheme, CanvasTone, DiagnosticHudUpdate,
 };
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
@@ -36,6 +41,17 @@ const XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_FLAGS: u32 = 8;
 const XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL: &str = "rotate0+flipY";
 const XR_ENVIRONMENT_DEPTH_DESCRIPTOR_LAYOUT: vk::ImageLayout =
     vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
+const OSC_OVERLAY_PROJECTION_INSET_X: f32 = 0.04;
+const OSC_OVERLAY_PROJECTION_INSET_Y: f32 = 0.08;
+const OSC_OVERLAY_MAX_INSTANCES: usize = 4096;
+const OSC_OVERLAY_FONT_ATLAS_WIDTH: u32 = 1280;
+const OSC_OVERLAY_FONT_ATLAS_HEIGHT: u32 = 672;
+const OSC_OVERLAY_FONT_CELL_WIDTH: u32 = 80;
+const OSC_OVERLAY_FONT_CELL_HEIGHT: u32 = 112;
+const OSC_OVERLAY_FONT_ATLAS_BYTES: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/osc_diagnostics_font_atlas_u32.bin"
+));
 
 fn effective_camera_import_cache_limit(limit: usize) -> usize {
     limit.clamp(2, GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX)
@@ -2114,6 +2130,7 @@ unsafe fn run_vulkan(
         gpu_camera_import_supported,
     );
     let mut environment_depth_visualizer = EnvironmentDepthVisualizer::new(render_pass);
+    let mut osc_diagnostics_overlay = OscDiagnosticsOverlay::new(render_pass);
     let mut last_logged_gpu_frame_index: Option<u64> = None;
     let mut last_logged_prepared_stereo_frame_index: Option<u64> = None;
     let mut openxr_environment_depth_probe: Option<OpenXrEnvironmentDepthProbe> = None;
@@ -2187,6 +2204,7 @@ unsafe fn run_vulkan(
                                 },
                             )?;
                             environment_depth_visualizer.destroy(&vk_device);
+                            osc_diagnostics_overlay.destroy(&vk_device);
                             openxr_environment_depth_probe = None;
                             openxr_passthrough_probe = None;
                         }
@@ -2952,6 +2970,15 @@ unsafe fn run_vulkan(
         if let Some(frame) = depth_visual_frame {
             environment_depth_visualizer.record_draw(&vk_device, cmd, swapchain.resolution, frame);
         }
+        osc_diagnostics_overlay.record_draw(
+            &vk_device,
+            &memory_properties,
+            cmd,
+            swapchain.resolution,
+            &config,
+            &views,
+            frame_count,
+        );
         vk_device.cmd_end_render_pass(cmd);
 
         if let Some(camera_copy) = active_camera_copy {
@@ -3124,6 +3151,7 @@ unsafe fn run_vulkan(
         .wait_for_fences(&fences, true, u64::MAX)
         .map_err(|error| format!("final Vulkan fence wait: {error}"))?;
     environment_depth_visualizer.destroy(&vk_device);
+    osc_diagnostics_overlay.destroy(&vk_device);
     drop(openxr_environment_depth_probe.take());
     drop(openxr_passthrough_probe.take());
     drop((session, frame_wait, frame_stream, reference_space));
@@ -6039,6 +6067,1256 @@ struct CameraCopy {
     buffer: vk::Buffer,
     width: u32,
     height: u32,
+}
+
+struct OscDiagnosticsOverlay {
+    render_pass: vk::RenderPass,
+    resources: Option<OscDiagnosticsOverlayResources>,
+    last_draw_failure_frame: Option<u64>,
+    last_stats: Option<OscDiagnosticsOverlayFrameStats>,
+}
+
+impl OscDiagnosticsOverlay {
+    const fn new(render_pass: vk::RenderPass) -> Self {
+        Self {
+            render_pass,
+            resources: None,
+            last_draw_failure_frame: None,
+            last_stats: None,
+        }
+    }
+
+    unsafe fn record_draw(
+        &mut self,
+        device: &ash::Device,
+        memory_properties: &vk::PhysicalDeviceMemoryProperties,
+        cmd: vk::CommandBuffer,
+        resolution: vk::Extent2D,
+        config: &RuntimeConfig,
+        views: &[xr::View],
+        frame_count: u64,
+    ) {
+        let total_started = Instant::now();
+        let hud = diagnostic_hud_snapshot();
+        if !hud.visible {
+            self.last_stats = None;
+            return;
+        }
+        let mut setup_ms = 0.0;
+        if self.resources.is_none() {
+            let setup_started = Instant::now();
+            match create_osc_diagnostics_overlay_resources(
+                device,
+                memory_properties,
+                self.render_pass,
+            ) {
+                Ok(resources) => {
+                    setup_ms = elapsed_ms(setup_started);
+                    self.resources = Some(resources);
+                }
+                Err(error) => {
+                    if self
+                        .last_draw_failure_frame
+                        .map(|last| frame_count.saturating_sub(last) >= 120)
+                        .unwrap_or(true)
+                    {
+                        log_error(format!(
+                            "Rusty XR OSC diagnostics overlay setup failed: {error}"
+                        ));
+                        self.last_draw_failure_frame = Some(frame_count);
+                    }
+                    return;
+                }
+            }
+        }
+
+        let Some(resources) = self.resources.as_ref() else {
+            return;
+        };
+        let surface_started = Instant::now();
+        let Some(panel_surface) = osc_overlay_surface_for_projection(config, views, resolution)
+        else {
+            return;
+        };
+        let surface_ms = elapsed_ms(surface_started);
+        let viewport = [vk::Viewport {
+            x: 0.0,
+            y: 0.0,
+            width: resolution.width as f32,
+            height: resolution.height as f32,
+            min_depth: 0.0,
+            max_depth: 1.0,
+        }];
+        let scissor = [overlay_surface_to_scissor(&panel_surface, resolution)];
+
+        device.cmd_set_viewport(cmd, 0, &viewport);
+        device.cmd_set_scissor(cmd, 0, &scissor);
+        device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, resources.pipeline);
+
+        let layout_started = Instant::now();
+        let layout = osc_overlay_canvas_layout();
+        let theme = CanvasTheme::default();
+        let document = diagnostic_hud_document(config, frame_count, hud);
+        let draw_list = layout.layout_document(&document, &theme);
+        let layout_ms = elapsed_ms(layout_started);
+        let cell_px = [
+            scissor[0].extent.width as f32 / layout.columns.max(1) as f32,
+            scissor[0].extent.height as f32 / layout.rows.max(1) as f32,
+        ];
+        match draw_osc_overlay_canvas(device, cmd, resources, &panel_surface, &draw_list) {
+            Ok(draw_stats) => {
+                let stats = OscDiagnosticsOverlayFrameStats {
+                    total_ms: elapsed_ms(total_started),
+                    setup_ms,
+                    surface_ms,
+                    layout_ms,
+                    cell_px,
+                    draw: draw_stats,
+                };
+                if frame_count == 1 || frame_count % 120 == 0 {
+                    log_info(format!(
+                        "Rusty XR diagnostic HUD CPU frame={} totalMs={:.3} setupMs={:.3} surfaceMs={:.3} layoutMs={:.3} buildProjectMs={:.3} uploadMs={:.3} cmdMs={:.3} instances={} rects={} textRuns={} glyphs={} approxCellPx={:.1}x{:.1}",
+                        frame_count,
+                        stats.total_ms,
+                        stats.setup_ms,
+                        stats.surface_ms,
+                        stats.layout_ms,
+                        stats.draw.build_ms,
+                        stats.draw.upload_ms,
+                        stats.draw.command_ms,
+                        stats.draw.instances,
+                        stats.draw.rects,
+                        stats.draw.text_runs,
+                        stats.draw.glyphs,
+                        stats.cell_px[0],
+                        stats.cell_px[1]
+                    ));
+                }
+                self.last_stats = Some(stats);
+            }
+            Err(error) => {
+                if self
+                    .last_draw_failure_frame
+                    .map(|last| frame_count.saturating_sub(last) >= 120)
+                    .unwrap_or(true)
+                {
+                    log_error(format!(
+                        "Rusty XR OSC diagnostics overlay draw failed: {error}"
+                    ));
+                    self.last_draw_failure_frame = Some(frame_count);
+                }
+            }
+        }
+    }
+
+    unsafe fn destroy(&mut self, device: &ash::Device) {
+        if let Some(resources) = self.resources.take() {
+            resources.destroy(device);
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct OscDiagnosticsOverlayFrameStats {
+    total_ms: f64,
+    setup_ms: f64,
+    surface_ms: f64,
+    layout_ms: f64,
+    cell_px: [f32; 2],
+    draw: OscDiagnosticsOverlayDrawStats,
+}
+
+struct OscDiagnosticsOverlayResources {
+    pipeline_layout: vk::PipelineLayout,
+    pipeline: vk::Pipeline,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_set: vk::DescriptorSet,
+    instance_buffer: vk::Buffer,
+    instance_memory: vk::DeviceMemory,
+    instance_capacity: usize,
+    font_atlas_buffer: vk::Buffer,
+    font_atlas_memory: vk::DeviceMemory,
+}
+
+impl OscDiagnosticsOverlayResources {
+    unsafe fn destroy(self, device: &ash::Device) {
+        device.destroy_pipeline(self.pipeline, None);
+        device.destroy_pipeline_layout(self.pipeline_layout, None);
+        device.destroy_descriptor_pool(self.descriptor_pool, None);
+        device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+        device.destroy_buffer(self.instance_buffer, None);
+        device.free_memory(self.instance_memory, None);
+        device.destroy_buffer(self.font_atlas_buffer, None);
+        device.free_memory(self.font_atlas_memory, None);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct OscOverlayEyeProjection {
+    eye: CameraBasis,
+    tan_left: f32,
+    tan_right: f32,
+    tan_down: f32,
+    tan_up: f32,
+}
+
+#[derive(Clone, Copy)]
+struct OscOverlaySurface {
+    corners: [Vec3; 4],
+    left: OscOverlayEyeProjection,
+    right: OscOverlayEyeProjection,
+}
+
+#[derive(Clone, Copy)]
+struct OscOverlayClipQuad {
+    left: [[f32; 4]; 4],
+    right: [[f32; 4]; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct OscDiagnosticsOverlayInstance {
+    left_clip: [[f32; 4]; 4],
+    right_clip: [[f32; 4]; 4],
+    color: [f32; 4],
+    glyph: [f32; 4],
+}
+
+#[derive(Clone, Copy)]
+struct OscDiagnosticsOverlayDrawStats {
+    instances: usize,
+    rects: usize,
+    text_runs: usize,
+    glyphs: usize,
+    build_ms: f64,
+    upload_ms: f64,
+    command_ms: f64,
+}
+
+unsafe fn draw_osc_overlay_canvas(
+    device: &ash::Device,
+    cmd: vk::CommandBuffer,
+    resources: &OscDiagnosticsOverlayResources,
+    panel_surface: &OscOverlaySurface,
+    draw_list: &CanvasDrawList,
+) -> Result<OscDiagnosticsOverlayDrawStats, String> {
+    let build_started = Instant::now();
+    let mut instances = Vec::with_capacity(
+        OSC_OVERLAY_MAX_INSTANCES.min(
+            draw_list
+                .rects
+                .len()
+                .saturating_add(draw_list.text.iter().map(|run| run.text.len() * 2).sum()),
+        ),
+    );
+    for rect in &draw_list.rects {
+        push_osc_overlay_rect_instance(&mut instances, panel_surface, rect.rect, rect.color);
+    }
+    for text_run in &draw_list.text {
+        push_osc_overlay_text_run_instances(
+            &mut instances,
+            panel_surface,
+            text_run,
+            draw_list.shadow_color,
+        );
+    }
+    let build_ms = elapsed_ms(build_started);
+    let glyphs = instances
+        .iter()
+        .filter(|instance| instance.glyph[1] > 0.5)
+        .count();
+    if instances.is_empty() {
+        return Ok(OscDiagnosticsOverlayDrawStats {
+            instances: 0,
+            rects: draw_list.rects.len(),
+            text_runs: draw_list.text.len(),
+            glyphs,
+            build_ms,
+            upload_ms: 0.0,
+            command_ms: 0.0,
+        });
+    }
+    let upload_started = Instant::now();
+    upload_osc_overlay_instances(device, resources, &instances)?;
+    let upload_ms = elapsed_ms(upload_started);
+    let command_started = Instant::now();
+    device.cmd_bind_descriptor_sets(
+        cmd,
+        vk::PipelineBindPoint::GRAPHICS,
+        resources.pipeline_layout,
+        0,
+        &[resources.descriptor_set],
+        &[],
+    );
+    device.cmd_draw(cmd, 6, instances.len() as u32, 0, 0);
+    Ok(OscDiagnosticsOverlayDrawStats {
+        instances: instances.len(),
+        rects: draw_list.rects.len(),
+        text_runs: draw_list.text.len(),
+        glyphs,
+        build_ms,
+        upload_ms,
+        command_ms: elapsed_ms(command_started),
+    })
+}
+
+fn push_osc_overlay_text_run_instances(
+    instances: &mut Vec<OscDiagnosticsOverlayInstance>,
+    panel_surface: &OscOverlaySurface,
+    text_run: &CanvasTextRun,
+    shadow_color: [f32; 4],
+) {
+    let columns = text_run.columns.max(1);
+    let cell_w = text_run.rect[2] / columns as f32;
+    let cell_h = text_run.rect[3];
+    for (index, character) in text_run.text.chars().take(columns).enumerate() {
+        let character = sanitize_overlay_char(character);
+        if character == ' ' {
+            continue;
+        }
+        let glyph_rect = [
+            text_run.rect[0] + index as f32 * cell_w + cell_w * 0.020,
+            text_run.rect[1] + cell_h * 0.015,
+            cell_w * 0.960,
+            cell_h * 0.960,
+        ];
+        let shadow_alpha = match text_run.role {
+            rusty_xr_debug_canvas::CanvasTextRole::Title
+            | rusty_xr_debug_canvas::CanvasTextRole::Section => shadow_color[3] * 0.0,
+            _ => 0.0,
+        };
+        if shadow_alpha > 0.0 {
+            let shadow_rect = [
+                glyph_rect[0] + cell_w * 0.045,
+                glyph_rect[1] + cell_h * 0.055,
+                glyph_rect[2],
+                glyph_rect[3],
+            ];
+            push_osc_overlay_glyph_instance(
+                instances,
+                panel_surface,
+                shadow_rect,
+                [
+                    shadow_color[0],
+                    shadow_color[1],
+                    shadow_color[2],
+                    shadow_alpha,
+                ],
+                character,
+                0.0,
+            );
+        }
+        push_osc_overlay_glyph_instance(
+            instances,
+            panel_surface,
+            glyph_rect,
+            text_run.color,
+            character,
+            osc_overlay_text_weight(text_run.role),
+        );
+    }
+}
+
+fn push_osc_overlay_rect_instance(
+    instances: &mut Vec<OscDiagnosticsOverlayInstance>,
+    panel_surface: &OscOverlaySurface,
+    rect: [f32; 4],
+    color: [f32; 4],
+) {
+    if instances.len() >= OSC_OVERLAY_MAX_INSTANCES {
+        return;
+    }
+    let Some(clip) = osc_overlay_clip_quad_for_rect(panel_surface, rect) else {
+        return;
+    };
+    instances.push(OscDiagnosticsOverlayInstance {
+        left_clip: clip.left,
+        right_clip: clip.right,
+        color,
+        glyph: [0.0, 0.0, 0.0, 0.0],
+    });
+}
+
+fn push_osc_overlay_glyph_instance(
+    instances: &mut Vec<OscDiagnosticsOverlayInstance>,
+    panel_surface: &OscOverlaySurface,
+    rect: [f32; 4],
+    color: [f32; 4],
+    character: char,
+    weight: f32,
+) {
+    if instances.len() >= OSC_OVERLAY_MAX_INSTANCES {
+        return;
+    }
+    let Some(clip) = osc_overlay_clip_quad_for_rect(panel_surface, rect) else {
+        return;
+    };
+    instances.push(OscDiagnosticsOverlayInstance {
+        left_clip: clip.left,
+        right_clip: clip.right,
+        color,
+        glyph: [character as u32 as f32, 1.0, weight.clamp(0.0, 1.0), 0.0],
+    });
+}
+
+fn osc_overlay_text_weight(role: rusty_xr_debug_canvas::CanvasTextRole) -> f32 {
+    match role {
+        rusty_xr_debug_canvas::CanvasTextRole::Title => 0.30,
+        rusty_xr_debug_canvas::CanvasTextRole::Section => 0.18,
+        rusty_xr_debug_canvas::CanvasTextRole::Label => 0.0,
+        rusty_xr_debug_canvas::CanvasTextRole::Body
+        | rusty_xr_debug_canvas::CanvasTextRole::Small => 0.0,
+    }
+}
+
+unsafe fn upload_osc_overlay_instances(
+    device: &ash::Device,
+    resources: &OscDiagnosticsOverlayResources,
+    instances: &[OscDiagnosticsOverlayInstance],
+) -> Result<(), String> {
+    if instances.len() > resources.instance_capacity {
+        return Err(format!(
+            "OSC diagnostics overlay instance count {} exceeds capacity {}",
+            instances.len(),
+            resources.instance_capacity
+        ));
+    }
+    let byte_len = std::mem::size_of_val(instances) as vk::DeviceSize;
+    let mapped = device
+        .map_memory(
+            resources.instance_memory,
+            0,
+            byte_len,
+            vk::MemoryMapFlags::empty(),
+        )
+        .map_err(|error| format!("map OSC diagnostics overlay instance buffer: {error}"))?;
+    ptr::copy_nonoverlapping(
+        instances.as_ptr().cast::<u8>(),
+        mapped.cast::<u8>(),
+        byte_len as usize,
+    );
+    device.unmap_memory(resources.instance_memory);
+    Ok(())
+}
+
+fn osc_overlay_canvas_layout() -> CanvasLayout {
+    CanvasLayout {
+        columns: 56,
+        rows: 22,
+        padding_columns: 3,
+        header_rows: 3,
+        key_columns: 12,
+    }
+}
+
+fn diagnostic_hud_document(
+    config: &RuntimeConfig,
+    frame_count: u64,
+    hud: DiagnosticHudUpdate,
+) -> CanvasDocument {
+    if config.osc_enabled {
+        return osc_overlay_document(config, frame_count, hud);
+    }
+
+    CanvasDocument::new("DIAGNOSTIC HUD")
+        .with_subtitle("HEADSET TEST PANEL")
+        .with_section(CanvasSection::unnamed().with_badges(vec![
+            CanvasBadge::new("STATUS", "VISIBLE", CanvasTone::Success),
+            CanvasBadge::new(
+                "PAGE",
+                format!("{}/{}", hud.page_index.saturating_add(1), hud.page_count),
+                CanvasTone::Accent,
+            ),
+            CanvasBadge::new(
+                "SRC",
+                diagnostic_hud_source_short_label(hud),
+                CanvasTone::Muted,
+            ),
+        ]))
+        .with_section(
+            CanvasSection::new("RUNTIME")
+                .with_key_value("TIER", config.camera_tier.stable_id(), CanvasTone::Text)
+                .with_key_value(
+                    "DEPTH",
+                    config.environment_depth_mode.stable_id(),
+                    CanvasTone::Text,
+                )
+                .with_key_value(
+                    "SCALE",
+                    format!("{:.2}", config.xr_render_scale),
+                    CanvasTone::Text,
+                )
+                .with_key_value("FRAME", frame_count.to_string(), CanvasTone::Muted),
+        )
+        .with_section(
+            CanvasSection::new("INPUTS")
+                .with_key_value("ADB", "diagnosticHudCommand toggle", CanvasTone::Accent)
+                .with_key_value("ADAPTERS", "controller lsl osc app", CanvasTone::Muted),
+        )
+        .with_footer("HUD COMMANDS SHOW HIDE TOGGLE NEXT PREVIOUS PAGE:N")
+}
+
+fn diagnostic_hud_source_short_label(hud: DiagnosticHudUpdate) -> &'static str {
+    match hud.last_input_source {
+        Some(rusty_xr_debug_canvas::DiagnosticHudInputSource::RuntimeConfig) => "CONFIG",
+        Some(rusty_xr_debug_canvas::DiagnosticHudInputSource::AdbIntent) => "ADB",
+        Some(rusty_xr_debug_canvas::DiagnosticHudInputSource::Controller) => "CTRL",
+        Some(rusty_xr_debug_canvas::DiagnosticHudInputSource::Lsl) => "LSL",
+        Some(rusty_xr_debug_canvas::DiagnosticHudInputSource::Osc) => "OSC",
+        Some(rusty_xr_debug_canvas::DiagnosticHudInputSource::Application) => "APP",
+        None => "NONE",
+    }
+}
+
+fn osc_overlay_document(
+    config: &RuntimeConfig,
+    frame_count: u64,
+    hud: DiagnosticHudUpdate,
+) -> CanvasDocument {
+    let snapshot = crate::osc_ingress::ingress_snapshot();
+    let (status, status_tone) = if !config.osc_enabled {
+        ("DISABLED", CanvasTone::Muted)
+    } else if snapshot.listening {
+        ("LISTENING", CanvasTone::Success)
+    } else if snapshot.last_error.is_some() {
+        ("ERROR", CanvasTone::Danger)
+    } else {
+        ("STARTING", CanvasTone::Warning)
+    };
+    let bind_addr = if snapshot.bind_addr.is_empty() {
+        config.osc_listen_addr.as_str()
+    } else {
+        snapshot.bind_addr.as_str()
+    };
+    let local_addr = snapshot.local_addr.as_deref().unwrap_or(bind_addr);
+    let max_packet_bytes = snapshot.max_packet_bytes.max(config.osc_max_packet_bytes);
+    let packet_age = snapshot
+        .last_received_unix_ms
+        .map(|received_ms| duration_label_ms(now_unix_ms().saturating_sub(received_ms)))
+        .unwrap_or_else(|| "NONE".to_string());
+    let peer = snapshot.last_peer.as_deref().unwrap_or("NONE");
+    let peer_tone = if snapshot.last_peer.is_some() {
+        CanvasTone::Success
+    } else {
+        CanvasTone::Muted
+    };
+    let packet_summary = snapshot
+        .last_packet_summary
+        .as_deref()
+        .unwrap_or("WAITING FOR COMPANION OSC PACKET");
+    let (packet_address, packet_args, packet_types) = packet_summary_fields(packet_summary);
+    let error = snapshot.last_error.as_deref().unwrap_or("NONE");
+    let error_tone = if snapshot.last_error.is_some() {
+        CanvasTone::Danger
+    } else {
+        CanvasTone::Muted
+    };
+    let port = udp_port_label(bind_addr);
+    let packet_tone = if snapshot.packet_count > 0 {
+        CanvasTone::Success
+    } else {
+        CanvasTone::Muted
+    };
+    let byte_tone = if snapshot.last_byte_len > 0 {
+        CanvasTone::Accent
+    } else {
+        CanvasTone::Muted
+    };
+
+    CanvasDocument::new("OSC LIVE PROBE")
+        .with_subtitle("DIAGNOSTIC HUD / UDP CONNECTOR")
+        .with_section(CanvasSection::unnamed().with_badges(vec![
+            CanvasBadge::new("STATUS", status, status_tone),
+            CanvasBadge::new("PORT", port, CanvasTone::Accent),
+            CanvasBadge::new("PKT", snapshot.packet_count.to_string(), packet_tone),
+            CanvasBadge::new("AGE", packet_age, packet_tone),
+            CanvasBadge::new(
+                "SRC",
+                diagnostic_hud_source_short_label(hud),
+                CanvasTone::Muted,
+            ),
+        ]))
+        .with_section(
+            CanvasSection::new("ENDPOINT")
+                .with_key_value("BIND", bind_addr, CanvasTone::Text)
+                .with_key_value("LOCAL", local_addr, CanvasTone::Text)
+                .with_key_value("PEER", peer, peer_tone),
+        )
+        .with_section(
+            CanvasSection::new("LAST PACKET")
+                .with_key_value("ADDRESS", non_empty(packet_address), packet_tone)
+                .with_key_value("ARGS", non_empty(packet_args), packet_tone)
+                .with_key_value("TYPES", non_empty(packet_types), CanvasTone::Muted)
+                .with_key_value(
+                    "BYTES",
+                    format!("{} / MAX {} B", snapshot.last_byte_len, max_packet_bytes),
+                    byte_tone,
+                ),
+        )
+        .with_section(CanvasSection::new("RECEIVER").with_key_value("ERROR", error, error_tone))
+        .with_footer(format!(
+            "FRAME {frame_count}  SEND OSC TO QUEST LAN IP ON PORT {port}"
+        ))
+}
+
+fn packet_summary_fields(summary: &str) -> (&str, &str, &str) {
+    if summary.starts_with("message ") {
+        (
+            summary_field(summary, "address=").unwrap_or("?"),
+            summary_field(summary, "args=").unwrap_or("?"),
+            summary_field(summary, "types=").unwrap_or("?"),
+        )
+    } else {
+        (summary, "", "")
+    }
+}
+
+fn summary_field<'a>(summary: &'a str, key: &str) -> Option<&'a str> {
+    let start = summary.find(key)? + key.len();
+    let tail = &summary[start..];
+    let end = tail.find(' ').unwrap_or(tail.len());
+    Some(&tail[..end])
+}
+
+fn udp_port_label(addr: &str) -> &str {
+    addr.rsplit_once(':')
+        .map(|(_, port)| port)
+        .filter(|port| !port.is_empty())
+        .unwrap_or("?")
+}
+
+fn sanitize_overlay_char(character: char) -> char {
+    if character == ' ' || character.is_ascii_graphic() {
+        character
+    } else {
+        '?'
+    }
+}
+
+fn non_empty(value: &str) -> &str {
+    if value.is_empty() {
+        "NONE"
+    } else {
+        value
+    }
+}
+
+fn duration_label_ms(ms: u128) -> String {
+    if ms < 1_000 {
+        format!("{ms}MS")
+    } else if ms < 60_000 {
+        format!("{:.1}S", ms as f64 / 1_000.0)
+    } else {
+        format!("{:.1}M", ms as f64 / 60_000.0)
+    }
+}
+
+fn elapsed_ms(started: Instant) -> f64 {
+    started.elapsed().as_secs_f64() * 1000.0
+}
+
+fn now_unix_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
+}
+
+fn osc_overlay_surface_for_projection(
+    config: &RuntimeConfig,
+    views: &[xr::View],
+    resolution: vk::Extent2D,
+) -> Option<OscOverlaySurface> {
+    let tracking = tracking_basis_from_views(views)?;
+    let aspect = views
+        .first()
+        .and_then(|view| fov_aspect(view.fov))
+        .unwrap_or_else(|| {
+            if resolution.height == 0 {
+                1.0
+            } else {
+                resolution.width as f32 / resolution.height as f32
+            }
+        })
+        .clamp(0.25, 4.0);
+    let surface_corners = inset_surface_corners(
+        head_anchored_preview_surface_corners(
+            tracking,
+            config.camera_preview_fov_y_degrees,
+            config.camera_projection_scale.max(0.05),
+            aspect,
+            config.camera_raw_overlay_overscan,
+        )
+        .ok()?,
+        OSC_OVERLAY_PROJECTION_INSET_X,
+        OSC_OVERLAY_PROJECTION_INSET_Y,
+    );
+    let left_view = views.first()?;
+    let right_view = views.get(1).unwrap_or(left_view);
+    Some(OscOverlaySurface {
+        corners: surface_corners,
+        left: osc_overlay_eye_projection(left_view)?,
+        right: osc_overlay_eye_projection(right_view)?,
+    })
+}
+
+fn osc_overlay_eye_projection(view: &xr::View) -> Option<OscOverlayEyeProjection> {
+    let projection = OscOverlayEyeProjection {
+        eye: eye_basis_from_view(view)?,
+        tan_left: view.fov.angle_left.tan(),
+        tan_right: view.fov.angle_right.tan(),
+        tan_down: view.fov.angle_down.tan(),
+        tan_up: view.fov.angle_up.tan(),
+    };
+    projection.is_valid().then_some(projection)
+}
+
+impl OscOverlayEyeProjection {
+    fn is_valid(self) -> bool {
+        self.eye.is_valid()
+            && self.tan_left.is_finite()
+            && self.tan_right.is_finite()
+            && self.tan_down.is_finite()
+            && self.tan_up.is_finite()
+            && self.tan_right > self.tan_left
+            && self.tan_up > self.tan_down
+    }
+}
+
+fn inset_surface_corners(corners: [Vec3; 4], inset_x: f32, inset_y: f32) -> [Vec3; 4] {
+    let inset_x = inset_x.clamp(0.0, 0.45);
+    let inset_y = inset_y.clamp(0.0, 0.45);
+    let x0 = inset_x;
+    let y0 = inset_y;
+    let x1 = 1.0 - inset_x;
+    let y1 = 1.0 - inset_y;
+    [
+        surface_point(corners, x0, y0),
+        surface_point(corners, x1, y0),
+        surface_point(corners, x1, y1),
+        surface_point(corners, x0, y1),
+    ]
+}
+
+fn surface_point(corners: [Vec3; 4], u: f32, v: f32) -> Vec3 {
+    let u = u.clamp(0.0, 1.0);
+    let v = v.clamp(0.0, 1.0);
+    let top = corners[0] * (1.0 - u) + corners[1] * u;
+    let bottom = corners[3] * (1.0 - u) + corners[2] * u;
+    top * (1.0 - v) + bottom * v
+}
+
+fn osc_overlay_clip_quad_for_rect(
+    surface: &OscOverlaySurface,
+    rect: [f32; 4],
+) -> Option<OscOverlayClipQuad> {
+    let [x0, y0, x1, y1] = clamped_rect_edges(rect)?;
+    let points = [
+        surface_point(surface.corners, x0, y0),
+        surface_point(surface.corners, x1, y0),
+        surface_point(surface.corners, x1, y1),
+        surface_point(surface.corners, x0, y1),
+    ];
+    Some(OscOverlayClipQuad {
+        left: project_points_to_eye_clip(surface.left, points)?,
+        right: project_points_to_eye_clip(surface.right, points)?,
+    })
+}
+
+fn clamped_rect_edges(rect: [f32; 4]) -> Option<[f32; 4]> {
+    if !rect.iter().all(|value| value.is_finite()) || rect[2] <= 0.0 || rect[3] <= 0.0 {
+        return None;
+    }
+    let x0 = rect[0].clamp(0.0, 1.0);
+    let y0 = rect[1].clamp(0.0, 1.0);
+    let x1 = (rect[0] + rect[2]).clamp(0.0, 1.0);
+    let y1 = (rect[1] + rect[3]).clamp(0.0, 1.0);
+    (x1 > x0 && y1 > y0).then_some([x0, y0, x1, y1])
+}
+
+fn project_points_to_eye_clip(
+    eye: OscOverlayEyeProjection,
+    points: [Vec3; 4],
+) -> Option<[[f32; 4]; 4]> {
+    let mut projected = [[0.0; 4]; 4];
+    for (index, point) in points.into_iter().enumerate() {
+        projected[index] = project_tracking_point_to_eye_clip(eye, point)?;
+    }
+    Some(projected)
+}
+
+fn project_tracking_point_to_eye_clip(
+    eye: OscOverlayEyeProjection,
+    point: Vec3,
+) -> Option<[f32; 4]> {
+    if !eye.is_valid() || !point.is_finite() {
+        return None;
+    }
+
+    let local = point - eye.eye.position;
+    let z = local.dot(eye.eye.forward);
+    if !z.is_finite() || z <= 0.0 {
+        return None;
+    }
+
+    let tan_x = local.dot(eye.eye.right) / z;
+    let tan_y = local.dot(eye.eye.up) / z;
+    let width = eye.tan_right - eye.tan_left;
+    let height = eye.tan_up - eye.tan_down;
+    let uv_x = (tan_x - eye.tan_left) / width;
+    let uv_y = (eye.tan_up - tan_y) / height;
+    if !uv_x.is_finite() || !uv_y.is_finite() {
+        return None;
+    }
+
+    Some([(uv_x * 2.0 - 1.0) * z, (uv_y * 2.0 - 1.0) * z, 0.0, z])
+}
+
+fn overlay_surface_to_scissor(surface: &OscOverlaySurface, resolution: vk::Extent2D) -> vk::Rect2D {
+    let Some(left) = eye_screen_rect_for_surface(surface.corners, surface.left) else {
+        return full_resolution_scissor(resolution);
+    };
+    let Some(right) = eye_screen_rect_for_surface(surface.corners, surface.right) else {
+        return full_resolution_scissor(resolution);
+    };
+    screen_rect_to_scissor(union_screen_rects(left, right), resolution)
+}
+
+fn eye_screen_rect_for_surface(
+    surface_corners: [Vec3; 4],
+    eye: OscOverlayEyeProjection,
+) -> Option<[f32; 4]> {
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+
+    for corner in surface_corners {
+        let clip = project_tracking_point_to_eye_clip(eye, corner)?;
+        let ndc_x = clip[0] / clip[3];
+        let ndc_y = clip[1] / clip[3];
+        let uv_x = (ndc_x + 1.0) * 0.5;
+        let uv_y = (ndc_y + 1.0) * 0.5;
+        if !uv_x.is_finite() || !uv_y.is_finite() {
+            return None;
+        }
+        min_x = min_x.min(uv_x);
+        min_y = min_y.min(uv_y);
+        max_x = max_x.max(uv_x);
+        max_y = max_y.max(uv_y);
+    }
+
+    let x0 = min_x.clamp(0.0, 1.0);
+    let y0 = min_y.clamp(0.0, 1.0);
+    let x1 = max_x.clamp(0.0, 1.0);
+    let y1 = max_y.clamp(0.0, 1.0);
+    (x1 > x0 && y1 > y0).then_some([x0, y0, x1 - x0, y1 - y0])
+}
+
+fn union_screen_rects(left: [f32; 4], right: [f32; 4]) -> [f32; 4] {
+    let x0 = left[0].min(right[0]);
+    let y0 = left[1].min(right[1]);
+    let x1 = (left[0] + left[2]).max(right[0] + right[2]);
+    let y1 = (left[1] + left[3]).max(right[1] + right[3]);
+    [x0, y0, x1 - x0, y1 - y0]
+}
+
+fn screen_rect_to_scissor(rect: [f32; 4], resolution: vk::Extent2D) -> vk::Rect2D {
+    let width = resolution.width.max(1) as f32;
+    let height = resolution.height.max(1) as f32;
+    let x0 = (rect[0].clamp(0.0, 1.0) * width).floor() as i32;
+    let y0 = (rect[1].clamp(0.0, 1.0) * height).floor() as i32;
+    let x1 = ((rect[0] + rect[2]).clamp(0.0, 1.0) * width).ceil() as i32;
+    let y1 = ((rect[1] + rect[3]).clamp(0.0, 1.0) * height).ceil() as i32;
+    vk::Rect2D {
+        offset: vk::Offset2D { x: x0, y: y0 },
+        extent: vk::Extent2D {
+            width: (x1 - x0).max(1) as u32,
+            height: (y1 - y0).max(1) as u32,
+        },
+    }
+}
+
+fn full_resolution_scissor(resolution: vk::Extent2D) -> vk::Rect2D {
+    vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: vk::Extent2D {
+            width: resolution.width.max(1),
+            height: resolution.height.max(1),
+        },
+    }
+}
+
+unsafe fn create_osc_diagnostics_overlay_resources(
+    device: &ash::Device,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
+    render_pass: vk::RenderPass,
+) -> Result<OscDiagnosticsOverlayResources, String> {
+    let expected_font_atlas_bytes =
+        (OSC_OVERLAY_FONT_ATLAS_WIDTH as usize) * (OSC_OVERLAY_FONT_ATLAS_HEIGHT as usize) * 4;
+    if OSC_OVERLAY_FONT_ATLAS_BYTES.len() != expected_font_atlas_bytes {
+        return Err(format!(
+            "OSC diagnostics font atlas has {} bytes, expected {}",
+            OSC_OVERLAY_FONT_ATLAS_BYTES.len(),
+            expected_font_atlas_bytes
+        ));
+    }
+
+    let descriptor_binding = [
+        vk::DescriptorSetLayoutBinding::default()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::VERTEX),
+        vk::DescriptorSetLayoutBinding::default()
+            .binding(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+    ];
+    let descriptor_set_layout = device
+        .create_descriptor_set_layout(
+            &vk::DescriptorSetLayoutCreateInfo::default().bindings(&descriptor_binding),
+            None,
+        )
+        .map_err(|error| {
+            format!("create OSC diagnostics overlay descriptor set layout: {error}")
+        })?;
+    let set_layouts = [descriptor_set_layout];
+    let pipeline_layout = match device.create_pipeline_layout(
+        &vk::PipelineLayoutCreateInfo::default().set_layouts(&set_layouts),
+        None,
+    ) {
+        Ok(layout) => layout,
+        Err(error) => {
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            return Err(format!(
+                "create OSC diagnostics overlay pipeline layout: {error}"
+            ));
+        }
+    };
+    let pipeline =
+        match create_osc_diagnostics_overlay_pipeline(device, render_pass, pipeline_layout) {
+            Ok(pipeline) => pipeline,
+            Err(error) => {
+                device.destroy_pipeline_layout(pipeline_layout, None);
+                device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+                return Err(error);
+            }
+        };
+
+    let instance_capacity = OSC_OVERLAY_MAX_INSTANCES;
+    let instance_buffer_size = (std::mem::size_of::<OscDiagnosticsOverlayInstance>()
+        * instance_capacity) as vk::DeviceSize;
+    let (instance_buffer, instance_memory) = match create_osc_overlay_storage_buffer(
+        device,
+        memory_properties,
+        instance_buffer_size,
+        "instance",
+    ) {
+        Ok(buffer) => buffer,
+        Err(error) => {
+            device.destroy_pipeline(pipeline, None);
+            device.destroy_pipeline_layout(pipeline_layout, None);
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            return Err(error);
+        }
+    };
+
+    let font_atlas_buffer_size = OSC_OVERLAY_FONT_ATLAS_BYTES.len() as vk::DeviceSize;
+    let (font_atlas_buffer, font_atlas_memory) = match create_osc_overlay_storage_buffer(
+        device,
+        memory_properties,
+        font_atlas_buffer_size,
+        "font atlas",
+    ) {
+        Ok(buffer) => buffer,
+        Err(error) => {
+            device.free_memory(instance_memory, None);
+            device.destroy_buffer(instance_buffer, None);
+            device.destroy_pipeline(pipeline, None);
+            device.destroy_pipeline_layout(pipeline_layout, None);
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            return Err(error);
+        }
+    };
+
+    if let Err(error) = upload_osc_overlay_buffer_bytes(
+        device,
+        font_atlas_memory,
+        OSC_OVERLAY_FONT_ATLAS_BYTES,
+        "font atlas",
+    ) {
+        device.free_memory(font_atlas_memory, None);
+        device.destroy_buffer(font_atlas_buffer, None);
+        device.free_memory(instance_memory, None);
+        device.destroy_buffer(instance_buffer, None);
+        device.destroy_pipeline(pipeline, None);
+        device.destroy_pipeline_layout(pipeline_layout, None);
+        device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+        return Err(error);
+    }
+
+    let pool_sizes = [vk::DescriptorPoolSize::default()
+        .ty(vk::DescriptorType::STORAGE_BUFFER)
+        .descriptor_count(2)];
+    let descriptor_pool = match device.create_descriptor_pool(
+        &vk::DescriptorPoolCreateInfo::default()
+            .pool_sizes(&pool_sizes)
+            .max_sets(1),
+        None,
+    ) {
+        Ok(pool) => pool,
+        Err(error) => {
+            device.free_memory(font_atlas_memory, None);
+            device.destroy_buffer(font_atlas_buffer, None);
+            device.free_memory(instance_memory, None);
+            device.destroy_buffer(instance_buffer, None);
+            device.destroy_pipeline(pipeline, None);
+            device.destroy_pipeline_layout(pipeline_layout, None);
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            return Err(format!(
+                "create OSC diagnostics overlay descriptor pool: {error}"
+            ));
+        }
+    };
+    let descriptor_set_layouts = [descriptor_set_layout];
+    let descriptor_set = match device.allocate_descriptor_sets(
+        &vk::DescriptorSetAllocateInfo::default()
+            .descriptor_pool(descriptor_pool)
+            .set_layouts(&descriptor_set_layouts),
+    ) {
+        Ok(mut sets) => sets.pop().ok_or_else(|| {
+            "OSC diagnostics overlay descriptor allocation returned no set".to_string()
+        })?,
+        Err(error) => {
+            device.destroy_descriptor_pool(descriptor_pool, None);
+            device.free_memory(font_atlas_memory, None);
+            device.destroy_buffer(font_atlas_buffer, None);
+            device.free_memory(instance_memory, None);
+            device.destroy_buffer(instance_buffer, None);
+            device.destroy_pipeline(pipeline, None);
+            device.destroy_pipeline_layout(pipeline_layout, None);
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            return Err(format!(
+                "allocate OSC diagnostics overlay descriptor set: {error}"
+            ));
+        }
+    };
+    let instance_info = [vk::DescriptorBufferInfo::default()
+        .buffer(instance_buffer)
+        .offset(0)
+        .range(instance_buffer_size)];
+    let font_atlas_info = [vk::DescriptorBufferInfo::default()
+        .buffer(font_atlas_buffer)
+        .offset(0)
+        .range(font_atlas_buffer_size)];
+    let writes = [
+        vk::WriteDescriptorSet::default()
+            .dst_set(descriptor_set)
+            .dst_binding(0)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&instance_info),
+        vk::WriteDescriptorSet::default()
+            .dst_set(descriptor_set)
+            .dst_binding(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&font_atlas_info),
+    ];
+    device.update_descriptor_sets(&writes, &[]);
+
+    let layout = osc_overlay_canvas_layout();
+    log_info(format!(
+        "Rusty XR diagnostic HUD overlay resources ready columns={} rows={} maxInstances={} projectionMode=head-anchored-stereo-surface textRenderer=sdf-font-atlas-scale-aware font=JetBrainsMono-Regular atlas={}x{} cell={}x{} inset={:.3},{:.3}",
+        layout.columns,
+        layout.rows,
+        instance_capacity,
+        OSC_OVERLAY_FONT_ATLAS_WIDTH,
+        OSC_OVERLAY_FONT_ATLAS_HEIGHT,
+        OSC_OVERLAY_FONT_CELL_WIDTH,
+        OSC_OVERLAY_FONT_CELL_HEIGHT,
+        OSC_OVERLAY_PROJECTION_INSET_X,
+        OSC_OVERLAY_PROJECTION_INSET_Y
+    ));
+
+    Ok(OscDiagnosticsOverlayResources {
+        pipeline_layout,
+        pipeline,
+        descriptor_set_layout,
+        descriptor_pool,
+        descriptor_set,
+        instance_buffer,
+        instance_memory,
+        instance_capacity,
+        font_atlas_buffer,
+        font_atlas_memory,
+    })
+}
+
+unsafe fn create_osc_overlay_storage_buffer(
+    device: &ash::Device,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
+    size: vk::DeviceSize,
+    label: &str,
+) -> Result<(vk::Buffer, vk::DeviceMemory), String> {
+    let buffer = device
+        .create_buffer(
+            &vk::BufferCreateInfo::default()
+                .size(size)
+                .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE),
+            None,
+        )
+        .map_err(|error| format!("create OSC diagnostics overlay {label} buffer: {error}"))?;
+    let requirements = device.get_buffer_memory_requirements(buffer);
+    let memory_type_index = match find_memory_type(
+        memory_properties,
+        requirements.memory_type_bits,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    ) {
+        Ok(index) => index,
+        Err(error) => {
+            device.destroy_buffer(buffer, None);
+            return Err(error);
+        }
+    };
+    let memory = match device.allocate_memory(
+        &vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type_index),
+        None,
+    ) {
+        Ok(memory) => memory,
+        Err(error) => {
+            device.destroy_buffer(buffer, None);
+            return Err(format!(
+                "allocate OSC diagnostics overlay {label} memory: {error}"
+            ));
+        }
+    };
+    if let Err(error) = device.bind_buffer_memory(buffer, memory, 0) {
+        device.free_memory(memory, None);
+        device.destroy_buffer(buffer, None);
+        return Err(format!(
+            "bind OSC diagnostics overlay {label} memory: {error}"
+        ));
+    }
+    Ok((buffer, memory))
+}
+
+unsafe fn upload_osc_overlay_buffer_bytes(
+    device: &ash::Device,
+    memory: vk::DeviceMemory,
+    bytes: &[u8],
+    label: &str,
+) -> Result<(), String> {
+    let mapped = device
+        .map_memory(
+            memory,
+            0,
+            bytes.len() as vk::DeviceSize,
+            vk::MemoryMapFlags::empty(),
+        )
+        .map_err(|error| format!("map OSC diagnostics overlay {label} buffer: {error}"))?;
+    ptr::copy_nonoverlapping(bytes.as_ptr(), mapped.cast::<u8>(), bytes.len());
+    device.unmap_memory(memory);
+    Ok(())
+}
+
+unsafe fn create_osc_diagnostics_overlay_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
+) -> Result<vk::Pipeline, String> {
+    let vertex_words = spirv_words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/osc_diagnostics_overlay.vert.spv"
+    )))?;
+    let fragment_words = spirv_words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/osc_diagnostics_overlay.frag.spv"
+    )))?;
+    let vertex_module = device
+        .create_shader_module(
+            &vk::ShaderModuleCreateInfo::default().code(&vertex_words),
+            None,
+        )
+        .map_err(|error| format!("create OSC diagnostics overlay vertex shader module: {error}"))?;
+    let fragment_module = match device.create_shader_module(
+        &vk::ShaderModuleCreateInfo::default().code(&fragment_words),
+        None,
+    ) {
+        Ok(module) => module,
+        Err(error) => {
+            device.destroy_shader_module(vertex_module, None);
+            return Err(format!(
+                "create OSC diagnostics overlay fragment shader module: {error}"
+            ));
+        }
+    };
+    let entry = CString::new("main").expect("static shader entry point is valid");
+    let stages = [
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vertex_module)
+            .name(&entry),
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(fragment_module)
+            .name(&entry),
+    ];
+    let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
+    let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+    let viewport_state = vk::PipelineViewportStateCreateInfo::default()
+        .viewport_count(1)
+        .scissor_count(1);
+    let rasterization = vk::PipelineRasterizationStateCreateInfo::default()
+        .polygon_mode(vk::PolygonMode::FILL)
+        .cull_mode(vk::CullModeFlags::NONE)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .line_width(1.0);
+    let multisample = vk::PipelineMultisampleStateCreateInfo::default()
+        .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+    let color_blend_attachment = [vk::PipelineColorBlendAttachmentState::default()
+        .blend_enable(true)
+        .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+        .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+        .color_blend_op(vk::BlendOp::ADD)
+        .src_alpha_blend_factor(vk::BlendFactor::ONE)
+        .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+        .alpha_blend_op(vk::BlendOp::ADD)
+        .color_write_mask(vk::ColorComponentFlags::RGBA)];
+    let color_blend =
+        vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachment);
+    let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
+        .depth_test_enable(false)
+        .depth_write_enable(false)
+        .depth_compare_op(vk::CompareOp::ALWAYS)
+        .stencil_test_enable(false);
+    let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+    let dynamic = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+    let create_info = [vk::GraphicsPipelineCreateInfo::default()
+        .stages(&stages)
+        .vertex_input_state(&vertex_input)
+        .input_assembly_state(&input_assembly)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterization)
+        .multisample_state(&multisample)
+        .color_blend_state(&color_blend)
+        .depth_stencil_state(&depth_stencil)
+        .dynamic_state(&dynamic)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0)];
+    let pipeline_result =
+        device.create_graphics_pipelines(vk::PipelineCache::null(), &create_info, None);
+    device.destroy_shader_module(fragment_module, None);
+    device.destroy_shader_module(vertex_module, None);
+    pipeline_result
+        .map(|mut pipelines| pipelines.remove(0))
+        .map_err(|(_, error)| format!("create OSC diagnostics overlay graphics pipeline: {error}"))
 }
 
 struct EnvironmentDepthVisualizer {

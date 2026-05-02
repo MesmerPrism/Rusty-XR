@@ -83,6 +83,12 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_PASSTHROUGH_LUT_FLICKER_HZ = 0.0f;
     private static final float DEFAULT_FULL_FIELD_FLICKER_HZ = 0.0f;
     private static final float DEFAULT_XR_DISPLAY_REFRESH_HZ = 72.0f;
+    private static final boolean DEFAULT_DIAGNOSTIC_HUD_VISIBLE = false;
+    private static final String DEFAULT_DIAGNOSTIC_HUD_COMMAND = "";
+    private static final boolean DEFAULT_OSC_ENABLED = false;
+    private static final boolean DEFAULT_OSC_OVERLAY_ENABLED = true;
+    private static final String DEFAULT_OSC_LISTEN_ADDR = "0.0.0.0:9000";
+    private static final int DEFAULT_OSC_MAX_PACKET_BYTES = 8192;
 
     private MediaProjectionManager mediaProjectionManager;
 
@@ -167,9 +173,14 @@ public final class CompositeLayerActivity extends NativeActivity {
         return booleanExtra("rustyxr.camera", true);
     }
 
+    private boolean hasExtra(String name) {
+        Intent intent = getIntent();
+        return intent != null && intent.getExtras() != null && intent.getExtras().containsKey(name);
+    }
+
     private boolean booleanExtra(String name, boolean defaultValue) {
         Intent intent = getIntent();
-        if (intent == null || intent.getExtras() == null || !intent.getExtras().containsKey(name)) {
+        if (!hasExtra(name)) {
             return defaultValue;
         }
 
@@ -292,6 +303,18 @@ public final class CompositeLayerActivity extends NativeActivity {
         return booleanExtra("rustyxr.cameraAllowCpuFallback", DEFAULT_CAMERA_ALLOW_CPU_FALLBACK);
     }
 
+    private boolean diagnosticHudVisible() {
+        if (hasExtra("rustyxr.diagnosticHudVisible")) {
+            return booleanExtra("rustyxr.diagnosticHudVisible", DEFAULT_DIAGNOSTIC_HUD_VISIBLE);
+        }
+        if (hasExtra("rustyxr.diagnosticsHudVisible")) {
+            return booleanExtra("rustyxr.diagnosticsHudVisible", DEFAULT_DIAGNOSTIC_HUD_VISIBLE);
+        }
+        return booleanExtra(
+            "rustyxr.oscOverlayEnabled",
+            booleanExtra("rustyxr.oscEnabled", DEFAULT_DIAGNOSTIC_HUD_VISIBLE));
+    }
+
     private void sendRuntimeConfig(boolean cameraEnabled, boolean mediaProjectionEnabled) {
         String tier = cameraEnabled ? cameraTier() : "synthetic";
         int cpuUploadHz = intExtra("rustyxr.cameraCpuUploadHz", DEFAULT_CAMERA_CPU_UPLOAD_HZ);
@@ -300,6 +323,7 @@ public final class CompositeLayerActivity extends NativeActivity {
         int cameraFpsMax = Math.max(0, intExtra("rustyxr.cameraFpsMax", DEFAULT_CAMERA_FPS_MAX));
         int stereoImageReaderMaxImages = Math.max(2, intExtra("rustyxr.cameraStereoImageReaderMaxImages", DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES));
         int fixedFoveationLevel = Math.max(0, intExtra("rustyxr.xrFixedFoveationLevel", DEFAULT_XR_FIXED_FOVEATION_LEVEL));
+        boolean hudVisible = diagnosticHudVisible();
         StringBuilder builder = new StringBuilder(256);
         builder.append('{');
         appendJsonString(builder, "cameraTier", tier);
@@ -405,6 +429,14 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"passthroughLutWeight\":").append(floatJson(floatExtra("rustyxr.passthroughLutWeight", DEFAULT_PASSTHROUGH_LUT_WEIGHT)));
         builder.append(",\"passthroughLutFlickerHz\":").append(floatJson(floatExtra("rustyxr.passthroughLutFlickerHz", DEFAULT_PASSTHROUGH_LUT_FLICKER_HZ)));
         builder.append(",\"fullFieldFlickerHz\":").append(floatJson(floatExtra("rustyxr.fullFieldFlickerHz", DEFAULT_FULL_FIELD_FLICKER_HZ)));
+        builder.append(",\"diagnosticHudVisible\":").append(hudVisible);
+        builder.append(',');
+        appendJsonString(builder, "diagnosticHudCommand", stringExtra("rustyxr.diagnosticHudCommand", DEFAULT_DIAGNOSTIC_HUD_COMMAND));
+        builder.append(",\"oscEnabled\":").append(booleanExtra("rustyxr.oscEnabled", DEFAULT_OSC_ENABLED));
+        builder.append(",\"oscOverlayEnabled\":").append(booleanExtra("rustyxr.oscOverlayEnabled", hudVisible && DEFAULT_OSC_OVERLAY_ENABLED));
+        builder.append(',');
+        appendJsonString(builder, "oscListenAddr", stringExtra("rustyxr.oscListenAddr", DEFAULT_OSC_LISTEN_ADDR));
+        builder.append(",\"oscMaxPacketBytes\":").append(Math.max(256, intExtra("rustyxr.oscMaxPacketBytes", DEFAULT_OSC_MAX_PACKET_BYTES)));
         builder.append(',');
         appendJsonString(builder, "stereoLayout", cameraStereoLayout());
         builder.append('}');

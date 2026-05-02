@@ -48,7 +48,11 @@
       </article>
       <article class="panel">
         <h2>Outer Utility Crates</h2>
-        <p>Utility crates build on contracts without pulling in native platform dependencies. This keeps tests fast and lets downstream shells choose their own Android, OpenXR, Vulkan, Makepad, Unity, or LSL integration strategy.</p>
+        <p>Utility crates build on contracts without pulling in native platform dependencies. This keeps tests fast and lets downstream shells choose their own Android, OpenXR, Vulkan, Makepad, Unity, LSL, OSC, or diagnostics UI integration strategy.</p>
+      </article>
+      <article class="panel">
+        <h2>Diagnostics And Control</h2>
+        <p><code>rusty-xr-debug-canvas</code> owns normalized diagnostic HUD documents, draw lists, tones, and input-neutral HUD commands. <code>rusty-xr-osc</code> owns generic OSC packets, endpoint status, and UDP helpers. Quest renderers, controller bindings, LSL bridges, ADB intents, and app-specific address trees remain shell-owned.</p>
       </article>
     </section>
 

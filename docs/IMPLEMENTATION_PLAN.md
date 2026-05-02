@@ -45,6 +45,14 @@ outlet status, staleness handling, roundtrip checks, and telemetry payloads.
 The native backend should stay optional so the pure models can compile and test
 without a system LSL runtime.
 
+### OSC Utilities
+
+Reusable Open Sound Control packet models, common OSC 1.0 encoding/decoding,
+and a small UDP helper for live control and sensor ingress.
+
+OSC address trees and value semantics remain app-owned. The public crate should
+stay transport-oriented until a stable sensor contract is ready.
+
 ### BLE And Polar H10 Utilities
 
 Reusable BLE/GATT contracts, Android Bluetooth permission models, Polar H10
@@ -60,6 +68,15 @@ crates.
 Reusable status models and helpers for interpreting common Quest development
 signals such as package launch state, frame timing, runtime properties, and
 device readiness.
+
+### Debug Canvas
+
+Reusable normalized layout primitives for headset-visible test panels and
+diagnostics displays. The canvas crate owns sections, badges, key/value rows,
+wrapping, tones, draw-list generation, and a small diagnostic HUD visibility /
+page command state while renderers and input adapters stay app-owned. Headset
+renderers should prefer a shared stereo surface for diagnostic HUDs; see
+`docs/DIAGNOSTIC_HUD_STEREO_RENDERING.md`.
 
 ### Camera Model
 
@@ -282,6 +299,8 @@ responsibilities.
 | Runtime config | In progress | Generic key/value parsing and Android property naming helpers added. |
 | BLE utilities | In progress | Framework-neutral BLE UUID, GATT path, notification, operation, scan result, and Android permission models added. |
 | LSL utilities | In progress | Pure stream descriptor, stream role, channel schema, discovery filter, endpoint status, staleness, roundtrip, biofeedback, and telemetry models added. |
+| OSC utilities | In progress | Pure OSC message/bundle codec, UDP helper, loopback probe, and Quest example listener profile added. |
+| Debug canvas | In progress | Dependency-light logical canvas crate added for reusable diagnostics panels, with normalized rectangle/text draw lists, input-neutral diagnostic HUD command state, and optional serde. |
 | Polar H10 utilities | In progress | Public Polar GATT IDs, HR/RR decoder, uncompressed ECG/ACC PMD decoders, PMD command builders, and LSL schemas added. |
 | Quest diagnostics | In progress | Generic readiness, package launch, and frame-rate status models added. |
 | Camera model | In progress | Intrinsics scaling, projection, back-projection, and timestamp matching helpers added. |
@@ -291,7 +310,7 @@ responsibilities.
 | Depth model | In progress | Depth readiness, frame summary, per-view metadata, infinite-far range, cadence, and readback-policy helpers added. |
 | SDF model | In progress | Packed SDF grid, sampling, bounds, triangle mesh snapshots, and data-only depth support/impact query contracts added. |
 | Particle and animation primitives | In progress | Minimal particle state, fixed-step clock, and render payload generation added. |
-| XR canvas and hand interaction | In progress | Public ray/canvas hit-test contracts, hand-menu anchors, activation modes, and hand influence points added. |
+| XR canvas and hand interaction | In progress | Public ray/canvas hit-test contracts, hand-menu anchors, activation modes, hand influence points, and normalized debug/test canvas primitives added. |
 | Sparse scan / TSDF contracts | In progress | Public sparse TSDF samples, snapshots, scan surface samples, and scan-fusion stats added. |
 | Room mesh and capture lifecycle | In progress | Public room mesh source state, semantic room mesh snapshots, and capture lifecycle/source metadata added. |
 | Companion app catalog alignment | In progress | `quest-app-catalog` schema version aligned with Rusty XR Companion Apps catalog metadata. |
@@ -300,5 +319,5 @@ responsibilities.
 | Serialization and schemas | In progress | Opt-in `serde` features, round-trip tests, and custom schema export script added. |
 | Boundary scanner and provenance | In progress | Public scanner CLI/config and public utility provenance metadata added. |
 | Feature and adapter policy | `[x]` | Adapter feature names, separate-crate rule, and pre-adapter boundary requirements documented. |
-| Public examples | In progress | Synthetic layout, composite feedback, passthrough style catalog, audio-reactive passthrough style, and visual strobe profile examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming. |
+| Public examples | In progress | Synthetic layout, composite feedback, passthrough style catalog, audio-reactive passthrough style, and visual strobe profile examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming and an OSC listener diagnostics profile. |
 | Optional adapters | `[ ]` | Deferred until contracts stabilize. |

@@ -2,7 +2,9 @@ flowchart TB
   contracts["rusty-xr-contracts"]
   runtime["runtime-config"]
   ble["ble"]
+  debug["debug-canvas"]
   lsl["lsl"]
+  osc["osc"]
   polar["polar"]
   quest["quest-diagnostics"]
   camera["camera-model"]
@@ -15,13 +17,18 @@ flowchart TB
   contracts --> sdf
   contracts --> particles
   contracts --> quest
+  contracts --> debug
   ble --> polar
   lsl --> polar
   lsl --> particles
+  osc --> debug
   runtime --> quest
+  runtime --> debug
 
   contracts -.->|"math, poses, views, hands, layers, render payloads"| shared["Shared Public Vocabulary"]
   runtime -.->|"keys and typed values"| shared
+  debug -.->|"diagnostic documents, draw lists, HUD commands"| shared
+  osc -.->|"packets, UDP endpoints, decoded records"| shared
   camera -.->|"projection and timestamps"| shared
   depth -.->|"readiness and summaries"| shared
   sdf -.->|"grids, meshes, sparse scan snapshots"| shared

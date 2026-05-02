@@ -62,7 +62,11 @@ python tools/schema/check_quest_app_catalog.py tools/schema/fixtures/quest-app-c
 The initial export covers:
 
 - Runtime configuration.
+- Debug canvas documents and draw lists, once external renderer contracts
+  stabilize.
 - LSL telemetry and stream descriptors.
+- OSC endpoint status and decoded packet records, once their downstream use
+  stabilizes.
 - Camera frame metadata.
 - Depth frame summaries.
 - Plain stereo layer descriptors.

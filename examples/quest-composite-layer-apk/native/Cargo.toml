@@ -18,6 +18,8 @@ path = "src/main.rs"
 jni = "0.21"
 rusty-xr-camera-model = { path = "../../../crates/rusty-xr-camera-model", features = ["serde"] }
 rusty-xr-contracts = { path = "../../../crates/rusty-xr-contracts", features = ["serde"] }
+rusty-xr-debug-canvas = { path = "../../../crates/rusty-xr-debug-canvas", features = ["serde"] }
+rusty-xr-osc = { path = "../../../crates/rusty-xr-osc", features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
@@ -27,6 +29,9 @@ ash = "0.38"
 ndk-sys = "0.6"
 ndk-context = "0.1"
 openxr = "0.21.1"
+
+[build-dependencies]
+fontdue = { version = "0.9.3", default-features = false }
 
 [lints.rust]
 unsafe_code = "allow"

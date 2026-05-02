@@ -18,6 +18,22 @@ Do not commit:
 Use generic language such as "downstream app", "target app", "public example",
 "runtime profile", and "device profile".
 
+## Publishing And Dependencies
+
+Before adding dependencies, optional adapters, generated APK release assets, or
+codec/media stack code:
+
+- Keep core crates contract-first and framework-neutral.
+- Prefer permissive source dependencies with generated notices.
+- Keep native SDKs, WebRTC/NDI payloads, FFmpeg/GStreamer/libx264/libx265,
+  signing material, generated APKs, captures, and tool caches out of core.
+- Use source-only adapters or user-supplied SDK/runtime paths for sensitive
+  integrations.
+- For distributed APKs, publish source commit/tag, APK SHA-256, signing mode,
+  included native libraries, permissions, and third-party notices.
+- Prefer Android platform MediaCodec for H.264/H.265 before bundling codec
+  libraries.
+
 ## Orientation
 
 Start with:

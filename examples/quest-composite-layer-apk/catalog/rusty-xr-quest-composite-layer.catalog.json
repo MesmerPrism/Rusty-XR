@@ -42,6 +42,41 @@
       "description": "Runs the OpenXR layer without camera or screen capture for lifecycle and renderer isolation."
     },
     {
+      "id": "osc-udp-listener",
+      "label": "OSC UDP listener",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "synthetic",
+        "rustyxr.camera": "false",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "osc-udp",
+        "rustyxr.depth": "off",
+        "rustyxr.oscEnabled": "true",
+        "rustyxr.diagnosticHudVisible": "true",
+        "rustyxr.oscListenAddr": "0.0.0.0:9000",
+        "rustyxr.oscMaxPacketBytes": "8192"
+      },
+      "description": "Starts a generic OSC UDP listener in the headset app, draws a headset diagnostics panel inside the camera projection envelope, and logs received packet summaries for companion-to-headset transport checks."
+    },
+    {
+      "id": "osc-udp-listener-no-overlay",
+      "label": "OSC UDP listener, no overlay",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "synthetic",
+        "rustyxr.camera": "false",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "osc-udp",
+        "rustyxr.depth": "off",
+        "rustyxr.oscEnabled": "true",
+        "rustyxr.diagnosticHudVisible": "false",
+        "rustyxr.oscOverlayEnabled": "false",
+        "rustyxr.oscListenAddr": "0.0.0.0:9000",
+        "rustyxr.oscMaxPacketBytes": "8192"
+      },
+      "description": "Starts the same generic OSC UDP listener without drawing the headset diagnostics panel so OSC ingress cost can be measured separately from canvas rendering."
+    },
+    {
       "id": "camera-source-diagnostics",
       "label": "Camera source diagnostics",
       "values": {

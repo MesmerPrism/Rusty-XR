@@ -3,6 +3,9 @@ flowchart LR
   shell["App Shell Adapter"]
   media_contracts["Camera, Depth, Layer, Render Contracts"]
   receiver["Generic Windows Frame Receiver"]
+  osc_source["OSC Sender Or Receiver"]
+  osc["rusty-xr-osc"]
+  debug_canvas["rusty-xr-debug-canvas"]
 
   sensor["BLE Sensor"]
   ble["rusty-xr-ble"]
@@ -14,6 +17,10 @@ flowchart LR
   shell --> media_contracts
   media_contracts --> app_logic
   shell --> receiver
+  osc_source --> shell
+  shell --> osc
+  osc --> app_logic
+  app_logic --> debug_canvas
 
   sensor --> shell
   shell --> ble
@@ -22,3 +29,4 @@ flowchart LR
   lsl --> app_logic
 
   app_logic -->|"render payloads, counters, diagnostics"| media_contracts
+  debug_canvas -->|"normalized HUD draw lists"| media_contracts

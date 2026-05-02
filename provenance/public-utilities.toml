@@ -39,6 +39,24 @@ scrubbed_private_dependencies = ["downstream stream names", "native lsl runtime 
 review_status = "foundation-pass"
 
 [[utility]]
+crate = "rusty-xr-osc"
+source_family = "OSC live-control and sensor-ingress workflows"
+extraction_date = "2026-05-02"
+public_safe_rationale = "OSC packet models, common argument encoding, endpoint status, and UDP transport helpers are reusable across app shells without publishing app-specific address trees."
+license_assumptions = "Authored for this MIT repository from the public OSC 1.0 protocol shape."
+scrubbed_private_dependencies = ["downstream stream names", "sensor-specific address maps", "app-specific command behavior"]
+review_status = "foundation-pass"
+
+[[utility]]
+crate = "rusty-xr-debug-canvas"
+source_family = "XR diagnostics panel layout workflows"
+extraction_date = "2026-05-02"
+public_safe_rationale = "Logical sections, badges, key/value rows, wrapping, tones, and normalized draw lists are reusable across headset-visible diagnostics without embedding a UI framework or renderer."
+license_assumptions = "Authored for this MIT repository as a clean-room, dependency-light implementation of general XR panel layout concepts. The Quest composite example renderer uses JetBrains Mono under SIL OFL 1.1 and fontdue as a build-only rasterizer under MIT OR Apache-2.0 OR Zlib."
+scrubbed_private_dependencies = ["downstream scene behavior", "framework widget code", "renderer backend code", "app-specific diagnostic fields"]
+review_status = "foundation-pass"
+
+[[utility]]
 crate = "rusty-xr-polar"
 source_family = "public Polar H10 protocol references"
 extraction_date = "2026-04-29"
