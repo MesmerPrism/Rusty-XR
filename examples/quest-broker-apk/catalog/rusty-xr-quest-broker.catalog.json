@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "rusty.xr.quest-app-catalog.v1",
+  "apps": [
+    {
+      "id": "rusty-xr-quest-broker",
+      "label": "Rusty XR Quest Broker",
+      "packageName": "com.example.rustyxr.broker",
+      "activityName": ".MainActivity",
+      "apkFile": "../build/outputs/rusty-xr-quest-broker-debug.apk",
+      "description": "Public sidecar broker proof-of-concept APK for localhost WebSocket samples, optional LSL forwarding, optional OSC UDP egress, and OSC-to-WebSocket drive events."
+    }
+  ],
+  "deviceProfiles": [
+    {
+      "id": "broker-smoke-test",
+      "label": "Broker smoke test",
+      "properties": [
+        {
+          "key": "debug.oculus.cpuLevel",
+          "value": "2"
+        },
+        {
+          "key": "debug.oculus.gpuLevel",
+          "value": "2"
+        }
+      ],
+      "description": "Short Quest verification profile for the non-rendering broker proof-of-concept."
+    }
+  ],
+  "runtimeProfiles": [
+    {
+      "id": "broker-latency-websocket-lsl",
+      "label": "Broker latency WebSocket to LSL",
+      "values": {
+        "rustyxr.example": "quest-broker-apk",
+        "rustyxr.brokerEndpoint": "ws://127.0.0.1:8765/rustyxr/v1/events",
+        "rustyxr.statusEndpoint": "http://127.0.0.1:8765/status",
+        "rustyxr.lslStreamName": "rusty_xr_broker_latency",
+        "rustyxr.oscEnabled": "false",
+        "rustyxr.oscIngressEnabled": "false"
+      },
+      "description": "Starts the localhost broker endpoint. If a compliant Android liblsl build was supplied at APK build time, latency samples are forwarded as LSL string samples; otherwise they are accepted and logged for API smoke testing."
+    },
+    {
+      "id": "broker-osc-latency-egress",
+      "label": "Broker latency OSC egress",
+      "values": {
+        "rustyxr.example": "quest-broker-apk",
+        "rustyxr.brokerEndpoint": "ws://127.0.0.1:8765/rustyxr/v1/events",
+        "rustyxr.oscEnabled": "true",
+        "rustyxr.oscHost": "<laptop-ip>",
+        "rustyxr.oscPort": "9000",
+        "rustyxr.oscIngressEnabled": "false"
+      },
+      "description": "Mirrors accepted broker latency samples to a laptop OSC UDP receiver. Replace the placeholder OSC host before launching from a real catalog."
+    },
+    {
+      "id": "broker-osc-drive-ingress",
+      "label": "Broker OSC drive ingress",
+      "values": {
+        "rustyxr.example": "quest-broker-apk",
+        "rustyxr.brokerEndpoint": "ws://127.0.0.1:8765/rustyxr/v1/events",
+        "rustyxr.oscEnabled": "false",
+        "rustyxr.oscIngressEnabled": "true",
+        "rustyxr.oscIngressPort": "9000",
+        "rustyxr.oscIngressAddress": "/rusty-xr/drive/radius"
+      },
+      "description": "Listens for laptop OSC values at /rusty-xr/drive/radius and rebroadcasts accepted values to localhost WebSocket clients as osc_drive JSON events."
+    }
+  ]
+}

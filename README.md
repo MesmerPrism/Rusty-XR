@@ -65,6 +65,12 @@ reference.
 Current camera color and cadence work is tracked as explicit runtime profiles
 and reusable headset-run tools:
 [docs/QUEST_CAMERA_PROFILE_WORKFLOW.md](docs/QUEST_CAMERA_PROFILE_WORKFLOW.md).
+The first broker APK proof-of-concept is a separate Quest sidecar service with
+localhost status/WebSocket endpoints, optional LSL forwarding, OSC latency
+egress, and OSC-to-WebSocket drive events. It has been validated with a Unity
+client on Quest; a dedicated public Unity example is planned for a later
+iteration:
+[examples/quest-broker-apk/README.md](examples/quest-broker-apk/README.md).
 
 The contracts examples and minimal APK can be run without headset hardware or
 downstream app code:
@@ -76,6 +82,7 @@ cargo run -p rusty-xr-contracts --example meta_passthrough_style_catalog --featu
 cargo run -p rusty-xr-contracts --example audio_reactive_passthrough_style --features serde
 cargo run -p rusty-xr-contracts --example visual_strobe_profiles --features serde
 powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1
 ```
 
 The immersive Quest example requires a Quest-compatible OpenXR loader and

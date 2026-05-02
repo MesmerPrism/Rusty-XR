@@ -224,3 +224,35 @@ The APK is written under `examples/quest-composite-layer-apk/build/`, which is
 ignored. Its catalog can be used with Rusty XR Companion Apps for install,
 launch, runtime-profile extras, log capture, screenshot/cast inspection, and
 media-receiver validation.
+
+The first public broker APK proof-of-concept is
+`examples/quest-broker-apk/`. It builds a separate Android APK/service for
+localhost client messages, status/capability reporting, latency samples,
+optional native LSL forwarding, optional OSC latency egress, and OSC ingress
+values rebroadcast to localhost WebSocket clients. It deliberately does not
+own rendering, camera, depth, OpenXR frame timing, MediaProjection, or encoder
+paths.
+
+Build it locally with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1
+```
+
+To enable broker-to-laptop LSL forwarding, supply a license-compliant Android
+`liblsl.so` explicitly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1 -LslAndroidLibraryPath C:\path\to\liblsl.so
+```
+
+Rusty XR does not vendor `liblsl.so` in this example. Without it, the broker
+still answers the localhost API, accepts samples, logs diagnostics, and can
+test OSC ingress/egress. The APK is written under
+`examples/quest-broker-apk/build/`, which is ignored. The catalog in
+`examples/quest-broker-apk/catalog/` exposes runtime profiles for localhost
+latency, OSC egress, and OSC drive ingress.
+
+The broker proof has been validated with a Unity client on Quest. The public
+repo publishes the broker source and companion workflow first; a dedicated
+Unity client example will be added separately.

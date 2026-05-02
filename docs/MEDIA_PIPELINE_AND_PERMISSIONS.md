@@ -471,6 +471,19 @@ Treat this as transport proof only. App-specific address trees and high-rate
 sensor semantics belong in downstream adapters until they stabilize into public
 contracts.
 
+The broker proof-of-concept in `examples/quest-broker-apk/` adds a second OSC
+test shape. Launching the `broker-osc-drive-ingress` profile starts a
+non-rendering sidecar service that listens for `/rusty-xr/drive/radius` on UDP
+port `9000` and rebroadcasts accepted values to localhost WebSocket clients as
+`osc_drive` JSON events. This was validated with a Unity client driving a live
+scene parameter on Quest, but the public Unity client project is intentionally
+deferred to a later iteration.
+
+```powershell
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- catalog launch --path .\examples\quest-broker-apk\catalog\rusty-xr-quest-broker.catalog.json --app rusty-xr-quest-broker --serial <serial> --runtime-profile broker-osc-drive-ingress
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- osc send --host <quest-lan-ip> --port 9000 --address /rusty-xr/drive/radius --arg float:0.75
+```
+
 ## Permission Taxonomy
 
 Android permissions fall into several categories. The app shell should document

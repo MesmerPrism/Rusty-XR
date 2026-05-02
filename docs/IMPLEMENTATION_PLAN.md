@@ -213,6 +213,11 @@ Current Quest media implementation status:
   reference.
 - MediaProjection remains a final-screen inspection stream only; it is not the
   raw camera source for the custom layer.
+- Public Rusty XR now includes a separate broker APK proof-of-concept for
+  localhost WebSocket latency samples, status/capability reporting, optional
+  broker-to-laptop LSL forwarding, OSC latency egress, and OSC drive ingress.
+  It has been validated with a Unity client on Quest, while a dedicated public
+  Unity example remains a future iteration.
 - Future native support should still stay in thin optional adapters or public
   examples rather than becoming private app-shell behavior inside core crates.
 
@@ -319,5 +324,5 @@ responsibilities.
 | Serialization and schemas | In progress | Opt-in `serde` features, round-trip tests, and custom schema export script added. |
 | Boundary scanner and provenance | In progress | Public scanner CLI/config and public utility provenance metadata added. |
 | Feature and adapter policy | `[x]` | Adapter feature names, separate-crate rule, and pre-adapter boundary requirements documented. |
-| Public examples | In progress | Synthetic layout, composite feedback, passthrough style catalog, audio-reactive passthrough style, and visual strobe profile examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming and an OSC listener diagnostics profile. |
+| Public examples | In progress | Synthetic layout, composite feedback, passthrough style catalog, audio-reactive passthrough style, and visual strobe profile examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming and an OSC listener diagnostics profile; broker APK proof added for localhost WebSocket, optional LSL forwarding, and OSC ingress/egress validation. |
 | Optional adapters | `[ ]` | Deferred until contracts stabilize. |

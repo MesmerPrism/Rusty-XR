@@ -154,3 +154,12 @@ public_safe_rationale = "A stable catalog schema lets public example APK metadat
 license_assumptions = "Authored for this MIT repository and aligned with the public Rusty XR Companion Apps catalog shape."
 scrubbed_private_dependencies = ["private package identities", "local APK paths", "signing material", "release payload bytes"]
 review_status = "foundation-pass"
+
+[[utility]]
+crate = "examples/quest-broker-apk"
+source_family = "public authored Quest broker proof"
+extraction_date = "2026-05-02"
+public_safe_rationale = "A small sidecar APK demonstrates localhost status/WebSocket contracts, latency sample forwarding, optional LSL packaging, and OSC ingress/egress without publishing downstream app behavior."
+license_assumptions = "Authored for this MIT repository. Native liblsl is optional, external, and must be supplied with matching downstream license notices when packaged."
+scrubbed_private_dependencies = ["private package identity", "downstream Unity project", "local liblsl paths", "validation device addresses", "generated APK bytes", "signing material"]
+review_status = "public-proof"

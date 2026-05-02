@@ -78,6 +78,35 @@ OSC commonly uses UDP. ADB `forward` and `reverse` are TCP-oriented, so use the
 headset LAN IP for this probe unless the target app implements a separate TCP
 bridge.
 
+## Broker OSC Drive Proof
+
+The public broker APK example adds a non-rendering OSC ingress path for
+sidecar validation. The `broker-osc-drive-ingress` runtime profile listens for
+`/rusty-xr/drive/radius` on UDP port `9000` and rebroadcasts accepted values to
+localhost WebSocket clients as:
+
+```json
+{
+  "type": "osc_drive",
+  "schema": "rusty.xr.osc.drive.v1",
+  "address": "/rusty-xr/drive/radius",
+  "value": 0.75,
+  "sequence_id": 1
+}
+```
+
+Launch and probe it through the companion CLI:
+
+```powershell
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- catalog launch --path .\examples\quest-broker-apk\catalog\rusty-xr-quest-broker.catalog.json --app rusty-xr-quest-broker --serial <serial> --runtime-profile broker-osc-drive-ingress
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- osc send --host <quest-lan-ip> --port 9000 --address /rusty-xr/drive/radius --arg float:0.75
+```
+
+This path has been validated with a Unity client on Quest consuming broker
+WebSocket events to drive a live scene parameter. A dedicated public Unity
+example will be added separately; the current public surface is the broker APK
+source, catalog, and companion workflow.
+
 ## Local Rust Probe
 
 Without headset hardware, the crate example can test loopback transport:

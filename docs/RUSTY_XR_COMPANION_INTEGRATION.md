@@ -76,6 +76,21 @@ explicit manual visual acceptance. New device/runtime variants should rerun
 `camera-source-diagnostics` and keep the manual visual gate until orientation,
 eye mapping, head-motion stability, and border behavior are inspected.
 
+The first public broker proof-of-concept is
+`examples/quest-broker-apk/`. Its catalog is:
+
+```text
+examples/quest-broker-apk/catalog/rusty-xr-quest-broker.catalog.json
+```
+
+It declares runtime profiles for the localhost WebSocket/HTTP status path,
+optional broker-to-laptop LSL forwarding when a compliant Android `liblsl.so`
+is supplied at build time, optional OSC latency egress, and OSC drive ingress
+from a laptop to localhost WebSocket clients. The broker has been validated
+with a Unity client on Quest, but this iteration intentionally does not publish
+a Unity project. A dedicated public Unity example is planned after the broker
+API shape settles.
+
 Validate a catalog with:
 
 ```powershell
@@ -105,8 +120,8 @@ dotnet run --project .\src\RustyXr.Companion.Cli -- workspace guide --root <work
 ```
 
 That command prints the expected catalog paths, APK output paths, and install /
-launch / verification commands for the public Rusty XR minimal and
-composite-layer examples.
+launch / verification commands for the public Rusty XR minimal,
+composite-layer, and broker examples.
 
 Minimal APK loop:
 
@@ -124,6 +139,16 @@ cd <workspace>\Rusty-XR
 powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -OpenXrLoaderPath <path-to-libopenxr_loader.so>
 cd <workspace>\Rusty-XR-Companion-Apps
 dotnet run --project .\src\RustyXr.Companion.Cli -- catalog verify --path ..\Rusty-XR\examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json --app rusty-xr-quest-composite-layer --serial <serial> --stop-catalog-apps --install --launch --device-profile xr-composite-smoke-test --runtime-profile camera-stereo-gpu-composite --settle-ms 9000 --logcat-lines 1400 --out .\artifacts\verify
+```
+
+Broker APK loop:
+
+```powershell
+cd <workspace>\Rusty-XR
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1
+cd <workspace>\Rusty-XR-Companion-Apps
+dotnet run --project .\src\RustyXr.Companion.Cli -- catalog verify --path ..\Rusty-XR\examples\quest-broker-apk\catalog\rusty-xr-quest-broker.catalog.json --app rusty-xr-quest-broker --serial <serial> --stop-catalog-apps --install --launch --device-profile broker-smoke-test --runtime-profile broker-latency-websocket-lsl --settle-ms 5000 --logcat-lines 1000 --out .\artifacts\verify
+dotnet run --project .\src\RustyXr.Companion.Cli -- osc send --host <quest-lan-ip> --port 9000 --address /rusty-xr/drive/radius --arg float:0.75
 ```
 
 ## Boundary
