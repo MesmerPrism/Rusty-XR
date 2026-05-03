@@ -357,6 +357,78 @@ final class LocalBrokerServer implements Closeable {
             return publishStreamEvent(connection, requestId, command, message.optJSONObject("params"));
         }
 
+        if ("camera_provider.get_status".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("status", state.cameraProviderStatusJson());
+            return commandAck(requestId, command, true, "camera_provider_status", result);
+        }
+
+        if ("camera_provider.get_projection_profile".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("projection_profile", state.projectionProfileJson());
+            return commandAck(requestId, command, true, "camera_provider_projection_profile", result);
+        }
+
+        if ("camera_provider.run_app_camera_probe".equals(command)) {
+            return runCameraProviderAppCameraProbe(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("camera_provider.start_app_camera_luma_stream".equals(command)) {
+            return startCameraProviderAppCameraLumaStream(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("camera_provider.start_app_camera_h264_stream".equals(command)) {
+            return startCameraProviderAppCameraH264Stream(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("camera_provider.run_app_camera_h264_decode_probe".equals(command)) {
+            return runCameraProviderAppCameraH264DecodeProbe(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("camera_provider.set_source_eye_mapping".equals(command)) {
+            return setCameraProviderSourceEyeMapping(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("camera_provider.set_texture_transform".equals(command)) {
+            return setCameraProviderTextureTransform(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("camera_provider.record_visual_acceptance".equals(command)) {
+            return recordCameraProviderVisualAcceptance(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("shell_helper.get_status".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("status", state.shellHelperStatusJson());
+            return commandAck(requestId, command, true, "shell_helper_status", result);
+        }
+
+        if ("shell_helper.report_status".equals(command)) {
+            return reportShellHelperStatus(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("video_lab.get_status".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("status", state.videoLabStatusJson());
+            return commandAck(requestId, command, true, "video_lab_status", result);
+        }
+
+        if ("video_lab.register_encoded_stream_manifest".equals(command)) {
+            return registerVideoLabEncodedStreamManifest(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("video_lab.record_encoded_sample_metadata".equals(command)) {
+            return recordVideoLabEncodedSampleMetadata(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("video_lab.record_metric_sample".equals(command)) {
+            return recordVideoLabMetricSample(requestId, command, message.optJSONObject("params"));
+        }
+
         if ("open_ui".equals(command) ||
             "broker_console_open".equals(command) ||
             "ui.open".equals(command)) {
@@ -464,6 +536,426 @@ final class LocalBrokerServer implements Closeable {
             (oscIngressServer != null && oscIngressServer.isRunning()) +
             " port=" + requestedPort + " address=" + address);
         return commandAck(requestId, command, true, "osc_ingress_configured", result);
+    }
+
+    private JSONObject setCameraProviderSourceEyeMapping(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (params == null || params.optString("source_eye_mapping", "").trim().length() == 0) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_source_eye_mapping", "Command requires params.source_eye_mapping.");
+        }
+
+        JSONObject profile = state.setSourceEyeMapping(params.optString("source_eye_mapping", ""));
+        JSONObject status = state.cameraProviderStatusJson();
+        long now = unixNowNs();
+        int profileBroadcasts = broadcastStreamEvent("camera_provider.projection_profile", profile.optLong("revision", 0L), now, profile);
+        int statusBroadcasts = broadcastStreamEvent("camera_provider.status", status.optLong("revision", 0L), now, status);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("projection_profile", profile);
+        result.put("status", status);
+        result.put("profile_broadcasts", profileBroadcasts);
+        result.put("status_broadcasts", statusBroadcasts);
+        return commandAck(requestId, command, true, "camera_provider_source_eye_mapping_set", result);
+    }
+
+    private JSONObject setCameraProviderTextureTransform(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (params == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_params", "Command requires params.");
+        }
+
+        String left = params.optString("left_texture_transform", "");
+        String right = params.optString("right_texture_transform", "");
+        if (left.trim().length() == 0 && right.trim().length() == 0) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(
+                requestId,
+                command,
+                "missing_texture_transform",
+                "Command requires left_texture_transform or right_texture_transform.");
+        }
+
+        JSONObject profile = state.setTextureTransform(left, right);
+        JSONObject status = state.cameraProviderStatusJson();
+        long now = unixNowNs();
+        int profileBroadcasts = broadcastStreamEvent("camera_provider.projection_profile", profile.optLong("revision", 0L), now, profile);
+        int statusBroadcasts = broadcastStreamEvent("camera_provider.status", status.optLong("revision", 0L), now, status);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("projection_profile", profile);
+        result.put("status", status);
+        result.put("profile_broadcasts", profileBroadcasts);
+        result.put("status_broadcasts", statusBroadcasts);
+        return commandAck(requestId, command, true, "camera_provider_texture_transform_set", result);
+    }
+
+    private JSONObject recordCameraProviderVisualAcceptance(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        boolean accepted = params != null && params.optBoolean("accepted", true);
+        String note = params != null ? params.optString("note", "") : "";
+        String source = params != null ? params.optString("source", "") : "";
+        JSONObject profile = state.recordVisualAcceptance(accepted, note, source);
+        JSONObject status = state.cameraProviderStatusJson();
+        long now = unixNowNs();
+        int profileBroadcasts = broadcastStreamEvent("camera_provider.projection_profile", profile.optLong("revision", 0L), now, profile);
+        int acceptanceBroadcasts = broadcastStreamEvent("camera_provider.visual_acceptance", profile.optLong("revision", 0L), now, profile);
+        int statusBroadcasts = broadcastStreamEvent("camera_provider.status", status.optLong("revision", 0L), now, status);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("projection_profile", profile);
+        result.put("status", status);
+        result.put("profile_broadcasts", profileBroadcasts);
+        result.put("acceptance_broadcasts", acceptanceBroadcasts);
+        result.put("status_broadcasts", statusBroadcasts);
+        return commandAck(requestId, command, true, "camera_provider_visual_acceptance_recorded", result);
+    }
+
+    private JSONObject runCameraProviderAppCameraProbe(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (context == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_context", "Broker app context is not available.");
+        }
+
+        JSONObject probe = BrokerAppCameraProbe.run(context, params);
+        JSONObject status = state.recordAppCameraProbe(probe);
+        JSONObject profile = state.projectionProfileJson();
+        long now = unixNowNs();
+        int statusBroadcasts = broadcastStreamEvent("camera_provider.status", status.optLong("revision", 0L), now, status);
+        int profileBroadcasts = broadcastStreamEvent("camera_provider.projection_profile", profile.optLong("revision", 0L), now, profile);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("app_camera_probe", probe);
+        result.put("status", status);
+        result.put("projection_profile", profile);
+        result.put("status_broadcasts", statusBroadcasts);
+        result.put("profile_broadcasts", profileBroadcasts);
+        return commandAck(requestId, command, true, "camera_provider_app_camera_probe_recorded", result);
+    }
+
+    private JSONObject startCameraProviderAppCameraLumaStream(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (context == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_context", "Broker app context is not available.");
+        }
+
+        JSONObject start = BrokerAppCameraLumaStreamSession.start(
+            context,
+            params,
+            new BrokerAppCameraLumaStreamSession.Sink() {
+                @Override
+                public void registerManifest(JSONObject manifest) throws Exception {
+                    recordAppCameraLumaManifest(manifest);
+                }
+
+                @Override
+                public void recordSample(JSONObject sample) throws Exception {
+                    recordAppCameraLumaSample(sample);
+                }
+
+                @Override
+                public void recordMetric(JSONObject metric) throws Exception {
+                    recordAppCameraLumaMetric(metric);
+                }
+            });
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("stream_start", start);
+        return commandAck(requestId, command, true, "camera_provider_app_camera_luma_stream_started", result);
+    }
+
+    private JSONObject startCameraProviderAppCameraH264Stream(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (context == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_context", "Broker app context is not available.");
+        }
+
+        JSONObject start = BrokerAppCameraH264StreamSession.start(
+            context,
+            params,
+            new BrokerAppCameraH264StreamSession.Sink() {
+                @Override
+                public void registerManifest(JSONObject manifest) throws Exception {
+                    recordAppCameraLumaManifest(manifest);
+                }
+
+                @Override
+                public void recordSample(JSONObject sample) throws Exception {
+                    recordAppCameraLumaSample(sample);
+                }
+
+                @Override
+                public void recordMetric(JSONObject metric) throws Exception {
+                    recordAppCameraLumaMetric(metric);
+                }
+            });
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("stream_start", start);
+        result.put("projection_profile", state.projectionProfileJson());
+        return commandAck(requestId, command, true, "camera_provider_app_camera_h264_stream_started", result);
+    }
+
+    private JSONObject runCameraProviderAppCameraH264DecodeProbe(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (context == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_context", "Broker app context is not available.");
+        }
+
+        JSONObject probe = BrokerAppCameraH264DecodeProbe.run(context, params);
+        JSONObject manifest = buildAppCameraH264DecodeProbeManifest(probe);
+        JSONObject metric = buildAppCameraH264DecodeProbeMetric(probe);
+        recordAppCameraLumaManifest(manifest);
+        recordAppCameraLumaMetric(metric);
+        JSONObject videoLabStatus = state.videoLabStatusJson();
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("decode_probe", probe);
+        result.put("manifest", manifest);
+        result.put("metric", metric);
+        result.put("video_lab_status", videoLabStatus);
+        return commandAck(
+            requestId,
+            command,
+            true,
+            probe.optBoolean("decode_succeeded", false)
+                ? "camera_provider_app_camera_h264_decode_probe_succeeded"
+                : "camera_provider_app_camera_h264_decode_probe_completed",
+            result);
+    }
+
+    private JSONObject buildAppCameraH264DecodeProbeManifest(JSONObject probe) throws Exception {
+        JSONObject manifest = new JSONObject();
+        manifest.put("schema", "rusty.xr.video_lab.encoded_stream_manifest.v1");
+        manifest.put("stream_id", "broker_app.camera_h264_decode_probe");
+        manifest.put("session_id", probe.optString("session_id", "broker-app-camera-h264-decode-" + System.currentTimeMillis()));
+        manifest.put("source", "broker_app_camera2_mediacodec_decode_probe");
+        manifest.put("transport", "metadata_only");
+        manifest.put("payload_transport", "in_process_android_mediacodec_decode");
+        manifest.put("mime_type", "video/avc");
+        manifest.put("codec", "h264");
+        manifest.put("decoder_target", "byte_buffer");
+        manifest.put("width", probe.optInt("width", 0));
+        manifest.put("height", probe.optInt("height", 0));
+        manifest.put("frame_rate_hz", 30);
+        manifest.put("bitrate_bps", probe.optInt("bitrate_bps", 0));
+        manifest.put("source_kind", "broker_app_camera2_mediacodec_decode_probe");
+        manifest.put("camera_id", probe.optString("camera_id", ""));
+        manifest.put("capture_ms", probe.optInt("capture_ms", 0));
+        manifest.put("max_packets", probe.optInt("max_packets", 0));
+        manifest.put("decoder_api", probe.optString("decoder_api", "android.media.MediaCodec"));
+        manifest.put("decoder_output_mode", probe.optString("decoder_output_mode", "byte_buffer"));
+        return manifest;
+    }
+
+    private JSONObject buildAppCameraH264DecodeProbeMetric(JSONObject probe) throws Exception {
+        long now = unixNowNs();
+        JSONObject metric = new JSONObject();
+        metric.put("schema", "rusty.xr.video_lab.metric_sample.v1");
+        metric.put("stream_id", "broker_app.camera_h264_decode_probe");
+        metric.put("source", "broker_app_camera2_mediacodec_decode_probe");
+        metric.put("transport", "metadata_only");
+        metric.put("payload_transport", "in_process_android_mediacodec_decode");
+        metric.put("codec", "h264");
+        metric.put("session_id", probe.optString("session_id", "broker-app-camera-h264-decode-" + System.currentTimeMillis()));
+        metric.put("camera_id", probe.optString("camera_id", ""));
+        metric.put("sequence_id", System.currentTimeMillis() * 1000L);
+        metric.put("source_time_unix_ns", now);
+        metric.put("source_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        metric.put("camera_encode_start_elapsed_ns", probe.optLong("camera_encode_start_elapsed_ns", 0L));
+        metric.put("camera_encode_end_elapsed_ns", probe.optLong("camera_encode_end_elapsed_ns", 0L));
+        metric.put("camera_encode_duration_ns", probe.optLong("camera_encode_duration_ns", 0L));
+        metric.put("decoder_start_elapsed_ns", probe.optLong("decode_start_elapsed_ns", 0L));
+        metric.put("decoder_end_elapsed_ns", probe.optLong("decode_end_elapsed_ns", 0L));
+        metric.put("decoder_duration_ns", probe.optLong("decode_duration_ns", 0L));
+        metric.put("packet_count", probe.optInt("encoded_packet_count", 0));
+        metric.put("payload_size_bytes", probe.optLong("encoded_payload_bytes", 0L));
+        metric.put("decoder_input_buffers", probe.optInt("input_buffer_count", 0));
+        metric.put("decoder_input_bytes", probe.optLong("input_bytes", 0L));
+        metric.put("decoder_output_buffers", probe.optInt("output_buffer_count", 0));
+        metric.put("decoded_frame_count", probe.optInt("decoded_frame_count", 0));
+        metric.put("decoder_output_bytes", probe.optLong("decoder_output_bytes", 0L));
+        metric.put("decoder_output_mode", probe.optString("decoder_output_mode", "byte_buffer"));
+        metric.put("decode_succeeded", probe.optBoolean("decode_succeeded", false));
+        metric.put("dropped_frames", 0);
+        metric.put("stale_frames", 0);
+        metric.put("queue_depth", 0);
+        metric.put("width", probe.optInt("width", 0));
+        metric.put("height", probe.optInt("height", 0));
+        if (!probe.optBoolean("decode_succeeded", false) || probe.optString("last_error", "").length() > 0) {
+            metric.put("last_error", probe.optString("last_error", "Decode probe completed without a decoded frame."));
+        }
+        return metric;
+    }
+
+    private void recordAppCameraLumaManifest(JSONObject params) throws Exception {
+        long receiveUnixNs = unixNowNs();
+        long receiveElapsedNs = SystemClock.elapsedRealtimeNanos();
+        long revision = state.videoLabEncodedStreamManifests.incrementAndGet();
+        JSONObject manifest = state.registerVideoLabEncodedStreamManifest(params, revision, receiveUnixNs, receiveElapsedNs);
+        broadcastStreamEvent("video_lab.encoded_stream_manifest", revision, receiveUnixNs, manifest);
+    }
+
+    private void recordAppCameraLumaSample(JSONObject params) throws Exception {
+        long receiveUnixNs = unixNowNs();
+        long receiveElapsedNs = SystemClock.elapsedRealtimeNanos();
+        long accepted = state.videoLabEncodedSampleMetadata.incrementAndGet();
+        long sequence = params.optLong("sequence_id", accepted);
+        JSONObject sample = state.recordVideoLabEncodedSampleMetadata(params, sequence, receiveUnixNs, receiveElapsedNs);
+        broadcastStreamEvent("video_lab.encoded_sample_metadata", sequence, receiveUnixNs, sample);
+    }
+
+    private void recordAppCameraLumaMetric(JSONObject params) throws Exception {
+        long receiveUnixNs = unixNowNs();
+        long sequence = params.optLong("sequence_id", receiveUnixNs);
+        JSONObject payload = new JSONObject(params.toString());
+        payload.put("broker_receive_time_unix_ns", receiveUnixNs);
+        payload.put("broker_receive_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        payload.put("broker_publish_time_unix_ns", unixNowNs());
+        payload.put("broker_publish_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        state.videoLabMetricSamples.incrementAndGet();
+        JSONObject metric = state.recordVideoLabMetricSample(payload);
+        broadcastStreamEvent("video_lab.metric_sample", sequence, receiveUnixNs, metric);
+    }
+
+    private JSONObject reportShellHelperStatus(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject status = state.reportShellHelperStatus(params);
+        long now = unixNowNs();
+        int broadcasts = broadcastStreamEvent("shell_helper.status", now, now, status);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("status", status);
+        result.put("broadcasts", broadcasts);
+        return commandAck(requestId, command, true, "shell_helper_status_reported", result);
+    }
+
+    private JSONObject recordVideoLabMetricSample(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (params == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_params", "Command requires video-lab metric params.");
+        }
+
+        long receiveUnixNs = unixNowNs();
+        long receiveElapsedNs = SystemClock.elapsedRealtimeNanos();
+        long accepted = state.videoLabMetricSamples.incrementAndGet();
+        long sequence = params.optLong("sequence_id", accepted);
+
+        JSONObject payload = new JSONObject(params.toString());
+        if (!payload.has("schema")) {
+            payload.put("schema", "rusty.xr.video_lab.metric_sample.v1");
+        }
+        if (!payload.has("stream_id")) {
+            payload.put("stream_id", "video_lab.synthetic");
+        }
+        if (!payload.has("source")) {
+            payload.put("source", "synthetic");
+        }
+        if (!payload.has("transport")) {
+            payload.put("transport", "metadata_only");
+        }
+        if (!payload.has("codec")) {
+            payload.put("codec", "none");
+        }
+        payload.put("broker_receive_time_unix_ns", receiveUnixNs);
+        payload.put("broker_receive_time_elapsed_ns", receiveElapsedNs);
+        payload.put("broker_publish_time_unix_ns", unixNowNs());
+        payload.put("broker_publish_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+
+        JSONObject metric = state.recordVideoLabMetricSample(payload);
+        int broadcasts = broadcastStreamEvent("video_lab.metric_sample", sequence, receiveUnixNs, metric);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("stream", "video_lab.metric_sample");
+        result.put("sequence_id", sequence);
+        result.put("accepted_metric_samples", accepted);
+        result.put("broadcasts", broadcasts);
+        result.put("metric", metric);
+        return commandAck(requestId, command, true, "video_lab_metric_sample_recorded", result);
+    }
+
+    private JSONObject registerVideoLabEncodedStreamManifest(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (params == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_params", "Command requires encoded-stream manifest params.");
+        }
+
+        long receiveUnixNs = unixNowNs();
+        long receiveElapsedNs = SystemClock.elapsedRealtimeNanos();
+        long revision = state.videoLabEncodedStreamManifests.incrementAndGet();
+        JSONObject manifest = state.registerVideoLabEncodedStreamManifest(params, revision, receiveUnixNs, receiveElapsedNs);
+        int broadcasts = broadcastStreamEvent("video_lab.encoded_stream_manifest", revision, receiveUnixNs, manifest);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("stream", "video_lab.encoded_stream_manifest");
+        result.put("revision", revision);
+        result.put("accepted_encoded_stream_manifests", revision);
+        result.put("broadcasts", broadcasts);
+        result.put("manifest", manifest);
+        return commandAck(requestId, command, true, "video_lab_encoded_stream_manifest_registered", result);
+    }
+
+    private JSONObject recordVideoLabEncodedSampleMetadata(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (params == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_params", "Command requires encoded-sample metadata params.");
+        }
+
+        long receiveUnixNs = unixNowNs();
+        long receiveElapsedNs = SystemClock.elapsedRealtimeNanos();
+        long accepted = state.videoLabEncodedSampleMetadata.incrementAndGet();
+        long sequence = params.optLong("sequence_id", accepted);
+        JSONObject sample = state.recordVideoLabEncodedSampleMetadata(params, sequence, receiveUnixNs, receiveElapsedNs);
+        int broadcasts = broadcastStreamEvent("video_lab.encoded_sample_metadata", sequence, receiveUnixNs, sample);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("stream", "video_lab.encoded_sample_metadata");
+        result.put("sequence_id", sequence);
+        result.put("accepted_encoded_sample_metadata", accepted);
+        result.put("broadcasts", broadcasts);
+        result.put("sample", sample);
+        return commandAck(requestId, command, true, "video_lab_encoded_sample_metadata_recorded", result);
     }
 
     private JSONObject publishStreamEvent(

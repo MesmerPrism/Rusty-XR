@@ -24,6 +24,13 @@ separate from the minimal Android smoke test:
   shader only when each eye has valid intrinsics and platform or public
   estimated-profile pose
 - a synthetic fallback remains available for lifecycle smoke tests
+- an optional broker H.264 consumer probe can request the public broker APK's
+  app-camera H.264 side channel over device-local localhost, consume the
+  `RXYRVID1` binary packets in the composite app process, and decode them with
+  Android platform MediaCodec into either byte buffers or a Java-owned
+  `SurfaceTexture` external texture, or into `ImageReader` `PRIVATE`
+  hardware buffers that feed the existing Vulkan hardware-buffer import and
+  OpenXR projection-layer draw path
 - the layer uses the public `PlainStereoLayer`, mono source layout, visual
   border, and performance-hint contracts
 - a Java foreground service can request Android MediaProjection consent in the
@@ -291,6 +298,31 @@ Useful launch extras:
   cadence.
 - `rustyxr.mediaProjection`: `false` by default; set `true` only when the
   final screen should be streamed back to Windows.
+- `rustyxr.brokerH264Consumer`: `false` by default. Set it to `true` for the
+  composite app to run a bounded broker H.264 consumer probe. The probe sends
+  `camera_provider.start_app_camera_h264_stream` to a broker already running
+  on `127.0.0.1:8765`, connects to the broker's device-local H.264 binary
+  stream, decodes the packets with Android platform MediaCodec, logs
+  `rusty.xr.composite.broker_h264_consumer_probe.v1`, and stops. The default
+  output mode is `surface-texture`, which renders decoder output to a
+  Java-owned external OES texture through `SurfaceTexture`; `byte-buffer`
+  remains available for regression comparisons. `hardware-buffer` decodes into
+  an `ImageReader` `PRIVATE` surface, sends the acquired `HardwareBuffer`
+  through the native GPU-frame bridge, and lets the existing Vulkan
+  GPU-buffer-probe path draw it into the OpenXR projection layer. When the
+  broker stream-start result includes selected Camera2 projection metadata, the
+  decoded hardware-buffer frame forwards intrinsics, lens pose, pose source,
+  pixel domains, and sensor orientation to the native metadata parser. Launch
+  this with
+  `rustyxr.camera=false` when isolating broker-owned capture from composite-app
+  consumption. Optional extras:
+  `rustyxr.brokerHost`, `rustyxr.brokerPort`,
+  `rustyxr.brokerH264StreamPort`, `rustyxr.brokerH264CameraId`,
+  `rustyxr.brokerH264Width`, `rustyxr.brokerH264Height`,
+  `rustyxr.brokerH264CaptureMs`, `rustyxr.brokerH264MaxPackets`,
+  `rustyxr.brokerH264BitrateBps`, and
+  `rustyxr.brokerH264DecodeTimeoutMs`,
+  `rustyxr.brokerH264DecodeOutputMode`.
 - `rustyxr.openxrPassthroughProbe`: `off` by default. `client` creates an
   optional `XR_FB_passthrough` client/layer for runtime-state diagnostics;
   `warmup` creates and resumes the layer briefly, then pauses passthrough.
@@ -406,6 +438,41 @@ projection, source-eye mapping, or the border regressed.
 
 The catalog keeps camera path experiments as separate runtime profiles:
 
+- `broker-h264-consumer-probe`: synthetic OpenXR layer plus broker H.264
+  consumer fixture. It keeps the composite app's own camera path off, asks a
+  running broker APK for a bounded app-camera H.264 stream over device-local
+  localhost, and decodes the packets with Android MediaCodec into a
+  `SurfaceTexture` external texture. This is a decode-consumption,
+  decoder-surface, and external-texture update probe, not yet a Vulkan/OpenXR
+  image handoff.
+- `broker-h264-openxr-layer-probe`: OpenXR projection-layer fixture for broker
+  H.264. It keeps the composite app's own Camera2 acquisition off, decodes the
+  broker H.264 stream into `ImageReader` `PRIVATE` hardware buffers, passes
+  those buffers through the same native `AHardwareBuffer` import bridge used by
+  Camera2 GPU-buffer probes, and draws the decoded feed with the existing
+  Vulkan GPU-buffer-probe path. The broker stream-start result now attaches the
+  selected Camera2 source metadata when available, so this profile can verify
+  `intrinsics=available`, `pose=available`, and `poseSource=platform` across
+  broker encode, client decode, Vulkan import, and OpenXR draw. This is still a
+  mono diagnostic feed path; aligned stereo projection requires paired source
+  buffers and per-eye metadata.
+- `broker-h264-stereo-openxr-projection-probe`: two-stream broker H.264
+  fixture for finding the practical stereo limit. It starts independent
+  left/right broker streams, decodes each into `ImageReader` `PRIVATE`
+  hardware buffers, pairs decoded frames by index, forwards the pair through
+  the native stereo `AHardwareBuffer` bridge, and attempts the existing
+  `gpu-projected` OpenXR path. Reports include per-eye resolution, packet
+  counts, payload bitrate, decoded frame rate, native stereo pair acceptance,
+  and left/right timestamp deltas. Supply device-specific left/right camera IDs
+  as launch extras when the default source selection is not the intended stereo
+  pair.
+- `broker-h264-stereo-live-openxr-projection-probe`: the same broker-decoded
+  stereo OpenXR path with the live-bounded H.264 provider enabled. The broker
+  accepts the binary stream sockets before Camera2 capture starts, drains
+  MediaCodec output directly to the stream, and writes schema-2 packet source
+  timestamps. The composite app receives left/right streams concurrently and
+  logs source packet cadence, wire receive cadence, decode cadence, per-eye
+  resolution, and native stereo-pair acceptance.
 - `camera-stereo-gpu-composite`: aligned Vulkan hardware-buffer baseline. It
   keeps fixed foveation off and uses `external-rgb`, so it is the profile to
   use when validating projection, border behavior, CPU-upload avoidance, import
@@ -416,7 +483,7 @@ The catalog keeps camera path experiments as separate runtime profiles:
   color assumptions.
 - `camera-stereo-gpu-composite-ycbcr-diagnostic`: same projection and border,
   but with shader-side `Cr/Y/Cb` BT.601 narrow-range decode. Use this only
-  when `Vulkan imported Camera2 hardware buffer` diagnostics show the external
+  when `Vulkan imported camera hardware buffer` diagnostics show the external
   sampler is not already converting to RGB.
 - `camera-stereo-gpu-composite-foveation-experimental`: same sampler and
   projection settings, but enables the OpenXR fixed-foveation/fragment-density
@@ -692,6 +759,19 @@ harnesses should treat this as a required manual step.
   `rightCameraTextureTransform`, `orientationCheck=true`,
   `orientationAccepted=true`, `visualInspection=accepted`, and
   `visualReleaseAccepted=true`
+- with `broker-h264-stereo-openxr-projection-probe`, logcat should contain a
+  `Rusty XR broker H.264 consumer probe` report with
+  `stereo_pair_native_accepted_count` greater than zero and per-eye packet,
+  resolution, payload, and decoded frame-rate fields. Projection success is
+  only claimed when a `Rusty XR final projection status` line reports
+  `activeTier=gpu-projected`, `alignedProjection=true`,
+  `stereoLayout=Separate`, and `pairedLeftRightGpuBuffers=true`.
+- with `broker-h264-stereo-live-openxr-projection-probe`, the same OpenXR
+  projection checks apply, and the report should also show
+  `live_stream_requested=true`, schema version `2`, non-zero per-eye source
+  packet rates, and non-zero wire packet rates. This validates the provider
+  drain path and concurrent stereo receive path separately from final visual
+  release acceptance.
 - logs are not sufficient for release: inspect the headset view, cast, or a
   screencap and fail the release gate if the feed is upside down, the border is
   absent, or the per-eye content is visibly swapped or divergent
@@ -704,6 +784,29 @@ harnesses should treat this as a required manual step.
 - after consent, logcat contains `MediaProjection stream frame`
 - the Windows receiver writes `display_composite_*.rgba` frames plus
   `frames.jsonl`
+- with `rustyxr.brokerH264Consumer=true`, logcat contains
+  `Rusty XR broker H.264 consumer probe` with `broker_command_accepted=true`,
+  `stream_packet_count` greater than zero, `decode_succeeded=true`, and
+  `decoded_frame_count` greater than zero. In the default `surface-texture`
+  mode, it should also report `surface_target_created=true`,
+  `external_texture_created=true`, `surface_release_count` greater than zero,
+  and `surface_texture_update_count` greater than zero. This verifies
+  cross-app broker H.264 consumption through a decoder Surface and Java
+  external texture only; it does not yet make decoded frames available as a
+  Vulkan/OpenXR texture.
+- with `rustyxr.brokerH264DecodeOutputMode=hardware-buffer`, logcat should
+  additionally contain `hardware_buffer_target_created=true`,
+  `hardware_buffer_native_accepted_count` greater than zero,
+  `Rusty XR received headset camera GPU buffer frame`, and
+  `Rusty XR GPU-sampled diagnostic camera surface`. When broker Camera2
+  metadata was available at stream start, the report should also contain
+  `broker_projection_metadata_attached=true` and
+  `broker_projection_metadata_ready=true`, while native logs should show
+  `intrinsics=available`, `pose=available`, `poseSource=platform`, and
+  `projection metadata is available`. That verifies the decoded broker H.264
+  frames reached the Vulkan hardware-buffer import path, carried projection
+  metadata into the native frame record, and were drawn into the app's
+  submitted OpenXR projection layer.
 
 For an OpenXR-only camera smoke test, launch with MediaProjection disabled:
 

@@ -441,15 +441,24 @@ public final class MainActivity extends Activity {
             appendCounter(builder, counters, "oscIngressPackets");
             appendCounter(builder, counters, "oscIngressBroadcasts");
             appendCounter(builder, counters, "oscIngressRejectedPackets");
+            appendCounter(builder, counters, "videoLabMetricSamples");
+            appendCounter(builder, counters, "videoLabEncodedStreamManifests");
+            appendCounter(builder, counters, "videoLabEncodedSampleMetadata");
             builder.append('\n');
         }
 
         JSONObject lsl = status.optJSONObject("lsl");
         JSONObject osc = status.optJSONObject("osc");
+        JSONObject cameraProvider = status.optJSONObject("cameraProvider");
+        JSONObject shellHelper = status.optJSONObject("shellHelper");
+        JSONObject videoLab = status.optJSONObject("videoLab");
         builder.append("TRANSPORTS\n");
         builder.append("LSL           ").append(lsl != null && lsl.optBoolean("enabled") ? "enabled" : "fallback/logcat").append('\n');
         builder.append("OSC ingress   ").append(transportEnabled(osc != null ? osc.optJSONObject("ingress") : null)).append('\n');
         builder.append("OSC egress    ").append(transportEnabled(osc != null ? osc.optJSONObject("egress") : null)).append('\n');
+        builder.append("Camera meta   ").append(cameraProvider != null ? cameraProvider.optString("state", "unknown") : "unknown").append('\n');
+        builder.append("Shell helper  ").append(shellHelper != null && shellHelper.optBoolean("connected") ? "connected" : "disconnected").append('\n');
+        builder.append("Video lab     ").append(videoLab != null ? videoLab.optString("state", "unknown") : "not reported").append('\n');
         builder.append('\n');
         builder.append("Use Return to XR App to close this console while the broker service keeps running.");
         return builder.toString();
@@ -529,6 +538,70 @@ public final class MainActivity extends Activity {
         } else {
             for (int i = 0; i < capabilities.length(); i++) {
                 builder.append("- ").append(capabilities.optString(i)).append('\n');
+            }
+        }
+
+        JSONObject cameraProvider = status.optJSONObject("cameraProvider");
+        if (cameraProvider != null) {
+            builder.append("\nCAMERA PROVIDER\n");
+            builder.append("state         ").append(cameraProvider.optString("state", "")).append('\n');
+            builder.append("tier          ").append(cameraProvider.optString("tier", "")).append('\n');
+            builder.append("profile       ").append(cameraProvider.optString("projection_profile_id", "")).append('\n');
+            JSONObject appProbe = cameraProvider.optJSONObject("app_camera_probe");
+            if (appProbe != null) {
+                builder.append("app cameras   ").append(appProbe.optInt("camera_id_count", 0)).append('\n');
+                builder.append("app opens     ").append(appProbe.optInt("open_success_count", 0)).append('\n');
+                builder.append("app captures  ").append(appProbe.optInt("capture_success_count", 0)).append('\n');
+            }
+            builder.append("visual OK     ").append(cameraProvider.optBoolean("visual_release_accepted")).append('\n');
+            JSONArray limitations = cameraProvider.optJSONArray("limitations");
+            if (limitations != null && limitations.length() > 0) {
+                builder.append("limitations\n");
+                for (int i = 0; i < limitations.length(); i++) {
+                    builder.append("- ").append(limitations.optString(i)).append('\n');
+                }
+            }
+        }
+
+        JSONObject shellHelper = status.optJSONObject("shellHelper");
+        if (shellHelper != null) {
+            builder.append("\nSHELL HELPER\n");
+            builder.append("connected     ").append(shellHelper.optBoolean("connected")).append('\n');
+            builder.append("version       ").append(shellHelper.optString("helper_version", "")).append('\n');
+            builder.append("uid           ").append(shellHelper.optString("uid", "")).append('\n');
+            builder.append("requires ADB  ").append(shellHelper.optBoolean("requires_adb_authorization")).append('\n');
+            builder.append("broker shell  ").append(shellHelper.optBoolean("normal_broker_apk_is_shell")).append('\n');
+            JSONObject diagnostics = shellHelper.optJSONObject("diagnostics");
+            JSONObject codecProbe = diagnostics != null ? diagnostics.optJSONObject("codec_probe") : null;
+            if (codecProbe != null) {
+                builder.append("codec count   ").append(codecProbe.optLong("codec_count", 0L)).append('\n');
+                builder.append("surface fmt   ").append(codecProbe.optLong("surface_capable_count", 0L)).append('\n');
+            }
+        }
+
+        JSONObject videoLab = status.optJSONObject("videoLab");
+        if (videoLab != null) {
+            builder.append("\nVIDEO LAB\n");
+            builder.append("state         ").append(videoLab.optString("state", "")).append('\n');
+            builder.append("metric stream ").append(videoLab.optString("metric_stream", "")).append('\n');
+            builder.append("samples       ").append(videoLab.optLong("accepted_metric_samples", 0L)).append('\n');
+            builder.append("manifests     ").append(videoLab.optLong("accepted_encoded_stream_manifests", 0L)).append('\n');
+            builder.append("sample meta   ").append(videoLab.optLong("accepted_encoded_sample_metadata", 0L)).append('\n');
+            JSONObject latestManifest = videoLab.optJSONObject("latest_encoded_stream_manifest");
+            if (latestManifest != null) {
+                builder.append("encoded mime  ").append(latestManifest.optString("mime_type", "")).append('\n');
+                builder.append("encoded size  ")
+                    .append(latestManifest.optInt("width", 0))
+                    .append('x')
+                    .append(latestManifest.optInt("height", 0))
+                    .append('\n');
+            }
+            JSONArray limitations = videoLab.optJSONArray("limitations");
+            if (limitations != null && limitations.length() > 0) {
+                builder.append("limitations\n");
+                for (int i = 0; i < limitations.length(); i++) {
+                    builder.append("- ").append(limitations.optString(i)).append('\n');
+                }
             }
         }
 

@@ -1,0 +1,2146 @@
+package com.example.rustyxr.shell;
+
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.ImageFormat;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.content.AttributionSource;
+import android.content.Context;
+import android.content.ContextWrapper;
+import android.content.pm.PackageManager;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.params.StreamConfigurationMap;
+import android.media.Image;
+import android.media.ImageReader;
+import android.media.MediaCodec;
+import android.media.MediaFormat;
+import android.media.MediaCodecInfo;
+import android.media.MediaCodecList;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Process;
+import android.os.SystemClock;
+import android.util.Size;
+import android.view.Surface;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.EOFException;
+import java.io.File;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+public final class Helper {
+    private static final String VERSION = "0.1.0-public-proof";
+    private static final String COMMAND_SCHEMA = "rusty.xr.broker.command.v1";
+    private static final String EVENTS_PATH = "/rustyxr/v1/events";
+    private static final String CLIENT_ID = "rusty-xr-adb-shell-helper";
+    private static final String SYNTHETIC_BINARY_MAGIC = "RXYRVID1";
+    private static final int SYNTHETIC_BINARY_SCHEMA_VERSION = 1;
+    private static final int SYNTHETIC_BINARY_CODEC_H264 = 1;
+    private static final int SYNTHETIC_VIDEO_WIDTH = 1280;
+    private static final int SYNTHETIC_VIDEO_HEIGHT = 720;
+    private static final int SYNTHETIC_VIDEO_FRAME_RATE_HZ = 30;
+    private static final int SYNTHETIC_BINARY_DEFAULT_PORT = 8877;
+    private static final int SYNTHETIC_BINARY_DEFAULT_PACKET_COUNT = 3;
+    private static final int SYNTHETIC_BINARY_DEFAULT_PACKET_BYTES = 1024;
+    private static final int SYNTHETIC_BINARY_MAX_PACKET_COUNT = 30;
+    private static final int SYNTHETIC_BINARY_MAX_PACKET_BYTES = 65536;
+    private static final int MEDIACODEC_DEFAULT_WIDTH = 640;
+    private static final int MEDIACODEC_DEFAULT_HEIGHT = 360;
+    private static final int MEDIACODEC_DEFAULT_FRAMES = 8;
+    private static final int MEDIACODEC_DEFAULT_BITRATE_BPS = 1000000;
+    private static final int MEDIACODEC_MAX_FRAMES = 60;
+    private static final int BINARY_STREAM_MAX_PACKET_BYTES = 1024 * 1024;
+    private static final int SCREENRECORD_DEFAULT_SECONDS = 1;
+    private static final int SCREENRECORD_MAX_SECONDS = 3;
+    private static final int SCREENRECORD_DEFAULT_PACKET_BYTES = 16384;
+    private static final int SCREENRECORD_MIN_PACKET_BYTES = 4096;
+    private static final int CAMERA_DUMPSYS_MAX_BYTES = 256 * 1024;
+    private static final int CAMERA_DUMPSYS_TIMEOUT_SECONDS = 5;
+    private static final int CAMERA_PROBE_MAX_DEVICES = 12;
+    private static final int CAMERA_PROBE_MAX_STREAM_CONFIGS_PER_DEVICE = 64;
+    private static final int CAMERA_PROBE_MAX_FPS_ROWS_PER_DEVICE = 16;
+    private static final int CAMERA_OPEN_PROBE_MAX_CAMERA_IDS = 8;
+    private static final int CAMERA_OPEN_PROBE_OPEN_TIMEOUT_MS = 3000;
+    private static final int CAMERA_OPEN_PROBE_SESSION_TIMEOUT_MS = 3000;
+    private static final int CAMERA_OPEN_PROBE_CAPTURE_TIMEOUT_MS = 4000;
+    private static final int CAMERA_OPEN_PROBE_MAX_DIMENSION = 640;
+
+    private Helper() {
+    }
+
+    public static void main(String[] args) throws Exception {
+        Options options = Options.parse(args);
+        int uid = Process.myUid();
+        String uidLabel = uid == 2000 ? "shell" : "uid:" + uid;
+        JSONObject report = buildReport(uidLabel, options);
+        JSONObject ack = sendBrokerCommand(options.host, options.port, "shell_helper.report_status", report);
+        System.out.println("Rusty XR shell helper version=" + VERSION + " uid=" + uidLabel);
+        System.out.println(ack.toString(2));
+        if (options.connected && options.syntheticVideoSamples > 0) {
+            emitSyntheticVideoMetadata(options, false);
+        }
+        if (options.connected && options.emitSyntheticVideoBinary) {
+            emitSyntheticVideoMetadata(options, true);
+            emitSyntheticVideoBinary(options);
+        }
+        if (options.connected && options.emitMediaCodecSyntheticVideo) {
+            emitMediaCodecSyntheticVideo(options);
+        }
+        if (options.connected && options.emitScreenrecordVideo) {
+            emitScreenrecordVideo(options);
+        }
+    }
+
+    private static JSONObject buildReport(String uidLabel, Options options) throws Exception {
+        JSONObject report = new JSONObject();
+        report.put("connected", options.connected);
+        report.put("helper_version", VERSION);
+        report.put("uid", uidLabel);
+        JSONArray capabilities = new JSONArray();
+        capabilities.put("shell.uid.report");
+        capabilities.put("shell.display.list.planned");
+        capabilities.put("shell.camera.list.planned");
+        capabilities.put("shell.encoded_stream.planned");
+        if (options.probeCodecs) {
+            capabilities.put("shell.codec.query");
+        }
+        if (options.probeCameras) {
+            capabilities.put("shell.camera.dumpsys_metadata");
+        }
+        if (options.probeCameraOpen) {
+            capabilities.put("shell.camera.camera2_open_capture_probe");
+        }
+        if (options.syntheticVideoSamples > 0 || options.emitSyntheticVideoBinary) {
+            capabilities.put("shell.synthetic_encoded_metadata.emit");
+        }
+        if (options.emitSyntheticVideoBinary) {
+            capabilities.put("shell.synthetic_encoded_binary.emit");
+        }
+        if (options.emitMediaCodecSyntheticVideo) {
+            capabilities.put("shell.mediacodec.synthetic_surface_encode");
+        }
+        if (options.emitScreenrecordVideo) {
+            capabilities.put("shell.screenrecord.h264_capture");
+        }
+        report.put("capabilities", capabilities);
+        JSONArray activeStreams = new JSONArray();
+        if (options.connected && (
+                options.syntheticVideoSamples > 0 ||
+                options.emitSyntheticVideoBinary ||
+                options.emitMediaCodecSyntheticVideo ||
+                options.emitScreenrecordVideo)) {
+            activeStreams.put("video_lab.encoded_stream_manifest");
+            activeStreams.put("video_lab.encoded_sample_metadata");
+        }
+        if (options.connected && (
+                options.emitSyntheticVideoBinary ||
+                options.emitMediaCodecSyntheticVideo ||
+                options.emitScreenrecordVideo)) {
+            activeStreams.put("video_lab.encoded_binary_payload");
+        }
+        report.put("active_streams", activeStreams);
+        report.put("last_error", "");
+        if (options.probeCodecs || options.probeCameras || options.probeCameraOpen) {
+            JSONObject diagnostics = new JSONObject();
+            if (options.probeCodecs) {
+                diagnostics.put("codec_probe", buildCodecProbe());
+            }
+            if (options.probeCameras) {
+                diagnostics.put("camera_probe", buildCameraProbe());
+            }
+            if (options.probeCameraOpen) {
+                diagnostics.put("camera_open_probe", buildCameraOpenProbe(options.cameraOpenId));
+            }
+            report.put("diagnostics", diagnostics);
+        }
+        return report;
+    }
+
+    private static void emitSyntheticVideoMetadata(Options options, boolean binaryPayload) throws Exception {
+        String sessionId = binaryPayload
+            ? "shell-helper-binary-" + System.currentTimeMillis()
+            : "shell-helper-synthetic-" + System.currentTimeMillis();
+        String payloadTransport = binaryPayload
+            ? "adb_forwarded_tcp_binary"
+            : "pending_binary";
+        int sampleCount = binaryPayload ? options.syntheticVideoPackets : options.syntheticVideoSamples;
+        JSONObject manifest = new JSONObject();
+        manifest.put("schema", "rusty.xr.video_lab.encoded_stream_manifest.v1");
+        manifest.put("stream_id", "shell_helper.synthetic_encoded_h264");
+        manifest.put("session_id", sessionId);
+        manifest.put("source", "adb_shell_helper_synthetic");
+        manifest.put("transport", "metadata_only");
+        manifest.put("payload_transport", payloadTransport);
+        manifest.put("mime_type", "video/avc");
+        manifest.put("codec", "h264");
+        manifest.put("decoder_target", "surface");
+        manifest.put("width", SYNTHETIC_VIDEO_WIDTH);
+        manifest.put("height", SYNTHETIC_VIDEO_HEIGHT);
+        manifest.put("frame_rate_hz", SYNTHETIC_VIDEO_FRAME_RATE_HZ);
+        manifest.put("bitrate_bps", 4000000);
+        if (binaryPayload) {
+            JSONObject endpoint = new JSONObject();
+            endpoint.put("host", "127.0.0.1");
+            endpoint.put("device_port", options.syntheticVideoBinaryPort);
+            endpoint.put("framing", "rusty.xr.video_lab.binary_stream.v1");
+            endpoint.put("magic", SYNTHETIC_BINARY_MAGIC);
+            manifest.put("binary_endpoint", endpoint);
+        }
+        JSONObject manifestAck = sendBrokerCommand(
+            options.host,
+            options.port,
+            "video_lab.register_encoded_stream_manifest",
+            manifest);
+        System.out.println(manifestAck.toString(2));
+
+        for (int i = 0; i < sampleCount; i++) {
+            JSONObject sample = new JSONObject();
+            long sequenceId = System.currentTimeMillis() * 1000L + i;
+            sample.put("schema", "rusty.xr.video_lab.encoded_sample_metadata.v1");
+            sample.put("stream_id", "shell_helper.synthetic_encoded_h264");
+            sample.put("session_id", sessionId);
+            sample.put("sequence_id", sequenceId);
+            sample.put("source", "adb_shell_helper_synthetic");
+            sample.put("transport", "metadata_only");
+            sample.put("payload_transport", payloadTransport);
+            sample.put("mime_type", "video/avc");
+            sample.put("codec", "h264");
+            sample.put("encoded_size_bytes", binaryPayload ? options.syntheticVideoPacketBytes : 0);
+            sample.put("key_frame", i == 0);
+            sample.put("pts_us", i * 33333L);
+            sample.put("dts_us", i * 33333L);
+            sample.put("source_time_unix_ns", System.currentTimeMillis() * 1_000_000L);
+            sample.put("source_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+            JSONObject sampleAck = sendBrokerCommand(
+                options.host,
+                options.port,
+                "video_lab.record_encoded_sample_metadata",
+                sample);
+            System.out.println(sampleAck.toString(2));
+        }
+    }
+
+    private static void emitSyntheticVideoBinary(Options options) throws Exception {
+        ServerSocket server = new ServerSocket(
+            options.syntheticVideoBinaryPort,
+            1,
+            InetAddress.getByName("127.0.0.1"));
+        try {
+            server.setSoTimeout(10000);
+            System.out.println(String.format(
+                Locale.ROOT,
+                "Synthetic binary video stream listening on 127.0.0.1:%d packets=%d packet_bytes=%d",
+                options.syntheticVideoBinaryPort,
+                options.syntheticVideoPackets,
+                options.syntheticVideoPacketBytes));
+            Socket client = server.accept();
+            try {
+                client.setTcpNoDelay(true);
+                OutputStream output = client.getOutputStream();
+                writeSyntheticBinaryStream(output, options);
+                output.flush();
+            } finally {
+                client.close();
+            }
+        } finally {
+            server.close();
+        }
+    }
+
+    private static void writeSyntheticBinaryStream(OutputStream output, Options options) throws Exception {
+        output.write(SYNTHETIC_BINARY_MAGIC.getBytes(StandardCharsets.US_ASCII));
+        writeU32(output, SYNTHETIC_BINARY_SCHEMA_VERSION);
+        writeU32(output, SYNTHETIC_BINARY_CODEC_H264);
+        writeU32(output, SYNTHETIC_VIDEO_WIDTH);
+        writeU32(output, SYNTHETIC_VIDEO_HEIGHT);
+        writeU32(output, options.syntheticVideoPackets);
+        writeU32(output, options.syntheticVideoPacketBytes);
+
+        byte[] payload = new byte[options.syntheticVideoPacketBytes];
+        for (int packetIndex = 0; packetIndex < options.syntheticVideoPackets; packetIndex++) {
+            long ptsUs = packetIndex * 33333L;
+            int flags = packetIndex == 0 ? 1 : 0;
+            writeU64(output, ptsUs);
+            writeU32(output, flags);
+            writeU32(output, payload.length);
+            for (int i = 0; i < payload.length; i++) {
+                payload[i] = (byte) ((packetIndex + i) & 0xff);
+            }
+            output.write(payload);
+        }
+    }
+
+    private static void emitMediaCodecSyntheticVideo(Options options) throws Exception {
+        long encodeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
+        List<EncodedPacket> packets = encodeSyntheticSurfacePackets(options);
+        long encodeEndElapsedNs = SystemClock.elapsedRealtimeNanos();
+        emitMediaCodecSyntheticMetadata(options, packets);
+        StreamWriteStats writeStats = emitEncodedPacketStream(options, packets, "MediaCodec synthetic");
+        emitVideoLabMetricSample(
+            options,
+            "shell_helper.mediacodec_synthetic_h264",
+            "adb_shell_helper_mediacodec_synthetic_surface",
+            options.encodedVideoWidth,
+            options.encodedVideoHeight,
+            packets,
+            encodeStartElapsedNs,
+            encodeEndElapsedNs,
+            writeStats);
+    }
+
+    private static void emitScreenrecordVideo(Options options) throws Exception {
+        long captureStartElapsedNs = SystemClock.elapsedRealtimeNanos();
+        List<EncodedPacket> packets = captureScreenrecordPackets(options);
+        long captureEndElapsedNs = SystemClock.elapsedRealtimeNanos();
+        emitScreenrecordMetadata(options, packets);
+        StreamWriteStats writeStats = emitEncodedPacketStream(options, packets, "screenrecord display");
+        emitVideoLabMetricSample(
+            options,
+            "shell_helper.screenrecord_h264",
+            "adb_shell_helper_screenrecord_display",
+            options.encodedVideoWidth,
+            options.encodedVideoHeight,
+            packets,
+            captureStartElapsedNs,
+            captureEndElapsedNs,
+            writeStats);
+    }
+
+    private static List<EncodedPacket> captureScreenrecordPackets(Options options) throws Exception {
+        int packetBytes = Math.max(SCREENRECORD_MIN_PACKET_BYTES, options.syntheticVideoPacketBytes);
+        int maxBytes = Math.min(
+            BINARY_STREAM_MAX_PACKET_BYTES,
+            packetBytes * options.syntheticVideoPackets);
+        byte[] h264 = captureScreenrecordBytes(options, maxBytes);
+        if (h264.length == 0) {
+            throw new IllegalStateException("screenrecord produced no H.264 bytes");
+        }
+
+        List<EncodedPacket> packets = new ArrayList<EncodedPacket>();
+        int offset = 0;
+        int packetIndex = 0;
+        while (offset < h264.length && packetIndex < options.syntheticVideoPackets) {
+            int size = Math.min(packetBytes, h264.length - offset);
+            byte[] payload = new byte[size];
+            System.arraycopy(h264, offset, payload, 0, size);
+            int flags = packetIndex == 0 ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0;
+            packets.add(new EncodedPacket(packetIndex * 33333L, flags, payload));
+            offset += size;
+            packetIndex++;
+        }
+        if (offset < h264.length) {
+            throw new IllegalStateException("screenrecord capture exceeded bounded packet budget");
+        }
+        return packets;
+    }
+
+    private static byte[] captureScreenrecordBytes(Options options, int maxBytes) throws Exception {
+        ProcessBuilder builder = new ProcessBuilder(
+            "screenrecord",
+            "--output-format=h264",
+            "--size",
+            options.encodedVideoWidth + "x" + options.encodedVideoHeight,
+            "--bit-rate",
+            Integer.toString(options.encodedVideoBitrateBps),
+            "--time-limit",
+            Integer.toString(options.screenrecordTimeLimitSeconds),
+            "-");
+        builder.redirectError(ProcessBuilder.Redirect.to(new File("/dev/null")));
+        java.lang.Process process = builder.start();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        try {
+            InputStream input = process.getInputStream();
+            while (true) {
+                int read = input.read(buffer);
+                if (read < 0) {
+                    break;
+                }
+                if (output.size() + read > maxBytes) {
+                    process.destroy();
+                    throw new IllegalStateException("screenrecord output exceeded " + maxBytes + " bytes");
+                }
+                output.write(buffer, 0, read);
+            }
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                throw new IllegalStateException("screenrecord exited with code " + exitCode);
+            }
+            return output.toByteArray();
+        } finally {
+            process.destroy();
+        }
+    }
+
+    private static List<EncodedPacket> encodeSyntheticSurfacePackets(Options options) throws Exception {
+        MediaCodec encoder = MediaCodec.createEncoderByType("video/avc");
+        Surface surface = null;
+        try {
+            MediaFormat format = MediaFormat.createVideoFormat(
+                "video/avc",
+                options.encodedVideoWidth,
+                options.encodedVideoHeight);
+            format.setInteger(
+                MediaFormat.KEY_COLOR_FORMAT,
+                MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+            format.setInteger(MediaFormat.KEY_BIT_RATE, options.encodedVideoBitrateBps);
+            format.setInteger(MediaFormat.KEY_FRAME_RATE, SYNTHETIC_VIDEO_FRAME_RATE_HZ);
+            format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
+            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+            surface = encoder.createInputSurface();
+            encoder.start();
+
+            List<EncodedPacket> packets = new ArrayList<EncodedPacket>();
+            for (int frame = 0; frame < options.encodedVideoFrames; frame++) {
+                drawSyntheticEncoderFrame(surface, frame, options);
+                drainEncoder(encoder, packets, false);
+                Thread.sleep(1000 / SYNTHETIC_VIDEO_FRAME_RATE_HZ);
+            }
+            encoder.signalEndOfInputStream();
+            drainEncoder(encoder, packets, true);
+            if (packets.size() == 0) {
+                throw new IllegalStateException("MediaCodec produced no encoded packets");
+            }
+            return packets;
+        } finally {
+            if (surface != null) {
+                surface.release();
+            }
+            try {
+                encoder.stop();
+            } catch (Exception ignored) {
+            }
+            encoder.release();
+        }
+    }
+
+    private static void drawSyntheticEncoderFrame(Surface surface, int frame, Options options) throws Exception {
+        Canvas canvas = surface.lockCanvas(null);
+        try {
+            Paint paint = new Paint();
+            int base = (frame * 31) & 0xff;
+            canvas.drawColor(Color.rgb(base, (base + 80) & 0xff, (base + 160) & 0xff));
+
+            int width = options.encodedVideoWidth;
+            int height = options.encodedVideoHeight;
+            int barWidth = Math.max(16, width / 8);
+            int x = (frame * Math.max(1, width / Math.max(1, options.encodedVideoFrames))) % width;
+            paint.setColor(Color.WHITE);
+            canvas.drawRect(new Rect(x, 0, Math.min(width, x + barWidth), height), paint);
+            paint.setColor(Color.rgb(20, 20, 20));
+            canvas.drawRect(new Rect(0, height - 56, width, height), paint);
+            paint.setColor(Color.GREEN);
+            int markerWidth = Math.max(8, width / Math.max(4, options.encodedVideoFrames));
+            canvas.drawRect(new Rect(24, height - 42, 24 + markerWidth + frame * 4, height - 18), paint);
+        } finally {
+            surface.unlockCanvasAndPost(canvas);
+        }
+    }
+
+    private static void drainEncoder(
+            MediaCodec encoder,
+            List<EncodedPacket> packets,
+            boolean endOfStream) throws Exception {
+        MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+        int emptyPolls = 0;
+        while (true) {
+            int status = encoder.dequeueOutputBuffer(info, 10000);
+            if (status == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                if (!endOfStream || emptyPolls++ > 50) {
+                    break;
+                }
+                continue;
+            }
+            if (status == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                continue;
+            }
+            if (status < 0) {
+                continue;
+            }
+
+            ByteBuffer outputBuffer = encoder.getOutputBuffer(status);
+            if (outputBuffer != null && info.size > 0) {
+                if (info.size > BINARY_STREAM_MAX_PACKET_BYTES) {
+                    throw new IllegalStateException("Encoded packet too large: " + info.size);
+                }
+                byte[] payload = new byte[info.size];
+                outputBuffer.position(info.offset);
+                outputBuffer.limit(info.offset + info.size);
+                outputBuffer.get(payload);
+                packets.add(new EncodedPacket(info.presentationTimeUs, info.flags, payload));
+            }
+            boolean reachedEos = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+            encoder.releaseOutputBuffer(status, false);
+            if (reachedEos) {
+                break;
+            }
+        }
+    }
+
+    private static void emitMediaCodecSyntheticMetadata(
+            Options options,
+            List<EncodedPacket> packets) throws Exception {
+        String sessionId = "shell-helper-mediacodec-" + System.currentTimeMillis();
+        JSONObject manifest = new JSONObject();
+        manifest.put("schema", "rusty.xr.video_lab.encoded_stream_manifest.v1");
+        manifest.put("stream_id", "shell_helper.mediacodec_synthetic_h264");
+        manifest.put("session_id", sessionId);
+        manifest.put("source", "adb_shell_helper_mediacodec_synthetic_surface");
+        manifest.put("transport", "metadata_only");
+        manifest.put("payload_transport", "adb_forwarded_tcp_binary");
+        manifest.put("mime_type", "video/avc");
+        manifest.put("codec", "h264");
+        manifest.put("decoder_target", "surface");
+        manifest.put("width", options.encodedVideoWidth);
+        manifest.put("height", options.encodedVideoHeight);
+        manifest.put("frame_rate_hz", SYNTHETIC_VIDEO_FRAME_RATE_HZ);
+        manifest.put("bitrate_bps", options.encodedVideoBitrateBps);
+        manifest.put("source_kind", "synthetic_surface_mediacodec");
+        JSONObject endpoint = new JSONObject();
+        endpoint.put("host", "127.0.0.1");
+        endpoint.put("device_port", options.syntheticVideoBinaryPort);
+        endpoint.put("framing", "rusty.xr.video_lab.binary_stream.v1");
+        endpoint.put("magic", SYNTHETIC_BINARY_MAGIC);
+        manifest.put("binary_endpoint", endpoint);
+        JSONObject manifestAck = sendBrokerCommand(
+            options.host,
+            options.port,
+            "video_lab.register_encoded_stream_manifest",
+            manifest);
+        System.out.println(manifestAck.toString(2));
+
+        for (int i = 0; i < packets.size(); i++) {
+            EncodedPacket packet = packets.get(i);
+            JSONObject sample = new JSONObject();
+            long sequenceId = System.currentTimeMillis() * 1000L + i;
+            sample.put("schema", "rusty.xr.video_lab.encoded_sample_metadata.v1");
+            sample.put("stream_id", "shell_helper.mediacodec_synthetic_h264");
+            sample.put("session_id", sessionId);
+            sample.put("sequence_id", sequenceId);
+            sample.put("source", "adb_shell_helper_mediacodec_synthetic_surface");
+            sample.put("transport", "metadata_only");
+            sample.put("payload_transport", "adb_forwarded_tcp_binary");
+            sample.put("mime_type", "video/avc");
+            sample.put("codec", "h264");
+            sample.put("encoded_size_bytes", packet.payload.length);
+            sample.put("key_frame", (packet.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0);
+            sample.put("codec_config", (packet.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0);
+            sample.put("pts_us", packet.ptsUs);
+            sample.put("dts_us", packet.ptsUs);
+            sample.put("source_time_unix_ns", System.currentTimeMillis() * 1_000_000L);
+            sample.put("source_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+            JSONObject sampleAck = sendBrokerCommand(
+                options.host,
+                options.port,
+                "video_lab.record_encoded_sample_metadata",
+                sample);
+            System.out.println(sampleAck.toString(2));
+        }
+    }
+
+    private static void emitScreenrecordMetadata(
+            Options options,
+            List<EncodedPacket> packets) throws Exception {
+        String sessionId = "shell-helper-screenrecord-" + System.currentTimeMillis();
+        JSONObject manifest = new JSONObject();
+        manifest.put("schema", "rusty.xr.video_lab.encoded_stream_manifest.v1");
+        manifest.put("stream_id", "shell_helper.screenrecord_h264");
+        manifest.put("session_id", sessionId);
+        manifest.put("source", "adb_shell_helper_screenrecord_display");
+        manifest.put("transport", "metadata_only");
+        manifest.put("payload_transport", "adb_forwarded_tcp_binary");
+        manifest.put("mime_type", "video/avc");
+        manifest.put("codec", "h264");
+        manifest.put("decoder_target", "surface");
+        manifest.put("width", options.encodedVideoWidth);
+        manifest.put("height", options.encodedVideoHeight);
+        manifest.put("frame_rate_hz", SYNTHETIC_VIDEO_FRAME_RATE_HZ);
+        manifest.put("bitrate_bps", options.encodedVideoBitrateBps);
+        manifest.put("source_kind", "shell_screenrecord_display");
+        manifest.put("screenrecord_time_limit_seconds", options.screenrecordTimeLimitSeconds);
+        JSONObject endpoint = new JSONObject();
+        endpoint.put("host", "127.0.0.1");
+        endpoint.put("device_port", options.syntheticVideoBinaryPort);
+        endpoint.put("framing", "rusty.xr.video_lab.binary_stream.v1");
+        endpoint.put("magic", SYNTHETIC_BINARY_MAGIC);
+        manifest.put("binary_endpoint", endpoint);
+        JSONObject manifestAck = sendBrokerCommand(
+            options.host,
+            options.port,
+            "video_lab.register_encoded_stream_manifest",
+            manifest);
+        System.out.println(manifestAck.toString(2));
+
+        for (int i = 0; i < packets.size(); i++) {
+            EncodedPacket packet = packets.get(i);
+            JSONObject sample = new JSONObject();
+            long sequenceId = System.currentTimeMillis() * 1000L + i;
+            sample.put("schema", "rusty.xr.video_lab.encoded_sample_metadata.v1");
+            sample.put("stream_id", "shell_helper.screenrecord_h264");
+            sample.put("session_id", sessionId);
+            sample.put("sequence_id", sequenceId);
+            sample.put("source", "adb_shell_helper_screenrecord_display");
+            sample.put("transport", "metadata_only");
+            sample.put("payload_transport", "adb_forwarded_tcp_binary");
+            sample.put("mime_type", "video/avc");
+            sample.put("codec", "h264");
+            sample.put("encoded_size_bytes", packet.payload.length);
+            sample.put("key_frame", (packet.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0);
+            sample.put("codec_config", false);
+            sample.put("pts_us", packet.ptsUs);
+            sample.put("dts_us", packet.ptsUs);
+            sample.put("source_time_unix_ns", System.currentTimeMillis() * 1_000_000L);
+            sample.put("source_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+            JSONObject sampleAck = sendBrokerCommand(
+                options.host,
+                options.port,
+                "video_lab.record_encoded_sample_metadata",
+                sample);
+            System.out.println(sampleAck.toString(2));
+        }
+    }
+
+    private static StreamWriteStats emitEncodedPacketStream(
+            Options options,
+            List<EncodedPacket> packets,
+            String label) throws Exception {
+        ServerSocket server = new ServerSocket(
+            options.syntheticVideoBinaryPort,
+            1,
+            InetAddress.getByName("127.0.0.1"));
+        long listenStartElapsedNs = SystemClock.elapsedRealtimeNanos();
+        long acceptElapsedNs = 0L;
+        long writeStartElapsedNs = 0L;
+        long writeEndElapsedNs = 0L;
+        try {
+            server.setSoTimeout(10000);
+            System.out.println(String.format(
+                Locale.ROOT,
+                "%s binary video stream listening on 127.0.0.1:%d packets=%d",
+                label,
+                options.syntheticVideoBinaryPort,
+                packets.size()));
+            Socket client = server.accept();
+            acceptElapsedNs = SystemClock.elapsedRealtimeNanos();
+            try {
+                client.setTcpNoDelay(true);
+                OutputStream output = client.getOutputStream();
+                writeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
+                writeEncodedPacketStream(output, options, packets);
+                output.flush();
+                writeEndElapsedNs = SystemClock.elapsedRealtimeNanos();
+            } finally {
+                client.close();
+            }
+        } finally {
+            server.close();
+        }
+        return new StreamWriteStats(
+            listenStartElapsedNs,
+            acceptElapsedNs,
+            writeStartElapsedNs,
+            writeEndElapsedNs);
+    }
+
+    private static void writeEncodedPacketStream(
+            OutputStream output,
+            Options options,
+            List<EncodedPacket> packets) throws Exception {
+        output.write(SYNTHETIC_BINARY_MAGIC.getBytes(StandardCharsets.US_ASCII));
+        writeU32(output, SYNTHETIC_BINARY_SCHEMA_VERSION);
+        writeU32(output, SYNTHETIC_BINARY_CODEC_H264);
+        writeU32(output, options.encodedVideoWidth);
+        writeU32(output, options.encodedVideoHeight);
+        writeU32(output, packets.size());
+        writeU32(output, 0);
+
+        for (EncodedPacket packet : packets) {
+            writeU64(output, packet.ptsUs);
+            writeU32(output, packet.flags);
+            writeU32(output, packet.payload.length);
+            output.write(packet.payload);
+        }
+    }
+
+    private static void emitVideoLabMetricSample(
+            Options options,
+            String streamId,
+            String source,
+            int width,
+            int height,
+            List<EncodedPacket> packets,
+            long encodeStartElapsedNs,
+            long encodeEndElapsedNs,
+            StreamWriteStats writeStats) throws Exception {
+        long totalPayloadBytes = 0L;
+        for (EncodedPacket packet : packets) {
+            totalPayloadBytes += packet.payload.length;
+        }
+
+        JSONObject metric = new JSONObject();
+        metric.put("schema", "rusty.xr.video_lab.metric_sample.v1");
+        metric.put("stream_id", streamId);
+        metric.put("source", source);
+        metric.put("transport", "metadata_only");
+        metric.put("payload_transport", "adb_forwarded_tcp_binary");
+        metric.put("codec", "h264");
+        metric.put("sequence_id", System.currentTimeMillis() * 1000L);
+        metric.put("source_time_unix_ns", System.currentTimeMillis() * 1_000_000L);
+        metric.put("source_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        metric.put("helper_encode_start_elapsed_ns", encodeStartElapsedNs);
+        metric.put("helper_encode_end_elapsed_ns", encodeEndElapsedNs);
+        metric.put("helper_encode_duration_ns", Math.max(0L, encodeEndElapsedNs - encodeStartElapsedNs));
+        metric.put("helper_binary_listen_start_elapsed_ns", writeStats.listenStartElapsedNs);
+        metric.put("helper_binary_accept_elapsed_ns", writeStats.acceptElapsedNs);
+        metric.put("helper_binary_write_start_elapsed_ns", writeStats.writeStartElapsedNs);
+        metric.put("helper_binary_write_end_elapsed_ns", writeStats.writeEndElapsedNs);
+        metric.put("helper_binary_write_duration_ns", Math.max(0L, writeStats.writeEndElapsedNs - writeStats.writeStartElapsedNs));
+        metric.put("packet_count", packets.size());
+        metric.put("payload_size_bytes", totalPayloadBytes);
+        metric.put("dropped_frames", 0);
+        metric.put("stale_frames", 0);
+        metric.put("queue_depth", 0);
+        metric.put("width", width);
+        metric.put("height", height);
+        JSONObject metricAck = sendBrokerCommand(
+            options.host,
+            options.port,
+            "video_lab.record_metric_sample",
+            metric);
+        System.out.println(metricAck.toString(2));
+    }
+
+    private static JSONObject buildCodecProbe() throws Exception {
+        JSONObject probe = new JSONObject();
+        probe.put("schema", "rusty.xr.shell_helper.codec_probe.v1");
+        probe.put("queried_mime_types", new JSONArray()
+            .put("video/avc")
+            .put("video/hevc")
+            .put("video/av01"));
+
+        JSONArray codecs = new JSONArray();
+        int encoderCount = 0;
+        int decoderCount = 0;
+        int surfaceCapableCount = 0;
+        MediaCodecInfo[] infos = new MediaCodecList(MediaCodecList.ALL_CODECS).getCodecInfos();
+        for (MediaCodecInfo info : infos) {
+            String[] supportedTypes = info.getSupportedTypes();
+            for (String type : supportedTypes) {
+                if (!isVideoCodecTypeOfInterest(type)) {
+                    continue;
+                }
+
+                JSONObject codec = new JSONObject();
+                codec.put("name", info.getName());
+                codec.put("canonical_name", info.getCanonicalName());
+                codec.put("mime_type", type);
+                codec.put("encoder", info.isEncoder());
+                if (info.isEncoder()) {
+                    encoderCount++;
+                } else {
+                    decoderCount++;
+                }
+
+                try {
+                    MediaCodecInfo.CodecCapabilities capabilities = info.getCapabilitiesForType(type);
+                    boolean surfaceCapable = containsColorFormat(
+                        capabilities.colorFormats,
+                        MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+                    codec.put("surface_color_format", surfaceCapable);
+                    if (surfaceCapable) {
+                        surfaceCapableCount++;
+                    }
+                    codec.put("color_formats", intArrayJson(capabilities.colorFormats, 16));
+                    codec.put("profile_levels", profileLevelsJson(capabilities.profileLevels, 12));
+                } catch (Exception ex) {
+                    codec.put("capability_error", ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                }
+                codecs.put(codec);
+            }
+        }
+
+        probe.put("codec_count", codecs.length());
+        probe.put("encoder_count", encoderCount);
+        probe.put("decoder_count", decoderCount);
+        probe.put("surface_capable_count", surfaceCapableCount);
+        probe.put("codecs", codecs);
+        return probe;
+    }
+
+    private static boolean isVideoCodecTypeOfInterest(String type) {
+        return "video/avc".equals(type) ||
+            "video/hevc".equals(type) ||
+            "video/av01".equals(type);
+    }
+
+    private static JSONObject buildCameraOpenProbe(String requestedCameraId) throws Exception {
+        JSONObject probe = new JSONObject();
+        probe.put("schema", "rusty.xr.shell_helper.camera_open_probe.v1");
+        probe.put("source", "Camera2 CameraManager from adb shell app_process");
+        probe.put("captured_time_unix_ms", System.currentTimeMillis());
+        probe.put("source_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        probe.put("max_camera_ids", CAMERA_OPEN_PROBE_MAX_CAMERA_IDS);
+        probe.put("open_timeout_ms", CAMERA_OPEN_PROBE_OPEN_TIMEOUT_MS);
+        probe.put("session_timeout_ms", CAMERA_OPEN_PROBE_SESSION_TIMEOUT_MS);
+        probe.put("capture_timeout_ms", CAMERA_OPEN_PROBE_CAPTURE_TIMEOUT_MS);
+        probe.put("capture_format", "YUV_420_888");
+        probe.put("capture_max_dimension", CAMERA_OPEN_PROBE_MAX_DIMENSION);
+        if (requestedCameraId != null && requestedCameraId.trim().length() > 0) {
+            probe.put("requested_camera_id", requestedCameraId.trim());
+        }
+
+        HandlerThread thread = new HandlerThread("RustyXrCameraOpenProbe");
+        thread.start();
+        try {
+            CameraManagerCreateResult managerCreateResult = createCameraManagerReflectively();
+            CameraManager manager = managerCreateResult.manager;
+            probe.put("manager_state", "created");
+            probe.put("camera_manager_constructor", managerCreateResult.constructorSignature);
+            probe.put("camera_manager_constructor_strategy", managerCreateResult.strategy);
+            probe.put("camera_manager_constructors", managerCreateResult.constructorSignatures);
+            String[] cameraIds = manager.getCameraIdList();
+            probe.put("camera_id_count", cameraIds.length);
+            probe.put("camera_ids", stringArrayJson(cameraIds, CAMERA_OPEN_PROBE_MAX_CAMERA_IDS));
+            String[] targetCameraIds = targetCameraIds(cameraIds, requestedCameraId);
+            probe.put("target_camera_ids", stringArrayJson(targetCameraIds, CAMERA_OPEN_PROBE_MAX_CAMERA_IDS));
+
+            Handler handler = new Handler(thread.getLooper());
+            JSONArray attempts = new JSONArray();
+            int openSuccessCount = 0;
+            int captureSuccessCount = 0;
+            for (int i = 0; i < targetCameraIds.length && i < CAMERA_OPEN_PROBE_MAX_CAMERA_IDS; i++) {
+                JSONObject attempt = probeSingleCameraOpenCapture(manager, targetCameraIds[i], handler);
+                attempts.put(attempt);
+                if (attempt.optBoolean("open_succeeded", false)) {
+                    openSuccessCount++;
+                }
+                if (attempt.optBoolean("capture_succeeded", false)) {
+                    captureSuccessCount++;
+                }
+            }
+            probe.put("attempted_count", attempts.length());
+            probe.put("open_success_count", openSuccessCount);
+            probe.put("capture_success_count", captureSuccessCount);
+            probe.put("attempts", attempts);
+        } catch (Exception ex) {
+            probe.put("manager_state", "failed");
+            probe.put("error", exceptionSummary(ex));
+        } finally {
+            thread.quitSafely();
+            thread.join(1000);
+        }
+        return probe;
+    }
+
+    private static CameraManagerCreateResult createCameraManagerReflectively() throws Exception {
+        Constructor<?>[] constructors = CameraManager.class.getDeclaredConstructors();
+        JSONArray constructorSignatures = new JSONArray();
+        Exception lastError = null;
+        for (int i = 0; i < constructors.length; i++) {
+            Constructor<?> constructor = constructors[i];
+            constructorSignatures.put(constructorSignature(constructor));
+            Object[] args = cameraManagerConstructorArgs(constructor.getParameterTypes());
+            if (args == null) {
+                continue;
+            }
+            try {
+                constructor.setAccessible(true);
+                Object instance = constructor.newInstance(args);
+                if (instance instanceof CameraManager) {
+                    return new CameraManagerCreateResult(
+                        (CameraManager) instance,
+                        constructorSignature(constructor),
+                        args.length == 0 ? "no_arg_reflection" : "shell_context_reflection",
+                        constructorSignatures);
+                }
+            } catch (Exception ex) {
+                lastError = ex;
+            }
+        }
+
+        String message = "No supported CameraManager constructor";
+        if (lastError != null) {
+            message += "; last_error=" + exceptionSummary(lastError);
+        }
+        message += "; constructors=" + constructorSignatures.toString();
+        throw new NoSuchMethodException(message);
+    }
+
+    private static Object[] cameraManagerConstructorArgs(Class<?>[] parameterTypes) {
+        if (parameterTypes.length == 0) {
+            return new Object[0];
+        }
+        if (parameterTypes.length == 1 && Context.class.isAssignableFrom(parameterTypes[0])) {
+            return new Object[] { new ShellContext() };
+        }
+        return null;
+    }
+
+    private static String constructorSignature(Constructor<?> constructor) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("CameraManager(");
+        Class<?>[] parameterTypes = constructor.getParameterTypes();
+        for (int i = 0; i < parameterTypes.length; i++) {
+            if (i > 0) {
+                builder.append(",");
+            }
+            builder.append(parameterTypes[i].getName());
+        }
+        builder.append(")");
+        return builder.toString();
+    }
+
+    private static String[] targetCameraIds(String[] cameraIds, String requestedCameraId) {
+        if (requestedCameraId != null && requestedCameraId.trim().length() > 0) {
+            return new String[] { requestedCameraId.trim() };
+        }
+        int count = Math.min(cameraIds.length, CAMERA_OPEN_PROBE_MAX_CAMERA_IDS);
+        String[] targets = new String[count];
+        System.arraycopy(cameraIds, 0, targets, 0, count);
+        return targets;
+    }
+
+    private static JSONObject probeSingleCameraOpenCapture(
+            CameraManager manager,
+            String cameraId,
+            Handler handler) throws Exception {
+        JSONObject result = new JSONObject();
+        result.put("camera_id", cameraId);
+        result.put("open_succeeded", false);
+        result.put("capture_succeeded", false);
+        result.put("open_state", "not_started");
+        result.put("capture_state", "not_started");
+
+        final CountDownLatch openLatch = new CountDownLatch(1);
+        final CameraDevice[] deviceRef = new CameraDevice[1];
+        final String[] openErrorRef = new String[1];
+        final int[] openErrorCodeRef = new int[] { Integer.MIN_VALUE };
+        long openStartNs = SystemClock.elapsedRealtimeNanos();
+        try {
+            manager.openCamera(cameraId, new CameraDevice.StateCallback() {
+                @Override
+                public void onOpened(CameraDevice device) {
+                    deviceRef[0] = device;
+                    openLatch.countDown();
+                }
+
+                @Override
+                public void onDisconnected(CameraDevice device) {
+                    openErrorRef[0] = "disconnected";
+                    if (device != null) {
+                        device.close();
+                    }
+                    openLatch.countDown();
+                }
+
+                @Override
+                public void onError(CameraDevice device, int error) {
+                    openErrorCodeRef[0] = error;
+                    openErrorRef[0] = "camera_error_" + error;
+                    if (device != null) {
+                        device.close();
+                    }
+                    openLatch.countDown();
+                }
+            }, handler);
+        } catch (SecurityException ex) {
+            result.put("open_state", "security_exception");
+            result.put("open_error", exceptionSummary(ex));
+            return result;
+        } catch (CameraAccessException ex) {
+            result.put("open_state", "camera_access_exception");
+            result.put("open_error", exceptionSummary(ex));
+            return result;
+        } catch (RuntimeException ex) {
+            result.put("open_state", "runtime_exception");
+            result.put("open_error", exceptionSummary(ex));
+            return result;
+        }
+
+        boolean openFinished = openLatch.await(CAMERA_OPEN_PROBE_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        result.put("open_elapsed_ms", nanosToMillis(SystemClock.elapsedRealtimeNanos() - openStartNs));
+        if (!openFinished) {
+            result.put("open_state", "timeout");
+            closeQuietly(deviceRef[0]);
+            return result;
+        }
+        if (deviceRef[0] == null) {
+            result.put("open_state", openErrorRef[0] != null ? openErrorRef[0] : "failed");
+            if (openErrorCodeRef[0] != Integer.MIN_VALUE) {
+                result.put("open_error_code", openErrorCodeRef[0]);
+            }
+            return result;
+        }
+
+        result.put("open_succeeded", true);
+        result.put("open_state", "opened");
+
+        ImageReader reader = null;
+        CameraCaptureSession session = null;
+        try {
+            Size size = chooseYuvProbeSize(manager, cameraId);
+            if (size == null) {
+                result.put("capture_state", "no_yuv_420_888_output_size");
+                return result;
+            }
+            result.put("capture_size", sizeJson(size));
+            reader = ImageReader.newInstance(size.getWidth(), size.getHeight(), ImageFormat.YUV_420_888, 2);
+            final CountDownLatch imageLatch = new CountDownLatch(1);
+            final int[] imageCount = new int[] { 0 };
+            final int[] imageWidth = new int[] { 0 };
+            final int[] imageHeight = new int[] { 0 };
+            final long[] captureStartNs = new long[] { 0L };
+            final long[] firstImageElapsedNs = new long[] { 0L };
+            final String[] imageErrorRef = new String[1];
+            reader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
+                @Override
+                public void onImageAvailable(ImageReader imageReader) {
+                    Image image = null;
+                    try {
+                        image = imageReader.acquireNextImage();
+                        if (image != null) {
+                            imageCount[0]++;
+                            imageWidth[0] = image.getWidth();
+                            imageHeight[0] = image.getHeight();
+                            firstImageElapsedNs[0] = SystemClock.elapsedRealtimeNanos() - captureStartNs[0];
+                        }
+                    } catch (RuntimeException ex) {
+                        imageErrorRef[0] = exceptionSummary(ex);
+                    } finally {
+                        if (image != null) {
+                            image.close();
+                        }
+                        imageLatch.countDown();
+                    }
+                }
+            }, handler);
+
+            final CountDownLatch sessionLatch = new CountDownLatch(1);
+            final CameraCaptureSession[] sessionRef = new CameraCaptureSession[1];
+            final String[] sessionErrorRef = new String[1];
+            deviceRef[0].createCaptureSession(
+                Arrays.asList(reader.getSurface()),
+                new CameraCaptureSession.StateCallback() {
+                    @Override
+                    public void onConfigured(CameraCaptureSession configuredSession) {
+                        sessionRef[0] = configuredSession;
+                        sessionLatch.countDown();
+                    }
+
+                    @Override
+                    public void onConfigureFailed(CameraCaptureSession failedSession) {
+                        sessionErrorRef[0] = "configure_failed";
+                        sessionLatch.countDown();
+                    }
+                },
+                handler);
+
+            boolean sessionFinished = sessionLatch.await(CAMERA_OPEN_PROBE_SESSION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            if (!sessionFinished) {
+                result.put("capture_state", "session_timeout");
+                return result;
+            }
+            session = sessionRef[0];
+            if (session == null) {
+                result.put("capture_state", sessionErrorRef[0] != null ? sessionErrorRef[0] : "session_failed");
+                return result;
+            }
+
+            Surface surface = reader.getSurface();
+            CaptureRequest.Builder builder = deviceRef[0].createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            builder.addTarget(surface);
+            captureStartNs[0] = SystemClock.elapsedRealtimeNanos();
+            int sequenceId = session.capture(builder.build(), null, handler);
+            result.put("capture_sequence_id", sequenceId);
+            boolean imageFinished = imageLatch.await(CAMERA_OPEN_PROBE_CAPTURE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            if (!imageFinished) {
+                result.put("capture_state", "image_timeout");
+                return result;
+            }
+            if (imageCount[0] <= 0) {
+                result.put("capture_state", "image_unavailable");
+                if (imageErrorRef[0] != null) {
+                    result.put("capture_error", imageErrorRef[0]);
+                }
+                return result;
+            }
+            result.put("capture_succeeded", true);
+            result.put("capture_state", "captured");
+            result.put("captured_image_count", imageCount[0]);
+            result.put("captured_width", imageWidth[0]);
+            result.put("captured_height", imageHeight[0]);
+            result.put("first_image_elapsed_ms", nanosToMillis(firstImageElapsedNs[0]));
+        } catch (CameraAccessException ex) {
+            result.put("capture_state", "camera_access_exception");
+            result.put("capture_error", exceptionSummary(ex));
+        } catch (SecurityException ex) {
+            result.put("capture_state", "security_exception");
+            result.put("capture_error", exceptionSummary(ex));
+        } catch (RuntimeException ex) {
+            result.put("capture_state", "runtime_exception");
+            result.put("capture_error", exceptionSummary(ex));
+        } finally {
+            if (session != null) {
+                session.close();
+            }
+            if (reader != null) {
+                reader.close();
+            }
+            closeQuietly(deviceRef[0]);
+        }
+        return result;
+    }
+
+    private static Size chooseYuvProbeSize(CameraManager manager, String cameraId) throws CameraAccessException {
+        CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+        StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        if (map == null) {
+            return null;
+        }
+        Size[] sizes = map.getOutputSizes(ImageFormat.YUV_420_888);
+        if (sizes == null || sizes.length == 0) {
+            return null;
+        }
+
+        Size bestWithinLimit = null;
+        Size smallest = null;
+        for (Size size : sizes) {
+            if (smallest == null || area(size) < area(smallest)) {
+                smallest = size;
+            }
+            if (size.getWidth() <= CAMERA_OPEN_PROBE_MAX_DIMENSION &&
+                    size.getHeight() <= CAMERA_OPEN_PROBE_MAX_DIMENSION &&
+                    (bestWithinLimit == null || area(size) < area(bestWithinLimit))) {
+                bestWithinLimit = size;
+            }
+        }
+        return bestWithinLimit != null ? bestWithinLimit : smallest;
+    }
+
+    private static long area(Size size) {
+        return (long) size.getWidth() * (long) size.getHeight();
+    }
+
+    private static JSONObject sizeJson(Size size) throws Exception {
+        JSONObject json = new JSONObject();
+        json.put("width", size.getWidth());
+        json.put("height", size.getHeight());
+        return json;
+    }
+
+    private static long nanosToMillis(long nanos) {
+        return TimeUnit.NANOSECONDS.toMillis(Math.max(0L, nanos));
+    }
+
+    private static void closeQuietly(CameraDevice device) {
+        if (device != null) {
+            try {
+                device.close();
+            } catch (RuntimeException ignored) {
+            }
+        }
+    }
+
+    private static String exceptionSummary(Throwable ex) {
+        String message = ex.getMessage();
+        String base = (message == null || message.length() == 0)
+            ? ex.getClass().getSimpleName()
+            : ex.getClass().getSimpleName() + ": " + message;
+        Throwable cause = ex.getCause();
+        if (cause != null && cause != ex) {
+            return base + "; cause=" + exceptionSummary(cause);
+        }
+        return base;
+    }
+
+    private static JSONObject buildCameraProbe() throws Exception {
+        CommandCapture capture = runBoundedCommand(
+            new String[] { "dumpsys", "media.camera" },
+            CAMERA_DUMPSYS_MAX_BYTES,
+            CAMERA_DUMPSYS_TIMEOUT_SECONDS);
+        JSONObject probe = new JSONObject();
+        probe.put("schema", "rusty.xr.shell_helper.camera_probe.v1");
+        probe.put("source", "dumpsys media.camera");
+        probe.put("captured_time_unix_ms", System.currentTimeMillis());
+        probe.put("source_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        probe.put("exit_code", capture.exitCode);
+        probe.put("timed_out", capture.timedOut);
+        probe.put("raw_output_bytes", capture.outputBytes);
+        probe.put("raw_output_truncated", capture.truncated);
+        if (capture.exitCode != 0 || capture.timedOut) {
+            probe.put("error", capture.error);
+        }
+        parseCameraDumpsys(capture.output, probe);
+        return probe;
+    }
+
+    private static CommandCapture runBoundedCommand(String[] command, int maxBytes, int timeoutSeconds) throws Exception {
+        ProcessBuilder builder = new ProcessBuilder(command);
+        builder.redirectErrorStream(true);
+        java.lang.Process process = builder.start();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        boolean truncated = false;
+        try {
+            InputStream input = process.getInputStream();
+            while (true) {
+                int available = input.available();
+                if (available <= 0) {
+                    if (!process.isAlive()) {
+                        break;
+                    }
+                    Thread.sleep(10);
+                    continue;
+                }
+
+                int read = input.read(buffer, 0, Math.min(buffer.length, available));
+                if (read < 0) {
+                    break;
+                }
+                if (output.size() + read > maxBytes) {
+                    int allowed = Math.max(0, maxBytes - output.size());
+                    if (allowed > 0) {
+                        output.write(buffer, 0, allowed);
+                    }
+                    truncated = true;
+                    process.destroy();
+                    break;
+                }
+                output.write(buffer, 0, read);
+            }
+
+            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+            boolean timedOut = !finished;
+            if (timedOut) {
+                process.destroy();
+            }
+            int exitCode = timedOut ? -1 : process.exitValue();
+            return new CommandCapture(
+                new String(output.toByteArray(), StandardCharsets.UTF_8),
+                output.size(),
+                truncated,
+                timedOut,
+                exitCode,
+                "");
+        } finally {
+            process.destroy();
+        }
+    }
+
+    private static void parseCameraDumpsys(String text, JSONObject probe) throws Exception {
+        String[] lines = text.split("\\r?\\n");
+        JSONArray api1Mappings = new JSONArray();
+        JSONArray dynamicCameraIds = new JSONArray();
+        JSONArray devices = new JSONArray();
+        JSONObject currentDevice = null;
+        String pendingArrayKey = null;
+        JSONArray pendingArray = null;
+        String pendingArrayKind = "";
+
+        Pattern countPattern = Pattern.compile("^Number of all camera devices:\\s*(\\d+)");
+        Pattern api1CountPattern = Pattern.compile("^Number of camera devices visible to API1:\\s*(\\d+)");
+        Pattern publicApi1CountPattern = Pattern.compile("^Number of public camera devices visible to API1:\\s*(\\d+)");
+        Pattern mappingPattern = Pattern.compile("^Device\\s+(\\d+)\\s+maps to\\s+\"([^\"]+)\"");
+        Pattern staticDevicePattern = Pattern.compile("== Camera HAL device\\s+([^\\s]+)\\s+\\(([^)]*)\\) static information: ==");
+        Pattern dynamicDevicePattern = Pattern.compile("== Camera device\\s+([^\\s]+)\\s+dynamic info: ==");
+
+        for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            String rawLine = lines[lineIndex];
+            String line = rawLine.trim();
+            if (line.length() == 0) {
+                continue;
+            }
+
+            if (pendingArray != null) {
+                if (line.startsWith("[")) {
+                    if ("fps".equals(pendingArrayKind)) {
+                        JSONArray row = intRowFromBracketLine(line);
+                        if (row.length() > 0 && pendingArray.length() < CAMERA_PROBE_MAX_FPS_ROWS_PER_DEVICE) {
+                            pendingArray.put(row);
+                        }
+                    } else if ("stream_config".equals(pendingArrayKind)) {
+                        JSONObject row = streamConfigFromBracketLine(line);
+                        if (row != null && pendingArray.length() < CAMERA_PROBE_MAX_STREAM_CONFIGS_PER_DEVICE) {
+                            pendingArray.put(row);
+                        }
+                    } else {
+                        JSONArray row = intRowFromBracketLine(line);
+                        if (row.length() > 0) {
+                            pendingArray.put(row);
+                        }
+                    }
+                    continue;
+                }
+
+                if (currentDevice != null) {
+                    currentDevice.put(pendingArrayKey, pendingArray);
+                }
+                pendingArray = null;
+                pendingArrayKey = null;
+                pendingArrayKind = "";
+            }
+
+            Matcher countMatcher = countPattern.matcher(line);
+            if (countMatcher.find()) {
+                probe.put("camera_count", Integer.parseInt(countMatcher.group(1)));
+                continue;
+            }
+            Matcher api1CountMatcher = api1CountPattern.matcher(line);
+            if (api1CountMatcher.find()) {
+                probe.put("api1_visible_count", Integer.parseInt(api1CountMatcher.group(1)));
+                continue;
+            }
+            Matcher publicApi1CountMatcher = publicApi1CountPattern.matcher(line);
+            if (publicApi1CountMatcher.find()) {
+                probe.put("public_api1_visible_count", Integer.parseInt(publicApi1CountMatcher.group(1)));
+                continue;
+            }
+            Matcher mappingMatcher = mappingPattern.matcher(line);
+            if (mappingMatcher.find()) {
+                JSONObject mapping = new JSONObject();
+                mapping.put("api1_device_index", Integer.parseInt(mappingMatcher.group(1)));
+                mapping.put("camera_id", mappingMatcher.group(2));
+                api1Mappings.put(mapping);
+                continue;
+            }
+            Matcher dynamicDeviceMatcher = dynamicDevicePattern.matcher(line);
+            if (dynamicDeviceMatcher.find()) {
+                dynamicCameraIds.put(dynamicDeviceMatcher.group(1));
+                continue;
+            }
+            Matcher staticDeviceMatcher = staticDevicePattern.matcher(line);
+            if (staticDeviceMatcher.find()) {
+                if (currentDevice != null && devices.length() < CAMERA_PROBE_MAX_DEVICES) {
+                    devices.put(currentDevice);
+                }
+                currentDevice = new JSONObject();
+                String halName = staticDeviceMatcher.group(1);
+                currentDevice.put("hal_device", halName);
+                currentDevice.put("camera_id", cameraIdFromHalName(halName));
+                currentDevice.put("hal_version", staticDeviceMatcher.group(2));
+                continue;
+            }
+
+            if (currentDevice == null) {
+                continue;
+            }
+
+            if (line.startsWith("Resource cost:")) {
+                currentDevice.put("resource_cost", parseFirstInt(line));
+            } else if (line.startsWith("Conflicting devices:")) {
+                currentDevice.put("conflicting_devices", line.substring("Conflicting devices:".length()).trim());
+            } else if (line.startsWith("Has a flash unit:")) {
+                currentDevice.put("has_flash", line.toLowerCase(Locale.ROOT).contains("true"));
+            } else if (line.startsWith("Facing:")) {
+                currentDevice.put("api1_facing", line.substring("Facing:".length()).trim());
+            } else if (line.startsWith("Orientation:")) {
+                currentDevice.put("api1_orientation", parseFirstInt(line));
+            } else if (line.startsWith("android.control.aeAvailableTargetFpsRanges")) {
+                pendingArrayKey = "ae_available_target_fps_rows";
+                pendingArray = new JSONArray();
+                pendingArrayKind = "fps";
+            } else if (line.startsWith("android.scaler.availableStreamConfigurations")) {
+                pendingArrayKey = "stream_configurations";
+                pendingArray = new JSONArray();
+                pendingArrayKind = "stream_config";
+            } else if (line.startsWith("android.lens.facing")) {
+                currentDevice.put("lens_facing", nextValueString(lines, lineIndex));
+            } else if (line.startsWith("android.lens.poseReference")) {
+                currentDevice.put("lens_pose_reference", nextValueString(lines, lineIndex));
+            } else if (line.startsWith("android.lens.poseRotation")) {
+                currentDevice.put("lens_pose_rotation_xyzw", floatArrayAfterLine(lines, lineIndex, 4));
+            } else if (line.startsWith("android.lens.poseTranslation")) {
+                currentDevice.put("lens_pose_translation_m", floatArrayAfterLine(lines, lineIndex, 3));
+            } else if (line.startsWith("android.lens.intrinsicCalibration")) {
+                currentDevice.put("lens_intrinsic_calibration", floatArrayAfterLine(lines, lineIndex, 5));
+            } else if (line.startsWith("android.sensor.info.physicalSize")) {
+                currentDevice.put("sensor_physical_size", floatArrayAfterLine(lines, lineIndex, 2));
+            } else if (line.startsWith("android.sensor.info.pixelArraySize")) {
+                currentDevice.put("sensor_pixel_array_size", intArrayAfterLine(lines, lineIndex, 4));
+            } else if (line.startsWith("android.sensor.info.activeArraySize")) {
+                currentDevice.put("sensor_active_array_size", intArrayAfterLine(lines, lineIndex, 4));
+            } else if (line.startsWith("android.info.supportedHardwareLevel")) {
+                currentDevice.put("supported_hardware_level", nextValueString(lines, lineIndex));
+            }
+        }
+
+        if (pendingArray != null && currentDevice != null) {
+            currentDevice.put(pendingArrayKey, pendingArray);
+        }
+        if (currentDevice != null && devices.length() < CAMERA_PROBE_MAX_DEVICES) {
+            devices.put(currentDevice);
+        }
+        probe.put("api1_mappings", api1Mappings);
+        probe.put("dynamic_camera_ids", dynamicCameraIds);
+        probe.put("devices", devices);
+        probe.put("parsed_device_count", devices.length());
+    }
+
+    private static String cameraIdFromHalName(String halName) {
+        int slash = halName.lastIndexOf('/');
+        return slash >= 0 && slash + 1 < halName.length() ? halName.substring(slash + 1) : halName;
+    }
+
+    private static JSONArray intRowFromBracketLine(String line) {
+        JSONArray array = new JSONArray();
+        String inside = bracketContents(line);
+        if (inside.length() == 0) {
+            return array;
+        }
+        String[] parts = inside.split("\\s+");
+        for (String part : parts) {
+            if (part.length() == 0 || !part.matches("-?\\d+")) {
+                continue;
+            }
+            array.put(Integer.parseInt(part));
+        }
+        return array;
+    }
+
+    private static JSONObject streamConfigFromBracketLine(String line) throws Exception {
+        String inside = bracketContents(line);
+        if (inside.length() == 0) {
+            return null;
+        }
+        String[] parts = inside.split("\\s+");
+        if (parts.length < 4) {
+            return null;
+        }
+        JSONObject config = new JSONObject();
+        config.put("format", Integer.parseInt(parts[0]));
+        config.put("format_name", imageFormatName(Integer.parseInt(parts[0])));
+        config.put("width", Integer.parseInt(parts[1]));
+        config.put("height", Integer.parseInt(parts[2]));
+        config.put("direction", parts[3]);
+        return config;
+    }
+
+    private static String imageFormatName(int format) {
+        if (format == 34) {
+            return "PRIVATE";
+        }
+        if (format == 35) {
+            return "YUV_420_888";
+        }
+        if (format == 33) {
+            return "BLOB";
+        }
+        return "format_" + format;
+    }
+
+    private static String bracketContents(String line) {
+        int start = line.indexOf('[');
+        int end = line.indexOf(']', start + 1);
+        if (start < 0 || end <= start) {
+            return "";
+        }
+        return line.substring(start + 1, end).trim();
+    }
+
+    private static int parseFirstInt(String line) {
+        Matcher matcher = Pattern.compile("-?\\d+").matcher(line);
+        return matcher.find() ? Integer.parseInt(matcher.group()) : 0;
+    }
+
+    private static String nextValueString(String[] lines, int index) {
+        if (index < 0 || index + 1 >= lines.length) {
+            return "";
+        }
+        String next = lines[index + 1].trim();
+        String inside = bracketContents(next);
+        return inside.length() == 0 ? next : inside;
+    }
+
+    private static JSONArray floatArrayAfterLine(String[] lines, int index, int limit) throws Exception {
+        JSONArray array = new JSONArray();
+        if (index < 0 || index + 1 >= lines.length) {
+            return array;
+        }
+        String inside = bracketContents(lines[index + 1].trim());
+        if (inside.length() == 0) {
+            return array;
+        }
+        String[] parts = inside.split("\\s+");
+        for (int i = 0; i < parts.length && i < limit; i++) {
+            if (parts[i].length() == 0) {
+                continue;
+            }
+            try {
+                array.put(Double.parseDouble(parts[i]));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return array;
+    }
+
+    private static JSONArray intArrayAfterLine(String[] lines, int index, int limit) {
+        JSONArray array = new JSONArray();
+        if (index < 0 || index + 1 >= lines.length) {
+            return array;
+        }
+        String inside = bracketContents(lines[index + 1].trim());
+        if (inside.length() == 0) {
+            return array;
+        }
+        String[] parts = inside.split("\\s+");
+        for (int i = 0; i < parts.length && i < limit; i++) {
+            if (parts[i].length() == 0 || !parts[i].matches("-?\\d+")) {
+                continue;
+            }
+            array.put(Integer.parseInt(parts[i]));
+        }
+        return array;
+    }
+
+    private static boolean containsColorFormat(int[] values, int target) {
+        if (values == null) {
+            return false;
+        }
+        for (int value : values) {
+            if (value == target) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static JSONArray intArrayJson(int[] values, int limit) {
+        JSONArray array = new JSONArray();
+        if (values == null) {
+            return array;
+        }
+        for (int i = 0; i < values.length && i < limit; i++) {
+            array.put(values[i]);
+        }
+        return array;
+    }
+
+    private static JSONArray stringArrayJson(String[] values, int limit) {
+        JSONArray array = new JSONArray();
+        if (values == null) {
+            return array;
+        }
+        for (int i = 0; i < values.length && i < limit; i++) {
+            array.put(values[i]);
+        }
+        return array;
+    }
+
+    private static JSONArray profileLevelsJson(MediaCodecInfo.CodecProfileLevel[] levels, int limit) throws Exception {
+        JSONArray array = new JSONArray();
+        if (levels == null) {
+            return array;
+        }
+        for (int i = 0; i < levels.length && i < limit; i++) {
+            JSONObject item = new JSONObject();
+            item.put("profile", levels[i].profile);
+            item.put("level", levels[i].level);
+            array.put(item);
+        }
+        return array;
+    }
+
+    private static JSONObject sendBrokerCommand(String host, int port, String command, JSONObject params) throws Exception {
+        Socket socket = new Socket(host, port);
+        try {
+            socket.setSoTimeout(5000);
+            InputStream input = socket.getInputStream();
+            OutputStream output = socket.getOutputStream();
+            writeHandshake(output, host, port);
+            String headers = readHeaders(input);
+            if (!headers.startsWith("HTTP/1.1 101")) {
+                throw new IllegalStateException("Broker did not accept WebSocket upgrade: " + headers);
+            }
+
+            readTextFrame(input); // Initial broker status frame.
+            JSONObject message = new JSONObject();
+            message.put("type", "command");
+            message.put("schema", COMMAND_SCHEMA);
+            message.put("request_id", "shell-helper-" + System.currentTimeMillis());
+            message.put("client_id", CLIENT_ID);
+            message.put("app_label", "Rusty XR ADB Shell Helper");
+            message.put("app_version", VERSION);
+            message.put("command", command);
+            message.put("params", params);
+            writeClientTextFrame(output, message.toString());
+            return new JSONObject(readTextFrame(input));
+        } finally {
+            socket.close();
+        }
+    }
+
+    private static void writeHandshake(OutputStream output, String host, int port) throws Exception {
+        String request =
+            "GET " + EVENTS_PATH + " HTTP/1.1\r\n" +
+            "Host: " + host + ":" + port + "\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Key: ZHVtbXlfa2V5XzEyMzQ1Ng==\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "\r\n";
+        output.write(request.getBytes(StandardCharsets.US_ASCII));
+        output.flush();
+    }
+
+    private static String readHeaders(InputStream input) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        int previous3 = -1;
+        int previous2 = -1;
+        int previous1 = -1;
+        while (true) {
+            int next = input.read();
+            if (next < 0) {
+                throw new EOFException("EOF while reading HTTP headers");
+            }
+            bytes.write(next);
+            if (previous3 == '\r' && previous2 == '\n' && previous1 == '\r' && next == '\n') {
+                break;
+            }
+            if (bytes.size() > 16 * 1024) {
+                throw new IllegalStateException("HTTP header block too large");
+            }
+            previous3 = previous2;
+            previous2 = previous1;
+            previous1 = next;
+        }
+        return bytes.toString("US-ASCII");
+    }
+
+    private static String readTextFrame(InputStream input) throws Exception {
+        int first = input.read();
+        int second = input.read();
+        if (first < 0 || second < 0) {
+            throw new EOFException("EOF while reading WebSocket frame header");
+        }
+        int opcode = first & 0x0f;
+        if (opcode == 8) {
+            throw new EOFException("Broker closed WebSocket");
+        }
+        if (opcode != 1) {
+            throw new IllegalStateException("Expected text frame, opcode=" + opcode);
+        }
+
+        boolean masked = (second & 0x80) != 0;
+        long length = second & 0x7f;
+        if (length == 126) {
+            length = (readByte(input) << 8) | readByte(input);
+        } else if (length == 127) {
+            length = 0;
+            for (int i = 0; i < 8; i++) {
+                length = (length << 8) | readByte(input);
+            }
+        }
+        if (length > 1024 * 1024) {
+            throw new IllegalStateException("WebSocket frame too large: " + length);
+        }
+
+        byte[] mask = new byte[4];
+        if (masked) {
+            readFully(input, mask);
+        }
+        byte[] payload = new byte[(int) length];
+        readFully(input, payload);
+        if (masked) {
+            for (int i = 0; i < payload.length; i++) {
+                payload[i] = (byte) (payload[i] ^ mask[i % mask.length]);
+            }
+        }
+        return new String(payload, StandardCharsets.UTF_8);
+    }
+
+    private static void writeClientTextFrame(OutputStream output, String text) throws Exception {
+        byte[] payload = text.getBytes(StandardCharsets.UTF_8);
+        ByteArrayOutputStream frame = new ByteArrayOutputStream(payload.length + 16);
+        frame.write(0x81);
+        if (payload.length <= 125) {
+            frame.write(0x80 | payload.length);
+        } else if (payload.length <= 0xffff) {
+            frame.write(0x80 | 126);
+            frame.write((payload.length >> 8) & 0xff);
+            frame.write(payload.length & 0xff);
+        } else {
+            frame.write(0x80 | 127);
+            long length = payload.length;
+            for (int i = 7; i >= 0; i--) {
+                frame.write((int) ((length >> (i * 8)) & 0xff));
+            }
+        }
+
+        byte[] mask = new byte[] { 0x12, 0x34, 0x56, 0x78 };
+        frame.write(mask);
+        for (int i = 0; i < payload.length; i++) {
+            frame.write(payload[i] ^ mask[i % mask.length]);
+        }
+        output.write(frame.toByteArray());
+        output.flush();
+    }
+
+    private static void writeU32(OutputStream output, int value) throws Exception {
+        output.write((value >> 24) & 0xff);
+        output.write((value >> 16) & 0xff);
+        output.write((value >> 8) & 0xff);
+        output.write(value & 0xff);
+    }
+
+    private static void writeU64(OutputStream output, long value) throws Exception {
+        for (int i = 7; i >= 0; i--) {
+            output.write((int) ((value >> (i * 8)) & 0xff));
+        }
+    }
+
+    private static int readByte(InputStream input) throws Exception {
+        int value = input.read();
+        if (value < 0) {
+            throw new EOFException("EOF while reading byte");
+        }
+        return value & 0xff;
+    }
+
+    private static void readFully(InputStream input, byte[] buffer) throws Exception {
+        int offset = 0;
+        while (offset < buffer.length) {
+            int count = input.read(buffer, offset, buffer.length - offset);
+            if (count < 0) {
+                throw new EOFException("EOF while reading payload");
+            }
+            offset += count;
+        }
+    }
+
+    private static final class EncodedPacket {
+        final long ptsUs;
+        final int flags;
+        final byte[] payload;
+
+        EncodedPacket(long ptsUs, int flags, byte[] payload) {
+            this.ptsUs = ptsUs;
+            this.flags = flags;
+            this.payload = payload;
+        }
+    }
+
+    private static final class CameraManagerCreateResult {
+        final CameraManager manager;
+        final String constructorSignature;
+        final String strategy;
+        final JSONArray constructorSignatures;
+
+        CameraManagerCreateResult(
+                CameraManager manager,
+                String constructorSignature,
+                String strategy,
+                JSONArray constructorSignatures) {
+            this.manager = manager;
+            this.constructorSignature = constructorSignature;
+            this.strategy = strategy;
+            this.constructorSignatures = constructorSignatures;
+        }
+    }
+
+    private static final class ShellContext extends ContextWrapper {
+        ShellContext() {
+            super(systemContextOrNull());
+        }
+
+        @Override
+        public String getPackageName() {
+            return "com.android.shell";
+        }
+
+        @Override
+        public String getOpPackageName() {
+            return "com.android.shell";
+        }
+
+        @Override
+        public Context getApplicationContext() {
+            return this;
+        }
+
+        @Override
+        public Object getSystemService(String name) {
+            return null;
+        }
+
+        @Override
+        public String getSystemServiceName(Class<?> serviceClass) {
+            return null;
+        }
+
+        @Override
+        public int checkSelfPermission(String permission) {
+            return PackageManager.PERMISSION_GRANTED;
+        }
+
+        @Override
+        public int checkPermission(String permission, int pid, int uid) {
+            return PackageManager.PERMISSION_GRANTED;
+        }
+
+        @Override
+        public int checkCallingPermission(String permission) {
+            return PackageManager.PERMISSION_GRANTED;
+        }
+
+        @Override
+        public int checkCallingOrSelfPermission(String permission) {
+            return PackageManager.PERMISSION_GRANTED;
+        }
+
+        @Override
+        public AttributionSource getAttributionSource() {
+            return AttributionSource.myAttributionSource();
+        }
+
+        private static Context systemContextOrNull() {
+            try {
+                Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
+                Method currentActivityThread = activityThreadClass.getDeclaredMethod("currentActivityThread");
+                currentActivityThread.setAccessible(true);
+                Object activityThread = currentActivityThread.invoke(null);
+                if (activityThread == null) {
+                    Method systemMain = activityThreadClass.getDeclaredMethod("systemMain");
+                    systemMain.setAccessible(true);
+                    activityThread = systemMain.invoke(null);
+                }
+                if (activityThread == null) {
+                    return null;
+                }
+                Method getSystemContext = activityThreadClass.getDeclaredMethod("getSystemContext");
+                getSystemContext.setAccessible(true);
+                Object context = getSystemContext.invoke(activityThread);
+                return context instanceof Context ? (Context) context : null;
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+    }
+
+    private static final class CommandCapture {
+        final String output;
+        final int outputBytes;
+        final boolean truncated;
+        final boolean timedOut;
+        final int exitCode;
+        final String error;
+
+        CommandCapture(
+                String output,
+                int outputBytes,
+                boolean truncated,
+                boolean timedOut,
+                int exitCode,
+                String error) {
+            this.output = output;
+            this.outputBytes = outputBytes;
+            this.truncated = truncated;
+            this.timedOut = timedOut;
+            this.exitCode = exitCode;
+            this.error = error;
+        }
+    }
+
+    private static final class StreamWriteStats {
+        final long listenStartElapsedNs;
+        final long acceptElapsedNs;
+        final long writeStartElapsedNs;
+        final long writeEndElapsedNs;
+
+        StreamWriteStats(
+                long listenStartElapsedNs,
+                long acceptElapsedNs,
+                long writeStartElapsedNs,
+                long writeEndElapsedNs) {
+            this.listenStartElapsedNs = listenStartElapsedNs;
+            this.acceptElapsedNs = acceptElapsedNs;
+            this.writeStartElapsedNs = writeStartElapsedNs;
+            this.writeEndElapsedNs = writeEndElapsedNs;
+        }
+    }
+
+    private static final class Options {
+        final String host;
+        final int port;
+        final boolean connected;
+        final boolean probeCodecs;
+        final boolean probeCameras;
+        final boolean probeCameraOpen;
+        final String cameraOpenId;
+        final int syntheticVideoSamples;
+        final boolean emitSyntheticVideoBinary;
+        final int syntheticVideoBinaryPort;
+        final int syntheticVideoPackets;
+        final int syntheticVideoPacketBytes;
+        final boolean emitMediaCodecSyntheticVideo;
+        final boolean emitScreenrecordVideo;
+        final int encodedVideoFrames;
+        final int encodedVideoWidth;
+        final int encodedVideoHeight;
+        final int encodedVideoBitrateBps;
+        final int screenrecordTimeLimitSeconds;
+
+        Options(
+                String host,
+                int port,
+                boolean connected,
+                boolean probeCodecs,
+                boolean probeCameras,
+                boolean probeCameraOpen,
+                String cameraOpenId,
+                int syntheticVideoSamples,
+                boolean emitSyntheticVideoBinary,
+                int syntheticVideoBinaryPort,
+                int syntheticVideoPackets,
+                int syntheticVideoPacketBytes,
+                boolean emitMediaCodecSyntheticVideo,
+                boolean emitScreenrecordVideo,
+                int encodedVideoFrames,
+                int encodedVideoWidth,
+                int encodedVideoHeight,
+                int encodedVideoBitrateBps,
+                int screenrecordTimeLimitSeconds) {
+            this.host = host;
+            this.port = port;
+            this.connected = connected;
+            this.probeCodecs = probeCodecs;
+            this.probeCameras = probeCameras;
+            this.probeCameraOpen = probeCameraOpen;
+            this.cameraOpenId = cameraOpenId;
+            this.syntheticVideoSamples = syntheticVideoSamples;
+            this.emitSyntheticVideoBinary = emitSyntheticVideoBinary;
+            this.syntheticVideoBinaryPort = syntheticVideoBinaryPort;
+            this.syntheticVideoPackets = syntheticVideoPackets;
+            this.syntheticVideoPacketBytes = syntheticVideoPacketBytes;
+            this.emitMediaCodecSyntheticVideo = emitMediaCodecSyntheticVideo;
+            this.emitScreenrecordVideo = emitScreenrecordVideo;
+            this.encodedVideoFrames = encodedVideoFrames;
+            this.encodedVideoWidth = encodedVideoWidth;
+            this.encodedVideoHeight = encodedVideoHeight;
+            this.encodedVideoBitrateBps = encodedVideoBitrateBps;
+            this.screenrecordTimeLimitSeconds = screenrecordTimeLimitSeconds;
+        }
+
+        static Options parse(String[] args) {
+            String host = "127.0.0.1";
+            int port = 8765;
+            boolean connected = true;
+            boolean probeCodecs = false;
+            boolean probeCameras = false;
+            boolean probeCameraOpen = false;
+            String cameraOpenId = "";
+            int syntheticVideoSamples = 0;
+            boolean emitSyntheticVideoBinary = false;
+            int syntheticVideoBinaryPort = SYNTHETIC_BINARY_DEFAULT_PORT;
+            int syntheticVideoPackets = SYNTHETIC_BINARY_DEFAULT_PACKET_COUNT;
+            int syntheticVideoPacketBytes = SYNTHETIC_BINARY_DEFAULT_PACKET_BYTES;
+            boolean emitMediaCodecSyntheticVideo = false;
+            boolean emitScreenrecordVideo = false;
+            int encodedVideoFrames = MEDIACODEC_DEFAULT_FRAMES;
+            int encodedVideoWidth = MEDIACODEC_DEFAULT_WIDTH;
+            int encodedVideoHeight = MEDIACODEC_DEFAULT_HEIGHT;
+            int encodedVideoBitrateBps = MEDIACODEC_DEFAULT_BITRATE_BPS;
+            int screenrecordTimeLimitSeconds = SCREENRECORD_DEFAULT_SECONDS;
+            for (int i = 0; i < args.length; i++) {
+                String arg = args[i];
+                if ("--broker-host".equals(arg) && i + 1 < args.length) {
+                    host = args[++i];
+                } else if ("--broker-port".equals(arg) && i + 1 < args.length) {
+                    port = Integer.parseInt(args[++i]);
+                } else if ("--disconnect".equals(arg)) {
+                    connected = false;
+                } else if ("--probe-codecs".equals(arg)) {
+                    probeCodecs = true;
+                } else if ("--probe-cameras".equals(arg)) {
+                    probeCameras = true;
+                } else if ("--probe-camera-open".equals(arg)) {
+                    probeCameraOpen = true;
+                } else if ("--camera-open-id".equals(arg) && i + 1 < args.length) {
+                    cameraOpenId = args[++i];
+                } else if ("--emit-synthetic-video-metadata".equals(arg)) {
+                    syntheticVideoSamples = Math.max(syntheticVideoSamples, 3);
+                } else if ("--synthetic-video-samples".equals(arg) && i + 1 < args.length) {
+                    syntheticVideoSamples = parseSyntheticSampleCount(args[++i]);
+                } else if ("--emit-synthetic-video-binary".equals(arg)) {
+                    emitSyntheticVideoBinary = true;
+                } else if ("--binary-video-port".equals(arg) && i + 1 < args.length) {
+                    syntheticVideoBinaryPort = parsePort("--binary-video-port", args[++i]);
+                } else if ("--binary-video-packets".equals(arg) && i + 1 < args.length) {
+                    syntheticVideoPackets = parseSyntheticPacketCount(args[++i]);
+                } else if ("--binary-video-packet-bytes".equals(arg) && i + 1 < args.length) {
+                    syntheticVideoPacketBytes = parseSyntheticPacketBytes(args[++i]);
+                } else if ("--emit-mediacodec-synthetic-video".equals(arg)) {
+                    emitMediaCodecSyntheticVideo = true;
+                } else if ("--emit-screenrecord-video".equals(arg)) {
+                    emitScreenrecordVideo = true;
+                } else if ("--encoded-video-frames".equals(arg) && i + 1 < args.length) {
+                    encodedVideoFrames = parseEncodedFrameCount(args[++i]);
+                } else if ("--encoded-video-width".equals(arg) && i + 1 < args.length) {
+                    encodedVideoWidth = parsePositiveBounded("--encoded-video-width", args[++i], 16, 4096);
+                } else if ("--encoded-video-height".equals(arg) && i + 1 < args.length) {
+                    encodedVideoHeight = parsePositiveBounded("--encoded-video-height", args[++i], 16, 4096);
+                } else if ("--encoded-video-bitrate".equals(arg) && i + 1 < args.length) {
+                    encodedVideoBitrateBps = parsePositiveBounded("--encoded-video-bitrate", args[++i], 1000, 100000000);
+                } else if ("--screenrecord-time-limit".equals(arg) && i + 1 < args.length) {
+                    screenrecordTimeLimitSeconds = parsePositiveBounded(
+                        "--screenrecord-time-limit",
+                        args[++i],
+                        1,
+                        SCREENRECORD_MAX_SECONDS);
+                } else if ("--help".equals(arg) || "-h".equals(arg)) {
+                    printHelpAndExit();
+                } else {
+                    throw new IllegalArgumentException(String.format(Locale.ROOT, "Unknown argument: %s", arg));
+                }
+            }
+            if (emitScreenrecordVideo && syntheticVideoPackets == SYNTHETIC_BINARY_DEFAULT_PACKET_COUNT) {
+                syntheticVideoPackets = SYNTHETIC_BINARY_MAX_PACKET_COUNT;
+            }
+            if (emitScreenrecordVideo && syntheticVideoPacketBytes == SYNTHETIC_BINARY_DEFAULT_PACKET_BYTES) {
+                syntheticVideoPacketBytes = SCREENRECORD_DEFAULT_PACKET_BYTES;
+            }
+            return new Options(
+                host,
+                port,
+                connected,
+                probeCodecs,
+                probeCameras,
+                probeCameraOpen,
+                cameraOpenId,
+                syntheticVideoSamples,
+                emitSyntheticVideoBinary,
+                syntheticVideoBinaryPort,
+                syntheticVideoPackets,
+                syntheticVideoPacketBytes,
+                emitMediaCodecSyntheticVideo,
+                emitScreenrecordVideo,
+                encodedVideoFrames,
+                encodedVideoWidth,
+                encodedVideoHeight,
+                encodedVideoBitrateBps,
+                screenrecordTimeLimitSeconds);
+        }
+
+        private static int parseSyntheticSampleCount(String value) {
+            int count = Integer.parseInt(value);
+            if (count < 0) {
+                throw new IllegalArgumentException("--synthetic-video-samples must be non-negative");
+            }
+            if (count > 30) {
+                throw new IllegalArgumentException("--synthetic-video-samples is bounded to 30");
+            }
+            return count;
+        }
+
+        private static int parseSyntheticPacketCount(String value) {
+            int count = Integer.parseInt(value);
+            if (count <= 0) {
+                throw new IllegalArgumentException("--binary-video-packets must be positive");
+            }
+            if (count > SYNTHETIC_BINARY_MAX_PACKET_COUNT) {
+                throw new IllegalArgumentException("--binary-video-packets is bounded to 30");
+            }
+            return count;
+        }
+
+        private static int parseSyntheticPacketBytes(String value) {
+            int byteCount = Integer.parseInt(value);
+            if (byteCount <= 0) {
+                throw new IllegalArgumentException("--binary-video-packet-bytes must be positive");
+            }
+            if (byteCount > SYNTHETIC_BINARY_MAX_PACKET_BYTES) {
+                throw new IllegalArgumentException("--binary-video-packet-bytes is bounded to 65536");
+            }
+            return byteCount;
+        }
+
+        private static int parseEncodedFrameCount(String value) {
+            int count = Integer.parseInt(value);
+            if (count <= 0) {
+                throw new IllegalArgumentException("--encoded-video-frames must be positive");
+            }
+            if (count > MEDIACODEC_MAX_FRAMES) {
+                throw new IllegalArgumentException("--encoded-video-frames is bounded to 60");
+            }
+            return count;
+        }
+
+        private static int parsePositiveBounded(String name, String value, int min, int max) {
+            int parsed = Integer.parseInt(value);
+            if (parsed < min || parsed > max) {
+                throw new IllegalArgumentException(name + " must be between " + min + " and " + max);
+            }
+            return parsed;
+        }
+
+        private static int parsePort(String name, String value) {
+            int parsed = Integer.parseInt(value);
+            if (parsed <= 0 || parsed > 65535) {
+                throw new IllegalArgumentException(name + " must be between 1 and 65535");
+            }
+            return parsed;
+        }
+
+        private static void printHelpAndExit() {
+            System.out.println("Rusty XR broker shell helper");
+            System.out.println("  --broker-host <host>  default 127.0.0.1");
+            System.out.println("  --broker-port <port>  default 8765");
+            System.out.println("  --disconnect          report connected=false");
+            System.out.println("  --probe-codecs        report bounded MediaCodec H.264/H.265/AV1 capabilities");
+            System.out.println("  --probe-cameras       report bounded shell-visible camera metadata from dumpsys");
+            System.out.println("  --probe-camera-open   attempt bounded shell Camera2 open plus one YUV capture");
+            System.out.println("  --camera-open-id <id> restrict --probe-camera-open to one Camera2 id");
+            System.out.println("  --emit-synthetic-video-metadata");
+            System.out.println("                        register a metadata-only H.264 stream and 3 sample metadata events");
+            System.out.println("  --synthetic-video-samples <count>");
+            System.out.println("                        bounded sample metadata count; max 30");
+            System.out.println("  --emit-synthetic-video-binary");
+            System.out.println("                        emit bounded synthetic encoded packets over localhost TCP");
+            System.out.println("  --binary-video-port <port>");
+            System.out.println("                        device-local TCP port for the synthetic binary stream; default 8877");
+            System.out.println("  --binary-video-packets <count>");
+            System.out.println("                        bounded binary packet count; max 30");
+            System.out.println("  --binary-video-packet-bytes <bytes>");
+            System.out.println("                        bounded binary packet payload size; max 65536");
+            System.out.println("  --emit-mediacodec-synthetic-video");
+            System.out.println("                        encode a tiny synthetic Surface source with MediaCodec");
+            System.out.println("  --emit-screenrecord-video");
+            System.out.println("                        capture display H.264 through shell screenrecord stdout");
+            System.out.println("  --encoded-video-frames <count>");
+            System.out.println("                        bounded MediaCodec input frame count; max 60");
+            System.out.println("  --encoded-video-width <pixels>");
+            System.out.println("                        encoded video width; default 640");
+            System.out.println("  --encoded-video-height <pixels>");
+            System.out.println("                        encoded video height; default 360");
+            System.out.println("  --encoded-video-bitrate <bps>");
+            System.out.println("                        MediaCodec target bitrate; default 1000000");
+            System.out.println("  --screenrecord-time-limit <seconds>");
+            System.out.println("                        screenrecord capture time; max 3, default 1");
+            System.exit(0);
+        }
+    }
+}

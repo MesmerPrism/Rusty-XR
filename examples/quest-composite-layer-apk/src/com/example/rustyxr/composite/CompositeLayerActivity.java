@@ -11,6 +11,7 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.Window;
 import android.view.WindowManager;
+import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -89,8 +90,22 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final boolean DEFAULT_OSC_OVERLAY_ENABLED = true;
     private static final String DEFAULT_OSC_LISTEN_ADDR = "0.0.0.0:9000";
     private static final int DEFAULT_OSC_MAX_PACKET_BYTES = 8192;
+    private static final String DEFAULT_BROKER_HOST = "127.0.0.1";
+    private static final int DEFAULT_BROKER_PORT = 8765;
+    private static final int DEFAULT_BROKER_H264_STREAM_PORT = 8879;
+    private static final int DEFAULT_BROKER_H264_RIGHT_STREAM_PORT = 8880;
+    private static final int DEFAULT_BROKER_H264_WIDTH = 720;
+    private static final int DEFAULT_BROKER_H264_HEIGHT = 480;
+    private static final int DEFAULT_BROKER_H264_CAPTURE_MS = 900;
+    private static final int DEFAULT_BROKER_H264_MAX_PACKETS = 12;
+    private static final int DEFAULT_BROKER_H264_BITRATE_BPS = 1_000_000;
+    private static final int DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS = 10000;
+    private static final int DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS = 20000;
+    private static final int DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS = 5000;
+    private static final String DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE = "surface-texture";
 
     private MediaProjectionManager mediaProjectionManager;
+    private BrokerH264ConsumerProbe brokerH264ConsumerProbe;
 
     static {
         System.loadLibrary("rusty_xr_quest_composite_native");
@@ -144,6 +159,10 @@ public final class CompositeLayerActivity extends NativeActivity {
             sendNativeEvent("headsetCameraDisabledByIntent");
         }
 
+        if (shouldStartBrokerH264Consumer()) {
+            startBrokerH264ConsumerProbe();
+        }
+
         if (mediaProjectionEnabled) {
             new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                 @Override
@@ -162,6 +181,11 @@ public final class CompositeLayerActivity extends NativeActivity {
         boolean mediaProjectionEnabled = shouldRequestMediaProjection();
         sendRuntimeConfig(cameraEnabled, mediaProjectionEnabled);
         sendNativeEvent("runtimeConfigHotloaded");
+        if (shouldStartBrokerH264Consumer()) {
+            startBrokerH264ConsumerProbe();
+        } else {
+            stopBrokerH264ConsumerProbe();
+        }
         Log.i(TAG, "Rusty XR runtime config hotloaded from new intent");
     }
 
@@ -171,6 +195,16 @@ public final class CompositeLayerActivity extends NativeActivity {
 
     private boolean shouldStartHeadsetCamera() {
         return booleanExtra("rustyxr.camera", true);
+    }
+
+    private boolean shouldStartBrokerH264Consumer() {
+        return booleanExtra("rustyxr.brokerH264Consumer", false);
+    }
+
+    private boolean shouldRenderBrokerH264HardwareBuffer() {
+        String mode = stringExtra("rustyxr.brokerH264DecodeOutputMode", DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE);
+        return shouldStartBrokerH264Consumer() &&
+            "hardware-buffer".equals(mode.trim().toLowerCase(java.util.Locale.US).replace('_', '-'));
     }
 
     private boolean hasExtra(String name) {
@@ -316,7 +350,9 @@ public final class CompositeLayerActivity extends NativeActivity {
     }
 
     private void sendRuntimeConfig(boolean cameraEnabled, boolean mediaProjectionEnabled) {
-        String tier = cameraEnabled ? cameraTier() : "synthetic";
+        boolean brokerH264HardwareBufferRender = shouldRenderBrokerH264HardwareBuffer();
+        boolean rendererCameraEnabled = cameraEnabled || brokerH264HardwareBufferRender;
+        String tier = rendererCameraEnabled ? cameraTier() : "synthetic";
         int cpuUploadHz = intExtra("rustyxr.cameraCpuUploadHz", DEFAULT_CAMERA_CPU_UPLOAD_HZ);
         int cameraTargetFps = Math.max(0, intExtra("rustyxr.cameraTargetFps", DEFAULT_CAMERA_TARGET_FPS));
         int cameraFpsMin = Math.max(0, intExtra("rustyxr.cameraFpsMin", DEFAULT_CAMERA_FPS_MIN));
@@ -329,7 +365,7 @@ public final class CompositeLayerActivity extends NativeActivity {
         appendJsonString(builder, "cameraTier", tier);
         builder.append(',');
         appendJsonString(builder, "cameraAcquisition", cameraAcquisition());
-        builder.append(",\"cameraEnabled\":").append(cameraEnabled);
+        builder.append(",\"cameraEnabled\":").append(rendererCameraEnabled);
         builder.append(",\"mediaProjectionEnabled\":").append(mediaProjectionEnabled);
         builder.append(",\"allowCpuFallback\":").append(allowCpuFallback());
         builder.append(",\"cpuUploadHz\":").append(Math.max(0, cpuUploadHz));
@@ -590,6 +626,58 @@ public final class CompositeLayerActivity extends NativeActivity {
         }
     }
 
+    private void startBrokerH264ConsumerProbe() {
+        if (brokerH264ConsumerProbe != null) {
+            return;
+        }
+
+        BrokerH264ConsumerProbe.Config config = new BrokerH264ConsumerProbe.Config(
+            stringExtra("rustyxr.brokerHost", DEFAULT_BROKER_HOST),
+            Math.max(1, intExtra("rustyxr.brokerPort", DEFAULT_BROKER_PORT)),
+            Math.max(1, intExtra("rustyxr.brokerH264StreamPort", DEFAULT_BROKER_H264_STREAM_PORT)),
+            Math.max(1, intExtra("rustyxr.brokerH264RightStreamPort", DEFAULT_BROKER_H264_RIGHT_STREAM_PORT)),
+            stringExtra("rustyxr.brokerH264CameraId", ""),
+            stringExtra(
+                "rustyxr.brokerH264LeftCameraId",
+                stringExtra("rustyxr.brokerH264CameraId", "")),
+            stringExtra("rustyxr.brokerH264RightCameraId", ""),
+            Math.max(16, intExtra("rustyxr.brokerH264Width", DEFAULT_BROKER_H264_WIDTH)),
+            Math.max(16, intExtra("rustyxr.brokerH264Height", DEFAULT_BROKER_H264_HEIGHT)),
+            Math.max(100, intExtra("rustyxr.brokerH264CaptureMs", DEFAULT_BROKER_H264_CAPTURE_MS)),
+            Math.max(1, intExtra("rustyxr.brokerH264MaxPackets", DEFAULT_BROKER_H264_MAX_PACKETS)),
+            Math.max(100000, intExtra("rustyxr.brokerH264BitrateBps", DEFAULT_BROKER_H264_BITRATE_BPS)),
+            Math.max(1000, intExtra("rustyxr.brokerH264CommandTimeoutMs", DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS)),
+            Math.max(1000, intExtra("rustyxr.brokerH264StreamTimeoutMs", DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS)),
+            Math.max(1000, intExtra("rustyxr.brokerH264DecodeTimeoutMs", DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS)),
+            stringExtra("rustyxr.brokerH264DecodeOutputMode", DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE),
+            booleanExtra("rustyxr.brokerH264Stereo", false),
+            booleanExtra("rustyxr.brokerH264LiveStream", false));
+        Log.i(TAG, "Starting broker H.264 consumer probe");
+        sendNativeEvent("brokerH264ConsumerStarting");
+        brokerH264ConsumerProbe = BrokerH264ConsumerProbe.start(
+            config,
+            new BrokerH264ConsumerProbe.Sink() {
+                @Override
+                public void onBrokerH264ConsumerProbe(JSONObject report) {
+                    try {
+                        report.put("event", "brokerH264ConsumerProbe");
+                        nativeActivityEvent(report.toString());
+                    } catch (Exception error) {
+                        Log.w(TAG, "Could not forward broker H.264 consumer report", error);
+                    }
+                    brokerH264ConsumerProbe = null;
+                }
+            });
+    }
+
+    private void stopBrokerH264ConsumerProbe() {
+        if (brokerH264ConsumerProbe != null) {
+            brokerH264ConsumerProbe.stop();
+            brokerH264ConsumerProbe = null;
+            sendNativeEvent("brokerH264ConsumerStopped");
+        }
+    }
+
     private void startNativeHeadsetCamera() {
         String configJson = nativeCameraConfigJson();
         try {
@@ -693,6 +781,7 @@ public final class CompositeLayerActivity extends NativeActivity {
 
     @Override
     protected void onDestroy() {
+        stopBrokerH264ConsumerProbe();
         try {
             nativeStopNativeCamera();
         } catch (UnsatisfiedLinkError ignored) {

@@ -69,8 +69,24 @@ The first broker APK proof-of-concept is a separate Quest sidecar service with
 localhost status/WebSocket endpoints, optional LSL forwarding, OSC latency
 egress, runtime-configurable OSC-to-WebSocket drive events, generic published
 stream events, Polar-compatible broker bio streams, and a 2D broker console that
-XR clients can open through the broker command API. The public Unity comparison
-target is
+XR clients can open through the broker command API. It now also exposes a
+camera-projection metadata provider, a bounded app-context Camera2 capture
+probe, bounded app-context raw-luma and H.264 Camera2 side-channel probes,
+an Android platform MediaCodec decode-consumption probe, shell-helper status
+surface, and video-lab streams for stream manifests, sample metadata, and
+timing metrics while keeping production camera streaming, texture import,
+OpenXR eye views, and layer submission client-owned. The composite-layer
+example can also run a broker H.264 consumer probe that requests the broker
+stream over localhost, consumes the binary packets in the composite app
+process, and decodes them with platform MediaCodec into a Java-owned
+SurfaceTexture external texture or into hardware buffers that the existing
+Vulkan GPU-buffer probe imports and draws into the OpenXR projection layer. The
+hardware-buffer mode also latches selected Camera2 intrinsics and pose metadata
+from the broker stream-start ack when the broker can report it, so the native
+projection-readiness logs can distinguish "metadata available" from "missing
+projection inputs" before a stereo projected path is selected.
+The public
+Unity comparison target is
 [The Big Red Button Institute](https://github.com/MesmerPrism/the-big-red-button-institute),
 which drives one visible Quest button through direct Unity OSC/BLE input and
 broker-routed stream events. A source-only Rust broker client probe is included
@@ -79,6 +95,16 @@ subscription, console-open, and latency-sample path without adopting a specific
 async runtime:
 [examples/quest-broker-apk/README.md](examples/quest-broker-apk/README.md).
 [examples/broker-client-probe/README.md](examples/broker-client-probe/README.md).
+An optional source-only ADB shell helper example can be built as a dex jar and
+launched with `adb shell app_process` to report shell-helper status to the
+broker, including optional bounded MediaCodec and shell-visible camera metadata
+probes, plus a guarded Camera2 open/one-frame capture feasibility probe and
+metadata-only synthetic encoded-stream events. It can also emit a bounded
+synthetic encoded-packet stream over ADB-forwarded TCP so binary payloads stay
+off the broker JSON path, and includes a guarded MediaCodec synthetic-Surface
+encoder probe plus a guarded shell `screenrecord` display-source probe behind
+the same framing. It is Developer Mode tooling, not an installed APK permission:
+[examples/quest-broker-shell-helper/README.md](examples/quest-broker-shell-helper/README.md).
 Quest ADB input smoke-test limits are documented in
 [docs/QUEST_ADB_INPUT_WORKFLOW.md](docs/QUEST_ADB_INPUT_WORKFLOW.md).
 
@@ -93,6 +119,7 @@ cargo run -p rusty-xr-contracts --example audio_reactive_passthrough_style --fea
 cargo run -p rusty-xr-contracts --example visual_strobe_profiles --features serde
 powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Build-BrokerShellHelper.ps1
 cargo run -p rusty-xr-broker-client-probe -- status
 ```
 

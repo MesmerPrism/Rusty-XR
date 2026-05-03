@@ -229,9 +229,26 @@ The first public broker APK proof-of-concept is
 `examples/quest-broker-apk/`. It builds a separate Android APK/service for
 localhost client messages, status/capability reporting, latency samples,
 optional native LSL forwarding, optional OSC latency egress, and OSC ingress
-values rebroadcast to localhost WebSocket clients. It deliberately does not
-own rendering, camera, depth, OpenXR frame timing, MediaProjection, or encoder
-paths.
+values rebroadcast to localhost WebSocket clients. It now also exposes
+camera-projection metadata, a bounded app-context Camera2 open/one-frame
+capture probe, bounded app-context raw-luma and H.264 binary side-channel
+probes, a broker-local Android MediaCodec H.264 decode-consumption probe, and
+shell-helper status commands for future video-lab work, plus
+`video_lab.register_encoded_stream_manifest`,
+`video_lab.record_encoded_sample_metadata`, and `video_lab.record_metric_sample`
+paths for encoded-stream contract and timing/drop/queue diagnostics. It
+deliberately does not own streaming camera buffers, depth textures, OpenXR frame
+timing, MediaProjection capture, production encoded-frame transport,
+Vulkan/OpenXR texture import, or layer submission. The composite-layer example
+has a separate broker H.264 consumer fixture that can render decoder output to
+a Java-owned `SurfaceTexture` external texture for handoff telemetry, or decode
+into `ImageReader` `PRIVATE` hardware buffers that the existing Vulkan
+GPU-buffer-probe path imports and draws into the submitted OpenXR projection
+layer. When the broker reports selected Camera2 projection metadata in the
+stream-start result, the hardware-buffer consumer forwards intrinsics, pixel
+domains, lens pose, and pose source into the native camera-frame metadata so
+projection-readiness diagnostics can be checked before enabling a stereo
+projected path.
 
 Build it locally with:
 
@@ -261,3 +278,16 @@ Quest app commands, keep the limits in
 [Quest ADB Input Workflow](QUEST_ADB_INPUT_WORKFLOW.md) in mind: synthetic
 keyboard input can validate app command routes, but synthetic Android gamepad
 keys are not controller parity for OVRInput/OpenXR bindings.
+
+The source-only broker shell-helper example is
+`examples/quest-broker-shell-helper/`. It builds a dex jar that can be pushed to
+`/data/local/tmp` and launched with `adb shell app_process` after the user has
+enabled and authorized ADB debugging. The helper reports UID, version, planned
+capabilities, and optionally a bounded MediaCodec H.264/H.265/AV1 capability
+probe plus metadata-only synthetic encoded-stream events to the broker. Treat it as
+Developer Mode/operator tooling, not as an APK permission model:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Build-BrokerShellHelper.ps1
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -ProbeCodecs -EmitSyntheticVideoMetadata
+```

@@ -27,12 +27,146 @@ fn main() -> Result<(), Box<dyn Error>> {
             let response = send_command(&options.host, options.port, "list_streams", None)?;
             print_messages(&response);
         }
+        "camera-provider" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                "camera_provider.get_status",
+                None,
+            )?;
+            print_messages(&response);
+        }
+        "projection-profile" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                "camera_provider.get_projection_profile",
+                None,
+            )?;
+            print_messages(&response);
+        }
+        "app-camera-probe" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                "camera_provider.run_app_camera_probe",
+                None,
+            )?;
+            print_messages(&response);
+        }
+        "shell-helper-status" => {
+            let response =
+                send_command(&options.host, options.port, "shell_helper.get_status", None)?;
+            print_messages(&response);
+        }
+        "video-lab-status" => {
+            let response = send_command(&options.host, options.port, "video_lab.get_status", None)?;
+            print_messages(&response);
+        }
+        "shell-helper-report-stub" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                "shell_helper.report_status",
+                Some(json!({
+                    "connected": true,
+                    "helper_version": "stub",
+                    "uid": "shell",
+                    "capabilities": [
+                        "shell.display.list",
+                        "shell.camera.list"
+                    ],
+                    "active_streams": [],
+                    "last_error": ""
+                })),
+            )?;
+            print_messages(&response);
+        }
+        "video-manifest-stub" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                "video_lab.register_encoded_stream_manifest",
+                Some(json!({
+                    "schema": "rusty.xr.video_lab.encoded_stream_manifest.v1",
+                    "stream_id": "synthetic_encoded_h264",
+                    "session_id": "synthetic-h264-session",
+                    "source": "synthetic",
+                    "transport": "metadata_only",
+                    "payload_transport": "pending_binary",
+                    "mime_type": "video/avc",
+                    "codec": "h264",
+                    "decoder_target": "surface",
+                    "width": 1280,
+                    "height": 720,
+                    "frame_rate_hz": 30,
+                    "bitrate_bps": 4000000
+                })),
+            )?;
+            print_messages(&response);
+        }
+        "video-sample-meta-stub" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                "video_lab.record_encoded_sample_metadata",
+                Some(json!({
+                    "schema": "rusty.xr.video_lab.encoded_sample_metadata.v1",
+                    "stream_id": "synthetic_encoded_h264",
+                    "session_id": "synthetic-h264-session",
+                    "sequence_id": next_sequence_id(),
+                    "source": "synthetic",
+                    "transport": "metadata_only",
+                    "payload_transport": "pending_binary",
+                    "mime_type": "video/avc",
+                    "codec": "h264",
+                    "encoded_size_bytes": 0,
+                    "key_frame": true,
+                    "pts_us": 0,
+                    "dts_us": 0,
+                    "source_time_unix_ns": unix_time_ns(),
+                    "source_time_elapsed_ns": 0
+                })),
+            )?;
+            print_messages(&response);
+        }
+        "video-metric-stub" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                "video_lab.record_metric_sample",
+                Some(json!({
+                    "schema": "rusty.xr.video_lab.metric_sample.v1",
+                    "stream_id": "synthetic_encoded_h264",
+                    "source": "synthetic",
+                    "transport": "metadata_only",
+                    "codec": "none",
+                    "sequence_id": next_sequence_id(),
+                    "source_time_unix_ns": unix_time_ns(),
+                    "client_receive_time_unix_ns": unix_time_ns(),
+                    "decoder_output_time_unix_ns": 0,
+                    "texture_available_time_unix_ns": 0,
+                    "xr_submit_time_unix_ns": 0,
+                    "dropped_frames": 0,
+                    "stale_frames": 0,
+                    "queue_depth": 0,
+                    "width": 0,
+                    "height": 0
+                })),
+            )?;
+            print_messages(&response);
+        }
         "subscribe" => {
             let stream = options
                 .stream
                 .as_deref()
                 .ok_or("--stream <id> is required for subscribe")?;
-            let response = send_command(&options.host, options.port, "subscribe", Some(stream))?;
+            let response = send_command(
+                &options.host,
+                options.port,
+                "subscribe",
+                Some(json!({ "stream": stream })),
+            )?;
             print_messages(&response);
         }
         "open-ui" => {
@@ -49,7 +183,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         _ => {
             return Err(format!(
-                "unknown command '{}'; use status, capabilities, streams, subscribe, open-ui, close-ui, or sample",
+                "unknown command '{}'; use status, capabilities, streams, camera-provider, projection-profile, app-camera-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-manifest-stub, video-sample-meta-stub, video-metric-stub, subscribe, open-ui, close-ui, or sample",
                 options.command
             )
             .into());
@@ -78,11 +212,11 @@ fn send_command(
     host: &str,
     port: u16,
     command: &str,
-    stream_id: Option<&str>,
+    params: Option<Value>,
 ) -> io::Result<Vec<Value>> {
     let mut socket = connect_websocket(host, port)?;
     let mut messages = vec![read_text_frame_json(&mut socket)?];
-    let command = build_command_json(command, stream_id);
+    let command = build_command_json(command, params);
     send_text_frame(&mut socket, command.to_string().as_bytes())?;
     messages.push(read_text_frame_json(&mut socket)?);
     Ok(messages)
@@ -93,7 +227,8 @@ fn send_latency_sample(host: &str, port: u16, subscribe: bool) -> io::Result<Vec
     let mut messages = vec![read_text_frame_json(&mut socket)?];
 
     if subscribe {
-        let subscribe_command = build_command_json("subscribe", Some("latency:sample"));
+        let subscribe_command =
+            build_command_json("subscribe", Some(json!({ "stream": "latency:sample" })));
         send_text_frame(&mut socket, subscribe_command.to_string().as_bytes())?;
         messages.push(read_text_frame_json(&mut socket)?);
     }
@@ -240,7 +375,7 @@ fn read_text_frame(stream: &mut TcpStream) -> io::Result<String> {
         .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))
 }
 
-fn build_command_json(command: &str, stream_id: Option<&str>) -> Value {
+fn build_command_json(command: &str, params: Option<Value>) -> Value {
     let mut message = json!({
         "type": "command",
         "schema": COMMAND_SCHEMA,
@@ -251,10 +386,8 @@ fn build_command_json(command: &str, stream_id: Option<&str>) -> Value {
         "app_version": env!("CARGO_PKG_VERSION")
     });
 
-    if let Some(stream_id) = stream_id {
-        message["params"] = json!({
-            "stream": stream_id
-        });
+    if let Some(params) = params {
+        message["params"] = params;
     }
 
     message
@@ -355,12 +488,110 @@ mod tests {
 
     #[test]
     fn subscribe_command_uses_broker_envelope() {
-        let command = build_command_json("subscribe", Some("latency:sample"));
+        let command = build_command_json("subscribe", Some(json!({ "stream": "latency:sample" })));
         assert_eq!(command["type"], "command");
         assert_eq!(command["schema"], COMMAND_SCHEMA);
         assert_eq!(command["command"], "subscribe");
         assert_eq!(command["client_id"], CLIENT_ID);
         assert_eq!(command["params"]["stream"], "latency:sample");
+    }
+
+    #[test]
+    fn projection_profile_command_uses_broker_envelope() {
+        let command = build_command_json("camera_provider.get_projection_profile", None);
+        assert_eq!(command["type"], "command");
+        assert_eq!(command["schema"], COMMAND_SCHEMA);
+        assert_eq!(command["command"], "camera_provider.get_projection_profile");
+        assert_eq!(command["client_id"], CLIENT_ID);
+        assert!(command.get("params").is_none());
+    }
+
+    #[test]
+    fn shell_helper_report_can_send_stub_capabilities() {
+        let command = build_command_json(
+            "shell_helper.report_status",
+            Some(json!({
+                "connected": true,
+                "helper_version": "stub",
+                "uid": "shell",
+                "capabilities": ["shell.display.list"]
+            })),
+        );
+        assert_eq!(command["type"], "command");
+        assert_eq!(command["command"], "shell_helper.report_status");
+        assert_eq!(command["params"]["uid"], "shell");
+        assert_eq!(command["params"]["capabilities"][0], "shell.display.list");
+    }
+
+    #[test]
+    fn video_metric_stub_uses_metric_schema() {
+        let command = build_command_json(
+            "video_lab.record_metric_sample",
+            Some(json!({
+                "schema": "rusty.xr.video_lab.metric_sample.v1",
+                "stream_id": "synthetic_encoded_h264",
+                "source": "synthetic",
+                "transport": "metadata_only",
+                "codec": "none",
+                "sequence_id": 1
+            })),
+        );
+        assert_eq!(command["type"], "command");
+        assert_eq!(command["command"], "video_lab.record_metric_sample");
+        assert_eq!(
+            command["params"]["schema"],
+            "rusty.xr.video_lab.metric_sample.v1"
+        );
+        assert_eq!(command["params"]["stream_id"], "synthetic_encoded_h264");
+    }
+
+    #[test]
+    fn video_manifest_stub_uses_manifest_schema() {
+        let command = build_command_json(
+            "video_lab.register_encoded_stream_manifest",
+            Some(json!({
+                "schema": "rusty.xr.video_lab.encoded_stream_manifest.v1",
+                "stream_id": "synthetic_encoded_h264",
+                "session_id": "synthetic-h264-session",
+                "mime_type": "video/avc",
+                "width": 1280,
+                "height": 720
+            })),
+        );
+        assert_eq!(command["type"], "command");
+        assert_eq!(
+            command["command"],
+            "video_lab.register_encoded_stream_manifest"
+        );
+        assert_eq!(
+            command["params"]["schema"],
+            "rusty.xr.video_lab.encoded_stream_manifest.v1"
+        );
+        assert_eq!(command["params"]["mime_type"], "video/avc");
+    }
+
+    #[test]
+    fn video_sample_metadata_stub_uses_sample_schema() {
+        let command = build_command_json(
+            "video_lab.record_encoded_sample_metadata",
+            Some(json!({
+                "schema": "rusty.xr.video_lab.encoded_sample_metadata.v1",
+                "stream_id": "synthetic_encoded_h264",
+                "session_id": "synthetic-h264-session",
+                "sequence_id": 1,
+                "encoded_size_bytes": 0
+            })),
+        );
+        assert_eq!(command["type"], "command");
+        assert_eq!(
+            command["command"],
+            "video_lab.record_encoded_sample_metadata"
+        );
+        assert_eq!(
+            command["params"]["schema"],
+            "rusty.xr.video_lab.encoded_sample_metadata.v1"
+        );
+        assert_eq!(command["params"]["session_id"], "synthetic-h264-session");
     }
 
     #[test]

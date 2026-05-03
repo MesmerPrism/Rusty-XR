@@ -237,6 +237,7 @@ Copy-Item -LiteralPath $libCpp -Destination (Join-Path $abiRoot 'libc++_shared.s
 $unsignedApk = Join-Path $buildRoot 'rusty-xr-quest-composite-layer-unsigned.apk'
 $alignedApk = Join-Path $buildRoot 'rusty-xr-quest-composite-layer-aligned.apk'
 $outputApk = Join-Path $outputsRoot 'rusty-xr-quest-composite-layer-debug.apk'
+$classesJar = Join-Path $buildRoot 'rusty-xr-quest-composite-layer-classes.jar'
 
 Invoke-Tool -File $aapt2 -Arguments @(
     'link',
@@ -258,12 +259,16 @@ $javacArgs = @(
 ) + $javaSources
 Invoke-Tool -File $javac -Arguments $javacArgs
 
-$classFiles = Get-ChildItem -LiteralPath $classesRoot -Recurse -File -Filter '*.class' |
-    Select-Object -ExpandProperty FullName
+Invoke-Tool -File $jar -Arguments @(
+    'cf',
+    $classesJar,
+    '-C', $classesRoot, '.'
+)
 $d8Args = @(
     '--min-api', '29',
-    '--output', $dexRoot
-) + $classFiles
+    '--output', $dexRoot,
+    $classesJar
+)
 Invoke-Tool -File $d8 -Arguments $d8Args
 
 Invoke-Tool -File $jar -Arguments @(

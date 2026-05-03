@@ -2132,6 +2132,7 @@ unsafe fn run_vulkan(
     let mut environment_depth_visualizer = EnvironmentDepthVisualizer::new(render_pass);
     let mut osc_diagnostics_overlay = OscDiagnosticsOverlay::new(render_pass);
     let mut last_logged_gpu_frame_index: Option<u64> = None;
+    let mut last_logged_prepared_gpu_frame_index: Option<u64> = None;
     let mut last_logged_prepared_stereo_frame_index: Option<u64> = None;
     let mut openxr_environment_depth_probe: Option<OpenXrEnvironmentDepthProbe> = None;
     let mut openxr_passthrough_probe: Option<OpenXrPassthroughProbe> = None;
@@ -2843,7 +2844,10 @@ unsafe fn run_vulkan(
                     config.camera_import_cache_limit,
                 ) {
                     Ok(Some(import_index)) => {
-                        if gpu_frame.index == 0 || gpu_frame.index % 120 == 0 {
+                        if last_logged_prepared_gpu_frame_index.is_none()
+                            || last_logged_prepared_gpu_frame_index != Some(gpu_frame.index)
+                                && gpu_frame.index % 120 == 0
+                        {
                             let projection = gpu_projection_readiness(&gpu_frame);
                             log_info(format!(
                                 "Rusty XR GPU-sampled diagnostic camera surface frame {} requestedTier={} activeTier=gpu-buffer-probe alignedProjection=false importCacheSize={} importSuccess={} importFailure={} stereoLayout={:?} poseSource={} projectionCheck={} fallbackReason={}",
@@ -2861,6 +2865,7 @@ unsafe fn run_vulkan(
                                 projection.check_label,
                                 projection.fallback_reason
                             ));
+                            last_logged_prepared_gpu_frame_index = Some(gpu_frame.index);
                         }
                         prepared_gpu_camera = Some((gpu_frame, import_index));
                     }
@@ -4575,7 +4580,7 @@ impl GpuCameraRenderer {
         }
         self.imports[index].needs_layout_transition = false;
         log_info(format!(
-            "Rusty XR Vulkan imported Camera2 hardware buffer size={}x{} nativeFormat={} externalFormat={} vkFormat={:?} samplerBindingMode={} importImageLayout={} allocationSize={} memoryTypeBits=0x{:x} suggestedYcbcrModel={:?} suggestedYcbcrRange={:?} samplerYcbcrComponents={:?} suggestedXChromaOffset={:?} suggestedYChromaOffset={:?} importCacheSize={} importCacheLimit={} importCacheMiss={} importCacheEvict={}",
+            "Rusty XR Vulkan imported camera hardware buffer size={}x{} nativeFormat={} externalFormat={} vkFormat={:?} samplerBindingMode={} importImageLayout={} allocationSize={} memoryTypeBits=0x{:x} suggestedYcbcrModel={:?} suggestedYcbcrRange={:?} samplerYcbcrComponents={:?} suggestedXChromaOffset={:?} suggestedYChromaOffset={:?} importCacheSize={} importCacheLimit={} importCacheMiss={} importCacheEvict={}",
             frame.width,
             frame.height,
             frame.descriptor.native_format.unwrap_or_default(),

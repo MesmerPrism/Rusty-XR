@@ -164,6 +164,7 @@ $env:JAVA_HOME = $jdkRoot
 $unsignedApk = Join-Path $buildRoot 'rusty-xr-quest-broker-unsigned.apk'
 $alignedApk = Join-Path $buildRoot 'rusty-xr-quest-broker-aligned.apk'
 $outputApk = Join-Path $outputsRoot 'rusty-xr-quest-broker-debug.apk'
+$classesJar = Join-Path $buildRoot 'rusty-xr-quest-broker-classes.jar'
 $jniLibraryRoot = Join-Path $nativeRoot 'arm64-v8a'
 $packagedLibraryRoot = Join-Path $packageRoot 'lib\arm64-v8a'
 
@@ -229,12 +230,16 @@ if (-not [string]::IsNullOrWhiteSpace($lslAndroidLibrary)) {
     Write-Warning 'No Android liblsl.so supplied. Broker APK will accept samples, publish OSC when enabled, and log LSL fallback diagnostics.'
 }
 
-$classFiles = Get-ChildItem -LiteralPath $classesRoot -Recurse -File -Filter '*.class' |
-    Select-Object -ExpandProperty FullName
+Invoke-Tool -File $jar -Arguments @(
+    'cf',
+    $classesJar,
+    '-C', $classesRoot, '.'
+)
 $d8Args = @(
     '--min-api', '29',
-    '--output', $dexRoot
-) + $classFiles
+    '--output', $dexRoot,
+    $classesJar
+)
 Invoke-Tool -File $d8 -Arguments $d8Args
 
 Invoke-Tool -File $jar -Arguments @(

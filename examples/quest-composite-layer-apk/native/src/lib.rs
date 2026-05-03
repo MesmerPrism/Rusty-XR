@@ -2745,6 +2745,179 @@ pub extern "system" fn Java_com_example_rustyxr_composite_HeadsetCameraService_n
 
 #[allow(non_snake_case)]
 #[no_mangle]
+pub extern "system" fn Java_com_example_rustyxr_composite_BrokerH264ConsumerProbe_nativeBrokerH264DecodedHardwareBufferFrame(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    width: jint,
+    height: jint,
+    timestamp_ns: jlong,
+    metadata_json: JString<'_>,
+    hardware_buffer: JObject<'_>,
+    hardware_buffer_format: jint,
+    hardware_buffer_usage: jlong,
+    hardware_buffer_layers: jint,
+    hardware_buffer_id: jlong,
+) -> jboolean {
+    if width <= 0 || height <= 0 {
+        #[cfg(target_os = "android")]
+        log_error("Rusty XR received broker H.264 decoded hardware buffer with invalid dimensions");
+        return 0;
+    }
+
+    let metadata_json = env
+        .get_string(&metadata_json)
+        .map(|value| value.to_string_lossy().into_owned())
+        .ok();
+
+    let gpu_buffer = match probe_android_hardware_buffer_descriptor_with_label(
+        &mut env,
+        &hardware_buffer,
+        width as u32,
+        height as u32,
+        hardware_buffer_format,
+        hardware_buffer_usage,
+        hardware_buffer_layers,
+        hardware_buffer_id,
+        "Broker H.264 decoded AHardwareBuffer",
+    ) {
+        Ok(descriptor) => descriptor,
+        Err(_error) => {
+            #[cfg(target_os = "android")]
+            log_error(format!(
+                "Rusty XR broker H.264 decoded hardware-buffer probe failed: {_error}"
+            ));
+            if let Ok(mut state) = headset_camera_state().lock() {
+                state.gpu_probe_failure_count = state.gpu_probe_failure_count.saturating_add(1);
+            }
+            return 0;
+        }
+    };
+
+    if store_headset_camera_gpu_frame(
+        width as u32,
+        height as u32,
+        timestamp_ns,
+        metadata_json,
+        gpu_buffer,
+    ) {
+        1
+    } else {
+        0
+    }
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "system" fn Java_com_example_rustyxr_composite_BrokerH264ConsumerProbe_nativeBrokerH264DecodedStereoHardwareBufferFrame(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    left_width: jint,
+    left_height: jint,
+    left_timestamp_ns: jlong,
+    left_metadata_json: JString<'_>,
+    left_hardware_buffer: JObject<'_>,
+    left_hardware_buffer_format: jint,
+    left_hardware_buffer_usage: jlong,
+    left_hardware_buffer_layers: jint,
+    left_hardware_buffer_id: jlong,
+    right_width: jint,
+    right_height: jint,
+    right_timestamp_ns: jlong,
+    right_metadata_json: JString<'_>,
+    right_hardware_buffer: JObject<'_>,
+    right_hardware_buffer_format: jint,
+    right_hardware_buffer_usage: jlong,
+    right_hardware_buffer_layers: jint,
+    right_hardware_buffer_id: jlong,
+    pair_delta_ns: jlong,
+    pair_index: jlong,
+) -> jboolean {
+    if left_width <= 0 || left_height <= 0 || right_width <= 0 || right_height <= 0 {
+        #[cfg(target_os = "android")]
+        log_error(
+            "Rusty XR received broker H.264 decoded stereo hardware buffer with invalid dimensions",
+        );
+        return 0;
+    }
+
+    let left_metadata_json = env
+        .get_string(&left_metadata_json)
+        .map(|value| value.to_string_lossy().into_owned())
+        .ok();
+    let right_metadata_json = env
+        .get_string(&right_metadata_json)
+        .map(|value| value.to_string_lossy().into_owned())
+        .ok();
+
+    let left_gpu_buffer = match probe_android_hardware_buffer_descriptor_with_label(
+        &mut env,
+        &left_hardware_buffer,
+        left_width as u32,
+        left_height as u32,
+        left_hardware_buffer_format,
+        left_hardware_buffer_usage,
+        left_hardware_buffer_layers,
+        left_hardware_buffer_id,
+        "Broker H.264 decoded left AHardwareBuffer",
+    ) {
+        Ok(descriptor) => descriptor,
+        Err(_error) => {
+            #[cfg(target_os = "android")]
+            log_error(format!(
+                "Rusty XR broker H.264 decoded left stereo hardware-buffer probe failed: {_error}"
+            ));
+            if let Ok(mut state) = headset_camera_state().lock() {
+                state.gpu_probe_failure_count = state.gpu_probe_failure_count.saturating_add(1);
+            }
+            return 0;
+        }
+    };
+    let right_gpu_buffer = match probe_android_hardware_buffer_descriptor_with_label(
+        &mut env,
+        &right_hardware_buffer,
+        right_width as u32,
+        right_height as u32,
+        right_hardware_buffer_format,
+        right_hardware_buffer_usage,
+        right_hardware_buffer_layers,
+        right_hardware_buffer_id,
+        "Broker H.264 decoded right AHardwareBuffer",
+    ) {
+        Ok(descriptor) => descriptor,
+        Err(_error) => {
+            #[cfg(target_os = "android")]
+            log_error(format!(
+                "Rusty XR broker H.264 decoded right stereo hardware-buffer probe failed: {_error}"
+            ));
+            if let Ok(mut state) = headset_camera_state().lock() {
+                state.gpu_probe_failure_count = state.gpu_probe_failure_count.saturating_add(1);
+            }
+            return 0;
+        }
+    };
+
+    if store_headset_stereo_camera_gpu_frame(
+        left_width as u32,
+        left_height as u32,
+        left_timestamp_ns,
+        left_metadata_json,
+        left_gpu_buffer,
+        right_width as u32,
+        right_height as u32,
+        right_timestamp_ns,
+        right_metadata_json,
+        right_gpu_buffer,
+        pair_delta_ns.max(0) as u64,
+        pair_index.max(0) as u64,
+    ) {
+        1
+    } else {
+        0
+    }
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
 pub extern "system" fn Java_com_example_rustyxr_composite_HeadsetCameraService_nativeHeadsetStereoCameraHardwareBufferFrame(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
@@ -2857,6 +3030,32 @@ fn probe_android_hardware_buffer_descriptor(
     hardware_buffer_layers: jint,
     hardware_buffer_id: jlong,
 ) -> Result<HeadsetCameraGpuBufferImport, String> {
+    probe_android_hardware_buffer_descriptor_with_label(
+        env,
+        hardware_buffer,
+        width,
+        height,
+        hardware_buffer_format,
+        hardware_buffer_usage,
+        hardware_buffer_layers,
+        hardware_buffer_id,
+        "Camera2 PRIVATE AHardwareBuffer",
+    )
+}
+
+#[cfg(target_os = "android")]
+#[allow(clippy::too_many_arguments)]
+fn probe_android_hardware_buffer_descriptor_with_label(
+    env: &mut JNIEnv<'_>,
+    hardware_buffer: &JObject<'_>,
+    width: u32,
+    height: u32,
+    hardware_buffer_format: jint,
+    hardware_buffer_usage: jlong,
+    hardware_buffer_layers: jint,
+    hardware_buffer_id: jlong,
+    descriptor_label: &'static str,
+) -> Result<HeadsetCameraGpuBufferImport, String> {
     let buffer = unsafe {
         ndk_sys::AHardwareBuffer_fromHardwareBuffer(
             env.get_native_interface().cast(),
@@ -2874,7 +3073,7 @@ fn probe_android_hardware_buffer_descriptor(
     }
     let desc = unsafe { desc.assume_init() };
     let mut descriptor = CameraGpuBufferDescriptor::new(
-        "Camera2 PRIVATE AHardwareBuffer",
+        descriptor_label,
         ImageSize::new(width, height),
         "AHardwareBuffer",
     )
@@ -2919,8 +3118,34 @@ fn probe_android_hardware_buffer_descriptor(
     hardware_buffer_layers: jint,
     hardware_buffer_id: jlong,
 ) -> Result<HeadsetCameraGpuBufferImport, String> {
-    let mut descriptor = CameraGpuBufferDescriptor::new(
+    probe_android_hardware_buffer_descriptor_with_label(
+        _env,
+        _hardware_buffer,
+        width,
+        height,
+        hardware_buffer_format,
+        hardware_buffer_usage,
+        hardware_buffer_layers,
+        hardware_buffer_id,
         "Camera2 PRIVATE AHardwareBuffer",
+    )
+}
+
+#[cfg(not(target_os = "android"))]
+#[allow(clippy::too_many_arguments)]
+fn probe_android_hardware_buffer_descriptor_with_label(
+    _env: &mut JNIEnv<'_>,
+    _hardware_buffer: &JObject<'_>,
+    width: u32,
+    height: u32,
+    hardware_buffer_format: jint,
+    hardware_buffer_usage: jlong,
+    hardware_buffer_layers: jint,
+    hardware_buffer_id: jlong,
+    descriptor_label: &'static str,
+) -> Result<HeadsetCameraGpuBufferImport, String> {
+    let mut descriptor = CameraGpuBufferDescriptor::new(
+        descriptor_label,
         ImageSize::new(width, height),
         "AHardwareBuffer",
     );

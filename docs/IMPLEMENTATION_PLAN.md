@@ -218,7 +218,50 @@ Current Quest media implementation status:
   broker-to-laptop LSL forwarding, OSC latency egress, and OSC drive ingress.
   It has been validated with
   [The Big Red Button Institute](https://github.com/MesmerPrism/the-big-red-button-institute),
-  the public Unity Quest comparison example.
+  the public Unity Quest comparison example. The broker also exposes an initial
+  camera-projection metadata provider, a bounded app-context Camera2
+  open/one-frame capture probe, bounded app-context raw-luma and H.264 binary
+  side-channel probes, a broker-local Android MediaCodec H.264 decode probe,
+  and shell-helper status surface. The composite-layer example can now run a
+  separate broker H.264 consumer probe that requests the broker stream,
+  consumes the device-local binary payload, and decodes it in the composite app
+  process, including a surface-backed `SurfaceTexture` external-texture
+  telemetry mode and a hardware-buffer mode that feeds the existing Vulkan
+  GPU-buffer-probe renderer. The hardware-buffer path now carries selected
+  Camera2 intrinsics and platform pose metadata from the broker stream-start
+  result when available, which proves projection-readiness metadata survives
+  broker encode, client decode, and GPU import. The active XR client still owns
+  production camera streaming, aligned stereo source selection, eye views/FOV,
+  shaders, and release-grade OpenXR layer submission.
+- Public Rusty XR now includes a source-only broker shell-helper example that
+  builds a dex jar for `adb shell app_process`. It reports UID/version/basic
+  capabilities, optional bounded codec diagnostics, bounded shell-visible
+  camera metadata, Camera2 open/one-frame capture feasibility, and optional
+  metadata-only synthetic encoded-stream events to the broker over the existing
+  WebSocket command API. The broker maps shell camera metadata/open/capture
+  evidence into `cameraProvider` and `projectionProfile` status while keeping
+  the raw helper diagnostics separate. It can also emit bounded synthetic
+  encoded packets over an
+  ADB-forwarded TCP side channel with a small public framing contract, plus a
+  guarded MediaCodec synthetic-Surface encoder probe that emits real H.264
+  packets over the same side channel and records helper encode/write metrics.
+  It can also run a guarded shell `screenrecord` display-source probe that
+  chunks stdout H.264 bytes into the same framing. It is Developer Mode tooling
+  and does not make the installed broker APK run as Android `shell`.
+- The broker also exposes metadata-only `video_lab.register_encoded_stream_manifest`,
+  `video_lab.record_encoded_sample_metadata`, and
+  `video_lab.record_metric_sample` commands with matching video-lab streams for
+  encoded-stream contract, sample metadata, and timing/drop/queue diagnostics.
+  High-rate frame payloads belong on a binary transport owned by the
+  provider/client adapter; the current helper side channel is a synthetic
+  MediaCodec proof, shell screenrecord display-source proof, and bounded camera
+  feasibility proof for that split. The broker app-context luma probe now also
+  proves bounded raw camera payload delivery with `raw_luma8` packets over
+  ADB-forwarded TCP, and the broker app-context H.264 probe proves Camera2
+  frames can feed Android's platform encoder and use the same side channel.
+  The decode fixtures prove platform decoder consumption with byte-buffer
+  output, not Vulkan/OpenXR texture submission. These are still diagnostic
+  bridges rather than streaming camera providers.
 - Future native support should still stay in thin optional adapters or public
   examples rather than becoming private app-shell behavior inside core crates.
 
