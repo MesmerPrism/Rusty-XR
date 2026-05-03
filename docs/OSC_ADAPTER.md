@@ -102,10 +102,10 @@ dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- cat
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- osc send --host <quest-lan-ip> --port 9000 --address /rusty-xr/drive/radius --arg float:0.75
 ```
 
-This path has been validated with a Unity client on Quest consuming broker
-WebSocket events to drive a live scene parameter. A dedicated public Unity
-example will be added separately; the current public surface is the broker APK
-source, catalog, and companion workflow.
+This path has been validated with
+[The Big Red Button Institute](https://github.com/MesmerPrism/the-big-red-button-institute),
+the public Unity Quest example that consumes broker WebSocket events and exposes
+the direct OSC acknowledgement route for comparison.
 
 ## Local Rust Probe
 

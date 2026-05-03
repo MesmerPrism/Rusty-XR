@@ -216,8 +216,9 @@ Current Quest media implementation status:
 - Public Rusty XR now includes a separate broker APK proof-of-concept for
   localhost WebSocket latency samples, status/capability reporting, optional
   broker-to-laptop LSL forwarding, OSC latency egress, and OSC drive ingress.
-  It has been validated with a Unity client on Quest, while a dedicated public
-  Unity example remains a future iteration.
+  It has been validated with
+  [The Big Red Button Institute](https://github.com/MesmerPrism/the-big-red-button-institute),
+  the public Unity Quest comparison example.
 - Future native support should still stay in thin optional adapters or public
   examples rather than becoming private app-shell behavior inside core crates.
 

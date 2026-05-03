@@ -45,6 +45,17 @@ final class BrokerRuntimeConfig {
             : DEFAULT_OSC_INGRESS_ADDRESS;
     }
 
+    static BrokerRuntimeConfig oscIngressConfig(boolean enabled, int port, String address) {
+        return new BrokerRuntimeConfig(
+            false,
+            "",
+            DEFAULT_OSC_PORT,
+            DEFAULT_OSC_ADDRESS,
+            enabled,
+            port,
+            address);
+    }
+
     static BrokerRuntimeConfig fromIntent(Intent intent) {
         Bundle extras = intent != null ? intent.getExtras() : null;
         boolean oscEnabled = getBoolean(extras, false, EXTRA_OSC_ENABLED, "oscEnabled");

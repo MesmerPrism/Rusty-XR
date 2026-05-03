@@ -253,6 +253,11 @@ test OSC ingress/egress. The APK is written under
 `examples/quest-broker-apk/catalog/` exposes runtime profiles for localhost
 latency, OSC egress, and OSC drive ingress.
 
-The broker proof has been validated with a Unity client on Quest. The public
-repo publishes the broker source and companion workflow first; a dedicated
-Unity client example will be added separately.
+The broker proof has been validated with
+[The Big Red Button Institute](https://github.com/MesmerPrism/the-big-red-button-institute),
+the public Unity Quest example for comparing direct Unity OSC/BLE input against
+broker-routed stream events on one visible scene target. When using ADB to exercise
+Quest app commands, keep the limits in
+[Quest ADB Input Workflow](QUEST_ADB_INPUT_WORKFLOW.md) in mind: synthetic
+keyboard input can validate app command routes, but synthetic Android gamepad
+keys are not controller parity for OVRInput/OpenXR bindings.

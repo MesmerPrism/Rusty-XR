@@ -1,5 +1,7 @@
 package com.example.rustyxr.broker;
 
+import android.content.Context;
+import android.content.Intent;
 import android.os.SystemClock;
 import android.util.Base64;
 import android.util.Log;
@@ -22,6 +24,7 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 final class LocalBrokerServer implements Closeable {
     private static final String WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -31,16 +34,19 @@ final class LocalBrokerServer implements Closeable {
     private final int port;
     private final BrokerState state;
     private final LatencyPublisher publisher;
+    private final Context context;
     private final Set<WebSocketClientConnection> websocketClients = new HashSet<>();
+    private final AtomicLong nextConnectionId = new AtomicLong(1L);
     private volatile OscIngressServer oscIngressServer;
     private volatile boolean running;
     private ServerSocket serverSocket;
     private Thread acceptThread;
 
-    LocalBrokerServer(int port, BrokerState state, LatencyPublisher publisher) {
+    LocalBrokerServer(int port, BrokerState state, LatencyPublisher publisher, Context context) {
         this.port = port;
         this.state = state;
         this.publisher = publisher;
+        this.context = context != null ? context.getApplicationContext() : null;
     }
 
     boolean isRunning() {
@@ -86,6 +92,11 @@ final class LocalBrokerServer implements Closeable {
             }
             websocketClients.clear();
         }
+
+        if (oscIngressServer != null) {
+            oscIngressServer.close();
+            oscIngressServer = null;
+        }
     }
 
     int broadcastText(String text) {
@@ -103,6 +114,43 @@ final class LocalBrokerServer implements Closeable {
                 }
 
                 sent++;
+            }
+        }
+        return sent;
+    }
+
+    int broadcastStreamEvent(String stream, long sequenceId, long receiveUnixNs, JSONObject payload) {
+        if (stream == null || stream.length() == 0 || payload == null) {
+            return 0;
+        }
+
+        int sent = 0;
+        synchronized (websocketClients) {
+            WebSocketClientConnection[] snapshot = websocketClients.toArray(new WebSocketClientConnection[0]);
+            for (WebSocketClientConnection client : snapshot) {
+                if (!client.isSubscribedTo(stream)) {
+                    continue;
+                }
+
+                try {
+                    JSONObject event = new JSONObject();
+                    event.put("type", "stream_event");
+                    event.put("schema", "rusty.xr.broker.stream_event.v1");
+                    event.put("stream", stream);
+                    event.put("subscription_id", client.subscriptionIdFor(stream));
+                    event.put("sequence_id", sequenceId);
+                    event.put("broker_time_unix_ns", receiveUnixNs);
+                    event.put("broker_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+                    event.put("payload", payload);
+                    if (!client.sendText(event.toString())) {
+                        websocketClients.remove(client);
+                        continue;
+                    }
+
+                    sent++;
+                } catch (Exception ex) {
+                    Log.w(BrokerService.TAG, "Stream event build failed: " + ex.getMessage());
+                }
             }
         }
         return sent;
@@ -183,12 +231,12 @@ final class LocalBrokerServer implements Closeable {
         output.flush();
 
         state.websocketConnections.incrementAndGet();
-        WebSocketClientConnection connection = new WebSocketClientConnection(output);
+        WebSocketClientConnection connection = new WebSocketClientConnection(nextConnectionId.getAndIncrement(), output);
         synchronized (websocketClients) {
             websocketClients.add(connection);
         }
-        connection.sendText(state.toStatusJson(publisher, oscIngressServer).toString());
-        Log.i(BrokerService.TAG, "WebSocket client connected");
+        connection.sendText(statusForConnection(connection).toString());
+        Log.i(BrokerService.TAG, "WebSocket client connected id=" + connection.connectionId);
 
         try {
             while (running) {
@@ -207,7 +255,7 @@ final class LocalBrokerServer implements Closeable {
                 }
 
                 String text = new String(frame.payload, StandardCharsets.UTF_8);
-                JSONObject reply = handleClientMessage(text);
+                JSONObject reply = handleClientMessage(connection, text);
                 if (reply != null) {
                     connection.sendText(reply.toString());
                 }
@@ -218,15 +266,29 @@ final class LocalBrokerServer implements Closeable {
             }
         }
 
-        Log.i(BrokerService.TAG, "WebSocket client disconnected");
+        Log.i(BrokerService.TAG, "WebSocket client disconnected id=" + connection.connectionId);
     }
 
-    private JSONObject handleClientMessage(String text) {
+    private JSONObject handleClientMessage(WebSocketClientConnection connection, String text) {
         try {
             JSONObject message = new JSONObject(text);
             String type = message.optString("type", "");
             if ("hello".equals(type)) {
-                return state.toStatusJson(publisher, oscIngressServer);
+                updateClientIdentity(connection, message);
+                return statusForConnection(connection);
+            }
+
+            if ("status_request".equals(type)) {
+                state.acceptedCommands.incrementAndGet();
+                return statusForConnection(connection);
+            }
+
+            if ("command".equals(type)) {
+                return handleCommand(connection, message);
+            }
+
+            if ("subscribe".equals(type) || "unsubscribe".equals(type)) {
+                return handleLegacySubscriptionCommand(connection, type, message);
             }
 
             if ("latency_sample".equals(type)) {
@@ -249,6 +311,380 @@ final class LocalBrokerServer implements Closeable {
             }
             return error;
         }
+    }
+
+    private JSONObject handleCommand(WebSocketClientConnection connection, JSONObject message) throws Exception {
+        String command = message.optString("command", "");
+        String requestId = message.optString("request_id", "");
+        updateClientIdentity(connection, message);
+
+        if ("status_request".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            return commandAck(requestId, command, true, "status", statusForConnection(connection));
+        }
+
+        if ("list_capabilities".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("capabilities", state.capabilitiesJson(publisher, oscIngressServer));
+            return commandAck(requestId, command, true, "capabilities", result);
+        }
+
+        if ("list_streams".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("streams", state.streamsJson(oscIngressServer));
+            return commandAck(requestId, command, true, "streams", result);
+        }
+
+        if ("subscribe".equals(command)) {
+            JSONObject params = message.optJSONObject("params");
+            String stream = params != null ? params.optString("stream", "") : message.optString("stream", "");
+            return subscribe(connection, requestId, command, stream);
+        }
+
+        if ("unsubscribe".equals(command)) {
+            JSONObject params = message.optJSONObject("params");
+            String stream = params != null ? params.optString("stream", "") : message.optString("stream", "");
+            return unsubscribe(connection, requestId, command, stream);
+        }
+
+        if ("configure_osc_ingress".equals(command)) {
+            return configureOscIngress(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("publish_stream_event".equals(command)) {
+            return publishStreamEvent(connection, requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("open_ui".equals(command) ||
+            "broker_console_open".equals(command) ||
+            "ui.open".equals(command)) {
+            return openBrokerConsole(connection, requestId, command);
+        }
+
+        if ("close_ui".equals(command) ||
+            "broker_console_close".equals(command) ||
+            "ui.close".equals(command)) {
+            return closeBrokerConsole(connection, requestId, command);
+        }
+
+        state.rejectedCommands.incrementAndGet();
+        return commandError(requestId, command, "unsupported_command", "Unknown command: " + command);
+    }
+
+    private JSONObject handleLegacySubscriptionCommand(
+        WebSocketClientConnection connection,
+        String type,
+        JSONObject message) throws Exception {
+        String stream = message.optString("stream", "");
+        String requestId = message.optString("request_id", "");
+        if ("subscribe".equals(type)) {
+            return subscribe(connection, requestId, type, stream);
+        }
+
+        return unsubscribe(connection, requestId, type, stream);
+    }
+
+    private synchronized JSONObject configureOscIngress(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        boolean enabled = params == null || params.optBoolean("enabled", true);
+        int requestedPort = params != null
+            ? params.optInt("port", BrokerRuntimeConfig.DEFAULT_OSC_PORT)
+            : BrokerRuntimeConfig.DEFAULT_OSC_PORT;
+        String address = normalizeOscAddress(params != null
+            ? params.optString("address", BrokerRuntimeConfig.DEFAULT_OSC_INGRESS_ADDRESS)
+            : BrokerRuntimeConfig.DEFAULT_OSC_INGRESS_ADDRESS);
+
+        if (requestedPort <= 0 || requestedPort > 65535) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "invalid_port", "OSC ingress port must be between 1 and 65535.");
+        }
+
+        if (!address.startsWith("/")) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "invalid_address", "OSC ingress address must start with '/'.");
+        }
+
+        if (enabled &&
+            oscIngressServer != null &&
+            oscIngressServer.isRunning() &&
+            oscIngressServer.port() == requestedPort &&
+            address.equals(oscIngressServer.acceptedAddress())) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("enabled", true);
+            result.put("port", requestedPort);
+            result.put("address", address);
+            result.put("stream", oscIngressServer.streamId());
+            result.put("status", oscIngressServer.toStatusJson());
+            return commandAck(requestId, command, true, "osc_ingress_already_configured", result);
+        }
+
+        if (oscIngressServer != null) {
+            oscIngressServer.close();
+            oscIngressServer = null;
+        }
+
+        if (enabled) {
+            BrokerRuntimeConfig config = BrokerRuntimeConfig.oscIngressConfig(true, requestedPort, address);
+            OscIngressServer next = OscIngressServer.createOrNull(config, state, this);
+            if (next == null) {
+                state.rejectedCommands.incrementAndGet();
+                return commandError(requestId, command, "create_failed", "OSC ingress server could not be created.");
+            }
+
+            try {
+                next.start();
+            } catch (Exception ex) {
+                next.close();
+                state.rejectedCommands.incrementAndGet();
+                return commandError(
+                    requestId,
+                    command,
+                    "start_failed",
+                    ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            }
+
+            oscIngressServer = next;
+        }
+
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("enabled", oscIngressServer != null && oscIngressServer.isRunning());
+        result.put("port", requestedPort);
+        result.put("address", address);
+        result.put("stream", "osc:" + address);
+        result.put("status", oscIngressServer != null
+            ? oscIngressServer.toStatusJson()
+            : new JSONObject().put("enabled", false));
+        Log.i(BrokerService.TAG, "OSC ingress runtime config enabled=" +
+            (oscIngressServer != null && oscIngressServer.isRunning()) +
+            " port=" + requestedPort + " address=" + address);
+        return commandAck(requestId, command, true, "osc_ingress_configured", result);
+    }
+
+    private JSONObject publishStreamEvent(
+        WebSocketClientConnection connection,
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (params == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_params", "Command requires params.");
+        }
+
+        String stream = params.optString("stream", "");
+        if (stream.trim().length() == 0) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_stream", "Command requires params.stream.");
+        }
+
+        JSONObject payload = params.optJSONObject("payload");
+        if (payload == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_payload", "Command requires params.payload.");
+        }
+
+        long sequence = params.optLong("sequence_id", state.publishedStreamEvents.get() + 1L);
+        long receiveUnixNs = unixNowNs();
+        payload.put("publisher_client_id", connection != null ? connection.clientId : "");
+        payload.put("broker_receive_time_unix_ns", receiveUnixNs);
+        int broadcasts = broadcastStreamEvent(stream, sequence, receiveUnixNs, payload);
+        long accepted = state.publishedStreamEvents.incrementAndGet();
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("stream", stream);
+        result.put("sequence_id", sequence);
+        result.put("published_count", accepted);
+        result.put("broadcasts", broadcasts);
+        return commandAck(requestId, command, true, "stream_event_published", result);
+    }
+
+    private JSONObject subscribe(
+        WebSocketClientConnection connection,
+        String requestId,
+        String command,
+        String stream) throws Exception {
+        if (stream == null || stream.length() == 0) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_stream", "Command requires a stream.");
+        }
+
+        connection.subscribe(stream);
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("stream", stream);
+        result.put("subscription_id", connection.subscriptionIdFor(stream));
+        result.put("subscriptions", connection.subscriptionsJson());
+        return commandAck(requestId, command, true, "subscribed", result);
+    }
+
+    private JSONObject unsubscribe(
+        WebSocketClientConnection connection,
+        String requestId,
+        String command,
+        String stream) throws Exception {
+        if (stream == null || stream.length() == 0) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_stream", "Command requires a stream.");
+        }
+
+        connection.unsubscribe(stream);
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("stream", stream);
+        result.put("subscriptions", connection.subscriptionsJson());
+        return commandAck(requestId, command, true, "unsubscribed", result);
+    }
+
+    private JSONObject openBrokerConsole(
+        WebSocketClientConnection connection,
+        String requestId,
+        String command) throws Exception {
+        if (context == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_context", "Broker context is not available.");
+        }
+
+        Intent intent = new Intent(context, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.putExtra("rustyxr.openedByBrokerCommand", true);
+        intent.putExtra("rustyxr.requestId", requestId != null ? requestId : "");
+        intent.putExtra("rustyxr.clientId", connection != null ? connection.clientId : "");
+        intent.putExtra("rustyxr.appPackage", connection != null ? connection.appPackage : "");
+        context.startActivity(intent);
+
+        state.acceptedCommands.incrementAndGet();
+        long requests = state.brokerConsoleOpenRequests.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("activity", "broker_console");
+        result.put("open_requests", requests);
+        result.put("return_command", "Use the console Return to XR App button.");
+        Log.i(BrokerService.TAG, "Broker console opened by command from client=" +
+            (connection != null ? connection.clientId : ""));
+        return commandAck(requestId, command, true, "broker_console_opened", result);
+    }
+
+    private JSONObject closeBrokerConsole(
+        WebSocketClientConnection connection,
+        String requestId,
+        String command) throws Exception {
+        String clientId = connection != null ? connection.clientId : "";
+        boolean closeRequested = MainActivity.requestCloseFromBrokerCommand("command:" + command + " client=" + clientId);
+
+        state.acceptedCommands.incrementAndGet();
+        long requests = state.brokerConsoleCloseRequests.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("activity", "broker_console");
+        result.put("close_requested", closeRequested);
+        result.put("close_requests", requests);
+        Log.i(BrokerService.TAG, "Broker console close command from client=" + clientId +
+            " requested=" + closeRequested);
+        return commandAck(
+            requestId,
+            command,
+            true,
+            closeRequested ? "broker_console_close_requested" : "broker_console_not_open",
+            result);
+    }
+
+    private JSONObject commandAck(
+        String requestId,
+        String command,
+        boolean accepted,
+        String message,
+        JSONObject result) throws Exception {
+        JSONObject ack = new JSONObject();
+        ack.put("type", "command_ack");
+        ack.put("schema", "rusty.xr.broker.command_ack.v1");
+        ack.put("request_id", requestId != null ? requestId : "");
+        ack.put("command", command != null ? command : "");
+        ack.put("accepted", accepted);
+        ack.put("message", message != null ? message : "");
+        if (result != null) {
+            ack.put("result", result);
+        }
+        return ack;
+    }
+
+    private JSONObject commandError(
+        String requestId,
+        String command,
+        String code,
+        String message) throws Exception {
+        JSONObject error = new JSONObject();
+        error.put("code", code);
+        error.put("message", message);
+
+        JSONObject ack = new JSONObject();
+        ack.put("type", "command_ack");
+        ack.put("schema", "rusty.xr.broker.command_ack.v1");
+        ack.put("request_id", requestId != null ? requestId : "");
+        ack.put("command", command != null ? command : "");
+        ack.put("accepted", false);
+        ack.put("error", error);
+        return ack;
+    }
+
+    private static String normalizeOscAddress(String address) {
+        if (address == null || address.trim().length() == 0) {
+            return BrokerRuntimeConfig.DEFAULT_OSC_INGRESS_ADDRESS;
+        }
+
+        return address.trim();
+    }
+
+    private JSONObject statusForConnection(WebSocketClientConnection connection) throws Exception {
+        JSONObject status = state.toStatusJson(publisher, oscIngressServer);
+        if (connection != null) {
+            JSONObject client = new JSONObject();
+            client.put("connection_id", connection.connectionId);
+            client.put("client_id", connection.clientId);
+            client.put("app_package", connection.appPackage);
+            client.put("app_label", connection.appLabel);
+            client.put("app_version", connection.appVersion);
+            client.put("subscriptions", connection.subscriptionsJson());
+            status.put("client", client);
+        }
+
+        synchronized (websocketClients) {
+            status.put("activeWebSocketClients", websocketClients.size());
+        }
+        return status;
+    }
+
+    private static void updateClientIdentity(WebSocketClientConnection connection, JSONObject message) {
+        if (connection == null || message == null) {
+            return;
+        }
+
+        String clientId = message.optString("client_id", message.optString("clientId", ""));
+        if (clientId.length() > 0) {
+            connection.clientId = clientId;
+        }
+
+        String appPackage = message.optString("app_package", message.optString("appPackage", ""));
+        if (appPackage.length() > 0) {
+            connection.appPackage = appPackage;
+        }
+
+        String appLabel = message.optString("app_label", message.optString("appLabel", ""));
+        if (appLabel.length() > 0) {
+            connection.appLabel = appLabel;
+        }
+
+        String appVersion = message.optString("app_version", message.optString("appVersion", ""));
+        if (appVersion.length() > 0) {
+            connection.appVersion = appVersion;
+        }
+
+        connection.lastSeenElapsedNs = SystemClock.elapsedRealtimeNanos();
     }
 
     private JSONObject acceptLatencySample(JSONObject message, String originalText) throws Exception {
@@ -280,6 +716,14 @@ final class LocalBrokerServer implements Closeable {
             publisher.publish(message);
         }
 
+        JSONObject payload = new JSONObject();
+        payload.put("path", path);
+        payload.put("payload_size_bytes", message.optLong("payload_size_bytes", 0L));
+        payload.put("lsl_forwarded", publisher != null && publisher.isLslAvailable());
+        payload.put("osc_forwarded", publisher != null && publisher.isOscAvailable());
+        payload.put("fallback_transport", publisher != null ? publisher.mode() : "none");
+        int streamBroadcasts = broadcastStreamEvent("latency:sample", sequence, receiveUnixNs, payload);
+
         long accepted = state.acceptedLatencySamples.incrementAndGet();
         JSONObject ack = new JSONObject();
         ack.put("type", "latency_ack");
@@ -291,6 +735,7 @@ final class LocalBrokerServer implements Closeable {
         ack.put("lsl_forwarded", publisher != null && publisher.isLslAvailable());
         ack.put("osc_forwarded", publisher != null && publisher.isOscAvailable());
         ack.put("fallback_transport", publisher != null ? publisher.mode() : "none");
+        ack.put("stream_event_broadcasts", streamBroadcasts);
         return ack;
     }
 
@@ -487,11 +932,49 @@ final class LocalBrokerServer implements Closeable {
     }
 
     private static final class WebSocketClientConnection {
+        final long connectionId;
         private final OutputStream output;
+        private final Set<String> subscriptions = new HashSet<>();
+        volatile String clientId = "";
+        volatile String appPackage = "";
+        volatile String appLabel = "";
+        volatile String appVersion = "";
+        volatile long lastSeenElapsedNs;
         private boolean closed;
 
-        WebSocketClientConnection(OutputStream output) {
+        WebSocketClientConnection(long connectionId, OutputStream output) {
+            this.connectionId = connectionId;
             this.output = output;
+            this.lastSeenElapsedNs = SystemClock.elapsedRealtimeNanos();
+        }
+
+        synchronized void subscribe(String stream) {
+            if (stream != null && stream.length() > 0) {
+                subscriptions.add(stream);
+            }
+        }
+
+        synchronized void unsubscribe(String stream) {
+            if (stream != null && stream.length() > 0) {
+                subscriptions.remove(stream);
+            }
+        }
+
+        synchronized boolean isSubscribedTo(String stream) {
+            return subscriptions.contains(stream);
+        }
+
+        synchronized String subscriptionIdFor(String stream) {
+            int hash = stream != null ? stream.hashCode() : 0;
+            return "conn-" + connectionId + "-" + Integer.toHexString(hash);
+        }
+
+        synchronized org.json.JSONArray subscriptionsJson() {
+            org.json.JSONArray values = new org.json.JSONArray();
+            for (String subscription : subscriptions) {
+                values.put(subscription);
+            }
+            return values;
         }
 
         synchronized boolean sendText(String text) {

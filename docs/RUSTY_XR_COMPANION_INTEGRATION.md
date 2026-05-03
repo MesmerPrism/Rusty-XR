@@ -86,10 +86,16 @@ examples/quest-broker-apk/catalog/rusty-xr-quest-broker.catalog.json
 It declares runtime profiles for the localhost WebSocket/HTTP status path,
 optional broker-to-laptop LSL forwarding when a compliant Android `liblsl.so`
 is supplied at build time, optional OSC latency egress, and OSC drive ingress
-from a laptop to localhost WebSocket clients. The broker has been validated
-with a Unity client on Quest, but this iteration intentionally does not publish
-a Unity project. A dedicated public Unity example is planned after the broker
-API shape settles.
+from a laptop to localhost WebSocket clients. Companion diagnostics can also
+configure OSC ingress at runtime, compare a direct OSC acknowledgement route
+against the broker route, and publish Polar-compatible HR/RR, ECG, and ACC
+payloads through the broker's generic stream-event command. The public Unity
+comparison target is
+[The Big Red Button Institute](https://github.com/MesmerPrism/the-big-red-button-institute),
+which keeps direct Unity OSC/BLE input and broker-routed stream events on the
+same visible Quest button for side-by-side diagnostics. ADB-driven input smoke
+tests are useful during that work, but their limits are documented separately in
+[Quest ADB Input Workflow](QUEST_ADB_INPUT_WORKFLOW.md).
 
 Validate a catalog with:
 
@@ -149,6 +155,8 @@ powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build
 cd <workspace>\Rusty-XR-Companion-Apps
 dotnet run --project .\src\RustyXr.Companion.Cli -- catalog verify --path ..\Rusty-XR\examples\quest-broker-apk\catalog\rusty-xr-quest-broker.catalog.json --app rusty-xr-quest-broker --serial <serial> --stop-catalog-apps --install --launch --device-profile broker-smoke-test --runtime-profile broker-latency-websocket-lsl --settle-ms 5000 --logcat-lines 1000 --out .\artifacts\verify
 dotnet run --project .\src\RustyXr.Companion.Cli -- osc send --host <quest-lan-ip> --port 9000 --address /rusty-xr/drive/radius --arg float:0.75
+dotnet run --project .\src\RustyXr.Companion.Cli -- broker compare --quest-host <quest-lan-ip> --serial <serial> --out .\artifacts\broker-compare --json
+dotnet run --project .\src\RustyXr.Companion.Cli -- broker bio-simulate --serial <serial> --out .\artifacts\broker-bio-sim --json
 ```
 
 ## Boundary

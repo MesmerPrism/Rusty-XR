@@ -82,6 +82,35 @@ LSL discovery usually requires both devices to be on the same reachable network
 with multicast discovery and firewall rules permitting the LSL process. This is
 an app/deployment concern, not a core crate dependency.
 
+### Broker Bio Diagnostic Path
+
+Use this when validating broker consumers before a native Bluetooth adapter or a
+real sensor is available.
+
+```text
+Windows companion diagnostic command
+  -> Polar-compatible GATT payload bytes
+  -> broker publish_stream_event command
+  -> subscribed Quest or desktop clients
+  -> optional LSL schema mapping in the consumer
+```
+
+The companion diagnostic publisher emits three public stream ids:
+
+- `bio:polar_hr_rr`: standard Heart Rate Measurement notifications from the
+  Bluetooth Heart Rate service.
+- `bio:polar_ecg`: Polar PMD Data notifications carrying uncompressed ECG
+  frames.
+- `bio:polar_acc`: Polar PMD Data notifications carrying uncompressed
+  accelerometer frames.
+
+Each event includes the source service UUID, characteristic UUID, notification
+mode, raw payload bytes as base64, decoded summary fields, and the intended LSL
+stream type. This is a protocol-level broker diagnostic. It does not make the
+Windows host advertise as a Bluetooth peripheral, and it does not replace real
+BLE adapter validation for scan, connect, MTU, permission, reconnect, or radio
+behavior.
+
 ## Polar H10 GATT Model
 
 The public Polar helpers expose these UUIDs:

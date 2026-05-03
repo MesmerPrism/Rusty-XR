@@ -67,10 +67,20 @@ and reusable headset-run tools:
 [docs/QUEST_CAMERA_PROFILE_WORKFLOW.md](docs/QUEST_CAMERA_PROFILE_WORKFLOW.md).
 The first broker APK proof-of-concept is a separate Quest sidecar service with
 localhost status/WebSocket endpoints, optional LSL forwarding, OSC latency
-egress, and OSC-to-WebSocket drive events. It has been validated with a Unity
-client on Quest; a dedicated public Unity example is planned for a later
-iteration:
+egress, runtime-configurable OSC-to-WebSocket drive events, generic published
+stream events, Polar-compatible broker bio streams, and a 2D broker console that
+XR clients can open through the broker command API. The public Unity comparison
+target is
+[The Big Red Button Institute](https://github.com/MesmerPrism/the-big-red-button-institute),
+which drives one visible Quest button through direct Unity OSC/BLE input and
+broker-routed stream events. A source-only Rust broker client probe is included
+so Rust tools can exercise the same status, command, stream-list,
+subscription, console-open, and latency-sample path without adopting a specific
+async runtime:
 [examples/quest-broker-apk/README.md](examples/quest-broker-apk/README.md).
+[examples/broker-client-probe/README.md](examples/broker-client-probe/README.md).
+Quest ADB input smoke-test limits are documented in
+[docs/QUEST_ADB_INPUT_WORKFLOW.md](docs/QUEST_ADB_INPUT_WORKFLOW.md).
 
 The contracts examples and minimal APK can be run without headset hardware or
 downstream app code:
@@ -83,6 +93,7 @@ cargo run -p rusty-xr-contracts --example audio_reactive_passthrough_style --fea
 cargo run -p rusty-xr-contracts --example visual_strobe_profiles --features serde
 powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1
+cargo run -p rusty-xr-broker-client-probe -- status
 ```
 
 The immersive Quest example requires a Quest-compatible OpenXR loader and

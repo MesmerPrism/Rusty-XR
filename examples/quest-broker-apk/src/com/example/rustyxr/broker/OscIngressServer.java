@@ -58,6 +58,18 @@ final class OscIngressServer implements Closeable {
         return running;
     }
 
+    int port() {
+        return port;
+    }
+
+    String acceptedAddress() {
+        return acceptedAddress;
+    }
+
+    String streamId() {
+        return "osc:" + acceptedAddress;
+    }
+
     void start() throws Exception {
         if (running) {
             return;
@@ -163,7 +175,19 @@ final class OscIngressServer implements Closeable {
         event.put("peer", peer);
         event.put("broker_receive_time_unix_ns", receiveUnixNs);
         event.put("argument_type", String.valueOf(message.firstTypeTag));
-        int broadcasts = brokerServer.broadcastText(event.toString());
+        int legacyBroadcasts = brokerServer.broadcastText(event.toString());
+
+        JSONObject payload = new JSONObject();
+        payload.put("address", message.address);
+        payload.put("value01", value);
+        payload.put("peer", peer);
+        payload.put("argument_type", String.valueOf(message.firstTypeTag));
+        int streamBroadcasts = brokerServer.broadcastStreamEvent(
+            streamId(),
+            sequence,
+            receiveUnixNs,
+            payload);
+        int broadcasts = legacyBroadcasts + streamBroadcasts;
         state.oscIngressBroadcasts.addAndGet(broadcasts);
 
         if (sequence == 1 || sequence % 30 == 0) {

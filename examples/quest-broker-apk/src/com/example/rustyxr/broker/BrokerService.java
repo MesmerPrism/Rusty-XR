@@ -34,7 +34,7 @@ public final class BrokerService extends Service {
         if (publisher == null) {
             BrokerRuntimeConfig config = BrokerRuntimeConfig.fromIntent(intent);
             publisher = CompositeLatencyPublisher.create(config);
-            server = new LocalBrokerServer(DEFAULT_PORT, state, publisher);
+            server = new LocalBrokerServer(DEFAULT_PORT, state, publisher, getApplicationContext());
             oscIngressServer = OscIngressServer.createOrNull(config, state, server);
             server.setOscIngressServer(oscIngressServer);
             Log.i(TAG, "Broker publisher mode: " + publisher.mode());
