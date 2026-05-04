@@ -166,7 +166,10 @@ Apps is documented in
 [docs/RUSTY_XR_COMPANION_INTEGRATION.md](docs/RUSTY_XR_COMPANION_INTEGRATION.md).
 
 Media-pipeline streaming and APK permission guidance is documented in
-[docs/MEDIA_PIPELINE_AND_PERMISSIONS.md](docs/MEDIA_PIPELINE_AND_PERMISSIONS.md).
+[docs/MEDIA_PIPELINE_AND_PERMISSIONS.md](docs/MEDIA_PIPELINE_AND_PERMISSIONS.md),
+including the boundary for Companion's optional managed FFmpeg preview runtime:
+FFmpeg remains an external/user-managed media sidecar, while Quest-side
+encoded-video examples use Android platform MediaCodec.
 
 BLE, LSL, and Polar H10 data-pipeline guidance is documented in
 [docs/BLE_LSL_POLAR_PIPELINE.md](docs/BLE_LSL_POLAR_PIPELINE.md).

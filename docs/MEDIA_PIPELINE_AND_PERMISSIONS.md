@@ -416,6 +416,14 @@ Use one of these app-shell patterns:
   forward/reverse does not provide a UDP tunnel, so same-network addressing is
   the normal public test path.
 
+For Windows-side inspection of saved encoded payloads, Rusty XR Companion may
+use an optional FFmpeg executable as an external media sidecar. That runtime is
+not part of Rusty XR core and is not bundled into the companion app zip by
+default. The companion can install a verified Windows x64 LGPL shared FFmpeg
+build into its managed LocalAppData cache, or users can supply their own
+`ffmpeg.exe` path. Quest-side encode/decode examples should continue to prefer
+Android platform MediaCodec rather than bundled codec libraries.
+
 The public helper at `tools/media-pipeline/frame_receiver.py` implements a
 small Windows-side receiver for the first pattern. It is intentionally generic:
 it receives length-prefixed frame packets, writes payloads and metadata to a

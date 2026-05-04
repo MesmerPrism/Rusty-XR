@@ -21,9 +21,14 @@ Rusty XR Companion Apps owns:
 
 The companion release can install or update the operator-side tools that are
 reasonable to manage in a per-user cache: Android platform-tools / `adb`, Meta
-`hzdb`, and `scrcpy`. Rust/Cargo, Android SDK/NDK/JDK, OpenXR loader binaries,
-and signing identity remain explicit local build inputs for machines that build
-APK bytes from source.
+`hzdb`, `scrcpy`, and an optional FFmpeg media runtime for saved H.264 preview
+decode. The FFmpeg path follows the same explicit managed-runtime pattern as
+`scrcpy`: the app zip does not bundle FFmpeg binaries, the user can choose a
+managed download or a user-supplied executable, and the companion records
+source/version/hash/license metadata after verifying the upstream checksum.
+Rust/Cargo, Android SDK/NDK/JDK, OpenXR loader binaries, and signing identity
+remain explicit local build inputs for machines that build APK bytes from
+source.
 
 ## Shared Catalog Shape
 
