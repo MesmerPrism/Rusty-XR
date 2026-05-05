@@ -69,7 +69,9 @@ The first broker APK proof-of-concept is a separate Quest sidecar service with
 localhost status/WebSocket endpoints, optional LSL forwarding, OSC latency
 egress, runtime-configurable OSC-to-WebSocket drive events, generic published
 stream events, Polar-compatible broker bio streams, and a 2D broker console that
-XR clients can open through the broker command API. It now also exposes a
+XR clients can open through the broker command API. The console also includes a
+normal-mode Launcher page for named app lists, visible launchable-app search,
+and PackageManager-based app launching from the headset. It now also exposes a
 camera-projection metadata provider, a bounded app-context Camera2 capture
 probe, bounded app-context raw-luma and H.264 Camera2 side-channel probes,
 an Android platform MediaCodec decode-consumption probe, shell-helper status
@@ -107,6 +109,9 @@ the same framing. It is Developer Mode tooling, not an installed APK permission:
 [examples/quest-broker-shell-helper/README.md](examples/quest-broker-shell-helper/README.md).
 Quest ADB input smoke-test limits are documented in
 [docs/QUEST_ADB_INPUT_WORKFLOW.md](docs/QUEST_ADB_INPUT_WORKFLOW.md).
+Headset-local app launching and the boundary between normal PackageManager
+launches and ADB-launched shell helpers is documented in
+[docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md](docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).
 
 The contracts examples and minimal APK can be run without headset hardware or
 downstream app code:

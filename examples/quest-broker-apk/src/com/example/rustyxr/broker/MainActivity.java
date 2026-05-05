@@ -1,6 +1,7 @@
 package com.example.rustyxr.broker;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -8,6 +9,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.Gravity;
@@ -15,10 +17,12 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -27,6 +31,7 @@ import java.io.BufferedInputStream;
 import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.List;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
@@ -38,7 +43,7 @@ public final class MainActivity extends Activity {
     private static final int TEXT = Color.rgb(236, 242, 239);
     private static final int MUTED = Color.rgb(168, 184, 178);
     private static final int WARN = Color.rgb(246, 198, 105);
-    private static final String[] PAGES = { "Dashboard", "Streams", "Commands", "Diagnostics" };
+    private static final String[] PAGES = { "Dashboard", "Launcher", "Streams", "Commands", "Diagnostics" };
     private static volatile WeakReference<MainActivity> activeActivity = new WeakReference<>(null);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -51,13 +56,17 @@ public final class MainActivity extends Activity {
     };
 
     private LinearLayout navBar;
+    private LinearLayout pagePanel;
     private TextView subtitleView;
     private TextView bodyView;
     private TextView footerView;
+    private LauncherStore launcherStore;
     private JSONObject lastStatus;
     private String currentPage = PAGES[0];
     private String returnAppPackage = "";
     private String returnClientId = "";
+    private String selectedLauncherListId = "";
+    private String launcherQuery = "";
     private boolean openedByBrokerCommand;
 
     @Override
@@ -68,6 +77,8 @@ public final class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         startBrokerService(getIntent());
+        launcherStore = new LauncherStore(this);
+        selectedLauncherListId = launcherStore.selectedListIdOrDefault(selectedLauncherListId);
         setContentView(buildConsoleLayout());
         updateLaunchSubtitle(getIntent());
         renderCurrentPage();
@@ -223,6 +234,7 @@ public final class MainActivity extends Activity {
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(22, 20, 22, 20);
         panel.setBackground(panelBackground(PANEL, 14, Color.rgb(45, 57, 63)));
+        pagePanel = panel;
         scroll.addView(panel, new ScrollView.LayoutParams(
             ScrollView.LayoutParams.MATCH_PARENT,
             ScrollView.LayoutParams.WRAP_CONTENT));
@@ -376,25 +388,36 @@ public final class MainActivity extends Activity {
 
     private void renderCurrentPage() {
         updateNavButtons();
-        if (bodyView == null) {
+        if (pagePanel == null || bodyView == null) {
+            return;
+        }
+
+        if ("Launcher".equals(currentPage)) {
+            renderLauncherPage();
             return;
         }
 
         JSONObject status = lastStatus;
         if (status == null) {
-            bodyView.setText("Starting broker service...\n\nStatus refresh runs every 2 seconds.");
+            showTextPage("Starting broker service...\n\nStatus refresh runs every 2 seconds.");
             return;
         }
 
         if ("Streams".equals(currentPage)) {
-            bodyView.setText(buildStreams(status));
+            showTextPage(buildStreams(status));
         } else if ("Commands".equals(currentPage)) {
-            bodyView.setText(buildCommands(status));
+            showTextPage(buildCommands(status));
         } else if ("Diagnostics".equals(currentPage)) {
-            bodyView.setText(buildDiagnostics(status));
+            showTextPage(buildDiagnostics(status));
         } else {
-            bodyView.setText(buildDashboard(status));
+            showTextPage(buildDashboard(status));
         }
+    }
+
+    private void showTextPage(String text) {
+        pagePanel.removeAllViews();
+        pagePanel.addView(bodyView);
+        bodyView.setText(text);
     }
 
     private void updateNavButtons() {
@@ -416,6 +439,287 @@ public final class MainActivity extends Activity {
                 12,
                 selected ? ACCENT_STRONG : Color.rgb(55, 70, 76)));
         }
+    }
+
+    private void renderLauncherPage() {
+        pagePanel.removeAllViews();
+        if (launcherStore == null) {
+            launcherStore = new LauncherStore(this);
+        }
+
+        selectedLauncherListId = launcherStore.selectedListIdOrDefault(selectedLauncherListId);
+        final LauncherStore.AppList selectedList = launcherStore.selectedList(selectedLauncherListId);
+
+        addSectionTitle("LAUNCHER");
+        addBodyText("Create named shortcuts for launchable apps visible to this broker APK. This uses normal Android PackageManager launch paths; shell-helper enhanced mode is not required.");
+
+        addSectionTitle("LISTS");
+        HorizontalScrollView listScroll = new HorizontalScrollView(this);
+        listScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout listRow = new LinearLayout(this);
+        listRow.setOrientation(LinearLayout.HORIZONTAL);
+        listScroll.addView(listRow);
+        pagePanel.addView(listScroll, matchWrapParams(0, 0, 0, 12));
+
+        List<LauncherStore.AppList> lists = launcherStore.lists();
+        for (int i = 0; i < lists.size(); i++) {
+            final LauncherStore.AppList list = lists.get(i);
+            Button listButton = navButton(list.name + " (" + list.apps.size() + ")");
+            boolean selected = list.id.equals(selectedList.id);
+            listButton.setTextColor(selected ? Color.rgb(5, 23, 18) : TEXT);
+            listButton.setBackground(panelBackground(
+                selected ? ACCENT_STRONG : PANEL_ALT,
+                12,
+                selected ? ACCENT_STRONG : Color.rgb(55, 70, 76)));
+            listButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    selectedLauncherListId = list.id;
+                    renderLauncherPage();
+                }
+            });
+            listRow.addView(listButton);
+        }
+
+        final EditText listNameEdit = editText("List name", selectedList.name);
+        LinearLayout listEditRow = row();
+        listEditRow.addView(listNameEdit, weightedParams(1f, 0, 0, 10, 0));
+
+        Button saveNameButton = actionButton("Save Name");
+        saveNameButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                LauncherStore.AppList renamed = launcherStore.renameList(selectedList.id, listNameEdit.getText().toString());
+                selectedLauncherListId = renamed.id;
+                renderLauncherPage();
+            }
+        });
+        listEditRow.addView(saveNameButton);
+
+        Button newListButton = actionButton("New List");
+        newListButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                LauncherStore.AppList created = launcherStore.createList(listNameEdit.getText().toString());
+                selectedLauncherListId = created.id;
+                renderLauncherPage();
+            }
+        });
+        listEditRow.addView(newListButton, wrapParams(10, 0, 0, 0));
+
+        if (!"default".equals(selectedList.id) && lists.size() > 1) {
+            Button deleteButton = actionButton("Delete");
+            deleteButton.setTextColor(WARN);
+            deleteButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    selectedLauncherListId = launcherStore.deleteList(selectedList.id);
+                    renderLauncherPage();
+                }
+            });
+            listEditRow.addView(deleteButton, wrapParams(10, 0, 0, 0));
+        }
+        pagePanel.addView(listEditRow, matchWrapParams(0, 0, 0, 16));
+
+        addSectionTitle("APPS IN " + selectedList.name.toUpperCase(Locale.ROOT));
+        if (selectedList.apps.isEmpty()) {
+            addBodyText("No apps saved in this list yet. Search below and add visible launchable apps.");
+        } else {
+            for (int i = 0; i < selectedList.apps.size(); i++) {
+                final LauncherStore.AppTarget app = selectedList.apps.get(i);
+                LinearLayout appRow = appRow(app);
+
+                Button launchButton = actionButton("Launch");
+                launchButton.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View view) {
+                        launchApp(app);
+                    }
+                });
+                appRow.addView(launchButton);
+
+                Button removeButton = actionButton("Remove");
+                removeButton.setTextColor(WARN);
+                removeButton.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View view) {
+                        launcherStore.removeApp(selectedList.id, app.key());
+                        renderLauncherPage();
+                    }
+                });
+                appRow.addView(removeButton, wrapParams(10, 0, 0, 0));
+
+                pagePanel.addView(appRow, matchWrapParams(0, 0, 0, 8));
+            }
+        }
+
+        addSectionTitle("FIND APPS");
+        final EditText searchEdit = editText("Search app name or package", launcherQuery);
+        LinearLayout searchRow = row();
+        searchRow.addView(searchEdit, weightedParams(1f, 0, 0, 10, 0));
+
+        Button searchButton = actionButton("Search");
+        searchButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                launcherQuery = searchEdit.getText().toString();
+                renderLauncherPage();
+            }
+        });
+        searchRow.addView(searchButton);
+
+        Button clearButton = actionButton("Clear");
+        clearButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                launcherQuery = "";
+                renderLauncherPage();
+            }
+        });
+        searchRow.addView(clearButton, wrapParams(10, 0, 0, 0));
+        pagePanel.addView(searchRow, matchWrapParams(0, 0, 0, 12));
+
+        List<LauncherStore.AppTarget> results = launcherStore.searchLaunchableApps(launcherQuery);
+        if (TextUtils.isEmpty(launcherQuery)) {
+            addBodyText("Showing the first visible launchable apps. Type a search term to narrow by app name, package, or activity.");
+        } else if (results.isEmpty()) {
+            addBodyText("No visible launchable apps matched \"" + launcherQuery + "\".");
+        }
+
+        for (int i = 0; i < results.size(); i++) {
+            final LauncherStore.AppTarget app = results.get(i);
+            final boolean alreadyAdded = listContains(selectedList, app.key());
+            LinearLayout resultRow = appRow(app);
+
+            Button addButton = actionButton(alreadyAdded ? "Added" : "Add");
+            addButton.setEnabled(!alreadyAdded);
+            addButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    launcherStore.addApp(selectedList.id, app);
+                    renderLauncherPage();
+                }
+            });
+            resultRow.addView(addButton);
+
+            Button launchButton = actionButton("Launch");
+            launchButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    launchApp(app);
+                }
+            });
+            resultRow.addView(launchButton, wrapParams(10, 0, 0, 0));
+            pagePanel.addView(resultRow, matchWrapParams(0, 0, 0, 8));
+        }
+    }
+
+    private void addSectionTitle(String value) {
+        TextView title = textView(15, true, ACCENT_STRONG);
+        title.setText(value);
+        pagePanel.addView(title, matchWrapParams(0, 10, 0, 6));
+    }
+
+    private void addBodyText(String value) {
+        TextView text = textView(14, false, MUTED);
+        text.setText(value);
+        pagePanel.addView(text, matchWrapParams(0, 0, 0, 10));
+    }
+
+    private LinearLayout appRow(LauncherStore.AppTarget app) {
+        LinearLayout row = row();
+        row.setPadding(14, 12, 14, 12);
+        row.setBackground(panelBackground(PANEL_ALT, 12, Color.rgb(55, 70, 76)));
+
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+
+        TextView label = textView(16, true, TEXT);
+        label.setText(app.label);
+        labels.addView(label);
+
+        TextView details = textView(12, false, MUTED);
+        String kind = app.systemApp ? "system" : "user";
+        details.setText(app.packageName + "\n" + app.activityName + "    " + app.source + " / " + kind);
+        labels.addView(details);
+
+        row.addView(labels, weightedParams(1f, 0, 0, 12, 0));
+        return row;
+    }
+
+    private LinearLayout row() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        return row;
+    }
+
+    private EditText editText(String hint, String value) {
+        EditText editText = new EditText(this);
+        editText.setText(value);
+        editText.setHint(hint);
+        editText.setSingleLine(true);
+        editText.setTextSize(14);
+        editText.setTextColor(TEXT);
+        editText.setHintTextColor(MUTED);
+        editText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        editText.setPadding(14, 6, 14, 6);
+        editText.setBackground(panelBackground(PANEL_ALT, 12, Color.rgb(55, 70, 76)));
+        return editText;
+    }
+
+    private LinearLayout.LayoutParams matchWrapParams(int left, int top, int right, int bottom) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(left, top, right, bottom);
+        return params;
+    }
+
+    private LinearLayout.LayoutParams wrapParams(int left, int top, int right, int bottom) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(left, top, right, bottom);
+        return params;
+    }
+
+    private LinearLayout.LayoutParams weightedParams(float weight, int left, int top, int right, int bottom) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            weight);
+        params.setMargins(left, top, right, bottom);
+        return params;
+    }
+
+    private boolean listContains(LauncherStore.AppList list, String key) {
+        for (LauncherStore.AppTarget app : list.apps) {
+            if (app.key().equals(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void launchApp(LauncherStore.AppTarget app) {
+        Intent intent = launcherStore.buildLaunchIntent(app);
+        if (intent == null) {
+            showLaunchToast("No launch intent for " + app.packageName);
+            return;
+        }
+
+        try {
+            startActivity(intent);
+            Log.i(BrokerService.TAG, "Launcher started " + app.packageName + "/" + app.activityName);
+        } catch (ActivityNotFoundException | SecurityException ex) {
+            showLaunchToast("Launch failed: " + ex.getMessage());
+            Log.w(BrokerService.TAG, "Launcher failed for " + app.packageName + ": " + ex.getMessage());
+        }
+    }
+
+    private void showLaunchToast(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 
     private String buildDashboard(JSONObject status) {
@@ -451,6 +755,8 @@ public final class MainActivity extends Activity {
         JSONObject osc = status.optJSONObject("osc");
         JSONObject cameraProvider = status.optJSONObject("cameraProvider");
         JSONObject shellHelper = status.optJSONObject("shellHelper");
+        JSONObject polarPmd = status.optJSONObject("polarPmd");
+        JSONObject breathAssessment = status.optJSONObject("breathAssessment");
         JSONObject videoLab = status.optJSONObject("videoLab");
         builder.append("TRANSPORTS\n");
         builder.append("LSL           ").append(lsl != null && lsl.optBoolean("enabled") ? "enabled" : "fallback/logcat").append('\n');
@@ -458,6 +764,8 @@ public final class MainActivity extends Activity {
         builder.append("OSC egress    ").append(transportEnabled(osc != null ? osc.optJSONObject("egress") : null)).append('\n');
         builder.append("Camera meta   ").append(cameraProvider != null ? cameraProvider.optString("state", "unknown") : "unknown").append('\n');
         builder.append("Shell helper  ").append(shellHelper != null && shellHelper.optBoolean("connected") ? "connected" : "disconnected").append('\n');
+        builder.append("Polar PMD     ").append(polarPmd != null ? polarPmd.optString("state", "unknown") : "not reported").append('\n');
+        builder.append("Breath        ").append(breathAssessment != null ? breathAssessment.optString("state", "unknown") : "not reported").append('\n');
         builder.append("Video lab     ").append(videoLab != null ? videoLab.optString("state", "unknown") : "not reported").append('\n');
         builder.append('\n');
         builder.append("Use Return to XR App to close this console while the broker service keeps running.");
@@ -576,6 +884,48 @@ public final class MainActivity extends Activity {
             if (codecProbe != null) {
                 builder.append("codec count   ").append(codecProbe.optLong("codec_count", 0L)).append('\n');
                 builder.append("surface fmt   ").append(codecProbe.optLong("surface_capable_count", 0L)).append('\n');
+            }
+        }
+
+        JSONObject breathAssessment = status.optJSONObject("breathAssessment");
+        JSONObject polarPmd = status.optJSONObject("polarPmd");
+        if (polarPmd != null) {
+            builder.append("\nPOLAR PMD\n");
+            builder.append("state         ").append(polarPmd.optString("state", "")).append('\n');
+            builder.append("enabled       ").append(polarPmd.optBoolean("enabled")).append('\n');
+            builder.append("device        ").append(polarPmd.optString("device_name", "")).append('\n');
+            builder.append("address       ").append(polarPmd.optString("device_address", "")).append('\n');
+            if (polarPmd.has("battery_percent")) {
+                builder.append("battery       ").append(polarPmd.optInt("battery_percent", 0)).append("%\n");
+            }
+            if (polarPmd.has("negotiated_mtu")) {
+                builder.append("mtu           ").append(polarPmd.optInt("negotiated_mtu", 0)).append('\n');
+            }
+            builder.append("acc frames    ").append(polarPmd.optLong("acc_frame_count", 0L)).append('\n');
+            builder.append("acc samples   ").append(polarPmd.optLong("acc_sample_count", 0L)).append('\n');
+            builder.append("malformed     ").append(polarPmd.optLong("malformed_frame_count", 0L)).append('\n');
+            String missingPermissions = polarPmd.optString("missing_permissions", "");
+            if (missingPermissions.length() > 0) {
+                builder.append("permissions   ").append(missingPermissions).append('\n');
+            }
+            String lastError = polarPmd.optString("last_error", "");
+            if (lastError.length() > 0) {
+                builder.append("last error    ").append(lastError).append('\n');
+            }
+        }
+
+        if (breathAssessment != null) {
+            builder.append("\nBREATH ASSESSMENT\n");
+            builder.append("state         ").append(breathAssessment.optString("state", "")).append('\n');
+            builder.append("output        ").append(breathAssessment.optString("output_stream", "")).append('\n');
+            builder.append("polar frames  ").append(breathAssessment.optLong("accepted_polar_frames", 0L)).append('\n');
+            builder.append("controller    ").append(breathAssessment.optLong("accepted_controller_samples", 0L)).append('\n');
+            builder.append("assessments   ").append(breathAssessment.optLong("emitted_assessments", 0L)).append('\n');
+            JSONObject latest = breathAssessment.optJSONObject("latest_assessment");
+            if (latest != null) {
+                builder.append("latest src    ").append(latest.optString("source", "")).append('\n');
+                builder.append("latest state  ").append(latest.optString("state", "")).append('\n');
+                builder.append("latest volume ").append(String.format(Locale.ROOT, "%.3f", latest.optDouble("volume01", 0.0d))).append('\n');
             }
         }
 

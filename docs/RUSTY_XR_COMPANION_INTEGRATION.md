@@ -30,6 +30,14 @@ Rust/Cargo, Android SDK/NDK/JDK, OpenXR loader binaries, and signing identity
 remain explicit local build inputs for machines that build APK bytes from
 source.
 
+For headset-local launchers, keep a clear split between normal Android app
+launching and ADB shell helpers. A normal 2D headset app can launch installed
+packages that expose a front-door Activity through Android `PackageManager`
+APIs. A shell helper can provide stronger package and launch diagnostics only
+when an external authorized ADB host starts it. The normal headset APK cannot
+self-promote to Android `shell`. See
+[Quest App Launching And ADB Shell Helpers](QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).
+
 ## Shared Catalog Shape
 
 The current shared connection point is `quest-app-catalog.schema.json`.

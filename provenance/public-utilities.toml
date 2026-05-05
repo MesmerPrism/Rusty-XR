@@ -94,12 +94,12 @@ review_status = "foundation-pass"
 
 [[utility]]
 crate = "rusty-xr-particles"
-source_family = "low-dependency particle experiment contracts"
-extraction_date = "2026-04-29"
-public_safe_rationale = "Simple particle state, deterministic clocks, and render payload conversion are reusable without downstream simulation semantics."
-license_assumptions = "Authored for this MIT repository."
-scrubbed_private_dependencies = ["downstream simulation behavior", "downstream visual feedback behavior", "renderer backend code"]
-review_status = "foundation-pass"
+source_family = "low-dependency particle experiments and Makepad-style instanced particle rendering concepts"
+extraction_date = "2026-05-05"
+public_safe_rationale = "Particle state, deterministic clocks, render payload conversion, backend-neutral billboard geometry, scene-basis billboard instance prep, sprite-mask atlas generation, trail buffers, render-budget estimates, and depth sorting are reusable without downstream simulation semantics."
+license_assumptions = "Authored for this MIT repository. Makepad is credited as an enabling public Rust-native rendering and UI foundation; this crate keeps helpers backend-neutral and does not vendor Makepad framework code."
+scrubbed_private_dependencies = ["downstream simulation behavior", "downstream visual feedback behavior", "renderer backend code", "package identity", "generated captures"]
+review_status = "particle-rendering-helper-pass"
 
 [[utility]]
 crate = "tools"

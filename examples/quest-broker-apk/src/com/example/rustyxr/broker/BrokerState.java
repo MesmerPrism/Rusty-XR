@@ -35,6 +35,8 @@ final class BrokerState {
     private final CameraProjectionProviderState cameraProjectionProvider = new CameraProjectionProviderState();
     private final ShellHelperState shellHelper = new ShellHelperState();
     private final VideoLabState videoLab = new VideoLabState();
+    private final BreathAssessmentState breathAssessment = new BreathAssessmentState();
+    private JSONObject polarPmdStatus = defaultPolarPmdStatus();
 
     JSONObject toStatusJson(LatencyPublisher publisher, OscIngressServer oscIngressServer) throws Exception {
         JSONObject status = new JSONObject();
@@ -53,6 +55,8 @@ final class BrokerState {
         status.put("cameraProvider", cameraProjectionProvider.toStatusJson());
         status.put("projectionProfile", cameraProjectionProvider.projectionProfileJson());
         status.put("shellHelper", shellHelper.toStatusJson());
+        status.put("polarPmd", polarPmdStatusJson());
+        status.put("breathAssessment", breathAssessment.toStatusJson());
         status.put("videoLab", videoLabStatusJson());
 
         JSONObject commands = new JSONObject();
@@ -66,6 +70,13 @@ final class BrokerState {
         supportedCommands.put("unsubscribe");
         supportedCommands.put("configure_osc_ingress");
         supportedCommands.put("publish_stream_event");
+        supportedCommands.put("polar_pmd.get_status");
+        supportedCommands.put("polar_pmd.start");
+        supportedCommands.put("polar_pmd.stop");
+        supportedCommands.put("breath_assessment.get_status");
+        supportedCommands.put("breath_assessment.configure");
+        supportedCommands.put("breath_assessment.reset");
+        supportedCommands.put("breath_assessment.submit_controller_pose");
         supportedCommands.put("open_ui");
         supportedCommands.put("close_ui");
         supportedCommands.put("camera_provider.get_status");
@@ -131,9 +142,16 @@ final class BrokerState {
         capabilities.put("broker.stream_event.v1");
         capabilities.put("broker.osc_ingress.configure");
         capabilities.put("broker.stream_event.publish");
+        capabilities.put("bio.polar_pmd.android_ble.v1");
+        capabilities.put("bio.polar_acc.direct_ble.v1");
+        capabilities.put("bio.breath_assessment.v1");
+        capabilities.put("bio.breath.polar_acc.v1");
+        capabilities.put("bio.breath.controller_pose.v1");
         capabilities.put("broker.console.activity");
         capabilities.put("broker.console.return_to_previous_app");
         capabilities.put("broker.console.close_command");
+        capabilities.put("broker.launcher.local_lists.v1");
+        capabilities.put("broker.launcher.package_manager_launch.v1");
         capabilities.put("camera_projection.metadata.v1");
         capabilities.put("camera_projection.profile.v1");
         capabilities.put("camera_projection.visual_acceptance.v1");
@@ -168,7 +186,13 @@ final class BrokerState {
         streams.put(streamJson("latency:sample", "latency", "WebSocket latency samples accepted by the broker.", true));
         streams.put(streamJson("bio:polar_hr_rr", "bio", "Synthetic or adapter-published Polar-compatible heart-rate/RR events.", true));
         streams.put(streamJson("bio:polar_ecg", "bio", "Synthetic or adapter-published Polar-compatible ECG frame events.", true));
-        streams.put(streamJson("bio:polar_acc", "bio", "Synthetic or adapter-published Polar-compatible accelerometer frame events.", true));
+        streams.put(streamJson(
+            "bio:polar_acc",
+            "bio",
+            "Synthetic, adapter-published, or direct Android BLE Polar PMD accelerometer frame events.",
+            true));
+        streams.put(streamJson("bio:breath", "bio", "Diagnostic breath volume/state assessments produced from supported motion sources.", breathAssessment.hasAssessments()));
+        streams.put(streamJson("xr:controller_pose", "xr", "Adapter-published controller pose samples accepted for broker-side breath assessment.", true));
         streams.put(streamJson("camera_provider.status", "camera", "Projection metadata provider status and limitations.", true));
         streams.put(streamJson("camera_provider.projection_profile", "camera", "Projection profile changes for XR clients that render their own layers.", true));
         streams.put(streamJson("camera_provider.visual_acceptance", "camera", "Operator visual-acceptance markers for projection profiles.", true));
@@ -248,6 +272,47 @@ final class BrokerState {
             videoLabEncodedSampleMetadata.get());
     }
 
+    JSONObject breathAssessmentStatusJson() throws Exception {
+        return breathAssessment.toStatusJson();
+    }
+
+    synchronized void updatePolarPmdStatus(JSONObject status) throws Exception {
+        polarPmdStatus = status == null ? defaultPolarPmdStatus() : new JSONObject(status.toString());
+    }
+
+    synchronized JSONObject polarPmdStatusJson() throws Exception {
+        return new JSONObject(polarPmdStatus.toString());
+    }
+
+    synchronized boolean hasPolarPmdFrames() {
+        return polarPmdStatus.optLong("acc_frame_count", 0L) > 0L;
+    }
+
+    JSONObject configureBreathAssessment(JSONObject params) throws Exception {
+        return breathAssessment.configure(params);
+    }
+
+    JSONObject resetBreathAssessment(JSONObject params) throws Exception {
+        return breathAssessment.reset(params);
+    }
+
+    JSONObject processBreathAssessmentStreamEvent(
+        String stream,
+        JSONObject payload,
+        long sequence,
+        long receiveUnixNs,
+        long receiveElapsedNs) throws Exception {
+        return breathAssessment.processPublishedStreamEvent(stream, payload, sequence, receiveUnixNs, receiveElapsedNs);
+    }
+
+    JSONObject processControllerBreathPose(
+        JSONObject params,
+        long sequence,
+        long receiveUnixNs,
+        long receiveElapsedNs) throws Exception {
+        return breathAssessment.processControllerPose(params, sequence, receiveUnixNs, receiveElapsedNs);
+    }
+
     JSONObject registerVideoLabEncodedStreamManifest(
         JSONObject params,
         long revision,
@@ -270,6 +335,23 @@ final class BrokerState {
 
     private static long unixNowNs() {
         return System.currentTimeMillis() * 1_000_000L;
+    }
+
+    private static JSONObject defaultPolarPmdStatus() {
+        JSONObject status = new JSONObject();
+        try {
+            status.put("schema", PolarPmdBrokerSource.STATUS_SCHEMA);
+            status.put("enabled", false);
+            status.put("state", "idle");
+            status.put("input_stream", BreathAssessmentState.POLAR_INPUT_STREAM);
+            status.put("output_stream", BreathAssessmentState.OUTPUT_STREAM);
+            status.put("acc_frame_count", 0L);
+            status.put("acc_sample_count", 0L);
+            status.put("malformed_frame_count", 0L);
+            status.put("last_error", "");
+        } catch (Exception ignored) {
+        }
+        return status;
     }
 
     private static final class CameraProjectionProviderState {

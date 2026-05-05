@@ -1,6 +1,7 @@
 # Acknowledgements
 
-Rusty XR exists because of the groundwork provided by Makepad.
+Rusty XR exists because of the groundwork provided by
+[Makepad](https://github.com/makepad/makepad).
 
 Makepad has built and shared a substantial Rust-native application foundation,
 including UI, rendering, platform integration, tooling, and examples that make

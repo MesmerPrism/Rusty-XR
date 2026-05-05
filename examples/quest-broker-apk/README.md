@@ -27,7 +27,8 @@ owning decode, Vulkan import, projection, and OpenXR layer submission itself.
 - OSC latency egress when enabled: `/rusty-xr/broker/latency`
 - OSC control ingress when enabled: `/rusty-xr/drive/radius`
 - Bio diagnostic stream IDs: `bio:polar_hr_rr`, `bio:polar_ecg`,
-  `bio:polar_acc`
+  `bio:polar_acc`, `bio:breath`
+- XR diagnostic input stream ID: `xr:controller_pose`
 - Camera provider stream IDs: `camera_provider.status`,
   `camera_provider.projection_profile`, `camera_provider.visual_acceptance`
 - Shell helper status stream ID: `shell_helper.status`
@@ -55,6 +56,13 @@ available:
 - `camera_provider.record_visual_acceptance`
 - `shell_helper.get_status`
 - `shell_helper.report_status`
+- `polar_pmd.get_status`
+- `polar_pmd.start`
+- `polar_pmd.stop`
+- `breath_assessment.get_status`
+- `breath_assessment.configure`
+- `breath_assessment.reset`
+- `breath_assessment.submit_controller_pose`
 - `video_lab.get_status`
 - `video_lab.register_encoded_stream_manifest`
 - `video_lab.record_encoded_sample_metadata`
@@ -100,6 +108,72 @@ subscribed to that stream. The Companion `broker bio-simulate` command uses
 that generic path to publish Polar-compatible standard Heart Rate Measurement
 and Polar PMD ECG/ACC payloads. This broker path carries GATT-shaped diagnostic
 payloads; it is not a Bluetooth peripheral advertiser.
+
+The broker also derives diagnostic breath assessment events on `bio:breath`.
+When `publish_stream_event` receives `bio:polar_acc`, the broker reads either
+the Polar PMD ACC `payload_base64` frame or simpler JSON `samples_mg`,
+`acc_mg`, `acc_g`, or x/y/z fields, then emits an assessment payload with
+`schema=rusty.xr.bio.breath.v1`, `source=polar_acc`, `volume01`, `state`,
+`state01`, `tracking01`, calibration flags, quality, and broker timing fields.
+The same output stream is used for controller motion. Thin XR adapters can
+either publish controller samples on `xr:controller_pose` through
+`publish_stream_event`, or use `breath_assessment.submit_controller_pose` for a
+request/ack latency path:
+
+```json
+{
+  "type": "command",
+  "schema": "rusty.xr.broker.command.v1",
+  "request_id": "breath-001",
+  "command": "breath_assessment.submit_controller_pose",
+  "params": {
+    "sequence_id": 42,
+    "controller": "right",
+    "connected": true,
+    "tracked": true,
+    "sample_time_unix_ns": 1777900000000000000,
+    "sample_time_elapsed_ns": 123456789000,
+    "position_m": [0.12, 1.08, -0.34],
+    "orientation_xyzw": [0.0, 0.0, 0.0, 1.0]
+  }
+}
+```
+
+`breath_assessment.configure` can adjust source-specific calibration frame
+counts, movement thresholds, smoothing, quantiles, and `invert_volume`;
+`breath_assessment.reset` resets calibration for `polar_acc`, `controller_pose`,
+or `all`. The estimates are diagnostic motion-derived values, not medical
+measurements.
+
+The broker can also open a direct Android BLE Polar PMD source on the headset.
+When enabled, the broker scans for a Polar-compatible BLE advertisement, connects
+to the PMD service, enables control-point indications and data notifications,
+starts the ACC stream at 200 Hz / 16 bit / 8 g, decodes ACC frames, publishes
+them as `bio:polar_acc`, and feeds the same `bio:breath` assessment path used by
+adapter-published frames. This is a broker-side diagnostic source rather than a
+medical device integration.
+
+Start the direct source through the WebSocket command API:
+
+```json
+{
+  "type": "command",
+  "schema": "rusty.xr.broker.command.v1",
+  "request_id": "polar-001",
+  "command": "polar_pmd.start",
+  "params": {
+    "scan_timeout_ms": 60000
+  }
+}
+```
+
+For manual development installs on Android 12 and newer, grant Bluetooth
+runtime permissions before starting the source:
+
+```powershell
+adb shell pm grant com.example.rustyxr.broker android.permission.BLUETOOTH_SCAN
+adb shell pm grant com.example.rustyxr.broker android.permission.BLUETOOTH_CONNECT
+```
 
 The camera provider is a P0 metadata/config provider. It returns a public
 projection profile with `requires_client_eye_views=true` and
@@ -176,6 +250,17 @@ Diagnostics pages plus a `Return to XR App` button. The button and the
 leaving the broker foreground service running; they do not start or relaunch a
 target app.
 
+The console also has a `Launcher` page for headset-local app shortcuts. It uses
+normal Android `PackageManager` discovery for visible
+`CATEGORY_LAUNCHER` and `CATEGORY_LEANBACK_LAUNCHER` activities, lets the user
+create named lists, search visible launchable apps by label/package/activity,
+add them to a list, remove them, and launch them from the headset. This is
+normal app mode: it does not require the ADB shell helper, does not install or
+force-stop packages, and cannot launch apps that do not expose an accessible
+front-door Activity. For the public boundary between normal launchers and
+ADB-launched shell helpers, see
+[`docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md`](../../docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).
+
 ## Build
 
 Build the APK from the public Rusty XR checkout:
@@ -232,6 +317,14 @@ adb shell am start -n com.example.rustyxr.broker/.MainActivity `
   --ez rustyxr.oscIngressEnabled true `
   --ei rustyxr.oscIngressPort 9000 `
   --es rustyxr.oscIngressAddress /rusty-xr/drive/radius
+```
+
+Direct ADB launch with the broker-side Polar PMD source enabled:
+
+```powershell
+adb shell am start -n com.example.rustyxr.broker/.MainActivity `
+  --ez rustyxr.polarPmdEnabled true `
+  --el rustyxr.polarScanTimeoutMs 60000
 ```
 
 Send a probe value from the companion CLI:

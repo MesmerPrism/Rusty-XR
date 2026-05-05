@@ -119,4 +119,7 @@ Expected result:
 
 This helper is Developer Mode / ADB tooling. The installed broker APK does not
 inherit shell privileges. Do not describe this as a normal app permission or a
-store-style runtime capability.
+store-style runtime capability. A normal headset APK also cannot start this
+helper by itself; an external authorized ADB host must push/start it. For the
+general launcher boundary, see
+[`docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md`](../../docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).

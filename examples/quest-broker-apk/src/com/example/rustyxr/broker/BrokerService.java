@@ -20,6 +20,7 @@ public final class BrokerService extends Service {
     private LocalBrokerServer server;
     private LatencyPublisher publisher;
     private OscIngressServer oscIngressServer;
+    private PolarPmdBrokerSource polarPmdSource;
 
     @Override
     public void onCreate() {
@@ -37,9 +38,29 @@ public final class BrokerService extends Service {
             server = new LocalBrokerServer(DEFAULT_PORT, state, publisher, getApplicationContext());
             oscIngressServer = OscIngressServer.createOrNull(config, state, server);
             server.setOscIngressServer(oscIngressServer);
+            polarPmdSource = new PolarPmdBrokerSource(getApplicationContext(), state, server);
+            server.setPolarPmdSource(polarPmdSource);
             Log.i(TAG, "Broker publisher mode: " + publisher.mode());
+            if (config.polarPmdEnabled) {
+                try {
+                    polarPmdSource.start(config.polarDeviceAddress, config.polarScanTimeoutMs);
+                    Log.i(TAG, "Polar PMD direct BLE source requested");
+                } catch (Exception ex) {
+                    Log.e(TAG, "Polar PMD source failed to start: " + ex.getMessage(), ex);
+                }
+            }
         } else if (intent != null && intent.getExtras() != null && intent.getExtras().size() > 0) {
-            Log.i(TAG, "Broker already running; launch extras were ignored. Force-stop broker to reconfigure transports.");
+            BrokerRuntimeConfig config = BrokerRuntimeConfig.fromIntent(intent);
+            if (config.polarPmdEnabled && polarPmdSource != null) {
+                try {
+                    polarPmdSource.start(config.polarDeviceAddress, config.polarScanTimeoutMs);
+                    Log.i(TAG, "Polar PMD direct BLE source requested on running broker");
+                } catch (Exception ex) {
+                    Log.e(TAG, "Polar PMD source failed to start: " + ex.getMessage(), ex);
+                }
+            } else {
+                Log.i(TAG, "Broker already running; launch extras were ignored. Force-stop broker to reconfigure transports.");
+            }
         }
 
         if (server != null && !server.isRunning()) {
@@ -59,6 +80,11 @@ public final class BrokerService extends Service {
 
     @Override
     public void onDestroy() {
+        if (polarPmdSource != null) {
+            polarPmdSource.close();
+            polarPmdSource = null;
+        }
+
         if (server != null) {
             server.close();
             server = null;

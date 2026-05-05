@@ -153,6 +153,24 @@ when needed. A launcher alias or small launcher Activity can expose a normal
 app icon, while the OpenXR Activity remains focused on VR lifecycle and runtime
 requirements.
 
+## Headset 2D Launchers
+
+A normal Quest 2D Android app can act as a useful side-loaded app launcher
+without any elevated shell helper. It can organize known package IDs, query
+visible launcher activities, and launch packages that expose a front-door
+Activity through Android `PackageManager` APIs. Package visibility still
+matters for discovery on modern Android, and packages that do not expose a
+public launch Activity may not be launchable from normal app mode.
+
+An ADB-launched shell helper is a separate Developer Mode path. It can add
+shell-backed package enumeration, explicit `am start`, force-stop,
+foreground checks, and diagnostics, but only after an external authorized ADB
+host starts the helper. A normal installed headset APK cannot promote itself
+to Android `shell` or self-start that helper.
+
+For the full public boundary, see
+[QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md](QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).
+
 ## Public Example Policy
 
 Public examples that include Android or OpenXR code must be authored as clean

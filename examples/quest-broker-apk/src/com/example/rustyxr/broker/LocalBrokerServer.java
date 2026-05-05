@@ -41,6 +41,7 @@ final class LocalBrokerServer implements Closeable {
     private volatile boolean running;
     private ServerSocket serverSocket;
     private Thread acceptThread;
+    private volatile PolarPmdBrokerSource polarPmdSource;
 
     LocalBrokerServer(int port, BrokerState state, LatencyPublisher publisher, Context context) {
         this.port = port;
@@ -55,6 +56,10 @@ final class LocalBrokerServer implements Closeable {
 
     void setOscIngressServer(OscIngressServer oscIngressServer) {
         this.oscIngressServer = oscIngressServer;
+    }
+
+    void setPolarPmdSource(PolarPmdBrokerSource polarPmdSource) {
+        this.polarPmdSource = polarPmdSource;
     }
 
     void start() throws IOException {
@@ -355,6 +360,40 @@ final class LocalBrokerServer implements Closeable {
 
         if ("publish_stream_event".equals(command)) {
             return publishStreamEvent(connection, requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("polar_pmd.get_status".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("status", state.polarPmdStatusJson());
+            return commandAck(requestId, command, true, "polar_pmd_status", result);
+        }
+
+        if ("polar_pmd.start".equals(command)) {
+            return startPolarPmd(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("polar_pmd.stop".equals(command)) {
+            return stopPolarPmd(requestId, command);
+        }
+
+        if ("breath_assessment.get_status".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("status", state.breathAssessmentStatusJson());
+            return commandAck(requestId, command, true, "breath_assessment_status", result);
+        }
+
+        if ("breath_assessment.configure".equals(command)) {
+            return configureBreathAssessment(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("breath_assessment.reset".equals(command)) {
+            return resetBreathAssessment(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("breath_assessment.submit_controller_pose".equals(command)) {
+            return submitControllerBreathPose(requestId, command, message.optJSONObject("params"));
         }
 
         if ("camera_provider.get_status".equals(command)) {
@@ -958,6 +997,112 @@ final class LocalBrokerServer implements Closeable {
         return commandAck(requestId, command, true, "video_lab_encoded_sample_metadata_recorded", result);
     }
 
+    private JSONObject startPolarPmd(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        PolarPmdBrokerSource source = polarPmdSource;
+        if (source == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "polar_pmd_unavailable", "Polar PMD source is not attached to this broker.");
+        }
+
+        String deviceAddress = params != null ? params.optString("device_address", "") : "";
+        if (deviceAddress.trim().length() == 0 && params != null) {
+            deviceAddress = params.optString("deviceAddress", "");
+        }
+        long scanTimeoutMs = params != null
+            ? params.optLong("scan_timeout_ms", BrokerRuntimeConfig.DEFAULT_POLAR_SCAN_TIMEOUT_MS)
+            : BrokerRuntimeConfig.DEFAULT_POLAR_SCAN_TIMEOUT_MS;
+        if (params != null && !params.has("scan_timeout_ms")) {
+            scanTimeoutMs = params.optLong("scanTimeoutMs", scanTimeoutMs);
+        }
+
+        JSONObject status = source.start(deviceAddress, scanTimeoutMs);
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("status", status);
+        return commandAck(requestId, command, true, "polar_pmd_starting", result);
+    }
+
+    private JSONObject stopPolarPmd(String requestId, String command) throws Exception {
+        PolarPmdBrokerSource source = polarPmdSource;
+        if (source == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "polar_pmd_unavailable", "Polar PMD source is not attached to this broker.");
+        }
+
+        JSONObject status = source.stop();
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("status", status);
+        return commandAck(requestId, command, true, "polar_pmd_stopping", result);
+    }
+
+    private JSONObject configureBreathAssessment(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject status = state.configureBreathAssessment(params);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("status", status);
+        return commandAck(requestId, command, true, "breath_assessment_configured", result);
+    }
+
+    private JSONObject resetBreathAssessment(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject status = state.resetBreathAssessment(params);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("status", status);
+        return commandAck(requestId, command, true, "breath_assessment_reset", result);
+    }
+
+    private JSONObject submitControllerBreathPose(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (params == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_params", "Command requires controller-pose params.");
+        }
+
+        long receiveUnixNs = unixNowNs();
+        long receiveElapsedNs = SystemClock.elapsedRealtimeNanos();
+        long sequence = params.optLong("sequence_id", receiveElapsedNs);
+        JSONObject processing = state.processControllerBreathPose(params, sequence, receiveUnixNs, receiveElapsedNs);
+        if (!processing.optBoolean("accepted", false)) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(
+                requestId,
+                command,
+                processing.optString("error_code", "controller_pose_rejected"),
+                processing.optString("message", "Controller pose was not accepted for breath assessment."));
+        }
+
+        JSONObject assessment = processing.optJSONObject("assessment");
+        int broadcasts = assessment != null
+            ? broadcastStreamEvent(
+                BreathAssessmentState.OUTPUT_STREAM,
+                assessment.optLong("sequence_id", sequence),
+                receiveUnixNs,
+                assessment)
+            : 0;
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("stream", BreathAssessmentState.OUTPUT_STREAM);
+        result.put("sequence_id", sequence);
+        result.put("broadcasts", broadcasts);
+        result.put("breath_assessment", processing);
+        return commandAck(requestId, command, true, "controller_pose_assessed", result);
+    }
+
     private JSONObject publishStreamEvent(
         WebSocketClientConnection connection,
         String requestId,
@@ -981,19 +1126,55 @@ final class LocalBrokerServer implements Closeable {
         }
 
         long sequence = params.optLong("sequence_id", state.publishedStreamEvents.get() + 1L);
-        long receiveUnixNs = unixNowNs();
-        payload.put("publisher_client_id", connection != null ? connection.clientId : "");
-        payload.put("broker_receive_time_unix_ns", receiveUnixNs);
-        int broadcasts = broadcastStreamEvent(stream, sequence, receiveUnixNs, payload);
-        long accepted = state.publishedStreamEvents.incrementAndGet();
+        JSONObject result = publishLocalStreamEvent(
+            stream,
+            sequence,
+            payload,
+            connection != null ? connection.clientId : "");
         state.acceptedCommands.incrementAndGet();
+        return commandAck(requestId, command, true, "stream_event_published", result);
+    }
+
+    JSONObject publishLocalStreamEvent(
+        String stream,
+        long sequence,
+        JSONObject payload,
+        String publisherClientId) throws Exception {
+        long receiveUnixNs = unixNowNs();
+        long receiveElapsedNs = SystemClock.elapsedRealtimeNanos();
+        payload.put("publisher_client_id", publisherClientId != null ? publisherClientId : "");
+        payload.put("broker_receive_time_unix_ns", receiveUnixNs);
+        payload.put("broker_receive_time_elapsed_ns", receiveElapsedNs);
+        int broadcasts = broadcastStreamEvent(stream, sequence, receiveUnixNs, payload);
+        JSONObject breathProcessing = state.processBreathAssessmentStreamEvent(
+            stream,
+            payload,
+            sequence,
+            receiveUnixNs,
+            receiveElapsedNs);
+        int breathBroadcasts = 0;
+        if (breathProcessing != null && breathProcessing.optBoolean("accepted", false)) {
+            JSONObject assessment = breathProcessing.optJSONObject("assessment");
+            if (assessment != null) {
+                breathBroadcasts = broadcastStreamEvent(
+                    BreathAssessmentState.OUTPUT_STREAM,
+                    assessment.optLong("sequence_id", sequence),
+                    receiveUnixNs,
+                    assessment);
+            }
+        }
+        long accepted = state.publishedStreamEvents.incrementAndGet();
 
         JSONObject result = new JSONObject();
         result.put("stream", stream);
         result.put("sequence_id", sequence);
         result.put("published_count", accepted);
         result.put("broadcasts", broadcasts);
-        return commandAck(requestId, command, true, "stream_event_published", result);
+        if (breathProcessing != null) {
+            result.put("breath_assessment", breathProcessing);
+            result.put("breath_broadcasts", breathBroadcasts);
+        }
+        return result;
     }
 
     private JSONObject subscribe(
