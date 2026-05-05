@@ -14,6 +14,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -208,6 +209,8 @@ public final class MainActivity extends Activity {
 
         HorizontalScrollView navScroll = new HorizontalScrollView(this);
         navScroll.setHorizontalScrollBarEnabled(false);
+        navScroll.setFocusable(false);
+        navScroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         navBar = new LinearLayout(this);
         navBar.setOrientation(LinearLayout.HORIZONTAL);
         navScroll.addView(navBar);
@@ -230,6 +233,8 @@ public final class MainActivity extends Activity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setFocusable(false);
+        scroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(22, 20, 22, 20);
@@ -456,6 +461,8 @@ public final class MainActivity extends Activity {
         addSectionTitle("LISTS");
         HorizontalScrollView listScroll = new HorizontalScrollView(this);
         listScroll.setHorizontalScrollBarEnabled(false);
+        listScroll.setFocusable(false);
+        listScroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         LinearLayout listRow = new LinearLayout(this);
         listRow.setOrientation(LinearLayout.HORIZONTAL);
         listScroll.addView(listRow);

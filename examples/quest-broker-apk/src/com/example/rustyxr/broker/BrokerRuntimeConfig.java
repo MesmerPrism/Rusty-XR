@@ -11,6 +11,8 @@ final class BrokerRuntimeConfig {
     static final String EXTRA_OSC_INGRESS_ENABLED = "rustyxr.oscIngressEnabled";
     static final String EXTRA_OSC_INGRESS_PORT = "rustyxr.oscIngressPort";
     static final String EXTRA_OSC_INGRESS_ADDRESS = "rustyxr.oscIngressAddress";
+    static final String EXTRA_BROKER_LAN_ENABLED = "rustyxr.brokerLanEnabled";
+    static final String EXTRA_BROKER_BIND_HOST = "rustyxr.brokerBindHost";
     static final String EXTRA_POLAR_PMD_ENABLED = "rustyxr.polarPmdEnabled";
     static final String EXTRA_POLAR_ENABLED = "rustyxr.polarEnabled";
     static final String EXTRA_POLAR_DEVICE_ADDRESS = "rustyxr.polarDeviceAddress";
@@ -19,6 +21,8 @@ final class BrokerRuntimeConfig {
     static final int DEFAULT_OSC_PORT = 9000;
     static final String DEFAULT_OSC_ADDRESS = "/rusty-xr/broker/latency";
     static final String DEFAULT_OSC_INGRESS_ADDRESS = "/rusty-xr/drive/radius";
+    static final String DEFAULT_BROKER_BIND_HOST = "127.0.0.1";
+    static final String DEFAULT_BROKER_LAN_BIND_HOST = "0.0.0.0";
     static final long DEFAULT_POLAR_SCAN_TIMEOUT_MS = 30_000L;
 
     final boolean oscEnabled;
@@ -28,6 +32,8 @@ final class BrokerRuntimeConfig {
     final boolean oscIngressEnabled;
     final int oscIngressPort;
     final String oscIngressAddress;
+    final boolean brokerLanEnabled;
+    final String brokerBindHost;
     final boolean polarPmdEnabled;
     final String polarDeviceAddress;
     final long polarScanTimeoutMs;
@@ -40,6 +46,8 @@ final class BrokerRuntimeConfig {
         boolean oscIngressEnabled,
         int oscIngressPort,
         String oscIngressAddress,
+        boolean brokerLanEnabled,
+        String brokerBindHost,
         boolean polarPmdEnabled,
         String polarDeviceAddress,
         long polarScanTimeoutMs) {
@@ -54,6 +62,11 @@ final class BrokerRuntimeConfig {
         this.oscIngressAddress = oscIngressAddress != null && oscIngressAddress.trim().length() > 0
             ? oscIngressAddress.trim()
             : DEFAULT_OSC_INGRESS_ADDRESS;
+        this.brokerLanEnabled = brokerLanEnabled;
+        String requestedBrokerBindHost = brokerBindHost != null ? brokerBindHost.trim() : "";
+        this.brokerBindHost = brokerLanEnabled
+            ? (requestedBrokerBindHost.length() > 0 ? requestedBrokerBindHost : DEFAULT_BROKER_LAN_BIND_HOST)
+            : DEFAULT_BROKER_BIND_HOST;
         this.polarPmdEnabled = polarPmdEnabled;
         this.polarDeviceAddress = polarDeviceAddress != null ? polarDeviceAddress.trim() : "";
         this.polarScanTimeoutMs = polarScanTimeoutMs > 0L
@@ -70,6 +83,8 @@ final class BrokerRuntimeConfig {
             enabled,
             port,
             address,
+            false,
+            DEFAULT_BROKER_BIND_HOST,
             false,
             "",
             DEFAULT_POLAR_SCAN_TIMEOUT_MS);
@@ -88,6 +103,8 @@ final class BrokerRuntimeConfig {
             DEFAULT_OSC_INGRESS_ADDRESS,
             EXTRA_OSC_INGRESS_ADDRESS,
             "oscIngressAddress");
+        boolean brokerLanEnabled = getBoolean(extras, false, EXTRA_BROKER_LAN_ENABLED, "brokerLanEnabled");
+        String brokerBindHost = getString(extras, DEFAULT_BROKER_BIND_HOST, EXTRA_BROKER_BIND_HOST, "brokerBindHost");
         boolean polarPmdEnabled = getBoolean(extras, false, EXTRA_POLAR_PMD_ENABLED, EXTRA_POLAR_ENABLED, "polarPmdEnabled", "polarEnabled");
         String polarDeviceAddress = getString(extras, "", EXTRA_POLAR_DEVICE_ADDRESS, "polarDeviceAddress");
         long polarScanTimeoutMs = getLong(
@@ -103,6 +120,8 @@ final class BrokerRuntimeConfig {
             oscIngressEnabled,
             oscIngressPort,
             oscIngressAddress,
+            brokerLanEnabled,
+            brokerBindHost,
             polarPmdEnabled,
             polarDeviceAddress,
             polarScanTimeoutMs);

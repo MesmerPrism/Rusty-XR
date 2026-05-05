@@ -36,6 +36,10 @@ owning decode, Vulkan import, projection, and OpenXR layer submission itself.
 - Video-lab encoded stream manifest ID: `video_lab.encoded_stream_manifest`
 - Video-lab encoded sample metadata ID: `video_lab.encoded_sample_metadata`
 
+The broker control socket binds to loopback by default. For LAN control
+experiments, start the broker with `rustyxr.brokerLanEnabled=true`; optionally
+set `rustyxr.brokerBindHost` to override the default `0.0.0.0` LAN bind.
+
 The status payload reports broker uptime, accepted sample counts, active
 capabilities, stream descriptors, command counters, LSL availability, and OSC
 ingress/egress settings. WebSocket clients can send legacy `status_request`,
@@ -51,6 +55,8 @@ available:
 - `camera_provider.start_app_camera_luma_stream`
 - `camera_provider.start_app_camera_h264_stream`
 - `camera_provider.run_app_camera_h264_decode_probe`
+- `media.start_h264_tcp_proxy`
+- `media.run_h264_tcp_proxy_probe`
 - `camera_provider.set_source_eye_mapping`
 - `camera_provider.set_texture_transform`
 - `camera_provider.record_visual_acceptance`
@@ -198,8 +204,20 @@ capture-then-write probe for regression stability. When clients pass
 `live_stream=true`, the broker accepts the binary stream socket before Camera2
 capture starts, drains encoder output directly to the stream, and writes
 schema-2 packets with per-packet source timestamps. That proves
-Camera2-to-encoder payload transport without bundling a codec library. The
-follow-up
+Camera2-to-encoder payload transport without bundling a codec library.
+For LAN experiments, non-loopback H.264 payload binds are opt-in. Passing
+`lan_stream_enabled=true` allows `camera_provider.start_app_camera_h264_stream`
+to use a non-loopback `bind_host` such as `0.0.0.0`; `advertised_host` can
+report the peer-reachable device address in the returned binary endpoint. A
+receiving broker can then run `media.start_h264_tcp_proxy` with `remote_host`,
+`remote_port`, and `local_port` to subscribe to that remote `RXYRVID1` H.264
+TCP stream and republish it on local loopback for the existing XR-side
+MediaCodec consumer. This is a broker-to-broker payload proof, not yet
+discovery, pairing/authentication, RTP jitter buffering, or an indefinite
+production stream. The `media.run_h264_tcp_proxy_probe` command validates the
+same TCP proxy plumbing with an in-process synthetic `RXYRVID1` source and
+consumer, so the broker-to-broker relay can be smoke-tested without camera
+permission, OpenXR, or a second headset. The follow-up
 `camera_provider.run_app_camera_h264_decode_probe` command reuses that same
 app-camera encoder path and consumes the resulting H.264 packets inside the
 broker process with Android platform MediaCodec byte-buffer output. That

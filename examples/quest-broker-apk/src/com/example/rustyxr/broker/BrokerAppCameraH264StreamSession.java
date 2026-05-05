@@ -86,9 +86,18 @@ final class BrokerAppCameraH264StreamSession {
             liveStream ? MAX_LIVE_PACKETS : MAX_PACKETS);
         final int bitrateBps = clamp(params != null ? params.optInt("bitrate_bps", DEFAULT_BITRATE_BPS) : DEFAULT_BITRATE_BPS, 100_000, 20_000_000);
         final String requestedCameraId = params != null ? params.optString("camera_id", "").trim() : "";
+        final boolean lanStreamEnabled = params != null && params.optBoolean("lan_stream_enabled", false);
+        final String bindHost = normalizeBindHost(
+            params != null ? params.optString("bind_host", "") : "",
+            lanStreamEnabled);
+        final String advertisedHost = normalizeAdvertisedHost(
+            params != null ? params.optString("advertised_host", "") : "",
+            bindHost);
 
         JSONObject endpoint = new JSONObject();
-        endpoint.put("host", "127.0.0.1");
+        endpoint.put("host", advertisedHost);
+        endpoint.put("bind_host", bindHost);
+        endpoint.put("lan_stream_enabled", lanStreamEnabled);
         endpoint.put("device_port", devicePort);
         endpoint.put("host_port", hostPort);
         endpoint.put("framing", STREAM_SCHEMA);
@@ -139,6 +148,7 @@ final class BrokerAppCameraH264StreamSession {
                     sessionId,
                     requestedCameraId,
                     devicePort,
+                    bindHost,
                     endpoint,
                     preferredWidth,
                     preferredHeight,
@@ -197,6 +207,7 @@ final class BrokerAppCameraH264StreamSession {
         String sessionId,
         String requestedCameraId,
         int devicePort,
+        String bindHost,
         JSONObject endpoint,
         int preferredWidth,
         int preferredHeight,
@@ -237,6 +248,7 @@ final class BrokerAppCameraH264StreamSession {
                     maxPackets,
                     bitrateBps,
                     devicePort,
+                    bindHost,
                     sink,
                     sessionId);
                 packets = liveResult.packets;
@@ -248,7 +260,7 @@ final class BrokerAppCameraH264StreamSession {
                 for (int i = 0; i < packets.size(); i++) {
                     recordSample(sink, sessionId, cameraId, size, i, packets.get(i), false);
                 }
-                writeStats = writePackets(devicePort, size, packets);
+                writeStats = writePackets(devicePort, bindHost, size, packets);
             }
         } catch (Exception ex) {
             encodeEndElapsedNs = SystemClock.elapsedRealtimeNanos();
@@ -340,6 +352,7 @@ final class BrokerAppCameraH264StreamSession {
         final int maxPackets,
         final int bitrateBps,
         final int devicePort,
+        final String bindHost,
         final Sink sink,
         final String sessionId) throws Exception {
         final List<EncodedPacket> packets = new ArrayList<EncodedPacket>();
@@ -358,7 +371,7 @@ final class BrokerAppCameraH264StreamSession {
         long writeEndElapsedNs = 0L;
         long encodeEndElapsedNs = listenStartElapsedNs;
         try {
-            server = new ServerSocket(devicePort, 1, InetAddress.getByName("127.0.0.1"));
+            server = new ServerSocket(devicePort, 1, InetAddress.getByName(bindHost));
             server.setSoTimeout(15000);
             client = server.accept();
             acceptElapsedNs = SystemClock.elapsedRealtimeNanos();
@@ -859,11 +872,11 @@ final class BrokerAppCameraH264StreamSession {
         };
     }
 
-    private static StreamWriteStats writePackets(int devicePort, Size size, List<EncodedPacket> packets) throws Exception {
+    private static StreamWriteStats writePackets(int devicePort, String bindHost, Size size, List<EncodedPacket> packets) throws Exception {
         if (packets.size() == 0) {
             throw new IllegalStateException("No H.264 packets were available to stream.");
         }
-        ServerSocket server = new ServerSocket(devicePort, 1, InetAddress.getByName("127.0.0.1"));
+        ServerSocket server = new ServerSocket(devicePort, 1, InetAddress.getByName(bindHost));
         long listenStartElapsedNs = SystemClock.elapsedRealtimeNanos();
         long acceptElapsedNs = 0L;
         long writeStartElapsedNs = 0L;
@@ -1049,6 +1062,33 @@ final class BrokerAppCameraH264StreamSession {
         output.write((int) ((value >>> 16) & 0xff));
         output.write((int) ((value >>> 8) & 0xff));
         output.write((int) (value & 0xff));
+    }
+
+    private static String normalizeBindHost(String requestedHost, boolean lanStreamEnabled) {
+        String host = requestedHost != null ? requestedHost.trim() : "";
+        if (host.length() == 0) {
+            return lanStreamEnabled ? "0.0.0.0" : "127.0.0.1";
+        }
+
+        if (!lanStreamEnabled && !isLoopbackBindHost(host)) {
+            throw new IllegalArgumentException("Non-loopback H.264 stream bind_host requires lan_stream_enabled=true.");
+        }
+        return host;
+    }
+
+    private static String normalizeAdvertisedHost(String requestedHost, String bindHost) {
+        String host = requestedHost != null ? requestedHost.trim() : "";
+        return host.length() > 0 ? host : bindHost;
+    }
+
+    private static boolean isLoopbackBindHost(String host) {
+        if (host == null) {
+            return false;
+        }
+        String normalized = host.trim().toLowerCase();
+        return "127.0.0.1".equals(normalized) ||
+            "localhost".equals(normalized) ||
+            "::1".equals(normalized);
     }
 
     private static int clamp(int value, int min, int max) {

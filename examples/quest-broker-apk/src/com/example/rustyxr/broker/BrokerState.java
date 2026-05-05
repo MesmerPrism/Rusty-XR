@@ -85,6 +85,8 @@ final class BrokerState {
         supportedCommands.put("camera_provider.start_app_camera_luma_stream");
         supportedCommands.put("camera_provider.start_app_camera_h264_stream");
         supportedCommands.put("camera_provider.run_app_camera_h264_decode_probe");
+        supportedCommands.put("media.start_h264_tcp_proxy");
+        supportedCommands.put("media.run_h264_tcp_proxy_probe");
         supportedCommands.put("camera_provider.set_source_eye_mapping");
         supportedCommands.put("camera_provider.set_texture_transform");
         supportedCommands.put("camera_provider.record_visual_acceptance");
@@ -159,6 +161,9 @@ final class BrokerState {
         capabilities.put("camera_projection.app_camera_luma_stream.v1");
         capabilities.put("camera_projection.app_camera_h264_stream.v1");
         capabilities.put("camera_projection.app_camera_h264_decode_probe.v1");
+        capabilities.put("broker.h264_tcp_proxy.v1");
+        capabilities.put("broker.h264_tcp_proxy_probe.v1");
+        capabilities.put("broker.lan_control.opt_in.v1");
         capabilities.put("shell_helper.status.v1");
         capabilities.put("video_lab.metrics.v1");
         capabilities.put("video_lab.encoded_stream_manifest.v1");

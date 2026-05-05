@@ -35,7 +35,7 @@ public final class BrokerService extends Service {
         if (publisher == null) {
             BrokerRuntimeConfig config = BrokerRuntimeConfig.fromIntent(intent);
             publisher = CompositeLatencyPublisher.create(config);
-            server = new LocalBrokerServer(DEFAULT_PORT, state, publisher, getApplicationContext());
+            server = new LocalBrokerServer(DEFAULT_PORT, state, publisher, getApplicationContext(), config.brokerBindHost);
             oscIngressServer = OscIngressServer.createOrNull(config, state, server);
             server.setOscIngressServer(oscIngressServer);
             polarPmdSource = new PolarPmdBrokerSource(getApplicationContext(), state, server);
@@ -66,7 +66,7 @@ public final class BrokerService extends Service {
         if (server != null && !server.isRunning()) {
             try {
                 server.start();
-                Log.i(TAG, "Broker listening on 127.0.0.1:" + DEFAULT_PORT);
+                Log.i(TAG, "Broker listening on " + server.bindHost() + ":" + DEFAULT_PORT);
                 if (oscIngressServer != null && !oscIngressServer.isRunning()) {
                     oscIngressServer.start();
                 }

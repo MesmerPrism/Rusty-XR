@@ -35,6 +35,7 @@ final class LocalBrokerServer implements Closeable {
     private final BrokerState state;
     private final LatencyPublisher publisher;
     private final Context context;
+    private final String bindHost;
     private final Set<WebSocketClientConnection> websocketClients = new HashSet<>();
     private final AtomicLong nextConnectionId = new AtomicLong(1L);
     private volatile OscIngressServer oscIngressServer;
@@ -44,14 +45,25 @@ final class LocalBrokerServer implements Closeable {
     private volatile PolarPmdBrokerSource polarPmdSource;
 
     LocalBrokerServer(int port, BrokerState state, LatencyPublisher publisher, Context context) {
+        this(port, state, publisher, context, "127.0.0.1");
+    }
+
+    LocalBrokerServer(int port, BrokerState state, LatencyPublisher publisher, Context context, String bindHost) {
         this.port = port;
         this.state = state;
         this.publisher = publisher;
         this.context = context != null ? context.getApplicationContext() : null;
+        this.bindHost = bindHost != null && bindHost.trim().length() > 0
+            ? bindHost.trim()
+            : "127.0.0.1";
     }
 
     boolean isRunning() {
         return running;
+    }
+
+    String bindHost() {
+        return bindHost;
     }
 
     void setOscIngressServer(OscIngressServer oscIngressServer) {
@@ -69,7 +81,7 @@ final class LocalBrokerServer implements Closeable {
 
         serverSocket = new ServerSocket();
         serverSocket.setReuseAddress(true);
-        serverSocket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port));
+        serverSocket.bind(new InetSocketAddress(InetAddress.getByName(bindHost), port));
         running = true;
         acceptThread = new Thread(new Runnable() {
             @Override
@@ -198,7 +210,7 @@ final class LocalBrokerServer implements Closeable {
 
             if ("GET".equals(method) && "/status".equals(path)) {
                 state.httpStatusRequests.incrementAndGet();
-                writeJsonResponse(output, 200, state.toStatusJson(publisher, oscIngressServer).toString());
+                writeJsonResponse(output, 200, statusForConnection(null).toString());
                 return;
             }
 
@@ -424,6 +436,14 @@ final class LocalBrokerServer implements Closeable {
 
         if ("camera_provider.run_app_camera_h264_decode_probe".equals(command)) {
             return runCameraProviderAppCameraH264DecodeProbe(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("media.start_h264_tcp_proxy".equals(command)) {
+            return startMediaH264TcpProxy(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("media.run_h264_tcp_proxy_probe".equals(command)) {
+            return runMediaH264TcpProxyProbe(requestId, command, message.optJSONObject("params"));
         }
 
         if ("camera_provider.set_source_eye_mapping".equals(command)) {
@@ -730,31 +750,123 @@ final class LocalBrokerServer implements Closeable {
             return commandError(requestId, command, "missing_context", "Broker app context is not available.");
         }
 
-        JSONObject start = BrokerAppCameraH264StreamSession.start(
-            context,
-            params,
-            new BrokerAppCameraH264StreamSession.Sink() {
-                @Override
-                public void registerManifest(JSONObject manifest) throws Exception {
-                    recordAppCameraLumaManifest(manifest);
-                }
+        JSONObject start;
+        try {
+            start = BrokerAppCameraH264StreamSession.start(
+                context,
+                params,
+                new BrokerAppCameraH264StreamSession.Sink() {
+                    @Override
+                    public void registerManifest(JSONObject manifest) throws Exception {
+                        recordAppCameraLumaManifest(manifest);
+                    }
 
-                @Override
-                public void recordSample(JSONObject sample) throws Exception {
-                    recordAppCameraLumaSample(sample);
-                }
+                    @Override
+                    public void recordSample(JSONObject sample) throws Exception {
+                        recordAppCameraLumaSample(sample);
+                    }
 
-                @Override
-                public void recordMetric(JSONObject metric) throws Exception {
-                    recordAppCameraLumaMetric(metric);
-                }
-            });
+                    @Override
+                    public void recordMetric(JSONObject metric) throws Exception {
+                        recordAppCameraLumaMetric(metric);
+                    }
+                });
+        } catch (IllegalArgumentException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "invalid_h264_stream_params", safeMessage(ex));
+        } catch (SecurityException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "h264_stream_not_allowed", safeMessage(ex));
+        }
         state.acceptedCommands.incrementAndGet();
 
         JSONObject result = new JSONObject();
         result.put("stream_start", start);
         result.put("projection_profile", state.projectionProfileJson());
         return commandAck(requestId, command, true, "camera_provider_app_camera_h264_stream_started", result);
+    }
+
+    private JSONObject startMediaH264TcpProxy(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject start;
+        try {
+            start = BrokerH264TcpProxySession.start(
+                params,
+                new BrokerH264TcpProxySession.Sink() {
+                    @Override
+                    public void registerManifest(JSONObject manifest) throws Exception {
+                        recordAppCameraLumaManifest(manifest);
+                    }
+
+                    @Override
+                    public void recordSample(JSONObject sample) throws Exception {
+                        recordAppCameraLumaSample(sample);
+                    }
+
+                    @Override
+                    public void recordMetric(JSONObject metric) throws Exception {
+                        recordAppCameraLumaMetric(metric);
+                    }
+                });
+        } catch (IllegalArgumentException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "invalid_h264_proxy_params", safeMessage(ex));
+        } catch (SecurityException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "h264_proxy_not_allowed", safeMessage(ex));
+        }
+
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("proxy_start", start);
+        return commandAck(requestId, command, true, "media_h264_tcp_proxy_started", result);
+    }
+
+    private JSONObject runMediaH264TcpProxyProbe(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject probe;
+        try {
+            probe = BrokerH264TcpProxySession.runProbe(
+                params,
+                new BrokerH264TcpProxySession.Sink() {
+                    @Override
+                    public void registerManifest(JSONObject manifest) throws Exception {
+                        recordAppCameraLumaManifest(manifest);
+                    }
+
+                    @Override
+                    public void recordSample(JSONObject sample) throws Exception {
+                        recordAppCameraLumaSample(sample);
+                    }
+
+                    @Override
+                    public void recordMetric(JSONObject metric) throws Exception {
+                        recordAppCameraLumaMetric(metric);
+                    }
+                });
+        } catch (IllegalArgumentException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "invalid_h264_proxy_probe_params", safeMessage(ex));
+        } catch (SecurityException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "h264_proxy_probe_not_allowed", safeMessage(ex));
+        }
+
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("proxy_probe", probe);
+        return commandAck(
+            requestId,
+            command,
+            true,
+            probe.optBoolean("succeeded", false)
+                ? "media_h264_tcp_proxy_probe_succeeded"
+                : "media_h264_tcp_proxy_probe_completed",
+            result);
     }
 
     private JSONObject runCameraProviderAppCameraH264DecodeProbe(
@@ -1315,6 +1427,8 @@ final class LocalBrokerServer implements Closeable {
 
     private JSONObject statusForConnection(WebSocketClientConnection connection) throws Exception {
         JSONObject status = state.toStatusJson(publisher, oscIngressServer);
+        status.put("bindAddress", bindHost);
+        status.put("lanControlEnabled", !isLoopbackBindHost(bindHost));
         if (connection != null) {
             JSONObject client = new JSONObject();
             client.put("connection_id", connection.connectionId);
@@ -1330,6 +1444,21 @@ final class LocalBrokerServer implements Closeable {
             status.put("activeWebSocketClients", websocketClients.size());
         }
         return status;
+    }
+
+    private static boolean isLoopbackBindHost(String host) {
+        if (host == null) {
+            return false;
+        }
+        String normalized = host.trim().toLowerCase(Locale.US);
+        return "127.0.0.1".equals(normalized) ||
+            "localhost".equals(normalized) ||
+            "::1".equals(normalized);
+    }
+
+    private static String safeMessage(Exception ex) {
+        String message = ex.getMessage();
+        return message != null ? message : "";
     }
 
     private static void updateClientIdentity(WebSocketClientConnection connection, JSONObject message) {
