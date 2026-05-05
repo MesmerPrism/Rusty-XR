@@ -22,8 +22,9 @@ LSL-native adapters.
 - `rusty-xr-ble`, `rusty-xr-lsl`, and `rusty-xr-polar`: protocol/data models
   without native transport backends.
 - `rusty-xr-camera-model`, `rusty-xr-depth-model`, `rusty-xr-sdf`, and
-  `rusty-xr-particles`: deterministic helpers and public snapshots that can be
-  demonstrated with synthetic data.
+  `rusty-xr-particles`: deterministic helpers, mesh-surface samples, live
+  hand-mesh particle anchors, and public snapshots that can be demonstrated
+  with synthetic data.
 
 ## Stabilization Notes
 

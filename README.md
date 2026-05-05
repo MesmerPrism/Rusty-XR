@@ -32,7 +32,8 @@ Initial crate layout:
 - `rusty-xr-camera-model`: camera metadata and projection helpers.
 - `rusty-xr-depth-model`: depth-frame and environment-depth contracts.
 - `rusty-xr-sdf`: signed-distance-field and mesh snapshot contracts.
-- `rusty-xr-particles`: general particle and animation primitives.
+- `rusty-xr-particles`: general particle, animation, mesh-surface sampling,
+  live hand-mesh particle anchors, and neighborhood primitives.
 
 The crates are intentionally small at the start. The first milestone is to
 stabilize public contracts and tests before moving higher-level adapters into
@@ -50,11 +51,17 @@ tiers. It also includes an explicit environment-depth diagnostics profile that
 starts the OpenXR environment-depth provider, logs depth resolution, near/far
 range, runtime capture timestamps, acquire cost, observed depth cadence, and
 confidence availability, and renders a stereo grayscale depth texture diagnostic
-in headset. The same APK has an optional generic diagnostic HUD path that can
-be driven from runtime configuration, ADB hotload intents, or future controller,
-LSL, OSC, and app-specific input adapters. MediaProjection is optional and is used
-only to stream the final headset screen back to Windows for inspection:
+in headset. It also includes generated depth-mesh and retained local-space
+particle overlays for validating live environment-depth surface reconstruction
+over native passthrough:
 [examples/quest-composite-layer-apk/README.md](examples/quest-composite-layer-apk/README.md).
+The current particle anchoring limitation and scene-owned follow-up plan are
+documented in
+[docs/ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md](docs/ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md).
+The same APK has an optional generic diagnostic HUD path that can be driven
+from runtime configuration, ADB hotload intents, or future controller, LSL,
+OSC, and app-specific input adapters. MediaProjection is optional and is used
+only to stream the final headset screen back to Windows for inspection.
 Diagnostic HUD stereo rendering options are documented in
 [docs/DIAGNOSTIC_HUD_STEREO_RENDERING.md](docs/DIAGNOSTIC_HUD_STEREO_RENDERING.md).
 The current raw-camera example has two public projected stereo modes:
@@ -97,6 +104,12 @@ subscription, console-open, and latency-sample path without adopting a specific
 async runtime:
 [examples/quest-broker-apk/README.md](examples/quest-broker-apk/README.md).
 [examples/broker-client-probe/README.md](examples/broker-client-probe/README.md).
+
+The particle crate includes a Rust-native live hand-mesh sampler that consumes
+public `HandMeshSnapshot` frames from a native provider, keeps an even
+coordinate set stable across deformed mesh updates, and rebuilds only when mesh
+topology changes:
+[docs/HAND_MESH_PARTICLE_RUNTIME.md](docs/HAND_MESH_PARTICLE_RUNTIME.md).
 An optional source-only ADB shell helper example can be built as a dex jar and
 launched with `adb shell app_process` to report shell-helper status to the
 broker, including optional bounded MediaCodec and shell-visible camera metadata

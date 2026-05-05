@@ -21,6 +21,13 @@ const OSC_DIAGNOSTICS_FONT_SIZE_PX: f32 = 84.0;
 fn main() {
     println!("cargo:rerun-if-changed=shaders/camera_projection.vert.glsl");
     println!("cargo:rerun-if-changed=shaders/camera_projection.frag.glsl");
+    println!("cargo:rerun-if-changed=shaders/environment_depth_mesh.vert.glsl");
+    println!("cargo:rerun-if-changed=shaders/environment_depth_mesh.frag.glsl");
+    println!("cargo:rerun-if-changed=shaders/environment_depth_particle_update.comp.glsl");
+    println!("cargo:rerun-if-changed=shaders/environment_depth_particles.vert.glsl");
+    println!("cargo:rerun-if-changed=shaders/environment_depth_particles.frag.glsl");
+    println!("cargo:rerun-if-changed=shaders/hand_mesh_particles.vert.glsl");
+    println!("cargo:rerun-if-changed=shaders/hand_mesh_particles.frag.glsl");
     println!("cargo:rerun-if-changed=shaders/environment_depth_visualization.frag.glsl");
     println!("cargo:rerun-if-changed=shaders/osc_diagnostics_overlay.vert.glsl");
     println!("cargo:rerun-if-changed=shaders/osc_diagnostics_overlay.frag.glsl");
@@ -64,6 +71,55 @@ fn main() {
         "fragment",
         Path::new("shaders/environment_depth_visualization.frag.glsl"),
         &out_dir.join("environment_depth_visualization.frag.spv"),
+        &[],
+    );
+    compile_shader(
+        &glslc,
+        "vertex",
+        Path::new("shaders/environment_depth_mesh.vert.glsl"),
+        &out_dir.join("environment_depth_mesh.vert.spv"),
+        &[],
+    );
+    compile_shader(
+        &glslc,
+        "fragment",
+        Path::new("shaders/environment_depth_mesh.frag.glsl"),
+        &out_dir.join("environment_depth_mesh.frag.spv"),
+        &[],
+    );
+    compile_shader(
+        &glslc,
+        "compute",
+        Path::new("shaders/environment_depth_particle_update.comp.glsl"),
+        &out_dir.join("environment_depth_particle_update.comp.spv"),
+        &[],
+    );
+    compile_shader(
+        &glslc,
+        "vertex",
+        Path::new("shaders/environment_depth_particles.vert.glsl"),
+        &out_dir.join("environment_depth_particles.vert.spv"),
+        &[],
+    );
+    compile_shader(
+        &glslc,
+        "fragment",
+        Path::new("shaders/environment_depth_particles.frag.glsl"),
+        &out_dir.join("environment_depth_particles.frag.spv"),
+        &[],
+    );
+    compile_shader(
+        &glslc,
+        "vertex",
+        Path::new("shaders/hand_mesh_particles.vert.glsl"),
+        &out_dir.join("hand_mesh_particles.vert.spv"),
+        &[],
+    );
+    compile_shader(
+        &glslc,
+        "fragment",
+        Path::new("shaders/hand_mesh_particles.frag.glsl"),
+        &out_dir.join("hand_mesh_particles.frag.spv"),
         &[],
     );
     compile_shader(

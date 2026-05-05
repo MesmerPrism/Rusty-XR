@@ -20,6 +20,7 @@ rusty-xr-camera-model = { path = "../../../crates/rusty-xr-camera-model", featur
 rusty-xr-contracts = { path = "../../../crates/rusty-xr-contracts", features = ["serde"] }
 rusty-xr-debug-canvas = { path = "../../../crates/rusty-xr-debug-canvas", features = ["serde"] }
 rusty-xr-osc = { path = "../../../crates/rusty-xr-osc", features = ["serde"] }
+rusty-xr-particles = { path = "../../../crates/rusty-xr-particles" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

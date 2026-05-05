@@ -478,6 +478,7 @@ dependencies = [
  "rusty-xr-contracts",
  "rusty-xr-debug-canvas",
  "rusty-xr-osc",
+ "rusty-xr-particles",
  "serde",
  "serde_json",
 ]

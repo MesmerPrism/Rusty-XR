@@ -69,7 +69,7 @@
             <tr><td>Debug canvas</td><td>Normalized diagnostic HUD documents, draw lists, text runs, tones, and input-neutral HUD commands.</td><td>In progress</td></tr>
             <tr><td>Quest diagnostics</td><td>Device readiness, package launch state, frame-rate summaries, runtime counters.</td><td>In progress</td></tr>
             <tr><td>Camera / depth / SDF</td><td>Projection helpers, timestamp matching, environment-depth diagnostics, unique capture cadence, readback policies, per-view metadata, packed SDF, sparse TSDF snapshots, and depth-derived support/impact query contracts.</td><td>In progress</td></tr>
-            <tr><td>Particles</td><td>Deterministic particle storage, seeded sphere helper, fixed-step clock, render payload generation.</td><td>In progress</td></tr>
+            <tr><td>Particles</td><td>Deterministic particle storage, seeded sphere helper, fixed-step clock, render payload generation, mesh-surface sampling, live deformed-mesh anchor updates, same-surface neighbor tiers, and cross-surface neighbor links.</td><td>In progress</td></tr>
           </tbody>
         </table>
       </div>
@@ -142,6 +142,10 @@
           <h3>Debug HUD</h3>
           <p>Shared stereo-surface rendering and real-font atlas guidance for headset diagnostics.</p>
         </a>
+        <a class="card" href="ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md">
+          <h3>Depth Particles</h3>
+          <p>Current local-space particle overlay status and the scene-owned anchoring follow-up.</p>
+        </a>
         <a class="card" href="PROVENANCE.md">
           <h3>Provenance</h3>
           <p>Public utility entries record broad source families without leaking private paths.</p>
@@ -165,6 +169,10 @@
         <a class="card" href="https://github.com/MesmerPrism/the-big-red-button-institute">
           <h3>Unity Example</h3>
           <p>Use the public Big Red Button Quest scene to compare direct Unity OSC/BLE input against broker-routed stream events.</p>
+        </a>
+        <a class="card" href="HAND_MESH_PARTICLE_RUNTIME.md">
+          <h3>Hand Mesh Particles</h3>
+          <p>Drive stable particle coordinates from live HandMeshSnapshot frames without adding platform SDKs to core crates.</p>
         </a>
       </div>
     </section>

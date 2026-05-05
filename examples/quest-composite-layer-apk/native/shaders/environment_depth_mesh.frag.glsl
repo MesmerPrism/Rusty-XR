@@ -19,29 +19,14 @@ layout(push_constant) uniform EnvironmentDepthVisualizationPush {
     vec4 right_render_orientation;
 } pc;
 
-layout(location = 0) in vec2 v_surface_uv;
+layout(location = 0) in vec2 v_depth_uv;
 layout(location = 1) flat in int v_eye_index;
+layout(location = 2) in vec3 v_stage_position;
+layout(location = 3) in float v_depth_meters;
+layout(location = 4) in float v_valid_depth;
 layout(location = 0) out vec4 out_color;
 
 const float MESH_DISTANCE_GRADIENT_MAX_METERS = 3.0;
-
-vec2 apply_depth_texture_transform(vec2 uv, int flags) {
-    int turns = flags & 3;
-    if (turns == 1) {
-        uv = vec2(uv.y, 1.0 - uv.x);
-    } else if (turns == 2) {
-        uv = vec2(1.0 - uv.x, 1.0 - uv.y);
-    } else if (turns == 3) {
-        uv = vec2(1.0 - uv.y, uv.x);
-    }
-    if ((flags & 4) != 0 || (flags & 16) != 0) {
-        uv.x = 1.0 - uv.x;
-    }
-    if ((flags & 8) != 0) {
-        uv.y = 1.0 - uv.y;
-    }
-    return uv;
-}
 
 float linear_depth_meters(float raw_depth) {
     float near_z = max(pc.params.y, 0.001);
@@ -72,20 +57,6 @@ float sample_depth_meters(vec2 uv, int eye_index) {
         max(pc.params.x, max(pc.params.y, 0.001) + 0.1));
 }
 
-vec3 rotate_by_quat(vec3 value, vec4 q) {
-    return value + 2.0 * cross(q.xyz, cross(q.xyz, value) + q.w * value);
-}
-
-vec3 reconstruct_stage_position(vec2 depth_uv, int eye_index, float depth_meters) {
-    vec4 fov = eye_index == 0 ? pc.left_fov_tangents : pc.right_fov_tangents;
-    vec4 orientation = eye_index == 0 ? pc.left_orientation : pc.right_orientation;
-    vec3 position = (eye_index == 0 ? pc.left_position : pc.right_position).xyz;
-    float tangent_x = mix(fov.x, fov.y, depth_uv.x);
-    float tangent_y = mix(fov.w, fov.z, depth_uv.y);
-    vec3 view_position = vec3(tangent_x * depth_meters, tangent_y * depth_meters, -depth_meters);
-    return position + rotate_by_quat(view_position, orientation);
-}
-
 float triangle_wire_line(vec2 plane_coord) {
     vec2 local = fract(plane_coord);
     float edge_distance = min(
@@ -101,7 +72,7 @@ float triangle_wire_line(vec2 plane_coord) {
     return max(edge_line, diagonal_line * 0.45);
 }
 
-float triplanar_surface_wire(vec3 world_position, vec3 world_normal, float cell_meters) {
+float dominant_surface_wire(vec3 world_position, vec3 world_normal, float cell_meters) {
     vec3 axis_weight = abs(normalize(world_normal));
     float line_xy = triangle_wire_line(world_position.xy / cell_meters);
     float line_xz = triangle_wire_line(world_position.xz / cell_meters);
@@ -134,90 +105,58 @@ vec3 depth_distance_gradient(float depth_meters) {
     return mix(far_mid_color, far_color, (t - 0.75) / 0.25);
 }
 
-vec4 mesh_overlay_color(
-    vec2 depth_uv,
-    int eye_index,
-    float depth_meters,
-    bool infinity_cutoff) {
-    float cell_meters = max(pc.transform.z, 0.02);
-    float discontinuity_meters = max(pc.transform.w, 0.01);
-
-    if (infinity_cutoff) {
-        return vec4(0.0);
+void main() {
+    if (v_valid_depth < 0.5) {
+        discard;
     }
 
-    vec3 stage_position = reconstruct_stage_position(depth_uv, eye_index, depth_meters);
-    vec3 dx = dFdx(stage_position);
-    vec3 dy = dFdy(stage_position);
+    float cell_meters = max(pc.transform.z, 0.02);
+    float discontinuity_meters = max(pc.transform.w, 0.01);
+    float history_alpha = clamp(pc.transform.y, 0.0, 1.0);
+    vec3 dx = dFdx(v_stage_position);
+    vec3 dy = dFdy(v_stage_position);
     vec3 normal = cross(dx, dy);
     if (dot(normal, normal) < 1.0e-8) {
         normal = vec3(0.0, 1.0, 0.0);
     } else {
         normal = normalize(normal);
     }
-    float line = triplanar_surface_wire(stage_position, normal, cell_meters);
 
+    float line = dominant_surface_wire(v_stage_position, normal, cell_meters);
     vec2 depth_size = vec2(textureSize(u_environment_depth, 0).xy);
     vec2 sample_step = 1.0 / max(depth_size, vec2(1.0));
-    float right_depth = sample_depth_meters(depth_uv + vec2(sample_step.x, 0.0), eye_index);
-    float up_depth = sample_depth_meters(depth_uv + vec2(0.0, sample_step.y), eye_index);
-    float discontinuity = max(abs(depth_meters - right_depth), abs(depth_meters - up_depth));
+    float right_depth = sample_depth_meters(v_depth_uv + vec2(sample_step.x, 0.0), v_eye_index);
+    float up_depth = sample_depth_meters(v_depth_uv + vec2(0.0, sample_step.y), v_eye_index);
+    float discontinuity = max(
+        abs(v_depth_meters - right_depth),
+        abs(v_depth_meters - up_depth));
     float stable = 1.0 - smoothstep(
         discontinuity_meters,
         discontinuity_meters * 2.0,
         discontinuity);
     float break_line = 1.0 - stable;
 
-    float depth_t = clamp(depth_meters / MESH_DISTANCE_GRADIENT_MAX_METERS, 0.0, 1.0);
+    float depth_t = clamp(v_depth_meters / MESH_DISTANCE_GRADIENT_MAX_METERS, 0.0, 1.0);
     float surface_gradient = clamp(
-        length(vec2(dFdx(depth_meters), dFdy(depth_meters))) * 4.0,
+        length(vec2(dFdx(v_depth_meters), dFdy(v_depth_meters))) * 4.0,
         0.0,
         1.0);
     float normal_light = 0.55 + 0.45 * abs(normal.y);
-    vec3 stable_color = depth_distance_gradient(depth_meters);
+    vec3 stable_color = depth_distance_gradient(v_depth_meters);
     stable_color *= normal_light;
     stable_color += surface_gradient * vec3(0.06, 0.06, 0.06);
     vec3 break_color = vec3(1.0, 0.34, 0.06);
-    float surface_alpha = stable * (0.025 + (1.0 - depth_t) * 0.03);
-    float stable_alpha = line * (0.36 + (1.0 - depth_t) * 0.14);
-    float break_alpha = break_line * 0.58;
+
+    float surface_alpha = history_alpha * stable * (0.02 + (1.0 - depth_t) * 0.025);
+    float stable_alpha = history_alpha * line * (0.34 + (1.0 - depth_t) * 0.14);
+    float break_alpha = history_alpha * break_line * 0.58;
     float alpha = max(max(surface_alpha, stable_alpha), break_alpha);
     if (alpha <= 0.001) {
-        return vec4(0.0);
+        discard;
     }
+
     vec3 premultiplied = stable_color * max(surface_alpha, stable_alpha);
     premultiplied = mix(premultiplied, break_color * break_alpha, break_alpha);
     vec3 color = premultiplied / max(alpha, 0.001);
-    return vec4(color * alpha, alpha);
-}
-
-void main() {
-    int transform_flags = int(floor(pc.transform.x + 0.5));
-    int visual_mode = int(floor(pc.transform.y + 0.5));
-    vec2 uv = clamp(
-        apply_depth_texture_transform(v_surface_uv, transform_flags),
-        vec2(0.0),
-        vec2(1.0));
-    float raw_depth = texture(u_environment_depth, vec3(uv, float(v_eye_index))).r;
-    float near_depth_meters = max(pc.params.y, 0.001);
-    float max_depth_meters = max(pc.params.x, near_depth_meters + 0.1);
-
-    if (!(raw_depth >= 0.0)) {
-        raw_depth = 0.0;
-    }
-
-    bool infinity_cutoff = raw_depth >= 1.0 - (0.5 / 65535.0);
-    float depth_meters = min(linear_depth_meters(raw_depth), max_depth_meters);
-    float grayscale = clamp(depth_meters / max_depth_meters, 0.0, 1.0);
-
-    if (infinity_cutoff) {
-        grayscale = 1.0;
-    }
-
-    if (visual_mode == 1) {
-        out_color = mesh_overlay_color(uv, v_eye_index, depth_meters, infinity_cutoff);
-        return;
-    }
-
-    out_color = vec4(vec3(grayscale), 1.0);
+    out_color = vec4(color * alpha, alpha);
 }

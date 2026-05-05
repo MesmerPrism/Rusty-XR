@@ -7,9 +7,9 @@ use std::{
 use crate::{
     diagnostic_hud_snapshot, gpu_probe_counters, latest_headset_camera_frame,
     latest_headset_camera_gpu_frame, latest_headset_stereo_camera_gpu_frame, log_error, log_info,
-    runtime_config, EnvironmentDepthMode, HeadsetCameraFrame, HeadsetCameraGpuFrame,
-    OpenXrColorFormatMode, OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode, RuntimeConfig,
-    StereoGpuCameraFrame,
+    runtime_config, EnvironmentDepthMode, HandParticleMode, HeadsetCameraFrame,
+    HeadsetCameraGpuFrame, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
+    OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
 };
 use android_activity::{InputStatus, MainEvent, PollEvent};
 use ash::vk::{self, Handle};
@@ -26,6 +26,11 @@ use rusty_xr_debug_canvas::{
     CanvasBadge, CanvasDocument, CanvasDrawList, CanvasLayout, CanvasSection, CanvasTextRun,
     CanvasTheme, CanvasTone, DiagnosticHudUpdate,
 };
+use rusty_xr_particles::{
+    build_synthetic_hand_mesh, ColorRgba, HandMeshSnapshot, Handedness,
+    LiveHandMeshParticleSampler, MeshSurfaceSampleConfig, ParticleRender, SyntheticHandMeshConfig,
+    TriangleMeshSurface,
+};
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
 const CAMERA_CPU_UPLOAD_MIN_INTERVAL_NS: i64 = 250_000_000;
@@ -37,6 +42,20 @@ const XR_FRAGMENT_DENSITY_MAP_FORMAT: vk::Format = vk::Format::R8G8_UNORM;
 const XR_FOVEATION_DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 const XR_ENVIRONMENT_DEPTH_FORMAT: vk::Format = vk::Format::D16_UNORM;
 const XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS: f32 = 20.0;
+const XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS: f32 = 3.0;
+const XR_ENVIRONMENT_DEPTH_MESH_CELL_METERS: f32 = 0.14;
+const XR_ENVIRONMENT_DEPTH_MESH_DISCONTINUITY_METERS: f32 = 0.35;
+const XR_ENVIRONMENT_DEPTH_MESH_GRID_STRIDE_PIXELS: u32 = 4;
+const XR_ENVIRONMENT_DEPTH_MESH_HISTORY_FRAMES: usize = 1;
+const XR_ENVIRONMENT_DEPTH_MESH_HISTORY_MAX_AGE_NS: i64 = 0;
+const XR_ENVIRONMENT_DEPTH_MESH_HISTORY_MIN_ALPHA: f32 = 0.24;
+const XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY: u32 = 32_768;
+const XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS: u32 = 12;
+const XR_ENVIRONMENT_DEPTH_PARTICLE_SOURCE_VIEW_COUNT: u32 = 1;
+const XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS: f32 = 0.28;
+const XR_HAND_MESH_PARTICLE_COUNT_PER_HAND: usize = 160;
+const XR_HAND_MESH_PARTICLE_CAPACITY: u32 = 512;
+const XR_HAND_MESH_PARTICLE_RADIUS_METERS: f32 = 0.0045;
 const XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_FLAGS: u32 = 8;
 const XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL: &str = "rotate0+flipY";
 const XR_ENVIRONMENT_DEPTH_DESCRIPTOR_LAYOUT: vk::ImageLayout =
@@ -139,12 +158,19 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
         .map_err(|error| format!("get HMD system: {error}"))?;
     let passthrough_lut_max_resolution = query_passthrough_lut_max_resolution(&xr_instance, system);
     let environment_depth_properties = query_environment_depth_properties(&xr_instance, system);
-    let environment_blend_mode = xr_instance
+    let environment_blend_modes = xr_instance
         .enumerate_environment_blend_modes(system, VIEW_TYPE)
-        .map_err(|error| format!("enumerate environment blend modes: {error}"))?
-        .into_iter()
-        .next()
+        .map_err(|error| format!("enumerate environment blend modes: {error}"))?;
+    let environment_blend_mode = environment_blend_modes
+        .iter()
+        .copied()
+        .find(|mode| *mode == xr::EnvironmentBlendMode::OPAQUE)
+        .or_else(|| environment_blend_modes.first().copied())
         .ok_or_else(|| "OpenXR runtime reported no environment blend modes".to_string())?;
+    log_info(format!(
+        "Rusty XR OpenXR environment blend modes available={:?} selected={:?}",
+        environment_blend_modes, environment_blend_mode
+    ));
 
     let vk_target_version = vk::make_api_version(0, 1, 1, 0);
     let vk_target_version_xr = xr::Version::new(1, 1, 0);
@@ -702,9 +728,45 @@ struct OpenXrEnvironmentDepthProbe {
 struct EnvironmentDepthVisualFrame {
     frame_count: u64,
     swapchain_index: u32,
+    depth_width: u32,
+    depth_height: u32,
     near_z: f32,
     far_z: f32,
     capture_time_ns: i64,
+    left_fov_tangents: [f32; 4],
+    right_fov_tangents: [f32; 4],
+    left_render_fov_tangents: [f32; 4],
+    right_render_fov_tangents: [f32; 4],
+    left_position: [f32; 4],
+    right_position: [f32; 4],
+    left_orientation: [f32; 4],
+    right_orientation: [f32; 4],
+    left_render_position: [f32; 4],
+    right_render_position: [f32; 4],
+    left_render_orientation: [f32; 4],
+    right_render_orientation: [f32; 4],
+}
+
+fn fov_tangents(fov: xr::sys::Fovf) -> [f32; 4] {
+    [
+        fov.angle_left.tan(),
+        fov.angle_right.tan(),
+        fov.angle_up.tan(),
+        fov.angle_down.tan(),
+    ]
+}
+
+fn pose_position(pose: xr::sys::Posef) -> [f32; 4] {
+    [pose.position.x, pose.position.y, pose.position.z, 1.0]
+}
+
+fn pose_orientation(pose: xr::sys::Posef) -> [f32; 4] {
+    [
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+        pose.orientation.w,
+    ]
 }
 
 impl OpenXrEnvironmentDepthProbe {
@@ -712,6 +774,7 @@ impl OpenXrEnvironmentDepthProbe {
         &mut self,
         reference_space: &xr::Space,
         display_time: xr::Time,
+        current_views: &[xr::View],
         frame_count: u64,
     ) -> Option<EnvironmentDepthVisualFrame> {
         self.window_frame_count = self.window_frame_count.saturating_add(1);
@@ -803,12 +866,42 @@ impl OpenXrEnvironmentDepthProbe {
         }
         self.report_status_if_due(frame_count, acquire_ms, true);
         if self.mode.visualizes() {
+            let left_render_fov = current_views
+                .first()
+                .map(|view| view.fov)
+                .unwrap_or(image.views[0].fov);
+            let right_render_fov = current_views
+                .get(1)
+                .map(|view| view.fov)
+                .unwrap_or(image.views[1].fov);
+            let left_render_pose = current_views
+                .first()
+                .map(|view| view.pose)
+                .unwrap_or(image.views[0].pose);
+            let right_render_pose = current_views
+                .get(1)
+                .map(|view| view.pose)
+                .unwrap_or(image.views[1].pose);
             Some(EnvironmentDepthVisualFrame {
                 frame_count,
                 swapchain_index: image.swapchain_index,
+                depth_width: self.width,
+                depth_height: self.height,
                 near_z: image.near_z,
                 far_z: image.far_z,
                 capture_time_ns,
+                left_fov_tangents: fov_tangents(image.views[0].fov),
+                right_fov_tangents: fov_tangents(image.views[1].fov),
+                left_render_fov_tangents: fov_tangents(left_render_fov),
+                right_render_fov_tangents: fov_tangents(right_render_fov),
+                left_position: pose_position(image.views[0].pose),
+                right_position: pose_position(image.views[1].pose),
+                left_orientation: pose_orientation(image.views[0].pose),
+                right_orientation: pose_orientation(image.views[1].pose),
+                left_render_position: pose_position(left_render_pose),
+                right_render_position: pose_position(right_render_pose),
+                left_render_orientation: pose_orientation(left_render_pose),
+                right_render_orientation: pose_orientation(right_render_pose),
             })
         } else {
             None
@@ -822,6 +915,9 @@ impl OpenXrEnvironmentDepthProbe {
     fn visual_clear_color(&self, frame_count: u64) -> Option<[f32; 4]> {
         if !self.mode.visualizes() {
             return None;
+        }
+        if self.mode.mesh_overlay() || self.mode.particle_overlay() {
+            return Some([0.0, 0.0, 0.0, 0.0]);
         }
         let pulse = if frame_count % 60 < 30 { 0.05 } else { 0.0 };
         if self.total_errors > 0 && self.last_acquired_frame.is_none() {
@@ -858,7 +954,7 @@ impl OpenXrEnvironmentDepthProbe {
             0.0
         };
         log_info(format!(
-            "Rusty XR environment depth status frame={} depthEnabled=true mode={} extensionAvailable=true supported=true providerCreated=true providerRunning=true swapchainCreated=true size={}x{} depthFormat=VK_FORMAT_D16_UNORM layerCount={} swapchainIndex={} openXrFrameCount={} observedOpenXrFps={:.1} acquireAttempts={} acquiredFrames={} unavailableFrames={} acquireErrors={} uniqueCaptureTimes={} repeatedCaptureTimes={} observedAcquireHz={:.1} observedDepthHz={:.1} lastAcquireCpuMs={:.3} avgAcquireCpuMs={:.3} captureTimeNs={} nearZ={} farZ={} handRemovalSupported={} handRemovalEnabled={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth visualizer={} depthVisualEncoding=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} depthVisualEyeMapping=left-layer-0-right-layer-1",
+            "Rusty XR environment depth status frame={} depthEnabled=true mode={} extensionAvailable=true supported=true providerCreated=true providerRunning=true swapchainCreated=true size={}x{} depthFormat=VK_FORMAT_D16_UNORM layerCount={} swapchainIndex={} openXrFrameCount={} observedOpenXrFps={:.1} acquireAttempts={} acquiredFrames={} unavailableFrames={} acquireErrors={} uniqueCaptureTimes={} repeatedCaptureTimes={} observedAcquireHz={:.1} observedDepthHz={:.1} lastAcquireCpuMs={:.3} avgAcquireCpuMs={:.3} captureTimeNs={} nearZ={} farZ={} handRemovalSupported={} handRemovalEnabled={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth visualizer={} depthVisualEncoding=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} depthVisualEyeMapping=left-layer-0-right-layer-1 depthMeshOverlay={} depthParticleOverlay={} depthMeshDistanceColorMaxMeters={} depthMeshCellMeters={} depthMeshDiscontinuityMeters={} depthMeshProjection=local-space-depth-surface depthMeshRasterization={} depthMeshGridStridePixels={} depthParticleCapacity={} depthParticleSampleStridePixels={} passthroughVisible={}",
             frame_count,
             self.mode.stable_id(),
             self.width,
@@ -888,7 +984,23 @@ impl OpenXrEnvironmentDepthProbe {
             self.hand_removal_enabled,
             self.mode.visualizes(),
             XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
-            XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL
+            XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL,
+            self.mode.mesh_overlay(),
+            self.mode.particle_overlay(),
+            XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS,
+            XR_ENVIRONMENT_DEPTH_MESH_CELL_METERS,
+            XR_ENVIRONMENT_DEPTH_MESH_DISCONTINUITY_METERS,
+            if self.mode.particle_overlay() {
+                "retained-local-space-metric-billboard-particles"
+            } else if self.mode.mesh_overlay() {
+                "world-space-generated-grid"
+            } else {
+                "fullscreen-depth-visualizer"
+            },
+            XR_ENVIRONMENT_DEPTH_MESH_GRID_STRIDE_PIXELS,
+            XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY,
+            XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS,
+            self.mode.mesh_overlay() || self.mode.particle_overlay()
         ));
         self.window_start = Instant::now();
         self.window_frame_count = 0;
@@ -1474,7 +1586,7 @@ fn create_openxr_passthrough_probe<G: xr::Graphics>(
         .fb_passthrough
         .as_ref()
         .ok_or_else(|| "XR_FB_passthrough function table is unavailable".to_string())?;
-    let flags = xr::PassthroughFlagsFB::IS_RUNNING_AT_CREATION;
+    let flags = xr::PassthroughFlagsFB::EMPTY;
     let passthrough_info = xr::sys::PassthroughCreateInfoFB {
         ty: xr::sys::PassthroughCreateInfoFB::TYPE,
         next: ptr::null(),
@@ -1507,9 +1619,34 @@ fn create_openxr_passthrough_probe<G: xr::Graphics>(
         return Err(error);
     }
 
+    let result = unsafe { (fb_passthrough.passthrough_start)(passthrough) };
+    if let Err(error) = ensure_xr_success(result, "xrPassthroughStartFB") {
+        unsafe {
+            let layer_destroy_result = (fb_passthrough.destroy_passthrough_layer)(layer);
+            if layer_destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR OpenXR passthrough layer cleanup after start failed result={layer_destroy_result:?}"
+                ));
+            }
+            let passthrough_destroy_result = (fb_passthrough.destroy_passthrough)(passthrough);
+            if passthrough_destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR OpenXR passthrough cleanup after start failed result={passthrough_destroy_result:?}"
+                ));
+            }
+        }
+        return Err(error);
+    }
+
     let result = unsafe { (fb_passthrough.passthrough_layer_resume)(layer) };
     if let Err(error) = ensure_xr_success(result, "xrPassthroughLayerResumeFB") {
         unsafe {
+            let passthrough_pause_result = (fb_passthrough.passthrough_pause)(passthrough);
+            if passthrough_pause_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR OpenXR passthrough pause cleanup after layer resume failed result={passthrough_pause_result:?}"
+                ));
+            }
             let layer_destroy_result = (fb_passthrough.destroy_passthrough_layer)(layer);
             if layer_destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
                 log_error(format!(
@@ -1525,6 +1662,11 @@ fn create_openxr_passthrough_probe<G: xr::Graphics>(
         }
         return Err(error);
     }
+
+    log_info(format!(
+        "Rusty XR OpenXR passthrough started mode={mode:?} purpose={:?}",
+        xr::PassthroughLayerPurposeFB::RECONSTRUCTION
+    ));
 
     Ok(OpenXrPassthroughProbe {
         mode,
@@ -1983,10 +2125,10 @@ unsafe fn run_vulkan(
         .enumerate()
         .find_map(|(index, info)| {
             info.queue_flags
-                .contains(vk::QueueFlags::GRAPHICS)
+                .contains(vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE)
                 .then_some(index as u32)
         })
-        .ok_or_else(|| "OpenXR-selected Vulkan device has no graphics queue".to_string())?;
+        .ok_or_else(|| "OpenXR-selected Vulkan device has no graphics+compute queue".to_string())?;
 
     let mut multiview_features = vk::PhysicalDeviceMultiviewFeatures {
         multiview: vk::TRUE,
@@ -2075,12 +2217,24 @@ unsafe fn run_vulkan(
         &mut last_requested_display_refresh_hz,
     );
 
-    let reference_space = session
-        .create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)
-        .or_else(|_| {
-            session.create_reference_space(xr::ReferenceSpaceType::LOCAL, xr::Posef::IDENTITY)
-        })
-        .map_err(|error| format!("create OpenXR reference space: {error}"))?;
+    let (reference_space, reference_space_label) = match session
+        .create_reference_space(xr::ReferenceSpaceType::LOCAL, xr::Posef::IDENTITY)
+    {
+        Ok(space) => (space, "LOCAL"),
+        Err(local_error) => (
+            session
+                .create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)
+                .map_err(|stage_error| {
+                    format!(
+                        "create OpenXR reference space: LOCAL failed with {local_error}; STAGE failed with {stage_error}"
+                    )
+                })?,
+            "STAGE",
+        ),
+    };
+    log_info(format!(
+        "Rusty XR OpenXR reference space for projection and environment depth={reference_space_label}"
+    ));
 
     let cmd_pool = vk_device
         .create_command_pool(
@@ -2130,6 +2284,8 @@ unsafe fn run_vulkan(
         gpu_camera_import_supported,
     );
     let mut environment_depth_visualizer = EnvironmentDepthVisualizer::new(render_pass);
+    let mut synthetic_hand_particle_source = SyntheticHandParticleSource::new();
+    let mut hand_particle_renderer = HandMeshParticleRenderer::new(render_pass);
     let mut osc_diagnostics_overlay = OscDiagnosticsOverlay::new(render_pass);
     let mut last_logged_gpu_frame_index: Option<u64> = None;
     let mut last_logged_prepared_gpu_frame_index: Option<u64> = None;
@@ -2205,6 +2361,7 @@ unsafe fn run_vulkan(
                                 },
                             )?;
                             environment_depth_visualizer.destroy(&vk_device);
+                            hand_particle_renderer.destroy(&vk_device);
                             osc_diagnostics_overlay.destroy(&vk_device);
                             openxr_environment_depth_probe = None;
                             openxr_passthrough_probe = None;
@@ -2359,11 +2516,17 @@ unsafe fn run_vulkan(
             let acquired_depth_visual_frame = probe.acquire(
                 &reference_space,
                 frame_state.predicted_display_time,
+                &views,
                 frame_count,
             );
             if let Some(frame) = acquired_depth_visual_frame {
-                match environment_depth_visualizer.prepare(&vk_device, probe.depth_image_handles())
-                {
+                match environment_depth_visualizer.prepare(
+                    &vk_device,
+                    &memory_properties,
+                    probe.depth_image_handles(),
+                    frame.depth_width,
+                    frame.depth_height,
+                ) {
                     Ok(true) => {
                         depth_visual_frame = Some(frame);
                     }
@@ -2917,6 +3080,19 @@ unsafe fn run_vulkan(
         } else {
             [0.08, 0.12, 0.30, 1.0]
         };
+        if let Some(frame) = depth_visual_frame {
+            environment_depth_visualizer.record_particle_update(
+                &vk_device,
+                cmd,
+                frame,
+                config.environment_depth_mode,
+            );
+        }
+        let hand_particles = if matches!(config.hand_particle_mode, HandParticleMode::Synthetic) {
+            synthetic_hand_particle_source.update(&views, frame_count)
+        } else {
+            Vec::new()
+        };
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue { float32: clear },
@@ -2973,8 +3149,24 @@ unsafe fn run_vulkan(
             );
         }
         if let Some(frame) = depth_visual_frame {
-            environment_depth_visualizer.record_draw(&vk_device, cmd, swapchain.resolution, frame);
+            environment_depth_visualizer.record_draw(
+                &vk_device,
+                cmd,
+                swapchain.resolution,
+                frame,
+                config.environment_depth_mode,
+            );
         }
+        hand_particle_renderer.record_draw(
+            &vk_device,
+            &memory_properties,
+            cmd,
+            swapchain.resolution,
+            &views,
+            frame_count,
+            config.hand_particle_mode,
+            &hand_particles,
+        );
         osc_diagnostics_overlay.record_draw(
             &vk_device,
             &memory_properties,
@@ -3049,7 +3241,6 @@ unsafe fn run_vulkan(
         let projection_layer_flags = if config.openxr_passthrough_probe.submits_composition_layer()
         {
             xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA
-                | xr::CompositionLayerFlags::UNPREMULTIPLIED_ALPHA
         } else {
             xr::CompositionLayerFlags::EMPTY
         };
@@ -3067,12 +3258,12 @@ unsafe fn run_vulkan(
                 space: xr::sys::Space::NULL,
                 layer_handle: probe.layer,
             });
-        let mut layers: Vec<&xr::CompositionLayerBase<xr::Vulkan>> =
-            Vec::with_capacity(if passthrough_composition_layer.is_some() {
-                2
-            } else {
-                1
-            });
+        let projection_layer_visible =
+            config.projection_layer_visible || passthrough_composition_layer.is_none();
+        let mut layers: Vec<&xr::CompositionLayerBase<xr::Vulkan>> = Vec::with_capacity(
+            (passthrough_composition_layer.is_some() as usize)
+                + (projection_layer_visible as usize),
+        );
         if let Some(layer) = passthrough_composition_layer.as_ref() {
             // The openxr crate does not re-export this FB layer builder, but the raw
             // struct has the standard composition-layer header prefix expected here.
@@ -3082,7 +3273,10 @@ unsafe fn run_vulkan(
             };
             layers.push(layer_base);
         }
-        layers.push(&projection_layer);
+        if projection_layer_visible {
+            layers.push(&projection_layer);
+        }
+        let submitted_layer_count = layers.len();
         frame_stream
             .end(
                 frame_state.predicted_display_time,
@@ -3110,7 +3304,7 @@ unsafe fn run_vulkan(
             let observed_openxr_fps = frame_pacing_window_frames as f64 / window_secs;
             let avg_frame_ms = window_secs * 1000.0 / frame_pacing_window_frames.max(1) as f64;
             log_info(format!(
-                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} environmentDepthMode={} environmentDepthActive={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz={} activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fixedFoveationEnabled={} openxrPassthroughProbe={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} importCacheLimit={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={} gpuImportCacheHit={} gpuImportCacheMiss={} gpuImportCacheEvict={}",
+                "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} environmentDepthMode={} environmentDepthActive={} handParticleMode={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz={} activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fixedFoveationEnabled={} openxrPassthroughProbe={} projectionLayerVisible={} submittedLayerCount={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} importCacheLimit={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={} gpuImportCacheHit={} gpuImportCacheMiss={} gpuImportCacheEvict={}",
                 frame_count,
                 swapchain.resolution.width,
                 swapchain.resolution.height,
@@ -3120,6 +3314,7 @@ unsafe fn run_vulkan(
                 config.media_projection_enabled,
                 config.environment_depth_mode.stable_id(),
                 openxr_environment_depth_probe.is_some(),
+                config.hand_particle_mode.stable_id(),
                 observed_openxr_fps,
                 avg_frame_ms,
                 record_ms,
@@ -3133,6 +3328,8 @@ unsafe fn run_vulkan(
                     .as_ref()
                     .map(|probe| probe.mode.stable_id())
                     .unwrap_or("off"),
+                projection_layer_visible,
+                submitted_layer_count,
                 PIPELINE_DEPTH,
                 gpu_success,
                 gpu_failure,
@@ -3156,6 +3353,7 @@ unsafe fn run_vulkan(
         .wait_for_fences(&fences, true, u64::MAX)
         .map_err(|error| format!("final Vulkan fence wait: {error}"))?;
     environment_depth_visualizer.destroy(&vk_device);
+    hand_particle_renderer.destroy(&vk_device);
     osc_diagnostics_overlay.destroy(&vk_device);
     drop(openxr_environment_depth_probe.take());
     drop(openxr_passthrough_probe.take());
@@ -7324,17 +7522,189 @@ unsafe fn create_osc_diagnostics_overlay_pipeline(
         .map_err(|(_, error)| format!("create OSC diagnostics overlay graphics pipeline: {error}"))
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct GpuHandParticle {
+    position_radius: [f32; 4],
+    color_alpha: [f32; 4],
+}
+
+struct SyntheticHandParticleSource {
+    base_mesh: TriangleMeshSurface,
+    indices: Vec<[u32; 3]>,
+    left_sampler: LiveHandMeshParticleSampler,
+    right_sampler: LiveHandMeshParticleSampler,
+}
+
+impl SyntheticHandParticleSource {
+    fn new() -> Self {
+        let base_mesh = build_synthetic_hand_mesh(SyntheticHandMeshConfig::default());
+        let indices = mesh_indices_u32(&base_mesh);
+        let sample_config = MeshSurfaceSampleConfig {
+            point_count: XR_HAND_MESH_PARTICLE_COUNT_PER_HAND,
+            first_tier_neighbor_count: 6,
+            second_tier_neighbor_count: 12,
+            seed: 42,
+        };
+        Self {
+            base_mesh,
+            indices,
+            left_sampler: LiveHandMeshParticleSampler::new(sample_config).with_render_style(
+                rusty_xr_particles::RenderCoordinateSpace::World,
+                XR_HAND_MESH_PARTICLE_RADIUS_METERS * 2.0,
+                ColorRgba::new(0.1, 0.82, 1.0, 0.56),
+            ),
+            right_sampler: LiveHandMeshParticleSampler::new(MeshSurfaceSampleConfig {
+                seed: 43,
+                ..sample_config
+            })
+            .with_render_style(
+                rusty_xr_particles::RenderCoordinateSpace::World,
+                XR_HAND_MESH_PARTICLE_RADIUS_METERS * 2.0,
+                ColorRgba::new(1.0, 0.44, 0.88, 0.56),
+            ),
+        }
+    }
+
+    fn update(&mut self, views: &[xr::View], frame_count: u64) -> Vec<GpuHandParticle> {
+        let Some((head_position, head_orientation)) = head_pose_from_views(views) else {
+            return Vec::new();
+        };
+        let seconds = frame_count as f32 / 72.0;
+        let bounce = (seconds * 1.7).sin() * 0.018;
+        let sway = (seconds * 0.9).sin() * 0.015;
+        let left_snapshot = transformed_synthetic_hand_snapshot(
+            &self.base_mesh,
+            &self.indices,
+            frame_count,
+            Handedness::Left,
+            head_position,
+            head_orientation,
+            Vec3::new(-0.115 + sway, -0.12 + bounce, -0.58),
+            false,
+            0.10 + (seconds * 0.8).sin() * 0.08,
+        );
+        let right_snapshot = transformed_synthetic_hand_snapshot(
+            &self.base_mesh,
+            &self.indices,
+            frame_count,
+            Handedness::Right,
+            head_position,
+            head_orientation,
+            Vec3::new(0.115 + sway, -0.12 - bounce, -0.58),
+            true,
+            -0.10 + (seconds * 0.8).cos() * 0.08,
+        );
+
+        self.left_sampler.update_from_snapshot(&left_snapshot);
+        self.right_sampler.update_from_snapshot(&right_snapshot);
+
+        let mut particles = Vec::with_capacity(XR_HAND_MESH_PARTICLE_COUNT_PER_HAND * 2);
+        append_gpu_hand_particles(&mut particles, &self.left_sampler.render_particles());
+        append_gpu_hand_particles(&mut particles, &self.right_sampler.render_particles());
+        particles.truncate(XR_HAND_MESH_PARTICLE_CAPACITY as usize);
+        particles
+    }
+}
+
+fn head_pose_from_views(views: &[xr::View]) -> Option<(Vec3, Quat)> {
+    let left = views.first()?;
+    let right = views.get(1).unwrap_or(left);
+    let left_position = xr_position_to_vec3(left.pose.position);
+    let right_position = xr_position_to_vec3(right.pose.position);
+    let head_position = (left_position + right_position) * 0.5;
+    let head_orientation = xr_orientation_to_quat(left.pose.orientation);
+    Some((head_position, head_orientation))
+}
+
+fn xr_position_to_vec3(position: xr::sys::Vector3f) -> Vec3 {
+    Vec3::new(position.x, position.y, position.z)
+}
+
+fn xr_orientation_to_quat(orientation: xr::sys::Quaternionf) -> Quat {
+    Quat::new(orientation.x, orientation.y, orientation.z, orientation.w)
+        .normalized_or(Quat::IDENTITY)
+}
+
+fn transformed_synthetic_hand_snapshot(
+    mesh: &TriangleMeshSurface,
+    indices: &[[u32; 3]],
+    version: u64,
+    handedness: Handedness,
+    head_position: Vec3,
+    head_orientation: Quat,
+    local_center: Vec3,
+    mirror_x: bool,
+    local_z_rotation: f32,
+) -> HandMeshSnapshot {
+    let (sin_z, cos_z) = local_z_rotation.sin_cos();
+    let mirror = if mirror_x { -1.0 } else { 1.0 };
+    let vertices = mesh
+        .vertices
+        .iter()
+        .copied()
+        .map(|vertex| {
+            let mirrored = Vec3::new(vertex.x * mirror, vertex.y, vertex.z);
+            let rotated = Vec3::new(
+                (mirrored.x * cos_z) - (mirrored.y * sin_z),
+                (mirrored.x * sin_z) + (mirrored.y * cos_z),
+                mirrored.z,
+            );
+            head_position + head_orientation.rotate_vec3(local_center + rotated)
+        })
+        .collect();
+    HandMeshSnapshot::new(version, vertices, indices.to_vec()).with_handedness(handedness)
+}
+
+fn mesh_indices_u32(mesh: &TriangleMeshSurface) -> Vec<[u32; 3]> {
+    mesh.triangles
+        .iter()
+        .map(|triangle| {
+            [
+                u32::try_from(triangle[0]).expect("synthetic mesh index fits u32"),
+                u32::try_from(triangle[1]).expect("synthetic mesh index fits u32"),
+                u32::try_from(triangle[2]).expect("synthetic mesh index fits u32"),
+            ]
+        })
+        .collect()
+}
+
+fn append_gpu_hand_particles(output: &mut Vec<GpuHandParticle>, particles: &[ParticleRender]) {
+    output.extend(particles.iter().map(|particle| GpuHandParticle {
+        position_radius: [
+            particle.position.x,
+            particle.position.y,
+            particle.position.z,
+            (particle.size_meters * 0.5).max(0.001),
+        ],
+        color_alpha: [
+            particle.color.r,
+            particle.color.g,
+            particle.color.b,
+            particle.color.a,
+        ],
+    }));
+}
+
 struct EnvironmentDepthVisualizer {
     render_pass: vk::RenderPass,
     resources: Option<EnvironmentDepthVisualizerResources>,
+    cached_depth_frames: Vec<EnvironmentDepthVisualFrame>,
+    particle_write_cursor: u32,
+    last_particle_capture_time_ns: Option<i64>,
+    particles_initialized: bool,
     last_draw_failure_frame: Option<u64>,
 }
 
 impl EnvironmentDepthVisualizer {
-    const fn new(render_pass: vk::RenderPass) -> Self {
+    fn new(render_pass: vk::RenderPass) -> Self {
         Self {
             render_pass,
             resources: None,
+            cached_depth_frames: Vec::new(),
+            particle_write_cursor: 0,
+            last_particle_capture_time_ns: None,
+            particles_initialized: false,
             last_draw_failure_frame: None,
         }
     }
@@ -7342,7 +7712,10 @@ impl EnvironmentDepthVisualizer {
     unsafe fn prepare(
         &mut self,
         device: &ash::Device,
+        memory_properties: &vk::PhysicalDeviceMemoryProperties,
         depth_image_handles: &[u64],
+        depth_width: u32,
+        depth_height: u32,
     ) -> Result<bool, String> {
         if depth_image_handles.is_empty() {
             self.destroy(device);
@@ -7351,7 +7724,7 @@ impl EnvironmentDepthVisualizer {
         if self
             .resources
             .as_ref()
-            .map(|resources| resources.matches_images(depth_image_handles))
+            .map(|resources| resources.matches(depth_image_handles, depth_width, depth_height))
             .unwrap_or(false)
         {
             return Ok(true);
@@ -7360,11 +7733,163 @@ impl EnvironmentDepthVisualizer {
         self.destroy(device);
         let resources = create_environment_depth_visualizer_resources(
             device,
+            memory_properties,
             self.render_pass,
             depth_image_handles,
+            depth_width,
+            depth_height,
         )?;
         self.resources = Some(resources);
         Ok(true)
+    }
+
+    unsafe fn record_particle_update(
+        &mut self,
+        device: &ash::Device,
+        cmd: vk::CommandBuffer,
+        frame: EnvironmentDepthVisualFrame,
+        mode: EnvironmentDepthMode,
+    ) {
+        if !mode.particle_overlay() {
+            return;
+        }
+        let Some(resources) = self.resources.as_ref() else {
+            return;
+        };
+        if !self.particles_initialized {
+            device.cmd_fill_buffer(
+                cmd,
+                resources.particle_buffer,
+                0,
+                resources.particle_buffer_size,
+                0,
+            );
+            let clear_barrier = [vk::BufferMemoryBarrier::default()
+                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                .dst_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE)
+                .buffer(resources.particle_buffer)
+                .offset(0)
+                .size(resources.particle_buffer_size)];
+            device.cmd_pipeline_barrier(
+                cmd,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::COMPUTE_SHADER | vk::PipelineStageFlags::VERTEX_SHADER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &clear_barrier,
+                &[],
+            );
+            self.particles_initialized = true;
+        }
+        if self.last_particle_capture_time_ns == Some(frame.capture_time_ns) {
+            return;
+        }
+        let Some(descriptor_set) = resources
+            .descriptor_sets
+            .get(frame.swapchain_index as usize)
+            .copied()
+        else {
+            return;
+        };
+
+        let write_base = self.particle_write_cursor;
+        let particle_writes =
+            environment_depth_particle_samples_per_frame(frame.depth_width, frame.depth_height);
+        let push = EnvironmentDepthVisualizationPush {
+            params: [
+                XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
+                frame.near_z,
+                if frame.far_z.is_finite() {
+                    frame.far_z
+                } else {
+                    -1.0
+                },
+                if frame.far_z.is_finite() { 0.0 } else { 1.0 },
+            ],
+            transform: [
+                XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_FLAGS as f32,
+                write_base as f32,
+                XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS as f32,
+                XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS,
+            ],
+            left_fov_tangents: frame.left_fov_tangents,
+            right_fov_tangents: frame.right_fov_tangents,
+            left_render_fov_tangents: frame.left_render_fov_tangents,
+            right_render_fov_tangents: frame.right_render_fov_tangents,
+            left_position: frame.left_position,
+            right_position: frame.right_position,
+            left_orientation: frame.left_orientation,
+            right_orientation: frame.right_orientation,
+            left_render_position: frame.left_render_position,
+            right_render_position: frame.right_render_position,
+            left_render_orientation: frame.left_render_orientation,
+            right_render_orientation: frame.right_render_orientation,
+        };
+        device.cmd_bind_pipeline(
+            cmd,
+            vk::PipelineBindPoint::COMPUTE,
+            resources.particle_update_pipeline,
+        );
+        device.cmd_bind_descriptor_sets(
+            cmd,
+            vk::PipelineBindPoint::COMPUTE,
+            resources.pipeline_layout,
+            0,
+            &[descriptor_set],
+            &[],
+        );
+        let push_bytes = std::slice::from_raw_parts(
+            (&push as *const EnvironmentDepthVisualizationPush).cast::<u8>(),
+            std::mem::size_of::<EnvironmentDepthVisualizationPush>(),
+        );
+        device.cmd_push_constants(
+            cmd,
+            resources.pipeline_layout,
+            vk::ShaderStageFlags::COMPUTE,
+            0,
+            push_bytes,
+        );
+        let grid_width = environment_depth_particle_grid_width(frame.depth_width);
+        let grid_height = environment_depth_particle_grid_height(frame.depth_height);
+        device.cmd_dispatch(
+            cmd,
+            grid_width.div_ceil(8).max(1),
+            grid_height.div_ceil(8).max(1),
+            XR_ENVIRONMENT_DEPTH_PARTICLE_SOURCE_VIEW_COUNT,
+        );
+        let update_barrier = [vk::BufferMemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::SHADER_WRITE)
+            .dst_access_mask(vk::AccessFlags::SHADER_READ)
+            .buffer(resources.particle_buffer)
+            .offset(0)
+            .size(resources.particle_buffer_size)];
+        device.cmd_pipeline_barrier(
+            cmd,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::VERTEX_SHADER,
+            vk::DependencyFlags::empty(),
+            &[],
+            &update_barrier,
+            &[],
+        );
+
+        self.particle_write_cursor =
+            (self.particle_write_cursor + particle_writes) % XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY;
+        self.last_particle_capture_time_ns = Some(frame.capture_time_ns);
+
+        if frame.frame_count == 0 || frame.frame_count % 120 == 0 {
+            log_info(format!(
+                "Rusty XR environment depth particle update frame={} captureTimeNs={} writeBase={} samplesPerFrame={} particleCapacity={} sampleStridePixels={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} depthColorMaxMeters={}",
+                frame.frame_count,
+                frame.capture_time_ns,
+                write_base,
+                particle_writes,
+                XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY,
+                XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS,
+                XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS,
+                XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS
+            ));
+        }
     }
 
     unsafe fn record_draw(
@@ -7373,23 +7898,19 @@ impl EnvironmentDepthVisualizer {
         cmd: vk::CommandBuffer,
         resolution: vk::Extent2D,
         frame: EnvironmentDepthVisualFrame,
+        mode: EnvironmentDepthMode,
     ) {
-        let Some(resources) = self.resources.as_ref() else {
-            return;
+        let mesh_overlay = mode.mesh_overlay();
+        let particle_overlay = mode.particle_overlay();
+        if mesh_overlay {
+            self.remember_depth_frame(frame);
+        }
+        let draw_frames = if mesh_overlay {
+            self.mesh_draw_frames(frame)
+        } else {
+            vec![(frame, if particle_overlay { 1.0 } else { 0.0 })]
         };
-        let Some(descriptor_set) = resources
-            .descriptor_sets
-            .get(frame.swapchain_index as usize)
-            .copied()
-        else {
-            if self.last_draw_failure_frame != Some(frame.frame_count) {
-                log_error(format!(
-                    "Rusty XR environment depth visualizer missing descriptor for swapchainIndex={} descriptorCount={}",
-                    frame.swapchain_index,
-                    resources.descriptor_sets.len()
-                ));
-                self.last_draw_failure_frame = Some(frame.frame_count);
-            }
+        let Some(resources) = self.resources.as_ref() else {
             return;
         };
 
@@ -7405,25 +7926,415 @@ impl EnvironmentDepthVisualizer {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent: resolution,
         }];
-        let push = EnvironmentDepthVisualizationPush {
-            params: [
-                XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
-                frame.near_z,
-                if frame.far_z.is_finite() {
-                    frame.far_z
-                } else {
-                    -1.0
-                },
-                if frame.far_z.is_finite() { 0.0 } else { 1.0 },
-            ],
-            transform: [
-                XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_FLAGS as f32,
-                0.0,
-                0.0,
-                0.0,
-            ],
-        };
 
+        device.cmd_set_viewport(cmd, 0, &viewport);
+        device.cmd_set_scissor(cmd, 0, &scissor);
+        let pipeline = if particle_overlay {
+            resources.particle_pipeline
+        } else if mesh_overlay {
+            resources.mesh_pipeline
+        } else {
+            resources.visualization_pipeline
+        };
+        device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipeline);
+        let mut drawn_frames = 0_usize;
+        let mut last_vertex_count = 0_u32;
+        for (draw_frame, history_alpha) in &draw_frames {
+            let Some(descriptor_set) = resources
+                .descriptor_sets
+                .get(draw_frame.swapchain_index as usize)
+                .copied()
+            else {
+                if self.last_draw_failure_frame != Some(frame.frame_count) {
+                    log_error(format!(
+                        "Rusty XR environment depth visualizer missing descriptor for swapchainIndex={} descriptorCount={}",
+                        draw_frame.swapchain_index,
+                        resources.descriptor_sets.len()
+                    ));
+                    self.last_draw_failure_frame = Some(frame.frame_count);
+                }
+                continue;
+            };
+            let push = EnvironmentDepthVisualizationPush {
+                params: [
+                    XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
+                    draw_frame.near_z,
+                    if draw_frame.far_z.is_finite() {
+                        draw_frame.far_z
+                    } else {
+                        -1.0
+                    },
+                    if draw_frame.far_z.is_finite() {
+                        0.0
+                    } else {
+                        1.0
+                    },
+                ],
+                transform: [
+                    XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_FLAGS as f32,
+                    *history_alpha,
+                    XR_ENVIRONMENT_DEPTH_MESH_CELL_METERS,
+                    XR_ENVIRONMENT_DEPTH_MESH_DISCONTINUITY_METERS,
+                ],
+                left_fov_tangents: draw_frame.left_fov_tangents,
+                right_fov_tangents: draw_frame.right_fov_tangents,
+                left_render_fov_tangents: draw_frame.left_render_fov_tangents,
+                right_render_fov_tangents: draw_frame.right_render_fov_tangents,
+                left_position: draw_frame.left_position,
+                right_position: draw_frame.right_position,
+                left_orientation: draw_frame.left_orientation,
+                right_orientation: draw_frame.right_orientation,
+                left_render_position: draw_frame.left_render_position,
+                right_render_position: draw_frame.right_render_position,
+                left_render_orientation: draw_frame.left_render_orientation,
+                right_render_orientation: draw_frame.right_render_orientation,
+            };
+            device.cmd_bind_descriptor_sets(
+                cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                resources.pipeline_layout,
+                0,
+                &[descriptor_set],
+                &[],
+            );
+            let push_bytes = std::slice::from_raw_parts(
+                (&push as *const EnvironmentDepthVisualizationPush).cast::<u8>(),
+                std::mem::size_of::<EnvironmentDepthVisualizationPush>(),
+            );
+            device.cmd_push_constants(
+                cmd,
+                resources.pipeline_layout,
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                0,
+                push_bytes,
+            );
+            let vertex_count = if particle_overlay {
+                XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY.saturating_mul(6)
+            } else if mesh_overlay {
+                environment_depth_mesh_vertex_count(draw_frame.depth_width, draw_frame.depth_height)
+            } else {
+                3
+            };
+            device.cmd_draw(cmd, vertex_count, 1, 0, 0);
+            drawn_frames = drawn_frames.saturating_add(1);
+            last_vertex_count = vertex_count;
+        }
+        if frame.frame_count == 0 || frame.frame_count % 120 == 0 {
+            log_info(format!(
+                "Rusty XR environment depth visualizer draw frame={} swapchainIndex={} captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} grayscale=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} depthMeshOverlay={} depthMeshDistanceColorMaxMeters={} depthMeshCellMeters={} depthMeshDiscontinuityMeters={} depthMeshProjection=local-space-depth-surface depthMeshRasterization={} depthMeshGridStridePixels={} depthMeshVertexCount={} depthMeshHistoryFramesDrawn={} depthMeshHistoryMaxAgeMs={} passthroughVisible={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth",
+                frame.frame_count,
+                frame.swapchain_index,
+                frame.capture_time_ns,
+                resolution.width,
+                resolution.height,
+                frame.depth_width,
+                frame.depth_height,
+                VIEW_COUNT,
+                XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
+                XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL,
+                mesh_overlay,
+                XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS,
+                XR_ENVIRONMENT_DEPTH_MESH_CELL_METERS,
+                XR_ENVIRONMENT_DEPTH_MESH_DISCONTINUITY_METERS,
+                if particle_overlay {
+                    "retained-local-space-metric-billboard-particles"
+                } else if mesh_overlay {
+                    "world-space-generated-grid"
+                } else {
+                    "fullscreen-depth-visualizer"
+                },
+                XR_ENVIRONMENT_DEPTH_MESH_GRID_STRIDE_PIXELS,
+                last_vertex_count,
+                drawn_frames,
+                XR_ENVIRONMENT_DEPTH_MESH_HISTORY_MAX_AGE_NS / 1_000_000,
+                mesh_overlay || particle_overlay
+            ));
+        }
+        if mesh_overlay && (frame.frame_count == 0 || frame.frame_count % 120 == 0) {
+            log_info(format!(
+                "Rusty XR environment depth mesh overlay draw frame={} swapchainIndex={} cellMeters={} discontinuityMeters={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} depthVisualTextureTransform={} projection=local-space-depth-surface rasterization=world-space-generated-grid gridStridePixels={} generatedVertexCount={} historyFramesDrawn={} historyMaxAgeMs={} dominantSurfaceGrid=true screenUvGrid=false passthroughVisible=true",
+                frame.frame_count,
+                frame.swapchain_index,
+                XR_ENVIRONMENT_DEPTH_MESH_CELL_METERS,
+                XR_ENVIRONMENT_DEPTH_MESH_DISCONTINUITY_METERS,
+                XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS,
+                frame.capture_time_ns,
+                resolution.width,
+                resolution.height,
+                frame.depth_width,
+                frame.depth_height,
+                VIEW_COUNT,
+                XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL,
+                XR_ENVIRONMENT_DEPTH_MESH_GRID_STRIDE_PIXELS,
+                last_vertex_count,
+                drawn_frames,
+                XR_ENVIRONMENT_DEPTH_MESH_HISTORY_MAX_AGE_NS / 1_000_000
+            ));
+        }
+        if particle_overlay && (frame.frame_count == 0 || frame.frame_count % 120 == 0) {
+            log_info(format!(
+                "Rusty XR environment depth particle overlay draw frame={} swapchainIndex={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} projection=local-space-retained-particles rasterization=metric-billboard-particles particleCapacity={} particleVertexCount={} sampleStridePixels={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} passthroughVisible=true",
+                frame.frame_count,
+                frame.swapchain_index,
+                XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS,
+                frame.capture_time_ns,
+                resolution.width,
+                resolution.height,
+                frame.depth_width,
+                frame.depth_height,
+                VIEW_COUNT,
+                XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY,
+                last_vertex_count,
+                XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS,
+                XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS
+            ));
+        }
+    }
+
+    fn remember_depth_frame(&mut self, frame: EnvironmentDepthVisualFrame) {
+        if let Some(existing) = self
+            .cached_depth_frames
+            .iter_mut()
+            .find(|cached| cached.swapchain_index == frame.swapchain_index)
+        {
+            *existing = frame;
+        } else {
+            self.cached_depth_frames.push(frame);
+        }
+        self.cached_depth_frames
+            .sort_by_key(|cached| cached.capture_time_ns);
+        while self.cached_depth_frames.len() > XR_ENVIRONMENT_DEPTH_MESH_HISTORY_FRAMES {
+            self.cached_depth_frames.remove(0);
+        }
+    }
+
+    fn mesh_draw_frames(
+        &self,
+        current_frame: EnvironmentDepthVisualFrame,
+    ) -> Vec<(EnvironmentDepthVisualFrame, f32)> {
+        let mut frames = self
+            .cached_depth_frames
+            .iter()
+            .copied()
+            .filter_map(|source_frame| {
+                let age_ns = current_frame
+                    .capture_time_ns
+                    .saturating_sub(source_frame.capture_time_ns);
+                if age_ns < 0 || age_ns > XR_ENVIRONMENT_DEPTH_MESH_HISTORY_MAX_AGE_NS {
+                    return None;
+                }
+                let age_t = (age_ns as f32 / XR_ENVIRONMENT_DEPTH_MESH_HISTORY_MAX_AGE_NS as f32)
+                    .clamp(0.0, 1.0);
+                let alpha = if source_frame.capture_time_ns == current_frame.capture_time_ns {
+                    1.0
+                } else {
+                    (1.0 - age_t).max(XR_ENVIRONMENT_DEPTH_MESH_HISTORY_MIN_ALPHA)
+                };
+                Some((
+                    environment_depth_frame_with_current_render_view(source_frame, current_frame),
+                    alpha,
+                ))
+            })
+            .collect::<Vec<_>>();
+        if frames.is_empty() {
+            frames.push((current_frame, 1.0));
+        }
+        frames.sort_by_key(|(draw_frame, _)| draw_frame.capture_time_ns);
+        frames
+    }
+
+    unsafe fn destroy(&mut self, device: &ash::Device) {
+        if let Some(resources) = self.resources.take() {
+            resources.destroy(device);
+        }
+        self.cached_depth_frames.clear();
+        self.particle_write_cursor = 0;
+        self.last_particle_capture_time_ns = None;
+        self.particles_initialized = false;
+    }
+}
+
+struct EnvironmentDepthVisualizerResources {
+    image_handles: Vec<u64>,
+    depth_width: u32,
+    depth_height: u32,
+    image_views: Vec<vk::ImageView>,
+    sampler: vk::Sampler,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_sets: Vec<vk::DescriptorSet>,
+    pipeline_layout: vk::PipelineLayout,
+    visualization_pipeline: vk::Pipeline,
+    mesh_pipeline: vk::Pipeline,
+    particle_update_pipeline: vk::Pipeline,
+    particle_pipeline: vk::Pipeline,
+    particle_buffer: vk::Buffer,
+    particle_memory: vk::DeviceMemory,
+    particle_buffer_size: vk::DeviceSize,
+}
+
+impl EnvironmentDepthVisualizerResources {
+    fn matches(&self, depth_image_handles: &[u64], depth_width: u32, depth_height: u32) -> bool {
+        self.image_handles == depth_image_handles
+            && self.depth_width == depth_width
+            && self.depth_height == depth_height
+    }
+
+    unsafe fn destroy(self, device: &ash::Device) {
+        device.destroy_buffer(self.particle_buffer, None);
+        device.free_memory(self.particle_memory, None);
+        device.destroy_pipeline(self.particle_pipeline, None);
+        device.destroy_pipeline(self.particle_update_pipeline, None);
+        device.destroy_pipeline(self.mesh_pipeline, None);
+        device.destroy_pipeline(self.visualization_pipeline, None);
+        device.destroy_pipeline_layout(self.pipeline_layout, None);
+        device.destroy_descriptor_pool(self.descriptor_pool, None);
+        device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+        for image_view in self.image_views {
+            device.destroy_image_view(image_view, None);
+        }
+        device.destroy_sampler(self.sampler, None);
+    }
+}
+
+fn environment_depth_mesh_vertex_count(depth_width: u32, depth_height: u32) -> u32 {
+    let grid_width = (depth_width / XR_ENVIRONMENT_DEPTH_MESH_GRID_STRIDE_PIXELS).max(2);
+    let grid_height = (depth_height / XR_ENVIRONMENT_DEPTH_MESH_GRID_STRIDE_PIXELS).max(2);
+    grid_width
+        .saturating_sub(1)
+        .saturating_mul(grid_height.saturating_sub(1))
+        .saturating_mul(6)
+}
+
+fn environment_depth_particle_grid_width(depth_width: u32) -> u32 {
+    (depth_width / XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS).max(1)
+}
+
+fn environment_depth_particle_grid_height(depth_height: u32) -> u32 {
+    (depth_height / XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS).max(1)
+}
+
+fn environment_depth_particle_samples_per_frame(depth_width: u32, depth_height: u32) -> u32 {
+    environment_depth_particle_grid_width(depth_width)
+        .saturating_mul(environment_depth_particle_grid_height(depth_height))
+        .saturating_mul(XR_ENVIRONMENT_DEPTH_PARTICLE_SOURCE_VIEW_COUNT)
+        .min(XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY)
+}
+
+fn environment_depth_frame_with_current_render_view(
+    mut source_frame: EnvironmentDepthVisualFrame,
+    current_frame: EnvironmentDepthVisualFrame,
+) -> EnvironmentDepthVisualFrame {
+    source_frame.frame_count = current_frame.frame_count;
+    source_frame.left_render_fov_tangents = current_frame.left_render_fov_tangents;
+    source_frame.right_render_fov_tangents = current_frame.right_render_fov_tangents;
+    source_frame.left_render_position = current_frame.left_render_position;
+    source_frame.right_render_position = current_frame.right_render_position;
+    source_frame.left_render_orientation = current_frame.left_render_orientation;
+    source_frame.right_render_orientation = current_frame.right_render_orientation;
+    source_frame
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct EnvironmentDepthVisualizationPush {
+    params: [f32; 4],
+    transform: [f32; 4],
+    left_fov_tangents: [f32; 4],
+    right_fov_tangents: [f32; 4],
+    left_render_fov_tangents: [f32; 4],
+    right_render_fov_tangents: [f32; 4],
+    left_position: [f32; 4],
+    right_position: [f32; 4],
+    left_orientation: [f32; 4],
+    right_orientation: [f32; 4],
+    left_render_position: [f32; 4],
+    right_render_position: [f32; 4],
+    left_render_orientation: [f32; 4],
+    right_render_orientation: [f32; 4],
+}
+
+struct HandMeshParticleRenderer {
+    render_pass: vk::RenderPass,
+    resources: Option<HandMeshParticleResources>,
+    last_draw_failure_frame: Option<u64>,
+}
+
+impl HandMeshParticleRenderer {
+    fn new(render_pass: vk::RenderPass) -> Self {
+        Self {
+            render_pass,
+            resources: None,
+            last_draw_failure_frame: None,
+        }
+    }
+
+    unsafe fn record_draw(
+        &mut self,
+        device: &ash::Device,
+        memory_properties: &vk::PhysicalDeviceMemoryProperties,
+        cmd: vk::CommandBuffer,
+        resolution: vk::Extent2D,
+        views: &[xr::View],
+        frame_count: u64,
+        mode: HandParticleMode,
+        particles: &[GpuHandParticle],
+    ) {
+        if !mode.enabled() || particles.is_empty() {
+            return;
+        }
+        if self.resources.is_none() {
+            match create_hand_mesh_particle_resources(device, memory_properties, self.render_pass) {
+                Ok(resources) => {
+                    log_info(format!(
+                        "Rusty XR hand mesh particle resources particleCapacity={} particleBufferBytes={} mode={}",
+                        XR_HAND_MESH_PARTICLE_CAPACITY,
+                        resources.particle_buffer_size,
+                        mode.stable_id()
+                    ));
+                    self.resources = Some(resources);
+                }
+                Err(error) => {
+                    if self.last_draw_failure_frame != Some(frame_count) {
+                        log_error(format!(
+                            "Rusty XR hand mesh particle renderer init failed: {error}"
+                        ));
+                        self.last_draw_failure_frame = Some(frame_count);
+                    }
+                    return;
+                }
+            }
+        }
+        let Some(resources) = self.resources.as_ref() else {
+            return;
+        };
+        let particle_count = particles.len().min(XR_HAND_MESH_PARTICLE_CAPACITY as usize);
+        if let Err(error) = upload_hand_mesh_particles(
+            device,
+            resources.particle_memory,
+            &particles[..particle_count],
+        ) {
+            if self.last_draw_failure_frame != Some(frame_count) {
+                log_error(format!(
+                    "Rusty XR hand mesh particle upload failed: {error}"
+                ));
+                self.last_draw_failure_frame = Some(frame_count);
+            }
+            return;
+        }
+
+        let viewport = [vk::Viewport {
+            x: 0.0,
+            y: 0.0,
+            width: resolution.width as f32,
+            height: resolution.height as f32,
+            min_depth: 0.0,
+            max_depth: 1.0,
+        }];
+        let scissor = [vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: resolution,
+        }];
         device.cmd_set_viewport(cmd, 0, &viewport);
         device.cmd_set_scissor(cmd, 0, &scissor);
         device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, resources.pipeline);
@@ -7432,9 +8343,10 @@ impl EnvironmentDepthVisualizer {
             vk::PipelineBindPoint::GRAPHICS,
             resources.pipeline_layout,
             0,
-            &[descriptor_set],
+            &[resources.descriptor_set],
             &[],
         );
+        let push = hand_particle_push_from_views(views);
         let push_bytes = std::slice::from_raw_parts(
             (&push as *const EnvironmentDepthVisualizationPush).cast::<u8>(),
             std::mem::size_of::<EnvironmentDepthVisualizationPush>(),
@@ -7442,22 +8354,21 @@ impl EnvironmentDepthVisualizer {
         device.cmd_push_constants(
             cmd,
             resources.pipeline_layout,
-            vk::ShaderStageFlags::FRAGMENT,
+            vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
             0,
             push_bytes,
         );
-        device.cmd_draw(cmd, 3, 1, 0, 0);
-        if frame.frame_count == 0 || frame.frame_count % 120 == 0 {
+        let vertex_count = (particle_count as u32).saturating_mul(6);
+        device.cmd_draw(cmd, vertex_count, 1, 0, 0);
+
+        if frame_count == 0 || frame_count % 120 == 0 {
             log_info(format!(
-                "Rusty XR environment depth visualizer draw frame={} swapchainIndex={} captureTimeNs={} renderTarget={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} grayscale=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth",
-                frame.frame_count,
-                frame.swapchain_index,
-                frame.capture_time_ns,
-                resolution.width,
-                resolution.height,
-                VIEW_COUNT,
-                XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
-                XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL
+                "Rusty XR hand mesh particle draw frame={} mode={} particles={} vertexCount={} projection=head-relative-synthetic-hand-mesh sampler=LiveHandMeshParticleSampler passthroughVisible={}",
+                frame_count,
+                mode.stable_id(),
+                particle_count,
+                vertex_count,
+                true
             ));
         }
     }
@@ -7469,45 +8380,350 @@ impl EnvironmentDepthVisualizer {
     }
 }
 
-struct EnvironmentDepthVisualizerResources {
-    image_handles: Vec<u64>,
-    image_views: Vec<vk::ImageView>,
-    sampler: vk::Sampler,
+struct HandMeshParticleResources {
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
-    descriptor_sets: Vec<vk::DescriptorSet>,
+    descriptor_set: vk::DescriptorSet,
     pipeline_layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
+    particle_buffer: vk::Buffer,
+    particle_memory: vk::DeviceMemory,
+    particle_buffer_size: vk::DeviceSize,
 }
 
-impl EnvironmentDepthVisualizerResources {
-    fn matches_images(&self, depth_image_handles: &[u64]) -> bool {
-        self.image_handles == depth_image_handles
-    }
-
+impl HandMeshParticleResources {
     unsafe fn destroy(self, device: &ash::Device) {
+        device.destroy_buffer(self.particle_buffer, None);
+        device.free_memory(self.particle_memory, None);
         device.destroy_pipeline(self.pipeline, None);
         device.destroy_pipeline_layout(self.pipeline_layout, None);
         device.destroy_descriptor_pool(self.descriptor_pool, None);
         device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-        for image_view in self.image_views {
-            device.destroy_image_view(image_view, None);
-        }
-        device.destroy_sampler(self.sampler, None);
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct EnvironmentDepthVisualizationPush {
-    params: [f32; 4],
-    transform: [f32; 4],
+fn hand_particle_push_from_views(views: &[xr::View]) -> EnvironmentDepthVisualizationPush {
+    let left = views.first().copied().unwrap_or_else(default_xr_view);
+    let right = views.get(1).copied().unwrap_or(left);
+    EnvironmentDepthVisualizationPush {
+        params: [0.0, 0.02, 100.0, 0.0],
+        transform: [0.0; 4],
+        left_fov_tangents: fov_tangents(left.fov),
+        right_fov_tangents: fov_tangents(right.fov),
+        left_render_fov_tangents: fov_tangents(left.fov),
+        right_render_fov_tangents: fov_tangents(right.fov),
+        left_position: pose_position(left.pose),
+        right_position: pose_position(right.pose),
+        left_orientation: pose_orientation(left.pose),
+        right_orientation: pose_orientation(right.pose),
+        left_render_position: pose_position(left.pose),
+        right_render_position: pose_position(right.pose),
+        left_render_orientation: pose_orientation(left.pose),
+        right_render_orientation: pose_orientation(right.pose),
+    }
+}
+
+fn default_xr_view() -> xr::View {
+    xr::View {
+        pose: xr::sys::Posef {
+            orientation: xr::sys::Quaternionf {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+            position: xr::sys::Vector3f {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        },
+        fov: xr::sys::Fovf {
+            angle_left: -0.75,
+            angle_right: 0.75,
+            angle_up: 0.75,
+            angle_down: -0.75,
+        },
+    }
+}
+
+unsafe fn create_hand_mesh_particle_resources(
+    device: &ash::Device,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
+    render_pass: vk::RenderPass,
+) -> Result<HandMeshParticleResources, String> {
+    let descriptor_binding = [vk::DescriptorSetLayoutBinding::default()
+        .binding(0)
+        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::VERTEX)];
+    let descriptor_set_layout = device
+        .create_descriptor_set_layout(
+            &vk::DescriptorSetLayoutCreateInfo::default().bindings(&descriptor_binding),
+            None,
+        )
+        .map_err(|error| format!("create hand mesh particle descriptor set layout: {error}"))?;
+    let descriptor_pool_size = [vk::DescriptorPoolSize::default()
+        .ty(vk::DescriptorType::STORAGE_BUFFER)
+        .descriptor_count(1)];
+    let descriptor_pool = match device.create_descriptor_pool(
+        &vk::DescriptorPoolCreateInfo::default()
+            .pool_sizes(&descriptor_pool_size)
+            .max_sets(1),
+        None,
+    ) {
+        Ok(pool) => pool,
+        Err(error) => {
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            return Err(format!(
+                "create hand mesh particle descriptor pool: {error}"
+            ));
+        }
+    };
+    let set_layouts = [descriptor_set_layout];
+    let descriptor_set = match device.allocate_descriptor_sets(
+        &vk::DescriptorSetAllocateInfo::default()
+            .descriptor_pool(descriptor_pool)
+            .set_layouts(&set_layouts),
+    ) {
+        Ok(mut sets) => sets.remove(0),
+        Err(error) => {
+            device.destroy_descriptor_pool(descriptor_pool, None);
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            return Err(format!(
+                "allocate hand mesh particle descriptor set: {error}"
+            ));
+        }
+    };
+    let push_ranges = [vk::PushConstantRange::default()
+        .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT)
+        .offset(0)
+        .size(std::mem::size_of::<EnvironmentDepthVisualizationPush>() as u32)];
+    let pipeline_layout = match device.create_pipeline_layout(
+        &vk::PipelineLayoutCreateInfo::default()
+            .set_layouts(&set_layouts)
+            .push_constant_ranges(&push_ranges),
+        None,
+    ) {
+        Ok(layout) => layout,
+        Err(error) => {
+            device.destroy_descriptor_pool(descriptor_pool, None);
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            return Err(format!(
+                "create hand mesh particle pipeline layout: {error}"
+            ));
+        }
+    };
+    let pipeline = match create_hand_mesh_particle_pipeline(device, render_pass, pipeline_layout) {
+        Ok(pipeline) => pipeline,
+        Err(error) => {
+            device.destroy_pipeline_layout(pipeline_layout, None);
+            device.destroy_descriptor_pool(descriptor_pool, None);
+            device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+            return Err(error);
+        }
+    };
+    let (particle_buffer, particle_memory, particle_buffer_size) =
+        match create_hand_mesh_particle_buffer(device, memory_properties) {
+            Ok(buffer) => buffer,
+            Err(error) => {
+                device.destroy_pipeline(pipeline, None);
+                device.destroy_pipeline_layout(pipeline_layout, None);
+                device.destroy_descriptor_pool(descriptor_pool, None);
+                device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+                return Err(error);
+            }
+        };
+    let particle_info = [vk::DescriptorBufferInfo::default()
+        .buffer(particle_buffer)
+        .offset(0)
+        .range(particle_buffer_size)];
+    let writes = [vk::WriteDescriptorSet::default()
+        .dst_set(descriptor_set)
+        .dst_binding(0)
+        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+        .buffer_info(&particle_info)];
+    device.update_descriptor_sets(&writes, &[]);
+
+    Ok(HandMeshParticleResources {
+        descriptor_set_layout,
+        descriptor_pool,
+        descriptor_set,
+        pipeline_layout,
+        pipeline,
+        particle_buffer,
+        particle_memory,
+        particle_buffer_size,
+    })
+}
+
+unsafe fn create_hand_mesh_particle_buffer(
+    device: &ash::Device,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
+) -> Result<(vk::Buffer, vk::DeviceMemory, vk::DeviceSize), String> {
+    let size = (XR_HAND_MESH_PARTICLE_CAPACITY as vk::DeviceSize)
+        * std::mem::size_of::<GpuHandParticle>() as vk::DeviceSize;
+    let buffer = device
+        .create_buffer(
+            &vk::BufferCreateInfo::default()
+                .size(size)
+                .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE),
+            None,
+        )
+        .map_err(|error| format!("create hand mesh particle buffer: {error}"))?;
+    let requirements = device.get_buffer_memory_requirements(buffer);
+    let memory_type_index = match find_memory_type(
+        memory_properties,
+        requirements.memory_type_bits,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    ) {
+        Ok(index) => index,
+        Err(error) => {
+            device.destroy_buffer(buffer, None);
+            return Err(error);
+        }
+    };
+    let memory = match device.allocate_memory(
+        &vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type_index),
+        None,
+    ) {
+        Ok(memory) => memory,
+        Err(error) => {
+            device.destroy_buffer(buffer, None);
+            return Err(format!("allocate hand mesh particle memory: {error}"));
+        }
+    };
+    if let Err(error) = device.bind_buffer_memory(buffer, memory, 0) {
+        device.free_memory(memory, None);
+        device.destroy_buffer(buffer, None);
+        return Err(format!("bind hand mesh particle memory: {error}"));
+    }
+    Ok((buffer, memory, size))
+}
+
+unsafe fn upload_hand_mesh_particles(
+    device: &ash::Device,
+    memory: vk::DeviceMemory,
+    particles: &[GpuHandParticle],
+) -> Result<(), String> {
+    let byte_len = std::mem::size_of_val(particles) as vk::DeviceSize;
+    let mapped = device
+        .map_memory(memory, 0, byte_len, vk::MemoryMapFlags::empty())
+        .map_err(|error| format!("map hand mesh particle memory: {error}"))?;
+    ptr::copy_nonoverlapping(
+        particles.as_ptr().cast::<u8>(),
+        mapped.cast::<u8>(),
+        byte_len as usize,
+    );
+    device.unmap_memory(memory);
+    Ok(())
+}
+
+unsafe fn create_hand_mesh_particle_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
+) -> Result<vk::Pipeline, String> {
+    let vertex_words = spirv_words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/hand_mesh_particles.vert.spv"
+    )))?;
+    let fragment_words = spirv_words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/hand_mesh_particles.frag.spv"
+    )))?;
+    let vertex_module = device
+        .create_shader_module(
+            &vk::ShaderModuleCreateInfo::default().code(&vertex_words),
+            None,
+        )
+        .map_err(|error| format!("create hand mesh particles vertex shader module: {error}"))?;
+    let fragment_module = match device.create_shader_module(
+        &vk::ShaderModuleCreateInfo::default().code(&fragment_words),
+        None,
+    ) {
+        Ok(module) => module,
+        Err(error) => {
+            device.destroy_shader_module(vertex_module, None);
+            return Err(format!(
+                "create hand mesh particles fragment shader module: {error}"
+            ));
+        }
+    };
+    let entry = CString::new("main").expect("static shader entry point is valid");
+    let stages = [
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vertex_module)
+            .name(&entry),
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(fragment_module)
+            .name(&entry),
+    ];
+    let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
+    let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+    let viewport_state = vk::PipelineViewportStateCreateInfo::default()
+        .viewport_count(1)
+        .scissor_count(1);
+    let rasterization = vk::PipelineRasterizationStateCreateInfo::default()
+        .polygon_mode(vk::PolygonMode::FILL)
+        .cull_mode(vk::CullModeFlags::NONE)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .line_width(1.0);
+    let multisample = vk::PipelineMultisampleStateCreateInfo::default()
+        .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+    let color_blend_attachment = [vk::PipelineColorBlendAttachmentState::default()
+        .blend_enable(true)
+        .src_color_blend_factor(vk::BlendFactor::ONE)
+        .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+        .color_blend_op(vk::BlendOp::ADD)
+        .src_alpha_blend_factor(vk::BlendFactor::ONE)
+        .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+        .alpha_blend_op(vk::BlendOp::ADD)
+        .color_write_mask(vk::ColorComponentFlags::RGBA)];
+    let color_blend =
+        vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachment);
+    let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
+        .depth_test_enable(false)
+        .depth_write_enable(false)
+        .depth_compare_op(vk::CompareOp::ALWAYS)
+        .stencil_test_enable(false);
+    let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+    let dynamic = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+    let create_info = [vk::GraphicsPipelineCreateInfo::default()
+        .stages(&stages)
+        .vertex_input_state(&vertex_input)
+        .input_assembly_state(&input_assembly)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterization)
+        .multisample_state(&multisample)
+        .color_blend_state(&color_blend)
+        .depth_stencil_state(&depth_stencil)
+        .dynamic_state(&dynamic)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0)];
+    let pipeline_result =
+        device.create_graphics_pipelines(vk::PipelineCache::null(), &create_info, None);
+    device.destroy_shader_module(fragment_module, None);
+    device.destroy_shader_module(vertex_module, None);
+    pipeline_result
+        .map(|mut pipelines| pipelines.remove(0))
+        .map_err(|(_, error)| format!("create hand mesh particles graphics pipeline: {error}"))
 }
 
 unsafe fn create_environment_depth_visualizer_resources(
     device: &ash::Device,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
     render_pass: vk::RenderPass,
     depth_image_handles: &[u64],
+    depth_width: u32,
+    depth_height: u32,
 ) -> Result<EnvironmentDepthVisualizerResources, String> {
     let sampler = device
         .create_sampler(
@@ -7523,11 +8739,22 @@ unsafe fn create_environment_depth_visualizer_resources(
         )
         .map_err(|error| format!("create environment depth sampler: {error}"))?;
 
-    let descriptor_binding = [vk::DescriptorSetLayoutBinding::default()
-        .binding(0)
-        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .descriptor_count(1)
-        .stage_flags(vk::ShaderStageFlags::FRAGMENT)];
+    let descriptor_binding = [
+        vk::DescriptorSetLayoutBinding::default()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(
+                vk::ShaderStageFlags::VERTEX
+                    | vk::ShaderStageFlags::FRAGMENT
+                    | vk::ShaderStageFlags::COMPUTE,
+            ),
+        vk::DescriptorSetLayoutBinding::default()
+            .binding(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::COMPUTE),
+    ];
     let descriptor_set_layout = match device.create_descriptor_set_layout(
         &vk::DescriptorSetLayoutCreateInfo::default().bindings(&descriptor_binding),
         None,
@@ -7542,9 +8769,14 @@ unsafe fn create_environment_depth_visualizer_resources(
     };
 
     let descriptor_count = depth_image_handles.len() as u32;
-    let pool_sizes = [vk::DescriptorPoolSize::default()
-        .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .descriptor_count(descriptor_count)];
+    let pool_sizes = [
+        vk::DescriptorPoolSize::default()
+            .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(descriptor_count),
+        vk::DescriptorPoolSize::default()
+            .ty(vk::DescriptorType::STORAGE_BUFFER)
+            .descriptor_count(descriptor_count),
+    ];
     let descriptor_pool = match device.create_descriptor_pool(
         &vk::DescriptorPoolCreateInfo::default()
             .pool_sizes(&pool_sizes)
@@ -7560,7 +8792,11 @@ unsafe fn create_environment_depth_visualizer_resources(
     };
 
     let push_ranges = [vk::PushConstantRange::default()
-        .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+        .stage_flags(
+            vk::ShaderStageFlags::VERTEX
+                | vk::ShaderStageFlags::FRAGMENT
+                | vk::ShaderStageFlags::COMPUTE,
+        )
         .offset(0)
         .size(std::mem::size_of::<EnvironmentDepthVisualizationPush>() as u32)];
     let set_layouts = [descriptor_set_layout];
@@ -7579,11 +8815,65 @@ unsafe fn create_environment_depth_visualizer_resources(
         }
     };
 
-    let pipeline =
+    let visualization_pipeline =
         match create_environment_depth_visualization_pipeline(device, render_pass, pipeline_layout)
         {
             Ok(pipeline) => pipeline,
             Err(error) => {
+                device.destroy_pipeline_layout(pipeline_layout, None);
+                device.destroy_descriptor_pool(descriptor_pool, None);
+                device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+                device.destroy_sampler(sampler, None);
+                return Err(error);
+            }
+        };
+    let mesh_pipeline =
+        match create_environment_depth_mesh_pipeline(device, render_pass, pipeline_layout) {
+            Ok(pipeline) => pipeline,
+            Err(error) => {
+                device.destroy_pipeline(visualization_pipeline, None);
+                device.destroy_pipeline_layout(pipeline_layout, None);
+                device.destroy_descriptor_pool(descriptor_pool, None);
+                device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+                device.destroy_sampler(sampler, None);
+                return Err(error);
+            }
+        };
+    let particle_update_pipeline =
+        match create_environment_depth_particle_update_pipeline(device, pipeline_layout) {
+            Ok(pipeline) => pipeline,
+            Err(error) => {
+                device.destroy_pipeline(mesh_pipeline, None);
+                device.destroy_pipeline(visualization_pipeline, None);
+                device.destroy_pipeline_layout(pipeline_layout, None);
+                device.destroy_descriptor_pool(descriptor_pool, None);
+                device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+                device.destroy_sampler(sampler, None);
+                return Err(error);
+            }
+        };
+    let particle_pipeline =
+        match create_environment_depth_particle_pipeline(device, render_pass, pipeline_layout) {
+            Ok(pipeline) => pipeline,
+            Err(error) => {
+                device.destroy_pipeline(particle_update_pipeline, None);
+                device.destroy_pipeline(mesh_pipeline, None);
+                device.destroy_pipeline(visualization_pipeline, None);
+                device.destroy_pipeline_layout(pipeline_layout, None);
+                device.destroy_descriptor_pool(descriptor_pool, None);
+                device.destroy_descriptor_set_layout(descriptor_set_layout, None);
+                device.destroy_sampler(sampler, None);
+                return Err(error);
+            }
+        };
+    let (particle_buffer, particle_memory, particle_buffer_size) =
+        match create_environment_depth_particle_buffer(device, memory_properties) {
+            Ok(buffer) => buffer,
+            Err(error) => {
+                device.destroy_pipeline(particle_pipeline, None);
+                device.destroy_pipeline(particle_update_pipeline, None);
+                device.destroy_pipeline(mesh_pipeline, None);
+                device.destroy_pipeline(visualization_pipeline, None);
                 device.destroy_pipeline_layout(pipeline_layout, None);
                 device.destroy_descriptor_pool(descriptor_pool, None);
                 device.destroy_descriptor_set_layout(descriptor_set_layout, None);
@@ -7614,7 +8904,12 @@ unsafe fn create_environment_depth_visualizer_resources(
                 for view in image_views {
                     device.destroy_image_view(view, None);
                 }
-                device.destroy_pipeline(pipeline, None);
+                device.destroy_buffer(particle_buffer, None);
+                device.free_memory(particle_memory, None);
+                device.destroy_pipeline(particle_pipeline, None);
+                device.destroy_pipeline(particle_update_pipeline, None);
+                device.destroy_pipeline(mesh_pipeline, None);
+                device.destroy_pipeline(visualization_pipeline, None);
                 device.destroy_pipeline_layout(pipeline_layout, None);
                 device.destroy_descriptor_pool(descriptor_pool, None);
                 device.destroy_descriptor_set_layout(descriptor_set_layout, None);
@@ -7637,7 +8932,12 @@ unsafe fn create_environment_depth_visualizer_resources(
             for view in image_views {
                 device.destroy_image_view(view, None);
             }
-            device.destroy_pipeline(pipeline, None);
+            device.destroy_buffer(particle_buffer, None);
+            device.free_memory(particle_memory, None);
+            device.destroy_pipeline(particle_pipeline, None);
+            device.destroy_pipeline(particle_update_pipeline, None);
+            device.destroy_pipeline(mesh_pipeline, None);
+            device.destroy_pipeline(visualization_pipeline, None);
             device.destroy_pipeline_layout(pipeline_layout, None);
             device.destroy_descriptor_pool(descriptor_pool, None);
             device.destroy_descriptor_set_layout(descriptor_set_layout, None);
@@ -7653,32 +8953,107 @@ unsafe fn create_environment_depth_visualizer_resources(
             .sampler(sampler)
             .image_view(*image_view)
             .image_layout(XR_ENVIRONMENT_DEPTH_DESCRIPTOR_LAYOUT)];
-        let writes = [vk::WriteDescriptorSet::default()
-            .dst_set(descriptor_set)
-            .dst_binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&image_info)];
+        let particle_info = [vk::DescriptorBufferInfo::default()
+            .buffer(particle_buffer)
+            .offset(0)
+            .range(particle_buffer_size)];
+        let writes = [
+            vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&image_info),
+            vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&particle_info),
+        ];
         device.update_descriptor_sets(&writes, &[]);
     }
 
     log_info(format!(
-        "Rusty XR environment depth visualizer resources images={} format=VK_FORMAT_D16_UNORM imageViewType=TYPE_2D_ARRAY layers={} descriptorLayout={:?} visualMaxMeters={}",
+        "Rusty XR environment depth visualizer resources images={} size={}x{} format=VK_FORMAT_D16_UNORM imageViewType=TYPE_2D_ARRAY layers={} descriptorLayout={:?} visualMaxMeters={} meshRasterization=world-space-generated-grid meshGridStridePixels={} meshVertexCount={} particleRasterization=retained-local-space-metric-billboard-particles particleCapacity={} particleSampleStridePixels={} particleBufferBytes={}",
         depth_image_handles.len(),
+        depth_width,
+        depth_height,
         VIEW_COUNT,
         XR_ENVIRONMENT_DEPTH_DESCRIPTOR_LAYOUT,
-        XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS
+        XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
+        XR_ENVIRONMENT_DEPTH_MESH_GRID_STRIDE_PIXELS,
+        environment_depth_mesh_vertex_count(depth_width, depth_height),
+        XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY,
+        XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS,
+        particle_buffer_size
     ));
 
     Ok(EnvironmentDepthVisualizerResources {
         image_handles: depth_image_handles.to_vec(),
+        depth_width,
+        depth_height,
         image_views,
         sampler,
         descriptor_set_layout,
         descriptor_pool,
         descriptor_sets,
         pipeline_layout,
-        pipeline,
+        visualization_pipeline,
+        mesh_pipeline,
+        particle_update_pipeline,
+        particle_pipeline,
+        particle_buffer,
+        particle_memory,
+        particle_buffer_size,
     })
+}
+
+unsafe fn create_environment_depth_particle_buffer(
+    device: &ash::Device,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
+) -> Result<(vk::Buffer, vk::DeviceMemory, vk::DeviceSize), String> {
+    const PARTICLE_BYTES: vk::DeviceSize = 32;
+    let size = (XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY as vk::DeviceSize) * PARTICLE_BYTES;
+    let buffer = device
+        .create_buffer(
+            &vk::BufferCreateInfo::default()
+                .size(size)
+                .usage(vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE),
+            None,
+        )
+        .map_err(|error| format!("create environment depth particle buffer: {error}"))?;
+    let requirements = device.get_buffer_memory_requirements(buffer);
+    let memory_type_index = match find_memory_type(
+        memory_properties,
+        requirements.memory_type_bits,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    ) {
+        Ok(index) => index,
+        Err(error) => {
+            device.destroy_buffer(buffer, None);
+            return Err(error);
+        }
+    };
+    let memory = match device.allocate_memory(
+        &vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type_index),
+        None,
+    ) {
+        Ok(memory) => memory,
+        Err(error) => {
+            device.destroy_buffer(buffer, None);
+            return Err(format!(
+                "allocate environment depth particle memory: {error}"
+            ));
+        }
+    };
+    if let Err(error) = device.bind_buffer_memory(buffer, memory, 0) {
+        device.free_memory(memory, None);
+        device.destroy_buffer(buffer, None);
+        return Err(format!("bind environment depth particle memory: {error}"));
+    }
+    Ok((buffer, memory, size))
 }
 
 unsafe fn create_environment_depth_visualization_pipeline(
@@ -7768,4 +9143,226 @@ unsafe fn create_environment_depth_visualization_pipeline(
     pipeline_result
         .map(|mut pipelines| pipelines.remove(0))
         .map_err(|(_, error)| format!("create environment depth graphics pipeline: {error}"))
+}
+
+unsafe fn create_environment_depth_particle_update_pipeline(
+    device: &ash::Device,
+    pipeline_layout: vk::PipelineLayout,
+) -> Result<vk::Pipeline, String> {
+    let compute_words = spirv_words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/environment_depth_particle_update.comp.spv"
+    )))?;
+    let compute_module = device
+        .create_shader_module(
+            &vk::ShaderModuleCreateInfo::default().code(&compute_words),
+            None,
+        )
+        .map_err(|error| {
+            format!("create environment depth particle update shader module: {error}")
+        })?;
+    let entry = CString::new("main").expect("static shader entry point is valid");
+    let stage = vk::PipelineShaderStageCreateInfo::default()
+        .stage(vk::ShaderStageFlags::COMPUTE)
+        .module(compute_module)
+        .name(&entry);
+    let create_info = [vk::ComputePipelineCreateInfo::default()
+        .stage(stage)
+        .layout(pipeline_layout)];
+    let pipeline_result =
+        device.create_compute_pipelines(vk::PipelineCache::null(), &create_info, None);
+    device.destroy_shader_module(compute_module, None);
+    pipeline_result
+        .map(|mut pipelines| pipelines.remove(0))
+        .map_err(|(_, error)| {
+            format!("create environment depth particle update compute pipeline: {error}")
+        })
+}
+
+unsafe fn create_environment_depth_particle_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
+) -> Result<vk::Pipeline, String> {
+    let vertex_words = spirv_words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/environment_depth_particles.vert.spv"
+    )))?;
+    let fragment_words = spirv_words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/environment_depth_particles.frag.spv"
+    )))?;
+    let vertex_module = device
+        .create_shader_module(
+            &vk::ShaderModuleCreateInfo::default().code(&vertex_words),
+            None,
+        )
+        .map_err(|error| {
+            format!("create environment depth particles vertex shader module: {error}")
+        })?;
+    let fragment_module = match device.create_shader_module(
+        &vk::ShaderModuleCreateInfo::default().code(&fragment_words),
+        None,
+    ) {
+        Ok(module) => module,
+        Err(error) => {
+            device.destroy_shader_module(vertex_module, None);
+            return Err(format!(
+                "create environment depth particles fragment shader module: {error}"
+            ));
+        }
+    };
+    let entry = CString::new("main").expect("static shader entry point is valid");
+    let stages = [
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vertex_module)
+            .name(&entry),
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(fragment_module)
+            .name(&entry),
+    ];
+    let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
+    let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+    let viewport_state = vk::PipelineViewportStateCreateInfo::default()
+        .viewport_count(1)
+        .scissor_count(1);
+    let rasterization = vk::PipelineRasterizationStateCreateInfo::default()
+        .polygon_mode(vk::PolygonMode::FILL)
+        .cull_mode(vk::CullModeFlags::NONE)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .line_width(1.0);
+    let multisample = vk::PipelineMultisampleStateCreateInfo::default()
+        .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+    let color_blend_attachment = [vk::PipelineColorBlendAttachmentState::default()
+        .blend_enable(true)
+        .src_color_blend_factor(vk::BlendFactor::ONE)
+        .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+        .color_blend_op(vk::BlendOp::ADD)
+        .src_alpha_blend_factor(vk::BlendFactor::ONE)
+        .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+        .alpha_blend_op(vk::BlendOp::ADD)
+        .color_write_mask(vk::ColorComponentFlags::RGBA)];
+    let color_blend =
+        vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachment);
+    let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
+        .depth_test_enable(false)
+        .depth_write_enable(false)
+        .depth_compare_op(vk::CompareOp::ALWAYS)
+        .stencil_test_enable(false);
+    let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+    let dynamic = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+    let create_info = [vk::GraphicsPipelineCreateInfo::default()
+        .stages(&stages)
+        .vertex_input_state(&vertex_input)
+        .input_assembly_state(&input_assembly)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterization)
+        .multisample_state(&multisample)
+        .color_blend_state(&color_blend)
+        .depth_stencil_state(&depth_stencil)
+        .dynamic_state(&dynamic)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0)];
+    let pipeline_result =
+        device.create_graphics_pipelines(vk::PipelineCache::null(), &create_info, None);
+    device.destroy_shader_module(fragment_module, None);
+    device.destroy_shader_module(vertex_module, None);
+    pipeline_result
+        .map(|mut pipelines| pipelines.remove(0))
+        .map_err(|(_, error)| {
+            format!("create environment depth particles graphics pipeline: {error}")
+        })
+}
+
+unsafe fn create_environment_depth_mesh_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
+) -> Result<vk::Pipeline, String> {
+    let vertex_words = spirv_words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/environment_depth_mesh.vert.spv"
+    )))?;
+    let fragment_words = spirv_words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/environment_depth_mesh.frag.spv"
+    )))?;
+    let vertex_module = device
+        .create_shader_module(
+            &vk::ShaderModuleCreateInfo::default().code(&vertex_words),
+            None,
+        )
+        .map_err(|error| format!("create environment depth mesh vertex shader module: {error}"))?;
+    let fragment_module = match device.create_shader_module(
+        &vk::ShaderModuleCreateInfo::default().code(&fragment_words),
+        None,
+    ) {
+        Ok(module) => module,
+        Err(error) => {
+            device.destroy_shader_module(vertex_module, None);
+            return Err(format!(
+                "create environment depth mesh fragment shader module: {error}"
+            ));
+        }
+    };
+    let entry = CString::new("main").expect("static shader entry point is valid");
+    let stages = [
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vertex_module)
+            .name(&entry),
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(fragment_module)
+            .name(&entry),
+    ];
+    let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
+    let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+    let viewport_state = vk::PipelineViewportStateCreateInfo::default()
+        .viewport_count(1)
+        .scissor_count(1);
+    let rasterization = vk::PipelineRasterizationStateCreateInfo::default()
+        .polygon_mode(vk::PolygonMode::FILL)
+        .cull_mode(vk::CullModeFlags::NONE)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .line_width(1.0);
+    let multisample = vk::PipelineMultisampleStateCreateInfo::default()
+        .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+    let color_blend_attachment = [vk::PipelineColorBlendAttachmentState::default()
+        .blend_enable(false)
+        .color_write_mask(vk::ColorComponentFlags::RGBA)];
+    let color_blend =
+        vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachment);
+    let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
+        .depth_test_enable(false)
+        .depth_write_enable(false)
+        .depth_compare_op(vk::CompareOp::ALWAYS)
+        .stencil_test_enable(false);
+    let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+    let dynamic = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+    let create_info = [vk::GraphicsPipelineCreateInfo::default()
+        .stages(&stages)
+        .vertex_input_state(&vertex_input)
+        .input_assembly_state(&input_assembly)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterization)
+        .multisample_state(&multisample)
+        .color_blend_state(&color_blend)
+        .depth_stencil_state(&depth_stencil)
+        .dynamic_state(&dynamic)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0)];
+    let pipeline_result =
+        device.create_graphics_pipelines(vk::PipelineCache::null(), &create_info, None);
+    device.destroy_shader_module(fragment_module, None);
+    device.destroy_shader_module(vertex_module, None);
+    pipeline_result
+        .map(|mut pipelines| pipelines.remove(0))
+        .map_err(|(_, error)| format!("create environment depth mesh graphics pipeline: {error}"))
 }

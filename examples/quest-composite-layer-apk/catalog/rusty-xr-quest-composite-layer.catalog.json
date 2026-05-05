@@ -42,6 +42,27 @@
       "description": "Runs the OpenXR layer without camera or screen capture for lifecycle and renderer isolation."
     },
     {
+      "id": "synthetic-hand-mesh-particles",
+      "label": "Synthetic hand mesh particles",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "synthetic",
+        "rustyxr.camera": "false",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "synthetic-hand-mesh-particles",
+        "rustyxr.depth": "off",
+        "rustyxr.handParticles": "synthetic",
+        "rustyxr.openxrPassthroughProbe": "underlay",
+        "rustyxr.passthroughStyleMode": "none",
+        "rustyxr.passthroughOpacity": "1.0",
+        "rustyxr.projectionLayerVisible": "true",
+        "rustyxr.xrColorFormat": "rgba8-unorm",
+        "rustyxr.xrRenderScale": "0.75",
+        "rustyxr.xrFixedFoveationLevel": "0"
+      },
+      "description": "Runs the OpenXR layer without camera or environment-depth acquisition, generates two procedural hand meshes in head-relative local space, samples stable Rusty XR hand-particle coordinates through LiveHandMeshParticleSampler, and renders them as stereo Vulkan billboards over the native passthrough underlay."
+    },
+    {
       "id": "broker-h264-consumer-probe",
       "label": "Broker H.264 consumer probe",
       "values": {
@@ -277,13 +298,71 @@
         "rustyxr.source": "environment-depth",
         "rustyxr.depth": "visualize",
         "rustyxr.depthHandRemoval": "false",
-        "rustyxr.openxrPassthroughProbe": "client",
-        "rustyxr.passthroughStyleMode": "default",
+        "rustyxr.openxrPassthroughProbe": "underlay",
+        "rustyxr.passthroughStyleMode": "none",
         "rustyxr.passthroughOpacity": "1.0",
         "rustyxr.xrRenderScale": "0.75",
         "rustyxr.xrFixedFoveationLevel": "0"
       },
       "description": "Starts the OpenXR environment-depth provider with the native passthrough layer active, acquires at most one depth image per XR frame, logs depth resolution, near/far, runtime capture timestamps, acquire cost, update cadence, confidence availability, and the depth texture UV transform, and renders the current stereo depth texture in headset as a per-eye D16 grayscale diagnostic."
+    },
+    {
+      "id": "environment-depth-mesh-overlay",
+      "label": "Environment depth mesh overlay",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "synthetic",
+        "rustyxr.camera": "false",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "environment-depth",
+        "rustyxr.depth": "mesh-overlay",
+        "rustyxr.depthHandRemoval": "false",
+        "rustyxr.openxrPassthroughProbe": "underlay",
+        "rustyxr.passthroughStyleMode": "none",
+        "rustyxr.passthroughOpacity": "1.0",
+        "rustyxr.xrRenderScale": "0.75",
+        "rustyxr.xrFixedFoveationLevel": "0"
+      },
+      "description": "Starts the same environment-depth provider as the diagnostics profile, but renders a transparent generated depth-grid surface over the submitted native passthrough underlay from the live D16 depth texture. The mesh path samples depth in the vertex shader, reconstructs stage-space points from untransformed OpenXR FOV rays, and projects them through the current render-eye pose instead of drawing a fullscreen screen overlay. The direct visualizer draws only the current acquired image; persistent history needs owned depth copies or TSDF chunks rather than reused runtime swapchain images. The overlay uses a single dominant surface grid and colors metric depth on a ramp clamped at about 3 meters so distance, discontinuities, and mesh-cell stability can be inspected in headset."
+    },
+    {
+      "id": "environment-depth-particle-overlay",
+      "label": "Environment depth particle overlay",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "synthetic",
+        "rustyxr.camera": "false",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "environment-depth",
+        "rustyxr.depth": "particle-overlay",
+        "rustyxr.depthHandRemoval": "false",
+        "rustyxr.openxrPassthroughProbe": "underlay",
+        "rustyxr.passthroughStyleMode": "none",
+        "rustyxr.passthroughOpacity": "1.0",
+        "rustyxr.xrRenderScale": "0.75",
+        "rustyxr.xrFixedFoveationLevel": "0"
+      },
+      "description": "Keeps the environment-depth provider and passthrough underlay active, but updates a renderer-owned GPU buffer of retained stage-space billboard particles from confident in-view depth samples. Particles are filtered by local depth discontinuity, persist until the ring buffer overwrites them, and use the same metric distance color ramp clamped at about 3 meters."
+    },
+    {
+      "id": "passthrough-only-layer-probe",
+      "label": "Passthrough only layer probe",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "synthetic",
+        "rustyxr.camera": "false",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "platform-passthrough",
+        "rustyxr.depth": "off",
+        "rustyxr.openxrPassthroughProbe": "underlay",
+        "rustyxr.passthroughStyleMode": "none",
+        "rustyxr.passthroughOpacity": "1.0",
+        "rustyxr.projectionLayerVisible": "false",
+        "rustyxr.xrColorFormat": "rgba8-unorm",
+        "rustyxr.xrRenderScale": "0.75",
+        "rustyxr.xrFixedFoveationLevel": "0"
+      },
+      "description": "Submits the native passthrough composition layer without the OpenXR projection layer so headset inspection can isolate compositor passthrough visibility from projection-layer alpha."
     },
     {
       "id": "camera-diagnostic-cpu-copy",

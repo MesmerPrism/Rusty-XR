@@ -1,0 +1,137 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2DArray u_environment_depth;
+
+struct DepthParticle {
+    vec4 position_depth;
+    vec4 state;
+};
+
+layout(std430, set = 0, binding = 1) buffer DepthParticles {
+    DepthParticle particles[];
+};
+
+layout(push_constant) uniform EnvironmentDepthVisualizationPush {
+    vec4 params;
+    vec4 transform;
+    vec4 left_fov_tangents;
+    vec4 right_fov_tangents;
+    vec4 left_render_fov_tangents;
+    vec4 right_render_fov_tangents;
+    vec4 left_position;
+    vec4 right_position;
+    vec4 left_orientation;
+    vec4 right_orientation;
+    vec4 left_render_position;
+    vec4 right_render_position;
+    vec4 left_render_orientation;
+    vec4 right_render_orientation;
+} pc;
+
+const uint PARTICLE_CAPACITY = 32768u;
+const uint PARTICLE_SAMPLE_STRIDE_PIXELS = 12u;
+const uint PARTICLE_SOURCE_VIEW_COUNT = 1u;
+
+vec2 apply_depth_texture_transform(vec2 uv, int flags) {
+    int turns = flags & 3;
+    if (turns == 1) {
+        uv = vec2(uv.y, 1.0 - uv.x);
+    } else if (turns == 2) {
+        uv = vec2(1.0 - uv.x, 1.0 - uv.y);
+    } else if (turns == 3) {
+        uv = vec2(1.0 - uv.y, uv.x);
+    }
+    if ((flags & 4) != 0 || (flags & 16) != 0) {
+        uv.x = 1.0 - uv.x;
+    }
+    if ((flags & 8) != 0) {
+        uv.y = 1.0 - uv.y;
+    }
+    return uv;
+}
+
+float linear_depth_meters(float raw_depth) {
+    float near_z = max(pc.params.y, 0.001);
+    float far_z = pc.params.z;
+    bool infinite_far = pc.params.w > 0.5 || !(far_z > near_z);
+    raw_depth = clamp(raw_depth, 0.0, 1.0);
+
+    if (infinite_far) {
+        return near_z / max(1.0 - raw_depth, 1.0 / 65535.0);
+    }
+
+    return (near_z * far_z) / max(far_z - raw_depth * (far_z - near_z), 0.0001);
+}
+
+float sample_depth_meters(vec2 uv, int eye_index) {
+    float raw_depth = textureLod(
+        u_environment_depth,
+        vec3(clamp(uv, vec2(0.0), vec2(1.0)), float(eye_index)),
+        0.0).r;
+    bool infinity_cutoff = raw_depth >= 1.0 - (0.5 / 65535.0);
+    if (!(raw_depth >= 0.0) || infinity_cutoff) {
+        return pc.params.x + 1.0;
+    }
+    return min(linear_depth_meters(raw_depth), pc.params.x + 1.0);
+}
+
+vec3 rotate_by_quat(vec3 value, vec4 q) {
+    return value + 2.0 * cross(q.xyz, cross(q.xyz, value) + q.w * value);
+}
+
+vec3 reconstruct_stage_position(vec2 depth_uv, int eye_index, float depth_meters) {
+    vec4 fov = eye_index == 0 ? pc.left_fov_tangents : pc.right_fov_tangents;
+    vec4 orientation = eye_index == 0 ? pc.left_orientation : pc.right_orientation;
+    vec3 position = (eye_index == 0 ? pc.left_position : pc.right_position).xyz;
+    float tangent_x = mix(fov.x, fov.y, depth_uv.x);
+    float tangent_y = mix(fov.w, fov.z, depth_uv.y);
+    vec3 view_position = vec3(tangent_x * depth_meters, tangent_y * depth_meters, -depth_meters);
+    return position + rotate_by_quat(view_position, orientation);
+}
+
+void main() {
+    ivec2 depth_size = textureSize(u_environment_depth, 0).xy;
+    uvec2 grid_size = max(
+        uvec2(depth_size) / uvec2(PARTICLE_SAMPLE_STRIDE_PIXELS),
+        uvec2(1u));
+    uint eye_index = gl_GlobalInvocationID.z;
+    uint gx = gl_GlobalInvocationID.x;
+    uint gy = gl_GlobalInvocationID.y;
+    if (eye_index >= PARTICLE_SOURCE_VIEW_COUNT || gx >= grid_size.x || gy >= grid_size.y) {
+        return;
+    }
+
+    uint sample_index = ((eye_index * grid_size.y) + gy) * grid_size.x + gx;
+    uint write_base = uint(max(pc.transform.y, 0.0));
+    uint slot = (write_base + sample_index) % PARTICLE_CAPACITY;
+    ivec2 pixel = min(
+        ivec2(gx, gy) * int(PARTICLE_SAMPLE_STRIDE_PIXELS)
+            + ivec2(int(PARTICLE_SAMPLE_STRIDE_PIXELS / 2u)),
+        depth_size - ivec2(1));
+    vec2 surface_uv = (vec2(pixel) + vec2(0.5)) / max(vec2(depth_size), vec2(1.0));
+    int transform_flags = int(floor(pc.transform.x + 0.5));
+    vec2 depth_uv = clamp(
+        apply_depth_texture_transform(surface_uv, transform_flags),
+        vec2(0.0),
+        vec2(1.0));
+
+    float depth_meters = sample_depth_meters(depth_uv, int(eye_index));
+    vec2 sample_step = 1.0 / max(vec2(depth_size), vec2(1.0));
+    float right_depth = sample_depth_meters(depth_uv + vec2(sample_step.x, 0.0), int(eye_index));
+    float up_depth = sample_depth_meters(depth_uv + vec2(0.0, sample_step.y), int(eye_index));
+    float discontinuity = max(abs(depth_meters - right_depth), abs(depth_meters - up_depth));
+    float threshold = max(pc.transform.w, 0.01);
+    float confidence = 1.0 - smoothstep(threshold, threshold * 2.0, discontinuity);
+    bool valid = depth_meters <= pc.params.x && confidence >= 0.58;
+
+    if (!valid) {
+        particles[slot].state = vec4(0.0);
+        return;
+    }
+
+    vec3 stage_position = reconstruct_stage_position(surface_uv, int(eye_index), depth_meters);
+    particles[slot].position_depth = vec4(stage_position, depth_meters);
+    particles[slot].state = vec4(1.0, confidence, float(eye_index), 0.0);
+}

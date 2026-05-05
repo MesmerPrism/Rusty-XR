@@ -96,7 +96,7 @@ review_status = "foundation-pass"
 crate = "rusty-xr-particles"
 source_family = "low-dependency particle experiments and Makepad-style instanced particle rendering concepts"
 extraction_date = "2026-05-05"
-public_safe_rationale = "Particle state, deterministic clocks, render payload conversion, backend-neutral billboard geometry, scene-basis billboard instance prep, sprite-mask atlas generation, trail buffers, render-budget estimates, and depth sorting are reusable without downstream simulation semantics."
+public_safe_rationale = "Particle state, deterministic clocks, render payload conversion, backend-neutral billboard geometry, scene-basis billboard instance prep, sprite-mask atlas generation, trail buffers, render-budget estimates, depth sorting, mesh-surface coordinate sampling, live deformed-mesh anchor updates, same-surface neighbor tiers, and cross-surface neighbor links are reusable without downstream simulation semantics."
 license_assumptions = "Authored for this MIT repository. Makepad is credited as an enabling public Rust-native rendering and UI foundation; this crate keeps helpers backend-neutral and does not vendor Makepad framework code."
 scrubbed_private_dependencies = ["downstream simulation behavior", "downstream visual feedback behavior", "renderer backend code", "package identity", "generated captures"]
 review_status = "particle-rendering-helper-pass"
@@ -163,3 +163,12 @@ public_safe_rationale = "A small sidecar APK demonstrates localhost status/WebSo
 license_assumptions = "Authored for this MIT repository. Native liblsl is optional, external, and must be supplied with matching downstream license notices when packaged."
 scrubbed_private_dependencies = ["private package identity", "downstream Unity project", "local liblsl paths", "validation device addresses", "generated APK bytes", "signing material"]
 review_status = "public-proof"
+
+[[utility]]
+crate = "crates/rusty-xr-particles/hand-mesh-live-sampler"
+source_family = "public Rust hand mesh particle utility"
+extraction_date = "2026-05-05"
+public_safe_rationale = "A framework-neutral live sampler consumes public HandMeshSnapshot frames, maintains stable particle anchors while deformed vertices update, and rebuilds only when topology changes. Native platform calls remain in optional adapters or downstream shells."
+license_assumptions = "Authored for this MIT repository without copying platform SDK samples or downstream app behavior."
+scrubbed_private_dependencies = ["native provider implementation", "package identity", "private scene behavior", "app-specific streams", "generated captures", "signing material"]
+review_status = "public-utility"

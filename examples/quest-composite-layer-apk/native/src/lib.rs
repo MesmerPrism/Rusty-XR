@@ -597,6 +597,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) xr_color_format_mode: OpenXrColorFormatMode,
     pub(crate) environment_depth_mode: EnvironmentDepthMode,
     pub(crate) environment_depth_hand_removal: bool,
+    pub(crate) hand_particle_mode: HandParticleMode,
     pub(crate) openxr_passthrough_probe: OpenXrPassthroughProbeMode,
     pub(crate) passthrough_style_mode: OpenXrPassthroughStyleMode,
     pub(crate) passthrough_opacity: f32,
@@ -610,6 +611,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) passthrough_lut_weight: f32,
     pub(crate) passthrough_lut_flicker_hz: f32,
     pub(crate) full_field_flicker_hz: f32,
+    pub(crate) projection_layer_visible: bool,
     pub(crate) diagnostic_hud_visible: bool,
     pub(crate) osc_enabled: bool,
     pub(crate) osc_overlay_enabled: bool,
@@ -659,6 +661,7 @@ impl Default for RuntimeConfig {
             xr_color_format_mode: OpenXrColorFormatMode::default(),
             environment_depth_mode: EnvironmentDepthMode::default(),
             environment_depth_hand_removal: false,
+            hand_particle_mode: HandParticleMode::default(),
             openxr_passthrough_probe: OpenXrPassthroughProbeMode::Off,
             passthrough_style_mode: OpenXrPassthroughStyleMode::default(),
             passthrough_opacity: 1.0,
@@ -672,6 +675,7 @@ impl Default for RuntimeConfig {
             passthrough_lut_weight: 1.0,
             passthrough_lut_flicker_hz: 0.0,
             full_field_flicker_hz: 0.0,
+            projection_layer_visible: true,
             diagnostic_hud_visible: false,
             osc_enabled: false,
             osc_overlay_enabled: true,
@@ -687,6 +691,8 @@ pub(crate) enum EnvironmentDepthMode {
     Off,
     Status,
     Visualize,
+    MeshOverlay,
+    ParticleOverlay,
 }
 
 impl EnvironmentDepthMode {
@@ -695,6 +701,12 @@ impl EnvironmentDepthMode {
             "off" | "false" | "0" | "disabled" | "none" => Some(Self::Off),
             "status" | "diagnostic" | "diagnostics" | "on" | "true" | "1" => Some(Self::Status),
             "visualize" | "visualise" | "visual" | "debug-visual" => Some(Self::Visualize),
+            "mesh" | "mesh-overlay" | "depth-mesh" | "debug-mesh" | "wire-mesh" => {
+                Some(Self::MeshOverlay)
+            }
+            "particles" | "particle-overlay" | "depth-particles" | "surface-particles" => {
+                Some(Self::ParticleOverlay)
+            }
             _ => None,
         }
     }
@@ -704,6 +716,8 @@ impl EnvironmentDepthMode {
             Self::Off => "off",
             Self::Status => "status",
             Self::Visualize => "visualize",
+            Self::MeshOverlay => "mesh-overlay",
+            Self::ParticleOverlay => "particle-overlay",
         }
     }
 
@@ -712,7 +726,52 @@ impl EnvironmentDepthMode {
     }
 
     pub(crate) const fn visualizes(self) -> bool {
-        matches!(self, Self::Visualize)
+        matches!(
+            self,
+            Self::Visualize | Self::MeshOverlay | Self::ParticleOverlay
+        )
+    }
+
+    pub(crate) const fn mesh_overlay(self) -> bool {
+        matches!(self, Self::MeshOverlay)
+    }
+
+    pub(crate) const fn particle_overlay(self) -> bool {
+        matches!(self, Self::ParticleOverlay)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum HandParticleMode {
+    #[default]
+    Off,
+    Synthetic,
+}
+
+impl HandParticleMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "off" | "false" | "0" | "disabled" | "none" => Some(Self::Off),
+            "synthetic"
+            | "synthetic-hand"
+            | "synthetic-hand-mesh"
+            | "hand-mesh"
+            | "on"
+            | "true"
+            | "1" => Some(Self::Synthetic),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Synthetic => "synthetic",
+        }
+    }
+
+    pub(crate) const fn enabled(self) -> bool {
+        !matches!(self, Self::Off)
     }
 }
 
@@ -1043,7 +1102,7 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} diagnosticHudVisible={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -1100,6 +1159,7 @@ fn store_runtime_config(config_json: Option<String>) {
         config.passthrough_lut_weight,
         config.passthrough_lut_flicker_hz,
         config.full_field_flicker_hz,
+        config.projection_layer_visible,
         diagnostic_hud_snapshot().visible
     ));
 
@@ -1636,6 +1696,7 @@ struct JavaRuntimeConfig {
     openxr_passthrough_probe: Option<String>,
     environment_depth_mode: Option<String>,
     environment_depth_hand_removal: Option<bool>,
+    hand_particle_mode: Option<String>,
     passthrough_style_mode: Option<String>,
     passthrough_opacity: Option<f32>,
     passthrough_edge_r: Option<f32>,
@@ -1652,6 +1713,7 @@ struct JavaRuntimeConfig {
     passthrough_lut_flicker_hz: Option<f32>,
     #[serde(rename = "fullFieldFlickerHz")]
     full_field_flicker_hz: Option<f32>,
+    projection_layer_visible: Option<bool>,
     #[serde(alias = "diagnosticsHudVisible")]
     diagnostic_hud_visible: Option<bool>,
     #[serde(alias = "diagnosticsHudCommand")]
@@ -1816,6 +1878,11 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
         environment_depth_hand_removal: bridge
             .environment_depth_hand_removal
             .unwrap_or(defaults.environment_depth_hand_removal),
+        hand_particle_mode: bridge
+            .hand_particle_mode
+            .as_deref()
+            .and_then(HandParticleMode::parse)
+            .unwrap_or(defaults.hand_particle_mode),
         openxr_passthrough_probe: bridge
             .openxr_passthrough_probe
             .as_deref()
@@ -1896,6 +1963,9 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             defaults.full_field_flicker_hz,
         )
         .clamp(0.0, 120.0),
+        projection_layer_visible: bridge
+            .projection_layer_visible
+            .unwrap_or(defaults.projection_layer_visible),
         diagnostic_hud_visible: bridge
             .diagnostic_hud_visible
             .or(bridge.osc_overlay_enabled)
@@ -3220,9 +3290,9 @@ mod tests {
         contract_json, parse_diagnostic_hud_command, public_camera_metadata, public_runtime_config,
         CameraColorMode, CameraFeedPipelineMode, CameraImportImageLayoutMode,
         CameraOrientationDiagnosticMode, CameraPipelinePreset, CameraProjectionEffectMode,
-        CameraProjectionMode, CameraSamplerBindingMode, EnvironmentDepthMode, JavaCameraExtrinsics,
-        JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind,
-        JavaRuntimeConfig, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
+        CameraProjectionMode, CameraSamplerBindingMode, EnvironmentDepthMode, HandParticleMode,
+        JavaCameraExtrinsics, JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain,
+        JavaPixelDomainKind, JavaRuntimeConfig, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
         OpenXrPassthroughStyleMode, StereoSourceEyeMapping,
     };
     use rusty_xr_contracts::{
@@ -3430,8 +3500,9 @@ mod tests {
             xr_display_refresh_hz: Some(90.0),
             xr_fixed_foveation_level: Some(0),
             xr_color_format_mode: Some("rgba8-unorm".to_string()),
-            environment_depth_mode: Some("visualize".to_string()),
+            environment_depth_mode: Some("mesh-overlay".to_string()),
             environment_depth_hand_removal: Some(true),
+            hand_particle_mode: Some("synthetic".to_string()),
             openxr_passthrough_probe: Some("client".to_string()),
             passthrough_style_mode: Some("color-lut".to_string()),
             passthrough_opacity: Some(0.68),
@@ -3448,6 +3519,7 @@ mod tests {
             passthrough_lut_weight: Some(0.75),
             passthrough_lut_flicker_hz: Some(10.0),
             full_field_flicker_hz: Some(40.0),
+            projection_layer_visible: Some(false),
             diagnostic_hud_visible: None,
             diagnostic_hud_command: None,
             osc_enabled: Some(true),
@@ -3531,9 +3603,13 @@ mod tests {
         );
         assert_eq!(
             config.environment_depth_mode,
-            EnvironmentDepthMode::Visualize
+            EnvironmentDepthMode::MeshOverlay
         );
+        assert!(config.environment_depth_mode.visualizes());
+        assert!(config.environment_depth_mode.mesh_overlay());
         assert!(config.environment_depth_hand_removal);
+        assert_eq!(config.hand_particle_mode, HandParticleMode::Synthetic);
+        assert!(config.hand_particle_mode.enabled());
         assert_eq!(
             config.openxr_passthrough_probe,
             OpenXrPassthroughProbeMode::Client
@@ -3553,6 +3629,7 @@ mod tests {
         assert_eq!(config.passthrough_lut_weight, 0.75);
         assert_eq!(config.passthrough_lut_flicker_hz, 10.0);
         assert_eq!(config.full_field_flicker_hz, 40.0);
+        assert!(!config.projection_layer_visible);
         assert!(!config.diagnostic_hud_visible);
         assert!(config.osc_enabled);
         assert!(!config.osc_overlay_enabled);

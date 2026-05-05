@@ -113,6 +113,16 @@ sample camera pixels, or ship downstream visual-effect behavior. See
 Reusable depth-frame and environment-depth contracts that can be consumed by app
 shells, experiments, and analysis tools.
 
+The Quest composite-layer example now proves live environment-depth diagnostics,
+generated mesh visualization, retained local-space particle visualization, and
+native passthrough composition in one public APK source tree. The retained
+particle path is intentionally documented as a diagnostic bridge: it writes
+accepted samples into local scene coordinates, but the visible particle set is
+still refreshed from a view-sampled grid. The next environment-mapping target is
+a scene-owned particle or sparse surface map with explicit confidence
+accumulation, spatial binning, overlap merge/replacement, update resolution, and
+retirement policy.
+
 ### SDF Model
 
 Reusable signed-distance-field contracts, mesh snapshots, packed grids, sparse
@@ -358,7 +368,7 @@ responsibilities.
 | Visual strobe descriptors | In progress | Public full-field and passthrough-LUT strobe profile descriptors, display-frame frequency plans, 120 Hz constraints, and safety warnings added with a no-hardware example. |
 | Depth model | In progress | Depth readiness, frame summary, per-view metadata, infinite-far range, cadence, and readback-policy helpers added. |
 | SDF model | In progress | Packed SDF grid, sampling, bounds, triangle mesh snapshots, and data-only depth support/impact query contracts added. |
-| Particle and animation primitives | In progress | Minimal particle state, fixed-step clock, and render payload generation added. |
+| Particle and animation primitives | In progress | Minimal particle state, fixed-step clock, render payload generation, mesh-surface sampling, live hand-mesh sampler updates, same-surface neighbor tiers, and cross-surface neighbor links added. |
 | XR canvas and hand interaction | In progress | Public ray/canvas hit-test contracts, hand-menu anchors, activation modes, hand influence points, and normalized debug/test canvas primitives added. |
 | Sparse scan / TSDF contracts | In progress | Public sparse TSDF samples, snapshots, scan surface samples, and scan-fusion stats added. |
 | Room mesh and capture lifecycle | In progress | Public room mesh source state, semantic room mesh snapshots, and capture lifecycle/source metadata added. |
@@ -368,5 +378,5 @@ responsibilities.
 | Serialization and schemas | In progress | Opt-in `serde` features, round-trip tests, and custom schema export script added. |
 | Boundary scanner and provenance | In progress | Public scanner CLI/config and public utility provenance metadata added. |
 | Feature and adapter policy | `[x]` | Adapter feature names, separate-crate rule, and pre-adapter boundary requirements documented. |
-| Public examples | In progress | Synthetic layout, composite feedback, passthrough style catalog, audio-reactive passthrough style, and visual strobe profile examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming and an OSC listener diagnostics profile; broker APK proof added for localhost WebSocket, optional LSL forwarding, and OSC ingress/egress validation. |
+| Public examples | In progress | Synthetic layout, composite feedback, passthrough style catalog, audio-reactive passthrough style, and visual strobe profile examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming, an OSC listener diagnostics profile, environment-depth diagnostics, passthrough-backed depth mesh visualization, and retained local-space particle visualization; broker APK proof added for localhost WebSocket, optional LSL forwarding, and OSC ingress/egress validation; synthetic hand-mesh particle sampling example added. |
 | Optional adapters | `[ ]` | Deferred until contracts stabilize. |

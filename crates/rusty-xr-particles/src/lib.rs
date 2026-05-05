@@ -10,7 +10,8 @@
 use std::collections::{HashMap, HashSet};
 
 pub use rusty_xr_contracts::{
-    ColorRgba, RenderCoordinateSpace, RenderPayload, RenderPoint, RuntimeCounters, Vec3,
+    ColorRgba, HandMeshError, HandMeshSnapshot, Handedness, RenderCoordinateSpace, RenderPayload,
+    RenderPoint, RuntimeCounters, Vec3,
 };
 
 /// Crate version exposed for lightweight smoke checks.
@@ -227,6 +228,687 @@ pub fn render_particles_to_payload(
         .counters
         .push_count("particle_count", particles.len() as u64);
     payload
+}
+
+/// Triangle mesh that can be sampled into surface-locked particle coordinates.
+///
+/// This is intentionally framework-neutral: app shells can adapt native hand,
+/// controller, room, or scanned meshes into this shape without pulling engine
+/// code into the public crate.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TriangleMeshSurface {
+    pub vertices: Vec<Vec3>,
+    pub triangles: Vec<[usize; 3]>,
+}
+
+/// Errors when adapting public hand mesh snapshots into particle surfaces.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TriangleMeshSurfaceError {
+    InvalidHandMesh(HandMeshError),
+    IndexDoesNotFitUsize(u32),
+}
+
+impl TriangleMeshSurface {
+    pub fn new(vertices: Vec<Vec3>, triangles: Vec<[usize; 3]>) -> Self {
+        Self {
+            vertices,
+            triangles,
+        }
+    }
+
+    pub fn vertex_count(&self) -> usize {
+        self.vertices.len()
+    }
+
+    pub fn triangle_count(&self) -> usize {
+        self.triangles.len()
+    }
+
+    pub fn surface_area(&self) -> f32 {
+        self.triangles
+            .iter()
+            .filter_map(|triangle| triangle_area(self.vertices.as_slice(), *triangle))
+            .sum()
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.vertices.is_empty()
+            && !self.triangles.is_empty()
+            && self.vertices.iter().all(|vertex| vertex.is_finite())
+            && self
+                .triangles
+                .iter()
+                .all(|triangle| triangle.iter().all(|index| *index < self.vertices.len()))
+            && self.surface_area() > 1.0e-9
+    }
+
+    pub fn sample_even_points(&self, config: MeshSurfaceSampleConfig) -> MeshSurfaceSampleSet {
+        sample_mesh_surface_points(self, config)
+    }
+
+    pub fn from_hand_mesh_snapshot(
+        snapshot: &HandMeshSnapshot,
+    ) -> Result<Self, TriangleMeshSurfaceError> {
+        triangle_mesh_surface_from_hand_mesh_snapshot(snapshot)
+    }
+}
+
+/// Convert a framework-neutral hand mesh snapshot into the particle mesh surface
+/// used for sampling and live deformed-mesh updates.
+pub fn triangle_mesh_surface_from_hand_mesh_snapshot(
+    snapshot: &HandMeshSnapshot,
+) -> Result<TriangleMeshSurface, TriangleMeshSurfaceError> {
+    snapshot
+        .validate()
+        .map_err(TriangleMeshSurfaceError::InvalidHandMesh)?;
+
+    let mut triangles = Vec::with_capacity(snapshot.indices.len());
+    for triangle in snapshot.indices.iter().copied() {
+        let a = usize::try_from(triangle[0])
+            .map_err(|_| TriangleMeshSurfaceError::IndexDoesNotFitUsize(triangle[0]))?;
+        let b = usize::try_from(triangle[1])
+            .map_err(|_| TriangleMeshSurfaceError::IndexDoesNotFitUsize(triangle[1]))?;
+        let c = usize::try_from(triangle[2])
+            .map_err(|_| TriangleMeshSurfaceError::IndexDoesNotFitUsize(triangle[2]))?;
+        triangles.push([a, b, c]);
+    }
+
+    Ok(TriangleMeshSurface::new(
+        snapshot.vertices.clone(),
+        triangles,
+    ))
+}
+
+/// Stable topology identity for live hand-mesh particle anchors.
+///
+/// Runtime providers may update vertices every frame, but sampled coordinates
+/// can keep their triangle/barycentric anchors while the index topology stays
+/// stable. A changed key means the sampler should rebuild the coordinate set.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HandMeshTopologyKey {
+    pub handedness: Option<Handedness>,
+    pub vertex_count: usize,
+    pub triangle_count: usize,
+    pub index_hash: u64,
+}
+
+impl HandMeshTopologyKey {
+    pub fn from_snapshot(snapshot: &HandMeshSnapshot) -> Self {
+        Self {
+            handedness: snapshot.handedness,
+            vertex_count: snapshot.vertices.len(),
+            triangle_count: snapshot.indices.len(),
+            index_hash: hand_mesh_index_hash(&snapshot.indices),
+        }
+    }
+}
+
+/// Thin boundary for platform-specific hand-mesh providers.
+///
+/// Native adapters own OpenXR/Meta/engine calls and return public
+/// `HandMeshSnapshot` frames. This crate only owns sampling, anchor updates,
+/// neighbor lists, and particle payload conversion.
+pub trait HandMeshSnapshotProvider {
+    fn next_hand_mesh_snapshot(&mut self) -> Option<HandMeshSnapshot>;
+}
+
+/// Outcome of one live hand-mesh sampler update.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LiveHandMeshUpdateStatus {
+    NoSnapshot,
+    Initialized,
+    Updated,
+    ResampledTopology,
+    InvalidSnapshot,
+    InvalidSurface,
+}
+
+/// Summary returned after polling a live hand-mesh snapshot.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LiveHandMeshUpdate {
+    pub status: LiveHandMeshUpdateStatus,
+    pub snapshot_version: Option<u64>,
+    pub topology_key: Option<HandMeshTopologyKey>,
+    pub sample_count: usize,
+}
+
+/// Live particle sampler for deformed hand mesh snapshots.
+///
+/// The sampler spreads a stable coordinate set over the first valid topology
+/// it sees. On later frames with the same topology, it updates coordinates from
+/// the deformed vertex positions and preserves neighbor identity. If the
+/// topology key changes, it resamples and rebuilds neighbor tiers.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct LiveHandMeshParticleSampler {
+    pub config: MeshSurfaceSampleConfig,
+    pub coordinate_space: RenderCoordinateSpace,
+    pub particle_size_meters: f32,
+    pub particle_color: ColorRgba,
+    samples: MeshSurfaceSampleSet,
+    topology_key: Option<HandMeshTopologyKey>,
+}
+
+impl LiveHandMeshParticleSampler {
+    pub fn new(config: MeshSurfaceSampleConfig) -> Self {
+        Self {
+            config,
+            coordinate_space: RenderCoordinateSpace::World,
+            particle_size_meters: 0.006,
+            particle_color: ColorRgba::new(0.2, 0.8, 1.0, 1.0),
+            samples: MeshSurfaceSampleSet::default(),
+            topology_key: None,
+        }
+    }
+
+    pub fn with_render_style(
+        mut self,
+        coordinate_space: RenderCoordinateSpace,
+        particle_size_meters: f32,
+        particle_color: ColorRgba,
+    ) -> Self {
+        self.coordinate_space = coordinate_space;
+        self.particle_size_meters = particle_size_meters.max(0.0);
+        self.particle_color = particle_color;
+        self
+    }
+
+    pub fn samples(&self) -> &MeshSurfaceSampleSet {
+        &self.samples
+    }
+
+    pub fn topology_key(&self) -> Option<HandMeshTopologyKey> {
+        self.topology_key
+    }
+
+    pub fn update_from_provider<P: HandMeshSnapshotProvider + ?Sized>(
+        &mut self,
+        provider: &mut P,
+    ) -> LiveHandMeshUpdate {
+        let Some(snapshot) = provider.next_hand_mesh_snapshot() else {
+            return self.update_summary(LiveHandMeshUpdateStatus::NoSnapshot, None);
+        };
+        self.update_from_snapshot(&snapshot)
+    }
+
+    pub fn update_from_snapshot(&mut self, snapshot: &HandMeshSnapshot) -> LiveHandMeshUpdate {
+        let Ok(mesh) = triangle_mesh_surface_from_hand_mesh_snapshot(snapshot) else {
+            return self.update_summary(
+                LiveHandMeshUpdateStatus::InvalidSnapshot,
+                Some(snapshot.version),
+            );
+        };
+
+        let next_key = HandMeshTopologyKey::from_snapshot(snapshot);
+        if self.topology_key != Some(next_key) || self.samples.is_empty() {
+            let next_samples = mesh.sample_even_points(self.config);
+            if self.config.point_count > 0 && next_samples.is_empty() {
+                return self.update_summary(
+                    LiveHandMeshUpdateStatus::InvalidSurface,
+                    Some(snapshot.version),
+                );
+            }
+
+            let status = if self.topology_key.is_some() {
+                LiveHandMeshUpdateStatus::ResampledTopology
+            } else {
+                LiveHandMeshUpdateStatus::Initialized
+            };
+            self.samples = next_samples;
+            self.topology_key = Some(next_key);
+            return self.update_summary(status, Some(snapshot.version));
+        }
+
+        if !self.samples.update_positions_from_mesh(&mesh) {
+            return self.update_summary(
+                LiveHandMeshUpdateStatus::InvalidSurface,
+                Some(snapshot.version),
+            );
+        }
+
+        self.update_summary(LiveHandMeshUpdateStatus::Updated, Some(snapshot.version))
+    }
+
+    pub fn render_particles(&self) -> Vec<ParticleRender> {
+        self.samples
+            .render_particles(self.particle_size_meters, self.particle_color)
+    }
+
+    pub fn render_payload(&self, frame_index: u64) -> RenderPayload {
+        self.samples.render_payload(
+            frame_index,
+            self.coordinate_space,
+            self.particle_size_meters,
+            self.particle_color,
+        )
+    }
+
+    fn update_summary(
+        &self,
+        status: LiveHandMeshUpdateStatus,
+        snapshot_version: Option<u64>,
+    ) -> LiveHandMeshUpdate {
+        LiveHandMeshUpdate {
+            status,
+            snapshot_version,
+            topology_key: self.topology_key,
+            sample_count: self.samples.point_count(),
+        }
+    }
+}
+
+impl Default for LiveHandMeshParticleSampler {
+    fn default() -> Self {
+        Self::new(MeshSurfaceSampleConfig::default())
+    }
+}
+
+/// Configuration for deterministic mesh-surface coordinate sampling.
+///
+/// `point_count` is the exact requested output count when the mesh has valid
+/// area. Neighbor tiers are nearest-sample lists intended for local interaction
+/// passes; no oscillator or downstream simulation behavior is included here.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeshSurfaceSampleConfig {
+    pub point_count: usize,
+    pub first_tier_neighbor_count: usize,
+    pub second_tier_neighbor_count: usize,
+    pub seed: u64,
+}
+
+impl Default for MeshSurfaceSampleConfig {
+    fn default() -> Self {
+        Self {
+            point_count: 256,
+            first_tier_neighbor_count: 6,
+            second_tier_neighbor_count: 12,
+            seed: 11_337,
+        }
+    }
+}
+
+/// One sampled coordinate on a triangle mesh surface.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeshSurfaceSample {
+    pub position: Vec3,
+    pub normal: Vec3,
+    pub triangle_index: usize,
+    pub barycentric: [f32; 3],
+}
+
+impl MeshSurfaceSample {
+    pub fn is_valid(self) -> bool {
+        self.position.is_finite()
+            && self.normal.is_finite()
+            && self
+                .barycentric
+                .iter()
+                .all(|value| value.is_finite() && *value >= -1.0e-5 && *value <= 1.0 + 1.0e-5)
+            && (self.barycentric[0] + self.barycentric[1] + self.barycentric[2] - 1.0).abs()
+                <= 1.0e-4
+    }
+}
+
+/// Sampled mesh coordinates plus nearest-neighbor tiers for interaction passes.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MeshSurfaceSampleSet {
+    pub samples: Vec<MeshSurfaceSample>,
+    pub first_tier_neighbors: Vec<Vec<usize>>,
+    pub second_tier_neighbors: Vec<Vec<usize>>,
+}
+
+impl MeshSurfaceSampleSet {
+    pub fn len(&self) -> usize {
+        self.samples.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.samples.is_empty()
+    }
+
+    pub fn point_count(&self) -> usize {
+        self.samples.len()
+    }
+
+    pub fn positions(&self) -> Vec<Vec3> {
+        self.samples.iter().map(|sample| sample.position).collect()
+    }
+
+    /// Re-evaluate stable triangle/barycentric anchors against a deformed mesh.
+    ///
+    /// Use this when a runtime adapter can provide the same mesh topology with
+    /// updated vertex positions each frame. Sample identity and existing
+    /// neighbor lists are preserved; call `rebuild_neighbor_tiers` afterwards if
+    /// interactions need nearest neighbors in the current deformed pose.
+    pub fn update_positions_from_mesh(&mut self, mesh: &TriangleMeshSurface) -> bool {
+        let mut updates = Vec::with_capacity(self.samples.len());
+        for sample in &self.samples {
+            let Some((position, normal)) =
+                evaluate_surface_anchor(mesh, sample.triangle_index, sample.barycentric)
+            else {
+                return false;
+            };
+            updates.push((position, normal));
+        }
+
+        for (sample, (position, normal)) in self.samples.iter_mut().zip(updates) {
+            sample.position = position;
+            sample.normal = normal;
+        }
+        true
+    }
+
+    pub fn update_positions_from_hand_mesh_snapshot(
+        &mut self,
+        snapshot: &HandMeshSnapshot,
+    ) -> bool {
+        let Ok(mesh) = triangle_mesh_surface_from_hand_mesh_snapshot(snapshot) else {
+            return false;
+        };
+        self.update_positions_from_mesh(&mesh)
+    }
+
+    pub fn rebuild_neighbor_tiers(
+        &mut self,
+        first_tier_neighbor_count: usize,
+        second_tier_neighbor_count: usize,
+    ) {
+        let (first_tier_neighbors, second_tier_neighbors) = build_nearest_neighbor_tiers(
+            &self.positions(),
+            first_tier_neighbor_count,
+            second_tier_neighbor_count,
+        );
+        self.first_tier_neighbors = first_tier_neighbors;
+        self.second_tier_neighbors = second_tier_neighbors;
+    }
+
+    pub fn is_valid(&self) -> bool {
+        let count = self.samples.len();
+        self.samples.iter().all(|sample| sample.is_valid())
+            && self.first_tier_neighbors.len() == count
+            && self.second_tier_neighbors.len() == count
+            && self
+                .first_tier_neighbors
+                .iter()
+                .enumerate()
+                .all(|(origin, neighbors)| neighbor_list_is_valid(origin, count, neighbors))
+            && self
+                .second_tier_neighbors
+                .iter()
+                .enumerate()
+                .all(|(origin, neighbors)| neighbor_list_is_valid(origin, count, neighbors))
+    }
+
+    pub fn render_particles(&self, size_meters: f32, color: ColorRgba) -> Vec<ParticleRender> {
+        let mut particles = Vec::with_capacity(self.samples.len());
+        for sample in &self.samples {
+            let mut particle = ParticleRender::new(sample.position, size_meters.max(0.0), color);
+            particle.normal = sample.normal;
+            particle.aux0 = sample.triangle_index as f32;
+            particle.aux1 = self
+                .first_tier_neighbors
+                .get(particles.len())
+                .map_or(0.0, |neighbors| neighbors.len() as f32);
+            particles.push(particle);
+        }
+        particles
+    }
+
+    pub fn render_payload(
+        &self,
+        frame_index: u64,
+        coordinate_space: RenderCoordinateSpace,
+        size_meters: f32,
+        color: ColorRgba,
+    ) -> RenderPayload {
+        render_particles_to_payload(
+            frame_index,
+            coordinate_space,
+            &self.render_particles(size_meters, color),
+        )
+    }
+
+    pub fn cross_neighborhood_with(
+        &self,
+        other: &Self,
+        config: MeshSurfaceCrossNeighborConfig,
+    ) -> MeshSurfaceCrossNeighborhood {
+        build_mesh_surface_cross_neighborhood(&self.positions(), &other.positions(), config)
+    }
+}
+
+/// Configuration for nearest-neighbor links between two sampled surfaces.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeshSurfaceCrossNeighborConfig {
+    pub neighbors_per_point: usize,
+    /// Positive values limit links by distance. `0.0` disables the distance gate.
+    pub max_distance_meters: f32,
+}
+
+impl Default for MeshSurfaceCrossNeighborConfig {
+    fn default() -> Self {
+        Self {
+            neighbors_per_point: 1,
+            max_distance_meters: 0.0,
+        }
+    }
+}
+
+/// Bidirectional nearest-neighbor links between two coordinate sets.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MeshSurfaceCrossNeighborhood {
+    pub a_to_b_neighbors: Vec<Vec<usize>>,
+    pub b_to_a_neighbors: Vec<Vec<usize>>,
+}
+
+impl MeshSurfaceCrossNeighborhood {
+    pub fn is_valid(&self, a_count: usize, b_count: usize) -> bool {
+        self.a_to_b_neighbors.len() == a_count
+            && self.b_to_a_neighbors.len() == b_count
+            && self
+                .a_to_b_neighbors
+                .iter()
+                .all(|neighbors| neighbor_targets_are_valid(b_count, neighbors))
+            && self
+                .b_to_a_neighbors
+                .iter()
+                .all(|neighbors| neighbor_targets_are_valid(a_count, neighbors))
+    }
+}
+
+/// Build a deterministic, roughly even set of coordinates over a mesh surface.
+///
+/// The sampler uses triangle-area stratification plus low-discrepancy
+/// barycentric placement. It gives stable, visually even coverage for small and
+/// medium public examples; it is not a strict blue-noise optimizer.
+pub fn sample_mesh_surface_points(
+    mesh: &TriangleMeshSurface,
+    config: MeshSurfaceSampleConfig,
+) -> MeshSurfaceSampleSet {
+    if config.point_count == 0 {
+        return MeshSurfaceSampleSet::default();
+    }
+
+    let triangles = mesh_surface_triangle_records(mesh);
+    if triangles.is_empty() {
+        return MeshSurfaceSampleSet::default();
+    }
+
+    let total_area = triangles
+        .last()
+        .map_or(0.0, |triangle| triangle.cumulative_area);
+    if !total_area.is_finite() || total_area <= 1.0e-9 {
+        return MeshSurfaceSampleSet::default();
+    }
+
+    let mut per_triangle_counts = vec![0_usize; mesh.triangles.len()];
+    let mut samples = Vec::with_capacity(config.point_count);
+    for sample_index in 0..config.point_count {
+        let area_target = stratified_area_target(sample_index, config.point_count, total_area);
+        let record_index = select_surface_triangle(&triangles, area_target);
+        let record = triangles[record_index];
+        let local_index = per_triangle_counts[record.triangle_index];
+        per_triangle_counts[record.triangle_index] += 1;
+
+        let barycentric = sample_barycentric(local_index, config.seed, record.triangle_index);
+        let [a, b, c] = record.indices;
+        let position = (mesh.vertices[a] * barycentric[0])
+            + (mesh.vertices[b] * barycentric[1])
+            + (mesh.vertices[c] * barycentric[2]);
+        samples.push(MeshSurfaceSample {
+            position,
+            normal: record.normal,
+            triangle_index: record.triangle_index,
+            barycentric,
+        });
+    }
+
+    let positions: Vec<_> = samples.iter().map(|sample| sample.position).collect();
+    let (first_tier_neighbors, second_tier_neighbors) = build_nearest_neighbor_tiers(
+        &positions,
+        config.first_tier_neighbor_count,
+        config.second_tier_neighbor_count,
+    );
+
+    MeshSurfaceSampleSet {
+        samples,
+        first_tier_neighbors,
+        second_tier_neighbors,
+    }
+}
+
+/// Build nearest-neighbor links between two mesh-surface coordinate sets.
+pub fn build_mesh_surface_cross_neighborhood(
+    a_positions: &[Vec3],
+    b_positions: &[Vec3],
+    config: MeshSurfaceCrossNeighborConfig,
+) -> MeshSurfaceCrossNeighborhood {
+    let max_distance_squared =
+        if config.max_distance_meters.is_finite() && config.max_distance_meters > 0.0 {
+            let max_distance = config.max_distance_meters.max(0.0);
+            max_distance * max_distance
+        } else {
+            f32::INFINITY
+        };
+
+    MeshSurfaceCrossNeighborhood {
+        a_to_b_neighbors: build_cross_neighbor_lists(
+            a_positions,
+            b_positions,
+            config.neighbors_per_point,
+            max_distance_squared,
+        ),
+        b_to_a_neighbors: build_cross_neighbor_lists(
+            b_positions,
+            a_positions,
+            config.neighbors_per_point,
+            max_distance_squared,
+        ),
+    }
+}
+
+/// Dimensions for a simple procedural hand-like mesh used in public examples.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SyntheticHandMeshConfig {
+    pub palm_width_meters: f32,
+    pub palm_height_meters: f32,
+    pub palm_thickness_meters: f32,
+    pub finger_width_meters: f32,
+    pub finger_spacing_meters: f32,
+    pub finger_thickness_meters: f32,
+    pub finger_lengths_meters: [f32; 5],
+    pub thumb_angle_degrees: f32,
+}
+
+impl Default for SyntheticHandMeshConfig {
+    fn default() -> Self {
+        Self {
+            palm_width_meters: 0.085,
+            palm_height_meters: 0.095,
+            palm_thickness_meters: 0.018,
+            finger_width_meters: 0.014,
+            finger_spacing_meters: 0.004,
+            finger_thickness_meters: 0.014,
+            finger_lengths_meters: [0.052, 0.070, 0.080, 0.072, 0.056],
+            thumb_angle_degrees: -42.0,
+        }
+    }
+}
+
+/// Build a synthetic open-hand mesh for examples and tests.
+///
+/// The mesh is deliberately procedural and approximate. It demonstrates how a
+/// native hand-mesh adapter can feed the sampler without embedding platform or
+/// app-specific hand tracking code in this crate.
+pub fn build_synthetic_hand_mesh(config: SyntheticHandMeshConfig) -> TriangleMeshSurface {
+    let palm_width = config.palm_width_meters.max(0.001);
+    let palm_height = config.palm_height_meters.max(0.001);
+    let palm_thickness = config.palm_thickness_meters.max(0.001);
+    let finger_width = config.finger_width_meters.max(0.001);
+    let finger_spacing = config.finger_spacing_meters.max(0.0);
+    let finger_thickness = config.finger_thickness_meters.max(0.001);
+
+    let mut mesh = TriangleMeshSurface::default();
+    append_oriented_box(
+        &mut mesh,
+        Vec3::ZERO,
+        Vec3::new(palm_width * 0.5, palm_height * 0.5, palm_thickness * 0.5),
+        0.0,
+    );
+
+    let upright_lengths = [
+        config.finger_lengths_meters[1].max(0.001),
+        config.finger_lengths_meters[2].max(0.001),
+        config.finger_lengths_meters[3].max(0.001),
+        config.finger_lengths_meters[4].max(0.001),
+    ];
+    let total_finger_width = (finger_width * 4.0) + (finger_spacing * 3.0);
+    let first_finger_x = -0.5 * total_finger_width + (finger_width * 0.5);
+    let palm_top_y = palm_height * 0.5;
+    for (index, length) in upright_lengths.iter().copied().enumerate() {
+        let center = Vec3::new(
+            first_finger_x + (index as f32 * (finger_width + finger_spacing)),
+            palm_top_y + (length * 0.5),
+            0.0,
+        );
+        append_oriented_box(
+            &mut mesh,
+            center,
+            Vec3::new(finger_width * 0.5, length * 0.5, finger_thickness * 0.5),
+            0.0,
+        );
+    }
+
+    let thumb_length = config.finger_lengths_meters[0].max(0.001);
+    let thumb_angle = config.thumb_angle_degrees.to_radians();
+    let thumb_center = Vec3::new(
+        -0.5 * palm_width - (0.32 * thumb_length),
+        -0.12 * palm_height + (0.20 * thumb_length),
+        0.0,
+    );
+    append_oriented_box(
+        &mut mesh,
+        thumb_center,
+        Vec3::new(
+            finger_width * 0.55,
+            thumb_length * 0.5,
+            finger_thickness * 0.5,
+        ),
+        thumb_angle,
+    );
+
+    mesh
 }
 
 /// Backend-neutral triangle fan geometry for circular particle billboards.
@@ -1204,6 +1886,296 @@ impl FixedStepClock {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct SurfaceTriangleRecord {
+    indices: [usize; 3],
+    triangle_index: usize,
+    normal: Vec3,
+    cumulative_area: f32,
+}
+
+fn triangle_area(vertices: &[Vec3], triangle: [usize; 3]) -> Option<f32> {
+    let [a, b, c] = triangle;
+    if a >= vertices.len() || b >= vertices.len() || c >= vertices.len() {
+        return None;
+    }
+
+    let area = (vertices[b] - vertices[a])
+        .cross(vertices[c] - vertices[a])
+        .length()
+        * 0.5;
+    if area.is_finite() && area > 1.0e-9 {
+        Some(area)
+    } else {
+        None
+    }
+}
+
+fn mesh_surface_triangle_records(mesh: &TriangleMeshSurface) -> Vec<SurfaceTriangleRecord> {
+    let mut records = Vec::new();
+    let mut cumulative_area = 0.0_f32;
+    for (triangle_index, indices) in mesh.triangles.iter().copied().enumerate() {
+        let Some(area) = triangle_area(mesh.vertices.as_slice(), indices) else {
+            continue;
+        };
+
+        let [a, b, c] = indices;
+        if !mesh.vertices[a].is_finite()
+            || !mesh.vertices[b].is_finite()
+            || !mesh.vertices[c].is_finite()
+        {
+            continue;
+        }
+
+        let normal = (mesh.vertices[b] - mesh.vertices[a])
+            .cross(mesh.vertices[c] - mesh.vertices[a])
+            .normalized_or(Vec3::UP);
+        cumulative_area += area;
+        records.push(SurfaceTriangleRecord {
+            indices,
+            triangle_index,
+            normal,
+            cumulative_area,
+        });
+    }
+    records
+}
+
+fn evaluate_surface_anchor(
+    mesh: &TriangleMeshSurface,
+    triangle_index: usize,
+    barycentric: [f32; 3],
+) -> Option<(Vec3, Vec3)> {
+    if !barycentric.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+    let indices = *mesh.triangles.get(triangle_index)?;
+    let [a, b, c] = indices;
+    if a >= mesh.vertices.len() || b >= mesh.vertices.len() || c >= mesh.vertices.len() {
+        return None;
+    }
+
+    let v0 = mesh.vertices[a];
+    let v1 = mesh.vertices[b];
+    let v2 = mesh.vertices[c];
+    if !v0.is_finite() || !v1.is_finite() || !v2.is_finite() {
+        return None;
+    }
+
+    let normal = (v1 - v0).cross(v2 - v0).normalized_or(Vec3::ZERO);
+    if normal == Vec3::ZERO {
+        return None;
+    }
+
+    Some((
+        (v0 * barycentric[0]) + (v1 * barycentric[1]) + (v2 * barycentric[2]),
+        normal,
+    ))
+}
+
+fn stratified_area_target(sample_index: usize, point_count: usize, total_area: f32) -> f32 {
+    let unit = (sample_index as f32 + 0.5) / point_count.max(1) as f32;
+    (unit * total_area).min(total_area)
+}
+
+fn select_surface_triangle(records: &[SurfaceTriangleRecord], area_target: f32) -> usize {
+    let mut low = 0_usize;
+    let mut high = records.len();
+    while low < high {
+        let mid = low + ((high - low) / 2);
+        if area_target <= records[mid].cumulative_area {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+    low.min(records.len().saturating_sub(1))
+}
+
+fn sample_barycentric(local_index: usize, seed: u64, triangle_index: usize) -> [f32; 3] {
+    let u = quasirandom01(local_index, seed, triangle_index, 0);
+    let v = quasirandom01(local_index, seed, triangle_index, 1);
+    let sqrt_u = u.sqrt();
+    [1.0 - sqrt_u, sqrt_u * (1.0 - v), sqrt_u * v]
+}
+
+fn quasirandom01(local_index: usize, seed: u64, triangle_index: usize, axis: u32) -> f32 {
+    let seed_mix = (seed as u32)
+        ^ ((seed >> 32) as u32)
+        ^ (triangle_index as u32).wrapping_mul(0x9E37_79B9)
+        ^ axis.wrapping_mul(0x85EB_CA6B);
+    let offset = hash01(seed_mix);
+    let step = if axis == 0 { 0.618_034 } else { 0.754_877_7 };
+    ((local_index as f32 + 0.5) * step + offset)
+        .fract()
+        .clamp(1.0e-6, 0.999_999)
+}
+
+fn build_nearest_neighbor_tiers(
+    positions: &[Vec3],
+    first_tier_count: usize,
+    second_tier_count: usize,
+) -> (Vec<Vec<usize>>, Vec<Vec<usize>>) {
+    let point_count = positions.len();
+    if point_count == 0 {
+        return (Vec::new(), Vec::new());
+    }
+
+    let first_tier_count = first_tier_count.min(point_count.saturating_sub(1));
+    let second_tier_count = second_tier_count.min(
+        point_count
+            .saturating_sub(1)
+            .saturating_sub(first_tier_count),
+    );
+    let mut first_tier = Vec::with_capacity(point_count);
+    let mut second_tier = Vec::with_capacity(point_count);
+
+    for origin in 0..point_count {
+        let mut distances = Vec::with_capacity(point_count.saturating_sub(1));
+        for candidate in 0..point_count {
+            if candidate == origin {
+                continue;
+            }
+            let distance = (positions[origin] - positions[candidate]).length_squared();
+            let distance = if distance.is_finite() {
+                distance
+            } else {
+                f32::INFINITY
+            };
+            distances.push((distance, candidate));
+        }
+        distances.sort_by(|left, right| left.0.total_cmp(&right.0).then(left.1.cmp(&right.1)));
+
+        first_tier.push(
+            distances
+                .iter()
+                .take(first_tier_count)
+                .map(|(_, index)| *index)
+                .collect(),
+        );
+        second_tier.push(
+            distances
+                .iter()
+                .skip(first_tier_count)
+                .take(second_tier_count)
+                .map(|(_, index)| *index)
+                .collect(),
+        );
+    }
+
+    (first_tier, second_tier)
+}
+
+fn build_cross_neighbor_lists(
+    source_positions: &[Vec3],
+    target_positions: &[Vec3],
+    neighbors_per_point: usize,
+    max_distance_squared: f32,
+) -> Vec<Vec<usize>> {
+    if source_positions.is_empty() {
+        return Vec::new();
+    }
+    if target_positions.is_empty() || neighbors_per_point == 0 {
+        return vec![Vec::new(); source_positions.len()];
+    }
+
+    let mut all_neighbors = Vec::with_capacity(source_positions.len());
+    for source in source_positions {
+        let mut distances = Vec::with_capacity(target_positions.len());
+        for (target_index, target) in target_positions.iter().copied().enumerate() {
+            let distance = (*source - target).length_squared();
+            if distance.is_finite() && distance <= max_distance_squared {
+                distances.push((distance, target_index));
+            }
+        }
+        distances.sort_by(|left, right| left.0.total_cmp(&right.0).then(left.1.cmp(&right.1)));
+        all_neighbors.push(
+            distances
+                .iter()
+                .take(neighbors_per_point)
+                .map(|(_, index)| *index)
+                .collect(),
+        );
+    }
+
+    all_neighbors
+}
+
+fn neighbor_list_is_valid(origin: usize, count: usize, neighbors: &[usize]) -> bool {
+    let mut seen = HashSet::<usize>::new();
+    neighbors
+        .iter()
+        .all(|neighbor| *neighbor < count && *neighbor != origin && seen.insert(*neighbor))
+}
+
+fn neighbor_targets_are_valid(count: usize, neighbors: &[usize]) -> bool {
+    let mut seen = HashSet::<usize>::new();
+    neighbors
+        .iter()
+        .all(|neighbor| *neighbor < count && seen.insert(*neighbor))
+}
+
+fn hand_mesh_index_hash(indices: &[[u32; 3]]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for triangle in indices {
+        for index in triangle {
+            for byte in index.to_le_bytes() {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+    }
+    hash
+}
+
+fn append_oriented_box(
+    mesh: &mut TriangleMeshSurface,
+    center: Vec3,
+    half_extents: Vec3,
+    z_rotation_radians: f32,
+) {
+    let base = mesh.vertices.len();
+    let local_corners = [
+        Vec3::new(-half_extents.x, -half_extents.y, -half_extents.z),
+        Vec3::new(half_extents.x, -half_extents.y, -half_extents.z),
+        Vec3::new(half_extents.x, half_extents.y, -half_extents.z),
+        Vec3::new(-half_extents.x, half_extents.y, -half_extents.z),
+        Vec3::new(-half_extents.x, -half_extents.y, half_extents.z),
+        Vec3::new(half_extents.x, -half_extents.y, half_extents.z),
+        Vec3::new(half_extents.x, half_extents.y, half_extents.z),
+        Vec3::new(-half_extents.x, half_extents.y, half_extents.z),
+    ];
+    let (sin, cos) = z_rotation_radians.sin_cos();
+    for corner in local_corners {
+        let rotated = Vec3::new(
+            (corner.x * cos) - (corner.y * sin),
+            (corner.x * sin) + (corner.y * cos),
+            corner.z,
+        );
+        mesh.vertices.push(center + rotated);
+    }
+
+    const BOX_TRIANGLES: [[usize; 3]; 12] = [
+        [0, 2, 1],
+        [0, 3, 2],
+        [4, 5, 6],
+        [4, 6, 7],
+        [0, 1, 5],
+        [0, 5, 4],
+        [3, 6, 2],
+        [3, 7, 6],
+        [0, 4, 7],
+        [0, 7, 3],
+        [1, 2, 6],
+        [1, 6, 5],
+    ];
+    mesh.triangles.extend(
+        BOX_TRIANGLES
+            .iter()
+            .map(|triangle| [base + triangle[0], base + triangle[1], base + triangle[2]]),
+    );
+}
+
 fn hash01(value: u32) -> f32 {
     let mut x = value;
     x ^= x >> 16;
@@ -1460,6 +2432,358 @@ mod tests {
     }
 
     #[test]
+    fn mesh_surface_sampler_returns_exact_count_and_neighbors() {
+        let mesh = TriangleMeshSurface::new(
+            vec![
+                Vec3::new(-1.0, -1.0, 0.0),
+                Vec3::new(1.0, -1.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::new(-1.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2], [0, 2, 3]],
+        );
+
+        let samples = mesh.sample_even_points(MeshSurfaceSampleConfig {
+            point_count: 16,
+            first_tier_neighbor_count: 3,
+            second_tier_neighbor_count: 4,
+            seed: 19,
+        });
+
+        assert_eq!(samples.point_count(), 16);
+        assert!(samples.is_valid());
+        assert!(samples
+            .samples
+            .iter()
+            .all(|sample| sample.position.z.abs() < 1.0e-6));
+        assert!(samples
+            .first_tier_neighbors
+            .iter()
+            .all(|neighbors| neighbors.len() == 3));
+        assert!(samples
+            .second_tier_neighbors
+            .iter()
+            .all(|neighbors| neighbors.len() == 4));
+    }
+
+    #[test]
+    fn mesh_surface_sampler_is_deterministic() {
+        let mesh = TriangleMeshSurface::new(
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        let config = MeshSurfaceSampleConfig {
+            point_count: 8,
+            first_tier_neighbor_count: 2,
+            second_tier_neighbor_count: 2,
+            seed: 77,
+        };
+
+        let first = sample_mesh_surface_points(&mesh, config);
+        let second = sample_mesh_surface_points(&mesh, config);
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn mesh_surface_samples_update_from_deformed_mesh() {
+        let mesh = TriangleMeshSurface::new(
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        let mut samples = mesh.sample_even_points(MeshSurfaceSampleConfig {
+            point_count: 8,
+            first_tier_neighbor_count: 2,
+            second_tier_neighbor_count: 2,
+            seed: 17,
+        });
+        let before = samples.positions();
+        let offset = Vec3::new(0.5, -0.25, 1.25);
+        let deformed = TriangleMeshSurface::new(
+            mesh.vertices
+                .iter()
+                .copied()
+                .map(|vertex| vertex + offset)
+                .collect(),
+            mesh.triangles.clone(),
+        );
+
+        assert!(samples.update_positions_from_mesh(&deformed));
+        for (old_position, sample) in before.iter().copied().zip(samples.samples.iter()) {
+            let expected = old_position + offset;
+            assert!((sample.position - expected).length() < 1.0e-5);
+            assert_eq!(sample.normal, Vec3::FORWARD_NEG_Z * -1.0);
+        }
+    }
+
+    #[test]
+    fn mesh_surface_sample_update_rejects_changed_topology() {
+        let mesh = TriangleMeshSurface::new(
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        let mut samples = mesh.sample_even_points(MeshSurfaceSampleConfig {
+            point_count: 4,
+            ..MeshSurfaceSampleConfig::default()
+        });
+        let before = samples.clone();
+        let changed_topology = TriangleMeshSurface::new(mesh.vertices.clone(), Vec::new());
+
+        assert!(!samples.update_positions_from_mesh(&changed_topology));
+        assert_eq!(samples, before);
+    }
+
+    #[test]
+    fn hand_mesh_snapshot_converts_to_sample_surface() {
+        let snapshot = HandMeshSnapshot::new(
+            7,
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+
+        let mesh = triangle_mesh_surface_from_hand_mesh_snapshot(&snapshot)
+            .expect("valid snapshot should convert");
+        let samples = mesh.sample_even_points(MeshSurfaceSampleConfig {
+            point_count: 5,
+            first_tier_neighbor_count: 2,
+            second_tier_neighbor_count: 1,
+            seed: 31,
+        });
+
+        assert_eq!(mesh.triangle_count(), 1);
+        assert_eq!(samples.point_count(), 5);
+        assert!(samples.is_valid());
+    }
+
+    #[test]
+    fn hand_mesh_snapshot_updates_live_samples() {
+        let initial = HandMeshSnapshot::new(
+            1,
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        let mesh = TriangleMeshSurface::from_hand_mesh_snapshot(&initial)
+            .expect("valid snapshot should convert");
+        let mut samples = mesh.sample_even_points(MeshSurfaceSampleConfig {
+            point_count: 5,
+            ..MeshSurfaceSampleConfig::default()
+        });
+        let before = samples.positions();
+        let offset = Vec3::new(0.2, 0.3, 0.4);
+        let deformed = HandMeshSnapshot::new(
+            2,
+            initial
+                .vertices
+                .iter()
+                .copied()
+                .map(|vertex| vertex + offset)
+                .collect(),
+            initial.indices.clone(),
+        );
+
+        assert!(samples.update_positions_from_hand_mesh_snapshot(&deformed));
+        for (old_position, sample) in before.iter().copied().zip(samples.samples.iter()) {
+            assert!((sample.position - (old_position + offset)).length() < 1.0e-5);
+        }
+    }
+
+    #[test]
+    fn live_hand_mesh_sampler_updates_from_provider_frames() {
+        struct SequenceProvider {
+            snapshots: Vec<HandMeshSnapshot>,
+            cursor: usize,
+        }
+
+        impl HandMeshSnapshotProvider for SequenceProvider {
+            fn next_hand_mesh_snapshot(&mut self) -> Option<HandMeshSnapshot> {
+                let snapshot = self.snapshots.get(self.cursor).cloned();
+                self.cursor += usize::from(snapshot.is_some());
+                snapshot
+            }
+        }
+
+        let initial = HandMeshSnapshot::new(
+            10,
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        )
+        .with_handedness(Handedness::Left);
+        let offset = Vec3::new(0.1, 0.2, 0.3);
+        let deformed = HandMeshSnapshot::new(
+            11,
+            initial
+                .vertices
+                .iter()
+                .copied()
+                .map(|vertex| vertex + offset)
+                .collect(),
+            initial.indices.clone(),
+        )
+        .with_handedness(Handedness::Left);
+        let mut provider = SequenceProvider {
+            snapshots: vec![initial, deformed],
+            cursor: 0,
+        };
+        let mut sampler = LiveHandMeshParticleSampler::new(MeshSurfaceSampleConfig {
+            point_count: 6,
+            first_tier_neighbor_count: 2,
+            second_tier_neighbor_count: 2,
+            seed: 99,
+        })
+        .with_render_style(
+            RenderCoordinateSpace::World,
+            0.01,
+            ColorRgba::new(0.1, 0.7, 1.0, 1.0),
+        );
+
+        let first = sampler.update_from_provider(&mut provider);
+        let first_positions = sampler.samples().positions();
+        let topology_key = first.topology_key;
+
+        assert_eq!(first.status, LiveHandMeshUpdateStatus::Initialized);
+        assert_eq!(first.snapshot_version, Some(10));
+        assert_eq!(first.sample_count, 6);
+        assert_eq!(topology_key, sampler.topology_key());
+
+        let second = sampler.update_from_provider(&mut provider);
+        assert_eq!(second.status, LiveHandMeshUpdateStatus::Updated);
+        assert_eq!(second.snapshot_version, Some(11));
+        assert_eq!(second.topology_key, topology_key);
+        for (old_position, sample) in first_positions
+            .iter()
+            .copied()
+            .zip(sampler.samples().samples.iter())
+        {
+            assert!((sample.position - (old_position + offset)).length() < 1.0e-5);
+        }
+
+        let payload = sampler.render_payload(12);
+        assert_eq!(payload.points.len(), 6);
+        assert!(payload.is_valid());
+
+        let third = sampler.update_from_provider(&mut provider);
+        assert_eq!(third.status, LiveHandMeshUpdateStatus::NoSnapshot);
+        assert_eq!(third.sample_count, 6);
+    }
+
+    #[test]
+    fn live_hand_mesh_sampler_resamples_when_topology_changes() {
+        let initial = HandMeshSnapshot::new(
+            1,
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        let changed_topology = HandMeshSnapshot::new(
+            2,
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2], [0, 2, 3]],
+        );
+        let mut sampler = LiveHandMeshParticleSampler::new(MeshSurfaceSampleConfig {
+            point_count: 8,
+            first_tier_neighbor_count: 2,
+            second_tier_neighbor_count: 3,
+            seed: 7,
+        });
+
+        let first = sampler.update_from_snapshot(&initial);
+        let first_key = sampler.topology_key();
+        let second = sampler.update_from_snapshot(&changed_topology);
+
+        assert_eq!(first.status, LiveHandMeshUpdateStatus::Initialized);
+        assert_eq!(second.status, LiveHandMeshUpdateStatus::ResampledTopology);
+        assert_ne!(sampler.topology_key(), first_key);
+        assert_eq!(sampler.samples().point_count(), 8);
+        assert!(sampler.samples().is_valid());
+    }
+
+    #[test]
+    fn synthetic_hand_mesh_samples_convert_to_render_payload() {
+        let mesh = build_synthetic_hand_mesh(SyntheticHandMeshConfig::default());
+        assert!(mesh.is_valid());
+        assert_eq!(mesh.vertex_count(), 48);
+        assert_eq!(mesh.triangle_count(), 72);
+
+        let samples = mesh.sample_even_points(MeshSurfaceSampleConfig {
+            point_count: 64,
+            first_tier_neighbor_count: 5,
+            second_tier_neighbor_count: 7,
+            seed: 5,
+        });
+        let particles = samples.render_particles(0.006, ColorRgba::new(0.2, 0.8, 1.0, 1.0));
+        let payload = samples.render_payload(
+            12,
+            RenderCoordinateSpace::World,
+            0.006,
+            ColorRgba::new(0.2, 0.8, 1.0, 1.0),
+        );
+
+        assert!(samples.is_valid());
+        assert_eq!(particles.len(), 64);
+        assert_eq!(payload.points.len(), 64);
+        assert!(payload.is_valid());
+    }
+
+    #[test]
+    fn cross_surface_neighborhood_links_two_coordinate_sets() {
+        let a_positions = [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+        ];
+        let b_positions = [
+            Vec3::new(0.1, 0.0, 0.0),
+            Vec3::new(1.2, 0.0, 0.0),
+            Vec3::new(4.0, 0.0, 0.0),
+        ];
+
+        let cross = build_mesh_surface_cross_neighborhood(
+            &a_positions,
+            &b_positions,
+            MeshSurfaceCrossNeighborConfig {
+                neighbors_per_point: 1,
+                max_distance_meters: 0.35,
+            },
+        );
+
+        assert!(cross.is_valid(a_positions.len(), b_positions.len()));
+        assert_eq!(cross.a_to_b_neighbors, vec![vec![0], vec![1], Vec::new()]);
+        assert_eq!(cross.b_to_a_neighbors, vec![vec![0], vec![1], Vec::new()]);
+    }
+
+    #[test]
     fn particle_disc_mesh_builds_triangle_fan() {
         let mesh = build_particle_disc_mesh(ParticleDiscMeshConfig::default());
 
@@ -1658,5 +2982,23 @@ mod tests {
             serde_json::from_str(&encoded).expect("particles should deserialize");
 
         assert_eq!(decoded, particles);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn mesh_surface_samples_round_trip_with_serde() {
+        let mesh = build_synthetic_hand_mesh(SyntheticHandMeshConfig::default());
+        let samples = mesh.sample_even_points(MeshSurfaceSampleConfig {
+            point_count: 12,
+            first_tier_neighbor_count: 3,
+            second_tier_neighbor_count: 2,
+            seed: 91,
+        });
+
+        let encoded = serde_json::to_string(&samples).expect("samples should serialize");
+        let decoded: MeshSurfaceSampleSet =
+            serde_json::from_str(&encoded).expect("samples should deserialize");
+
+        assert_eq!(decoded, samples);
     }
 }

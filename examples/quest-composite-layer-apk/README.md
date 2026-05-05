@@ -142,6 +142,38 @@ The example names the camera path explicitly:
   current stereo depth texture in headset as a per-eye grayscale diagnostic,
   with the same rotate/flip UV transform semantics used by the camera
   projection shader.
+- `environment-depth-mesh-overlay`: uses the same provider path but renders a
+  transparent generated depth-grid surface over the submitted native
+  passthrough underlay. The mesh path samples the stereo environment-depth
+  texture in the vertex shader, reconstructs local-space points from the depth
+  image pose, and projects those points through the current render-eye pose
+  instead of rasterizing a fullscreen screen overlay. The wire pattern is
+  computed from reconstructed depth positions, not from screen UVs. It uses a
+  single dominant surface grid per fragment and colors mesh distance from the
+  metric environment-depth sample with a ramp clamped at about 3 meters, while
+  still marking local depth discontinuities so mesh stability can be inspected
+  before CPU or TSDF chunk integration. The direct depth-swapchain visualizer
+  intentionally draws only the current acquired image; persistent history needs
+  owned depth copies or TSDF chunks rather than reused runtime swapchain images.
+- `environment-depth-particle-overlay`: reconstructs accepted depth samples
+  into the OpenXR local reference space, retains them in a GPU buffer, and
+  renders them as metric billboards over the submitted passthrough underlay.
+  The current implementation is a diagnostic bridge rather than a final scene
+  map: the retained samples are still sourced from a regular view-sampled grid,
+  so headset motion can make the visible sample lattice feel view-attached even
+  though the samples are written in local scene coordinates. The follow-up is a
+  scene-owned particle or sparse surface map with explicit confidence,
+  merge/replace, cell-resolution, and retirement policies. See
+  [environment depth particle anchoring](../../docs/ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md).
+- `synthetic-hand-mesh-particles`: keeps camera and environment depth off,
+  generates two procedural hand meshes, feeds them through
+  `LiveHandMeshParticleSampler`, and renders the resulting coordinate set as
+  stereo Vulkan billboards over the native passthrough underlay. This is the
+  VR smoke test for the hand-mesh particle path before adding a live runtime
+  hand-mesh provider.
+- `passthrough-only-layer-probe`: submits the native passthrough composition
+  layer without the OpenXR projection layer. Use it to isolate compositor
+  passthrough visibility from projection-layer alpha and overlay rendering.
 - `camera-stereo-gpu-composite`: Tier 2 stereo projection profile. It opens
   paired left/right Camera2 `PRIVATE` streams when available, imports both
   hardware buffers, scales per-eye intrinsics into the delivered image domain,
@@ -337,6 +369,10 @@ Useful launch extras:
 - `rustyxr.depthHandRemoval`: `false` by default. When supported by the
   runtime, this requests environment-depth hand removal before provider start
   and logs whether the setting was supported and applied.
+- `rustyxr.handParticles`: `off` by default. `synthetic` enables the Rusty XR
+  hand-mesh particle VR smoke test without requiring camera or environment-depth
+  acquisition. A future native provider can feed the same sampler with live
+  runtime hand-mesh snapshots.
 
 Camera delivery cadence and render cadence are separate. The GPU path can
 request an AE target range for the Camera2 producer, while the OpenXR renderer
@@ -689,6 +725,15 @@ was explicit.
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- catalog verify --path .\examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json --app rusty-xr-quest-composite-layer --serial <serial> --stop-catalog-apps --install --launch --device-profile xr-composite-smoke-test --runtime-profile environment-depth-diagnostics --settle-ms 9000 --logcat-lines 1400 --out .\artifacts\verify
 ```
 
+Use `environment-depth-mesh-overlay` with the same command shape to render the
+transparent generated depth-grid surface over passthrough and check logcat for
+`Rusty XR environment depth mesh overlay draw`. The profile submits
+`openxrPassthroughProbe=underlay`; use `passthrough-only-layer-probe` to launch
+the native passthrough layer with `rustyxr.projectionLayerVisible=false` when
+isolating passthrough from projection-layer rendering. ADB screenshots may still
+show protected compositor passthrough as black even when it is visible in the
+headset.
+
 For Windows screen-stream validation, start a Windows media receiver and
 reverse the TCP port before launching with MediaProjection enabled:
 
@@ -750,6 +795,28 @@ harnesses should treat this as a required manual step.
   `confidencePayload` fields. The visual profile also logs
   `Rusty XR environment depth visualizer draw` and displays the left/right
   runtime depth array layers as per-eye grayscale.
+- with `environment-depth-mesh-overlay`, logcat contains
+  `Rusty XR environment depth mesh overlay draw` with `cellMeters`,
+  `discontinuityMeters`, `distanceColorMaxMeters=3`,
+  `distanceColorSource=environment-depth-meters`,
+  `projection=local-space-depth-surface`,
+  `rasterization=world-space-generated-grid`,
+  `generatedVertexCount`, `historyFramesDrawn=1`, `historyMaxAgeMs=0`,
+  `dominantSurfaceGrid=true`, `screenUvGrid=false`, and
+  `passthroughVisible=true`; the visualizer draw line also reports
+  `depthMeshOverlay=true`, `depthMeshRasterization=world-space-generated-grid`,
+  `depthMeshVertexCount`, and `depthMeshHistoryFramesDrawn`, and the OpenXR
+  frame status reports the submitted passthrough underlay plus projection
+  layer.
+- with `environment-depth-particle-overlay`, logcat contains
+  `Rusty XR environment depth particle overlay draw` with
+  `projection=local-space-retained-particles`,
+  `rasterization=metric-billboard-particles`, `particleCapacity`,
+  `particleVertexCount`, `sampleStridePixels`, `distanceColorMaxMeters=3`,
+  and `passthroughVisible=true`. The visual result is expected to show
+  depth-colored particles over native passthrough, but headset-motion anchoring
+  remains a manual design-validation item until the scene-owned particle map is
+  implemented.
 - with `camera-stereo-gpu-composite`, logcat must contain one
   `Rusty XR final projection status` line with `activeTier=gpu-projected`,
   `alignedProjection=true`, `stereoLayout=Separate`,

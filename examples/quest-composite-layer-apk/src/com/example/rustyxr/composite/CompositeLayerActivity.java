@@ -67,6 +67,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final String DEFAULT_XR_COLOR_FORMAT = "rgba8-srgb";
     private static final String DEFAULT_ENVIRONMENT_DEPTH_MODE = "off";
     private static final boolean DEFAULT_ENVIRONMENT_DEPTH_HAND_REMOVAL = false;
+    private static final String DEFAULT_HAND_PARTICLE_MODE = "off";
     private static final String DEFAULT_OPENXR_PASSTHROUGH_PROBE = "off";
     private static final String DEFAULT_PASSTHROUGH_STYLE_MODE = "none";
     private static final float DEFAULT_PASSTHROUGH_OPACITY = 1.0f;
@@ -83,6 +84,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_PASSTHROUGH_LUT_WEIGHT = 1.0f;
     private static final float DEFAULT_PASSTHROUGH_LUT_FLICKER_HZ = 0.0f;
     private static final float DEFAULT_FULL_FIELD_FLICKER_HZ = 0.0f;
+    private static final boolean DEFAULT_PROJECTION_LAYER_VISIBLE = true;
     private static final float DEFAULT_XR_DISPLAY_REFRESH_HZ = 72.0f;
     private static final boolean DEFAULT_DIAGNOSTIC_HUD_VISIBLE = false;
     private static final String DEFAULT_DIAGNOSTIC_HUD_COMMAND = "";
@@ -448,6 +450,8 @@ public final class CompositeLayerActivity extends NativeActivity {
         appendJsonString(builder, "environmentDepthMode", stringExtra("rustyxr.depth", DEFAULT_ENVIRONMENT_DEPTH_MODE));
         builder.append(",\"environmentDepthHandRemoval\":").append(booleanExtra("rustyxr.depthHandRemoval", DEFAULT_ENVIRONMENT_DEPTH_HAND_REMOVAL));
         builder.append(',');
+        appendJsonString(builder, "handParticleMode", stringExtra("rustyxr.handParticles", DEFAULT_HAND_PARTICLE_MODE));
+        builder.append(',');
         appendJsonString(builder, "openxrPassthroughProbe", stringExtra("rustyxr.openxrPassthroughProbe", DEFAULT_OPENXR_PASSTHROUGH_PROBE));
         builder.append(',');
         appendJsonString(builder, "passthroughStyleMode", stringExtra("rustyxr.passthroughStyleMode", DEFAULT_PASSTHROUGH_STYLE_MODE));
@@ -465,6 +469,7 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"passthroughLutWeight\":").append(floatJson(floatExtra("rustyxr.passthroughLutWeight", DEFAULT_PASSTHROUGH_LUT_WEIGHT)));
         builder.append(",\"passthroughLutFlickerHz\":").append(floatJson(floatExtra("rustyxr.passthroughLutFlickerHz", DEFAULT_PASSTHROUGH_LUT_FLICKER_HZ)));
         builder.append(",\"fullFieldFlickerHz\":").append(floatJson(floatExtra("rustyxr.fullFieldFlickerHz", DEFAULT_FULL_FIELD_FLICKER_HZ)));
+        builder.append(",\"projectionLayerVisible\":").append(booleanExtra("rustyxr.projectionLayerVisible", DEFAULT_PROJECTION_LAYER_VISIBLE));
         builder.append(",\"diagnosticHudVisible\":").append(hudVisible);
         builder.append(',');
         appendJsonString(builder, "diagnosticHudCommand", stringExtra("rustyxr.diagnosticHudCommand", DEFAULT_DIAGNOSTIC_HUD_COMMAND));
