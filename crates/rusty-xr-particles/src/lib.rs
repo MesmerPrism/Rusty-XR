@@ -404,12 +404,13 @@ pub struct MeshSdfParticleAttractionScenarioConfig {
 
 impl Default for MeshSdfParticleAttractionScenarioConfig {
     fn default() -> Self {
-        let mut attraction = SdfParticleAttractionConfig::default();
-        attraction.mode = SdfParticleAttractionMode::AttractToSurface;
         Self {
             spawn: ParticleSphereSpawnConfig::default(),
             mesh_sdf: MeshToSdfConfig::default(),
-            attraction,
+            attraction: SdfParticleAttractionConfig {
+                mode: SdfParticleAttractionMode::AttractToSurface,
+                ..SdfParticleAttractionConfig::default()
+            },
             bounds_padding_meters: 0.25,
         }
     }
