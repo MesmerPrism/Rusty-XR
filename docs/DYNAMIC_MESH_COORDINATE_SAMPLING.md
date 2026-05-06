@@ -8,7 +8,7 @@ particle simulation by itself, and it does not require OpenXR, Vulkan, Android,
 Unity, Makepad, or a Meta SDK dependency.
 
 ```text
-native, engine, scan, or procedural provider
+native, engine, scan, or fixture provider
   -> TriangleMeshSurface
   -> LiveMeshSurfaceSampler
   -> MeshSurfaceSampleSet
@@ -99,7 +99,7 @@ Rusty XR core does not create OpenXR handles. The adapter is responsible for:
 
 The public Quest example demonstrates this adapter-owned shape and then feeds
 the resulting `HandMeshSnapshot` frames into the same sampler used by the
-synthetic example.
+portable fixture example.
 
 ## Visualization
 
@@ -121,7 +121,12 @@ For volumetric field consumers, use the companion dynamic mesh-to-SDF utility:
 be stepped toward the current SDF surface. See
 [dynamic mesh to SDF](DYNAMIC_MESH_TO_SDF.md).
 
-The portable synthetic example does not require headset hardware:
+For physics or proximity consumers, use the dynamic mesh collider utility:
+`TriangleMeshSurface` or `HandMeshSnapshot` can be converted into
+collider-ready mesh data and an optional diagnostic shell. See
+[dynamic mesh colliders](DYNAMIC_MESH_COLLIDERS.md).
+
+The portable fixture example does not require headset hardware:
 
 ```powershell
 cargo run -p rusty-xr-particles --example dynamic_mesh_coordinates

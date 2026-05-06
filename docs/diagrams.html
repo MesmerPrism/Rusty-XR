@@ -24,7 +24,7 @@
     <section class="hero">
       <div class="kicker">Mermaid Maps</div>
       <h1>Quick maps for the public repo.</h1>
-      <p>These diagrams summarize dependency direction, crate responsibilities, media/control/data flow, and the extraction gate used to protect the public/downstream boundary.</p>
+      <p>These diagrams summarize dependency direction, crate responsibilities, media/control/data flow, dynamic mesh utility flow, and the extraction gate used to protect the public/downstream boundary.</p>
     </section>
 
     <section class="grid cols-2">
@@ -51,6 +51,12 @@
         <p>Shows how camera/media descriptors, OSC control packets, and BLE/LSL/Polar data stay contract-first.</p>
         <div class="figure-shell"><pre data-mermaid-source="diagrams/media-biofeedback-flow.mmd"></pre></div>
         <div class="figure-actions"><a class="button-link primary" href="diagrams/viewer.html#media-biofeedback-flow">Open viewer</a></div>
+      </article>
+      <article class="diagram-card">
+        <h3>Mesh, Field, And Collider Flow</h3>
+        <p>Shows how live dynamic meshes feed surface coordinates, neighborhoods, collider shells, SDF fields, and particles while native ownership stays adapter-side.</p>
+        <div class="figure-shell"><pre data-mermaid-source="diagrams/mesh-field-collider-flow.mmd"></pre></div>
+        <div class="figure-actions"><a class="button-link primary" href="diagrams/viewer.html#mesh-field-collider-flow">Open viewer</a></div>
       </article>
     </section>
   </main>

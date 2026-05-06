@@ -22,5 +22,11 @@
     "title": "Media And Biofeedback Flow",
     "description": "Camera, media, BLE, LSL, and Polar data flow through public contracts before adapters.",
     "source": "media-biofeedback-flow.mmd"
+  },
+  {
+    "id": "mesh-field-collider-flow",
+    "title": "Mesh, Field, And Collider Flow",
+    "description": "Live dynamic meshes can feed surface coordinates, hand particles, collider surfaces, diagnostic shells, and SDF particle fields while native ownership stays adapter-side.",
+    "source": "mesh-field-collider-flow.mmd"
   }
 ]

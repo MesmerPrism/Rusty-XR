@@ -63,7 +63,7 @@ Rusty XR may contain:
 - Depth metadata, readiness, and payload summaries.
 - Packed SDF, mesh snapshot, mesh-to-SDF, and sampling contracts.
 - Sparse TSDF scan snapshots, scan surface samples, and scan-fusion stats.
-- General particle, fixed-step, animation, SDF attraction, and render-payload primitives.
+- General particle, fixed-step, animation, dynamic mesh collider, SDF attraction, and render-payload primitives.
 - Opt-in `serde` support for stable public contracts.
 - Public schema exports generated to ignored locations until reviewed.
 - Public provenance metadata and boundary scanning utilities.
@@ -127,7 +127,7 @@ unless the user explicitly approves a sanitized extraction.
 - `rusty-xr-depth-model`: depth readiness classification and frame summaries.
 - `rusty-xr-sdf`: packed SDF grid/sample contracts, bounds, sampling, triangle mesh snapshots, and dynamic mesh-to-SDF reference conversion.
 - `rusty-xr-sdf` also owns sparse TSDF scan snapshots and scan-fusion stats.
-- `rusty-xr-particles`: particle state/set, fixed-step clock, render payload generation, dynamic mesh coordinate sampling, live hand-mesh sampling, mesh-neighborhood helpers, and SDF surface-attraction examples.
+- `rusty-xr-particles`: particle state/set, fixed-step clock, render payload generation, dynamic mesh coordinate sampling, live hand-mesh sampling, mesh-neighborhood helpers, dynamic mesh collider surfaces, and SDF surface-attraction examples.
 
 ## Design Rules
 

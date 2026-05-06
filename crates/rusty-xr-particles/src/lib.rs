@@ -6,6 +6,8 @@
 //! It also includes stable coordinate sampling for dynamic triangle meshes:
 //! providers can update deformed vertices every frame while keeping sampled
 //! triangle/barycentric anchors and neighborhood identity stable.
+//! Dynamic mesh collider helpers expose collider-ready surfaces and diagnostic
+//! shells for adapter-owned physics integrations.
 //! Source-only SDF attraction helpers are included as a public example consumer
 //! of dynamic mesh fields; higher-level simulation behavior stays downstream.
 //!
@@ -1251,7 +1253,318 @@ pub fn build_mesh_surface_cross_neighborhood(
     }
 }
 
-/// Dimensions for a simple procedural hand-like mesh used in public examples.
+/// Diagnostic visual shell settings for a dynamic mesh collider.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DynamicMeshColliderDiagnosticConfig {
+    pub enabled: bool,
+    pub shell_inflation_meters: f32,
+    pub color: ColorRgba,
+}
+
+impl Default for DynamicMeshColliderDiagnosticConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            shell_inflation_meters: 0.002,
+            color: ColorRgba::new(0.1, 0.9, 1.0, 0.42),
+        }
+    }
+}
+
+/// Configuration for converting a live triangle mesh into collider geometry.
+///
+/// The output is still plain mesh data. Physics-engine cooking, trigger flags,
+/// native handles, and renderer ownership stay in adapters.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DynamicMeshColliderConfig {
+    pub enabled: bool,
+    pub surface_inflation_meters: f32,
+    pub contact_padding_meters: f32,
+    pub prefer_convex: bool,
+    pub max_convex_triangle_count: usize,
+    pub diagnostic: DynamicMeshColliderDiagnosticConfig,
+}
+
+impl Default for DynamicMeshColliderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            surface_inflation_meters: 0.0,
+            contact_padding_meters: 0.0,
+            prefer_convex: false,
+            max_convex_triangle_count: 255,
+            diagnostic: DynamicMeshColliderDiagnosticConfig::default(),
+        }
+    }
+}
+
+/// Status from one dynamic mesh collider update.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DynamicMeshColliderUpdateStatus {
+    Disabled,
+    Initialized,
+    Updated,
+    ChangedTopology,
+    InvalidSurface,
+}
+
+/// Summary returned after generating collider and optional diagnostic shell geometry.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DynamicMeshColliderUpdate {
+    pub status: DynamicMeshColliderUpdateStatus,
+    pub topology_key: Option<MeshSurfaceTopologyKey>,
+    pub vertex_count: usize,
+    pub triangle_count: usize,
+    pub convex_preferred: bool,
+    pub convex_eligible: bool,
+    pub diagnostic_shell_vertex_count: usize,
+    pub diagnostic_shell_triangle_count: usize,
+}
+
+/// Diagnostic mesh shell that can be rendered by an adapter.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct DynamicMeshColliderDiagnosticShell {
+    pub surface: TriangleMeshSurface,
+    pub color: ColorRgba,
+}
+
+/// Closest-point query result against dynamic mesh collider geometry.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DynamicMeshColliderContact {
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub distance_meters: f32,
+    pub triangle_index: usize,
+}
+
+/// Framework-neutral dynamic mesh collider state.
+///
+/// This mirrors the useful part of engine mesh-collider workflows: take the
+/// current deformed mesh, optionally inflate it, expose collider geometry for a
+/// physics adapter, and keep a separate diagnostic shell mesh for rendering.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct DynamicMeshCollider {
+    pub config: DynamicMeshColliderConfig,
+    collider_surface: TriangleMeshSurface,
+    diagnostic_shell: Option<DynamicMeshColliderDiagnosticShell>,
+    topology_key: Option<MeshSurfaceTopologyKey>,
+}
+
+impl DynamicMeshCollider {
+    pub fn new(config: DynamicMeshColliderConfig) -> Self {
+        Self {
+            config,
+            collider_surface: TriangleMeshSurface::default(),
+            diagnostic_shell: None,
+            topology_key: None,
+        }
+    }
+
+    pub fn collider_surface(&self) -> &TriangleMeshSurface {
+        &self.collider_surface
+    }
+
+    pub fn diagnostic_shell(&self) -> Option<&DynamicMeshColliderDiagnosticShell> {
+        self.diagnostic_shell.as_ref()
+    }
+
+    pub fn topology_key(&self) -> Option<MeshSurfaceTopologyKey> {
+        self.topology_key
+    }
+
+    pub fn clear(&mut self) {
+        self.collider_surface = TriangleMeshSurface::default();
+        self.diagnostic_shell = None;
+        self.topology_key = None;
+    }
+
+    pub fn update_from_mesh(&mut self, mesh: &TriangleMeshSurface) -> DynamicMeshColliderUpdate {
+        self.update_from_mesh_with_normals(mesh, &[])
+    }
+
+    pub fn update_from_hand_mesh_snapshot(
+        &mut self,
+        snapshot: &HandMeshSnapshot,
+    ) -> DynamicMeshColliderUpdate {
+        let Ok(mesh) = triangle_mesh_surface_from_hand_mesh_snapshot(snapshot) else {
+            self.clear();
+            return self.update_summary(DynamicMeshColliderUpdateStatus::InvalidSurface);
+        };
+        self.update_from_mesh_with_normals(&mesh, &snapshot.normals)
+    }
+
+    pub fn closest_point(&self, point: Vec3) -> Option<DynamicMeshColliderContact> {
+        closest_point_on_mesh_surface(&self.collider_surface, point)
+    }
+
+    pub fn overlaps_sphere(&self, center: Vec3, radius_meters: f32) -> bool {
+        let Some(contact) = self.closest_point(center) else {
+            return false;
+        };
+        let radius = radius_meters.max(0.0) + self.config.contact_padding_meters.max(0.0);
+        contact.distance_meters <= radius
+    }
+
+    fn update_from_mesh_with_normals(
+        &mut self,
+        mesh: &TriangleMeshSurface,
+        vertex_normals: &[Vec3],
+    ) -> DynamicMeshColliderUpdate {
+        if !self.config.enabled {
+            self.clear();
+            return self.update_summary(DynamicMeshColliderUpdateStatus::Disabled);
+        }
+        if !mesh.is_valid() {
+            self.clear();
+            return self.update_summary(DynamicMeshColliderUpdateStatus::InvalidSurface);
+        }
+
+        let next_key = MeshSurfaceTopologyKey::from_mesh(mesh);
+        let Some(collider_surface) = build_dynamic_mesh_collider_surface_with_normals(
+            mesh,
+            vertex_normals,
+            self.config.surface_inflation_meters,
+        ) else {
+            self.clear();
+            return self.update_summary(DynamicMeshColliderUpdateStatus::InvalidSurface);
+        };
+
+        let diagnostic_shell = if self.config.diagnostic.enabled {
+            let shell_inflation = self.config.surface_inflation_meters
+                + self.config.diagnostic.shell_inflation_meters.max(0.0);
+            build_dynamic_mesh_collider_surface_with_normals(mesh, vertex_normals, shell_inflation)
+                .map(|surface| DynamicMeshColliderDiagnosticShell {
+                    surface,
+                    color: self.config.diagnostic.color,
+                })
+        } else {
+            None
+        };
+
+        let status = if self.topology_key.is_none() {
+            DynamicMeshColliderUpdateStatus::Initialized
+        } else if self.topology_key == Some(next_key) {
+            DynamicMeshColliderUpdateStatus::Updated
+        } else {
+            DynamicMeshColliderUpdateStatus::ChangedTopology
+        };
+
+        self.collider_surface = collider_surface;
+        self.diagnostic_shell = diagnostic_shell;
+        self.topology_key = Some(next_key);
+        self.update_summary(status)
+    }
+
+    fn update_summary(&self, status: DynamicMeshColliderUpdateStatus) -> DynamicMeshColliderUpdate {
+        let shell = self.diagnostic_shell.as_ref().map(|shell| &shell.surface);
+        DynamicMeshColliderUpdate {
+            status,
+            topology_key: self.topology_key,
+            vertex_count: self.collider_surface.vertex_count(),
+            triangle_count: self.collider_surface.triangle_count(),
+            convex_preferred: self.config.prefer_convex,
+            convex_eligible: self.config.prefer_convex
+                && self.collider_surface.triangle_count() <= self.config.max_convex_triangle_count,
+            diagnostic_shell_vertex_count: shell.map_or(0, TriangleMeshSurface::vertex_count),
+            diagnostic_shell_triangle_count: shell.map_or(0, TriangleMeshSurface::triangle_count),
+        }
+    }
+}
+
+impl Default for DynamicMeshCollider {
+    fn default() -> Self {
+        Self::new(DynamicMeshColliderConfig::default())
+    }
+}
+
+/// Build collider geometry from the current mesh pose.
+pub fn build_dynamic_mesh_collider_surface(
+    mesh: &TriangleMeshSurface,
+    surface_inflation_meters: f32,
+) -> Option<TriangleMeshSurface> {
+    build_dynamic_mesh_collider_surface_with_normals(mesh, &[], surface_inflation_meters)
+}
+
+fn build_dynamic_mesh_collider_surface_with_normals(
+    mesh: &TriangleMeshSurface,
+    vertex_normals: &[Vec3],
+    surface_inflation_meters: f32,
+) -> Option<TriangleMeshSurface> {
+    if !mesh.is_valid() || !surface_inflation_meters.is_finite() || surface_inflation_meters < 0.0 {
+        return None;
+    }
+
+    if surface_inflation_meters <= 0.0 {
+        return Some(mesh.clone());
+    }
+
+    let generated_normals = if vertex_normals.len() == mesh.vertices.len()
+        && vertex_normals.iter().copied().all(Vec3::is_finite)
+    {
+        Vec::new()
+    } else {
+        mesh_surface_vertex_normals(mesh)
+    };
+    let center = mesh_surface_center(mesh).unwrap_or(Vec3::ZERO);
+    let mut vertices = Vec::with_capacity(mesh.vertices.len());
+    for (vertex_index, vertex) in mesh.vertices.iter().copied().enumerate() {
+        let normal = vertex_normals
+            .get(vertex_index)
+            .copied()
+            .filter(|normal| normal.is_finite() && normal.length_squared() > 1.0e-10)
+            .or_else(|| generated_normals.get(vertex_index).copied())
+            .filter(|normal| normal.length_squared() > 1.0e-10)
+            .unwrap_or_else(|| (vertex - center).normalized_or(Vec3::UP))
+            .normalized_or(Vec3::UP);
+        vertices.push(vertex + (normal * surface_inflation_meters));
+    }
+
+    Some(TriangleMeshSurface::new(vertices, mesh.triangles.clone()))
+}
+
+fn closest_point_on_mesh_surface(
+    mesh: &TriangleMeshSurface,
+    point: Vec3,
+) -> Option<DynamicMeshColliderContact> {
+    if !point.is_finite() || !mesh.is_valid() {
+        return None;
+    }
+
+    let mut best_contact = None;
+    let mut best_distance_sq = f32::INFINITY;
+    for (triangle_index, triangle) in mesh.triangles.iter().copied().enumerate() {
+        let [a, b, c] = triangle;
+        if a >= mesh.vertices.len() || b >= mesh.vertices.len() || c >= mesh.vertices.len() {
+            continue;
+        }
+        let v0 = mesh.vertices[a];
+        let v1 = mesh.vertices[b];
+        let v2 = mesh.vertices[c];
+        let normal = (v1 - v0).cross(v2 - v0).normalized_or(Vec3::UP);
+        let closest = closest_point_on_triangle(point, v0, v1, v2);
+        let distance_sq = (point - closest).length_squared();
+        if distance_sq < best_distance_sq {
+            best_distance_sq = distance_sq;
+            best_contact = Some(DynamicMeshColliderContact {
+                point: closest,
+                normal,
+                distance_meters: distance_sq.sqrt(),
+                triangle_index,
+            });
+        }
+    }
+
+    best_contact
+}
+
+/// Dimensions for a portable hand-mesh fixture used in public examples.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FixtureHandMeshConfig {
@@ -1282,9 +1595,9 @@ impl Default for FixtureHandMeshConfig {
 
 /// Build an open-hand fixture mesh for examples and tests.
 ///
-/// The mesh is deliberately procedural and approximate. It demonstrates how a
-/// native hand-mesh adapter can feed the sampler without embedding platform or
-/// app-specific hand tracking code in this crate.
+/// The fixture demonstrates how a native hand-mesh adapter can feed dynamic
+/// mesh utilities without embedding platform or app-specific hand tracking code
+/// in this crate.
 pub fn build_fixture_hand_mesh(config: FixtureHandMeshConfig) -> TriangleMeshSurface {
     let palm_width = config.palm_width_meters.max(0.001);
     let palm_height = config.palm_height_meters.max(0.001);
@@ -2426,6 +2739,87 @@ fn triangle_area(vertices: &[Vec3], triangle: [usize; 3]) -> Option<f32> {
     }
 }
 
+fn mesh_surface_center(mesh: &TriangleMeshSurface) -> Option<Vec3> {
+    if mesh.vertices.is_empty() {
+        return None;
+    }
+    let mut sum = Vec3::ZERO;
+    for vertex in &mesh.vertices {
+        sum += *vertex;
+    }
+    Some(sum / mesh.vertices.len() as f32)
+}
+
+fn mesh_surface_vertex_normals(mesh: &TriangleMeshSurface) -> Vec<Vec3> {
+    let mut normals = vec![Vec3::ZERO; mesh.vertices.len()];
+    for triangle in &mesh.triangles {
+        let [a, b, c] = *triangle;
+        if a >= mesh.vertices.len() || b >= mesh.vertices.len() || c >= mesh.vertices.len() {
+            continue;
+        }
+        let normal =
+            (mesh.vertices[b] - mesh.vertices[a]).cross(mesh.vertices[c] - mesh.vertices[a]);
+        if !normal.is_finite() || normal.length_squared() <= 1.0e-14 {
+            continue;
+        }
+        normals[a] += normal;
+        normals[b] += normal;
+        normals[c] += normal;
+    }
+    normals
+        .into_iter()
+        .map(|normal| normal.normalized_or(Vec3::ZERO))
+        .collect()
+}
+
+fn closest_point_on_triangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
+    let ab = b - a;
+    let ac = c - a;
+    let ap = point - a;
+    let d1 = ab.dot(ap);
+    let d2 = ac.dot(ap);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+
+    let bp = point - b;
+    let d3 = ab.dot(bp);
+    let d4 = ac.dot(bp);
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+
+    let vc = (d1 * d4) - (d3 * d2);
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        let v = d1 / (d1 - d3);
+        return a + (ab * v);
+    }
+
+    let cp = point - c;
+    let d5 = ab.dot(cp);
+    let d6 = ac.dot(cp);
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+
+    let vb = (d5 * d2) - (d1 * d6);
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        let w = d2 / (d2 - d6);
+        return a + (ac * w);
+    }
+
+    let va = (d3 * d6) - (d5 * d4);
+    if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+        let w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return b + ((c - b) * w);
+    }
+
+    let denom = 1.0 / (va + vb + vc);
+    let v = vb * denom;
+    let w = vc * denom;
+    a + (ab * v) + (ac * w)
+}
+
 fn mesh_surface_triangle_records(mesh: &TriangleMeshSurface) -> Vec<SurfaceTriangleRecord> {
     let mut records = Vec::new();
     let mut cumulative_area = 0.0_f32;
@@ -3025,6 +3419,116 @@ mod tests {
         assert_eq!(scenario.particles.len(), 32);
         assert!(scenario.sdf.voxel_count() > 0);
         assert!(scenario.simulation_bounds.is_valid());
+    }
+
+    #[test]
+    fn dynamic_mesh_collider_updates_from_hand_mesh_snapshot() {
+        let mesh = build_fixture_hand_mesh(FixtureHandMeshConfig::default());
+        let snapshot = hand_snapshot_from_surface(1, &mesh);
+        let mut collider = DynamicMeshCollider::new(DynamicMeshColliderConfig {
+            surface_inflation_meters: 0.004,
+            prefer_convex: true,
+            diagnostic: DynamicMeshColliderDiagnosticConfig {
+                shell_inflation_meters: 0.002,
+                ..DynamicMeshColliderDiagnosticConfig::default()
+            },
+            ..DynamicMeshColliderConfig::default()
+        });
+
+        let first = collider.update_from_hand_mesh_snapshot(&snapshot);
+        assert_eq!(first.status, DynamicMeshColliderUpdateStatus::Initialized);
+        assert_eq!(first.vertex_count, mesh.vertex_count());
+        assert_eq!(first.triangle_count, mesh.triangle_count());
+        assert!(first.convex_eligible);
+        assert_eq!(first.diagnostic_shell_triangle_count, mesh.triangle_count());
+
+        let mut deformed = mesh.clone();
+        for vertex in &mut deformed.vertices {
+            vertex.y += 0.01;
+        }
+        let second =
+            collider.update_from_hand_mesh_snapshot(&hand_snapshot_from_surface(2, &deformed));
+
+        assert_eq!(second.status, DynamicMeshColliderUpdateStatus::Updated);
+        assert_eq!(
+            collider.collider_surface().vertex_count(),
+            mesh.vertex_count()
+        );
+        assert!(collider.diagnostic_shell().is_some());
+    }
+
+    #[test]
+    fn dynamic_mesh_collider_reports_changed_topology() {
+        let first_mesh = flat_triangle_mesh();
+        let second_mesh = TriangleMeshSurface::new(
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2], [0, 2, 3]],
+        );
+        let mut collider = DynamicMeshCollider::default();
+
+        let first = collider.update_from_mesh(&first_mesh);
+        let second = collider.update_from_mesh(&second_mesh);
+
+        assert_eq!(first.status, DynamicMeshColliderUpdateStatus::Initialized);
+        assert_eq!(
+            second.status,
+            DynamicMeshColliderUpdateStatus::ChangedTopology
+        );
+        assert_eq!(second.vertex_count, 4);
+        assert_eq!(second.triangle_count, 2);
+    }
+
+    #[test]
+    fn dynamic_mesh_collider_inflates_surface_and_shell() {
+        let mesh = flat_triangle_mesh();
+        let collider_surface =
+            build_dynamic_mesh_collider_surface(&mesh, 0.1).expect("triangle should inflate");
+
+        assert!(collider_surface
+            .vertices
+            .iter()
+            .all(|vertex| (vertex.z - 0.1).abs() < 1.0e-5));
+
+        let mut collider = DynamicMeshCollider::new(DynamicMeshColliderConfig {
+            surface_inflation_meters: 0.1,
+            diagnostic: DynamicMeshColliderDiagnosticConfig {
+                shell_inflation_meters: 0.02,
+                ..DynamicMeshColliderDiagnosticConfig::default()
+            },
+            ..DynamicMeshColliderConfig::default()
+        });
+        let update = collider.update_from_mesh(&mesh);
+        let shell = collider
+            .diagnostic_shell()
+            .expect("diagnostic shell should be generated");
+
+        assert_eq!(update.status, DynamicMeshColliderUpdateStatus::Initialized);
+        assert!(shell
+            .surface
+            .vertices
+            .iter()
+            .all(|vertex| (vertex.z - 0.12).abs() < 1.0e-5));
+    }
+
+    #[test]
+    fn dynamic_mesh_collider_reports_closest_point_and_sphere_overlap() {
+        let mesh = flat_triangle_mesh();
+        let mut collider = DynamicMeshCollider::default();
+        collider.update_from_mesh(&mesh);
+
+        let contact = collider
+            .closest_point(Vec3::new(0.25, 0.25, 0.1))
+            .expect("point above triangle should query");
+
+        assert!((contact.point.z - 0.0).abs() < 1.0e-5);
+        assert!((contact.distance_meters - 0.1).abs() < 1.0e-5);
+        assert!(collider.overlaps_sphere(Vec3::new(0.25, 0.25, 0.1), 0.11));
+        assert!(!collider.overlaps_sphere(Vec3::new(0.25, 0.25, 0.1), 0.05));
     }
 
     #[test]
@@ -3708,6 +4212,33 @@ mod tests {
         assert!(clock.accumulator_seconds() <= 0.01);
     }
 
+    fn flat_triangle_mesh() -> TriangleMeshSurface {
+        TriangleMeshSurface::new(
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        )
+    }
+
+    fn hand_snapshot_from_surface(version: u64, mesh: &TriangleMeshSurface) -> HandMeshSnapshot {
+        let indices = mesh
+            .triangles
+            .iter()
+            .map(|triangle| {
+                [
+                    u32::try_from(triangle[0]).expect("test mesh index fits u32"),
+                    u32::try_from(triangle[1]).expect("test mesh index fits u32"),
+                    u32::try_from(triangle[2]).expect("test mesh index fits u32"),
+                ]
+            })
+            .collect();
+        HandMeshSnapshot::new(version, mesh.vertices.clone(), indices)
+            .with_handedness(Handedness::Left)
+    }
+
     #[cfg(feature = "serde")]
     #[test]
     fn particle_set_round_trips_with_serde() {
@@ -3736,5 +4267,23 @@ mod tests {
             serde_json::from_str(&encoded).expect("samples should deserialize");
 
         assert_eq!(decoded, samples);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn dynamic_mesh_collider_round_trips_with_serde() {
+        let mesh = flat_triangle_mesh();
+        let mut collider = DynamicMeshCollider::new(DynamicMeshColliderConfig {
+            surface_inflation_meters: 0.01,
+            prefer_convex: true,
+            ..DynamicMeshColliderConfig::default()
+        });
+        collider.update_from_mesh(&mesh);
+
+        let encoded = serde_json::to_string(&collider).expect("collider should serialize");
+        let decoded: DynamicMeshCollider =
+            serde_json::from_str(&encoded).expect("collider should deserialize");
+
+        assert_eq!(decoded, collider);
     }
 }

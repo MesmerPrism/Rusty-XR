@@ -34,7 +34,8 @@ Initial crate layout:
 - `rusty-xr-sdf`: signed-distance-field, mesh snapshot, sparse TSDF, and
   dynamic mesh-to-SDF reference utilities.
 - `rusty-xr-particles`: general particle, animation, mesh-surface sampling,
-  live hand-mesh particle anchors, SDF attraction, and neighborhood primitives.
+  live hand-mesh particle anchors, dynamic mesh collider helpers, SDF
+  attraction, and neighborhood primitives.
 
 The crates are intentionally small at the start. The first milestone is to
 stabilize public contracts and tests before moving higher-level adapters into
@@ -115,6 +116,10 @@ putting platform calls in the core crate. See
 [docs/DYNAMIC_MESH_COORDINATE_SAMPLING.md](docs/DYNAMIC_MESH_COORDINATE_SAMPLING.md)
 and
 [docs/HAND_MESH_PARTICLE_RUNTIME.md](docs/HAND_MESH_PARTICLE_RUNTIME.md).
+It also includes a framework-neutral dynamic mesh collider helper that can turn
+the current deformed mesh into collider-ready surface geometry plus an optional
+diagnostic visual shell for adapter-owned physics and renderer integrations.
+See [docs/DYNAMIC_MESH_COLLIDERS.md](docs/DYNAMIC_MESH_COLLIDERS.md).
 It also includes a generic dynamic mesh-to-SDF path: `rusty-xr-sdf` can convert
 a `TriangleMeshSnapshot` into a `PackedSdfGrid`, and `rusty-xr-particles` can
 step public particles toward that SDF as a source-only use case example. See
@@ -145,6 +150,7 @@ cargo run -p rusty-xr-contracts --example meta_passthrough_style_catalog --featu
 cargo run -p rusty-xr-contracts --example audio_reactive_passthrough_style --features serde
 cargo run -p rusty-xr-contracts --example visual_strobe_profiles --features serde
 cargo run -p rusty-xr-particles --example dynamic_mesh_coordinates
+cargo run -p rusty-xr-particles --example hand_mesh_dynamic_collider
 cargo run -p rusty-xr-particles --example hand_mesh_sdf_attraction
 powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1

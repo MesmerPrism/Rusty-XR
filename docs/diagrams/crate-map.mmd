@@ -31,5 +31,5 @@ flowchart TB
   osc -.->|"packets, UDP endpoints, decoded records"| shared
   camera -.->|"projection and timestamps"| shared
   depth -.->|"readiness and summaries"| shared
-  sdf -.->|"grids, meshes, sparse scan snapshots"| shared
-  particles -.->|"state, fixed steps, payloads"| shared
+  sdf -.->|"grids, meshes, sparse scan snapshots, mesh-to-SDF"| shared
+  particles -.->|"state, fixed steps, payloads, mesh coordinates, colliders"| shared

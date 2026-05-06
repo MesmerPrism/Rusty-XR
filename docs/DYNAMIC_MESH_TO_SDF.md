@@ -7,7 +7,7 @@ to attract particles toward the mesh surface.
 This utility is intentionally small and public:
 
 ```text
-native, engine, scan, or procedural mesh provider
+native, engine, scan, or fixture mesh provider
   -> TriangleMeshSnapshot
   -> build_sdf_from_mesh_bounds
   -> PackedSdfGrid
@@ -83,8 +83,8 @@ not the final high-throughput GPU path.
 
 ## Example
 
-The portable example uses a procedural hand-like mesh and a particle sphere.
-It rebuilds the SDF as the mesh moves and steps particles toward the surface:
+The portable example uses a hand mesh fixture and a particle sphere. It
+rebuilds the SDF as the mesh moves and steps particles toward the surface:
 
 ```powershell
 cargo run -p rusty-xr-particles --example hand_mesh_sdf_attraction
@@ -107,5 +107,6 @@ Keep these in adapters or downstream apps:
 ## Related Docs
 
 - [Dynamic mesh coordinate sampling](DYNAMIC_MESH_COORDINATE_SAMPLING.md)
+- [Dynamic mesh colliders](DYNAMIC_MESH_COLLIDERS.md)
 - [Hand mesh particle runtime](HAND_MESH_PARTICLE_RUNTIME.md)
 - [API surface review](API_SURFACE_REVIEW.md)

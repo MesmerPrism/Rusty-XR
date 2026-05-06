@@ -24,9 +24,10 @@ LSL-native adapters.
 - `rusty-xr-camera-model`, `rusty-xr-depth-model`, `rusty-xr-sdf`, and
   `rusty-xr-particles`: deterministic helpers, dynamic mesh coordinate
   sampling, same-surface and cross-surface neighborhoods, live hand-mesh
-  snapshot anchors, dynamic mesh-to-SDF conversion, public SDF particle
-  attraction helpers, and public snapshots that can be demonstrated with
-  synthetic data or public examples.
+  snapshot anchors, dynamic mesh collider surfaces with diagnostic shells,
+  dynamic mesh-to-SDF conversion, public SDF particle attraction helpers, and
+  public snapshots that can be demonstrated with synthetic data or public
+  examples.
 
 ## Stabilization Notes
 

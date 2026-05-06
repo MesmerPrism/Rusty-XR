@@ -96,7 +96,7 @@ review_status = "foundation-pass"
 crate = "rusty-xr-particles"
 source_family = "low-dependency particle experiments and Makepad-style instanced particle rendering concepts"
 extraction_date = "2026-05-05"
-public_safe_rationale = "Particle state, deterministic clocks, render payload conversion, backend-neutral billboard geometry, scene-basis billboard instance prep, sprite-mask atlas generation, trail buffers, render-budget estimates, depth sorting, mesh-surface coordinate sampling, live deformed-mesh anchor updates, same-surface neighbor tiers, cross-surface neighbor links, and SDF surface-attraction helpers are reusable without downstream simulation semantics."
+public_safe_rationale = "Particle state, deterministic clocks, render payload conversion, backend-neutral billboard geometry, scene-basis billboard instance prep, sprite-mask atlas generation, trail buffers, render-budget estimates, depth sorting, mesh-surface coordinate sampling, live deformed-mesh anchor updates, same-surface neighbor tiers, cross-surface neighbor links, dynamic mesh collider helpers, and SDF surface-attraction helpers are reusable without downstream simulation semantics."
 license_assumptions = "Authored for this MIT repository. Makepad is credited as an enabling public Rust-native rendering and UI foundation; this crate keeps helpers backend-neutral and does not vendor Makepad framework code."
 scrubbed_private_dependencies = ["downstream simulation behavior", "downstream visual feedback behavior", "renderer backend code", "package identity", "generated captures"]
 review_status = "particle-rendering-helper-pass"
@@ -189,4 +189,13 @@ extraction_date = "2026-05-06"
 public_safe_rationale = "A dependency-light CPU mesh-to-SDF builder and SDF particle attraction example are reusable for hands, scanned meshes, procedural meshes, collision fields, and diagnostics. The public shape keeps worker scheduling, GPU kernels, native providers, renderer buffers, and app-specific force behavior downstream."
 license_assumptions = "Authored for this MIT repository from public SDF and triangle-mesh geometry concepts; no platform SDK sample code or downstream behavior is copied."
 scrubbed_private_dependencies = ["native provider implementation", "worker ownership", "renderer backend code", "private coupling behavior", "package identity", "generated captures", "signing material"]
+review_status = "public-utility"
+
+[[utility]]
+crate = "crates/rusty-xr-particles/dynamic-mesh-collider"
+source_family = "public dynamic mesh collider utility"
+extraction_date = "2026-05-06"
+public_safe_rationale = "Collider-ready dynamic mesh surfaces, optional normal-based inflation, diagnostic visual shells, and simple closest-point/sphere-overlap probes are reusable for hands, scan meshes, fixture meshes, and adapter-owned physics integrations without pulling engine or platform SDK code into core."
+license_assumptions = "Authored for this MIT repository from public triangle-mesh collision and diagnostic-visual workflow concepts; no platform SDK sample code or downstream behavior is copied."
+scrubbed_private_dependencies = ["native provider implementation", "physics-engine handles", "renderer backend code", "collision callbacks", "package identity", "generated captures", "signing material"]
 review_status = "public-utility"

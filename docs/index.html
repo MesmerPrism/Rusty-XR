@@ -34,7 +34,7 @@
       <ul class="tag-list">
         <li>Plain Rust contracts</li>
         <li>Quest and Android diagnostics</li>
-        <li>Camera, depth, SDF, particles</li>
+        <li>Camera, depth, SDF, particles, colliders</li>
         <li>BLE, LSL, OSC, Polar H10 models</li>
         <li>Optional adapters later</li>
       </ul>
@@ -42,12 +42,12 @@
 
     <section class="grid cols-3">
       <div class="metric">
-        <strong>12</strong>
-        <p>Workspace crates currently tracked in the public core.</p>
+        <strong>15</strong>
+        <p>Workspace members: 12 reusable crates plus 3 public example or probe packages.</p>
       </div>
       <div class="metric">
-        <strong>30</strong>
-        <p>Public source and documentation files in the latest graphify audit.</p>
+        <strong>3</strong>
+        <p>Dynamic mesh paths documented: surface coordinates, SDF fields, and collider surfaces.</p>
       </div>
       <div class="metric">
         <strong>0</strong>
@@ -69,7 +69,7 @@
             <tr><td>Debug canvas</td><td>Normalized diagnostic HUD documents, draw lists, text runs, tones, and input-neutral HUD commands.</td><td>In progress</td></tr>
             <tr><td>Quest diagnostics</td><td>Device readiness, package launch state, frame-rate summaries, runtime counters.</td><td>In progress</td></tr>
             <tr><td>Camera / depth / SDF</td><td>Projection helpers, timestamp matching, environment-depth diagnostics, unique capture cadence, readback policies, per-view metadata, packed SDF, sparse TSDF snapshots, dynamic mesh-to-SDF reference conversion, and depth-derived support/impact query contracts.</td><td>In progress</td></tr>
-            <tr><td>Particles</td><td>Deterministic particle storage, seeded sphere helper, fixed-step clock, render payload generation, dynamic mesh coordinate sampling, live deformed-mesh anchor updates, same-surface neighbor tiers, cross-surface neighbor links, hand-mesh snapshot sampling, and SDF surface-attraction helpers.</td><td>In progress</td></tr>
+            <tr><td>Particles</td><td>Deterministic particle storage, seeded sphere helper, fixed-step clock, render payload generation, dynamic mesh coordinate sampling, live deformed-mesh anchor updates, same-surface neighbor tiers, cross-surface neighbor links, hand-mesh snapshot sampling, dynamic mesh collider surfaces with diagnostic shells, and SDF surface-attraction helpers.</td><td>In progress</td></tr>
           </tbody>
         </table>
       </div>
@@ -116,7 +116,7 @@
 
     <section class="panel">
       <h2>Utility Foundation</h2>
-      <p>The first examples include synthetic contracts-only layout, composite feedback, native passthrough style catalog, audio-reactive passthrough style, and visual strobe profile demos, a minimal Rust-native Android APK smoke test, a camera-driven Quest OpenXR/Vulkan custom-layer example with optional screen streaming, OSC ingress, and a diagnostic HUD, plus a broker APK proof for localhost WebSocket, optional LSL forwarding, and OSC drive events. Native adapters remain narrow and example-owned while the public utility surface stabilizes.</p>
+      <p>The public examples include contracts-only layout, composite feedback, native passthrough style catalog, audio-reactive passthrough style, visual strobe profile demos, portable hand-mesh coordinate, collider, and SDF particle demos, a minimal Rust-native Android APK smoke test, a camera-driven Quest OpenXR/Vulkan custom-layer example with optional screen streaming, OSC ingress, diagnostic HUD, environment-depth diagnostics, and live hand-mesh particle visualization, plus a broker APK proof for localhost WebSocket, optional LSL forwarding, OSC drive events, and bounded media probes. Native adapters remain narrow and example-owned while the public utility surface stabilizes.</p>
       <div class="grid cols-3">
         <a class="card" href="SERIALIZATION_AND_SCHEMA_POLICY.md">
           <h3>Serialization</h3>
@@ -154,6 +154,10 @@
           <h3>Mesh To SDF</h3>
           <p>Convert dynamic triangle meshes into packed SDF grids and attract public particles toward the surface.</p>
         </a>
+        <a class="card" href="DYNAMIC_MESH_COLLIDERS.md">
+          <h3>Mesh Colliders</h3>
+          <p>Build collider-ready dynamic mesh surfaces and diagnostic visual shells from live hand or scan meshes.</p>
+        </a>
         <a class="card" href="PROVENANCE.md">
           <h3>Provenance</h3>
           <p>Public utility entries record broad source families without leaking private paths.</p>
@@ -172,7 +176,7 @@
         </a>
         <a class="card" href="https://github.com/MesmerPrism/Rusty-XR/tree/main/crates/rusty-xr-contracts/examples">
           <h3>Examples</h3>
-          <p>Run synthetic demos, build the minimal APK smoke test, validate the Quest custom-layer example, test the broker sidecar, or compare it against the public Unity Quest example.</p>
+          <p>Run contract demos, mesh utility demos, the minimal APK smoke test, the Quest custom-layer example, or the broker sidecar proof.</p>
         </a>
         <a class="card" href="https://github.com/MesmerPrism/the-big-red-button-institute">
           <h3>Unity Example</h3>

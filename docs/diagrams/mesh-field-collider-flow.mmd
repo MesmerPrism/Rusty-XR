@@ -1,0 +1,33 @@
+flowchart LR
+  provider["Runtime, Engine, Scan, Or Fixture Mesh Provider"]
+  hand["HandMeshSnapshot"]
+  surface["TriangleMeshSurface"]
+  coords["LiveMeshSurfaceSampler"]
+  samples["MeshSurfaceSampleSet"]
+  neighbors["Same-Surface And Cross-Surface Neighborhoods"]
+  collider["DynamicMeshCollider"]
+  shell["Diagnostic Shell"]
+  physics["Adapter-Owned Physics Collider"]
+  sdfmesh["TriangleMeshSnapshot"]
+  sdf["PackedSdfGrid"]
+  particles["ParticleSet / RenderPayload"]
+
+  provider --> hand
+  provider --> surface
+  hand --> surface
+  surface --> coords
+  coords --> samples
+  samples --> neighbors
+  hand --> collider
+  surface --> collider
+  collider --> shell
+  collider --> physics
+  surface --> sdfmesh
+  sdfmesh --> sdf
+  sdf --> particles
+  samples --> particles
+
+  adapter["Native platform calls, renderer buffers, worker cadence, and collision callbacks stay adapter-owned"]
+  physics -.-> adapter
+  shell -.-> adapter
+  particles -.-> adapter

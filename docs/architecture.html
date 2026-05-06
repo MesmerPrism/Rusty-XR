@@ -54,11 +54,15 @@
         <h2>Diagnostics And Control</h2>
         <p><code>rusty-xr-debug-canvas</code> owns normalized diagnostic HUD documents, draw lists, tones, and input-neutral HUD commands. <code>rusty-xr-osc</code> owns generic OSC packets, endpoint status, and UDP helpers. Quest renderers, controller bindings, LSL bridges, ADB intents, and app-specific address trees remain shell-owned.</p>
       </article>
+      <article class="panel">
+        <h2>Dynamic Mesh Stack</h2>
+        <p><code>rusty-xr-particles</code> owns surface-locked coordinate sampling, live hand-mesh particle anchors, same-surface and cross-surface neighborhoods, collider-ready dynamic mesh surfaces, diagnostic shells, and public SDF attraction helpers. <code>rusty-xr-sdf</code> owns packed SDF grids, sparse TSDF snapshots, mesh-to-SDF conversion, and depth-derived support or impact query contracts.</p>
+      </article>
     </section>
 
     <section class="panel">
-      <h2>Graphify Audit Snapshot</h2>
-      <p>The latest local graphify audit of the public repo found <strong>607 nodes</strong>, <strong>830 edges</strong>, and <strong>25 communities</strong>. The most connected public abstractions were <code>Vec3</code>, <code>PlainStereoLayer</code>, implementation-plan sections, <code>Quat</code>, and <code>PackedSdfGrid</code>. The graph output is kept out of the public site; this page only records the sanitized architectural takeaway.</p>
+      <h2>Audit Posture</h2>
+      <p>Graph and boundary audits are used as local checks, but raw audit outputs stay out of the public site. The published takeaway is the stable dependency direction: plain contracts and deterministic helpers in Rusty XR, native runtime ownership and product behavior in downstream shells.</p>
     </section>
   </main>
 

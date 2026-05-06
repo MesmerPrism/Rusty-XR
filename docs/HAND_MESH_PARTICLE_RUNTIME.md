@@ -21,6 +21,10 @@ If a consumer needs a volumetric field rather than mesh-attached coordinates,
 the same deformed hand mesh can also be converted into a packed SDF. See
 [dynamic mesh to SDF](DYNAMIC_MESH_TO_SDF.md).
 
+If a consumer needs a physics or proximity surface, the same deformed hand mesh
+can be converted into collider-ready mesh data with an optional diagnostic
+visual shell. See [dynamic mesh colliders](DYNAMIC_MESH_COLLIDERS.md).
+
 ## Runtime Ownership
 
 The adapter owns platform calls, feature negotiation, session timing, and
@@ -68,6 +72,17 @@ The Quest composite-layer example uses the particle renderer as a visual check
 for the live coordinate mapping. The reusable utility is the coordinate set and
 its neighborhoods, not the billboard renderer.
 
+## Collider Surface
+
+`DynamicMeshCollider` consumes the same `HandMeshSnapshot` frames and produces
+adapter-owned collider surface data. It can optionally inflate the surface and
+build a separate diagnostic shell so a renderer can show where the live hand
+collider sits without changing the actual collision mesh.
+
+This is useful for Meta-hand colliders, trigger volumes, and simple proximity
+tests. Native collider cooking, collision layers, trigger callbacks, and
+renderer buffers still belong to the downstream adapter.
+
 ## Availability
 
 The real hand mesh is available only after the runtime session and hand-mesh
@@ -78,8 +93,8 @@ if desired, and resample when topology changes.
 
 ## Portable Fixture Example
 
-The public example uses a procedural hand-like mesh because it is portable and
-does not require headset hardware:
+The public example uses a portable hand mesh fixture because it can run without
+headset hardware:
 
 ```powershell
 cargo run -p rusty-xr-particles --example hand_mesh_fixture_samples
@@ -89,11 +104,19 @@ That example exercises the same sampler, live deformed-mesh update path,
 render-payload conversion, and cross-hand neighborhood construction that a
 native adapter uses with runtime hand-mesh frames.
 
-The source-only SDF attraction example uses a procedural hand-like mesh, builds
-a packed SDF around it, and steps public particles toward that field:
+The source-only SDF attraction example uses the portable hand mesh fixture,
+builds a packed SDF around it, and steps public particles toward that field:
 
 ```powershell
 cargo run -p rusty-xr-particles --example hand_mesh_sdf_attraction
+```
+
+The source-only collider example uses the same hand mesh fixture, creates a
+dynamic collider surface and diagnostic shell, then runs simple closest-point
+and sphere-overlap probes:
+
+```powershell
+cargo run -p rusty-xr-particles --example hand_mesh_dynamic_collider
 ```
 
 ## References
