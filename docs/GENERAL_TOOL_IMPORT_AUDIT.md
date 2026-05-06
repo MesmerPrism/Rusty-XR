@@ -108,6 +108,32 @@ Next likely public step:
   such as influence or proximity passes, while keeping app-specific coupling
   behavior downstream.
 
+### Dynamic Mesh To SDF And Particle Attraction
+
+Public extraction added:
+
+- `MeshToSdfConfig`
+- `MeshSdfSignMode`
+- `build_sdf_from_mesh`
+- `build_sdf_from_mesh_bounds`
+- `PackedSdfGrid::sample_extrapolated`
+- `SdfParticleAttractionConfig`
+- `SdfParticleAttractionMode`
+- `step_particles_toward_sdf`
+- `MeshSdfParticleAttractionScenarioConfig`
+
+These live in `rusty-xr-sdf` and `rusty-xr-particles`. They provide a
+dependency-light CPU reference for converting a dynamic triangle mesh into a
+packed SDF and for stepping public particles toward that field. The public
+shape is useful for live hand-mesh, scan-mesh, procedural-mesh, and collision
+field experiments while keeping worker ownership, GPU kernels, renderer
+buffers, and app-specific force/coupling behavior downstream.
+
+Next likely public step:
+
+- Add adapter-facing throttling/diagnostic structs for live SDF rebuild cadence
+  after one or two public examples prove the required counters.
+
 ### Plain Stereo Layer And Visual Feedback Border
 
 Public extraction added:
@@ -157,7 +183,7 @@ Next likely public step:
 | Depth-readback novelty gates | Local TSDF/depth integration experiments | Generic novelty score and readback cadence policy | Medium; initial readback policy is public, but novelty scoring still needs public names and tests |
 | Surface-net chunk extraction | Local depth debug mesh experiments | TSDF-to-chunked debug mesh extraction over public sparse snapshot | Medium; more algorithmic code and attribution needed |
 | Depth support/impact planes | Local depth query experiments | Support-plane and impact-plane summaries for particles/physics | Medium; initial data-only contracts are public, while physics adapters remain optional |
-| Dynamic mesh interaction passes | Local particle and hand-mesh experiments | Influence/proximity helpers over `MeshSurfaceSampleSet` and cross-surface neighborhoods | Low/medium; keep app-specific coupling and private visual behavior downstream |
+| Dynamic mesh interaction passes | Local particle and hand-mesh experiments | Influence/proximity helpers over `MeshSurfaceSampleSet`, cross-surface neighborhoods, and SDF fields | Low/medium; keep app-specific coupling and private visual behavior downstream |
 | Scan package manifest | Local capture and scan workflows | JSON-friendly capture package descriptors, stream manifests, frame indexes | Low |
 
 ## Defer Or Keep Adapter-Only

@@ -8,10 +8,11 @@ description = "General particle and animation primitives for Rusty XR."
 
 [features]
 default = []
-serde = ["dep:serde", "rusty-xr-contracts/serde"]
+serde = ["dep:serde", "rusty-xr-contracts/serde", "rusty-xr-sdf/serde"]
 
 [dependencies]
 rusty-xr-contracts = { path = "../rusty-xr-contracts" }
+rusty-xr-sdf = { path = "../rusty-xr-sdf" }
 serde = { workspace = true, optional = true }
 
 [dev-dependencies]

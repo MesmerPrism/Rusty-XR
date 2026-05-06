@@ -68,8 +68,8 @@
             <tr><td>BLE / LSL / OSC / Polar</td><td>BLE permission and GATT models, LSL stream schemas, OSC packet and UDP helpers, Polar H10 HR/RR/ECG/ACC helpers.</td><td>In progress</td></tr>
             <tr><td>Debug canvas</td><td>Normalized diagnostic HUD documents, draw lists, text runs, tones, and input-neutral HUD commands.</td><td>In progress</td></tr>
             <tr><td>Quest diagnostics</td><td>Device readiness, package launch state, frame-rate summaries, runtime counters.</td><td>In progress</td></tr>
-            <tr><td>Camera / depth / SDF</td><td>Projection helpers, timestamp matching, environment-depth diagnostics, unique capture cadence, readback policies, per-view metadata, packed SDF, sparse TSDF snapshots, and depth-derived support/impact query contracts.</td><td>In progress</td></tr>
-            <tr><td>Particles</td><td>Deterministic particle storage, seeded sphere helper, fixed-step clock, render payload generation, dynamic mesh coordinate sampling, live deformed-mesh anchor updates, same-surface neighbor tiers, cross-surface neighbor links, and hand-mesh snapshot sampling.</td><td>In progress</td></tr>
+            <tr><td>Camera / depth / SDF</td><td>Projection helpers, timestamp matching, environment-depth diagnostics, unique capture cadence, readback policies, per-view metadata, packed SDF, sparse TSDF snapshots, dynamic mesh-to-SDF reference conversion, and depth-derived support/impact query contracts.</td><td>In progress</td></tr>
+            <tr><td>Particles</td><td>Deterministic particle storage, seeded sphere helper, fixed-step clock, render payload generation, dynamic mesh coordinate sampling, live deformed-mesh anchor updates, same-surface neighbor tiers, cross-surface neighbor links, hand-mesh snapshot sampling, and SDF surface-attraction helpers.</td><td>In progress</td></tr>
           </tbody>
         </table>
       </div>
@@ -149,6 +149,10 @@
         <a class="card" href="DYNAMIC_MESH_COORDINATE_SAMPLING.md">
           <h3>Mesh Coordinates</h3>
           <p>Stable barycentric coordinates on dynamic triangle meshes, with same-surface and cross-surface neighborhoods.</p>
+        </a>
+        <a class="card" href="DYNAMIC_MESH_TO_SDF.md">
+          <h3>Mesh To SDF</h3>
+          <p>Convert dynamic triangle meshes into packed SDF grids and attract public particles toward the surface.</p>
         </a>
         <a class="card" href="PROVENANCE.md">
           <h3>Provenance</h3>

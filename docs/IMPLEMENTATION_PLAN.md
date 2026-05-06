@@ -126,12 +126,18 @@ retirement policy.
 ### SDF Model
 
 Reusable signed-distance-field contracts, mesh snapshots, packed grids, sparse
-views, and small reference utilities.
+views, dynamic mesh-to-SDF reference conversion, and small reference utilities.
+The CPU mesh-to-SDF builder is the public deterministic baseline for examples
+and adapter validation; high-throughput workers or GPU kernels remain
+adapter-owned until their contracts settle.
 
 ### Particle And Animation Primitives
 
 Reusable particle state, simulation, interaction, animation, and render-payload
-contracts that can run independently of a specific app shell.
+contracts that can run independently of a specific app shell. The particle
+crate also owns source-only mesh coordinate sampling and SDF surface-attraction
+helpers so public examples can validate hand-mesh and field workflows without
+publishing app-specific simulation behavior.
 
 ### Optional Framework Adapters
 

@@ -6,6 +6,8 @@
 //! It also includes stable coordinate sampling for dynamic triangle meshes:
 //! providers can update deformed vertices every frame while keeping sampled
 //! triangle/barycentric anchors and neighborhood identity stable.
+//! Source-only SDF attraction helpers are included as a public example consumer
+//! of dynamic mesh fields; higher-level simulation behavior stays downstream.
 //!
 //! Enable the `serde` feature to serialize particle buffers and fixed-step
 //! runtime state for fixtures or operator tooling.
@@ -15,6 +17,12 @@ use std::collections::{HashMap, HashSet};
 pub use rusty_xr_contracts::{
     ColorRgba, HandMeshError, HandMeshSnapshot, Handedness, RenderCoordinateSpace, RenderPayload,
     RenderPoint, RuntimeCounters, Vec3,
+};
+pub use rusty_xr_sdf::{
+    build_sdf_from_mesh, build_sdf_from_mesh_bounds,
+    triangle_mesh_snapshot_from_hand_mesh_snapshot, Bounds3, MeshSdfSignMode, MeshToSdfConfig,
+    MeshToSdfConfigError, MeshToSdfError, PackedSdfGrid, PackedSdfSample, SdfSampleMode,
+    TriangleMeshSnapshot,
 };
 
 /// Crate version exposed for lightweight smoke checks.
@@ -216,6 +224,245 @@ impl ParticleSet {
     }
 }
 
+/// SDF interaction mode for the small public particle attraction stepper.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SdfParticleAttractionMode {
+    None,
+    AttractToSurface,
+    GaussianSurfaceAttract,
+}
+
+/// Configuration for attracting simple CPU particles toward an SDF surface.
+///
+/// This is a dependency-light reference helper for examples and adapters. It
+/// does not own threading, GPU kernels, renderer state, or app-specific
+/// simulation behavior.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SdfParticleAttractionConfig {
+    pub mode: SdfParticleAttractionMode,
+    pub sample_mode: SdfSampleMode,
+    pub strength: f32,
+    pub attraction_distance_meters: f32,
+    pub gaussian_sigma_meters: f32,
+    pub normal_damping: f32,
+    pub drag: f32,
+    pub max_speed_meters_per_second: f32,
+    pub max_extrapolation_meters: f32,
+}
+
+impl Default for SdfParticleAttractionConfig {
+    fn default() -> Self {
+        Self {
+            mode: SdfParticleAttractionMode::AttractToSurface,
+            sample_mode: SdfSampleMode::Trilinear,
+            strength: 5.0,
+            attraction_distance_meters: 1.5,
+            gaussian_sigma_meters: 0.08,
+            normal_damping: 0.35,
+            drag: 0.04,
+            max_speed_meters_per_second: 1.4,
+            max_extrapolation_meters: 0.0,
+        }
+    }
+}
+
+/// Summary from one CPU SDF attraction step.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SdfParticleAttractionStepStats {
+    pub sampled_count: usize,
+    pub affected_count: usize,
+    pub max_speed_observed: f32,
+}
+
+/// Step particles with a simple SDF surface attraction force.
+pub fn step_particles_toward_sdf(
+    particles: &mut ParticleSet,
+    sdf: &PackedSdfGrid,
+    delta_seconds: f32,
+    config: SdfParticleAttractionConfig,
+) -> SdfParticleAttractionStepStats {
+    if config.mode == SdfParticleAttractionMode::None
+        || !delta_seconds.is_finite()
+        || delta_seconds <= 0.0
+        || !particles.validate_layout()
+    {
+        return SdfParticleAttractionStepStats::default();
+    }
+
+    let mut stats = SdfParticleAttractionStepStats::default();
+    for index in 0..particles.len() {
+        let position = particles.positions[index];
+        let velocity = particles.velocities[index];
+        let Some(sample) = sample_sdf_for_attraction(position, sdf, config) else {
+            continue;
+        };
+        stats.sampled_count += 1;
+
+        let normal = sample.normal.normalized_or(Vec3::UP);
+        let distance = sample.distance_meters;
+        let acceleration = sdf_attraction_acceleration(distance, normal, velocity, config);
+        if acceleration.length_squared() > 1.0e-12 {
+            stats.affected_count += 1;
+        }
+
+        let mut next_velocity = velocity + (acceleration * delta_seconds);
+        let drag_multiplier = (1.0 - (config.drag.max(0.0) * delta_seconds)).clamp(0.0, 1.0);
+        next_velocity *= drag_multiplier;
+        next_velocity = clamp_particle_speed(next_velocity, config.max_speed_meters_per_second);
+        particles.positions[index] = position + (next_velocity * delta_seconds);
+        particles.velocities[index] = next_velocity;
+        stats.max_speed_observed = stats.max_speed_observed.max(next_velocity.length());
+    }
+
+    stats
+}
+
+/// Camera pose helper for source-only SDF attraction scenarios.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CameraPose {
+    pub position: Vec3,
+    pub forward: Vec3,
+    pub up: Vec3,
+}
+
+impl CameraPose {
+    pub const fn new(position: Vec3, forward: Vec3, up: Vec3) -> Self {
+        Self {
+            position,
+            forward,
+            up,
+        }
+    }
+
+    pub fn forward_for_spawn(self, yaw_only: bool) -> Vec3 {
+        if !yaw_only {
+            return self.forward.normalized_or(Vec3::FORWARD_NEG_Z);
+        }
+
+        let up = self.up.normalized_or(Vec3::UP);
+        let flattened = self.forward - (up * self.forward.dot(up));
+        flattened.normalized_or(self.forward.normalized_or(Vec3::FORWARD_NEG_Z))
+    }
+}
+
+/// Places a deterministic particle sphere in front of a camera/head pose.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ParticleSphereSpawnConfig {
+    pub count: usize,
+    pub distance_meters: f32,
+    pub radius_meters: f32,
+    pub particle_radius_meters: f32,
+    pub vertical_offset_meters: f32,
+    pub yaw_only: bool,
+}
+
+impl Default for ParticleSphereSpawnConfig {
+    fn default() -> Self {
+        Self {
+            count: 4096,
+            distance_meters: 1.25,
+            radius_meters: 0.28,
+            particle_radius_meters: 0.006,
+            vertical_offset_meters: 0.0,
+            yaw_only: true,
+        }
+    }
+}
+
+impl ParticleSphereSpawnConfig {
+    pub fn center_for_camera(self, camera: CameraPose) -> Vec3 {
+        let forward = camera.forward_for_spawn(self.yaw_only);
+        camera.position
+            + (forward * self.distance_meters.max(0.0))
+            + (camera.up.normalized_or(Vec3::UP) * self.vertical_offset_meters)
+    }
+
+    pub fn spawn_particles(self, camera: CameraPose) -> ParticleSet {
+        ParticleSet::seed_sphere(
+            self.count,
+            self.center_for_camera(camera),
+            self.radius_meters.max(0.0),
+            self.particle_radius_meters.max(0.0),
+        )
+    }
+}
+
+/// Scenario builder config for particles attracted to a dynamic mesh SDF.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeshSdfParticleAttractionScenarioConfig {
+    pub spawn: ParticleSphereSpawnConfig,
+    pub mesh_sdf: MeshToSdfConfig,
+    pub attraction: SdfParticleAttractionConfig,
+    pub bounds_padding_meters: f32,
+}
+
+impl Default for MeshSdfParticleAttractionScenarioConfig {
+    fn default() -> Self {
+        let mut attraction = SdfParticleAttractionConfig::default();
+        attraction.mode = SdfParticleAttractionMode::AttractToSurface;
+        Self {
+            spawn: ParticleSphereSpawnConfig::default(),
+            mesh_sdf: MeshToSdfConfig::default(),
+            attraction,
+            bounds_padding_meters: 0.25,
+        }
+    }
+}
+
+/// Initial particle set plus a packed SDF built from a mesh snapshot.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeshSdfParticleAttractionScenario {
+    pub attraction_config: SdfParticleAttractionConfig,
+    pub particles: ParticleSet,
+    pub sdf: PackedSdfGrid,
+    pub particle_spawn_center: Vec3,
+    pub sdf_bounds: Bounds3,
+    pub simulation_bounds: Bounds3,
+}
+
+pub fn spawn_particle_sphere_in_front_of_camera(
+    camera: CameraPose,
+    spawn: ParticleSphereSpawnConfig,
+) -> ParticleSet {
+    spawn.spawn_particles(camera)
+}
+
+pub fn build_mesh_sdf_particle_attraction_scenario(
+    version: u64,
+    camera: CameraPose,
+    mesh: &TriangleMeshSnapshot,
+    config: MeshSdfParticleAttractionScenarioConfig,
+) -> Result<MeshSdfParticleAttractionScenario, MeshToSdfError> {
+    let spawn_center = config.spawn.center_for_camera(camera);
+    let particles = config.spawn.spawn_particles(camera);
+    let mesh_bounds = mesh.bounds().ok_or(MeshToSdfError::EmptyMesh)?;
+    let sdf_bounds = mesh_bounds.include_sphere(spawn_center, config.spawn.radius_meters);
+    let sdf = build_sdf_from_mesh_bounds(version, mesh, config.mesh_sdf, sdf_bounds)?;
+
+    let simulation_bounds = sdf_bounds.expanded(config.bounds_padding_meters);
+    let mut attraction_config = config.attraction;
+    attraction_config.mode = SdfParticleAttractionMode::AttractToSurface;
+    attraction_config.attraction_distance_meters = attraction_config
+        .attraction_distance_meters
+        .max(config.spawn.radius_meters + config.mesh_sdf.padding_meters);
+
+    Ok(MeshSdfParticleAttractionScenario {
+        attraction_config,
+        particles,
+        sdf,
+        particle_spawn_center: spawn_center,
+        sdf_bounds,
+        simulation_bounds,
+    })
+}
+
 /// Convert rich particle render records into the public point payload contract.
 pub fn render_particles_to_payload(
     frame_index: u64,
@@ -251,6 +498,7 @@ pub struct TriangleMeshSurface {
 pub enum TriangleMeshSurfaceError {
     InvalidHandMesh(HandMeshError),
     IndexDoesNotFitUsize(u32),
+    IndexDoesNotFitU32(usize),
 }
 
 impl TriangleMeshSurface {
@@ -296,6 +544,13 @@ impl TriangleMeshSurface {
     ) -> Result<Self, TriangleMeshSurfaceError> {
         triangle_mesh_surface_from_hand_mesh_snapshot(snapshot)
     }
+
+    pub fn to_triangle_mesh_snapshot(
+        &self,
+        version: u64,
+    ) -> Result<TriangleMeshSnapshot, TriangleMeshSurfaceError> {
+        triangle_mesh_snapshot_from_surface(version, self)
+    }
 }
 
 /// Convert a framework-neutral hand mesh snapshot into the particle mesh surface
@@ -321,6 +576,29 @@ pub fn triangle_mesh_surface_from_hand_mesh_snapshot(
     Ok(TriangleMeshSurface::new(
         snapshot.vertices.clone(),
         triangles,
+    ))
+}
+
+/// Convert a particle mesh surface into the SDF crate's mesh snapshot shape.
+pub fn triangle_mesh_snapshot_from_surface(
+    version: u64,
+    surface: &TriangleMeshSurface,
+) -> Result<TriangleMeshSnapshot, TriangleMeshSurfaceError> {
+    let mut indices = Vec::with_capacity(surface.triangles.len());
+    for triangle in surface.triangles.iter().copied() {
+        let a = u32::try_from(triangle[0])
+            .map_err(|_| TriangleMeshSurfaceError::IndexDoesNotFitU32(triangle[0]))?;
+        let b = u32::try_from(triangle[1])
+            .map_err(|_| TriangleMeshSurfaceError::IndexDoesNotFitU32(triangle[1]))?;
+        let c = u32::try_from(triangle[2])
+            .map_err(|_| TriangleMeshSurfaceError::IndexDoesNotFitU32(triangle[2]))?;
+        indices.push([a, b, c]);
+    }
+
+    Ok(TriangleMeshSnapshot::new(
+        version,
+        surface.vertices.clone(),
+        indices,
     ))
 }
 
@@ -2041,6 +2319,87 @@ impl FixedStepClock {
     }
 }
 
+fn sample_sdf_for_attraction(
+    position: Vec3,
+    sdf: &PackedSdfGrid,
+    config: SdfParticleAttractionConfig,
+) -> Option<PackedSdfSample> {
+    if config.max_extrapolation_meters > 0.0 {
+        return sdf.sample_extrapolated(
+            position,
+            config.sample_mode,
+            config.max_extrapolation_meters,
+        );
+    }
+    sdf.sample(position, config.sample_mode)
+}
+
+fn sdf_attraction_acceleration(
+    distance_meters: f32,
+    normal: Vec3,
+    velocity: Vec3,
+    config: SdfParticleAttractionConfig,
+) -> Vec3 {
+    match config.mode {
+        SdfParticleAttractionMode::None => Vec3::ZERO,
+        SdfParticleAttractionMode::AttractToSurface => {
+            let attraction_distance = config.attraction_distance_meters.max(0.000_1);
+            let abs_distance = distance_meters.abs();
+            if abs_distance > attraction_distance {
+                return Vec3::ZERO;
+            }
+
+            let to_surface = if distance_meters >= 0.0 {
+                -normal
+            } else {
+                normal
+            };
+            let falloff = 1.0 - (abs_distance / attraction_distance).clamp(0.0, 1.0);
+            to_surface * (config.strength * falloff * falloff)
+        }
+        SdfParticleAttractionMode::GaussianSurfaceAttract => {
+            let attraction_distance = config.attraction_distance_meters.max(0.000_1);
+            let abs_distance = distance_meters.abs();
+            let sigma = config.gaussian_sigma_meters.max(0.000_1);
+            let range_fade = soft_sdf_range_fade(abs_distance, attraction_distance, sigma);
+            if range_fade <= 0.0 {
+                return Vec3::ZERO;
+            }
+
+            let normalized_distance = distance_meters / sigma;
+            let gaussian = (-0.5 * normalized_distance * normalized_distance).exp() * range_fade;
+            let spring = -normal * (distance_meters * config.strength.max(0.0) * gaussian);
+            let normal_speed = velocity.dot(normal);
+            let damping = -normal * (normal_speed * config.normal_damping.max(0.0) * gaussian);
+            spring + damping
+        }
+    }
+}
+
+fn soft_sdf_range_fade(
+    abs_distance_meters: f32,
+    attraction_distance_meters: f32,
+    sigma_meters: f32,
+) -> f32 {
+    if abs_distance_meters <= attraction_distance_meters {
+        return 1.0;
+    }
+
+    let edge_width = (attraction_distance_meters * 0.35)
+        .max(sigma_meters)
+        .max(0.000_1);
+    let t = ((abs_distance_meters - attraction_distance_meters) / edge_width).clamp(0.0, 1.0);
+    1.0 - (t * t * (3.0 - 2.0 * t))
+}
+
+fn clamp_particle_speed(velocity: Vec3, max_speed_meters_per_second: f32) -> Vec3 {
+    let max_speed = max_speed_meters_per_second.max(0.0);
+    if max_speed <= 1.0e-5 {
+        return velocity;
+    }
+    velocity.clamped_length(max_speed)
+}
+
 #[derive(Clone, Copy, Debug)]
 struct SurfaceTriangleRecord {
     indices: [usize; 3],
@@ -2597,6 +2956,74 @@ mod tests {
         assert_eq!(payload.points[0].radius_meters, 0.04);
         assert_eq!(payload.points[0].flags, 7);
         assert!(payload.is_valid());
+    }
+
+    #[test]
+    fn sdf_attraction_moves_particle_toward_surface() {
+        let sdf = PackedSdfGrid::sphere(
+            1,
+            Vec3::ZERO,
+            0.2,
+            Vec3::new(-1.0, -1.0, -1.0),
+            0.05,
+            [40, 40, 40],
+        )
+        .expect("sphere SDF should build");
+        let mut particles = ParticleSet::with_capacity(1);
+        particles.push_state(ParticleState::new(Vec3::new(0.55, 0.0, 0.0), 0.01));
+
+        let stats = step_particles_toward_sdf(
+            &mut particles,
+            &sdf,
+            1.0 / 60.0,
+            SdfParticleAttractionConfig {
+                strength: 12.0,
+                attraction_distance_meters: 0.6,
+                max_speed_meters_per_second: 2.0,
+                ..SdfParticleAttractionConfig::default()
+            },
+        );
+
+        assert_eq!(stats.sampled_count, 1);
+        assert_eq!(stats.affected_count, 1);
+        assert!(particles.positions[0].x < 0.55);
+    }
+
+    #[test]
+    fn builds_mesh_sdf_particle_attraction_scenario() {
+        let camera = CameraPose::new(Vec3::ZERO, Vec3::FORWARD_NEG_Z, Vec3::UP);
+        let surface = build_synthetic_hand_mesh(SyntheticHandMeshConfig::default());
+        let mesh = surface
+            .to_triangle_mesh_snapshot(3)
+            .expect("synthetic hand should convert to SDF mesh");
+        let scenario = build_mesh_sdf_particle_attraction_scenario(
+            3,
+            camera,
+            &mesh,
+            MeshSdfParticleAttractionScenarioConfig {
+                spawn: ParticleSphereSpawnConfig {
+                    count: 32,
+                    distance_meters: 0.35,
+                    radius_meters: 0.08,
+                    particle_radius_meters: 0.005,
+                    vertical_offset_meters: 0.0,
+                    yaw_only: true,
+                },
+                mesh_sdf: MeshToSdfConfig {
+                    voxel_size_meters: 0.04,
+                    padding_meters: 0.1,
+                    max_voxels: 64 * 64 * 64,
+                    sign_mode: MeshSdfSignMode::TriangleNormal,
+                    ..MeshToSdfConfig::default()
+                },
+                ..MeshSdfParticleAttractionScenarioConfig::default()
+            },
+        )
+        .expect("scenario should build");
+
+        assert_eq!(scenario.particles.len(), 32);
+        assert!(scenario.sdf.voxel_count() > 0);
+        assert!(scenario.simulation_bounds.is_valid());
     }
 
     #[test]

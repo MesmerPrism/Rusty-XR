@@ -24,7 +24,8 @@ LSL-native adapters.
 - `rusty-xr-camera-model`, `rusty-xr-depth-model`, `rusty-xr-sdf`, and
   `rusty-xr-particles`: deterministic helpers, dynamic mesh coordinate
   sampling, same-surface and cross-surface neighborhoods, live hand-mesh
-  snapshot anchors, and public snapshots that can be demonstrated with
+  snapshot anchors, dynamic mesh-to-SDF conversion, public SDF particle
+  attraction helpers, and public snapshots that can be demonstrated with
   synthetic data or public examples.
 
 ## Stabilization Notes
@@ -38,7 +39,7 @@ LSL-native adapters.
   example APK listings when example APKs are later published.
 - Keep session-level capture/OpenXR examples public-authored and adapter-owned:
   platform calls may live in examples, while reusable data contracts and
-  deterministic mesh/particle helpers stay in core crates.
+  deterministic mesh/SDF/particle helpers stay in core crates.
 - Keep the first APK example limited to native-library loading, public contract
   serialization, launch, stop, snapshot, and basic frame-callback diagnostics.
 

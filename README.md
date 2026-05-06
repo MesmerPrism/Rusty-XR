@@ -31,9 +31,10 @@ Initial crate layout:
 - `rusty-xr-quest-diagnostics`: reusable Quest diagnostic status models.
 - `rusty-xr-camera-model`: camera metadata and projection helpers.
 - `rusty-xr-depth-model`: depth-frame and environment-depth contracts.
-- `rusty-xr-sdf`: signed-distance-field and mesh snapshot contracts.
+- `rusty-xr-sdf`: signed-distance-field, mesh snapshot, sparse TSDF, and
+  dynamic mesh-to-SDF reference utilities.
 - `rusty-xr-particles`: general particle, animation, mesh-surface sampling,
-  live hand-mesh particle anchors, and neighborhood primitives.
+  live hand-mesh particle anchors, SDF attraction, and neighborhood primitives.
 
 The crates are intentionally small at the start. The first milestone is to
 stabilize public contracts and tests before moving higher-level adapters into
@@ -114,6 +115,10 @@ putting platform calls in the core crate. See
 [docs/DYNAMIC_MESH_COORDINATE_SAMPLING.md](docs/DYNAMIC_MESH_COORDINATE_SAMPLING.md)
 and
 [docs/HAND_MESH_PARTICLE_RUNTIME.md](docs/HAND_MESH_PARTICLE_RUNTIME.md).
+It also includes a generic dynamic mesh-to-SDF path: `rusty-xr-sdf` can convert
+a `TriangleMeshSnapshot` into a `PackedSdfGrid`, and `rusty-xr-particles` can
+step public particles toward that SDF as a source-only use case example. See
+[docs/DYNAMIC_MESH_TO_SDF.md](docs/DYNAMIC_MESH_TO_SDF.md).
 An optional source-only ADB shell helper example can be built as a dex jar and
 launched with `adb shell app_process` to report shell-helper status to the
 broker, including optional bounded MediaCodec and shell-visible camera metadata
@@ -140,6 +145,7 @@ cargo run -p rusty-xr-contracts --example meta_passthrough_style_catalog --featu
 cargo run -p rusty-xr-contracts --example audio_reactive_passthrough_style --features serde
 cargo run -p rusty-xr-contracts --example visual_strobe_profiles --features serde
 cargo run -p rusty-xr-particles --example dynamic_mesh_coordinates
+cargo run -p rusty-xr-particles --example hand_mesh_sdf_attraction
 powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Build-BrokerShellHelper.ps1

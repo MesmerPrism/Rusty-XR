@@ -449,6 +449,7 @@ name = "rusty-xr-particles"
 version = "0.1.0"
 dependencies = [
  "rusty-xr-contracts",
+ "rusty-xr-sdf",
  "serde",
  "serde_json",
 ]

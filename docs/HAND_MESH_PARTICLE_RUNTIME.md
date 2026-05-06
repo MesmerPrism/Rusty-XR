@@ -17,6 +17,10 @@ The generic dynamic-mesh API is documented in
 page focuses on hand-mesh snapshots and the particle visualization convenience
 path.
 
+If a consumer needs a volumetric field rather than mesh-attached coordinates,
+the same deformed hand mesh can also be converted into a packed SDF. See
+[dynamic mesh to SDF](DYNAMIC_MESH_TO_SDF.md).
+
 ## Runtime Ownership
 
 The adapter owns platform calls, feature negotiation, session timing, and
@@ -84,6 +88,13 @@ cargo run -p rusty-xr-particles --example synthetic_hand_mesh_samples
 That example exercises the same sampler, live deformed-mesh update path,
 render-payload conversion, and cross-hand neighborhood construction that a
 native adapter uses with runtime hand-mesh frames.
+
+The source-only SDF attraction example uses a procedural hand-like mesh, builds
+a packed SDF around it, and steps public particles toward that field:
+
+```powershell
+cargo run -p rusty-xr-particles --example hand_mesh_sdf_attraction
+```
 
 ## References
 

@@ -1,8 +1,9 @@
 //! Signed-distance-field contracts and utilities for Rusty XR.
 //!
-//! This crate owns public SDF, sparse TSDF, scan-surface, and mesh snapshot
-//! contracts. Native depth acquisition, meshing workers, physics backends, and
-//! captured room datasets stay in adapters or downstream repos.
+//! This crate owns public SDF, sparse TSDF, scan-surface, mesh snapshot, and
+//! dynamic mesh-to-SDF reference utilities. Native depth acquisition, meshing
+//! workers, physics backends, and captured room datasets stay in adapters or
+//! downstream repos.
 //!
 //! Enable the `serde` feature to serialize public scan and SDF snapshots.
 
@@ -10,6 +11,7 @@ use core::fmt;
 use std::collections::{HashMap, HashSet};
 
 pub use rusty_xr_contracts::Vec3;
+use rusty_xr_contracts::{HandMeshError, HandMeshSnapshot};
 
 /// Crate version exposed for lightweight smoke checks.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -1926,6 +1928,22 @@ impl Bounds3 {
             max: self.max + padding,
         }
     }
+
+    pub fn include_sphere(self, center: Vec3, radius_meters: f32) -> Self {
+        let extents = Vec3::splat(radius_meters.max(0.0));
+        Self {
+            min: self.min.min(center - extents),
+            max: self.max.max(center + extents),
+        }
+    }
+
+    pub fn is_valid(self) -> bool {
+        self.min.is_finite()
+            && self.max.is_finite()
+            && self.max.x > self.min.x
+            && self.max.y > self.min.y
+            && self.max.z > self.min.z
+    }
 }
 
 /// Packed dense SDF grid with samples at voxel centers.
@@ -2021,6 +2039,44 @@ impl PackedSdfGrid {
         }
     }
 
+    pub fn sample_extrapolated(
+        &self,
+        world: Vec3,
+        mode: SdfSampleMode,
+        max_extrapolation_meters: f32,
+    ) -> Option<PackedSdfSample> {
+        if let Some(sample) = self.sample(world, mode) {
+            return Some(sample);
+        }
+        if !world.is_finite()
+            || !max_extrapolation_meters.is_finite()
+            || max_extrapolation_meters <= 0.0
+        {
+            return None;
+        }
+
+        let (min, max) = self.sample_center_bounds()?;
+        let clamped_world = world.clamp(min, max);
+        let outside = world - clamped_world;
+        let outside_distance = outside.length();
+        if outside_distance > max_extrapolation_meters {
+            return None;
+        }
+
+        let edge_sample = self.sample(clamped_world, mode)?;
+        let edge_normal = edge_sample.normal.normalized_or(Vec3::UP);
+        let normal = if outside_distance > 1.0e-5 {
+            outside / outside_distance
+        } else {
+            edge_normal
+        };
+
+        Some(PackedSdfSample::new(
+            edge_sample.distance_meters.max(0.0) + outside_distance,
+            normal,
+        ))
+    }
+
     pub fn sample_nearest(&self, world: Vec3) -> Option<PackedSdfSample> {
         let coord = self.grid_coord(world)?;
         let x = coord.x.round() as isize;
@@ -2038,14 +2094,14 @@ impl PackedSdfGrid {
         let ty = coord.y - y0 as f32;
         let tz = coord.z - z0 as f32;
 
-        let c000 = self.sample_at(x0, y0, z0)?;
-        let c100 = self.sample_at(x0 + 1, y0, z0)?;
-        let c010 = self.sample_at(x0, y0 + 1, z0)?;
-        let c110 = self.sample_at(x0 + 1, y0 + 1, z0)?;
-        let c001 = self.sample_at(x0, y0, z0 + 1)?;
-        let c101 = self.sample_at(x0 + 1, y0, z0 + 1)?;
-        let c011 = self.sample_at(x0, y0 + 1, z0 + 1)?;
-        let c111 = self.sample_at(x0 + 1, y0 + 1, z0 + 1)?;
+        let c000 = self.sample_at_clamped(x0, y0, z0)?;
+        let c100 = self.sample_at_clamped(x0 + 1, y0, z0)?;
+        let c010 = self.sample_at_clamped(x0, y0 + 1, z0)?;
+        let c110 = self.sample_at_clamped(x0 + 1, y0 + 1, z0)?;
+        let c001 = self.sample_at_clamped(x0, y0, z0 + 1)?;
+        let c101 = self.sample_at_clamped(x0 + 1, y0, z0 + 1)?;
+        let c011 = self.sample_at_clamped(x0, y0 + 1, z0 + 1)?;
+        let c111 = self.sample_at_clamped(x0 + 1, y0 + 1, z0 + 1)?;
 
         let x00 = lerp_sample(c000, c100, tx);
         let x10 = lerp_sample(c010, c110, tx);
@@ -2059,6 +2115,36 @@ impl PackedSdfGrid {
     pub fn sample_at(&self, x: isize, y: isize, z: isize) -> Option<PackedSdfSample> {
         let index = self.index(x, y, z)?;
         self.samples.get(index).copied()
+    }
+
+    fn sample_center_bounds(&self) -> Option<(Vec3, Vec3)> {
+        if self.samples.is_empty()
+            || self.resolution[0] == 0
+            || self.resolution[1] == 0
+            || self.resolution[2] == 0
+        {
+            return None;
+        }
+
+        let half_voxel = Vec3::splat(self.voxel_size_meters * 0.5);
+        let min = self.origin + half_voxel;
+        let max = self.origin
+            + Vec3::new(
+                (self.resolution[0] as f32 - 0.5) * self.voxel_size_meters,
+                (self.resolution[1] as f32 - 0.5) * self.voxel_size_meters,
+                (self.resolution[2] as f32 - 0.5) * self.voxel_size_meters,
+            );
+        Some((min, max))
+    }
+
+    fn sample_at_clamped(&self, x: isize, y: isize, z: isize) -> Option<PackedSdfSample> {
+        if self.resolution[0] == 0 || self.resolution[1] == 0 || self.resolution[2] == 0 {
+            return None;
+        }
+        let x = x.clamp(0, self.resolution[0].saturating_sub(1) as isize);
+        let y = y.clamp(0, self.resolution[1].saturating_sub(1) as isize);
+        let z = z.clamp(0, self.resolution[2].saturating_sub(1) as isize);
+        self.sample_at(x, y, z)
     }
 
     fn grid_coord(&self, world: Vec3) -> Option<Vec3> {
@@ -2144,6 +2230,216 @@ impl TriangleMeshSnapshot {
     }
 }
 
+/// Convert a public hand mesh snapshot into the SDF crate's mesh snapshot.
+///
+/// Native adapters should perform platform coordinate-space conversion before
+/// constructing `HandMeshSnapshot`; this helper only validates and copies the
+/// already-public mesh data.
+pub fn triangle_mesh_snapshot_from_hand_mesh_snapshot(
+    snapshot: &HandMeshSnapshot,
+) -> Result<TriangleMeshSnapshot, HandMeshError> {
+    snapshot.validate()?;
+    Ok(TriangleMeshSnapshot::new(
+        snapshot.version,
+        snapshot.vertices.clone(),
+        snapshot.indices.clone(),
+    ))
+}
+
+/// Sign convention used when converting a triangle mesh into a packed SDF.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MeshSdfSignMode {
+    /// Uses ray parity. This expects a closed, consistently wound mesh.
+    ClosedMeshRaycast,
+    /// Uses the closest triangle normal. Useful for open or thin dynamic meshes.
+    TriangleNormal,
+}
+
+/// Settings for the dependency-light CPU mesh-to-SDF reference builder.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeshToSdfConfig {
+    pub voxel_size_meters: f32,
+    pub padding_meters: f32,
+    pub max_voxels: usize,
+    pub distance_offset_meters: f32,
+    pub sign_mode: MeshSdfSignMode,
+}
+
+impl Default for MeshToSdfConfig {
+    fn default() -> Self {
+        Self {
+            voxel_size_meters: 0.015,
+            padding_meters: 0.08,
+            max_voxels: 512 * 512,
+            distance_offset_meters: 0.0,
+            sign_mode: MeshSdfSignMode::ClosedMeshRaycast,
+        }
+    }
+}
+
+/// Specific config validation failure for mesh-to-SDF conversion.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MeshToSdfConfigError {
+    InvalidVoxelSize,
+    InvalidPadding,
+    InvalidMaxVoxels,
+    InvalidDistanceOffset,
+    InvalidBounds,
+    NonPositiveBounds,
+    VoxelCountOverflow,
+}
+
+/// Errors from the mesh-to-SDF reference builder.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MeshToSdfError {
+    EmptyMesh,
+    DegenerateMesh,
+    InvalidVertex {
+        vertex_index: usize,
+    },
+    InvalidIndex {
+        triangle_index: usize,
+        vertex_index: u32,
+        vertex_count: usize,
+    },
+    InvalidConfig(MeshToSdfConfigError),
+    VoxelLimitExceeded {
+        requested: usize,
+        limit: usize,
+    },
+    GridBuild(SdfGridError),
+}
+
+impl fmt::Display for MeshToSdfError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyMesh => f.write_str("mesh has no vertices or triangles"),
+            Self::DegenerateMesh => f.write_str("mesh has no non-degenerate triangles"),
+            Self::InvalidVertex { vertex_index } => {
+                write!(f, "mesh vertex {vertex_index} is not finite")
+            }
+            Self::InvalidIndex {
+                triangle_index,
+                vertex_index,
+                vertex_count,
+            } => write!(
+                f,
+                "triangle {triangle_index} references vertex {vertex_index}, but mesh has {vertex_count} vertices"
+            ),
+            Self::InvalidConfig(reason) => write!(f, "invalid mesh-to-SDF config: {reason}"),
+            Self::VoxelLimitExceeded { requested, limit } => write!(
+                f,
+                "mesh-to-SDF volume requests {requested} voxels, above limit {limit}"
+            ),
+            Self::GridBuild(error) => write!(f, "failed to build packed SDF grid: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for MeshToSdfError {}
+
+impl fmt::Display for MeshToSdfConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidVoxelSize => f.write_str("voxel_size_meters must be finite and positive"),
+            Self::InvalidPadding => f.write_str("padding_meters must be finite and non-negative"),
+            Self::InvalidMaxVoxels => f.write_str("max_voxels must be positive"),
+            Self::InvalidDistanceOffset => f.write_str("distance_offset_meters must be finite"),
+            Self::InvalidBounds => f.write_str("bounds must be finite"),
+            Self::NonPositiveBounds => f.write_str("bounds must have positive size"),
+            Self::VoxelCountOverflow => f.write_str("voxel count overflow"),
+        }
+    }
+}
+
+/// Build a packed SDF around the mesh's own bounds plus config padding.
+pub fn build_sdf_from_mesh(
+    version: u64,
+    mesh: &TriangleMeshSnapshot,
+    config: MeshToSdfConfig,
+) -> Result<PackedSdfGrid, MeshToSdfError> {
+    let bounds = mesh.bounds().ok_or(MeshToSdfError::EmptyMesh)?;
+    build_sdf_from_mesh_bounds(version, mesh, config, bounds)
+}
+
+/// Build a packed SDF around explicit bounds plus config padding.
+///
+/// Explicit bounds are useful when particles or other consumers start outside
+/// the mesh bounds but still need a valid SDF sample region.
+pub fn build_sdf_from_mesh_bounds(
+    version: u64,
+    mesh: &TriangleMeshSnapshot,
+    config: MeshToSdfConfig,
+    bounds: Bounds3,
+) -> Result<PackedSdfGrid, MeshToSdfError> {
+    validate_mesh_for_sdf(mesh)?;
+    validate_mesh_to_sdf_config(config)?;
+
+    let bounds = bounds.expanded(config.padding_meters);
+    if !bounds.min.is_finite() || !bounds.max.is_finite() {
+        return Err(MeshToSdfError::InvalidConfig(
+            MeshToSdfConfigError::InvalidBounds,
+        ));
+    }
+
+    let size = bounds.size();
+    if size.x <= 0.0 || size.y <= 0.0 || size.z <= 0.0 {
+        return Err(MeshToSdfError::InvalidConfig(
+            MeshToSdfConfigError::NonPositiveBounds,
+        ));
+    }
+
+    let resolution = [
+        mesh_sdf_resolution_axis(size.x, config.voxel_size_meters),
+        mesh_sdf_resolution_axis(size.y, config.voxel_size_meters),
+        mesh_sdf_resolution_axis(size.z, config.voxel_size_meters),
+    ];
+    let voxel_count = voxel_count_for_resolution(resolution)
+        .map_err(|_| MeshToSdfError::InvalidConfig(MeshToSdfConfigError::VoxelCountOverflow))?;
+    if voxel_count > config.max_voxels {
+        return Err(MeshToSdfError::VoxelLimitExceeded {
+            requested: voxel_count,
+            limit: config.max_voxels,
+        });
+    }
+
+    let triangles = PreparedMeshSdfTriangle::from_mesh(mesh)?;
+    let mut samples = Vec::with_capacity(voxel_count);
+    let mut ray_hits = Vec::with_capacity(triangles.len().min(128));
+    for z in 0..resolution[2] {
+        for y in 0..resolution[1] {
+            for x in 0..resolution[0] {
+                let world = bounds.min
+                    + Vec3::new(
+                        (x as f32 + 0.5) * config.voxel_size_meters,
+                        (y as f32 + 0.5) * config.voxel_size_meters,
+                        (z as f32 + 0.5) * config.voxel_size_meters,
+                    );
+                samples.push(sample_mesh_sdf(
+                    &triangles,
+                    world,
+                    config.sign_mode,
+                    config.distance_offset_meters,
+                    &mut ray_hits,
+                ));
+            }
+        }
+    }
+
+    PackedSdfGrid::from_samples(
+        version,
+        bounds.min,
+        config.voxel_size_meters,
+        resolution,
+        samples,
+    )
+    .map_err(MeshToSdfError::GridBuild)
+}
+
 /// Errors for public SDF contracts and validation helpers.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2197,6 +2493,253 @@ fn lerp_sample(left: PackedSdfSample, right: PackedSdfSample, t: f32) -> PackedS
         left.distance_meters + ((right.distance_meters - left.distance_meters) * t),
         (left.normal + ((right.normal - left.normal) * t)).normalized_or(Vec3::UP),
     )
+}
+
+fn validate_mesh_for_sdf(mesh: &TriangleMeshSnapshot) -> Result<(), MeshToSdfError> {
+    if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+        return Err(MeshToSdfError::EmptyMesh);
+    }
+
+    for (vertex_index, vertex) in mesh.vertices.iter().copied().enumerate() {
+        if !vertex.is_finite() {
+            return Err(MeshToSdfError::InvalidVertex { vertex_index });
+        }
+    }
+
+    let vertex_count = mesh.vertices.len();
+    for (triangle_index, triangle) in mesh.indices.iter().copied().enumerate() {
+        for vertex_index in triangle {
+            if vertex_index as usize >= vertex_count {
+                return Err(MeshToSdfError::InvalidIndex {
+                    triangle_index,
+                    vertex_index,
+                    vertex_count,
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_mesh_to_sdf_config(config: MeshToSdfConfig) -> Result<(), MeshToSdfError> {
+    if !config.voxel_size_meters.is_finite() || config.voxel_size_meters <= 0.0 {
+        return Err(MeshToSdfError::InvalidConfig(
+            MeshToSdfConfigError::InvalidVoxelSize,
+        ));
+    }
+    if !config.padding_meters.is_finite() || config.padding_meters < 0.0 {
+        return Err(MeshToSdfError::InvalidConfig(
+            MeshToSdfConfigError::InvalidPadding,
+        ));
+    }
+    if config.max_voxels == 0 {
+        return Err(MeshToSdfError::InvalidConfig(
+            MeshToSdfConfigError::InvalidMaxVoxels,
+        ));
+    }
+    if !config.distance_offset_meters.is_finite() {
+        return Err(MeshToSdfError::InvalidConfig(
+            MeshToSdfConfigError::InvalidDistanceOffset,
+        ));
+    }
+    Ok(())
+}
+
+fn mesh_sdf_resolution_axis(size_meters: f32, voxel_size_meters: f32) -> usize {
+    (size_meters / voxel_size_meters).ceil().max(2.0) as usize
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PreparedMeshSdfTriangle {
+    a: Vec3,
+    b: Vec3,
+    c: Vec3,
+    normal: Vec3,
+}
+
+impl PreparedMeshSdfTriangle {
+    fn from_mesh(mesh: &TriangleMeshSnapshot) -> Result<Vec<Self>, MeshToSdfError> {
+        let mut triangles = Vec::with_capacity(mesh.indices.len());
+        for indices in &mesh.indices {
+            let a = mesh.vertices[indices[0] as usize];
+            let b = mesh.vertices[indices[1] as usize];
+            let c = mesh.vertices[indices[2] as usize];
+            let normal = (b - a).cross(c - a);
+            if normal.length_squared() <= 1.0e-14 {
+                continue;
+            }
+            triangles.push(Self {
+                a,
+                b,
+                c,
+                normal: normal.normalized_or(Vec3::UP),
+            });
+        }
+
+        if triangles.is_empty() {
+            return Err(MeshToSdfError::DegenerateMesh);
+        }
+        Ok(triangles)
+    }
+}
+
+fn sample_mesh_sdf(
+    triangles: &[PreparedMeshSdfTriangle],
+    point: Vec3,
+    sign_mode: MeshSdfSignMode,
+    distance_offset_meters: f32,
+    ray_hits: &mut Vec<f32>,
+) -> PackedSdfSample {
+    let mut best_distance_sq = f32::INFINITY;
+    let mut best_closest = point;
+    let mut best_triangle = triangles[0];
+
+    for triangle in triangles {
+        let closest = closest_point_on_triangle(point, triangle.a, triangle.b, triangle.c);
+        let delta = point - closest;
+        let distance_sq = delta.length_squared();
+        if distance_sq < best_distance_sq {
+            best_distance_sq = distance_sq;
+            best_closest = closest;
+            best_triangle = *triangle;
+        }
+    }
+
+    let distance = best_distance_sq.sqrt();
+    let sign = match sign_mode {
+        MeshSdfSignMode::ClosedMeshRaycast => {
+            if point_inside_closed_mesh(point, triangles, ray_hits) {
+                -1.0
+            } else {
+                1.0
+            }
+        }
+        MeshSdfSignMode::TriangleNormal => {
+            if (point - best_triangle.a).dot(best_triangle.normal) < 0.0 {
+                -1.0
+            } else {
+                1.0
+            }
+        }
+    };
+
+    let from_surface = (point - best_closest).normalized_or(best_triangle.normal);
+    let normal = if sign < 0.0 {
+        -from_surface
+    } else {
+        from_surface
+    }
+    .normalized_or(best_triangle.normal);
+
+    PackedSdfSample::new((distance * sign) + distance_offset_meters, normal)
+}
+
+fn closest_point_on_triangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
+    let ab = b - a;
+    let ac = c - a;
+    let ap = point - a;
+    let d1 = ab.dot(ap);
+    let d2 = ac.dot(ap);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+
+    let bp = point - b;
+    let d3 = ab.dot(bp);
+    let d4 = ac.dot(bp);
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+
+    let vc = (d1 * d4) - (d3 * d2);
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        let v = d1 / (d1 - d3);
+        return a + (ab * v);
+    }
+
+    let cp = point - c;
+    let d5 = ab.dot(cp);
+    let d6 = ac.dot(cp);
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+
+    let vb = (d5 * d2) - (d1 * d6);
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        let w = d2 / (d2 - d6);
+        return a + (ac * w);
+    }
+
+    let va = (d3 * d6) - (d5 * d4);
+    if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+        let w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return b + ((c - b) * w);
+    }
+
+    let denom = 1.0 / (va + vb + vc);
+    let v = vb * denom;
+    let w = vc * denom;
+    a + (ab * v) + (ac * w)
+}
+
+fn point_inside_closed_mesh(
+    point: Vec3,
+    triangles: &[PreparedMeshSdfTriangle],
+    ray_hits: &mut Vec<f32>,
+) -> bool {
+    let ray_dir = Vec3::new(1.0, 0.000_131, 0.000_217).normalized_or(Vec3::RIGHT);
+    ray_hits.clear();
+    for triangle in triangles {
+        if let Some(t) = ray_triangle_intersection(point, ray_dir, triangle) {
+            ray_hits.push(t);
+        }
+    }
+
+    ray_hits.sort_by(|left, right| left.total_cmp(right));
+    let mut unique_hits = 0usize;
+    let mut last_t = f32::NEG_INFINITY;
+    for t in ray_hits.iter().copied() {
+        if (t - last_t).abs() > 1.0e-4 {
+            unique_hits += 1;
+            last_t = t;
+        }
+    }
+    unique_hits % 2 == 1
+}
+
+fn ray_triangle_intersection(
+    origin: Vec3,
+    direction: Vec3,
+    triangle: &PreparedMeshSdfTriangle,
+) -> Option<f32> {
+    let edge1 = triangle.b - triangle.a;
+    let edge2 = triangle.c - triangle.a;
+    let p = direction.cross(edge2);
+    let determinant = edge1.dot(p);
+    if determinant.abs() <= 1.0e-7 {
+        return None;
+    }
+
+    let inv_determinant = 1.0 / determinant;
+    let tvec = origin - triangle.a;
+    let u = tvec.dot(p) * inv_determinant;
+    if !(-1.0e-6..=1.0 + 1.0e-6).contains(&u) {
+        return None;
+    }
+
+    let q = tvec.cross(edge1);
+    let v = direction.dot(q) * inv_determinant;
+    if v < -1.0e-6 || u + v > 1.0 + 1.0e-6 {
+        return None;
+    }
+
+    let t = edge2.dot(q) * inv_determinant;
+    if t > 1.0e-6 {
+        Some(t)
+    } else {
+        None
+    }
 }
 
 fn sparse_tsdf_active_coord_bounds(
@@ -2748,6 +3291,64 @@ mod tests {
     }
 
     #[test]
+    fn mesh_sdf_marks_closed_mesh_inside_negative() {
+        let mesh = cube_mesh_snapshot(Vec3::ZERO, Vec3::splat(0.5));
+        let sdf = build_sdf_from_mesh(
+            1,
+            &mesh,
+            MeshToSdfConfig {
+                voxel_size_meters: 0.1,
+                padding_meters: 0.2,
+                max_voxels: 64 * 64 * 64,
+                ..MeshToSdfConfig::default()
+            },
+        )
+        .expect("cube mesh should build");
+
+        let center = sdf
+            .sample(Vec3::ZERO, SdfSampleMode::Nearest)
+            .expect("center should be inside grid");
+        let outside = sdf
+            .sample(Vec3::new(0.62, 0.0, 0.0), SdfSampleMode::Nearest)
+            .expect("outside point should be inside grid");
+
+        assert!(center.distance_meters < 0.0);
+        assert!(outside.distance_meters > 0.0);
+    }
+
+    #[test]
+    fn mesh_sdf_rejects_bad_indices() {
+        let mesh = TriangleMeshSnapshot::new(1, vec![Vec3::ZERO], vec![[0, 1, 2]]);
+        let err = build_sdf_from_mesh(1, &mesh, MeshToSdfConfig::default())
+            .expect_err("invalid indices should fail");
+
+        assert!(matches!(err, MeshToSdfError::InvalidIndex { .. }));
+    }
+
+    #[test]
+    fn sdf_sample_extrapolates_near_grid_edge() {
+        let sdf = PackedSdfGrid::sphere(
+            1,
+            Vec3::ZERO,
+            0.5,
+            Vec3::new(-1.0, -1.0, -1.0),
+            0.1,
+            [20, 20, 20],
+        )
+        .expect("sphere SDF should build");
+
+        let sample = sdf
+            .sample_extrapolated(Vec3::new(1.25, 0.0, 0.0), SdfSampleMode::Trilinear, 0.5)
+            .expect("nearby positions outside the grid should extrapolate");
+
+        assert!(sample.distance_meters > 0.0);
+        assert!(sample.normal.x > 0.0);
+        assert!(sdf
+            .sample_extrapolated(Vec3::new(2.0, 0.0, 0.0), SdfSampleMode::Trilinear, 0.2)
+            .is_none());
+    }
+
+    #[test]
     fn sparse_tsdf_reports_surface_candidates() {
         let snapshot = SparseTsdfSnapshot::new(
             1,
@@ -2837,6 +3438,36 @@ mod tests {
             truncation_distance_meters,
             samples,
         )
+    }
+
+    fn cube_mesh_snapshot(center: Vec3, half_extents: Vec3) -> TriangleMeshSnapshot {
+        let min = center - half_extents;
+        let max = center + half_extents;
+        let vertices = vec![
+            Vec3::new(min.x, min.y, min.z),
+            Vec3::new(max.x, min.y, min.z),
+            Vec3::new(max.x, max.y, min.z),
+            Vec3::new(min.x, max.y, min.z),
+            Vec3::new(min.x, min.y, max.z),
+            Vec3::new(max.x, min.y, max.z),
+            Vec3::new(max.x, max.y, max.z),
+            Vec3::new(min.x, max.y, max.z),
+        ];
+        let indices = vec![
+            [0, 2, 1],
+            [0, 3, 2],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 1, 5],
+            [0, 5, 4],
+            [3, 6, 2],
+            [3, 7, 6],
+            [0, 4, 7],
+            [0, 7, 3],
+            [1, 2, 6],
+            [1, 6, 5],
+        ];
+        TriangleMeshSnapshot::new(1, vertices, indices)
     }
 
     fn vertical_wall_tsdf_snapshot(version: u64) -> SparseTsdfSnapshot {

@@ -116,6 +116,11 @@ drive:
 App-specific oscillator, coupling, force, or visual-effect behavior stays in
 consumer crates or downstream app shells.
 
+For volumetric field consumers, use the companion dynamic mesh-to-SDF utility:
+`TriangleMeshSnapshot` can be converted into `PackedSdfGrid`, and particles can
+be stepped toward the current SDF surface. See
+[dynamic mesh to SDF](DYNAMIC_MESH_TO_SDF.md).
+
 The portable synthetic example does not require headset hardware:
 
 ```powershell
