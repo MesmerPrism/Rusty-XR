@@ -40,6 +40,22 @@ The broker control socket binds to loopback by default. For LAN control
 experiments, start the broker with `rustyxr.brokerLanEnabled=true`; optionally
 set `rustyxr.brokerBindHost` to override the default `0.0.0.0` LAN bind.
 
+The headset console is a normal Horizon OS 2D Android app. Its launch activity
+declares a default panel size in the manifest so system panel controls such as
+resize, reposition, and focused/theater presentation have explicit starting
+dimensions. Those panel controls are owned by Horizon OS; the broker keeps its
+foreground service and localhost API running independently of the current panel
+presentation.
+
+On supported Horizon OS builds, a useful workflow is to open the broker console
+once from the sideloaded/Unknown Sources app view, use the panel's three-dot
+system menu, and enable the system anchoring option for that 2D app panel. When
+the broker console is anchored, a target XR app can be launched from the
+broker's Launcher page and later closed while the broker console remains
+available as a headset-local navigation and sensor-control panel. Anchoring is
+system-owned UI state; the broker only keeps its service and localhost API
+running.
+
 The status payload reports broker uptime, accepted sample counts, active
 capabilities, stream descriptors, command counters, LSL availability, and OSC
 ingress/egress settings. WebSocket clients can send legacy `status_request`,
@@ -69,6 +85,9 @@ available:
 - `breath_assessment.configure`
 - `breath_assessment.reset`
 - `breath_assessment.submit_controller_pose`
+- `set_polar_breath_params`
+- `polar_breath_calibrate_begin`
+- `polar_breath_calibrate_reset`
 - `video_lab.get_status`
 - `video_lab.register_encoded_stream_manifest`
 - `video_lab.record_encoded_sample_metadata`
@@ -262,11 +281,37 @@ verifies platform decoder consumption with byte-buffer output only.
 Decode-to-texture and XR layer submission remain separate client/provider work.
 
 XR clients can bring the 2D broker console to the foreground by sending the
-`open_ui` broker command. The console has Dashboard, Streams, Commands, and
-Diagnostics pages plus a `Return to XR App` button. The button and the
-`close_ui` broker command both finish only the broker console Activity while
-leaving the broker foreground service running; they do not start or relaunch a
-target app.
+`open_ui` broker command. The console has Dashboard, Polar, Launcher, Streams,
+Commands, and Diagnostics pages plus a `Return to XR App` button. The button
+and the `close_ui` broker command both finish only the broker console Activity
+while leaving the broker foreground service running; they do not start or
+relaunch a target app.
+
+The `Polar` page is the headset-local control path for the direct Android BLE
+Polar PMD source. It can request the broker APK's Bluetooth runtime permission,
+start or stop the broker-owned PMD source, and show the current `bio:polar_acc`
+and derived `bio:breath` status. This lets a user start the data source from
+inside the headset before launching a target XR app through the broker console.
+The page also reports scan counts and recent scan candidates. Discovery ignores
+unnamed BLE devices unless they advertise a Polar/Heart Rate/PMD signal, so the
+broker does not connect to an unrelated anonymous device before the Polar sensor
+appears.
+
+The same page exposes Polar accelerometer breath tuning and calibration
+controls. `set_polar_breath_params` accepts broker snake_case names and Unity
+runtime-config aliases such as `analysisRateHz`,
+`calibrationAcceptedFrames`, `minAcceptedDeltaG`,
+`minCalibrationTravelG`, `sampleEmaAlpha`, `projectionEmaAlpha`,
+`boundsLowerQuantile`, `boundsUpperQuantile`, `boundsEdgeEase`,
+`volumeEventMinDelta`, `invertVolume`, and `accBaseMode`. The calibration
+commands let a headset user or companion client reset and begin calibration
+without restarting the broker or target app.
+
+For local sideloaded/debug installs, the app exposes a normal Android launcher
+entrypoint with the label `Rusty XR Broker` and a broker icon. On Quest, that
+normally appears in the Apps library under the headset's sideloaded or Unknown
+Sources view. System quick-access pins are launcher-owned UI state; this public
+example does not try to self-pin from normal app mode.
 
 The console also has a `Launcher` page for headset-local app shortcuts. It uses
 normal Android `PackageManager` discovery for visible

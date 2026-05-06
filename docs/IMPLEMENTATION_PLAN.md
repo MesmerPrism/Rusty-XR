@@ -139,6 +139,15 @@ crate also owns source-only mesh coordinate sampling and SDF surface-attraction
 helpers so public examples can validate hand-mesh and field workflows without
 publishing app-specific simulation behavior.
 
+The public particle guidance also records renderer-facing lessons that remain
+general across downstream apps: keep particle centers in the intended OpenXR
+reference space, choose center-projected billboards versus world-expanded
+billboard vertices deliberately, prefer normal texture-array sampling for
+animated billboard masks until profiling proves otherwise, treat trail
+particles as frozen snapshots unless a consumer explicitly animates them, and
+isolate Quest artifact runs one renderer stage at a time. See
+[PARTICLE_BILLBOARD_AND_ANIMATION_PERFORMANCE.md](PARTICLE_BILLBOARD_AND_ANIMATION_PERFORMANCE.md).
+
 ### Optional Framework Adapters
 
 Framework-specific adapters may be added after the public contracts settle.
@@ -375,7 +384,7 @@ responsibilities.
 | Visual strobe descriptors | In progress | Public full-field and passthrough-LUT strobe profile descriptors, display-frame frequency plans, 120 Hz constraints, and safety warnings added with a no-hardware example. |
 | Depth model | In progress | Depth readiness, frame summary, per-view metadata, infinite-far range, cadence, and readback-policy helpers added. |
 | SDF model | In progress | Packed SDF grid, sampling, bounds, triangle mesh snapshots, and data-only depth support/impact query contracts added. |
-| Particle and animation primitives | In progress | Minimal particle state, fixed-step clock, render payload generation, dynamic mesh coordinate sampling, live hand-mesh sampler updates, same-surface neighbor tiers, cross-surface neighbor links, dynamic mesh collider surfaces with diagnostic shells, SDF attraction helpers, and particle visualization helpers added. |
+| Particle and animation primitives | In progress | Minimal particle state, fixed-step clock, render payload generation, dynamic mesh coordinate sampling, live hand-mesh sampler updates, same-surface neighbor tiers, cross-surface neighbor links, dynamic mesh collider surfaces with diagnostic shells, SDF attraction helpers, particle visualization helpers, billboard instance packing, trail snapshots, render-budget estimates, generated animation mask fixtures, and billboard/animation performance guidance added. |
 | XR canvas and hand interaction | In progress | Public ray/canvas hit-test contracts, hand-menu anchors, activation modes, hand influence points, and normalized debug/test canvas primitives added. |
 | Sparse scan / TSDF contracts | In progress | Public sparse TSDF samples, snapshots, scan surface samples, and scan-fusion stats added. |
 | Room mesh and capture lifecycle | In progress | Public room mesh source state, semantic room mesh snapshots, and capture lifecycle/source metadata added. |

@@ -77,6 +77,9 @@ final class BrokerState {
         supportedCommands.put("breath_assessment.configure");
         supportedCommands.put("breath_assessment.reset");
         supportedCommands.put("breath_assessment.submit_controller_pose");
+        supportedCommands.put("set_polar_breath_params");
+        supportedCommands.put("polar_breath_calibrate_begin");
+        supportedCommands.put("polar_breath_calibrate_reset");
         supportedCommands.put("open_ui");
         supportedCommands.put("close_ui");
         supportedCommands.put("camera_provider.get_status");
@@ -295,6 +298,18 @@ final class BrokerState {
 
     JSONObject configureBreathAssessment(JSONObject params) throws Exception {
         return breathAssessment.configure(params);
+    }
+
+    JSONObject setPolarBreathParams(JSONObject params) throws Exception {
+        return breathAssessment.setPolarBreathParams(params);
+    }
+
+    JSONObject beginPolarBreathCalibration(JSONObject params) throws Exception {
+        return breathAssessment.beginPolarBreathCalibration(params);
+    }
+
+    JSONObject resetPolarBreathCalibration(JSONObject params) throws Exception {
+        return breathAssessment.resetPolarBreathCalibration(params);
     }
 
     JSONObject resetBreathAssessment(JSONObject params) throws Exception {

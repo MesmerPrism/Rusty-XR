@@ -124,6 +124,10 @@ It also includes a generic dynamic mesh-to-SDF path: `rusty-xr-sdf` can convert
 a `TriangleMeshSnapshot` into a `PackedSdfGrid`, and `rusty-xr-particles` can
 step public particles toward that SDF as a source-only use case example. See
 [docs/DYNAMIC_MESH_TO_SDF.md](docs/DYNAMIC_MESH_TO_SDF.md).
+Particle billboard construction, animation-mask lookup tradeoffs, trail
+snapshot behavior, and Quest particle-renderer isolation workflows are
+documented in
+[docs/PARTICLE_BILLBOARD_AND_ANIMATION_PERFORMANCE.md](docs/PARTICLE_BILLBOARD_AND_ANIMATION_PERFORMANCE.md).
 An optional source-only ADB shell helper example can be built as a dex jar and
 launched with `adb shell app_process` to report shell-helper status to the
 broker, including optional bounded MediaCodec and shell-visible camera metadata
@@ -152,6 +156,7 @@ cargo run -p rusty-xr-contracts --example visual_strobe_profiles --features serd
 cargo run -p rusty-xr-particles --example dynamic_mesh_coordinates
 cargo run -p rusty-xr-particles --example hand_mesh_dynamic_collider
 cargo run -p rusty-xr-particles --example hand_mesh_sdf_attraction
+cargo run -p rusty-xr-particles --example billboard_performance_patterns
 powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Build-BrokerShellHelper.ps1
@@ -171,6 +176,12 @@ operator casting sources are intentionally distinct. See
 before interpreting camera-composite diagnostics. Native compositor passthrough
 style contracts are documented in
 [docs/META_PASSTHROUGH_LAYER.md](docs/META_PASSTHROUGH_LAYER.md).
+Quest OpenXR shell bring-up notes, including the distinction between stable
+scene-space anchoring and Vulkan screen-space viewport conventions, live in
+[docs/ANDROID_QUEST_APK_BUILDING.md](docs/ANDROID_QUEST_APK_BUILDING.md).
+Direct-device Quest render artifact diagnosis, including `VrApi`, OVR Metrics,
+Perfetto, screenshot, and one-variable A/B workflows, is documented in
+[docs/QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md](docs/QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md).
 Intentional visual strobe profiles, 120 Hz display-refresh constraints, and
 photoepilepsy warnings are documented in
 [docs/VISUAL_STROBE_PROFILES.md](docs/VISUAL_STROBE_PROFILES.md).

@@ -8,13 +8,19 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.SystemClock;
 import android.util.Log;
+
+import org.json.JSONObject;
 
 public final class BrokerService extends Service {
     public static final String TAG = "RustyXrBroker";
     public static final int DEFAULT_PORT = 8765;
     private static final String CHANNEL_ID = "rusty_xr_broker";
     private static final int NOTIFICATION_ID = 8765;
+    private static final long CONSOLE_SERVICE_READY_TIMEOUT_MS = 2_500L;
+    private static final Object ACTIVE_SERVICE_LOCK = new Object();
+    private static volatile BrokerService activeService;
 
     private BrokerState state;
     private LocalBrokerServer server;
@@ -40,6 +46,7 @@ public final class BrokerService extends Service {
             server.setOscIngressServer(oscIngressServer);
             polarPmdSource = new PolarPmdBrokerSource(getApplicationContext(), state, server);
             server.setPolarPmdSource(polarPmdSource);
+            publishConsoleReadyService();
             Log.i(TAG, "Broker publisher mode: " + publisher.mode());
             if (config.polarPmdEnabled) {
                 try {
@@ -100,6 +107,8 @@ public final class BrokerService extends Service {
         }
         publisher = null;
 
+        clearConsoleReadyService();
+
         Log.i(TAG, "Broker service destroyed");
         super.onDestroy();
     }
@@ -107,6 +116,220 @@ public final class BrokerService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    static JSONObject getPolarPmdStatusFromConsole() throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("polar_pmd.get_status", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.getPolarPmdStatusFromConsoleInternal();
+    }
+
+    static JSONObject startPolarPmdFromConsole(String deviceAddress, long scanTimeoutMs) throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("polar_pmd.start", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.startPolarPmdFromConsoleInternal(deviceAddress, scanTimeoutMs);
+    }
+
+    static JSONObject stopPolarPmdFromConsole() throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("polar_pmd.stop", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.stopPolarPmdFromConsoleInternal();
+    }
+
+    static JSONObject getBreathAssessmentStatusFromConsole() throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("breath_assessment.get_status", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.getBreathAssessmentStatusFromConsoleInternal();
+    }
+
+    static JSONObject setPolarBreathParamsFromConsole(JSONObject params) throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("set_polar_breath_params", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.setPolarBreathParamsFromConsoleInternal(params);
+    }
+
+    static JSONObject beginPolarBreathCalibrationFromConsole() throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("polar_breath_calibrate_begin", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.beginPolarBreathCalibrationFromConsoleInternal();
+    }
+
+    static JSONObject resetPolarBreathCalibrationFromConsole() throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("polar_breath_calibrate_reset", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.resetPolarBreathCalibrationFromConsoleInternal();
+    }
+
+    private JSONObject getPolarPmdStatusFromConsoleInternal() throws Exception {
+        JSONObject status;
+        PolarPmdBrokerSource source = polarPmdSource;
+        if (source != null) {
+            status = source.statusJson();
+        } else if (state != null) {
+            status = state.polarPmdStatusJson();
+        } else {
+            return consoleError("polar_pmd.get_status", "broker_state_unavailable", "Broker state is not initialized yet.");
+        }
+
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("polar_pmd.get_status", true, "polar_pmd_status", status);
+    }
+
+    private JSONObject startPolarPmdFromConsoleInternal(String deviceAddress, long scanTimeoutMs) throws Exception {
+        PolarPmdBrokerSource source = polarPmdSource;
+        if (source == null) {
+            if (state != null) {
+                state.rejectedCommands.incrementAndGet();
+            }
+            return consoleError("polar_pmd.start", "polar_pmd_unavailable", "Polar PMD source is not attached to this broker.");
+        }
+
+        JSONObject status = source.start(deviceAddress, scanTimeoutMs);
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("polar_pmd.start", true, "polar_pmd_starting", status);
+    }
+
+    private JSONObject stopPolarPmdFromConsoleInternal() throws Exception {
+        PolarPmdBrokerSource source = polarPmdSource;
+        if (source == null) {
+            if (state != null) {
+                state.rejectedCommands.incrementAndGet();
+            }
+            return consoleError("polar_pmd.stop", "polar_pmd_unavailable", "Polar PMD source is not attached to this broker.");
+        }
+
+        JSONObject status = source.stop();
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("polar_pmd.stop", true, "polar_pmd_stopping", status);
+    }
+
+    private JSONObject getBreathAssessmentStatusFromConsoleInternal() throws Exception {
+        if (state == null) {
+            return consoleError("breath_assessment.get_status", "broker_state_unavailable", "Broker state is not initialized yet.");
+        }
+
+        JSONObject status = state.breathAssessmentStatusJson();
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("breath_assessment.get_status", true, "breath_assessment_status", status);
+    }
+
+    private JSONObject setPolarBreathParamsFromConsoleInternal(JSONObject params) throws Exception {
+        if (state == null) {
+            return consoleError("set_polar_breath_params", "broker_state_unavailable", "Broker state is not initialized yet.");
+        }
+
+        JSONObject status = state.setPolarBreathParams(params);
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("set_polar_breath_params", true, "polar_breath_params_set", status);
+    }
+
+    private JSONObject beginPolarBreathCalibrationFromConsoleInternal() throws Exception {
+        if (state == null) {
+            return consoleError("polar_breath_calibrate_begin", "broker_state_unavailable", "Broker state is not initialized yet.");
+        }
+
+        JSONObject status = state.beginPolarBreathCalibration(null);
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("polar_breath_calibrate_begin", true, "polar_breath_calibration_started", status);
+    }
+
+    private JSONObject resetPolarBreathCalibrationFromConsoleInternal() throws Exception {
+        if (state == null) {
+            return consoleError("polar_breath_calibrate_reset", "broker_state_unavailable", "Broker state is not initialized yet.");
+        }
+
+        JSONObject status = state.resetPolarBreathCalibration(null);
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("polar_breath_calibrate_reset", true, "polar_breath_calibration_reset", status);
+    }
+
+    private void publishConsoleReadyService() {
+        synchronized (ACTIVE_SERVICE_LOCK) {
+            activeService = this;
+            ACTIVE_SERVICE_LOCK.notifyAll();
+        }
+    }
+
+    private void clearConsoleReadyService() {
+        synchronized (ACTIVE_SERVICE_LOCK) {
+            if (activeService == this) {
+                activeService = null;
+            }
+            ACTIVE_SERVICE_LOCK.notifyAll();
+        }
+    }
+
+    private static BrokerService waitForConsoleReadyService() {
+        long deadline = SystemClock.elapsedRealtime() + CONSOLE_SERVICE_READY_TIMEOUT_MS;
+        synchronized (ACTIVE_SERVICE_LOCK) {
+            while (activeService == null) {
+                long remainingMs = deadline - SystemClock.elapsedRealtime();
+                if (remainingMs <= 0L) {
+                    return null;
+                }
+                try {
+                    ACTIVE_SERVICE_LOCK.wait(remainingMs);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+            }
+
+            return activeService;
+        }
+    }
+
+    private static JSONObject consoleAck(String command, boolean accepted, String message, JSONObject status) throws Exception {
+        JSONObject result = new JSONObject();
+        if (status != null) {
+            result.put("status", status);
+        }
+
+        JSONObject ack = new JSONObject();
+        ack.put("type", "command_ack");
+        ack.put("schema", "rusty.xr.broker.command_ack.v1");
+        ack.put("request_id", "broker-console");
+        ack.put("command", command != null ? command : "");
+        ack.put("accepted", accepted);
+        ack.put("message", message != null ? message : "");
+        ack.put("result", result);
+        return ack;
+    }
+
+    private static JSONObject consoleError(String command, String code, String message) throws Exception {
+        JSONObject error = new JSONObject();
+        error.put("code", code != null ? code : "");
+        error.put("message", message != null ? message : "");
+
+        JSONObject ack = new JSONObject();
+        ack.put("type", "command_ack");
+        ack.put("schema", "rusty.xr.broker.command_ack.v1");
+        ack.put("request_id", "broker-console");
+        ack.put("command", command != null ? command : "");
+        ack.put("accepted", false);
+        ack.put("error", error);
+        return ack;
     }
 
     private void startForegroundServiceNotification() {

@@ -8,7 +8,9 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 
 final class BreathAssessmentState {
     static final String STATUS_SCHEMA = "rusty.xr.bio.breath_assessment.status.v1";
@@ -102,6 +104,35 @@ final class BreathAssessmentState {
         return toStatusJson();
     }
 
+    synchronized JSONObject setPolarBreathParams(JSONObject params) throws Exception {
+        JSONObject effective = sourceParams(params, POLAR_SOURCE);
+        boolean changed = polarTracker.configure(effective);
+        boolean resetCalibration = params == null || params.optBoolean("reset_calibration", changed);
+        if (resetCalibration) {
+            polarTracker.resetCalibration();
+        }
+        if (changed || resetCalibration) {
+            revision++;
+        }
+        return toStatusJson();
+    }
+
+    synchronized JSONObject beginPolarBreathCalibration(JSONObject params) throws Exception {
+        polarTracker.beginCalibration();
+        latestAssessment = new JSONObject();
+        latestAssessmentUnixNs = 0L;
+        revision++;
+        return toStatusJson();
+    }
+
+    synchronized JSONObject resetPolarBreathCalibration(JSONObject params) throws Exception {
+        polarTracker.resetCalibration();
+        latestAssessment = new JSONObject();
+        latestAssessmentUnixNs = 0L;
+        revision++;
+        return toStatusJson();
+    }
+
     synchronized JSONObject reset(JSONObject params) throws Exception {
         String source = normalizeSource(params != null ? params.optString("source", "all") : "all");
         boolean clearCounters = params != null && params.optBoolean("clear_counters", false);
@@ -123,6 +154,26 @@ final class BreathAssessmentState {
         latestAssessmentUnixNs = 0L;
         revision++;
         return toStatusJson();
+    }
+
+    private static JSONObject sourceParams(JSONObject params, String source) {
+        if (params == null) {
+            return new JSONObject();
+        }
+
+        JSONObject nested = params.optJSONObject(source);
+        if (nested != null) {
+            return nested;
+        }
+        nested = params.optJSONObject("polar");
+        if (nested != null) {
+            return nested;
+        }
+        nested = params.optJSONObject("polar_breath");
+        if (nested != null) {
+            return nested;
+        }
+        return params;
     }
 
     synchronized JSONObject processPublishedStreamEvent(
@@ -594,6 +645,7 @@ final class BreathAssessmentState {
         private double deltaThreshold;
         private boolean emitWhileCalibrating = true;
         private boolean invertVolume;
+        private String accBaseMode = "three_d";
         private long revision = 1L;
         private long acceptedSamples;
         private long rejectedSamples;
@@ -639,7 +691,7 @@ final class BreathAssessmentState {
         }
 
         static ProjectionBreathTracker createPolar() {
-            return new ProjectionBreathTracker(
+            ProjectionBreathTracker tracker = new ProjectionBreathTracker(
                 POLAR_SOURCE,
                 POLAR_INPUT_STREAM,
                 "g",
@@ -650,6 +702,9 @@ final class BreathAssessmentState {
                 0.15d,
                 0.18d,
                 0.012d);
+            tracker.accBaseMode = "xz";
+            tracker.edgeEase = 0.03d;
+            return tracker;
         }
 
         static ProjectionBreathTracker createController() {
@@ -680,52 +735,102 @@ final class BreathAssessmentState {
             }
 
             boolean changed = false;
-            if (params.has("calibration_frame_count")) {
-                calibrationFrameCount = (int) clamp(params.optInt("calibration_frame_count", calibrationFrameCount), 4, 600);
+            String key = findParamKey(params, "nominal_analysis_rate_hz", "analysis_rate_hz", "analysisRateHz", "nominalAnalysisRateHz");
+            if (key != null) {
+                nominalAnalysisRateHz = clamp(params.optDouble(key, nominalAnalysisRateHz), 1.0d, 240.0d);
                 changed = true;
             }
-            if (params.has("nominal_analysis_rate_hz")) {
-                nominalAnalysisRateHz = clamp(params.optDouble("nominal_analysis_rate_hz", nominalAnalysisRateHz), 1.0d, 240.0d);
+
+            key = findParamKey(
+                params,
+                "calibration_frame_count",
+                "calibrationFrameCount",
+                "calibration_accepted_frames",
+                "calibrationAcceptedFrames");
+            if (key != null) {
+                calibrationFrameCount = (int) clamp(params.optInt(key, calibrationFrameCount), 4, 600);
                 changed = true;
             }
-            if (params.has("min_accepted_delta")) {
-                minAcceptedDelta = clamp(params.optDouble("min_accepted_delta", minAcceptedDelta), 0.0d, 10.0d);
+
+            key = findParamKey(params, "calibration_duration_seconds", "calibrationDurationSeconds");
+            if (key != null) {
+                double seconds = clamp(params.optDouble(key, calibrationFrameCount / Math.max(1.0d, nominalAnalysisRateHz)), 1.0d, 120.0d);
+                calibrationFrameCount = (int) clamp(Math.round(seconds * nominalAnalysisRateHz), 4, 600);
                 changed = true;
             }
-            if (params.has("min_travel")) {
-                minTravel = clamp(params.optDouble("min_travel", minTravel), 0.000001d, 10.0d);
+
+            key = findParamKey(params, "min_accepted_delta", "minAcceptedDelta", "min_accepted_delta_g", "minAcceptedDeltaG");
+            if (key != null) {
+                minAcceptedDelta = clamp(params.optDouble(key, minAcceptedDelta), 0.0d, 10.0d);
                 changed = true;
             }
-            if (params.has("sample_ema_alpha")) {
-                sampleEmaAlpha = clamp(params.optDouble("sample_ema_alpha", sampleEmaAlpha), 0.001d, 1.0d);
+
+            key = findParamKey(params, "min_travel", "minTravel", "min_calibration_travel_g", "minCalibrationTravelG");
+            if (key != null) {
+                minTravel = clamp(params.optDouble(key, minTravel), 0.000001d, 10.0d);
                 changed = true;
             }
-            if (params.has("projection_ema_alpha")) {
-                projectionEmaAlpha = clamp(params.optDouble("projection_ema_alpha", projectionEmaAlpha), 0.001d, 1.0d);
+
+            key = findParamKey(params, "sample_ema_alpha", "sampleEmaAlpha");
+            if (key != null) {
+                sampleEmaAlpha = clamp(params.optDouble(key, sampleEmaAlpha), 0.001d, 1.0d);
                 changed = true;
             }
-            if (params.has("low_quantile")) {
-                lowQuantile = clamp(params.optDouble("low_quantile", lowQuantile), 0.0d, 0.49d);
+
+            key = findParamKey(params, "projection_ema_alpha", "projectionEmaAlpha");
+            if (key != null) {
+                projectionEmaAlpha = clamp(params.optDouble(key, projectionEmaAlpha), 0.001d, 1.0d);
                 changed = true;
             }
-            if (params.has("high_quantile")) {
-                highQuantile = clamp(params.optDouble("high_quantile", highQuantile), 0.51d, 1.0d);
+
+            key = findParamKey(params, "low_quantile", "lowQuantile", "bounds_lower_quantile", "boundsLowerQuantile");
+            if (key != null) {
+                lowQuantile = clamp(params.optDouble(key, lowQuantile), 0.0d, 0.49d);
                 changed = true;
             }
-            if (params.has("edge_ease")) {
-                edgeEase = clamp(params.optDouble("edge_ease", edgeEase), 0.0d, 0.45d);
+
+            key = findParamKey(params, "high_quantile", "highQuantile", "bounds_upper_quantile", "boundsUpperQuantile");
+            if (key != null) {
+                highQuantile = clamp(params.optDouble(key, highQuantile), 0.51d, 1.0d);
                 changed = true;
             }
-            if (params.has("delta_threshold")) {
-                deltaThreshold = clamp(params.optDouble("delta_threshold", deltaThreshold), 0.0d, 1.0d);
+
+            key = findParamKey(params, "edge_ease", "edgeEase", "bounds_edge_ease", "boundsEdgeEase");
+            if (key != null) {
+                edgeEase = clamp(params.optDouble(key, edgeEase), 0.0d, 0.45d);
                 changed = true;
             }
-            if (params.has("emit_while_calibrating")) {
-                emitWhileCalibrating = params.optBoolean("emit_while_calibrating", emitWhileCalibrating);
+
+            key = findParamKey(params, "delta_threshold", "deltaThreshold", "volume_event_min_delta", "volumeEventMinDelta");
+            if (key != null) {
+                deltaThreshold = clamp(params.optDouble(key, deltaThreshold), 0.0d, 1.0d);
                 changed = true;
             }
-            if (params.has("invert_volume")) {
-                invertVolume = params.optBoolean("invert_volume", invertVolume);
+
+            key = findParamKey(params, "emit_while_calibrating", "emitWhileCalibrating");
+            if (key != null) {
+                emitWhileCalibrating = params.optBoolean(key, emitWhileCalibrating);
+                changed = true;
+            }
+
+            key = findParamKey(params, "invert_volume", "invertVolume");
+            if (key != null) {
+                invertVolume = params.optBoolean(key, invertVolume);
+                changed = true;
+            }
+
+            key = findParamKey(params, "acc_base_mode", "accBaseMode");
+            if (key != null && POLAR_SOURCE.equals(source)) {
+                String mode = normalizeAccBaseMode(params.optString(key, accBaseMode));
+                if (mode.length() > 0) {
+                    accBaseMode = mode;
+                    changed = true;
+                }
+            }
+
+            if (lowQuantile >= highQuantile) {
+                lowQuantile = 0.05d;
+                highQuantile = 0.95d;
                 changed = true;
             }
             if (changed) {
@@ -734,19 +839,31 @@ final class BreathAssessmentState {
             return changed;
         }
 
+        void beginCalibration() {
+            clearCalibrationState();
+            calibrating = true;
+            state = "calibrating";
+            calibrationResets++;
+            revision++;
+        }
+
         void resetCalibration() {
+            clearCalibrationState();
+            calibrating = false;
+            state = "idle";
+            calibrationResets++;
+            revision++;
+        }
+
+        private void clearCalibrationState() {
             calibrationSamples.clear();
             previousCalibrationSample = null;
             filtered = null;
             calibrated = false;
-            calibrating = false;
-            state = "idle";
             lastError = "";
             hasFilteredProjection = false;
             filteredProjection = 0.0d;
             lastVolume01 = 0.5d;
-            calibrationResets++;
-            revision++;
         }
 
         void recordRejected(String errorCode, String message) {
@@ -885,6 +1002,7 @@ final class BreathAssessmentState {
             status.put("upper_projection", upperProjection);
             status.put("quality01", quality01());
             status.put("config", configJson());
+            status.put("config_schema", configSchemaJson());
             return status;
         }
 
@@ -944,7 +1062,54 @@ final class BreathAssessmentState {
             config.put("delta_threshold", deltaThreshold);
             config.put("emit_while_calibrating", emitWhileCalibrating);
             config.put("invert_volume", invertVolume);
+            if (POLAR_SOURCE.equals(source)) {
+                config.put("acc_base_mode", accBaseMode);
+            }
             return config;
+        }
+
+        private JSONObject configSchemaJson() throws Exception {
+            JSONObject schema = new JSONObject();
+            schema.put("schema", "rusty.xr.bio.breath_source.config_schema.v1");
+            schema.put("source", source);
+
+            JSONArray aliases = new JSONArray();
+            aliases.put("analysisRateHz");
+            aliases.put("calibrationAcceptedFrames");
+            aliases.put("calibrationDurationSeconds");
+            aliases.put("minAcceptedDeltaG");
+            aliases.put("minCalibrationTravelG");
+            aliases.put("sampleEmaAlpha");
+            aliases.put("projectionEmaAlpha");
+            aliases.put("boundsLowerQuantile");
+            aliases.put("boundsUpperQuantile");
+            aliases.put("boundsEdgeEase");
+            aliases.put("volumeEventMinDelta");
+            aliases.put("invertVolume");
+            aliases.put("emitWhileCalibrating");
+            if (POLAR_SOURCE.equals(source)) {
+                aliases.put("accBaseMode");
+            }
+            schema.put("unity_runtime_config_aliases", aliases);
+
+            JSONArray brokerNames = new JSONArray();
+            brokerNames.put("nominal_analysis_rate_hz");
+            brokerNames.put("calibration_frame_count");
+            brokerNames.put("min_accepted_delta");
+            brokerNames.put("min_travel");
+            brokerNames.put("sample_ema_alpha");
+            brokerNames.put("projection_ema_alpha");
+            brokerNames.put("low_quantile");
+            brokerNames.put("high_quantile");
+            brokerNames.put("edge_ease");
+            brokerNames.put("delta_threshold");
+            brokerNames.put("invert_volume");
+            brokerNames.put("emit_while_calibrating");
+            if (POLAR_SOURCE.equals(source)) {
+                brokerNames.put("acc_base_mode");
+            }
+            schema.put("broker_config_names", brokerNames);
+            return schema;
         }
 
         private void maybeAddCalibrationSample(Vector3 value) {
@@ -955,7 +1120,11 @@ final class BreathAssessmentState {
         }
 
         private void completeCalibrationIfReady() {
-            AxisFit fit = AxisFit.fromSamples(calibrationSamples, lowQuantile, highQuantile);
+            AxisFit fit = AxisFit.fromSamples(
+                calibrationSamples,
+                lowQuantile,
+                highQuantile,
+                POLAR_SOURCE.equals(source) && "xz".equals(accBaseMode));
             double span = fit.upperProjection - fit.lowerProjection;
             if (span < minTravel) {
                 lastError = "insufficient_motion: calibration span " + span + " " + units + " is below min_travel.";
@@ -1017,6 +1186,45 @@ final class BreathAssessmentState {
             }
             return 0.5d;
         }
+
+        private static String findParamKey(JSONObject params, String... candidates) {
+            Iterator<String> keys = params.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                String normalizedKey = normalizeParamName(key);
+                for (String candidate : candidates) {
+                    if (normalizedKey.equals(normalizeParamName(candidate))) {
+                        return key;
+                    }
+                }
+            }
+            return null;
+        }
+
+        private static String normalizeParamName(String value) {
+            if (value == null) {
+                return "";
+            }
+            return value
+                .replace("_", "")
+                .replace("-", "")
+                .replace(" ", "")
+                .toLowerCase(Locale.ROOT);
+        }
+
+        private static String normalizeAccBaseMode(String value) {
+            String normalized = normalizeParamName(value);
+            if ("xz".equals(normalized)
+                || "horizontal".equals(normalized)
+                || "twod".equals(normalized)
+                || "2d".equals(normalized)) {
+                return "xz";
+            }
+            if ("threed".equals(normalized) || "3d".equals(normalized)) {
+                return "three_d";
+            }
+            return "";
+        }
     }
 
     private static final class AxisFit {
@@ -1030,7 +1238,11 @@ final class BreathAssessmentState {
             this.upperProjection = upperProjection;
         }
 
-        static AxisFit fromSamples(List<Vector3> samples, double lowQuantile, double highQuantile) {
+        static AxisFit fromSamples(
+            List<Vector3> samples,
+            double lowQuantile,
+            double highQuantile,
+            boolean xzOnly) {
             if (samples.isEmpty()) {
                 return new AxisFit(new Vector3(0.0d, 1.0d, 0.0d), 0.0d, 1.0d);
             }
@@ -1049,6 +1261,9 @@ final class BreathAssessmentState {
             double zz = 0.0d;
             for (Vector3 sample : samples) {
                 Vector3 d = sample.subtract(mean);
+                if (xzOnly) {
+                    d = new Vector3(d.x, 0.0d, d.z);
+                }
                 xx += d.x * d.x;
                 xy += d.x * d.y;
                 xz += d.x * d.z;
@@ -1069,6 +1284,9 @@ final class BreathAssessmentState {
                     break;
                 }
                 axis = next.normalizedOr(axis);
+            }
+            if (xzOnly) {
+                axis = new Vector3(axis.x, 0.0d, axis.z).normalizedOr(new Vector3(1.0d, 0.0d, 0.0d));
             }
 
             List<Double> projections = new ArrayList<>();

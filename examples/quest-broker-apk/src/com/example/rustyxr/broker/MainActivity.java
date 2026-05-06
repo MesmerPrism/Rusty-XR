@@ -1,16 +1,21 @@
 package com.example.rustyxr.broker;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -32,6 +37,7 @@ import java.io.BufferedInputStream;
 import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -44,7 +50,11 @@ public final class MainActivity extends Activity {
     private static final int TEXT = Color.rgb(236, 242, 239);
     private static final int MUTED = Color.rgb(168, 184, 178);
     private static final int WARN = Color.rgb(246, 198, 105);
-    private static final String[] PAGES = { "Dashboard", "Launcher", "Streams", "Commands", "Diagnostics" };
+    private static final int REQUEST_POLAR_PERMISSIONS = 8766;
+    private static final long DEFAULT_POLAR_UI_SCAN_TIMEOUT_MS = 60_000L;
+    private static final long DEFAULT_STATUS_REFRESH_MS = 2_000L;
+    private static final long POLAR_STATUS_REFRESH_MS = 500L;
+    private static final String[] PAGES = { "Dashboard", "Polar", "Launcher", "Streams", "Commands", "Diagnostics" };
     private static volatile WeakReference<MainActivity> activeActivity = new WeakReference<>(null);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -52,12 +62,13 @@ public final class MainActivity extends Activity {
         @Override
         public void run() {
             refreshStatus();
-            handler.postDelayed(this, 2000L);
+            handler.postDelayed(this, statusRefreshDelayMs());
         }
     };
 
     private LinearLayout navBar;
     private LinearLayout pagePanel;
+    private ScrollView pageScroll;
     private TextView subtitleView;
     private TextView bodyView;
     private TextView footerView;
@@ -69,6 +80,23 @@ public final class MainActivity extends Activity {
     private String selectedLauncherListId = "";
     private String launcherQuery = "";
     private boolean openedByBrokerCommand;
+    private boolean pendingPolarStartAfterPermission;
+    private String pendingPolarDeviceAddress = "";
+    private long pendingPolarScanTimeoutMs = DEFAULT_POLAR_UI_SCAN_TIMEOUT_MS;
+    private boolean polarBreathDraftLoaded;
+    private String polarBreathAnalysisRateHz = "";
+    private String polarBreathCalibrationFrames = "";
+    private String polarBreathMinDeltaG = "";
+    private String polarBreathMinTravelG = "";
+    private String polarBreathSampleEma = "";
+    private String polarBreathProjectionEma = "";
+    private String polarBreathLowerQuantile = "";
+    private String polarBreathUpperQuantile = "";
+    private String polarBreathEdgeEase = "";
+    private String polarBreathVolumeDelta = "";
+    private String polarBreathAccBaseMode = "";
+    private String polarBreathInvertVolume = "";
+    private boolean statusRefreshInFlight;
 
     @Override
     protected void onCreate(Bundle bundle) {
@@ -117,6 +145,39 @@ public final class MainActivity extends Activity {
         }
 
         super.onDestroy();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQUEST_POLAR_PERMISSIONS) {
+            return;
+        }
+
+        boolean granted = grantResults.length > 0;
+        for (int i = 0; i < grantResults.length; i++) {
+            if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                granted = false;
+                break;
+            }
+        }
+
+        if (granted && pendingPolarStartAfterPermission) {
+            String deviceAddress = pendingPolarDeviceAddress;
+            long scanTimeoutMs = pendingPolarScanTimeoutMs;
+            pendingPolarStartAfterPermission = false;
+            pendingPolarDeviceAddress = "";
+            startPolarPmdFromConsole(deviceAddress, scanTimeoutMs);
+            return;
+        }
+
+        pendingPolarStartAfterPermission = false;
+        if (granted) {
+            showLaunchToast("Bluetooth permission granted");
+        } else {
+            showLaunchToast("Bluetooth permission is required for Polar PMD");
+        }
+        refreshStatus();
     }
 
     static boolean requestCloseFromBrokerCommand(final String reason) {
@@ -235,6 +296,7 @@ public final class MainActivity extends Activity {
         scroll.setFillViewport(true);
         scroll.setFocusable(false);
         scroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        pageScroll = scroll;
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(22, 20, 22, 20);
@@ -344,6 +406,10 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshStatus() {
+        if (statusRefreshInFlight) {
+            return;
+        }
+        statusRefreshInFlight = true;
         Thread thread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -356,6 +422,10 @@ public final class MainActivity extends Activity {
                         } catch (Exception ex) {
                             lastStatus = null;
                             bodyView.setText("Broker status unavailable.\n\n" + ex.getMessage());
+                        }
+                        statusRefreshInFlight = false;
+                        if (isEditingText()) {
+                            return;
                         }
                         renderCurrentPage();
                     }
@@ -412,6 +482,8 @@ public final class MainActivity extends Activity {
             showTextPage(buildStreams(status));
         } else if ("Commands".equals(currentPage)) {
             showTextPage(buildCommands(status));
+        } else if ("Polar".equals(currentPage)) {
+            renderPolarPage(status);
         } else if ("Diagnostics".equals(currentPage)) {
             showTextPage(buildDiagnostics(status));
         } else {
@@ -621,6 +693,672 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void renderPolarPage(final JSONObject status) {
+        final int previousScrollY = pageScroll != null ? pageScroll.getScrollY() : 0;
+        pagePanel.removeAllViews();
+
+        JSONObject polarPmd = status != null ? status.optJSONObject("polarPmd") : null;
+        String requestedAddress = polarPmd != null ? polarPmd.optString("requested_device_address", "") : "";
+        long currentTimeoutMs = polarPmd != null
+            ? polarPmd.optLong("scan_timeout_ms", DEFAULT_POLAR_UI_SCAN_TIMEOUT_MS)
+            : DEFAULT_POLAR_UI_SCAN_TIMEOUT_MS;
+        if (currentTimeoutMs <= 0L) {
+            currentTimeoutMs = DEFAULT_POLAR_UI_SCAN_TIMEOUT_MS;
+        }
+
+        addSectionTitle("POLAR PMD");
+        addBodyText("Start the broker-owned Android BLE Polar PMD source here. When it reaches streaming, the broker publishes bio:polar_acc and derived bio:breath for localhost clients.");
+
+        TextView statusText = textView(14, false, TEXT);
+        statusText.setTypeface(Typeface.MONOSPACE);
+        statusText.setLineSpacing(0f, 1.08f);
+        statusText.setText(buildPolarConsoleStatus(status));
+        pagePanel.addView(statusText, matchWrapParams(0, 0, 0, 14));
+
+        final EditText deviceAddressEdit = editText("Device address (optional)", requestedAddress);
+        pagePanel.addView(deviceAddressEdit, matchWrapParams(0, 0, 0, 8));
+
+        final EditText scanTimeoutEdit = editText("Scan timeout ms", Long.toString(currentTimeoutMs));
+        scanTimeoutEdit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        pagePanel.addView(scanTimeoutEdit, matchWrapParams(0, 0, 0, 12));
+
+        LinearLayout controls = row();
+
+        Button startButton = actionButton("Start Polar");
+        startButton.setTextColor(Color.rgb(7, 24, 18));
+        startButton.setBackground(panelBackground(ACCENT_STRONG, 12, ACCENT_STRONG));
+        startButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startPolarPmdFromConsole(
+                    deviceAddressEdit.getText().toString(),
+                    parseScanTimeoutMs(scanTimeoutEdit.getText().toString()));
+            }
+        });
+        controls.addView(startButton);
+
+        Button stopButton = actionButton("Stop Polar");
+        stopButton.setTextColor(WARN);
+        stopButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                stopPolarPmdFromConsole();
+            }
+        });
+        controls.addView(stopButton, wrapParams(10, 0, 0, 0));
+
+        Button refreshButton = actionButton("Refresh Status");
+        refreshButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                refreshPolarPmdFromConsole();
+            }
+        });
+        controls.addView(refreshButton, wrapParams(10, 0, 0, 0));
+
+        List<String> missingPermissions = missingPolarRuntimePermissions();
+        if (!missingPermissions.isEmpty()) {
+            Button permissionButton = actionButton("Grant Bluetooth");
+            permissionButton.setTextColor(WARN);
+            permissionButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    requestPolarRuntimePermissions();
+                }
+            });
+            controls.addView(permissionButton, wrapParams(10, 0, 0, 0));
+        }
+
+        pagePanel.addView(controls, matchWrapParams(0, 0, 0, 14));
+
+        if (!missingPermissions.isEmpty()) {
+            addBodyText("Missing runtime permissions: " + TextUtils.join(", ", missingPermissions));
+        }
+
+        renderPolarBreathTuning(status);
+
+        addSectionTitle("HANDOFF");
+        addBodyText("After bio:breath is active, use the Launcher page to start a target XR app. The broker service remains active in the background.");
+
+        if (pageScroll != null && previousScrollY > 0) {
+            pageScroll.post(new Runnable() {
+                @Override
+                public void run() {
+                    pageScroll.scrollTo(0, previousScrollY);
+                }
+            });
+        }
+    }
+
+    private void renderPolarBreathTuning(final JSONObject status) {
+        if (!polarBreathDraftLoaded) {
+            loadPolarBreathDraftFromStatus(status);
+        }
+
+        addSectionTitle("POLAR BREATH TUNING");
+        addBodyText("Tune the broker-side Polar accelerometer breath tracker. Field names match the Unity runtime config where the broker supports the same parameter.");
+
+        final EditText analysisRateEdit = draftEditText("analysisRateHz", polarBreathAnalysisRateHz, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathAnalysisRateHz = value;
+            }
+        });
+        setDecimalInput(analysisRateEdit);
+        addBreathTuningRow("analysisRateHz", analysisRateEdit);
+
+        final EditText calibrationFramesEdit = draftEditText("calibrationAcceptedFrames", polarBreathCalibrationFrames, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathCalibrationFrames = value;
+            }
+        });
+        calibrationFramesEdit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        addBreathTuningRow("calibrationAcceptedFrames", calibrationFramesEdit);
+
+        final EditText minDeltaEdit = draftEditText("minAcceptedDeltaG", polarBreathMinDeltaG, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathMinDeltaG = value;
+            }
+        });
+        setDecimalInput(minDeltaEdit);
+        addBreathTuningRow("minAcceptedDeltaG", minDeltaEdit);
+
+        final EditText minTravelEdit = draftEditText("minCalibrationTravelG", polarBreathMinTravelG, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathMinTravelG = value;
+            }
+        });
+        setDecimalInput(minTravelEdit);
+        addBreathTuningRow("minCalibrationTravelG", minTravelEdit);
+
+        final EditText sampleEmaEdit = draftEditText("sampleEmaAlpha", polarBreathSampleEma, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathSampleEma = value;
+            }
+        });
+        setDecimalInput(sampleEmaEdit);
+        addBreathTuningRow("sampleEmaAlpha", sampleEmaEdit);
+
+        final EditText projectionEmaEdit = draftEditText("projectionEmaAlpha", polarBreathProjectionEma, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathProjectionEma = value;
+            }
+        });
+        setDecimalInput(projectionEmaEdit);
+        addBreathTuningRow("projectionEmaAlpha", projectionEmaEdit);
+
+        final EditText lowerQuantileEdit = draftEditText("boundsLowerQuantile", polarBreathLowerQuantile, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathLowerQuantile = value;
+            }
+        });
+        setDecimalInput(lowerQuantileEdit);
+        addBreathTuningRow("boundsLowerQuantile", lowerQuantileEdit);
+
+        final EditText upperQuantileEdit = draftEditText("boundsUpperQuantile", polarBreathUpperQuantile, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathUpperQuantile = value;
+            }
+        });
+        setDecimalInput(upperQuantileEdit);
+        addBreathTuningRow("boundsUpperQuantile", upperQuantileEdit);
+
+        final EditText edgeEaseEdit = draftEditText("boundsEdgeEase", polarBreathEdgeEase, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathEdgeEase = value;
+            }
+        });
+        setDecimalInput(edgeEaseEdit);
+        addBreathTuningRow("boundsEdgeEase", edgeEaseEdit);
+
+        final EditText volumeDeltaEdit = draftEditText("volumeEventMinDelta", polarBreathVolumeDelta, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathVolumeDelta = value;
+            }
+        });
+        setDecimalInput(volumeDeltaEdit);
+        addBreathTuningRow("volumeEventMinDelta", volumeDeltaEdit);
+
+        final EditText accBaseModeEdit = draftEditText("accBaseMode", polarBreathAccBaseMode, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathAccBaseMode = value;
+            }
+        });
+        addBreathTuningRow("accBaseMode", accBaseModeEdit);
+
+        final EditText invertVolumeEdit = draftEditText("invertVolume", polarBreathInvertVolume, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                polarBreathInvertVolume = value;
+            }
+        });
+        addBreathTuningRow("invertVolume", invertVolumeEdit);
+
+        LinearLayout firstRow = row();
+        Button applyButton = actionButton("Apply Tuning");
+        applyButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                applyPolarBreathTuning(false);
+            }
+        });
+        firstRow.addView(applyButton);
+
+        Button applyCalibrateButton = actionButton("Apply + Calibrate");
+        applyCalibrateButton.setTextColor(Color.rgb(7, 24, 18));
+        applyCalibrateButton.setBackground(panelBackground(ACCENT_STRONG, 12, ACCENT_STRONG));
+        applyCalibrateButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                applyPolarBreathTuning(true);
+            }
+        });
+        firstRow.addView(applyCalibrateButton, wrapParams(10, 0, 0, 0));
+        pagePanel.addView(firstRow, matchWrapParams(0, 4, 0, 8));
+
+        LinearLayout secondRow = row();
+        Button beginButton = actionButton("Begin Calibration");
+        beginButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                beginPolarBreathCalibrationFromConsole();
+            }
+        });
+        secondRow.addView(beginButton);
+
+        Button resetButton = actionButton("Reset Calibration");
+        resetButton.setTextColor(WARN);
+        resetButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                resetPolarBreathCalibrationFromConsole();
+            }
+        });
+        secondRow.addView(resetButton, wrapParams(10, 0, 0, 0));
+
+        Button loadButton = actionButton("Load Current");
+        loadButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                loadPolarBreathDraftFromStatus(status);
+                renderCurrentPage();
+            }
+        });
+        secondRow.addView(loadButton, wrapParams(10, 0, 0, 0));
+
+        Button defaultsButton = actionButton("Unity Defaults");
+        defaultsButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                loadPolarUnityDefaults();
+                renderCurrentPage();
+            }
+        });
+        secondRow.addView(defaultsButton, wrapParams(10, 0, 0, 0));
+        pagePanel.addView(secondRow, matchWrapParams(0, 0, 0, 14));
+    }
+
+    private String buildPolarConsoleStatus(JSONObject status) {
+        StringBuilder builder = new StringBuilder(900);
+        JSONObject polarPmd = status != null ? status.optJSONObject("polarPmd") : null;
+        JSONObject breathAssessment = status != null ? status.optJSONObject("breathAssessment") : null;
+
+        if (polarPmd == null) {
+            builder.append("Polar PMD status is not reported yet.\n");
+        } else {
+            builder.append("state         ").append(polarPmd.optString("state", "unknown")).append('\n');
+            builder.append("enabled       ").append(polarPmd.optBoolean("enabled")).append('\n');
+            builder.append("scan timeout  ").append(polarPmd.optLong("scan_timeout_ms", 0L)).append(" ms\n");
+            String requested = polarPmd.optString("requested_device_address", "");
+            if (requested.length() > 0) {
+                builder.append("requested     ").append(requested).append('\n');
+            }
+            builder.append("device        ").append(polarPmd.optString("device_name", "")).append('\n');
+            builder.append("address       ").append(polarPmd.optString("device_address", "")).append('\n');
+            if (polarPmd.has("battery_percent")) {
+                builder.append("battery       ").append(polarPmd.optInt("battery_percent", 0)).append("%\n");
+            }
+            if (polarPmd.has("negotiated_mtu")) {
+                builder.append("mtu           ").append(polarPmd.optInt("negotiated_mtu", 0)).append('\n');
+            }
+            builder.append("scan reports  ").append(polarPmd.optLong("scan_report_count", 0L)).append('\n');
+            builder.append("ignored scan  ").append(polarPmd.optLong("ignored_scan_report_count", 0L)).append('\n');
+            builder.append("acc frames    ").append(polarPmd.optLong("acc_frame_count", 0L)).append('\n');
+            builder.append("acc samples   ").append(polarPmd.optLong("acc_sample_count", 0L)).append('\n');
+            String missing = polarPmd.optString("missing_permissions", "");
+            if (missing.length() > 0) {
+                builder.append("permissions   ").append(missing).append('\n');
+            }
+            String lastError = polarPmd.optString("last_error", "");
+            if (lastError.length() > 0) {
+                builder.append("last error    ").append(lastError).append('\n');
+            }
+            appendRecentScanCandidates(builder, polarPmd);
+        }
+
+        builder.append('\n');
+        if (breathAssessment == null) {
+            builder.append("Breath assessment status is not reported yet.\n");
+        } else {
+            builder.append("breath state  ").append(breathAssessment.optString("state", "unknown")).append('\n');
+            builder.append("output        ").append(breathAssessment.optString("output_stream", "bio:breath")).append('\n');
+            builder.append("polar frames  ").append(breathAssessment.optLong("accepted_polar_frames", 0L)).append('\n');
+            builder.append("assessments   ").append(breathAssessment.optLong("emitted_assessments", 0L)).append('\n');
+            JSONObject latest = breathAssessment.optJSONObject("latest_assessment");
+            if (latest != null) {
+                builder.append("latest src    ").append(latest.optString("source", "")).append('\n');
+                builder.append("latest state  ").append(latest.optString("state", "")).append('\n');
+                builder.append("latest volume ")
+                    .append(String.format(Locale.ROOT, "%.3f", latest.optDouble("volume01", 0.0d)))
+                    .append('\n');
+            }
+            JSONObject polarSource = polarBreathSourceStatus(status);
+            if (polarSource != null) {
+                builder.append("polar state   ").append(polarSource.optString("state", "unknown")).append('\n');
+                builder.append("calibrated    ").append(polarSource.optBoolean("is_calibrated", false)).append('\n');
+                builder.append("cal samples   ")
+                    .append(polarSource.optInt("calibration_samples", 0))
+                    .append('/')
+                    .append(polarSource.optInt("calibration_frame_count", 0))
+                    .append('\n');
+                builder.append("polar volume  ")
+                    .append(String.format(Locale.ROOT, "%.3f", polarSource.optDouble("volume01", 0.0d)))
+                    .append('\n');
+                String sourceError = polarSource.optString("last_error", "");
+                if (sourceError.length() > 0) {
+                    builder.append("breath error  ").append(sourceError).append('\n');
+                }
+            }
+        }
+
+        return builder.toString();
+    }
+
+    private void appendRecentScanCandidates(StringBuilder builder, JSONObject polarPmd) {
+        JSONArray candidates = polarPmd.optJSONArray("recent_scan_candidates");
+        if (candidates == null || candidates.length() == 0) {
+            return;
+        }
+
+        builder.append("recent scan\n");
+        int count = Math.min(5, candidates.length());
+        for (int i = 0; i < count; i++) {
+            JSONObject candidate = candidates.optJSONObject(i);
+            if (candidate == null) {
+                continue;
+            }
+
+            builder.append(candidate.optBoolean("accepted") ? "+ " : "- ");
+            builder.append(candidate.optString("name", ""));
+            builder.append(" rssi=").append(candidate.optInt("rssi", 0));
+            builder.append(" score=").append(candidate.optInt("match_score", 0));
+            if (candidate.optBoolean("heart_rate_service", false)) {
+                builder.append(" hr");
+            }
+            if (candidate.optBoolean("pmd_service", false)) {
+                builder.append(" pmd");
+            }
+            builder.append('\n');
+        }
+    }
+
+    private void addBreathTuningRow(String label, EditText editText) {
+        LinearLayout row = row();
+        TextView labelView = textView(13, false, MUTED);
+        labelView.setText(label);
+        row.addView(labelView, weightedParams(0.54f, 0, 0, 10, 0));
+        row.addView(editText, weightedParams(0.46f, 0, 0, 0, 0));
+        pagePanel.addView(row, matchWrapParams(0, 0, 0, 7));
+    }
+
+    private void loadPolarBreathDraftFromStatus(JSONObject status) {
+        JSONObject config = polarBreathConfig(status);
+        polarBreathAnalysisRateHz = formatConfigNumber(config.optDouble("nominal_analysis_rate_hz", 10.0d));
+        polarBreathCalibrationFrames = Integer.toString(config.optInt("calibration_frame_count", 120));
+        polarBreathMinDeltaG = formatConfigNumber(config.optDouble("min_accepted_delta", 0.0005d));
+        polarBreathMinTravelG = formatConfigNumber(config.optDouble("min_travel", 0.010d));
+        polarBreathSampleEma = formatConfigNumber(config.optDouble("sample_ema_alpha", 0.10d));
+        polarBreathProjectionEma = formatConfigNumber(config.optDouble("projection_ema_alpha", 0.10d));
+        polarBreathLowerQuantile = formatConfigNumber(config.optDouble("low_quantile", 0.05d));
+        polarBreathUpperQuantile = formatConfigNumber(config.optDouble("high_quantile", 0.95d));
+        polarBreathEdgeEase = formatConfigNumber(config.optDouble("edge_ease", 0.03d));
+        polarBreathVolumeDelta = formatConfigNumber(config.optDouble("delta_threshold", 0.001d));
+        polarBreathAccBaseMode = config.optString("acc_base_mode", "xz");
+        polarBreathInvertVolume = Boolean.toString(config.optBoolean("invert_volume", false));
+        polarBreathDraftLoaded = true;
+    }
+
+    private void loadPolarUnityDefaults() {
+        polarBreathAnalysisRateHz = "10";
+        polarBreathCalibrationFrames = "120";
+        polarBreathMinDeltaG = "0.0005";
+        polarBreathMinTravelG = "0.010";
+        polarBreathSampleEma = "0.10";
+        polarBreathProjectionEma = "0.10";
+        polarBreathLowerQuantile = "0.05";
+        polarBreathUpperQuantile = "0.95";
+        polarBreathEdgeEase = "0.03";
+        polarBreathVolumeDelta = "0.001";
+        polarBreathAccBaseMode = "Xz";
+        polarBreathInvertVolume = "false";
+        polarBreathDraftLoaded = true;
+    }
+
+    private JSONObject polarBreathConfig(JSONObject status) {
+        JSONObject source = polarBreathSourceStatus(status);
+        JSONObject config = source != null ? source.optJSONObject("config") : null;
+        return config != null ? config : new JSONObject();
+    }
+
+    private JSONObject polarBreathSourceStatus(JSONObject status) {
+        JSONObject breathAssessment = status != null ? status.optJSONObject("breathAssessment") : null;
+        JSONObject sources = breathAssessment != null ? breathAssessment.optJSONObject("sources") : null;
+        return sources != null ? sources.optJSONObject("polar_acc") : null;
+    }
+
+    private String formatConfigNumber(double value) {
+        String formatted = String.format(Locale.ROOT, "%.6f", value);
+        while (formatted.indexOf('.') >= 0 && formatted.endsWith("0")) {
+            formatted = formatted.substring(0, formatted.length() - 1);
+        }
+        if (formatted.endsWith(".")) {
+            formatted = formatted.substring(0, formatted.length() - 1);
+        }
+        return formatted;
+    }
+
+    private JSONObject buildPolarBreathParams(boolean resetCalibration) throws Exception {
+        JSONObject params = new JSONObject();
+        params.put("source", "polar_acc");
+        params.put("reset_calibration", resetCalibration);
+        putDoubleParam(params, "analysisRateHz", polarBreathAnalysisRateHz);
+        putIntParam(params, "calibrationAcceptedFrames", polarBreathCalibrationFrames);
+        putDoubleParam(params, "minAcceptedDeltaG", polarBreathMinDeltaG);
+        putDoubleParam(params, "minCalibrationTravelG", polarBreathMinTravelG);
+        putDoubleParam(params, "sampleEmaAlpha", polarBreathSampleEma);
+        putDoubleParam(params, "projectionEmaAlpha", polarBreathProjectionEma);
+        putDoubleParam(params, "boundsLowerQuantile", polarBreathLowerQuantile);
+        putDoubleParam(params, "boundsUpperQuantile", polarBreathUpperQuantile);
+        putDoubleParam(params, "boundsEdgeEase", polarBreathEdgeEase);
+        putDoubleParam(params, "volumeEventMinDelta", polarBreathVolumeDelta);
+        if (polarBreathAccBaseMode != null && polarBreathAccBaseMode.trim().length() > 0) {
+            params.put("accBaseMode", polarBreathAccBaseMode.trim());
+        }
+        if (polarBreathInvertVolume != null && polarBreathInvertVolume.trim().length() > 0) {
+            params.put("invertVolume", parseBooleanLike(polarBreathInvertVolume, false));
+        }
+        return params;
+    }
+
+    private void putDoubleParam(JSONObject params, String key, String value) throws Exception {
+        if (value == null || value.trim().length() == 0) {
+            return;
+        }
+        params.put(key, Double.parseDouble(value.trim()));
+    }
+
+    private void putIntParam(JSONObject params, String key, String value) throws Exception {
+        if (value == null || value.trim().length() == 0) {
+            return;
+        }
+        params.put(key, Integer.parseInt(value.trim()));
+    }
+
+    private boolean parseBooleanLike(String value, boolean fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if ("true".equals(normalized) || "1".equals(normalized) || "yes".equals(normalized) || "on".equals(normalized)) {
+            return true;
+        }
+        if ("false".equals(normalized) || "0".equals(normalized) || "no".equals(normalized) || "off".equals(normalized)) {
+            return false;
+        }
+        return fallback;
+    }
+
+    private void refreshPolarPmdFromConsole() {
+        runBrokerConsoleAction("Refreshing Polar status", new BrokerConsoleAction() {
+            @Override
+            public JSONObject run() throws Exception {
+                return BrokerService.getPolarPmdStatusFromConsole();
+            }
+        });
+    }
+
+    private void startPolarPmdFromConsole(final String deviceAddress, final long scanTimeoutMs) {
+        List<String> missingPermissions = missingPolarRuntimePermissions();
+        if (!missingPermissions.isEmpty()) {
+            pendingPolarStartAfterPermission = true;
+            pendingPolarDeviceAddress = deviceAddress != null ? deviceAddress : "";
+            pendingPolarScanTimeoutMs = scanTimeoutMs > 0L ? scanTimeoutMs : DEFAULT_POLAR_UI_SCAN_TIMEOUT_MS;
+            requestPolarRuntimePermissions();
+            return;
+        }
+
+        startBrokerService(getIntent());
+        runBrokerConsoleAction("Starting Polar PMD", new BrokerConsoleAction() {
+            @Override
+            public JSONObject run() throws Exception {
+                return BrokerService.startPolarPmdFromConsole(deviceAddress, scanTimeoutMs);
+            }
+        });
+    }
+
+    private void stopPolarPmdFromConsole() {
+        startBrokerService(getIntent());
+        runBrokerConsoleAction("Stopping Polar PMD", new BrokerConsoleAction() {
+            @Override
+            public JSONObject run() throws Exception {
+                return BrokerService.stopPolarPmdFromConsole();
+            }
+        });
+    }
+
+    private void applyPolarBreathTuning(final boolean beginCalibrationAfterApply) {
+        startBrokerService(getIntent());
+        runBrokerConsoleAction(beginCalibrationAfterApply ? "Applying tuning and starting calibration" : "Applying breath tuning", new BrokerConsoleAction() {
+            @Override
+            public JSONObject run() throws Exception {
+                JSONObject ack = BrokerService.setPolarBreathParamsFromConsole(
+                    buildPolarBreathParams(beginCalibrationAfterApply));
+                if (beginCalibrationAfterApply && ack != null && ack.optBoolean("accepted", false)) {
+                    return BrokerService.beginPolarBreathCalibrationFromConsole();
+                }
+                return ack;
+            }
+        });
+    }
+
+    private void beginPolarBreathCalibrationFromConsole() {
+        startBrokerService(getIntent());
+        runBrokerConsoleAction("Starting breath calibration", new BrokerConsoleAction() {
+            @Override
+            public JSONObject run() throws Exception {
+                return BrokerService.beginPolarBreathCalibrationFromConsole();
+            }
+        });
+    }
+
+    private void resetPolarBreathCalibrationFromConsole() {
+        startBrokerService(getIntent());
+        runBrokerConsoleAction("Resetting breath calibration", new BrokerConsoleAction() {
+            @Override
+            public JSONObject run() throws Exception {
+                return BrokerService.resetPolarBreathCalibrationFromConsole();
+            }
+        });
+    }
+
+    private void runBrokerConsoleAction(final String progressMessage, final BrokerConsoleAction action) {
+        showLaunchToast(progressMessage);
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final JSONObject ack = action.run();
+                    handler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            handleBrokerConsoleAck(ack);
+                        }
+                    });
+                } catch (final Exception ex) {
+                    handler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            showLaunchToast("Command failed: " + ex.getMessage());
+                            refreshStatus();
+                        }
+                    });
+                }
+            }
+        }, "RustyXrBrokerConsoleCommand");
+        thread.start();
+    }
+
+    private long statusRefreshDelayMs() {
+        if ("Polar".equals(currentPage) && !isEditingText()) {
+            return POLAR_STATUS_REFRESH_MS;
+        }
+        return DEFAULT_STATUS_REFRESH_MS;
+    }
+
+    private void handleBrokerConsoleAck(JSONObject ack) {
+        if (ack == null) {
+            showLaunchToast("Command returned no status");
+            refreshStatus();
+            return;
+        }
+
+        if (ack.optBoolean("accepted", false)) {
+            String message = ack.optString("message", "command accepted");
+            showLaunchToast(message.length() > 0 ? message : "Command accepted");
+        } else {
+            JSONObject error = ack.optJSONObject("error");
+            String message = error != null ? error.optString("message", "") : ack.optString("message", "");
+            showLaunchToast(message.length() > 0 ? message : "Command rejected");
+        }
+        refreshStatus();
+    }
+
+    private void requestPolarRuntimePermissions() {
+        List<String> missingPermissions = missingPolarRuntimePermissions();
+        if (missingPermissions.isEmpty()) {
+            showLaunchToast("Bluetooth permissions already granted");
+            return;
+        }
+
+        requestPermissions(
+            missingPermissions.toArray(new String[missingPermissions.size()]),
+            REQUEST_POLAR_PERMISSIONS);
+    }
+
+    private List<String> missingPolarRuntimePermissions() {
+        ArrayList<String> missing = new ArrayList<>();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            addMissingPermission(missing, Manifest.permission.BLUETOOTH_SCAN);
+            addMissingPermission(missing, Manifest.permission.BLUETOOTH_CONNECT);
+        } else {
+            addMissingPermission(missing, Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        return missing;
+    }
+
+    private void addMissingPermission(List<String> missing, String permission) {
+        if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+            missing.add(permission);
+        }
+    }
+
+    private long parseScanTimeoutMs(String raw) {
+        if (raw == null || raw.trim().length() == 0) {
+            return DEFAULT_POLAR_UI_SCAN_TIMEOUT_MS;
+        }
+
+        try {
+            long parsed = Long.parseLong(raw.trim());
+            return parsed > 0L ? parsed : DEFAULT_POLAR_UI_SCAN_TIMEOUT_MS;
+        } catch (NumberFormatException ex) {
+            return DEFAULT_POLAR_UI_SCAN_TIMEOUT_MS;
+        }
+    }
+
+    private interface BrokerConsoleAction {
+        JSONObject run() throws Exception;
+    }
+
     private void addSectionTitle(String value) {
         TextView title = textView(15, true, ACCENT_STRONG);
         title.setText(value);
@@ -673,6 +1411,42 @@ public final class MainActivity extends Activity {
         editText.setPadding(14, 6, 14, 6);
         editText.setBackground(panelBackground(PANEL_ALT, 12, Color.rgb(55, 70, 76)));
         return editText;
+    }
+
+    private EditText draftEditText(String hint, String value, final DraftUpdater updater) {
+        EditText editText = editText(hint, value);
+        editText.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence sequence, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence sequence, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable editable) {
+                if (updater != null) {
+                    updater.update(editable != null ? editable.toString() : "");
+                }
+            }
+        });
+        return editText;
+    }
+
+    private void setDecimalInput(EditText editText) {
+        editText.setInputType(
+            InputType.TYPE_CLASS_NUMBER
+                | InputType.TYPE_NUMBER_FLAG_DECIMAL
+                | InputType.TYPE_NUMBER_FLAG_SIGNED);
+    }
+
+    private boolean isEditingText() {
+        return getCurrentFocus() instanceof EditText;
+    }
+
+    private interface DraftUpdater {
+        void update(String value);
     }
 
     private LinearLayout.LayoutParams matchWrapParams(int left, int top, int right, int bottom) {
@@ -775,6 +1549,7 @@ public final class MainActivity extends Activity {
         builder.append("Breath        ").append(breathAssessment != null ? breathAssessment.optString("state", "unknown") : "not reported").append('\n');
         builder.append("Video lab     ").append(videoLab != null ? videoLab.optString("state", "unknown") : "not reported").append('\n');
         builder.append('\n');
+        builder.append("Use Polar to start broker-owned Polar PMD before launching a target XR app.\n");
         builder.append("Use Return to XR App to close this console while the broker service keeps running.");
         return builder.toString();
     }
@@ -911,6 +1686,8 @@ public final class MainActivity extends Activity {
             builder.append("acc frames    ").append(polarPmd.optLong("acc_frame_count", 0L)).append('\n');
             builder.append("acc samples   ").append(polarPmd.optLong("acc_sample_count", 0L)).append('\n');
             builder.append("malformed     ").append(polarPmd.optLong("malformed_frame_count", 0L)).append('\n');
+            builder.append("scan reports  ").append(polarPmd.optLong("scan_report_count", 0L)).append('\n');
+            builder.append("ignored scan  ").append(polarPmd.optLong("ignored_scan_report_count", 0L)).append('\n');
             String missingPermissions = polarPmd.optString("missing_permissions", "");
             if (missingPermissions.length() > 0) {
                 builder.append("permissions   ").append(missingPermissions).append('\n');

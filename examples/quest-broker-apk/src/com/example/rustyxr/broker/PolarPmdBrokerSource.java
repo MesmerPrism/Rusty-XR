@@ -48,6 +48,8 @@ final class PolarPmdBrokerSource implements Closeable {
     private static final long CONTROL_RESPONSE_TIMEOUT_MS = 8_000L;
     private static final int GATT_START_FAILED = -1;
     private static final int GATT_CONNECTION_TIMEOUT = -2;
+    private static final int STRONG_CANDIDATE_SCORE = 80;
+    private static final int MAX_SCAN_CANDIDATE_SUMMARIES = 12;
 
     private final Context context;
     private final BrokerState state;
@@ -80,6 +82,9 @@ final class PolarPmdBrokerSource implements Closeable {
     private int latestSampleCount;
     private String lastError = "";
     private String missingPermissions = "";
+    private long scanReportCount;
+    private long ignoredScanReportCount;
+    private JSONArray recentScanCandidates = new JSONArray();
     private JSONArray controlResponses = new JSONArray();
     private JSONArray settings = new JSONArray();
     private JSONArray notes = new JSONArray();
@@ -97,8 +102,28 @@ final class PolarPmdBrokerSource implements Closeable {
             requestedScanTimeoutMs = clampScanTimeout(scanTimeoutMs);
             enabled = true;
             stopRequested = false;
+            deviceAddress = "";
+            deviceName = "";
+            rssi = Integer.MIN_VALUE;
+            heartRateServiceVisible = false;
+            pmdServiceVisible = false;
+            batteryPercent = -1;
+            negotiatedMtu = 0;
+            accFrameCount = 0L;
+            accSampleCount = 0L;
+            malformedFrameCount = 0L;
+            latestFrameUnixNs = 0L;
+            latestFrameElapsedNs = 0L;
+            latestSensorTimestampNs = 0L;
+            latestSampleCount = 0;
             lastError = "";
             missingPermissions = "";
+            scanReportCount = 0L;
+            ignoredScanReportCount = 0L;
+            recentScanCandidates = new JSONArray();
+            controlResponses = new JSONArray();
+            settings = new JSONArray();
+            notes = new JSONArray();
             if (workerThread != null && workerThread.isAlive()) {
                 statusState = "streaming".equals(statusState) ? statusState : "starting";
                 publishStatusLocked();
@@ -406,7 +431,8 @@ final class PolarPmdBrokerSource implements Closeable {
                     safeDeviceAddress(device, requestedAddress.trim()),
                     Integer.MIN_VALUE,
                     false,
-                    false);
+                    false,
+                    100);
             } catch (Exception ex) {
                 addNote("Direct-address Polar lookup failed: " + ex.getMessage());
                 return null;
@@ -435,6 +461,7 @@ final class PolarPmdBrokerSource implements Closeable {
         };
 
         updateState("scanning");
+        addNote("Scanning for Polar PMD candidates. Unnamed BLE devices without Polar name or Polar/HR service UUIDs are ignored.");
         scanner.startScan(
             new ArrayList<android.bluetooth.le.ScanFilter>(),
             new ScanSettings.Builder()
@@ -442,7 +469,25 @@ final class PolarPmdBrokerSource implements Closeable {
                 .build(),
             scanCallback);
         try {
-            return queue.poll(scanTimeout, TimeUnit.MILLISECONDS);
+            PolarDeviceCandidate bestCandidate = null;
+            long deadlineMs = SystemClock.elapsedRealtime() + scanTimeout;
+            while (SystemClock.elapsedRealtime() < deadlineMs && !stopRequested) {
+                long waitMs = Math.max(1L, deadlineMs - SystemClock.elapsedRealtime());
+                PolarDeviceCandidate candidate = queue.poll(waitMs, TimeUnit.MILLISECONDS);
+                if (candidate == null) {
+                    break;
+                }
+
+                if (isBetterCandidate(candidate, bestCandidate)) {
+                    bestCandidate = candidate;
+                }
+
+                if (candidate.matchScore >= STRONG_CANDIDATE_SCORE) {
+                    return candidate;
+                }
+            }
+
+            return bestCandidate;
         } finally {
             try {
                 scanner.stopScan(scanCallback);
@@ -728,6 +773,9 @@ final class PolarPmdBrokerSource implements Closeable {
         status.put("latest_sample_count", latestSampleCount);
         status.put("last_error", lastError);
         status.put("missing_permissions", missingPermissions);
+        status.put("scan_report_count", scanReportCount);
+        status.put("ignored_scan_report_count", ignoredScanReportCount);
+        status.put("recent_scan_candidates", new JSONArray(recentScanCandidates.toString()));
         status.put("control_responses", new JSONArray(controlResponses.toString()));
         status.put("settings", new JSONArray(settings.toString()));
         status.put("notes", new JSONArray(notes.toString()));
@@ -770,31 +818,128 @@ final class PolarPmdBrokerSource implements Closeable {
         }
 
         String advertisedName = result.getScanRecord() != null ? result.getScanRecord().getDeviceName() : "";
-        String deviceName = advertisedName != null && advertisedName.length() > 0
+        String deviceNameFromGatt = safeDeviceName(result.getDevice(), "");
+        String matchedName = advertisedName != null && advertisedName.length() > 0
             ? advertisedName
-            : safeDeviceName(result.getDevice(), "Polar-compatible BLE sensor");
+            : deviceNameFromGatt;
         boolean hasHeartRate = advertisesService(result, PolarPmdProtocol.HEART_RATE_SERVICE);
         boolean hasPmd = advertisesService(result, PolarPmdProtocol.PMD_SERVICE);
-        boolean matchesPolar = (deviceName != null && deviceName.toLowerCase(java.util.Locale.ROOT).contains("polar"))
-            || hasHeartRate
-            || hasPmd;
-        if (!matchesPolar) {
+        int matchScore = candidateScore(matchedName, hasHeartRate, hasPmd);
+        String displayName = matchedName != null && matchedName.length() > 0
+            ? matchedName
+            : "Unnamed BLE device";
+        if (matchScore <= 0) {
+            recordScanCandidate(result, displayName, hasHeartRate, hasPmd, matchScore, false);
             return null;
         }
 
+        recordScanCandidate(result, displayName, hasHeartRate, hasPmd, matchScore, true);
         return new PolarDeviceCandidate(
             result.getDevice(),
-            deviceName,
+            displayName,
             safeDeviceAddress(result.getDevice(), ""),
             result.getRssi(),
             hasHeartRate,
-            hasPmd);
+            hasPmd,
+            matchScore);
     }
 
     private boolean advertisesService(ScanResult result, UUID uuid) {
-        return result.getScanRecord() != null
-            && result.getScanRecord().getServiceUuids() != null
-            && result.getScanRecord().getServiceUuids().contains(new ParcelUuid(uuid));
+        if (result.getScanRecord() == null) {
+            return false;
+        }
+
+        ParcelUuid parcelUuid = new ParcelUuid(uuid);
+        return (result.getScanRecord().getServiceUuids() != null
+                && result.getScanRecord().getServiceUuids().contains(parcelUuid))
+            || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                && result.getScanRecord().getServiceSolicitationUuids() != null
+                && result.getScanRecord().getServiceSolicitationUuids().contains(parcelUuid));
+    }
+
+    private void recordScanCandidate(
+        ScanResult result,
+        String displayName,
+        boolean hasHeartRate,
+        boolean hasPmd,
+        int matchScore,
+        boolean accepted) {
+        synchronized (lock) {
+            scanReportCount++;
+            if (!accepted) {
+                ignoredScanReportCount++;
+            }
+
+            try {
+                JSONObject candidate = new JSONObject();
+                candidate.put("accepted", accepted);
+                candidate.put("name", displayName != null ? displayName : "");
+                candidate.put("address", safeDeviceAddress(result.getDevice(), ""));
+                candidate.put("rssi", result.getRssi());
+                candidate.put("heart_rate_service", hasHeartRate);
+                candidate.put("pmd_service", hasPmd);
+                candidate.put("match_score", matchScore);
+                appendRecentScanCandidateLocked(candidate);
+                publishStatusLocked();
+            } catch (Exception ex) {
+                lastError = "Scan candidate summary failed: " + ex.getMessage();
+                publishStatusLocked();
+            }
+        }
+    }
+
+    private void appendRecentScanCandidateLocked(JSONObject candidate) {
+        String address = candidate.optString("address", "");
+        String name = candidate.optString("name", "");
+        boolean accepted = candidate.optBoolean("accepted", false);
+
+        for (int i = recentScanCandidates.length() - 1; i >= 0; i--) {
+            JSONObject existing = recentScanCandidates.optJSONObject(i);
+            if (existing == null || existing.optBoolean("accepted", false) != accepted) {
+                continue;
+            }
+
+            String existingAddress = existing.optString("address", "");
+            boolean sameAddress = address.length() > 0 && address.equals(existingAddress);
+            boolean sameUnnamedBucket = address.length() == 0
+                && existingAddress.length() == 0
+                && name.equals(existing.optString("name", ""));
+            if (sameAddress || sameUnnamedBucket) {
+                recentScanCandidates.remove(i);
+            }
+        }
+
+        while (recentScanCandidates.length() >= MAX_SCAN_CANDIDATE_SUMMARIES) {
+            recentScanCandidates.remove(0);
+        }
+        recentScanCandidates.put(candidate);
+    }
+
+    private static int candidateScore(String deviceName, boolean hasHeartRate, boolean hasPmd) {
+        int score = 0;
+        if (hasPmd) {
+            score += 100;
+        }
+        if (deviceName != null && deviceName.toLowerCase(java.util.Locale.ROOT).contains("polar")) {
+            score += 80;
+        }
+        if (hasHeartRate) {
+            score += 20;
+        }
+        return score;
+    }
+
+    private static boolean isBetterCandidate(PolarDeviceCandidate candidate, PolarDeviceCandidate currentBest) {
+        if (candidate == null) {
+            return false;
+        }
+        if (currentBest == null) {
+            return true;
+        }
+        if (candidate.matchScore != currentBest.matchScore) {
+            return candidate.matchScore > currentBest.matchScore;
+        }
+        return candidate.rssi > currentBest.rssi;
     }
 
     @SuppressLint("MissingPermission")
@@ -982,6 +1127,7 @@ final class PolarPmdBrokerSource implements Closeable {
         final int rssi;
         final boolean heartRateServiceVisible;
         final boolean pmdServiceVisible;
+        final int matchScore;
 
         PolarDeviceCandidate(
             BluetoothDevice device,
@@ -989,13 +1135,15 @@ final class PolarPmdBrokerSource implements Closeable {
             String deviceAddress,
             int rssi,
             boolean heartRateServiceVisible,
-            boolean pmdServiceVisible) {
+            boolean pmdServiceVisible,
+            int matchScore) {
             this.device = device;
             this.deviceName = deviceName;
             this.deviceAddress = deviceAddress;
             this.rssi = rssi;
             this.heartRateServiceVisible = heartRateServiceVisible;
             this.pmdServiceVisible = pmdServiceVisible;
+            this.matchScore = matchScore;
         }
     }
 

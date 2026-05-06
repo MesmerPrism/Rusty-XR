@@ -16,10 +16,12 @@ $ErrorActionPreference = 'Stop'
 $exampleRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $buildRoot = Join-Path $exampleRoot 'build'
 $classesRoot = Join-Path $buildRoot 'classes'
+$compiledResourcesRoot = Join-Path $buildRoot 'compiled-res'
 $dexRoot = Join-Path $buildRoot 'dex'
 $nativeRoot = Join-Path $buildRoot 'native'
 $packageRoot = Join-Path $buildRoot 'package'
 $outputsRoot = Join-Path $buildRoot 'outputs'
+$resourcesRoot = Join-Path $exampleRoot 'res'
 $debugKeyRoot = Join-Path $env:LOCALAPPDATA 'RustyXrDebugKeystores\quest-broker'
 
 function Invoke-Tool {
@@ -168,7 +170,19 @@ $classesJar = Join-Path $buildRoot 'rusty-xr-quest-broker-classes.jar'
 $jniLibraryRoot = Join-Path $nativeRoot 'arm64-v8a'
 $packagedLibraryRoot = Join-Path $packageRoot 'lib\arm64-v8a'
 
-Invoke-Tool -File $aapt2 -Arguments @(
+$compiledResourceFiles = @()
+if (Test-Path $resourcesRoot) {
+    New-Item -ItemType Directory -Force -Path $compiledResourcesRoot | Out-Null
+    Invoke-Tool -File $aapt2 -Arguments @(
+        'compile',
+        '--dir', $resourcesRoot,
+        '-o', $compiledResourcesRoot
+    )
+    $compiledResourceFiles = @(Get-ChildItem -LiteralPath $compiledResourcesRoot -Recurse -File -Filter '*.flat' |
+        Select-Object -ExpandProperty FullName)
+}
+
+$aaptLinkArgs = @(
     'link',
     '-o', $unsignedApk,
     '-I', $androidJar,
@@ -176,6 +190,10 @@ Invoke-Tool -File $aapt2 -Arguments @(
     '--min-sdk-version', '29',
     '--target-sdk-version', $TargetSdkVersion.ToString()
 )
+if ($compiledResourceFiles.Count -gt 0) {
+    $aaptLinkArgs += $compiledResourceFiles
+}
+Invoke-Tool -File $aapt2 -Arguments $aaptLinkArgs
 
 $javaSources = Get-ChildItem -LiteralPath (Join-Path $exampleRoot 'src') -Recurse -File -Filter '*.java' |
     Select-Object -ExpandProperty FullName

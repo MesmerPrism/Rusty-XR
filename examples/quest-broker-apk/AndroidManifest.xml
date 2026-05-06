@@ -56,15 +56,25 @@
         android:allowBackup="false"
         android:debuggable="true"
         android:extractNativeLibs="true"
-        android:label="Rusty XR Broker"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
             android:launchMode="singleTop"
+            android:roundIcon="@mipmap/ic_launcher_round"
             android:resizeableActivity="true"
             android:screenOrientation="landscape">
+            <layout
+                android:defaultHeight="720dp"
+                android:defaultWidth="1080dp"
+                android:minHeight="540dp"
+                android:minWidth="720dp" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

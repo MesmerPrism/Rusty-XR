@@ -404,6 +404,18 @@ final class LocalBrokerServer implements Closeable {
             return resetBreathAssessment(requestId, command, message.optJSONObject("params"));
         }
 
+        if ("set_polar_breath_params".equals(command) || "polar_breath.set_params".equals(command)) {
+            return setPolarBreathParams(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("polar_breath_calibrate_begin".equals(command) || "polar_breath.calibrate_begin".equals(command)) {
+            return beginPolarBreathCalibration(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("polar_breath_calibrate_reset".equals(command) || "polar_breath.calibrate_reset".equals(command)) {
+            return resetPolarBreathCalibration(requestId, command, message.optJSONObject("params"));
+        }
+
         if ("breath_assessment.submit_controller_pose".equals(command)) {
             return submitControllerBreathPose(requestId, command, message.optJSONObject("params"));
         }
@@ -1173,6 +1185,42 @@ final class LocalBrokerServer implements Closeable {
         JSONObject result = new JSONObject();
         result.put("status", status);
         return commandAck(requestId, command, true, "breath_assessment_reset", result);
+    }
+
+    private JSONObject setPolarBreathParams(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject status = state.setPolarBreathParams(params);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("status", status);
+        return commandAck(requestId, command, true, "polar_breath_params_set", result);
+    }
+
+    private JSONObject beginPolarBreathCalibration(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject status = state.beginPolarBreathCalibration(params);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("status", status);
+        return commandAck(requestId, command, true, "polar_breath_calibration_started", result);
+    }
+
+    private JSONObject resetPolarBreathCalibration(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject status = state.resetPolarBreathCalibration(params);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("status", status);
+        return commandAck(requestId, command, true, "polar_breath_calibration_reset", result);
     }
 
     private JSONObject submitControllerBreathPose(

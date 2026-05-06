@@ -10,6 +10,9 @@
 //! shells for adapter-owned physics integrations.
 //! Source-only SDF attraction helpers are included as a public example consumer
 //! of dynamic mesh fields; higher-level simulation behavior stays downstream.
+//! Billboard instance packing, trail snapshots, render-budget estimates, and
+//! generated animation mask fixtures are documented in
+//! `docs/PARTICLE_BILLBOARD_AND_ANIMATION_PERFORMANCE.md`.
 //!
 //! Enable the `serde` feature to serialize particle buffers and fixed-step
 //! runtime state for fixtures or operator tooling.

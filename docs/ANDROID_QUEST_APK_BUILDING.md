@@ -153,6 +153,48 @@ when needed. A launcher alias or small launcher Activity can expose a normal
 app icon, while the OpenXR Activity remains focused on VR lifecycle and runtime
 requirements.
 
+## OpenXR / Vulkan Coordinate Space Checks
+
+Treat world-space anchoring and clip-space rasterization as separate gates.
+An app can store particles, meshes, or diagnostic surfaces in a stable
+OpenXR reference space and still make them appear head-locked if the final
+Vulkan projection path uses the wrong screen-space convention.
+
+For headset-stable world content, validate the chain in this order:
+
+- Create or select a stable scene reference space, such as `LOCAL_FLOOR`,
+  `STAGE`, or `LOCAL`, and submit the projection layer in that same space.
+- Use `VIEW` only to locate the current head and per-eye offsets, then compose
+  each eye pose back into the stable scene space before projection.
+- Keep renderer-owned particle or mesh positions in scene coordinates; do not
+  rebuild their world basis from the live headset orientation every frame
+  unless the content is intentionally head anchored.
+- Build clip coordinates through a projection path whose Vulkan viewport
+  convention matches the projection matrix or manual FOV math.
+
+The last point is easy to miss. OpenXR FOV projection math is usually written
+in eye tangent space where positive Y is up. Vulkan framebuffer coordinates
+commonly use a top-left framebuffer origin. If a renderer relies on
+OpenXR-style projection matrices or equivalent manual tangent/FOV math, use a
+matching viewport convention, for example `y = framebuffer_height` and
+`height = -framebuffer_height`, or explicitly fold the Y inversion into the
+projection. Mixing an OpenXR-style projection with a positive-height Vulkan
+viewport can make stable world-space content look like it is moving with
+headset orientation, even when the logged scene anchor and OpenXR view poses
+are correct.
+
+This symptom is a render-space bug, not an anchoring bug. Before changing
+scene placement code, log a fixed scene basis and compare direct stable-space
+`locate_views` results against any `VIEW`-space composition path. If those
+poses agree while the visual still appears head-relative, diff the final
+viewport, projection matrix, clip-space sign conventions, and per-eye shader
+selection against a known-good renderer.
+
+For intermittent headset-visible pixel pops, screen tears, stale frames, or
+other render artifacts after the coordinate-space path is correct, use the
+direct-device workflow in
+[QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md](QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md).
+
 ## Headset 2D Launchers
 
 A normal Quest 2D Android app can act as a useful side-loaded app launcher
@@ -161,6 +203,23 @@ visible launcher activities, and launch packages that expose a front-door
 Activity through Android `PackageManager` APIs. Package visibility still
 matters for discovery on modern Android, and packages that do not expose a
 public launch Activity may not be launchable from normal app mode.
+
+The same normal-app boundary allows the broker console to control data sources
+that the broker APK itself owns through standard Android permissions. For
+example, a headset-launched broker console can request Bluetooth runtime
+permission, start a broker-owned Polar PMD BLE source, keep publishing
+localhost `bio:breath`, and then launch a target XR app through a normal
+front-door Activity. That flow does not require the ADB shell helper because
+the broker remains the foreground permission owner for its own BLE source.
+For sideloaded/debug builds, expect the launcher entrypoint to appear in the
+headset's sideloaded or Unknown Sources app view. A public example can provide
+its own label and icon, but system quick-access pinning remains launcher-owned
+UI state rather than something a normal app should force.
+For 2D console apps, declare an explicit Android manifest `<layout>` size on
+the launch activity so Horizon OS panel controls have predictable starting
+dimensions for resize, reposition, and focused/theater presentation. The
+focused panel mode is system UI behavior; app code should remain resilient to
+pause/resume and visibility changes rather than assuming it can own that mode.
 
 An ADB-launched shell helper is a separate Developer Mode path. It can add
 shell-backed package enumeration, explicit `am start`, force-stop,
