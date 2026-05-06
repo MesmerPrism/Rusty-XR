@@ -27,9 +27,8 @@ use rusty_xr_debug_canvas::{
     CanvasTheme, CanvasTone, DiagnosticHudUpdate,
 };
 use rusty_xr_particles::{
-    build_synthetic_hand_mesh, ColorRgba, HandMeshSnapshot, Handedness,
-    LiveHandMeshParticleSampler, LiveHandMeshUpdateStatus, MeshSurfaceCrossNeighborConfig,
-    MeshSurfaceSampleConfig, ParticleRender, SyntheticHandMeshConfig, TriangleMeshSurface,
+    ColorRgba, HandMeshSnapshot, Handedness, LiveHandMeshParticleSampler, LiveHandMeshUpdateStatus,
+    MeshSurfaceCrossNeighborConfig, MeshSurfaceSampleConfig, ParticleRender,
 };
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
@@ -2289,7 +2288,6 @@ unsafe fn run_vulkan(
         gpu_camera_import_supported,
     );
     let mut environment_depth_visualizer = EnvironmentDepthVisualizer::new(render_pass);
-    let mut synthetic_hand_particle_source = SyntheticHandParticleSource::new();
     let mut openxr_hand_particle_source: Option<OpenXrHandMeshParticleSource> = None;
     let mut hand_particle_renderer = HandMeshParticleRenderer::new(render_pass);
     let mut osc_diagnostics_overlay = OscDiagnosticsOverlay::new(render_pass);
@@ -3116,7 +3114,6 @@ unsafe fn run_vulkan(
             );
         }
         let hand_particles = match config.hand_particle_mode {
-            HandParticleMode::Synthetic => synthetic_hand_particle_source.update(&views, frame_count),
             HandParticleMode::Meta => openxr_hand_particle_source
                 .as_mut()
                 .map(|source| {
@@ -8358,88 +8355,6 @@ fn inverse_transform_openxr_pose_point(pose: xr::sys::Posef, point: Vec3) -> Vec
         .rotate_vec3(point - xr_position_to_vec3(pose.position))
 }
 
-struct SyntheticHandParticleSource {
-    base_mesh: TriangleMeshSurface,
-    indices: Vec<[u32; 3]>,
-    left_sampler: LiveHandMeshParticleSampler,
-    right_sampler: LiveHandMeshParticleSampler,
-}
-
-impl SyntheticHandParticleSource {
-    fn new() -> Self {
-        let base_mesh = build_synthetic_hand_mesh(SyntheticHandMeshConfig::default());
-        let indices = mesh_indices_u32(&base_mesh);
-        let sample_config = MeshSurfaceSampleConfig {
-            point_count: XR_HAND_MESH_PARTICLE_COUNT_PER_HAND,
-            first_tier_neighbor_count: 6,
-            second_tier_neighbor_count: 12,
-            seed: 42,
-        };
-        Self {
-            base_mesh,
-            indices,
-            left_sampler: LiveHandMeshParticleSampler::new(sample_config).with_render_style(
-                rusty_xr_particles::RenderCoordinateSpace::World,
-                XR_HAND_MESH_PARTICLE_RADIUS_METERS * 2.0,
-                ColorRgba::new(0.1, 0.82, 1.0, 0.56),
-            ),
-            right_sampler: LiveHandMeshParticleSampler::new(MeshSurfaceSampleConfig {
-                seed: 43,
-                ..sample_config
-            })
-            .with_render_style(
-                rusty_xr_particles::RenderCoordinateSpace::World,
-                XR_HAND_MESH_PARTICLE_RADIUS_METERS * 2.0,
-                ColorRgba::new(1.0, 0.44, 0.88, 0.56),
-            ),
-        }
-    }
-
-    fn update(&mut self, views: &[xr::View], frame_count: u64) -> Vec<GpuHandParticle> {
-        let Some((head_position, head_orientation)) = head_pose_from_views(views) else {
-            return Vec::new();
-        };
-        let seconds = frame_count as f32 / 72.0;
-        let bounce = (seconds * 1.7).sin() * 0.018;
-        let sway = (seconds * 0.9).sin() * 0.015;
-        let left_snapshot = transformed_synthetic_hand_snapshot(
-            &self.base_mesh,
-            &self.indices,
-            frame_count,
-            head_position,
-            head_orientation,
-            SyntheticHandPlacement {
-                handedness: Handedness::Left,
-                local_center: Vec3::new(-0.115 + sway, -0.12 + bounce, -0.58),
-                mirror_x: false,
-                local_z_rotation: 0.10 + (seconds * 0.8).sin() * 0.08,
-            },
-        );
-        let right_snapshot = transformed_synthetic_hand_snapshot(
-            &self.base_mesh,
-            &self.indices,
-            frame_count,
-            head_position,
-            head_orientation,
-            SyntheticHandPlacement {
-                handedness: Handedness::Right,
-                local_center: Vec3::new(0.115 + sway, -0.12 - bounce, -0.58),
-                mirror_x: true,
-                local_z_rotation: -0.10 + (seconds * 0.8).cos() * 0.08,
-            },
-        );
-
-        self.left_sampler.update_from_snapshot(&left_snapshot);
-        self.right_sampler.update_from_snapshot(&right_snapshot);
-
-        let mut particles = Vec::with_capacity(XR_HAND_MESH_PARTICLE_COUNT_PER_HAND * 2);
-        append_gpu_hand_particles(&mut particles, &self.left_sampler.render_particles());
-        append_gpu_hand_particles(&mut particles, &self.right_sampler.render_particles());
-        particles.truncate(XR_HAND_MESH_PARTICLE_CAPACITY as usize);
-        particles
-    }
-}
-
 fn head_pose_from_views(views: &[xr::View]) -> Option<(Vec3, Quat)> {
     let left = views.first()?;
     let right = views.get(1).unwrap_or(left);
@@ -8461,53 +8376,6 @@ fn xr_vector3_to_vec3(vector: xr::sys::Vector3f) -> Vec3 {
 fn xr_orientation_to_quat(orientation: xr::sys::Quaternionf) -> Quat {
     Quat::new(orientation.x, orientation.y, orientation.z, orientation.w)
         .normalized_or(Quat::IDENTITY)
-}
-
-struct SyntheticHandPlacement {
-    handedness: Handedness,
-    local_center: Vec3,
-    mirror_x: bool,
-    local_z_rotation: f32,
-}
-
-fn transformed_synthetic_hand_snapshot(
-    mesh: &TriangleMeshSurface,
-    indices: &[[u32; 3]],
-    version: u64,
-    head_position: Vec3,
-    head_orientation: Quat,
-    placement: SyntheticHandPlacement,
-) -> HandMeshSnapshot {
-    let (sin_z, cos_z) = placement.local_z_rotation.sin_cos();
-    let mirror = if placement.mirror_x { -1.0 } else { 1.0 };
-    let vertices = mesh
-        .vertices
-        .iter()
-        .copied()
-        .map(|vertex| {
-            let mirrored = Vec3::new(vertex.x * mirror, vertex.y, vertex.z);
-            let rotated = Vec3::new(
-                (mirrored.x * cos_z) - (mirrored.y * sin_z),
-                (mirrored.x * sin_z) + (mirrored.y * cos_z),
-                mirrored.z,
-            );
-            head_position + head_orientation.rotate_vec3(placement.local_center + rotated)
-        })
-        .collect();
-    HandMeshSnapshot::new(version, vertices, indices.to_vec()).with_handedness(placement.handedness)
-}
-
-fn mesh_indices_u32(mesh: &TriangleMeshSurface) -> Vec<[u32; 3]> {
-    mesh.triangles
-        .iter()
-        .map(|triangle| {
-            [
-                u32::try_from(triangle[0]).expect("synthetic mesh index fits u32"),
-                u32::try_from(triangle[1]).expect("synthetic mesh index fits u32"),
-                u32::try_from(triangle[2]).expect("synthetic mesh index fits u32"),
-            ]
-        })
-        .collect()
 }
 
 fn append_gpu_hand_particles(output: &mut Vec<GpuHandParticle>, particles: &[ParticleRender]) {
@@ -9217,7 +9085,6 @@ impl HandMeshParticleRenderer {
         if context.frame_count.is_multiple_of(120) {
             let projection = match mode {
                 HandParticleMode::Off => "off",
-                HandParticleMode::Synthetic => "head-relative-synthetic-hand-mesh",
                 HandParticleMode::Meta => "openxr-reference-space-skinned-fb-hand-mesh",
             };
             log_info(format!(

@@ -745,7 +745,6 @@ impl EnvironmentDepthMode {
 pub(crate) enum HandParticleMode {
     #[default]
     Off,
-    Synthetic,
     Meta,
 }
 
@@ -753,16 +752,9 @@ impl HandParticleMode {
     pub(crate) fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "off" | "false" | "0" | "disabled" | "none" => Some(Self::Off),
-            "synthetic"
-            | "synthetic-hand"
-            | "synthetic-hand-mesh"
-            | "hand-mesh"
-            | "on"
-            | "true"
-            | "1" => Some(Self::Synthetic),
-            "meta" | "meta-hand" | "meta-hand-mesh" | "openxr" | "openxr-hand"
-            | "openxr-hand-mesh" | "runtime" | "runtime-hand" | "runtime-hand-mesh" | "real"
-            | "real-hand" | "real-hand-mesh" => Some(Self::Meta),
+            "hand-mesh" | "on" | "true" | "1" | "meta" | "meta-hand" | "meta-hand-mesh"
+            | "openxr" | "openxr-hand" | "openxr-hand-mesh" | "runtime" | "runtime-hand"
+            | "runtime-hand-mesh" | "real" | "real-hand" | "real-hand-mesh" => Some(Self::Meta),
             _ => None,
         }
     }
@@ -770,7 +762,6 @@ impl HandParticleMode {
     pub(crate) const fn stable_id(self) -> &'static str {
         match self {
             Self::Off => "off",
-            Self::Synthetic => "synthetic",
             Self::Meta => "meta",
         }
     }
@@ -3511,7 +3502,7 @@ mod tests {
             xr_color_format_mode: Some("rgba8-unorm".to_string()),
             environment_depth_mode: Some("mesh-overlay".to_string()),
             environment_depth_hand_removal: Some(true),
-            hand_particle_mode: Some("synthetic".to_string()),
+            hand_particle_mode: Some("meta".to_string()),
             openxr_passthrough_probe: Some("client".to_string()),
             passthrough_style_mode: Some("color-lut".to_string()),
             passthrough_opacity: Some(0.68),
@@ -3617,7 +3608,7 @@ mod tests {
         assert!(config.environment_depth_mode.visualizes());
         assert!(config.environment_depth_mode.mesh_overlay());
         assert!(config.environment_depth_hand_removal);
-        assert_eq!(config.hand_particle_mode, HandParticleMode::Synthetic);
+        assert_eq!(config.hand_particle_mode, HandParticleMode::Meta);
         assert!(config.hand_particle_mode.enabled());
         assert_eq!(
             config.openxr_passthrough_probe,

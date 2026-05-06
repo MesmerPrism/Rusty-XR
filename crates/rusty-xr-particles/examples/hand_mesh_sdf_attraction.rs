@@ -1,8 +1,9 @@
 use rusty_xr_particles::{
-    build_mesh_sdf_particle_attraction_scenario, build_sdf_from_mesh_bounds,
-    build_synthetic_hand_mesh, CameraPose, MeshSdfParticleAttractionScenarioConfig,
-    MeshSdfSignMode, MeshToSdfConfig, ParticleSphereSpawnConfig, SdfParticleAttractionConfig,
-    SyntheticHandMeshConfig, TriangleMeshSnapshot, TriangleMeshSurface, Vec3,
+    build_fixture_hand_mesh, build_mesh_sdf_particle_attraction_scenario,
+    build_sdf_from_mesh_bounds, CameraPose, FixtureHandMeshConfig,
+    MeshSdfParticleAttractionScenarioConfig, MeshSdfSignMode, MeshToSdfConfig,
+    ParticleSphereSpawnConfig, SdfParticleAttractionConfig, TriangleMeshSnapshot,
+    TriangleMeshSurface, Vec3,
 };
 
 fn main() {
@@ -40,7 +41,7 @@ fn main() {
     let initial_hand = moving_hand_mesh(1, Vec3::new(0.0, 1.35, -0.72));
     let scenario =
         build_mesh_sdf_particle_attraction_scenario(1, camera, &initial_hand, scenario_config)
-            .expect("synthetic hand SDF scenario should build");
+            .expect("fixture hand SDF scenario should build");
     let mut particles = scenario.particles;
     let mut sdf = scenario.sdf;
     let attraction_config = scenario.attraction_config;
@@ -50,9 +51,7 @@ fn main() {
         if frame % 20 == 0 {
             let hand_offset = ((frame as f32) * 0.05).sin() * 0.04;
             let hand_mesh = moving_hand_mesh(frame as u64 + 2, Vec3::new(hand_offset, 1.35, -0.72));
-            let mesh_bounds = hand_mesh
-                .bounds()
-                .expect("synthetic hand should have bounds");
+            let mesh_bounds = hand_mesh.bounds().expect("fixture hand should have bounds");
             let sdf_bounds = mesh_bounds
                 .include_sphere(particle_spawn_center, scenario_config.spawn.radius_meters);
             sdf = build_sdf_from_mesh_bounds(
@@ -61,7 +60,7 @@ fn main() {
                 scenario_config.mesh_sdf,
                 sdf_bounds,
             )
-            .expect("updated synthetic hand SDF should build");
+            .expect("updated fixture hand SDF should build");
         }
 
         let stats = rusty_xr_particles::step_particles_toward_sdf(
@@ -89,11 +88,11 @@ fn main() {
 }
 
 fn moving_hand_mesh(version: u64, center: Vec3) -> TriangleMeshSnapshot {
-    let mut surface = build_synthetic_hand_mesh(SyntheticHandMeshConfig::default());
+    let mut surface = build_fixture_hand_mesh(FixtureHandMeshConfig::default());
     translate_surface(&mut surface, center);
     surface
         .to_triangle_mesh_snapshot(version)
-        .expect("synthetic hand mesh indices should fit u32")
+        .expect("fixture hand mesh indices should fit u32")
 }
 
 fn translate_surface(surface: &mut TriangleMeshSurface, offset: Vec3) {

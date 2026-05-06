@@ -42,27 +42,6 @@
       "description": "Runs the OpenXR layer without camera or screen capture for lifecycle and renderer isolation."
     },
     {
-      "id": "synthetic-hand-mesh-particles",
-      "label": "Synthetic hand mesh particles",
-      "values": {
-        "rustyxr.example": "quest-composite-layer-apk",
-        "rustyxr.cameraTier": "synthetic",
-        "rustyxr.camera": "false",
-        "rustyxr.mediaProjection": "false",
-        "rustyxr.source": "synthetic-hand-mesh-particles",
-        "rustyxr.depth": "off",
-        "rustyxr.handParticles": "synthetic",
-        "rustyxr.openxrPassthroughProbe": "underlay",
-        "rustyxr.passthroughStyleMode": "none",
-        "rustyxr.passthroughOpacity": "1.0",
-        "rustyxr.projectionLayerVisible": "true",
-        "rustyxr.xrColorFormat": "rgba8-unorm",
-        "rustyxr.xrRenderScale": "0.75",
-        "rustyxr.xrFixedFoveationLevel": "0"
-      },
-      "description": "Runs the OpenXR layer without camera or environment-depth acquisition, generates two procedural hand meshes in head-relative local space, samples stable Rusty XR hand-particle coordinates through LiveHandMeshParticleSampler, and renders them as stereo Vulkan billboards over the native passthrough underlay."
-    },
-    {
       "id": "meta-hand-mesh-particles",
       "label": "Meta hand mesh particles",
       "values": {

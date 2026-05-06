@@ -1253,7 +1253,7 @@ pub fn build_mesh_surface_cross_neighborhood(
 /// Dimensions for a simple procedural hand-like mesh used in public examples.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SyntheticHandMeshConfig {
+pub struct FixtureHandMeshConfig {
     pub palm_width_meters: f32,
     pub palm_height_meters: f32,
     pub palm_thickness_meters: f32,
@@ -1264,7 +1264,7 @@ pub struct SyntheticHandMeshConfig {
     pub thumb_angle_degrees: f32,
 }
 
-impl Default for SyntheticHandMeshConfig {
+impl Default for FixtureHandMeshConfig {
     fn default() -> Self {
         Self {
             palm_width_meters: 0.085,
@@ -1279,12 +1279,12 @@ impl Default for SyntheticHandMeshConfig {
     }
 }
 
-/// Build a synthetic open-hand mesh for examples and tests.
+/// Build an open-hand fixture mesh for examples and tests.
 ///
 /// The mesh is deliberately procedural and approximate. It demonstrates how a
 /// native hand-mesh adapter can feed the sampler without embedding platform or
 /// app-specific hand tracking code in this crate.
-pub fn build_synthetic_hand_mesh(config: SyntheticHandMeshConfig) -> TriangleMeshSurface {
+pub fn build_fixture_hand_mesh(config: FixtureHandMeshConfig) -> TriangleMeshSurface {
     let palm_width = config.palm_width_meters.max(0.001);
     let palm_height = config.palm_height_meters.max(0.001);
     let palm_thickness = config.palm_thickness_meters.max(0.001);
@@ -2992,10 +2992,10 @@ mod tests {
     #[test]
     fn builds_mesh_sdf_particle_attraction_scenario() {
         let camera = CameraPose::new(Vec3::ZERO, Vec3::FORWARD_NEG_Z, Vec3::UP);
-        let surface = build_synthetic_hand_mesh(SyntheticHandMeshConfig::default());
+        let surface = build_fixture_hand_mesh(FixtureHandMeshConfig::default());
         let mesh = surface
             .to_triangle_mesh_snapshot(3)
-            .expect("synthetic hand should convert to SDF mesh");
+            .expect("fixture hand should convert to SDF mesh");
         let scenario = build_mesh_sdf_particle_attraction_scenario(
             3,
             camera,
@@ -3465,8 +3465,8 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_hand_mesh_samples_convert_to_render_payload() {
-        let mesh = build_synthetic_hand_mesh(SyntheticHandMeshConfig::default());
+    fn fixture_hand_mesh_samples_convert_to_render_payload() {
+        let mesh = build_fixture_hand_mesh(FixtureHandMeshConfig::default());
         assert!(mesh.is_valid());
         assert_eq!(mesh.vertex_count(), 48);
         assert_eq!(mesh.triangle_count(), 72);
@@ -3722,7 +3722,7 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn mesh_surface_samples_round_trip_with_serde() {
-        let mesh = build_synthetic_hand_mesh(SyntheticHandMeshConfig::default());
+        let mesh = build_fixture_hand_mesh(FixtureHandMeshConfig::default());
         let samples = mesh.sample_even_points(MeshSurfaceSampleConfig {
             point_count: 12,
             first_tier_neighbor_count: 3,

@@ -1,7 +1,7 @@
 use rusty_xr_particles::{
-    build_synthetic_hand_mesh, ColorRgba, HandMeshSnapshot, Handedness,
+    build_fixture_hand_mesh, ColorRgba, FixtureHandMeshConfig, HandMeshSnapshot, Handedness,
     LiveHandMeshParticleSampler, MeshSurfaceCrossNeighborConfig, MeshSurfaceSampleConfig,
-    RenderCoordinateSpace, SyntheticHandMeshConfig, TriangleMeshSurface,
+    RenderCoordinateSpace, TriangleMeshSurface,
 };
 
 fn main() {
@@ -11,7 +11,7 @@ fn main() {
         second_tier_neighbor_count: 12,
         seed: 42,
     };
-    let mesh = build_synthetic_hand_mesh(SyntheticHandMeshConfig::default());
+    let mesh = build_fixture_hand_mesh(FixtureHandMeshConfig::default());
     let snapshot = hand_snapshot_from_mesh(0, &mesh, Handedness::Left);
     let mut sampler = LiveHandMeshParticleSampler::new(sample_config).with_render_style(
         RenderCoordinateSpace::World,
@@ -21,7 +21,7 @@ fn main() {
     let first_update = sampler.update_from_snapshot(&snapshot);
     let payload = sampler.render_payload(0);
 
-    let mut other_mesh = build_synthetic_hand_mesh(SyntheticHandMeshConfig::default());
+    let mut other_mesh = build_fixture_hand_mesh(FixtureHandMeshConfig::default());
     for vertex in &mut other_mesh.vertices {
         vertex.x += 0.14;
     }
@@ -47,7 +47,7 @@ fn main() {
     let live_update = sampler.update_from_snapshot(&deformed_snapshot);
 
     println!(
-        "synthetic hand mesh: vertices={} triangles={} samples={} first_neighbors={} second_neighbors={} cross_neighbors={} first_update={:?} live_update={:?} payload_points={}",
+        "fixture hand mesh: vertices={} triangles={} samples={} first_neighbors={} second_neighbors={} cross_neighbors={} first_update={:?} live_update={:?} payload_points={}",
         mesh.vertex_count(),
         mesh.triangle_count(),
         sampler.samples().point_count(),
@@ -78,9 +78,9 @@ fn hand_snapshot_from_mesh(
         .iter()
         .map(|triangle| {
             [
-                u32::try_from(triangle[0]).expect("synthetic mesh index fits u32"),
-                u32::try_from(triangle[1]).expect("synthetic mesh index fits u32"),
-                u32::try_from(triangle[2]).expect("synthetic mesh index fits u32"),
+                u32::try_from(triangle[0]).expect("fixture mesh index fits u32"),
+                u32::try_from(triangle[1]).expect("fixture mesh index fits u32"),
+                u32::try_from(triangle[2]).expect("fixture mesh index fits u32"),
             ]
         })
         .collect();

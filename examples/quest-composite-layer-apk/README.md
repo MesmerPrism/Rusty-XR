@@ -165,12 +165,6 @@ The example names the camera path explicitly:
   scene-owned particle or sparse surface map with explicit confidence,
   merge/replace, cell-resolution, and retirement policies. See
   [environment depth particle anchoring](../../docs/ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md).
-- `synthetic-hand-mesh-particles`: keeps camera and environment depth off,
-  generates two procedural hand meshes, feeds them through
-  `LiveHandMeshParticleSampler`, and renders the resulting coordinate set as
-  stereo Vulkan billboards over the native passthrough underlay. This is the
-  VR smoke test for the hand-mesh particle path before adding a live runtime
-  hand-mesh provider.
 - `meta-hand-mesh-particles`: keeps camera and environment depth off, requests
   OpenXR hand tracking plus `XR_FB_hand_tracking_mesh`, retrieves the immutable
   hand bind mesh once per hand, skins it from per-frame
@@ -376,12 +370,11 @@ Useful launch extras:
 - `rustyxr.depthHandRemoval`: `false` by default. When supported by the
   runtime, this requests environment-depth hand removal before provider start
   and logs whether the setting was supported and applied.
-- `rustyxr.handParticles`: `off` by default. `synthetic` enables the Rusty XR
-  hand-mesh particle VR smoke test without requiring camera or environment-depth
-  acquisition. `meta` enables the live OpenXR hand mesh path using
-  `XR_EXT_hand_tracking` and `XR_FB_hand_tracking_mesh`; the app logs extension
-  availability, hand mesh bind data, per-frame sampler status, and cross-hand
-  neighbor link counts.
+- `rustyxr.handParticles`: `off` by default. `meta`, `openxr`, `hand-mesh`,
+  or `on` enables the live OpenXR hand mesh path using `XR_EXT_hand_tracking`
+  and `XR_FB_hand_tracking_mesh`; the app logs extension availability, hand
+  mesh bind data, per-frame sampler status, and cross-hand neighbor link
+  counts.
 
 Camera delivery cadence and render cadence are separate. The GPU path can
 request an AE target range for the Camera2 producer, while the OpenXR renderer

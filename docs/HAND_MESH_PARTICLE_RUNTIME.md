@@ -76,13 +76,13 @@ returns a valid frame. Frame loops should treat invalid snapshots and invalid
 surfaces as recoverable provider states, keep rendering the last valid payload
 if desired, and resample when topology changes.
 
-## Synthetic Example
+## Portable Fixture Example
 
 The public example uses a procedural hand-like mesh because it is portable and
 does not require headset hardware:
 
 ```powershell
-cargo run -p rusty-xr-particles --example synthetic_hand_mesh_samples
+cargo run -p rusty-xr-particles --example hand_mesh_fixture_samples
 ```
 
 That example exercises the same sampler, live deformed-mesh update path,
