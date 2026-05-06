@@ -3,6 +3,9 @@
 //! This crate intentionally starts with simple, deterministic primitives. It
 //! does not include downstream simulation behavior, app scenes, or renderer
 //! backend code.
+//! It also includes stable coordinate sampling for dynamic triangle meshes:
+//! providers can update deformed vertices every frame while keeping sampled
+//! triangle/barycentric anchors and neighborhood identity stable.
 //!
 //! Enable the `serde` feature to serialize particle buffers and fixed-step
 //! runtime state for fixtures or operator tooling.
@@ -319,6 +322,158 @@ pub fn triangle_mesh_surface_from_hand_mesh_snapshot(
         snapshot.vertices.clone(),
         triangles,
     ))
+}
+
+/// Stable topology identity for any dynamic triangle mesh surface.
+///
+/// Runtime providers may update vertices every frame, but sampled coordinates
+/// can keep their triangle/barycentric anchors while the index topology stays
+/// stable. A changed key means the coordinate set should be rebuilt.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MeshSurfaceTopologyKey {
+    pub vertex_count: usize,
+    pub triangle_count: usize,
+    pub index_hash: u64,
+}
+
+impl MeshSurfaceTopologyKey {
+    pub fn from_mesh(mesh: &TriangleMeshSurface) -> Self {
+        Self {
+            vertex_count: mesh.vertices.len(),
+            triangle_count: mesh.triangles.len(),
+            index_hash: mesh_surface_index_hash(&mesh.triangles),
+        }
+    }
+}
+
+/// Thin boundary for platform or engine code that can emit dynamic surfaces.
+///
+/// Providers own native/engine calls and coordinate-space conversion. This
+/// crate only owns deterministic coordinate sampling, anchor updates, and
+/// neighbor lists.
+pub trait MeshSurfaceProvider {
+    fn next_mesh_surface(&mut self) -> Option<TriangleMeshSurface>;
+}
+
+/// Outcome of one live dynamic mesh sampler update.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LiveMeshSurfaceUpdateStatus {
+    NoMesh,
+    Initialized,
+    Updated,
+    ResampledTopology,
+    InvalidSurface,
+}
+
+/// Summary returned after updating sampled coordinates from a dynamic mesh.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LiveMeshSurfaceUpdate {
+    pub status: LiveMeshSurfaceUpdateStatus,
+    pub topology_key: Option<MeshSurfaceTopologyKey>,
+    pub sample_count: usize,
+}
+
+/// Live coordinate sampler for any deformed triangle mesh with stable topology.
+///
+/// The first valid mesh produces a roughly even coordinate set over the
+/// surface. Later meshes with the same topology update only positions and
+/// normals by re-evaluating the stored triangle/barycentric anchors. Same-
+/// surface neighbor tiers are preserved across these updates so interaction
+/// identity stays stable; callers can explicitly rebuild them when they want
+/// nearest neighbors in the current deformed pose.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct LiveMeshSurfaceSampler {
+    pub config: MeshSurfaceSampleConfig,
+    samples: MeshSurfaceSampleSet,
+    topology_key: Option<MeshSurfaceTopologyKey>,
+}
+
+impl LiveMeshSurfaceSampler {
+    pub fn new(config: MeshSurfaceSampleConfig) -> Self {
+        Self {
+            config,
+            samples: MeshSurfaceSampleSet::default(),
+            topology_key: None,
+        }
+    }
+
+    pub fn samples(&self) -> &MeshSurfaceSampleSet {
+        &self.samples
+    }
+
+    pub fn samples_mut(&mut self) -> &mut MeshSurfaceSampleSet {
+        &mut self.samples
+    }
+
+    pub fn topology_key(&self) -> Option<MeshSurfaceTopologyKey> {
+        self.topology_key
+    }
+
+    pub fn update_from_provider<P: MeshSurfaceProvider + ?Sized>(
+        &mut self,
+        provider: &mut P,
+    ) -> LiveMeshSurfaceUpdate {
+        let Some(mesh) = provider.next_mesh_surface() else {
+            return self.update_summary(LiveMeshSurfaceUpdateStatus::NoMesh);
+        };
+        self.update_from_mesh(&mesh)
+    }
+
+    pub fn update_from_mesh(&mut self, mesh: &TriangleMeshSurface) -> LiveMeshSurfaceUpdate {
+        if !mesh.is_valid() {
+            return self.update_summary(LiveMeshSurfaceUpdateStatus::InvalidSurface);
+        }
+
+        let next_key = MeshSurfaceTopologyKey::from_mesh(mesh);
+        if self.topology_key != Some(next_key)
+            || (self.samples.is_empty() && self.config.point_count > 0)
+        {
+            let next_samples = mesh.sample_even_points(self.config);
+            if self.config.point_count > 0 && next_samples.is_empty() {
+                return self.update_summary(LiveMeshSurfaceUpdateStatus::InvalidSurface);
+            }
+
+            let status = if self.topology_key.is_some() {
+                LiveMeshSurfaceUpdateStatus::ResampledTopology
+            } else {
+                LiveMeshSurfaceUpdateStatus::Initialized
+            };
+            self.samples = next_samples;
+            self.topology_key = Some(next_key);
+            return self.update_summary(status);
+        }
+
+        if !self.samples.update_positions_from_mesh(mesh) {
+            return self.update_summary(LiveMeshSurfaceUpdateStatus::InvalidSurface);
+        }
+
+        self.update_summary(LiveMeshSurfaceUpdateStatus::Updated)
+    }
+
+    pub fn rebuild_neighbor_tiers(&mut self) {
+        self.samples.rebuild_neighbor_tiers(
+            self.config.first_tier_neighbor_count,
+            self.config.second_tier_neighbor_count,
+        );
+    }
+
+    fn update_summary(&self, status: LiveMeshSurfaceUpdateStatus) -> LiveMeshSurfaceUpdate {
+        LiveMeshSurfaceUpdate {
+            status,
+            topology_key: self.topology_key,
+            sample_count: self.samples.point_count(),
+        }
+    }
+}
+
+impl Default for LiveMeshSurfaceSampler {
+    fn default() -> Self {
+        Self::new(MeshSurfaceSampleConfig::default())
+    }
 }
 
 /// Stable topology identity for live hand-mesh particle anchors.
@@ -2115,6 +2270,19 @@ fn neighbor_targets_are_valid(count: usize, neighbors: &[usize]) -> bool {
         .all(|neighbor| *neighbor < count && seen.insert(*neighbor))
 }
 
+fn mesh_surface_index_hash(indices: &[[usize; 3]]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for triangle in indices {
+        for index in triangle {
+            for byte in index.to_le_bytes() {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+    }
+    hash
+}
+
 fn hand_mesh_index_hash(indices: &[[u32; 3]]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     for triangle in indices {
@@ -2487,6 +2655,146 @@ mod tests {
         let second = sample_mesh_surface_points(&mesh, config);
 
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn live_mesh_surface_sampler_updates_deformed_mesh() {
+        let mesh = TriangleMeshSurface::new(
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        let mut sampler = LiveMeshSurfaceSampler::new(MeshSurfaceSampleConfig {
+            point_count: 6,
+            first_tier_neighbor_count: 2,
+            second_tier_neighbor_count: 2,
+            seed: 101,
+        });
+
+        let first = sampler.update_from_mesh(&mesh);
+        let first_key = sampler.topology_key();
+        let first_positions = sampler.samples().positions();
+        let first_neighbors = sampler.samples().first_tier_neighbors.clone();
+
+        assert_eq!(first.status, LiveMeshSurfaceUpdateStatus::Initialized);
+        assert_eq!(first.sample_count, 6);
+        assert_eq!(first.topology_key, first_key);
+
+        let offset = Vec3::new(0.25, -0.5, 0.75);
+        let deformed = TriangleMeshSurface::new(
+            mesh.vertices
+                .iter()
+                .copied()
+                .map(|vertex| vertex + offset)
+                .collect(),
+            mesh.triangles.clone(),
+        );
+        let second = sampler.update_from_mesh(&deformed);
+
+        assert_eq!(second.status, LiveMeshSurfaceUpdateStatus::Updated);
+        assert_eq!(second.topology_key, first_key);
+        assert_eq!(sampler.samples().first_tier_neighbors, first_neighbors);
+        for (old_position, sample) in first_positions
+            .iter()
+            .copied()
+            .zip(sampler.samples().samples.iter())
+        {
+            assert!((sample.position - (old_position + offset)).length() < 1.0e-5);
+        }
+    }
+
+    #[test]
+    fn live_mesh_surface_sampler_resamples_changed_topology() {
+        let initial = TriangleMeshSurface::new(
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        let changed = TriangleMeshSurface::new(
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2], [0, 2, 3]],
+        );
+        let mut sampler = LiveMeshSurfaceSampler::new(MeshSurfaceSampleConfig {
+            point_count: 8,
+            first_tier_neighbor_count: 2,
+            second_tier_neighbor_count: 3,
+            seed: 202,
+        });
+
+        let first = sampler.update_from_mesh(&initial);
+        let first_key = sampler.topology_key();
+        let second = sampler.update_from_mesh(&changed);
+
+        assert_eq!(first.status, LiveMeshSurfaceUpdateStatus::Initialized);
+        assert_eq!(
+            second.status,
+            LiveMeshSurfaceUpdateStatus::ResampledTopology
+        );
+        assert_ne!(sampler.topology_key(), first_key);
+        assert_eq!(sampler.samples().point_count(), 8);
+        assert!(sampler.samples().is_valid());
+    }
+
+    #[test]
+    fn live_mesh_surface_sampler_updates_from_provider_frames() {
+        struct SequenceProvider {
+            meshes: Vec<TriangleMeshSurface>,
+            cursor: usize,
+        }
+
+        impl MeshSurfaceProvider for SequenceProvider {
+            fn next_mesh_surface(&mut self) -> Option<TriangleMeshSurface> {
+                let mesh = self.meshes.get(self.cursor).cloned();
+                self.cursor += usize::from(mesh.is_some());
+                mesh
+            }
+        }
+
+        let initial = TriangleMeshSurface::new(
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        let deformed = TriangleMeshSurface::new(
+            initial
+                .vertices
+                .iter()
+                .copied()
+                .map(|vertex| vertex + Vec3::new(0.0, 0.1, 0.2))
+                .collect(),
+            initial.triangles.clone(),
+        );
+        let mut provider = SequenceProvider {
+            meshes: vec![initial, deformed],
+            cursor: 0,
+        };
+        let mut sampler = LiveMeshSurfaceSampler::new(MeshSurfaceSampleConfig {
+            point_count: 5,
+            ..MeshSurfaceSampleConfig::default()
+        });
+
+        let first = sampler.update_from_provider(&mut provider);
+        let second = sampler.update_from_provider(&mut provider);
+        let third = sampler.update_from_provider(&mut provider);
+
+        assert_eq!(first.status, LiveMeshSurfaceUpdateStatus::Initialized);
+        assert_eq!(second.status, LiveMeshSurfaceUpdateStatus::Updated);
+        assert_eq!(third.status, LiveMeshSurfaceUpdateStatus::NoMesh);
+        assert_eq!(third.sample_count, 5);
     }
 
     #[test]

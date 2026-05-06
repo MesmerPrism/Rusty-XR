@@ -84,6 +84,30 @@ Next likely public step:
 - Add a small sparse-TSDF query helper for near-surface candidates and support
   plane summaries before moving any heavier integration or meshing algorithm.
 
+### Dynamic Mesh Coordinate Sampling
+
+Public extraction added:
+
+- `TriangleMeshSurface`
+- `MeshSurfaceSampleConfig`
+- `MeshSurfaceSampleSet`
+- `LiveMeshSurfaceSampler`
+- `MeshSurfaceCrossNeighborhood`
+- `HandMeshSnapshot` conversion helpers
+- `LiveHandMeshParticleSampler`
+
+These live in `rusty-xr-particles` and `rusty-xr-contracts`. They provide
+stable barycentric coordinates on dynamic triangle meshes, preserve sample
+identity while vertices deform, and expose same-surface and cross-surface
+neighborhoods for interaction passes. Native Meta/OpenXR hand-mesh calls remain
+in examples or optional adapters.
+
+Next likely public step:
+
+- Add small interaction primitives that consume mesh-surface neighborhoods,
+  such as influence or proximity passes, while keeping app-specific coupling
+  behavior downstream.
+
 ### Plain Stereo Layer And Visual Feedback Border
 
 Public extraction added:
@@ -133,6 +157,7 @@ Next likely public step:
 | Depth-readback novelty gates | Local TSDF/depth integration experiments | Generic novelty score and readback cadence policy | Medium; initial readback policy is public, but novelty scoring still needs public names and tests |
 | Surface-net chunk extraction | Local depth debug mesh experiments | TSDF-to-chunked debug mesh extraction over public sparse snapshot | Medium; more algorithmic code and attribution needed |
 | Depth support/impact planes | Local depth query experiments | Support-plane and impact-plane summaries for particles/physics | Medium; initial data-only contracts are public, while physics adapters remain optional |
+| Dynamic mesh interaction passes | Local particle and hand-mesh experiments | Influence/proximity helpers over `MeshSurfaceSampleSet` and cross-surface neighborhoods | Low/medium; keep app-specific coupling and private visual behavior downstream |
 | Scan package manifest | Local capture and scan workflows | JSON-friendly capture package descriptors, stream manifests, frame indexes | Low |
 
 ## Defer Or Keep Adapter-Only

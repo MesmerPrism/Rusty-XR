@@ -746,6 +746,7 @@ pub(crate) enum HandParticleMode {
     #[default]
     Off,
     Synthetic,
+    Meta,
 }
 
 impl HandParticleMode {
@@ -759,6 +760,9 @@ impl HandParticleMode {
             | "on"
             | "true"
             | "1" => Some(Self::Synthetic),
+            "meta" | "meta-hand" | "meta-hand-mesh" | "openxr" | "openxr-hand"
+            | "openxr-hand-mesh" | "runtime" | "runtime-hand" | "runtime-hand-mesh" | "real"
+            | "real-hand" | "real-hand-mesh" => Some(Self::Meta),
             _ => None,
         }
     }
@@ -767,11 +771,16 @@ impl HandParticleMode {
         match self {
             Self::Off => "off",
             Self::Synthetic => "synthetic",
+            Self::Meta => "meta",
         }
     }
 
     pub(crate) const fn enabled(self) -> bool {
         !matches!(self, Self::Off)
+    }
+
+    pub(crate) const fn uses_openxr_hand_mesh(self) -> bool {
+        matches!(self, Self::Meta)
     }
 }
 
@@ -3635,6 +3644,20 @@ mod tests {
         assert!(!config.osc_overlay_enabled);
         assert_eq!(config.osc_listen_addr, "127.0.0.1:9100");
         assert_eq!(config.osc_max_packet_bytes, 4096);
+    }
+
+    #[test]
+    fn hand_particle_mode_parses_openxr_hand_mesh_aliases() {
+        assert_eq!(
+            HandParticleMode::parse("meta-hand-mesh"),
+            Some(HandParticleMode::Meta)
+        );
+        assert_eq!(
+            HandParticleMode::parse("openxr"),
+            Some(HandParticleMode::Meta)
+        );
+        assert!(HandParticleMode::Meta.uses_openxr_hand_mesh());
+        assert_eq!(HandParticleMode::Meta.stable_id(), "meta");
     }
 
     #[test]

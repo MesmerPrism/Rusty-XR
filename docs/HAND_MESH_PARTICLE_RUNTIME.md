@@ -7,10 +7,15 @@ implementation boundary is Rust-native and framework-neutral:
 ```text
 native or engine adapter
   -> HandMeshSnapshot
-  -> LiveHandMeshParticleSampler
+  -> LiveMeshSurfaceSampler or LiveHandMeshParticleSampler
   -> MeshSurfaceSampleSet
-  -> RenderPayload
+  -> optional RenderPayload / particles
 ```
+
+The generic dynamic-mesh API is documented in
+[dynamic mesh coordinate sampling](DYNAMIC_MESH_COORDINATE_SAMPLING.md). This
+page focuses on hand-mesh snapshots and the particle visualization convenience
+path.
 
 ## Runtime Ownership
 
@@ -23,13 +28,15 @@ link a platform SDK for this path.
 The adapter should emit one `HandMeshSnapshot` per hand when live mesh data is
 available. A snapshot contains the currently deformed vertices plus stable
 triangle indices. If the runtime also provides normals, skinning indices, or
-weights, those can travel in the same snapshot, but the particle sampler only
+weights, those can travel in the same snapshot, but the coordinate sampler only
 requires vertices and triangle indices.
 
 ## Particle Sampling
 
-`LiveHandMeshParticleSampler` spreads a requested number of coordinates over
-the first valid hand-mesh topology. Each coordinate stores:
+`LiveMeshSurfaceSampler` spreads a requested number of coordinates over the
+first valid hand-mesh topology. `LiveHandMeshParticleSampler` wraps that
+coordinate set for `HandMeshSnapshot` input and particle/debug payload output.
+Each coordinate stores:
 
 - current position
 - current normal
@@ -52,6 +59,10 @@ interaction passes. It also exposes `MeshSurfaceCrossNeighborhood`, which can
 link sampled coordinates from two hands. These are graph/topology utilities
 only; oscillator, coupling, force, or app-specific behavior belongs in a
 consumer crate or downstream shell.
+
+The Quest composite-layer example uses the particle renderer as a visual check
+for the live coordinate mapping. The reusable utility is the coordinate set and
+its neighborhoods, not the billboard renderer.
 
 ## Availability
 

@@ -171,6 +171,13 @@ The example names the camera path explicitly:
   stereo Vulkan billboards over the native passthrough underlay. This is the
   VR smoke test for the hand-mesh particle path before adding a live runtime
   hand-mesh provider.
+- `meta-hand-mesh-particles`: keeps camera and environment depth off, requests
+  OpenXR hand tracking plus `XR_FB_hand_tracking_mesh`, retrieves the immutable
+  hand bind mesh once per hand, skins it from per-frame
+  `xrLocateHandJointsEXT` joint poses in a stage-anchored reference space when
+  available, and feeds the resulting live mesh snapshots through the same
+  sampler. The sampled coordinates keep their intra-hand neighbor tiers and
+  establish a bounded cross-hand neighborhood for later interactions.
 - `passthrough-only-layer-probe`: submits the native passthrough composition
   layer without the OpenXR projection layer. Use it to isolate compositor
   passthrough visibility from projection-layer alpha and overlay rendering.
@@ -371,8 +378,10 @@ Useful launch extras:
   and logs whether the setting was supported and applied.
 - `rustyxr.handParticles`: `off` by default. `synthetic` enables the Rusty XR
   hand-mesh particle VR smoke test without requiring camera or environment-depth
-  acquisition. A future native provider can feed the same sampler with live
-  runtime hand-mesh snapshots.
+  acquisition. `meta` enables the live OpenXR hand mesh path using
+  `XR_EXT_hand_tracking` and `XR_FB_hand_tracking_mesh`; the app logs extension
+  availability, hand mesh bind data, per-frame sampler status, and cross-hand
+  neighbor link counts.
 
 Camera delivery cadence and render cadence are separate. The GPU path can
 request an AE target range for the Camera2 producer, while the OpenXR renderer

@@ -28,8 +28,8 @@ use rusty_xr_debug_canvas::{
 };
 use rusty_xr_particles::{
     build_synthetic_hand_mesh, ColorRgba, HandMeshSnapshot, Handedness,
-    LiveHandMeshParticleSampler, MeshSurfaceSampleConfig, ParticleRender, SyntheticHandMeshConfig,
-    TriangleMeshSurface,
+    LiveHandMeshParticleSampler, LiveHandMeshUpdateStatus, MeshSurfaceCrossNeighborConfig,
+    MeshSurfaceSampleConfig, ParticleRender, SyntheticHandMeshConfig, TriangleMeshSurface,
 };
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
@@ -53,9 +53,13 @@ const XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY: u32 = 32_768;
 const XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS: u32 = 12;
 const XR_ENVIRONMENT_DEPTH_PARTICLE_SOURCE_VIEW_COUNT: u32 = 1;
 const XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS: f32 = 0.28;
-const XR_HAND_MESH_PARTICLE_COUNT_PER_HAND: usize = 160;
-const XR_HAND_MESH_PARTICLE_CAPACITY: u32 = 512;
-const XR_HAND_MESH_PARTICLE_RADIUS_METERS: f32 = 0.0045;
+const XR_HAND_MESH_PARTICLE_COUNT_PER_HAND: usize = 480;
+const XR_HAND_MESH_PARTICLE_CAPACITY: u32 = 1024;
+const XR_HAND_MESH_PARTICLE_RADIUS_METERS: f32 = 0.00225;
+const XR_HAND_MESH_PARTICLE_CROSS_NEIGHBORS_PER_POINT: usize = 2;
+const XR_HAND_MESH_PARTICLE_CROSS_NEIGHBOR_MAX_METERS: f32 = 0.09;
+const OPENXR_HAND_JOINT_PALM_INDEX: usize = 0;
+const OPENXR_HAND_JOINT_WRIST_INDEX: usize = 1;
 const XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_FLAGS: u32 = 8;
 const XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL: &str = "rotate0+flipY";
 const XR_ENVIRONMENT_DEPTH_DESCRIPTOR_LAYOUT: vk::ImageLayout =
@@ -109,6 +113,20 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
         }
     } else if passthrough_probe_requested {
         log_info("Rusty XR OpenXR passthrough extension unavailable".to_string());
+    }
+    let hand_mesh_particles_requested = runtime_config().hand_particle_mode.uses_openxr_hand_mesh();
+    if hand_mesh_particles_requested
+        && available_extensions.ext_hand_tracking
+        && available_extensions.fb_hand_tracking_mesh
+    {
+        enabled_extensions.ext_hand_tracking = true;
+        enabled_extensions.fb_hand_tracking_mesh = true;
+    } else if hand_mesh_particles_requested {
+        log_info(format!(
+            "Rusty XR OpenXR hand mesh particle extensions unavailable extHandTracking={} fbHandTrackingMesh={}",
+            available_extensions.ext_hand_tracking,
+            available_extensions.fb_hand_tracking_mesh
+        ));
     }
     if available_extensions.fb_swapchain_update_state
         && available_extensions.fb_foveation
@@ -2217,23 +2235,10 @@ unsafe fn run_vulkan(
         &mut last_requested_display_refresh_hz,
     );
 
-    let (reference_space, reference_space_label) = match session
-        .create_reference_space(xr::ReferenceSpaceType::LOCAL, xr::Posef::IDENTITY)
-    {
-        Ok(space) => (space, "LOCAL"),
-        Err(local_error) => (
-            session
-                .create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)
-                .map_err(|stage_error| {
-                    format!(
-                        "create OpenXR reference space: LOCAL failed with {local_error}; STAGE failed with {stage_error}"
-                    )
-                })?,
-            "STAGE",
-        ),
-    };
+    let (reference_space, reference_space_label) =
+        create_app_reference_space(&session, startup_config.hand_particle_mode)?;
     log_info(format!(
-        "Rusty XR OpenXR reference space for projection and environment depth={reference_space_label}"
+        "Rusty XR OpenXR reference space for projection, environment depth, and hand mesh={reference_space_label}"
     ));
 
     let cmd_pool = vk_device
@@ -2285,6 +2290,7 @@ unsafe fn run_vulkan(
     );
     let mut environment_depth_visualizer = EnvironmentDepthVisualizer::new(render_pass);
     let mut synthetic_hand_particle_source = SyntheticHandParticleSource::new();
+    let mut openxr_hand_particle_source: Option<OpenXrHandMeshParticleSource> = None;
     let mut hand_particle_renderer = HandMeshParticleRenderer::new(render_pass);
     let mut osc_diagnostics_overlay = OscDiagnosticsOverlay::new(render_pass);
     let mut last_logged_gpu_frame_index: Option<u64> = None;
@@ -2347,6 +2353,14 @@ unsafe fn run_vulkan(
                                 frame_count,
                                 passthrough_lut_max_resolution,
                             );
+                            openxr_hand_particle_source = sync_openxr_hand_particle_source(
+                                &xr_instance,
+                                system,
+                                &session,
+                                openxr_hand_particle_source,
+                                config.hand_particle_mode,
+                                frame_count,
+                            );
                             frame_pacing_window_start = Instant::now();
                             frame_pacing_window_frames = 0;
                         }
@@ -2365,6 +2379,7 @@ unsafe fn run_vulkan(
                             osc_diagnostics_overlay.destroy(&vk_device);
                             openxr_environment_depth_probe = None;
                             openxr_passthrough_probe = None;
+                            openxr_hand_particle_source = None;
                         }
                         xr::SessionState::EXITING | xr::SessionState::LOSS_PENDING => {
                             break 'main_loop;
@@ -3088,10 +3103,39 @@ unsafe fn run_vulkan(
                 config.environment_depth_mode,
             );
         }
-        let hand_particles = if matches!(config.hand_particle_mode, HandParticleMode::Synthetic) {
-            synthetic_hand_particle_source.update(&views, frame_count)
-        } else {
-            Vec::new()
+        if config.hand_particle_mode.uses_openxr_hand_mesh()
+            && openxr_hand_particle_source.is_none()
+        {
+            openxr_hand_particle_source = sync_openxr_hand_particle_source(
+                &xr_instance,
+                system,
+                &session,
+                openxr_hand_particle_source,
+                config.hand_particle_mode,
+                frame_count,
+            );
+        }
+        let hand_particles = match config.hand_particle_mode {
+            HandParticleMode::Synthetic => synthetic_hand_particle_source.update(&views, frame_count),
+            HandParticleMode::Meta => openxr_hand_particle_source
+                .as_mut()
+                .map(|source| {
+                    source.update(
+                        &reference_space,
+                        frame_state.predicted_display_time,
+                        frame_count,
+                        &views,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    if frame_count == 0 || frame_count.is_multiple_of(120) {
+                        log_error(
+                            "Rusty XR OpenXR hand mesh particle source unavailable mode=meta particles=0",
+                        );
+                    }
+                    Vec::new()
+                }),
+            HandParticleMode::Off => Vec::new(),
         };
         let clear_values = [
             vk::ClearValue {
@@ -3158,12 +3202,14 @@ unsafe fn run_vulkan(
             );
         }
         hand_particle_renderer.record_draw(
-            &vk_device,
-            &memory_properties,
-            cmd,
-            swapchain.resolution,
-            &views,
-            frame_count,
+            HandParticleDrawContext {
+                device: &vk_device,
+                memory_properties: &memory_properties,
+                cmd,
+                resolution: swapchain.resolution,
+                views: &views,
+                frame_count,
+            },
             config.hand_particle_mode,
             &hand_particles,
         );
@@ -3357,6 +3403,7 @@ unsafe fn run_vulkan(
     osc_diagnostics_overlay.destroy(&vk_device);
     drop(openxr_environment_depth_probe.take());
     drop(openxr_passthrough_probe.take());
+    drop(openxr_hand_particle_source.take());
     drop((session, frame_wait, frame_stream, reference_space));
     for fence in fences {
         vk_device.destroy_fence(fence, None);
@@ -7529,6 +7576,788 @@ struct GpuHandParticle {
     color_alpha: [f32; 4],
 }
 
+fn sync_openxr_hand_particle_source(
+    instance: &xr::Instance,
+    system: xr::SystemId,
+    session: &xr::Session<xr::Vulkan>,
+    existing: Option<OpenXrHandMeshParticleSource>,
+    mode: HandParticleMode,
+    frame_count: u64,
+) -> Option<OpenXrHandMeshParticleSource> {
+    if !mode.uses_openxr_hand_mesh() {
+        return None;
+    }
+    if existing.is_some() {
+        return existing;
+    }
+    if instance.exts().ext_hand_tracking.is_none()
+        || instance.exts().fb_hand_tracking_mesh.is_none()
+    {
+        if frame_count == 0 || frame_count.is_multiple_of(120) {
+            log_error(format!(
+                "Rusty XR OpenXR hand mesh particle source unavailable extHandTracking={} fbHandTrackingMesh={}",
+                instance.exts().ext_hand_tracking.is_some(),
+                instance.exts().fb_hand_tracking_mesh.is_some()
+            ));
+        }
+        return None;
+    }
+    match instance.supports_hand_tracking(system) {
+        Ok(true) => {}
+        Ok(false) => {
+            log_error(
+                "Rusty XR OpenXR hand mesh particle source unavailable supportsHandTracking=false",
+            );
+            return None;
+        }
+        Err(error) => {
+            log_error(format!(
+                "Rusty XR OpenXR hand mesh particle support query failed: {error}"
+            ));
+            return None;
+        }
+    }
+    match OpenXrHandMeshParticleSource::new(instance, session) {
+        Ok(source) => {
+            log_info(format!(
+                "Rusty XR OpenXR hand mesh particle source ready activeHands={} sampler=LiveHandMeshParticleSampler skinning=cpu-linear-blend extension=XR_FB_hand_tracking_mesh",
+                source.active_hand_count()
+            ));
+            Some(source)
+        }
+        Err(error) => {
+            log_error(format!(
+                "Rusty XR OpenXR hand mesh particle source init failed: {error}"
+            ));
+            None
+        }
+    }
+}
+
+struct OpenXrHandMeshParticleSource {
+    left: Option<OpenXrHandMeshRuntimeHand>,
+    right: Option<OpenXrHandMeshRuntimeHand>,
+    cross_config: MeshSurfaceCrossNeighborConfig,
+    cross_neighborhood: Option<rusty_xr_particles::MeshSurfaceCrossNeighborhood>,
+}
+
+impl OpenXrHandMeshParticleSource {
+    fn new(instance: &xr::Instance, session: &xr::Session<xr::Vulkan>) -> Result<Self, String> {
+        let left = match OpenXrHandMeshRuntimeHand::new(
+            instance,
+            session,
+            xr::Hand::LEFT,
+            Handedness::Left,
+            "left",
+            52,
+            ColorRgba::new(0.08, 0.9, 1.0, 0.62),
+        ) {
+            Ok(hand) => Some(hand),
+            Err(error) => {
+                log_error(format!(
+                    "Rusty XR OpenXR left hand mesh particle source init failed: {error}"
+                ));
+                None
+            }
+        };
+        let right = match OpenXrHandMeshRuntimeHand::new(
+            instance,
+            session,
+            xr::Hand::RIGHT,
+            Handedness::Right,
+            "right",
+            53,
+            ColorRgba::new(1.0, 0.38, 0.84, 0.62),
+        ) {
+            Ok(hand) => Some(hand),
+            Err(error) => {
+                log_error(format!(
+                    "Rusty XR OpenXR right hand mesh particle source init failed: {error}"
+                ));
+                None
+            }
+        };
+        if left.is_none() && right.is_none() {
+            return Err("no hand trackers produced a usable FB hand mesh".to_string());
+        }
+        Ok(Self {
+            left,
+            right,
+            cross_config: MeshSurfaceCrossNeighborConfig {
+                max_distance_meters: XR_HAND_MESH_PARTICLE_CROSS_NEIGHBOR_MAX_METERS,
+                neighbors_per_point: XR_HAND_MESH_PARTICLE_CROSS_NEIGHBORS_PER_POINT,
+            },
+            cross_neighborhood: None,
+        })
+    }
+
+    fn active_hand_count(&self) -> usize {
+        usize::from(self.left.is_some()) + usize::from(self.right.is_some())
+    }
+
+    fn update(
+        &mut self,
+        reference_space: &xr::Space,
+        predicted_display_time: xr::Time,
+        frame_count: u64,
+        views: &[xr::View],
+    ) -> Vec<GpuHandParticle> {
+        let left_status = self.left.as_mut().map(|hand| {
+            hand.update(reference_space, predicted_display_time, frame_count)
+                .unwrap_or_else(|error| {
+                    if frame_count == 0 || frame_count.is_multiple_of(120) {
+                        log_error(format!(
+                            "Rusty XR OpenXR left hand mesh particle update failed: {error}"
+                        ));
+                    }
+                    LiveHandMeshUpdateStatus::NoSnapshot
+                })
+        });
+        let right_status = self.right.as_mut().map(|hand| {
+            hand.update(reference_space, predicted_display_time, frame_count)
+                .unwrap_or_else(|error| {
+                    if frame_count == 0 || frame_count.is_multiple_of(120) {
+                        log_error(format!(
+                            "Rusty XR OpenXR right hand mesh particle update failed: {error}"
+                        ));
+                    }
+                    LiveHandMeshUpdateStatus::NoSnapshot
+                })
+        });
+        let left_renderable = hand_update_status_renders(left_status);
+        let right_renderable = hand_update_status_renders(right_status);
+        self.cross_neighborhood = match (&self.left, &self.right) {
+            (Some(left), Some(right))
+                if left_renderable
+                    && right_renderable
+                    && !left.sampler.samples().is_empty()
+                    && !right.sampler.samples().is_empty() =>
+            {
+                Some(
+                    left.sampler
+                        .samples()
+                        .cross_neighborhood_with(right.sampler.samples(), self.cross_config),
+                )
+            }
+            _ => None,
+        };
+
+        let mut particles = Vec::with_capacity(XR_HAND_MESH_PARTICLE_COUNT_PER_HAND * 2);
+        if let Some(left) = &self.left {
+            if left_renderable {
+                append_gpu_hand_particles(&mut particles, &left.sampler.render_particles());
+            }
+        }
+        if let Some(right) = &self.right {
+            if right_renderable {
+                append_gpu_hand_particles(&mut particles, &right.sampler.render_particles());
+            }
+        }
+        particles.truncate(XR_HAND_MESH_PARTICLE_CAPACITY as usize);
+
+        if frame_count == 0 || frame_count.is_multiple_of(120) {
+            let (first_tier_links, second_tier_links) = self.intra_hand_neighbor_link_counts();
+            let cross_links = self.cross_neighbor_link_count();
+            log_info(format!(
+                "Rusty XR OpenXR hand mesh particles frame={} activeHands={} particles={} leftStatus={} rightStatus={} firstTierNeighborLinks={} secondTierNeighborLinks={} crossHandNeighborLinks={} crossHandMaxDistanceMeters={} crossHandNeighborsPerPoint={} skinning=cpu-linear-blend bindMesh=XR_FB_hand_tracking_mesh jointSource=xrLocateHandJointsEXT",
+                frame_count,
+                self.active_hand_count(),
+                particles.len(),
+                hand_update_status_label(left_status),
+                hand_update_status_label(right_status),
+                first_tier_links,
+                second_tier_links,
+                cross_links,
+                self.cross_config.max_distance_meters,
+                self.cross_config.neighbors_per_point
+            ));
+            if let Some(alignment) = hand_mesh_alignment_debug(
+                self.left.as_ref(),
+                self.right.as_ref(),
+                views,
+                cross_links,
+            ) {
+                log_info(alignment);
+            }
+        }
+
+        particles
+    }
+
+    fn intra_hand_neighbor_link_counts(&self) -> (usize, usize) {
+        [self.left.as_ref(), self.right.as_ref()]
+            .into_iter()
+            .flatten()
+            .fold((0, 0), |(first_total, second_total), hand| {
+                let samples = hand.sampler.samples();
+                (
+                    first_total
+                        + samples
+                            .first_tier_neighbors
+                            .iter()
+                            .map(Vec::len)
+                            .sum::<usize>(),
+                    second_total
+                        + samples
+                            .second_tier_neighbors
+                            .iter()
+                            .map(Vec::len)
+                            .sum::<usize>(),
+                )
+            })
+    }
+
+    fn cross_neighbor_link_count(&self) -> usize {
+        self.cross_neighborhood.as_ref().map_or(0, |cross| {
+            cross
+                .a_to_b_neighbors
+                .iter()
+                .chain(cross.b_to_a_neighbors.iter())
+                .map(Vec::len)
+                .sum()
+        })
+    }
+}
+
+fn hand_update_status_label(status: Option<LiveHandMeshUpdateStatus>) -> &'static str {
+    match status {
+        Some(LiveHandMeshUpdateStatus::NoSnapshot) => "no-snapshot",
+        Some(LiveHandMeshUpdateStatus::Initialized) => "initialized",
+        Some(LiveHandMeshUpdateStatus::Updated) => "updated",
+        Some(LiveHandMeshUpdateStatus::ResampledTopology) => "resampled-topology",
+        Some(LiveHandMeshUpdateStatus::InvalidSnapshot) => "invalid-snapshot",
+        Some(LiveHandMeshUpdateStatus::InvalidSurface) => "invalid-surface",
+        None => "not-created",
+    }
+}
+
+fn hand_update_status_renders(status: Option<LiveHandMeshUpdateStatus>) -> bool {
+    matches!(
+        status,
+        Some(
+            LiveHandMeshUpdateStatus::Initialized
+                | LiveHandMeshUpdateStatus::Updated
+                | LiveHandMeshUpdateStatus::ResampledTopology
+        )
+    )
+}
+
+#[derive(Clone, Copy, Debug)]
+struct OpenXrHandMeshSpatialDebug {
+    sample_count: usize,
+    center: Vec3,
+    min: Vec3,
+    max: Vec3,
+    palm: Option<Vec3>,
+    wrist: Option<Vec3>,
+}
+
+fn hand_mesh_spatial_debug_from_samples(
+    samples: &rusty_xr_particles::MeshSurfaceSampleSet,
+    joint_locations: &[xr::sys::HandJointLocationEXT],
+) -> Option<OpenXrHandMeshSpatialDebug> {
+    let first = samples.samples.first()?.position;
+    let mut min = first;
+    let mut max = first;
+    let mut sum = Vec3::ZERO;
+    for sample in &samples.samples {
+        min = min.min(sample.position);
+        max = max.max(sample.position);
+        sum += sample.position;
+    }
+    let sample_count = samples.samples.len();
+    Some(OpenXrHandMeshSpatialDebug {
+        sample_count,
+        center: sum * (1.0 / sample_count.max(1) as f32),
+        min,
+        max,
+        palm: openxr_hand_joint_position_if_valid(joint_locations, OPENXR_HAND_JOINT_PALM_INDEX),
+        wrist: openxr_hand_joint_position_if_valid(joint_locations, OPENXR_HAND_JOINT_WRIST_INDEX),
+    })
+}
+
+fn openxr_hand_joint_position_if_valid(
+    joint_locations: &[xr::sys::HandJointLocationEXT],
+    index: usize,
+) -> Option<Vec3> {
+    let location = *joint_locations.get(index)?;
+    openxr_hand_joint_pose_valid(location).then(|| xr_position_to_vec3(location.pose.position))
+}
+
+fn openxr_usable_hand_joint_count(joint_locations: &[xr::sys::HandJointLocationEXT]) -> usize {
+    joint_locations
+        .iter()
+        .copied()
+        .filter(|location| openxr_hand_joint_pose_valid(*location))
+        .count()
+}
+
+fn hand_mesh_alignment_debug(
+    left: Option<&OpenXrHandMeshRuntimeHand>,
+    right: Option<&OpenXrHandMeshRuntimeHand>,
+    views: &[xr::View],
+    cross_links: usize,
+) -> Option<String> {
+    let left = left?.last_spatial_debug?;
+    let right = right?.last_spatial_debug?;
+    let render_view = views.first().copied().unwrap_or_else(default_xr_view);
+    let head = head_pose_from_views(views).map(|(position, _)| position);
+    let left_view_center = reference_to_view_position(left.center, render_view);
+    let right_view_center = reference_to_view_position(right.center, render_view);
+    let left_wrist_view = left
+        .wrist
+        .map(|position| reference_to_view_position(position, render_view));
+    let right_wrist_view = right
+        .wrist
+        .map(|position| reference_to_view_position(position, render_view));
+    let center_delta = right.center - left.center;
+    let view_delta = right_view_center - left_view_center;
+    Some(format!(
+        "Rusty XR OpenXR hand mesh alignment samplesL={} samplesR={} centerLRef={} centerRRef={} deltaRef={} centerLView={} centerRView={} deltaView={} wristLRef={} wristRRef={} wristLView={} wristRView={} palmLRef={} palmRRef={} headRef={} boundsLRef={}..{} boundsRRef={}..{} centerDistanceMeters={:.3} crossHandNeighborLinks={}",
+        left.sample_count,
+        right.sample_count,
+        format_vec3(left.center),
+        format_vec3(right.center),
+        format_vec3(center_delta),
+        format_vec3(left_view_center),
+        format_vec3(right_view_center),
+        format_vec3(view_delta),
+        format_option_vec3(left.wrist),
+        format_option_vec3(right.wrist),
+        format_option_vec3(left_wrist_view),
+        format_option_vec3(right_wrist_view),
+        format_option_vec3(left.palm),
+        format_option_vec3(right.palm),
+        format_option_vec3(head),
+        format_vec3(left.min),
+        format_vec3(left.max),
+        format_vec3(right.min),
+        format_vec3(right.max),
+        center_delta.length(),
+        cross_links
+    ))
+}
+
+fn reference_to_view_position(reference_position: Vec3, view: xr::View) -> Vec3 {
+    xr_orientation_to_quat(view.pose.orientation)
+        .inverse()
+        .rotate_vec3(reference_position - xr_position_to_vec3(view.pose.position))
+}
+
+fn format_option_vec3(value: Option<Vec3>) -> String {
+    value.map(format_vec3).unwrap_or_else(|| "none".to_string())
+}
+
+fn format_vec3(value: Vec3) -> String {
+    format!("({:.3},{:.3},{:.3})", value.x, value.y, value.z)
+}
+
+struct OpenXrHandMeshRuntimeHand {
+    handedness: Handedness,
+    label: &'static str,
+    tracker: xr::HandTracker,
+    bind_mesh: OpenXrFbHandMeshBindData,
+    sampler: LiveHandMeshParticleSampler,
+    last_spatial_debug: Option<OpenXrHandMeshSpatialDebug>,
+}
+
+impl OpenXrHandMeshRuntimeHand {
+    fn new(
+        instance: &xr::Instance,
+        session: &xr::Session<xr::Vulkan>,
+        xr_hand: xr::Hand,
+        handedness: Handedness,
+        label: &'static str,
+        seed: u64,
+        color: ColorRgba,
+    ) -> Result<Self, String> {
+        let tracker = session
+            .create_hand_tracker(xr_hand)
+            .map_err(|error| format!("create {label} hand tracker: {error}"))?;
+        let bind_mesh = OpenXrFbHandMeshBindData::load(instance, &tracker, label)?;
+        let sampler = LiveHandMeshParticleSampler::new(MeshSurfaceSampleConfig {
+            point_count: XR_HAND_MESH_PARTICLE_COUNT_PER_HAND,
+            first_tier_neighbor_count: 6,
+            second_tier_neighbor_count: 12,
+            seed,
+        })
+        .with_render_style(
+            rusty_xr_particles::RenderCoordinateSpace::World,
+            XR_HAND_MESH_PARTICLE_RADIUS_METERS * 2.0,
+            color,
+        );
+        log_info(format!(
+            "Rusty XR OpenXR {label} hand mesh bind data vertices={} triangles={} joints={} indices={} blendWeights=true",
+            bind_mesh.vertex_positions.len(),
+            bind_mesh.indices.len(),
+            bind_mesh.joint_bind_poses.len(),
+            bind_mesh.raw_index_count
+        ));
+        Ok(Self {
+            handedness,
+            label,
+            tracker,
+            bind_mesh,
+            sampler,
+            last_spatial_debug: None,
+        })
+    }
+
+    fn update(
+        &mut self,
+        reference_space: &xr::Space,
+        predicted_display_time: xr::Time,
+        frame_count: u64,
+    ) -> Result<LiveHandMeshUpdateStatus, String> {
+        let Some((joint_locations, scale)) =
+            locate_openxr_hand_joints(&self.tracker, reference_space, predicted_display_time)?
+        else {
+            self.last_spatial_debug = None;
+            return Ok(LiveHandMeshUpdateStatus::NoSnapshot);
+        };
+        if openxr_hand_joint_position_if_valid(&joint_locations, OPENXR_HAND_JOINT_WRIST_INDEX)
+            .is_none()
+        {
+            self.last_spatial_debug = None;
+            if frame_count == 0 || frame_count.is_multiple_of(120) {
+                log_info(format!(
+                    "Rusty XR OpenXR {} hand mesh waiting for usable wrist pose frame={} usableJoints={} jointCount={}",
+                    self.label,
+                    frame_count,
+                    openxr_usable_hand_joint_count(&joint_locations),
+                    joint_locations.len()
+                ));
+            }
+            return Ok(LiveHandMeshUpdateStatus::NoSnapshot);
+        }
+        let snapshot =
+            self.bind_mesh
+                .skinned_snapshot(self.handedness, frame_count, &joint_locations)?;
+        let update = self.sampler.update_from_snapshot(&snapshot);
+        self.last_spatial_debug =
+            hand_mesh_spatial_debug_from_samples(self.sampler.samples(), &joint_locations);
+        if frame_count == 0 || frame_count.is_multiple_of(120) {
+            log_info(format!(
+                "Rusty XR OpenXR {} hand mesh update frame={} status={} vertices={} triangles={} samples={} scale={:.4}",
+                self.label,
+                frame_count,
+                hand_update_status_label(Some(update.status)),
+                snapshot.vertices.len(),
+                snapshot.indices.len(),
+                update.sample_count,
+                scale
+            ));
+        }
+        Ok(update.status)
+    }
+}
+
+struct OpenXrFbHandMeshBindData {
+    joint_bind_poses: Vec<xr::sys::Posef>,
+    vertex_positions: Vec<xr::sys::Vector3f>,
+    vertex_normals: Vec<xr::sys::Vector3f>,
+    vertex_blend_indices: Vec<xr::sys::Vector4sFB>,
+    vertex_blend_weights: Vec<xr::sys::Vector4f>,
+    indices: Vec<[u32; 3]>,
+    raw_index_count: usize,
+}
+
+impl OpenXrFbHandMeshBindData {
+    fn load(
+        instance: &xr::Instance,
+        tracker: &xr::HandTracker,
+        label: &'static str,
+    ) -> Result<Self, String> {
+        let extension = instance
+            .exts()
+            .fb_hand_tracking_mesh
+            .as_ref()
+            .ok_or_else(|| "XR_FB_hand_tracking_mesh function table is unavailable".to_string())?;
+
+        let mut probe = empty_openxr_hand_tracking_mesh();
+        let probe_result = unsafe { (extension.get_hand_mesh)(tracker.as_raw(), &mut probe) };
+        if probe_result.into_raw() < xr::sys::Result::SUCCESS.into_raw()
+            && probe_result != xr::sys::Result::ERROR_SIZE_INSUFFICIENT
+        {
+            return Err(format!(
+                "xrGetHandMeshFB({label}, probe) failed: {probe_result:?}"
+            ));
+        }
+
+        let joint_count = probe.joint_count_output as usize;
+        let vertex_count = probe.vertex_count_output as usize;
+        let index_count = probe.index_count_output as usize;
+        if joint_count == 0 || vertex_count == 0 || index_count < 3 {
+            return Err(format!(
+                "xrGetHandMeshFB({label}) returned empty mesh jointCount={} vertexCount={} indexCount={}",
+                joint_count, vertex_count, index_count
+            ));
+        }
+        if !index_count.is_multiple_of(3) {
+            return Err(format!(
+                "xrGetHandMeshFB({label}) returned non-triangle index count {index_count}"
+            ));
+        }
+
+        let mut joint_bind_poses = vec![xr::sys::Posef::default(); joint_count];
+        let mut joint_radii = vec![0.0_f32; joint_count];
+        let mut joint_parents = vec![xr::sys::HandJointEXT::default(); joint_count];
+        let mut vertex_positions = vec![xr::sys::Vector3f::default(); vertex_count];
+        let mut vertex_normals = vec![xr::sys::Vector3f::default(); vertex_count];
+        let mut vertex_uvs = vec![xr::sys::Vector2f::default(); vertex_count];
+        let mut vertex_blend_indices = vec![xr::sys::Vector4sFB::default(); vertex_count];
+        let mut vertex_blend_weights = vec![xr::sys::Vector4f::default(); vertex_count];
+        let mut raw_indices = vec![0_i16; index_count];
+        let mut mesh = xr::sys::HandTrackingMeshFB {
+            ty: xr::sys::HandTrackingMeshFB::TYPE,
+            next: ptr::null_mut(),
+            joint_capacity_input: joint_count as u32,
+            joint_count_output: 0,
+            joint_bind_poses: joint_bind_poses.as_mut_ptr(),
+            joint_radii: joint_radii.as_mut_ptr(),
+            joint_parents: joint_parents.as_mut_ptr(),
+            vertex_capacity_input: vertex_count as u32,
+            vertex_count_output: 0,
+            vertex_positions: vertex_positions.as_mut_ptr(),
+            vertex_normals: vertex_normals.as_mut_ptr(),
+            vertex_u_vs: vertex_uvs.as_mut_ptr(),
+            vertex_blend_indices: vertex_blend_indices.as_mut_ptr(),
+            vertex_blend_weights: vertex_blend_weights.as_mut_ptr(),
+            index_capacity_input: index_count as u32,
+            index_count_output: 0,
+            indices: raw_indices.as_mut_ptr(),
+        };
+        let result = unsafe { (extension.get_hand_mesh)(tracker.as_raw(), &mut mesh) };
+        ensure_xr_success(result, &format!("xrGetHandMeshFB({label})"))?;
+
+        joint_bind_poses.truncate(mesh.joint_count_output as usize);
+        vertex_positions.truncate(mesh.vertex_count_output as usize);
+        vertex_normals.truncate(mesh.vertex_count_output as usize);
+        vertex_blend_indices.truncate(mesh.vertex_count_output as usize);
+        vertex_blend_weights.truncate(mesh.vertex_count_output as usize);
+        raw_indices.truncate(mesh.index_count_output as usize);
+
+        let mut indices = Vec::with_capacity(raw_indices.len() / 3);
+        for triangle in raw_indices.chunks_exact(3) {
+            let a = u32::try_from(triangle[0])
+                .map_err(|_| format!("xrGetHandMeshFB({label}) returned negative index"))?;
+            let b = u32::try_from(triangle[1])
+                .map_err(|_| format!("xrGetHandMeshFB({label}) returned negative index"))?;
+            let c = u32::try_from(triangle[2])
+                .map_err(|_| format!("xrGetHandMeshFB({label}) returned negative index"))?;
+            indices.push([a, b, c]);
+        }
+
+        Ok(Self {
+            joint_bind_poses,
+            vertex_positions,
+            vertex_normals,
+            vertex_blend_indices,
+            vertex_blend_weights,
+            indices,
+            raw_index_count: raw_indices.len(),
+        })
+    }
+
+    fn skinned_snapshot(
+        &self,
+        handedness: Handedness,
+        version: u64,
+        joint_locations: &[xr::sys::HandJointLocationEXT],
+    ) -> Result<HandMeshSnapshot, String> {
+        if joint_locations.len() < self.joint_bind_poses.len() {
+            return Err(format!(
+                "joint location count {} is smaller than bind pose count {}",
+                joint_locations.len(),
+                self.joint_bind_poses.len()
+            ));
+        }
+        let mut vertices = Vec::with_capacity(self.vertex_positions.len());
+        let mut normals = Vec::with_capacity(self.vertex_positions.len());
+        for index in 0..self.vertex_positions.len() {
+            let bind_position = xr_vector3_to_vec3(self.vertex_positions[index]);
+            let blend_indices = self.vertex_blend_indices[index];
+            let blend_weights = self.vertex_blend_weights[index];
+            let skinned = skin_openxr_bind_point(
+                bind_position,
+                blend_indices,
+                blend_weights,
+                &self.joint_bind_poses,
+                joint_locations,
+            )
+            .unwrap_or(bind_position);
+            vertices.push(skinned);
+
+            let bind_normal = self
+                .vertex_normals
+                .get(index)
+                .copied()
+                .map(xr_vector3_to_vec3)
+                .unwrap_or(Vec3::UP);
+            normals.push(
+                skin_openxr_bind_vector(
+                    bind_normal,
+                    blend_indices,
+                    blend_weights,
+                    &self.joint_bind_poses,
+                    joint_locations,
+                )
+                .unwrap_or(bind_normal)
+                .normalized_or(Vec3::UP),
+            );
+        }
+        let mut snapshot = HandMeshSnapshot::new(version, vertices, self.indices.clone())
+            .with_handedness(handedness);
+        snapshot.normals = normals;
+        snapshot.joint_indices = self
+            .vertex_blend_indices
+            .iter()
+            .copied()
+            .map(|indices| {
+                [
+                    indices.x.max(0) as u16,
+                    indices.y.max(0) as u16,
+                    indices.z.max(0) as u16,
+                    indices.w.max(0) as u16,
+                ]
+            })
+            .collect();
+        snapshot.joint_weights = self
+            .vertex_blend_weights
+            .iter()
+            .copied()
+            .map(|weights| [weights.x, weights.y, weights.z, weights.w])
+            .collect();
+        Ok(snapshot)
+    }
+}
+
+fn empty_openxr_hand_tracking_mesh() -> xr::sys::HandTrackingMeshFB {
+    xr::sys::HandTrackingMeshFB {
+        ty: xr::sys::HandTrackingMeshFB::TYPE,
+        next: ptr::null_mut(),
+        joint_capacity_input: 0,
+        joint_count_output: 0,
+        joint_bind_poses: ptr::null_mut(),
+        joint_radii: ptr::null_mut(),
+        joint_parents: ptr::null_mut(),
+        vertex_capacity_input: 0,
+        vertex_count_output: 0,
+        vertex_positions: ptr::null_mut(),
+        vertex_normals: ptr::null_mut(),
+        vertex_u_vs: ptr::null_mut(),
+        vertex_blend_indices: ptr::null_mut(),
+        vertex_blend_weights: ptr::null_mut(),
+        index_capacity_input: 0,
+        index_count_output: 0,
+        indices: ptr::null_mut(),
+    }
+}
+
+fn locate_openxr_hand_joints(
+    tracker: &xr::HandTracker,
+    reference_space: &xr::Space,
+    predicted_display_time: xr::Time,
+) -> Result<Option<(Vec<xr::sys::HandJointLocationEXT>, f32)>, String> {
+    reference_space
+        .locate_hand_joints(tracker, predicted_display_time)
+        .map(|locations| locations.map(|joint_locations| (joint_locations.to_vec(), 1.0)))
+        .map_err(|error| format!("xrLocateHandJointsEXT: {error}"))
+}
+
+fn skin_openxr_bind_point(
+    bind_point: Vec3,
+    blend_indices: xr::sys::Vector4sFB,
+    blend_weights: xr::sys::Vector4f,
+    joint_bind_poses: &[xr::sys::Posef],
+    joint_locations: &[xr::sys::HandJointLocationEXT],
+) -> Option<Vec3> {
+    let mut skinned = Vec3::ZERO;
+    let mut total_weight = 0.0_f32;
+    for (joint_index, weight) in openxr_blend_pairs(blend_indices, blend_weights) {
+        if weight <= 0.0
+            || joint_index >= joint_bind_poses.len()
+            || joint_index >= joint_locations.len()
+        {
+            continue;
+        }
+        let joint_location = joint_locations[joint_index];
+        if !openxr_hand_joint_pose_valid(joint_location) {
+            continue;
+        }
+        let bind_local =
+            inverse_transform_openxr_pose_point(joint_bind_poses[joint_index], bind_point);
+        let skinned_point = transform_openxr_pose_point(joint_location.pose, bind_local);
+        skinned += skinned_point * weight;
+        total_weight += weight;
+    }
+    (total_weight > 0.0).then_some(skinned * (1.0 / total_weight))
+}
+
+fn skin_openxr_bind_vector(
+    bind_vector: Vec3,
+    blend_indices: xr::sys::Vector4sFB,
+    blend_weights: xr::sys::Vector4f,
+    joint_bind_poses: &[xr::sys::Posef],
+    joint_locations: &[xr::sys::HandJointLocationEXT],
+) -> Option<Vec3> {
+    let mut skinned = Vec3::ZERO;
+    let mut total_weight = 0.0_f32;
+    for (joint_index, weight) in openxr_blend_pairs(blend_indices, blend_weights) {
+        if weight <= 0.0
+            || joint_index >= joint_bind_poses.len()
+            || joint_index >= joint_locations.len()
+        {
+            continue;
+        }
+        let joint_location = joint_locations[joint_index];
+        if !openxr_hand_joint_pose_valid(joint_location) {
+            continue;
+        }
+        let bind_orientation = xr_orientation_to_quat(joint_bind_poses[joint_index].orientation);
+        let joint_orientation = xr_orientation_to_quat(joint_location.pose.orientation);
+        let skinned_vector =
+            (joint_orientation * bind_orientation.inverse()).rotate_vec3(bind_vector);
+        skinned += skinned_vector * weight;
+        total_weight += weight;
+    }
+    (total_weight > 0.0).then_some(skinned * (1.0 / total_weight))
+}
+
+fn openxr_blend_pairs(
+    indices: xr::sys::Vector4sFB,
+    weights: xr::sys::Vector4f,
+) -> [(usize, f32); 4] {
+    [
+        (indices.x.max(0) as usize, weights.x),
+        (indices.y.max(0) as usize, weights.y),
+        (indices.z.max(0) as usize, weights.z),
+        (indices.w.max(0) as usize, weights.w),
+    ]
+}
+
+fn openxr_hand_joint_pose_valid(location: xr::sys::HandJointLocationEXT) -> bool {
+    let flags = location.location_flags;
+    let position_usable = flags.intersects(
+        xr::sys::SpaceLocationFlags::POSITION_VALID | xr::sys::SpaceLocationFlags::POSITION_TRACKED,
+    );
+    let orientation_usable = flags.intersects(
+        xr::sys::SpaceLocationFlags::ORIENTATION_VALID
+            | xr::sys::SpaceLocationFlags::ORIENTATION_TRACKED,
+    );
+    position_usable && orientation_usable
+}
+
+fn transform_openxr_pose_point(pose: xr::sys::Posef, point: Vec3) -> Vec3 {
+    xr_position_to_vec3(pose.position) + xr_orientation_to_quat(pose.orientation).rotate_vec3(point)
+}
+
+fn inverse_transform_openxr_pose_point(pose: xr::sys::Posef, point: Vec3) -> Vec3 {
+    xr_orientation_to_quat(pose.orientation)
+        .inverse()
+        .rotate_vec3(point - xr_position_to_vec3(pose.position))
+}
+
 struct SyntheticHandParticleSource {
     base_mesh: TriangleMeshSurface,
     indices: Vec<[u32; 3]>,
@@ -7577,23 +8406,27 @@ impl SyntheticHandParticleSource {
             &self.base_mesh,
             &self.indices,
             frame_count,
-            Handedness::Left,
             head_position,
             head_orientation,
-            Vec3::new(-0.115 + sway, -0.12 + bounce, -0.58),
-            false,
-            0.10 + (seconds * 0.8).sin() * 0.08,
+            SyntheticHandPlacement {
+                handedness: Handedness::Left,
+                local_center: Vec3::new(-0.115 + sway, -0.12 + bounce, -0.58),
+                mirror_x: false,
+                local_z_rotation: 0.10 + (seconds * 0.8).sin() * 0.08,
+            },
         );
         let right_snapshot = transformed_synthetic_hand_snapshot(
             &self.base_mesh,
             &self.indices,
             frame_count,
-            Handedness::Right,
             head_position,
             head_orientation,
-            Vec3::new(0.115 + sway, -0.12 - bounce, -0.58),
-            true,
-            -0.10 + (seconds * 0.8).cos() * 0.08,
+            SyntheticHandPlacement {
+                handedness: Handedness::Right,
+                local_center: Vec3::new(0.115 + sway, -0.12 - bounce, -0.58),
+                mirror_x: true,
+                local_z_rotation: -0.10 + (seconds * 0.8).cos() * 0.08,
+            },
         );
 
         self.left_sampler.update_from_snapshot(&left_snapshot);
@@ -7621,24 +8454,32 @@ fn xr_position_to_vec3(position: xr::sys::Vector3f) -> Vec3 {
     Vec3::new(position.x, position.y, position.z)
 }
 
+fn xr_vector3_to_vec3(vector: xr::sys::Vector3f) -> Vec3 {
+    Vec3::new(vector.x, vector.y, vector.z)
+}
+
 fn xr_orientation_to_quat(orientation: xr::sys::Quaternionf) -> Quat {
     Quat::new(orientation.x, orientation.y, orientation.z, orientation.w)
         .normalized_or(Quat::IDENTITY)
+}
+
+struct SyntheticHandPlacement {
+    handedness: Handedness,
+    local_center: Vec3,
+    mirror_x: bool,
+    local_z_rotation: f32,
 }
 
 fn transformed_synthetic_hand_snapshot(
     mesh: &TriangleMeshSurface,
     indices: &[[u32; 3]],
     version: u64,
-    handedness: Handedness,
     head_position: Vec3,
     head_orientation: Quat,
-    local_center: Vec3,
-    mirror_x: bool,
-    local_z_rotation: f32,
+    placement: SyntheticHandPlacement,
 ) -> HandMeshSnapshot {
-    let (sin_z, cos_z) = local_z_rotation.sin_cos();
-    let mirror = if mirror_x { -1.0 } else { 1.0 };
+    let (sin_z, cos_z) = placement.local_z_rotation.sin_cos();
+    let mirror = if placement.mirror_x { -1.0 } else { 1.0 };
     let vertices = mesh
         .vertices
         .iter()
@@ -7650,10 +8491,10 @@ fn transformed_synthetic_hand_snapshot(
                 (mirrored.x * sin_z) + (mirrored.y * cos_z),
                 mirrored.z,
             );
-            head_position + head_orientation.rotate_vec3(local_center + rotated)
+            head_position + head_orientation.rotate_vec3(placement.local_center + rotated)
         })
         .collect();
-    HandMeshSnapshot::new(version, vertices, indices.to_vec()).with_handedness(handedness)
+    HandMeshSnapshot::new(version, vertices, indices.to_vec()).with_handedness(placement.handedness)
 }
 
 fn mesh_indices_u32(mesh: &TriangleMeshSurface) -> Vec<[u32; 3]> {
@@ -8260,6 +9101,15 @@ struct HandMeshParticleRenderer {
     last_draw_failure_frame: Option<u64>,
 }
 
+struct HandParticleDrawContext<'a> {
+    device: &'a ash::Device,
+    memory_properties: &'a vk::PhysicalDeviceMemoryProperties,
+    cmd: vk::CommandBuffer,
+    resolution: vk::Extent2D,
+    views: &'a [xr::View],
+    frame_count: u64,
+}
+
 impl HandMeshParticleRenderer {
     fn new(render_pass: vk::RenderPass) -> Self {
         Self {
@@ -8271,12 +9121,7 @@ impl HandMeshParticleRenderer {
 
     unsafe fn record_draw(
         &mut self,
-        device: &ash::Device,
-        memory_properties: &vk::PhysicalDeviceMemoryProperties,
-        cmd: vk::CommandBuffer,
-        resolution: vk::Extent2D,
-        views: &[xr::View],
-        frame_count: u64,
+        context: HandParticleDrawContext<'_>,
         mode: HandParticleMode,
         particles: &[GpuHandParticle],
     ) {
@@ -8284,7 +9129,11 @@ impl HandMeshParticleRenderer {
             return;
         }
         if self.resources.is_none() {
-            match create_hand_mesh_particle_resources(device, memory_properties, self.render_pass) {
+            match create_hand_mesh_particle_resources(
+                context.device,
+                context.memory_properties,
+                self.render_pass,
+            ) {
                 Ok(resources) => {
                     log_info(format!(
                         "Rusty XR hand mesh particle resources particleCapacity={} particleBufferBytes={} mode={}",
@@ -8295,11 +9144,11 @@ impl HandMeshParticleRenderer {
                     self.resources = Some(resources);
                 }
                 Err(error) => {
-                    if self.last_draw_failure_frame != Some(frame_count) {
+                    if self.last_draw_failure_frame != Some(context.frame_count) {
                         log_error(format!(
                             "Rusty XR hand mesh particle renderer init failed: {error}"
                         ));
-                        self.last_draw_failure_frame = Some(frame_count);
+                        self.last_draw_failure_frame = Some(context.frame_count);
                     }
                     return;
                 }
@@ -8310,15 +9159,15 @@ impl HandMeshParticleRenderer {
         };
         let particle_count = particles.len().min(XR_HAND_MESH_PARTICLE_CAPACITY as usize);
         if let Err(error) = upload_hand_mesh_particles(
-            device,
+            context.device,
             resources.particle_memory,
             &particles[..particle_count],
         ) {
-            if self.last_draw_failure_frame != Some(frame_count) {
+            if self.last_draw_failure_frame != Some(context.frame_count) {
                 log_error(format!(
                     "Rusty XR hand mesh particle upload failed: {error}"
                 ));
-                self.last_draw_failure_frame = Some(frame_count);
+                self.last_draw_failure_frame = Some(context.frame_count);
             }
             return;
         }
@@ -8326,48 +9175,58 @@ impl HandMeshParticleRenderer {
         let viewport = [vk::Viewport {
             x: 0.0,
             y: 0.0,
-            width: resolution.width as f32,
-            height: resolution.height as f32,
+            width: context.resolution.width as f32,
+            height: context.resolution.height as f32,
             min_depth: 0.0,
             max_depth: 1.0,
         }];
         let scissor = [vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
-            extent: resolution,
+            extent: context.resolution,
         }];
-        device.cmd_set_viewport(cmd, 0, &viewport);
-        device.cmd_set_scissor(cmd, 0, &scissor);
-        device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, resources.pipeline);
-        device.cmd_bind_descriptor_sets(
-            cmd,
+        context.device.cmd_set_viewport(context.cmd, 0, &viewport);
+        context.device.cmd_set_scissor(context.cmd, 0, &scissor);
+        context.device.cmd_bind_pipeline(
+            context.cmd,
+            vk::PipelineBindPoint::GRAPHICS,
+            resources.pipeline,
+        );
+        context.device.cmd_bind_descriptor_sets(
+            context.cmd,
             vk::PipelineBindPoint::GRAPHICS,
             resources.pipeline_layout,
             0,
             &[resources.descriptor_set],
             &[],
         );
-        let push = hand_particle_push_from_views(views);
+        let push = hand_particle_push_from_views(context.views);
         let push_bytes = std::slice::from_raw_parts(
             (&push as *const EnvironmentDepthVisualizationPush).cast::<u8>(),
             std::mem::size_of::<EnvironmentDepthVisualizationPush>(),
         );
-        device.cmd_push_constants(
-            cmd,
+        context.device.cmd_push_constants(
+            context.cmd,
             resources.pipeline_layout,
             vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
             0,
             push_bytes,
         );
         let vertex_count = (particle_count as u32).saturating_mul(6);
-        device.cmd_draw(cmd, vertex_count, 1, 0, 0);
+        context.device.cmd_draw(context.cmd, vertex_count, 1, 0, 0);
 
-        if frame_count == 0 || frame_count % 120 == 0 {
+        if context.frame_count.is_multiple_of(120) {
+            let projection = match mode {
+                HandParticleMode::Off => "off",
+                HandParticleMode::Synthetic => "head-relative-synthetic-hand-mesh",
+                HandParticleMode::Meta => "openxr-reference-space-skinned-fb-hand-mesh",
+            };
             log_info(format!(
-                "Rusty XR hand mesh particle draw frame={} mode={} particles={} vertexCount={} projection=head-relative-synthetic-hand-mesh sampler=LiveHandMeshParticleSampler passthroughVisible={}",
-                frame_count,
+                "Rusty XR hand mesh particle draw frame={} mode={} particles={} vertexCount={} projection={} sampler=LiveHandMeshParticleSampler passthroughVisible={}",
+                context.frame_count,
                 mode.stable_id(),
                 particle_count,
                 vertex_count,
+                projection,
                 true
             ));
         }
@@ -8444,6 +9303,45 @@ fn default_xr_view() -> xr::View {
             angle_up: 0.75,
             angle_down: -0.75,
         },
+    }
+}
+
+fn create_app_reference_space(
+    session: &xr::Session<xr::Vulkan>,
+    hand_particle_mode: HandParticleMode,
+) -> Result<(xr::Space, &'static str), String> {
+    let (primary_type, primary_label, fallback_type, fallback_label) =
+        if hand_particle_mode.uses_openxr_hand_mesh() {
+            (
+                xr::ReferenceSpaceType::STAGE,
+                "STAGE",
+                xr::ReferenceSpaceType::LOCAL,
+                "LOCAL",
+            )
+        } else {
+            (
+                xr::ReferenceSpaceType::LOCAL,
+                "LOCAL",
+                xr::ReferenceSpaceType::STAGE,
+                "STAGE",
+            )
+        };
+    match session.create_reference_space(primary_type, xr::Posef::IDENTITY) {
+        Ok(space) => Ok((space, primary_label)),
+        Err(primary_error) => {
+            log_info(format!(
+                "Rusty XR OpenXR reference space {primary_label} unavailable for handParticleMode={}, trying {fallback_label}: {primary_error}",
+                hand_particle_mode.stable_id()
+            ));
+            session
+                .create_reference_space(fallback_type, xr::Posef::IDENTITY)
+                .map(|space| (space, fallback_label))
+                .map_err(|fallback_error| {
+                    format!(
+                        "create OpenXR reference space: {primary_label} failed with {primary_error}; {fallback_label} failed with {fallback_error}"
+                    )
+                })
+        }
     }
 }
 

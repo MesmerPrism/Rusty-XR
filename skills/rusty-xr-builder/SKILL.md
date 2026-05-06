@@ -127,7 +127,7 @@ unless the user explicitly approves a sanitized extraction.
 - `rusty-xr-depth-model`: depth readiness classification and frame summaries.
 - `rusty-xr-sdf`: packed SDF grid/sample contracts, bounds, sampling, and triangle mesh snapshots.
 - `rusty-xr-sdf` also owns sparse TSDF scan snapshots and scan-fusion stats.
-- `rusty-xr-particles`: particle state/set, fixed-step clock, and render payload generation.
+- `rusty-xr-particles`: particle state/set, fixed-step clock, render payload generation, dynamic mesh coordinate sampling, live hand-mesh sampling, and mesh-neighborhood helpers.
 
 ## Design Rules
 

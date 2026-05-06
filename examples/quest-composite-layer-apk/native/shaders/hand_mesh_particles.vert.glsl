@@ -78,7 +78,7 @@ vec4 project_render_view_clip(vec3 view_position, int eye_index) {
         : (far_z / (near_z - far_z)) * view_position.z
             + ((far_z * near_z) / (near_z - far_z));
     float clip_w = -view_position.z;
-    return vec4(clip_x, clip_y, clip_z, clip_w);
+    return vec4(clip_x, -clip_y, clip_z, clip_w);
 }
 
 void main() {

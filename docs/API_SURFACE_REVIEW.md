@@ -22,9 +22,10 @@ LSL-native adapters.
 - `rusty-xr-ble`, `rusty-xr-lsl`, and `rusty-xr-polar`: protocol/data models
   without native transport backends.
 - `rusty-xr-camera-model`, `rusty-xr-depth-model`, `rusty-xr-sdf`, and
-  `rusty-xr-particles`: deterministic helpers, mesh-surface samples, live
-  hand-mesh particle anchors, and public snapshots that can be demonstrated
-  with synthetic data.
+  `rusty-xr-particles`: deterministic helpers, dynamic mesh coordinate
+  sampling, same-surface and cross-surface neighborhoods, live hand-mesh
+  snapshot anchors, and public snapshots that can be demonstrated with
+  synthetic data or public examples.
 
 ## Stabilization Notes
 
@@ -35,9 +36,9 @@ LSL-native adapters.
   identity in downstream or companion repositories.
 - Use `quest-app-catalog.schema.json` as the shared metadata shape for public
   example APK listings when example APKs are later published.
-- Keep session-level capture/OpenXR examples synthetic until an adapter can
-  prove permission, capture, transport, and launch behavior without downstream
-  private wiring.
+- Keep session-level capture/OpenXR examples public-authored and adapter-owned:
+  platform calls may live in examples, while reusable data contracts and
+  deterministic mesh/particle helpers stay in core crates.
 - Keep the first APK example limited to native-library loading, public contract
   serialization, launch, stop, snapshot, and basic frame-callback diagnostics.
 

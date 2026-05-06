@@ -105,10 +105,14 @@ async runtime:
 [examples/quest-broker-apk/README.md](examples/quest-broker-apk/README.md).
 [examples/broker-client-probe/README.md](examples/broker-client-probe/README.md).
 
-The particle crate includes a Rust-native live hand-mesh sampler that consumes
-public `HandMeshSnapshot` frames from a native provider, keeps an even
-coordinate set stable across deformed mesh updates, and rebuilds only when mesh
-topology changes:
+The particle crate includes a Rust-native dynamic mesh coordinate sampler that
+keeps an even coordinate set stable across deformed mesh updates, carries
+same-surface and cross-surface neighborhoods, and rebuilds only when mesh
+topology changes. The hand-mesh path consumes public `HandMeshSnapshot` frames
+from a native provider, so Meta/OpenXR hand mesh data can be adapted without
+putting platform calls in the core crate. See
+[docs/DYNAMIC_MESH_COORDINATE_SAMPLING.md](docs/DYNAMIC_MESH_COORDINATE_SAMPLING.md)
+and
 [docs/HAND_MESH_PARTICLE_RUNTIME.md](docs/HAND_MESH_PARTICLE_RUNTIME.md).
 An optional source-only ADB shell helper example can be built as a dex jar and
 launched with `adb shell app_process` to report shell-helper status to the
@@ -135,6 +139,7 @@ cargo run -p rusty-xr-contracts --example composite_feedback_session --features 
 cargo run -p rusty-xr-contracts --example meta_passthrough_style_catalog --features serde
 cargo run -p rusty-xr-contracts --example audio_reactive_passthrough_style --features serde
 cargo run -p rusty-xr-contracts --example visual_strobe_profiles --features serde
+cargo run -p rusty-xr-particles --example dynamic_mesh_coordinates
 powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Build-BrokerShellHelper.ps1

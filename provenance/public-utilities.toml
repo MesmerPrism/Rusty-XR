@@ -172,3 +172,12 @@ public_safe_rationale = "A framework-neutral live sampler consumes public HandMe
 license_assumptions = "Authored for this MIT repository without copying platform SDK samples or downstream app behavior."
 scrubbed_private_dependencies = ["native provider implementation", "package identity", "private scene behavior", "app-specific streams", "generated captures", "signing material"]
 review_status = "public-utility"
+
+[[utility]]
+crate = "crates/rusty-xr-particles/dynamic-mesh-coordinate-sampler"
+source_family = "public dynamic mesh and hand-mesh interaction utility"
+extraction_date = "2026-05-06"
+public_safe_rationale = "Stable barycentric coordinate sampling, same-surface neighbor tiers, cross-surface neighborhood links, and live deformed-mesh updates are reusable for hands, scanned meshes, procedural meshes, and interaction passes. The public shape keeps native Meta/OpenXR calls in adapters or examples."
+license_assumptions = "Authored for this MIT repository from public mesh-sampling and OpenXR hand-mesh concepts; no platform SDK sample code or downstream behavior is copied."
+scrubbed_private_dependencies = ["native provider implementation", "renderer backend code", "private coupling behavior", "package identity", "generated captures", "signing material"]
+review_status = "public-utility"

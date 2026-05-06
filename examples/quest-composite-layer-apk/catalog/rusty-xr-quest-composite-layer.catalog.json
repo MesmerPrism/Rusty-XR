@@ -63,6 +63,27 @@
       "description": "Runs the OpenXR layer without camera or environment-depth acquisition, generates two procedural hand meshes in head-relative local space, samples stable Rusty XR hand-particle coordinates through LiveHandMeshParticleSampler, and renders them as stereo Vulkan billboards over the native passthrough underlay."
     },
     {
+      "id": "meta-hand-mesh-particles",
+      "label": "Meta hand mesh particles",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "synthetic",
+        "rustyxr.camera": "false",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "meta-hand-mesh-particles",
+        "rustyxr.depth": "off",
+        "rustyxr.handParticles": "meta",
+        "rustyxr.openxrPassthroughProbe": "underlay",
+        "rustyxr.passthroughStyleMode": "none",
+        "rustyxr.passthroughOpacity": "1.0",
+        "rustyxr.projectionLayerVisible": "true",
+        "rustyxr.xrColorFormat": "rgba8-unorm",
+        "rustyxr.xrRenderScale": "0.75",
+        "rustyxr.xrFixedFoveationLevel": "0"
+      },
+      "description": "Runs the OpenXR layer without camera or environment-depth acquisition, requests XR_EXT_hand_tracking plus XR_FB_hand_tracking_mesh, prefers a stage-anchored reference space, skins the immutable runtime hand mesh from per-frame hand-joint locations, samples stable Rusty XR hand-particle coordinates through LiveHandMeshParticleSampler, keeps intra-hand and bounded cross-hand neighbor links available, and renders the particles as stereo Vulkan billboards over the native passthrough underlay."
+    },
+    {
       "id": "broker-h264-consumer-probe",
       "label": "Broker H.264 consumer probe",
       "values": {
