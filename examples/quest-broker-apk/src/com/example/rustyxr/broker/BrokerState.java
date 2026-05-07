@@ -672,6 +672,10 @@ final class BrokerState {
                 candidate.put("has_intrinsics", hasArrayLength(device, "lens_intrinsic_calibration", 5));
                 candidate.put("supported_hardware_level", device.optString("supported_hardware_level"));
                 candidate.put("resource_cost", device.optInt("resource_cost", 0));
+                if (device.has("sensor_orientation_degrees")) {
+                    candidate.put("sensor_orientation_degrees", device.optInt("sensor_orientation_degrees", 0));
+                }
+                candidate.put("lens_pose_rotation_xyzw", copyArray(device.optJSONArray("lens_pose_rotation_xyzw")));
                 candidate.put("lens_pose_translation_m", copyArray(device.optJSONArray("lens_pose_translation_m")));
                 candidate.put("lens_intrinsic_calibration", copyArray(device.optJSONArray("lens_intrinsic_calibration")));
 

@@ -46,10 +46,10 @@ final class BrokerAppCameraH264StreamSession {
     private static final int DEFAULT_HEIGHT = 480;
     private static final int DEFAULT_CAPTURE_MS = 900;
     private static final int MAX_CAPTURE_MS = 3000;
-    private static final int MAX_LIVE_CAPTURE_MS = 30000;
+    private static final int MAX_LIVE_CAPTURE_MS = 60000;
     private static final int DEFAULT_MAX_PACKETS = 12;
     private static final int MAX_PACKETS = 30;
-    private static final int MAX_LIVE_PACKETS = 600;
+    private static final int MAX_LIVE_PACKETS = 2400;
     private static final int DEFAULT_BITRATE_BPS = 1_000_000;
     private static final int FRAME_RATE_HZ = 30;
     private static final int OPEN_TIMEOUT_MS = 4000;

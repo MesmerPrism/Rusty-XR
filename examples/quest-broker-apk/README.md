@@ -223,7 +223,10 @@ capture-then-write probe for regression stability. When clients pass
 `live_stream=true`, the broker accepts the binary stream socket before Camera2
 capture starts, drains encoder output directly to the stream, and writes
 schema-2 packets with per-packet source timestamps. That proves
-Camera2-to-encoder payload transport without bundling a codec library.
+Camera2-to-encoder payload transport without bundling a codec library. XR
+clients can consume this mode with packet-arrival decode so the receiver no
+longer has to wait for the whole declared packet count before submitting
+decoded frames.
 For LAN experiments, non-loopback H.264 payload binds are opt-in. Passing
 `lan_stream_enabled=true` allows `camera_provider.start_app_camera_h264_stream`
 to use a non-loopback `bind_host` such as `0.0.0.0`; `advertised_host` can
@@ -243,9 +246,17 @@ broker process with Android platform MediaCodec byte-buffer output. That
 isolates decoder compatibility before a client texture path is attempted, but
 texture import, eye views, and OpenXR layer submission still belong to the
 active XR client.
-When the
-optional ADB shell helper reports bounded shell-visible camera metadata or
-Camera2 open/capture
+For one-device remote-source tests, `tools/video/serve_rxyrvid1_h264.py` can
+wrap a saved H.264 Annex-B elementary stream in `RXYRVID1` framing from a
+laptop or bridge machine. Start the host source, run `media.start_h264_tcp_proxy`
+against that host and port, then launch the composite example with
+`rustyxr.brokerH264SourceMode=existing-stream` so the XR client consumes the
+proxied incoming stream instead of asking the broker to open Camera2.
+This remains a live-stream transport and projection validation path. It still
+needs performance work around cadence, buffering, and decoder/render overlap
+before it should be considered a production Quest-to-Quest media path.
+When the optional ADB shell helper reports bounded shell-visible camera
+metadata or Camera2 open/capture
 feasibility, the broker also summarizes those results in `cameraProvider` and
 `projectionProfile` so clients can inspect candidate camera IDs,
 pose/intrinsics availability, and the current evidence level without reading
