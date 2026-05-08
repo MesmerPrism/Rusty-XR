@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "rusty.xr.android-build-manifest.v1",
+  "exampleId": "makepad-q2q-camera-shell",
+  "artifactKind": "apk",
+  "artifact": {
+    "kind": "apk",
+    "outputPath": "build/outputs/rusty-xr-makepad-q2q-release.apk"
+  },
+  "android": {
+    "generatedManifest": {
+      "path": "target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/tmp/AndroidManifest.xml",
+      "producedBy": "cargo makepad android --variant=quest --no-icon build -p rusty-xr-makepad-q2q-camera-shell --release"
+    },
+    "packageName": "io.github.mesmerprism.rustyxr.makepad.q2q",
+    "minSdk": 1,
+    "targetSdk": 33,
+    "abi": "arm64-v8a",
+    "permissions": [
+      "org.khronos.openxr.permission.OPENXR",
+      "org.khronos.openxr.permission.OPENXR_SYSTEM",
+      "horizonos.permission.HEADSET_CAMERA"
+    ],
+    "features": [
+      "android.hardware.vr.headtracking",
+      "com.oculus.feature.PASSTHROUGH"
+    ]
+  },
+  "sourceInputs": [
+    {
+      "label": "Standalone Makepad cargo package",
+      "kind": "cargo-manifest",
+      "path": "Cargo.toml",
+      "required": true
+    },
+    {
+      "label": "Makepad shell source",
+      "kind": "rust-source",
+      "glob": "src/**/*.rs",
+      "required": true
+    },
+    {
+      "label": "Rusty XR runtime configuration core",
+      "kind": "rust-source",
+      "scope": "workspace",
+      "path": "../../crates/rusty-xr-runtime-config/src/lib.rs",
+      "required": true
+    },
+    {
+      "label": "Example README",
+      "kind": "documentation",
+      "path": "README.md",
+      "required": true
+    }
+  ],
+  "generatedInputs": [],
+  "externalInputs": [
+    {
+      "label": "cargo-makepad",
+      "kind": "android-packager",
+      "providedBy": "Makepad tools/cargo_makepad"
+    },
+    {
+      "label": "Makepad framework source",
+      "kind": "rust-git-dependency",
+      "providedBy": "Pinned public Makepad git revision",
+      "notes": "The package pins makepad-xr to the revision listed in Cargo.toml."
+    },
+    {
+      "label": "Android SDK",
+      "kind": "android-sdk",
+      "providedBy": "cargo-makepad Android toolchain"
+    },
+    {
+      "label": "Android NDK",
+      "kind": "android-ndk",
+      "providedBy": "cargo-makepad Android toolchain"
+    },
+    {
+      "label": "OpenJDK",
+      "kind": "jdk",
+      "providedBy": "cargo-makepad Android toolchain"
+    },
+    {
+      "label": "OpenXR loader",
+      "kind": "shared-library",
+      "providedBy": "cargo-makepad Quest variant"
+    },
+    {
+      "label": "Debug signing key",
+      "kind": "keystore",
+      "providedBy": "cargo-makepad Android packager"
+    }
+  ],
+  "generatedOutputs": [
+    {
+      "label": "Generated Android manifest",
+      "kind": "android-manifest",
+      "path": "target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/tmp/AndroidManifest.xml",
+      "producedBy": "cargo makepad android --variant=quest --no-icon build"
+    },
+    {
+      "label": "Generated Java activities",
+      "kind": "java-source",
+      "path": "target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/tmp/io/github/mesmerprism/rustyxr/makepad/q2q",
+      "producedBy": "cargo makepad android --variant=quest --no-icon build"
+    },
+    {
+      "label": "Rust shared library",
+      "kind": "shared-library",
+      "path": "target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/apk/lib/arm64-v8a/libmakepad.so",
+      "producedBy": "cargo makepad android --variant=quest --no-icon build"
+    },
+    {
+      "label": "Signed Quest APK",
+      "kind": "apk",
+      "path": "target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/apk/rustyx_rmakepadq2_q.apk",
+      "producedBy": "cargo makepad android --variant=quest --no-icon build"
+    }
+  ],
+  "capabilities": [
+    "makepad-quest-variant",
+    "openxr-generated-android-manifest",
+    "makepad-xr-openxr-smoke",
+    "rusty-xr-runtime-config-core",
+    "headset-camera-permission-flow",
+    "synthetic-q2q-status-log",
+    "parallel-approach-comparison"
+  ]
+}

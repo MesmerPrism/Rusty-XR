@@ -1,0 +1,187 @@
+{
+  "schemaVersion": "rusty.xr.android-build-manifest.v1",
+  "exampleId": "quest-composite-layer-apk",
+  "artifactKind": "apk",
+  "artifact": {
+    "kind": "apk",
+    "outputPath": "build/outputs/rusty-xr-quest-composite-layer-debug.apk",
+    "catalogPath": "catalog/rusty-xr-quest-composite-layer.catalog.json"
+  },
+  "android": {
+    "manifestPath": "AndroidManifest.xml",
+    "packageName": "com.example.rustyxr.composite",
+    "minSdk": 29,
+    "targetSdk": 35,
+    "abi": "arm64-v8a",
+    "permissions": [
+      "android.permission.INTERNET",
+      "android.permission.ACCESS_NETWORK_STATE",
+      "android.permission.CAMERA",
+      "android.permission.FOREGROUND_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
+      "android.permission.POST_NOTIFICATIONS",
+      "horizonos.permission.HEADSET_CAMERA",
+      "com.oculus.permission.USE_SCENE",
+      "horizonos.permission.USE_SCENE",
+      "org.khronos.openxr.permission.OPENXR",
+      "org.khronos.openxr.permission.OPENXR_SYSTEM",
+      "oculus.permission.handtracking",
+      "com.oculus.permission.HAND_TRACKING"
+    ],
+    "features": [
+      "android.hardware.vr.headtracking",
+      "oculus.software.handtracking",
+      "com.oculus.feature.PASSTHROUGH",
+      "android.hardware.camera",
+      "android.hardware.camera2.full"
+    ]
+  },
+  "sourceInputs": [
+    {
+      "label": "PowerShell build helper",
+      "kind": "script",
+      "path": "tools/Build-QuestCompositeLayerApk.ps1",
+      "required": true
+    },
+    {
+      "label": "Android manifest",
+      "kind": "android-manifest",
+      "path": "AndroidManifest.xml",
+      "required": true
+    },
+    {
+      "label": "Rust native crate",
+      "kind": "cargo-manifest",
+      "path": "native/Cargo.toml",
+      "required": true
+    },
+    {
+      "label": "Rust native sources",
+      "kind": "rust-source",
+      "glob": "native/src/**/*.rs",
+      "required": true
+    },
+    {
+      "label": "Vulkan shader sources",
+      "kind": "glsl-source",
+      "glob": "native/shaders/*.glsl",
+      "required": true
+    },
+    {
+      "label": "Java activity and service sources",
+      "kind": "java-source",
+      "glob": "src/**/*.java",
+      "required": true
+    },
+    {
+      "label": "Quest app catalog",
+      "kind": "quest-app-catalog",
+      "path": "catalog/rusty-xr-quest-composite-layer.catalog.json",
+      "required": true
+    },
+    {
+      "label": "Bundled public font asset",
+      "kind": "asset",
+      "path": "native/assets/fonts/JetBrainsMono-Regular.ttf",
+      "required": true
+    }
+  ],
+  "generatedInputs": [
+    {
+      "label": "Rust arm64 native library",
+      "kind": "shared-library",
+      "path": "../../target/aarch64-linux-android/release/librusty_xr_quest_composite_native.so",
+      "producedBy": "cargo build --manifest-path native/Cargo.toml --target aarch64-linux-android --release"
+    },
+    {
+      "label": "Compiled SPIR-V shader modules",
+      "kind": "shader-binary",
+      "path": "native/shaders/*.spv",
+      "producedBy": "native/build.rs using glslc"
+    }
+  ],
+  "externalInputs": [
+    {
+      "label": "Android SDK",
+      "kind": "android-sdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "Android NDK",
+      "kind": "android-ndk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "OpenJDK",
+      "kind": "jdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "Quest-compatible OpenXR loader",
+      "kind": "native-library",
+      "providedBy": "User-supplied local SDK/runtime input",
+      "parameter": "-OpenXrLoaderPath",
+      "environment": "RUSTY_XR_OPENXR_LOADER"
+    },
+    {
+      "label": "Android NDK libc++ shared runtime",
+      "kind": "native-library",
+      "providedBy": "Android NDK"
+    },
+    {
+      "label": "Vulkan shader compiler",
+      "kind": "glslc",
+      "providedBy": "Android NDK shader tools or user-supplied GLSLC",
+      "environment": "GLSLC"
+    },
+    {
+      "label": "Debug signing key",
+      "kind": "keystore",
+      "providedBy": "Generated locally by the build helper or replacement package tool"
+    }
+  ],
+  "generatedOutputs": [
+    {
+      "label": "Unsigned APK",
+      "kind": "apk",
+      "path": "build/rusty-xr-quest-composite-layer-unsigned.apk"
+    },
+    {
+      "label": "Aligned APK",
+      "kind": "apk",
+      "path": "build/rusty-xr-quest-composite-layer-aligned.apk"
+    },
+    {
+      "label": "Signed debug APK",
+      "kind": "apk",
+      "path": "build/outputs/rusty-xr-quest-composite-layer-debug.apk"
+    },
+    {
+      "label": "Compiled Java classes",
+      "kind": "directory",
+      "path": "build/classes"
+    },
+    {
+      "label": "Dex output",
+      "kind": "directory",
+      "path": "build/dex"
+    },
+    {
+      "label": "Packaged native libraries",
+      "kind": "directory",
+      "path": "build/package/lib/arm64-v8a"
+    }
+  ],
+  "capabilities": [
+    "openxr",
+    "vulkan",
+    "camera2",
+    "headset-camera",
+    "environment-depth-diagnostics",
+    "hand-mesh-diagnostics",
+    "mediaprojection-final-screen-stream",
+    "mediacodec-h264-decode-probe",
+    "runtime-profile-intent-extras",
+    "scorecard-compatible-logs"
+  ]
+}

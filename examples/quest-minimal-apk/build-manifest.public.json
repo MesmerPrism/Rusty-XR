@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "rusty.xr.android-build-manifest.v1",
+  "exampleId": "quest-minimal-apk",
+  "artifactKind": "apk",
+  "artifact": {
+    "kind": "apk",
+    "outputPath": "build/outputs/rusty-xr-quest-minimal-debug.apk",
+    "catalogPath": "catalog/rusty-xr-quest-minimal.catalog.json"
+  },
+  "android": {
+    "manifestPath": "AndroidManifest.xml",
+    "packageName": "com.example.rustyxr.minimal",
+    "minSdk": 29,
+    "targetSdk": 35,
+    "abi": "arm64-v8a",
+    "permissions": [],
+    "features": []
+  },
+  "sourceInputs": [
+    {
+      "label": "PowerShell build helper",
+      "kind": "script",
+      "path": "tools/Build-QuestMinimalApk.ps1",
+      "required": true
+    },
+    {
+      "label": "Android manifest",
+      "kind": "android-manifest",
+      "path": "AndroidManifest.xml",
+      "required": true
+    },
+    {
+      "label": "Rust native crate",
+      "kind": "cargo-manifest",
+      "path": "native/Cargo.toml",
+      "required": true
+    },
+    {
+      "label": "Rust native sources",
+      "kind": "rust-source",
+      "glob": "native/src/**/*.rs",
+      "required": true
+    },
+    {
+      "label": "Java activity sources",
+      "kind": "java-source",
+      "glob": "src/**/*.java",
+      "required": true
+    },
+    {
+      "label": "Quest app catalog",
+      "kind": "quest-app-catalog",
+      "path": "catalog/rusty-xr-quest-minimal.catalog.json",
+      "required": true
+    }
+  ],
+  "generatedInputs": [
+    {
+      "label": "Rust arm64 native library",
+      "kind": "shared-library",
+      "path": "../../target/aarch64-linux-android/release/librusty_xr_quest_minimal_native.so",
+      "producedBy": "cargo build --manifest-path native/Cargo.toml --target aarch64-linux-android --release"
+    }
+  ],
+  "externalInputs": [
+    {
+      "label": "Android SDK",
+      "kind": "android-sdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "Android NDK",
+      "kind": "android-ndk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "OpenJDK",
+      "kind": "jdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "Debug signing key",
+      "kind": "keystore",
+      "providedBy": "Generated locally by the build helper or replacement package tool"
+    }
+  ],
+  "generatedOutputs": [
+    {
+      "label": "Unsigned APK",
+      "kind": "apk",
+      "path": "build/rusty-xr-quest-minimal-unsigned.apk"
+    },
+    {
+      "label": "Aligned APK",
+      "kind": "apk",
+      "path": "build/rusty-xr-quest-minimal-aligned.apk"
+    },
+    {
+      "label": "Signed debug APK",
+      "kind": "apk",
+      "path": "build/outputs/rusty-xr-quest-minimal-debug.apk"
+    },
+    {
+      "label": "Compiled Java classes",
+      "kind": "directory",
+      "path": "build/classes"
+    },
+    {
+      "label": "Dex output",
+      "kind": "directory",
+      "path": "build/dex"
+    },
+    {
+      "label": "Packaged native libraries",
+      "kind": "directory",
+      "path": "build/package/lib/arm64-v8a"
+    }
+  ],
+  "capabilities": [
+    "synthetic-contract-json",
+    "rust-cdylib-load",
+    "android-launch-smoke-test",
+    "runtime-profile-intent-extras"
+  ]
+}

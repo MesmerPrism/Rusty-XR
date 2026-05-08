@@ -1,0 +1,162 @@
+{
+  "schemaVersion": "rusty.xr.android-build-manifest.v1",
+  "exampleId": "quest-broker-apk",
+  "artifactKind": "apk",
+  "artifact": {
+    "kind": "apk",
+    "outputPath": "build/outputs/rusty-xr-quest-broker-debug.apk",
+    "catalogPath": "catalog/rusty-xr-quest-broker.catalog.json"
+  },
+  "android": {
+    "manifestPath": "AndroidManifest.xml",
+    "packageName": "com.example.rustyxr.broker",
+    "minSdk": 29,
+    "targetSdk": 35,
+    "abi": "arm64-v8a",
+    "permissions": [
+      "android.permission.INTERNET",
+      "android.permission.ACCESS_NETWORK_STATE",
+      "android.permission.ACCESS_WIFI_STATE",
+      "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+      "android.permission.BLUETOOTH",
+      "android.permission.BLUETOOTH_ADMIN",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.BLUETOOTH_SCAN",
+      "android.permission.BLUETOOTH_CONNECT",
+      "android.permission.CAMERA",
+      "android.permission.FOREGROUND_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+      "android.permission.POST_NOTIFICATIONS",
+      "horizonos.permission.HEADSET_CAMERA"
+    ],
+    "features": [
+      "android.hardware.camera",
+      "android.hardware.camera2.full",
+      "android.hardware.bluetooth_le"
+    ]
+  },
+  "sourceInputs": [
+    {
+      "label": "PowerShell build helper",
+      "kind": "script",
+      "path": "tools/Build-QuestBrokerApk.ps1",
+      "required": true
+    },
+    {
+      "label": "Android manifest",
+      "kind": "android-manifest",
+      "path": "AndroidManifest.xml",
+      "required": true
+    },
+    {
+      "label": "Java broker sources",
+      "kind": "java-source",
+      "glob": "src/**/*.java",
+      "required": true
+    },
+    {
+      "label": "Android resources",
+      "kind": "android-resource",
+      "glob": "res/**/*.*",
+      "required": true
+    },
+    {
+      "label": "Optional native LSL JNI source",
+      "kind": "jni-source",
+      "path": "jni/rustyxr_broker_lsl_jni.cpp",
+      "required": true
+    },
+    {
+      "label": "Quest app catalog",
+      "kind": "quest-app-catalog",
+      "path": "catalog/rusty-xr-quest-broker.catalog.json",
+      "required": true
+    }
+  ],
+  "generatedInputs": [
+    {
+      "label": "Compiled Android resources",
+      "kind": "android-resource-flat",
+      "path": "build/compiled-res",
+      "producedBy": "aapt2 compile"
+    },
+    {
+      "label": "Optional LSL JNI shared library",
+      "kind": "shared-library",
+      "path": "build/native/arm64-v8a/librustyxr_broker_lsl_jni.so",
+      "producedBy": "NDK clang++ when liblsl is supplied"
+    }
+  ],
+  "externalInputs": [
+    {
+      "label": "Android SDK",
+      "kind": "android-sdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "OpenJDK",
+      "kind": "jdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "Optional Android NDK",
+      "kind": "android-ndk",
+      "providedBy": "Only needed when packaging optional native LSL support"
+    },
+    {
+      "label": "Optional Android liblsl",
+      "kind": "native-library",
+      "providedBy": "User-supplied license-compliant Android liblsl build",
+      "parameter": "-LslAndroidLibraryPath",
+      "environment": "RUSTY_XR_ANDROID_LIBLSL"
+    },
+    {
+      "label": "Debug signing key",
+      "kind": "keystore",
+      "providedBy": "Generated locally by the build helper or replacement package tool"
+    }
+  ],
+  "generatedOutputs": [
+    {
+      "label": "Unsigned APK",
+      "kind": "apk",
+      "path": "build/rusty-xr-quest-broker-unsigned.apk"
+    },
+    {
+      "label": "Aligned APK",
+      "kind": "apk",
+      "path": "build/rusty-xr-quest-broker-aligned.apk"
+    },
+    {
+      "label": "Signed debug APK",
+      "kind": "apk",
+      "path": "build/outputs/rusty-xr-quest-broker-debug.apk"
+    },
+    {
+      "label": "Compiled Java classes",
+      "kind": "directory",
+      "path": "build/classes"
+    },
+    {
+      "label": "Dex output",
+      "kind": "directory",
+      "path": "build/dex"
+    },
+    {
+      "label": "Optional native library package root",
+      "kind": "directory",
+      "path": "build/package/lib/arm64-v8a"
+    }
+  ],
+  "capabilities": [
+    "localhost-websocket-broker",
+    "osc-ingress-egress",
+    "polar-compatible-bio-streams",
+    "camera-provider-metadata",
+    "bounded-camera2-probes",
+    "mediacodec-h264-probes",
+    "runtime-profile-intent-extras",
+    "scorecard-compatible-logs"
+  ]
+}

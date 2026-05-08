@@ -127,6 +127,54 @@ Keep the migration layered. Do not move all platform code into Rusty XR core.
    NDK, JDK, Quest devices, and a user-supplied OpenXR loader, but not private
    repositories or local machine paths.
 
+## Parallel Maintenance Recommendation
+
+Maintain one coherent Rusty XR repository with one public core and two public
+Quest shell lanes:
+
+```text
+Rusty XR core crates
+  -> current custom Quest APK lane
+  -> Makepad Quest APK lane
+```
+
+The goal is not to maintain two products. The goal is to maintain two thin
+shells that consume the same public contracts:
+
+- **Core crates** own runtime configuration, camera metadata, stream framing,
+  projection/math helpers, diagnostics, and scorecard models. They stay pure
+  Rust and framework-neutral.
+- **The current custom APK lane** remains the measured diagnostic baseline for
+  Camera2, MediaCodec, hardware-buffer handoff, projection cost, and scorecard
+  interpretation.
+- **The Makepad lane** is the ergonomic app-shell lane for Makepad Android
+  packaging, `makepad-xr`, Live/studio iteration, permission flow, and future
+  Makepad-native render or camera adapters.
+
+This is feasible as long as the Makepad delta is managed as a shallow patch
+queue instead of a long-lived forked framework. Acceptable Makepad-side patches
+are accessibility and portability fixes, such as Windows path handling,
+dependent shared-library packaging, documentation, or small bridge hooks needed
+to expose public Rusty XR runtime profiles. Avoid invasive Makepad renderer,
+camera, or lifecycle forks unless the patch is intended to be upstreamed.
+
+Keep the parallel lane while these conditions hold:
+
+- Rusty XR core stays Makepad-independent.
+- Makepad-specific code stays in the Makepad example or optional adapter crates.
+- The current custom APK lane remains the ground-truth diagnostic baseline.
+- The Makepad patch queue stays small enough to rebase manually across upstream
+  Makepad revisions.
+- Every Makepad update runs the same smoke ladder and updates the comparison
+  ledger when affordances, costs, or dependencies change.
+
+Pause or drop the Makepad lane if it requires ongoing invasive renderer forks,
+if the GPU fault cannot be isolated enough for useful measurement, or if Makepad
+dependencies start shaping the public core APIs.
+
+The repository-level ownership boundary for this branch/fork model is tracked
+in [MAKEPAD_FORK_RELATIONSHIP.md](MAKEPAD_FORK_RELATIONSHIP.md).
+
 ## Iteration Plan
 
 ### Phase 0: Freeze The Known-Good Diagnostic Baseline
@@ -175,27 +223,95 @@ examples/quest-composite-layer-apk/build-manifest.public.json
 
 The manifest should describe files and capabilities, not local absolute paths.
 
+Initial Phase 1 manifests now live beside the current public examples:
+
+- `examples/quest-minimal-apk/build-manifest.public.json`
+- `examples/quest-composite-layer-apk/build-manifest.public.json`
+- `examples/quest-broker-apk/build-manifest.public.json`
+- `examples/quest-broker-shell-helper/build-manifest.public.json`
+- `examples/makepad-q2q-camera-shell/build-manifest.public.json`
+
+They use schema version `rusty.xr.android-build-manifest.v1` and record source
+inputs, generated build inputs, external tool/library inputs, generated
+outputs, Android permissions/features, and scorecard-relevant capabilities. The
+manifests are intentionally descriptive: they do not replace the current build
+scripts yet, and they do not contain local SDK paths, generated APK bytes,
+keystore paths, device serials, or run artifacts.
+
+Validate them with:
+
+```powershell
+python tools\schema\check_android_build_manifest.py examples\quest-minimal-apk\build-manifest.public.json examples\quest-composite-layer-apk\build-manifest.public.json examples\quest-broker-apk\build-manifest.public.json examples\quest-broker-shell-helper\build-manifest.public.json examples\makepad-q2q-camera-shell\build-manifest.public.json
+```
+
+The validator checks the public manifest shape, verifies required source files
+exist, allows explicit `scope: "workspace"` source inputs for shared core crates,
+keeps artifact outputs under ignored `build/` folders, permits Makepad-generated
+Android manifests under ignored `target/` folders, and rejects local absolute
+path hints in portable fields.
+
 ### Phase 2: Create A Makepad Host Shell Skeleton
 
-Create a new public example only after the Makepad-side owner confirms the
-preferred profile layout. A placeholder name could be:
+The first standalone Makepad shell now lives at:
 
 ```text
 examples/makepad-q2q-camera-shell/
 ```
 
-The first version should not attempt the full camera stack. It should prove:
+It intentionally does not attempt the full camera stack yet. The current
+checked-in repro has been reduced to a minimal `XrRoot` while the Makepad XR GPU
+fault is isolated. It currently proves:
 
 - `cargo-makepad` can build and package the Android app
 - the app installs and launches on Quest
-- the Android manifest can request the required camera/network/foreground
-  permissions
-- runtime profile values can be logged at startup
+- the Makepad Quest variant can generate the required OpenXR, passthrough, and
+  headset camera manifest surface
+- a `makepad-xr` `XrRoot` app can launch through the generated XR activity
+- runtime profile values can be resolved through `rusty-xr-runtime-config` and
+  logged at startup
 - the app can emit the same public diagnostic marker style used by existing
   scorecard tools
 
-Do not start with a full renderer port. Start with a synthetic launch and
-diagnostic log compatibility.
+Current device validation also exposed the next blockers: the tested Makepad
+tool needed Windows packaging fixes for generated wrapper paths and dependent
+Rust shared libraries, and the Quest log reports GPU page faults during the
+Makepad XR activity. Earlier isolation variants showed that the fault does not
+require the permission-flow widget, Makepad UI surfaces, a simple cube marker,
+the environment cube, a persistent headset-camera grant, fixed foveation, or a
+simple app-side queue-idle after submit. A control run of Makepad's upstream XR
+example on the same headset reproduced the GPU page fault symptom. Depth
+acquire/readback changed timing in one run, but follow-up splits showed the
+fault still appears without provider start, per-frame acquire/readback, or
+depth image view creation. Later splits also faulted without passthrough
+creation, without environment-depth provider/swapchain creation, and with zero
+composition layers submitted, without OpenXR color swapchain creation, without
+the OpenXR frame loop, without OpenXR session creation, and without Makepad
+OpenXR instance creation. A same-APK launch of the normal Makepad Android
+activity also reproduced the page-fault class, while fresh default
+Android/GLES-only controls did not reproduce the fault in short runs. A plain
+upstream Makepad counter app then faulted when built with the Quest/Vulkan
+backend and stayed clean when the same Quest-shaped control was forced through
+GLES. A Quest/Vulkan control that returned before Vulkan window draw/present
+also stayed clean. Further splits showed that suppressing suboptimal-triggered
+swapchain recreation stayed clean, a same-toolchain Quest/Vulkan baseline still
+faulted, and waiting either device idle or the current window-frame fence before
+suboptimal-triggered recreation stayed clean. The local Makepad fork now carries
+the targeted frame-fence wait as source state, alongside the Windows Android
+packaging fixes needed for this build lane, and a no-diagnostic Quest/Vulkan
+counter repeat stayed clean. The active lead has moved below `makepad-xr` and
+below Vulkan backend/surface setup to Makepad's Android Vulkan
+window-swapchain recreation on the acquire/present suboptimal path on Horizon
+OS.
+
+Do not start with a full renderer port. Start by making the synthetic launch and
+diagnostic log path repeatable, then validate the fork-state frame-fence patch
+over longer repeats before interpreting camera or renderer measurements from
+this lane.
+
+The Makepad-vs-current affordance and cost ledger is tracked in
+[MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md](MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md).
+The active Makepad XR GPU fault isolation log is tracked in
+[MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md](MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md).
 
 ### Phase 3: Bridge Runtime Profiles To Makepad Live/Control
 

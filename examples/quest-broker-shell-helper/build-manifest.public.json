@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "rusty.xr.android-build-manifest.v1",
+  "exampleId": "quest-broker-shell-helper",
+  "artifactKind": "dex-jar",
+  "artifact": {
+    "kind": "dex-jar",
+    "outputPath": "build/outputs/rusty-xr-broker-shell-helper.jar"
+  },
+  "android": {
+    "minSdk": 29,
+    "targetSdk": 35,
+    "abi": "arm64-v8a",
+    "permissions": [],
+    "features": []
+  },
+  "sourceInputs": [
+    {
+      "label": "PowerShell build helper",
+      "kind": "script",
+      "path": "tools/Build-BrokerShellHelper.ps1",
+      "required": true
+    },
+    {
+      "label": "ADB launch helper",
+      "kind": "script",
+      "path": "tools/Start-BrokerShellHelper.ps1",
+      "required": true
+    },
+    {
+      "label": "Java shell helper source",
+      "kind": "java-source",
+      "glob": "src/**/*.java",
+      "required": true
+    }
+  ],
+  "generatedInputs": [],
+  "externalInputs": [
+    {
+      "label": "Android SDK",
+      "kind": "android-sdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "OpenJDK",
+      "kind": "jdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "Authorized ADB host",
+      "kind": "adb",
+      "providedBy": "User-enabled Developer Mode and ADB authorization"
+    }
+  ],
+  "generatedOutputs": [
+    {
+      "label": "Compiled Java classes",
+      "kind": "directory",
+      "path": "build/classes"
+    },
+    {
+      "label": "Dex output",
+      "kind": "directory",
+      "path": "build/dex"
+    },
+    {
+      "label": "Shell helper jar",
+      "kind": "jar",
+      "path": "build/outputs/rusty-xr-broker-shell-helper.jar"
+    }
+  ],
+  "capabilities": [
+    "adb-app-process-helper",
+    "shell-helper-status-report",
+    "bounded-codec-diagnostics",
+    "bounded-synthetic-video-metadata",
+    "developer-mode-only"
+  ]
+}

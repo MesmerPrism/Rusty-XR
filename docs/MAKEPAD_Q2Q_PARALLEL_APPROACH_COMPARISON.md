@@ -1,0 +1,179 @@
+# Makepad Q2Q Parallel Approach Comparison
+
+This document tracks the Makepad-first Quest lane beside the current Rusty XR
+custom Android APK lane. The goal is not to pick a winner yet. The goal is to
+make both paths runnable, comparable, and explicit about affordances, costs, and
+dependencies.
+
+## Current Decision
+
+Run a Makepad-first fork lane in parallel with the existing custom APK lane,
+with both lanes pointing back to the same framework-neutral Rusty XR core. Keep
+the public Rusty XR repository MIT-accessible, keep generated artifacts out of
+source, and keep Makepad coupling isolated to a standalone example or optional
+adapter until the affordance tradeoffs are proven on device.
+
+The ownership boundary between Rusty XR core and the maintained Makepad fork
+branch is documented in [MAKEPAD_FORK_RELATIONSHIP.md](MAKEPAD_FORK_RELATIONSHIP.md).
+
+## Decided For Now
+
+- Use a branch or fork lane for Makepad work instead of replacing the current APK
+  examples.
+- Pin Makepad dependencies by public git revision in the example package.
+- Use `cargo-makepad android --variant=quest` as the Makepad-owned Android,
+  OpenXR, signing, install, and run surface.
+- Start with a synthetic `makepad-xr` OpenXR smoke shell before adding
+  headset-camera transport or broker integration.
+- Track generated manifests and APK outputs with `build-manifest.public.json`
+  even when the manifest is produced by Makepad instead of kept in source.
+- Keep the current custom APK examples intact while the Makepad lane proves its
+  device behavior, dependency cost, and update cadence.
+- Treat the current custom APK lane as the diagnostic baseline and the Makepad
+  lane as the ergonomic app-shell lane, not as two independent products.
+- Route Makepad lane profile values through `rusty-xr-runtime-config` first;
+  add camera metadata, stream framing, and scorecard contracts through core
+  crates before adding Makepad-specific adapters.
+
+## Still Needs A Decision
+
+- Dependency policy: stay pinned to Makepad `dev` revisions, vendor a tested
+  fork, or consume tagged releases when available.
+- Tooling patch policy: upstream the Windows shared-library packaging fix, carry
+  the generated-wrapper path fix, carry a short-lived Makepad fork, or wait for
+  a released Makepad tool update before expecting Windows contributors to build
+  this lane.
+- Release policy: whether Rusty XR should publish Makepad-built Quest examples,
+  keep them as developer-only examples, or expose them only as comparison
+  fixtures.
+- Runtime profile injection: whether to patch Makepad's Java/Rust bridge for
+  arbitrary Android intent extras or keep a Rusty XR adapter outside Makepad.
+- Camera path: whether the Makepad lane should use Makepad headset camera APIs,
+  Rusty XR camera contracts, or a thin adapter that can report both surfaces.
+- Permission timing: whether `XrPermissionsFlow` should request headset camera
+  during synthetic smoke startup or whether the first lane should defer camera
+  permissions until camera transport is enabled.
+- Manifest customization: whether Rusty XR should accept Makepad-generated
+  Quest permissions wholesale or add a post-generation manifest patch step.
+- CI expectations: whether this lane should be source validation only, desktop
+  `cargo check`, Android build, or install-on-Quest smoke testing.
+- GPU fault disposition: whether to isolate and fix the current Makepad XR page
+  fault before camera work, or temporarily split renderer smoke from permission
+  and camera bring-up. The latest splits rule out depth provider/swapchain
+  creation, passthrough creation/submission, and composition-layer submission as
+  required causes. Later splits also rule out OpenXR color swapchain creation,
+  the OpenXR frame loop, OpenXR session creation, OpenXR instance creation, and
+  the generated XR activity as required causes. Default Android/GLES-only
+  controls did not reproduce the fault in short runs. A plain upstream Makepad
+  counter app then reproduced the fault when built with the Quest/Vulkan backend
+  and stayed clean when the same Quest-shaped control was forced through GLES.
+  A Quest/Vulkan control that skipped Vulkan window draw/present also stayed
+  clean. Further splits showed that suppressing suboptimal-triggered swapchain
+  recreation stayed clean, a same-toolchain baseline still faulted, and waiting
+  either device idle or the current window-frame fence before suboptimal
+  recreation stayed clean. The current local Makepad fork state promotes that
+  frame-fence wait to a persistent source patch, and the no-diagnostic
+  Quest/Vulkan counter run stayed clean. The active lead is Makepad's Android
+  Vulkan window-swapchain recreation on the acquire/present suboptimal path on
+  Horizon OS.
+- Launch surface: whether automation should use Makepad's launcher `run` path,
+  direct adb launch of the generated XR activity, or both as separate checks.
+
+## Affordance Matrix
+
+| Area | Current custom APK lane | Makepad-first lane |
+| --- | --- | --- |
+| Android manifest | Source-owned manifest per example. | Generated by `cargo-makepad` from CLI options and Quest variant. |
+| Package identity | Source manifest and build scripts own it. | CLI `--package-name` owns it at build time. |
+| Java shell | Rusty XR examples own Java activity/service code. | Makepad generates `MakepadActivity`, launcher activity, and XR activity. |
+| OpenXR loader | Explicit build input or local Android dependency. | Bundled by Makepad Quest variant into the APK. |
+| Quest permissions | Explicit source manifest permissions. | Quest variant generates OpenXR, passthrough, scene, anchor, and headset camera permissions. |
+| Runtime configuration | Intent extras and Rusty XR config code are directly controlled. | Startup marker values now pass through `rusty-xr-runtime-config`; Android intent extras still need a Makepad adapter. |
+| Shared core usage | Uses Rusty XR crates directly for config, diagnostics, camera, broker, and scorecard behavior. | First shared-core bridge uses `rusty-xr-runtime-config`; next bridges should add stream, camera, and scorecard contracts. |
+| UI/runtime | Minimal Android shell plus Rust examples. | Full Makepad UI, live/studio ecosystem, OpenXR render loop, and Quest shell. |
+| XR scene/root | Rusty XR example owns OpenXR/Vulkan setup directly. | `makepad-xr` provides `XrRoot`, scene nodes, XR permission flow, passthrough hooks, and Makepad draw abstractions. |
+| Camera affordance | Camera2 `PRIVATE`, MediaCodec, and projection probes are explicit in example code. | Makepad already exposes a headset-camera permission and passthrough-camera surface, but Rusty XR camera metadata and Q2Q transport are not mapped yet. |
+| Accessibility for contributors | Uses common Android concepts but more custom scripts. | One Makepad command path, but contributors must understand Makepad tooling. |
+| Maintenance burden | Rusty XR owns Android packaging details. | Rusty XR tracks Makepad tool changes and pins revisions. |
+| Debug/install flow | ADB and Rusty XR scripts. | `cargo makepad android run`, with device selection through `--devices`; direct `adb -s` remains useful when multiple devices are connected. |
+| Log hygiene | Rusty XR can control public marker formats directly. | Makepad log lines include source-location prefixes, so shared logs need scrubbing before publication. |
+
+## Cost And Dependency Ledger
+
+| Cost | Current custom APK lane | Makepad-first lane |
+| --- | --- | --- |
+| Required Rust target | `aarch64-linux-android`. | `aarch64-linux-android` through Makepad toolchain install. |
+| Android SDK/NDK/JDK | External or locally configured. | Downloaded and managed by `cargo-makepad` unless an SDK path is supplied. |
+| Generated source | Limited to Java classes/dex/build outputs. | Generated manifest, Java activity sources, dex, resources, shared library packaging, and signed APK. |
+| Public dependency | Mostly Rusty XR crates and Android tools. | Adds pinned Makepad git dependency and `cargo-makepad` tool while still depending on Rusty XR core crates. |
+| XR dependency surface | Custom shell owns OpenXR/Vulkan dependencies directly. | `makepad-xr` pulls in Makepad's XR, rendering, physics/math, asset, and UI dependency graph. |
+| Output location | Example `build/` folders. | Makepad `target/android/makepad-android-apk/...` folders. |
+| Licensing | Rusty XR MIT plus Android/OpenXR inputs. | Rusty XR MIT plus Makepad MIT OR Apache-2.0 and Android/OpenXR inputs. |
+| Current blocker cost | Existing lane already has measured camera/stream diagnostics, but the scripts are less portable. | Tested Makepad revision currently needs local Windows packaging patches and reports GPU page faults on Quest XR smoke. |
+
+## Immediate Validation Ladder
+
+1. Source validation: manifest validator accepts both source-owned and
+   Makepad-generated Android manifests.
+2. Desktop smoke: the standalone Makepad package passes `cargo check`.
+3. Android build: `cargo makepad android --variant=quest build` produces a Quest
+   APK and bundles required native shared libraries.
+4. Launcher smoke: install/run on a selected Quest and confirm
+   `RUSTY_XR_MAKEPAD_Q2Q_STATUS` in logcat.
+5. Direct XR smoke: launch the generated XR activity directly and confirm the
+   marker, focused XR activity, and absence of native crashes.
+6. Fault isolation: resolve or bracket the current GPU page fault before
+   interpreting renderer or camera measurements from this lane.
+7. Adapter pass: add runtime profile propagation and then compare camera
+   affordances against the current custom APK lane.
+
+## Current Device Findings
+
+- Desktop `cargo check` passes for the standalone Makepad package.
+- Quest APK build and install pass with the tested Makepad tooling plus local
+  Windows packaging fixes for generated wrapper paths and dependent Rust shared
+  libraries.
+- The generated launcher activity starts and emits
+  `RUSTY_XR_MAKEPAD_Q2Q_STATUS`.
+- The generated XR activity can be launched directly, becomes the focused
+  headset activity, emits the same marker, and enters the immersive activity
+  path.
+- Makepad's XR permission flow requests `horizonos.permission.HEADSET_CAMERA`
+  even though Q2Q camera transport is not wired yet.
+- The Quest log reports repeated GPU page faults during the Makepad XR smoke
+  path. The app process can remain alive, but the lane is not yet a clean XR
+  success signal.
+- A control run of Makepad's upstream XR example on the same headset reproduced
+  the GPU page fault symptom after the Windows tool patches, so the fault is
+  likely in the current Makepad/Quest XR stack rather than this Rusty XR smoke
+  panel alone.
+- The isolation ladder has already ruled out the permission-flow widget,
+  Makepad UI surfaces, simple scene content, the environment cube, persistent
+  headset-camera permission state, fixed foveation, and a simple app-side
+  queue-idle-after-submit patch.
+- The source comparison shows Makepad eagerly creates/starts the
+  environment-depth provider and attempts per-frame depth acquisition, while the
+  non-Makepad Rusty XR composite stack keeps depth mode-gated and reports
+  unavailable/error/acquire timing separately. Follow-up splits showed the fault
+  still appears when provider start, per-frame acquire/readback, and depth image
+  view creation are disabled. Further splits also faulted with passthrough not
+  created, with passthrough created but not submitted, with no environment-depth
+  provider/swapchain, with zero submitted composition layers, without Makepad's
+  OpenXR color swapchain, without the OpenXR frame loop, without OpenXR session
+  creation, and without Makepad OpenXR instance creation. A same-APK launch of
+  the normal Makepad Android activity also reproduced the page-fault class, but
+  fresh default Android/GLES-only controls did not. A plain Makepad counter app
+  faulted in the Quest/Vulkan package shape and stayed clean when the same
+  Quest-shaped control was forced through GLES. A Quest/Vulkan control that
+  returned before Vulkan window draw/present also stayed clean. The next splits
+  isolated the suboptimal-present/acquire recreate path: suppressing
+  suboptimal-triggered recreation stayed clean, the same-toolchain baseline
+  still faulted, and waiting the device or the current window-frame fence before
+  recreation stayed clean. The local Makepad fork now carries that frame-fence
+  wait as source state and a no-diagnostic Quest/Vulkan counter repeat stayed
+  clean. The next Makepad tests should extend the repeat window and then repeat
+  the XR smoke path rather than continuing to focus on `makepad-xr` depth,
+  passthrough, or composition-layer ownership.
+
+The active fault-isolation log is tracked in
+[MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md](MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md).

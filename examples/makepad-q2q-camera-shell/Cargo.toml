@@ -1,0 +1,12 @@
+[package]
+name = "rusty-xr-makepad-q2q-camera-shell"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Makepad-first Quest shell for comparing Rusty XR Q2Q camera workflow affordances."
+repository = "https://github.com/MesmerPrism/Rusty-XR"
+
+[dependencies]
+makepad-xr = { git = "https://github.com/makepad/makepad.git", rev = "e76019a9f447598ca05697b93e1895a772cbfa8c", version = "1.0.0" }
+rusty-xr-runtime-config = { path = "../../crates/rusty-xr-runtime-config" }

@@ -141,6 +141,26 @@ off the broker JSON path, and includes a guarded MediaCodec synthetic-Surface
 encoder probe plus a guarded shell `screenrecord` display-source probe behind
 the same framing. It is Developer Mode tooling, not an installed APK permission:
 [examples/quest-broker-shell-helper/README.md](examples/quest-broker-shell-helper/README.md).
+A standalone Makepad-first Quest comparison lane is available at
+[examples/makepad-q2q-camera-shell/README.md](examples/makepad-q2q-camera-shell/README.md).
+It uses Makepad's Android/OpenXR packaging surface, exercises `makepad-xr`, and
+emits a synthetic Rusty XR status marker before camera or broker behavior is
+added. The marker values already route through `rusty-xr-runtime-config`, so
+the lane is anchored to the same public core as the custom APK examples.
+Current device validation reaches the generated XR activity, but GPU page
+faults in the Quest log are still an active Makepad-lane blocker; the same
+symptom reproduced with Makepad's upstream XR example on the same headset. The
+depth-stack comparison showed useful differences against the non-Makepad
+composite example, but provider start, per-frame acquire/readback, and depth
+image view creation are not required for the fault. Later splits also faulted
+without passthrough creation, without environment-depth provider/swapchain
+creation, with zero composition layers submitted, without OpenXR color swapchain
+creation, without the OpenXR frame loop, without OpenXR session creation, and
+without Makepad OpenXR instance creation. A same-APK launch of the normal
+Makepad Android activity also reproduced the page-fault class. The current
+isolation target is Makepad's base Android graphics/activity path on Quest /
+Horizon OS; the attempt log is tracked in
+[docs/MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md](docs/MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md).
 Quest ADB input smoke-test limits are documented in
 [docs/QUEST_ADB_INPUT_WORKFLOW.md](docs/QUEST_ADB_INPUT_WORKFLOW.md).
 Headset-local app launching and the boundary between normal PackageManager
@@ -195,6 +215,15 @@ Quest headsets is available at
 A public plan for migrating the current Quest APK examples toward a
 Makepad-compatible Android build and hotload workflow is tracked in
 [docs/MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md](docs/MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md).
+The Makepad-first fork-lane comparison, including affordances, costs,
+dependencies, and remaining decision points, is tracked in
+[docs/MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md](docs/MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md).
+The public ownership boundary between Rusty XR core and the maintained Makepad
+fork branch is documented in
+[docs/MAKEPAD_FORK_RELATIONSHIP.md](docs/MAKEPAD_FORK_RELATIONSHIP.md).
+The first implementation slices add source-only `build-manifest.public.json`
+files beside the public Android examples, the standalone Makepad smoke shell,
+and `tools/schema/check_android_build_manifest.py` to validate them.
 Intentional visual strobe profiles, 120 Hz display-refresh constraints, and
 photoepilepsy warnings are documented in
 [docs/VISUAL_STROBE_PROFILES.md](docs/VISUAL_STROBE_PROFILES.md).

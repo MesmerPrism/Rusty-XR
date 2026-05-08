@@ -33,6 +33,24 @@ For a Makepad-compatible Android build path that avoids the current
 Windows/Unity-AndroidPlayer-oriented helper scripts and prepares for Makepad
 Live/hotpatch iteration, see
 [MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md](MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md).
+The current Makepad-first comparison lane is tracked in
+[MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md](MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md)
+and starts with
+`examples/makepad-q2q-camera-shell/build-manifest.public.json`.
+The current public examples also carry source-only Android build manifests:
+`examples/quest-minimal-apk/build-manifest.public.json`,
+`examples/quest-composite-layer-apk/build-manifest.public.json`,
+`examples/quest-broker-apk/build-manifest.public.json`, and
+`examples/quest-broker-shell-helper/build-manifest.public.json`. These
+manifests describe inputs, generated outputs, external tool requirements,
+permissions, and capabilities for future Makepad-compatible tooling without
+changing the existing build scripts.
+
+Validate the manifests with:
+
+```powershell
+python tools\schema\check_android_build_manifest.py examples\quest-minimal-apk\build-manifest.public.json examples\quest-composite-layer-apk\build-manifest.public.json examples\quest-broker-apk\build-manifest.public.json examples\quest-broker-shell-helper\build-manifest.public.json examples\makepad-q2q-camera-shell\build-manifest.public.json
+```
 
 ## Recommended Shell Shape
 
@@ -378,3 +396,20 @@ Developer Mode/operator tooling, not as an APK permission model:
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Build-BrokerShellHelper.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -ProbeCodecs -EmitSyntheticVideoMetadata
 ```
+
+The source-first Makepad comparison example is
+`examples/makepad-q2q-camera-shell/`. It is a standalone package that uses
+`cargo-makepad android --variant=quest` to generate the Android manifest, Java
+activities, OpenXR loader packaging, signing, APK output, install, and run
+surface. The first implementation is a synthetic smoke lane: it logs
+`RUSTY_XR_MAKEPAD_Q2Q_STATUS` and records the Makepad packaging affordances
+before camera transport or broker integration is added. Current validation uses
+the generated launcher activity for Makepad's normal run path and direct adb
+launch of the generated XR activity for immersive smoke checks. The lane reaches
+the XR activity and emits the marker, but repeated GPU page fault lines in the
+Quest log remain the active blocker before camera or renderer measurements from
+this path should be trusted. Current isolation has moved below `makepad-xr`:
+the fault still appears without depth, passthrough, composition layers, OpenXR
+color swapchains, OpenXR frame-loop work, OpenXR session creation, or Makepad
+OpenXR instance creation, and the same page-fault class also appears in a
+same-APK launch of the normal Makepad Android activity.

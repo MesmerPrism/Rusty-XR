@@ -17,6 +17,7 @@ members = [
     "examples/quest-composite-layer-apk/native",
     "examples/broker-client-probe",
 ]
+exclude = ["examples/makepad-q2q-camera-shell"]
 
 [workspace.package]
 version = "0.1.0"

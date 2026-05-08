@@ -1,5 +1,7 @@
 /target/
 /examples/**/build/
+/examples/makepad-q2q-camera-shell/target/
+/android_33_*/
 /.idea/
 /.vscode/
 *.rs.bk
