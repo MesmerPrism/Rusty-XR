@@ -361,7 +361,7 @@
         "rustyxr.xrRenderScale": "0.75",
         "rustyxr.xrFixedFoveationLevel": "0"
       },
-      "description": "Keeps the environment-depth provider and passthrough underlay active, but writes accepted depth samples into a persistent local-space particle map. Candidate samples are quantized into metric local cells, mapped through a bounded spatial hash, confidence-blended with existing particles in the same cell, preserve existing cells when a candidate sample is invalid, actively clear visible free-space cells in front of high-confidence current surfaces, compose depth poses through VIEW space into the stable app space, fade when stale, and render as depth-colored metric billboards for headset-motion anchoring validation."
+      "description": "Keeps the environment-depth provider and passthrough underlay active, but writes accepted depth samples into a persistent local-space particle map. Candidate samples are quantized into metric local cells, mapped through a bounded spatial hash, confidence-blended with existing particles in the same cell, preserve existing cells when a candidate sample is invalid, actively clear visible free-space cells in front of high-confidence current surfaces, compose depth poses through VIEW space into the stable app space, fade when stale, and render as small alpha-clipped opaque default-disc metric billboards for headset-motion anchoring validation."
     },
     {
       "id": "passthrough-only-layer-probe",

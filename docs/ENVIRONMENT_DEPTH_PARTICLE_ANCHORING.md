@@ -62,6 +62,22 @@ high-confidence visible free-space evidence can clear stale foreground cells so
 the map can recover when the runtime depth surface changes without becoming
 headset-raster-owned again.
 
+## Particle Rendering
+
+The depth particle renderer uses metric billboards in the current render eye
+view, but the particle centers stay in the OpenXR local reference space. For
+the scene particle map, the visible particles are intentionally small
+alpha-clipped opaque default discs:
+
+- half-size range: `0.002..0.004` meters
+- mask: `default-disc`
+- opacity policy: `alpha-clipped-opaque`
+
+The smaller opaque discs reduce the low-alpha cloud look while keeping the
+map readable as a real-time scan surface over native passthrough. The distance
+color ramp remains metadata from the current depth sample, not evidence that a
+particle should stay active forever.
+
 ## Follow-Up Design Work
 
 The next implementation should tune the explicit scene map policy before adding
@@ -97,6 +113,9 @@ The live path is considered active when logs report:
 - `invalidSamplePolicy=preserve-existing-cells`
 - `activeCorrectionPolicy=visible-free-space-ray-clear`
 - `occlusionPolicy=preserve-behind-current-depth`
+- `particleHalfSizeMeters=0.002..0.004`
+- `particleMask=default-disc`
+- `particleOpacity=alpha-clipped-opaque`
 - `depthPoseSource=view-space-composed`
 - `projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader`
 - `rasterization=metric-billboard-particles`

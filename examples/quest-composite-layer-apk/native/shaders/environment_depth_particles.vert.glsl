@@ -32,6 +32,8 @@ layout(location = 1) out float v_depth_meters;
 layout(location = 2) out float v_confidence;
 
 const uint PARTICLE_CAPACITY = 32768u;
+const float PARTICLE_HALF_SIZE_MIN_METERS = 0.002;
+const float PARTICLE_HALF_SIZE_MAX_METERS = 0.004;
 const float SCENE_PARTICLE_FADE_START_FRAMES = 720.0;
 const float SCENE_PARTICLE_RETIRE_FRAMES = 1440.0;
 
@@ -133,7 +135,10 @@ void main() {
         return;
     }
 
-    float half_size_meters = mix(0.008, 0.016, clamp(particle.state.y, 0.0, 1.0));
+    float half_size_meters = mix(
+        PARTICLE_HALF_SIZE_MIN_METERS,
+        PARTICLE_HALF_SIZE_MAX_METERS,
+        clamp(particle.state.y, 0.0, 1.0));
     vec3 corner_view_position = view_position
         + vec3(corner.x * half_size_meters, corner.y * half_size_meters, 0.0);
     gl_Position = project_render_view_clip(corner_view_position, eye_index);
