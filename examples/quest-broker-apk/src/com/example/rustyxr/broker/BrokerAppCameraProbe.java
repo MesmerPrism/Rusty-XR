@@ -388,6 +388,7 @@ final class BrokerAppCameraProbe {
                 physical.put(physicalId);
             }
             device.put("physical_camera_ids", physical);
+            putInteger(device, "sensor_orientation_degrees", characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION));
             putInteger(device, "lens_pose_reference", characteristics.get(CameraCharacteristics.LENS_POSE_REFERENCE));
             putFloatArray(device, "lens_pose_rotation_xyzw", characteristics.get(CameraCharacteristics.LENS_POSE_ROTATION));
             putFloatArray(device, "lens_pose_translation_m", characteristics.get(CameraCharacteristics.LENS_POSE_TRANSLATION));

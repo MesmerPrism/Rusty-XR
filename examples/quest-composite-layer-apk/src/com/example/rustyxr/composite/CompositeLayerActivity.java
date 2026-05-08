@@ -105,6 +105,9 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final int DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS = 20000;
     private static final int DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS = 5000;
     private static final String DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE = "surface-texture";
+    private static final String DEFAULT_BROKER_H264_SOURCE_MODE = "broker-camera";
+    private static final boolean DEFAULT_BROKER_H264_LIVE_DECODE = true;
+    private static final boolean DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE = false;
 
     private MediaProjectionManager mediaProjectionManager;
     private BrokerH264ConsumerProbe brokerH264ConsumerProbe;
@@ -656,7 +659,10 @@ public final class CompositeLayerActivity extends NativeActivity {
             Math.max(1000, intExtra("rustyxr.brokerH264DecodeTimeoutMs", DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS)),
             stringExtra("rustyxr.brokerH264DecodeOutputMode", DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE),
             booleanExtra("rustyxr.brokerH264Stereo", false),
-            booleanExtra("rustyxr.brokerH264LiveStream", false));
+            booleanExtra("rustyxr.brokerH264LiveStream", false),
+            stringExtra("rustyxr.brokerH264SourceMode", DEFAULT_BROKER_H264_SOURCE_MODE),
+            booleanExtra("rustyxr.brokerH264LiveDecode", DEFAULT_BROKER_H264_LIVE_DECODE),
+            booleanExtra("rustyxr.brokerH264ByteIdentityProbe", DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE));
         Log.i(TAG, "Starting broker H.264 consumer probe");
         sendNativeEvent("brokerH264ConsumerStarting");
         brokerH264ConsumerProbe = BrokerH264ConsumerProbe.start(

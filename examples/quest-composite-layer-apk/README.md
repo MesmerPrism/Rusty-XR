@@ -367,7 +367,22 @@ Useful launch extras:
   `rustyxr.brokerH264CaptureMs`, `rustyxr.brokerH264MaxPackets`,
   `rustyxr.brokerH264BitrateBps`, and
   `rustyxr.brokerH264DecodeTimeoutMs`,
-  `rustyxr.brokerH264DecodeOutputMode`.
+  `rustyxr.brokerH264DecodeOutputMode`, `rustyxr.brokerH264SourceMode`,
+  `rustyxr.brokerH264LiveStream`, and `rustyxr.brokerH264LiveDecode`. The
+  default source mode is
+  `broker-camera`, which asks the running broker to start an app-context
+  Camera2-to-H.264 stream. Set `rustyxr.brokerH264SourceMode=existing-stream`
+  when a broker TCP proxy, laptop test source, or other tool has already
+  exposed a `RXYRVID1` H.264 stream on the configured port. Existing-stream
+  mode skips the broker camera start command and only tests receive, decode,
+  hardware-buffer handoff, and OpenXR draw. When
+  `rustyxr.brokerH264LiveStream=true` and
+  `rustyxr.brokerH264LiveDecode=true`, stereo hardware-buffer mode decodes
+  packets as they arrive, pairs left/right decoded frames with a small queue,
+  submits them immediately through the native stereo bridge, and closes the
+  Java `HardwareBuffer` handles after native acquisition. Set
+  `rustyxr.brokerH264LiveDecode=false` to force the older retained-clip replay
+  path for regression comparison.
 - `rustyxr.openxrPassthroughProbe`: `off` by default. `client` creates an
   optional `XR_FB_passthrough` client/layer for runtime-state diagnostics;
   `warmup` creates and resumes the layer briefly, then pauses passthrough.
@@ -509,20 +524,37 @@ The catalog keeps camera path experiments as separate runtime profiles:
 - `broker-h264-stereo-openxr-projection-probe`: two-stream broker H.264
   fixture for finding the practical stereo limit. It starts independent
   left/right broker streams, decodes each into `ImageReader` `PRIVATE`
-  hardware buffers, pairs decoded frames by index, forwards the pair through
-  the native stereo `AHardwareBuffer` bridge, and attempts the existing
-  `gpu-projected` OpenXR path. Reports include per-eye resolution, packet
-  counts, payload bitrate, decoded frame rate, native stereo pair acceptance,
-  and left/right timestamp deltas. Supply device-specific left/right camera IDs
-  as launch extras when the default source selection is not the intended stereo
-  pair.
+  hardware buffers, pairs decoded frames by index in the retained replay
+  path, forwards the pair through the native stereo `AHardwareBuffer` bridge,
+  and attempts the existing `gpu-projected` OpenXR path. Reports include
+  per-eye resolution, packet counts, payload bitrate, decoded frame rate,
+  native stereo pair acceptance, and left/right timestamp deltas. Supply
+  device-specific left/right camera IDs as launch extras when the default
+  source selection is not the intended stereo pair.
 - `broker-h264-stereo-live-openxr-projection-probe`: the same broker-decoded
   stereo OpenXR path with the live-bounded H.264 provider enabled. The broker
   accepts the binary stream sockets before Camera2 capture starts, drains
   MediaCodec output directly to the stream, and writes schema-2 packet source
-  timestamps. The composite app receives left/right streams concurrently and
-  logs source packet cadence, wire receive cadence, decode cadence, per-eye
-  resolution, and native stereo-pair acceptance.
+  timestamps. The composite app receives, decodes, pairs, and submits
+  left/right hardware-buffer frames as packets arrive instead of waiting for
+  the whole declared packet count. Logs include source packet cadence, wire
+  receive cadence, decode cadence, per-eye resolution, live pair queue drops,
+  and native stereo-pair acceptance. This profile is a correctness milestone
+  for Quest-to-Quest-style live streaming, not a performance target: current
+  runs still need frame-cadence and render-time optimization before the path can
+  be treated as production quality.
+- `broker-h264-stereo-live-openxr-projection-scale065-probe`: the same
+  live-bounded broker stereo path with `rustyxr.xrRenderScale=0.65`. Use it as
+  the current performance comparison profile when the `0.75` visual-quality
+  profile is render-cost limited.
+- `broker-h264` existing-stream mode: set
+  `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
+  laptop test source, or other tool has already exposed a `RXYRVID1` H.264
+  stream on the configured port. This skips the broker Camera2 start command
+  and isolates incoming-stream receive, MediaCodec decode, hardware-buffer
+  handoff, and OpenXR draw. It is the preferred one-device simulation path for
+  a remote sender because it exercises the receiver side without needing a
+  second headset.
 - `camera-stereo-gpu-composite`: aligned Vulkan hardware-buffer baseline. It
   keeps fixed foveation off and uses `external-rgb`, so it is the profile to
   use when validating projection, border behavior, CPU-upload avoidance, import
@@ -711,6 +743,25 @@ The generated screenshots, log bundles, manifests, validation JSON, and
 comparison reports belong under ignored `artifacts/` folders and must not be
 committed.
 
+## Streaming Cost Matrix
+
+Use the
+[Quest Streaming Diagnostics Workflow](../../docs/QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md)
+and [streaming diagnostics tools](../../tools/quest-streaming-diagnostics/README.md)
+when comparing direct in-app Camera2 projection against broker H.264 streaming.
+The current public workflow treats these as separate lanes: synthetic
+compositor, direct projected Camera2, broker existing-stream receive/decode,
+and broker live projected stereo, each at `rustyxr.xrRenderScale=0.75` and
+`0.65` where applicable.
+
+The important current lesson is that broker receive/decode and Java/native
+hardware-buffer handoff can be isolated from the expensive path. In recent
+public-example validation, both direct projected Camera2 and broker live
+projected stereo were render-scale sensitive in the same way, while synthetic
+compositor and broker receive/decode were not. That points the next
+optimization pass at projected draw/render attribution rather than transport,
+MediaCodec, `ImageReader`, or native bridge cost.
+
 ## Run Through Companion
 
 For a camera-only diagnostic renderer validation, install and launch from the
@@ -865,12 +916,19 @@ harnesses should treat this as a required manual step.
   only claimed when a `Rusty XR final projection status` line reports
   `activeTier=gpu-projected`, `alignedProjection=true`,
   `stereoLayout=Separate`, and `pairedLeftRightGpuBuffers=true`.
-- with `broker-h264-stereo-live-openxr-projection-probe`, the same OpenXR
+- with `broker-h264-stereo-live-openxr-projection-probe` or
+  `broker-h264-stereo-live-openxr-projection-scale065-probe`, the same OpenXR
   projection checks apply, and the report should also show
   `live_stream_requested=true`, schema version `2`, non-zero per-eye source
-  packet rates, and non-zero wire packet rates. This validates the provider
-  drain path and concurrent stereo receive path separately from final visual
-  release acceptance.
+  packet rates, non-zero wire packet rates, `live_decode_path=true`,
+  `stereo_pairing_mode=live-decoded-frame-order`, and
+  `stereo_live_pair_queue_drop_count`. This validates the provider drain path
+  and concurrent stereo receive/decode/pair path separately from final visual
+  release acceptance. Manual ADB launches must include explicit
+  `cameraTextureTransformSource`, `leftCameraTextureTransformSource`, and
+  `rightCameraTextureTransformSource` values matching the catalog profile;
+  otherwise the renderer intentionally remains in `flat-probe` and will not
+  prove the custom stereo projection geometry.
 - logs are not sufficient for release: inspect the headset view, cast, or a
   screencap and fail the release gate if the feed is upside down, the border is
   absent, or the per-eye content is visibly swapped or divergent

@@ -332,6 +332,23 @@ Current public Quest profile findings:
   on the tested runtime: no explicit AE FPS request, a smaller stereo
   `ImageReader` max-image count, a wider pair window, and a `1280x960`
   separate-eye size all still produced stale concurrent-stereo progression.
+- The live-bounded broker H.264 stereo profile proves that paired broker
+  Camera2 streams can be encoded, decoded, paired, imported as hardware buffers,
+  and submitted through the `gpu-projected` OpenXR stereo path. It remains a
+  diagnostic path until stream lifetime, timestamp-based pair/drop policy,
+  remote-device validation, and release-grade projected performance are solved.
+- In current projected diagnostics, lowering `rustyxr.xrRenderScale` from
+  `0.75` to `0.65` is the useful performance comparison knob. Keep the `0.75`
+  profile as the visual-quality baseline and use the `0.65` profile to isolate
+  transport/decode/pairing from projected render cost.
+- The direct-versus-broker streaming cost matrix narrows the current
+  bottleneck: synthetic compositor-only profiles are stable, broker
+  existing-stream receive/decode is stable as a `flat-probe` receiver lane, and
+  both direct Camera2 projected stereo and broker live projected stereo show
+  the same render-scale-sensitive behavior. Stage timing puts Java
+  acquire/wait, `HardwareBuffer` extraction, and native bridge calls below
+  roughly sub-millisecond scale, so the next optimization target is the shared
+  metadata-backed projected draw/render path.
 - A mono `PRIVATE` GPU-buffer probe at `1280x960` continued to deliver live
   frames, so the next useful comparison is Java Camera2 concurrent stereo
   against a lower-level/native hardware-buffer reader module.
@@ -397,6 +414,16 @@ diagnostic flat copy. Mono Camera2 fallback should be labeled as mono fallback,
 not true stereo alignment. For opaque GPU camera buffers, apply any public
 per-eye `CameraTextureTransform` after projection UV calculation and before
 sampling; this texture transform is separate from Camera2 sensor orientation.
+
+### Streaming Cost Scorecards
+
+`tools/quest-streaming-diagnostics` contains public helpers for comparing
+direct camera projection, broker H.264 live projection, existing-stream
+receive/decode, and synthetic compositor baselines. The parser reads the
+artifacts produced by the profile harness and writes `scorecard.md` plus
+`scorecard.json` under ignored `artifacts/` folders. See
+[QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md](QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md)
+for the matrix lanes, reject rules, and current findings.
 
 ## Windows Streaming Shape
 

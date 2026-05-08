@@ -221,6 +221,9 @@ Media-pipeline streaming and permission handling are documented in
 [MEDIA_PIPELINE_AND_PERMISSIONS.md](MEDIA_PIPELINE_AND_PERMISSIONS.md). Public
 tools may include generic Windows receivers and protocol helpers, but app-side
 capture and headset permission prompts remain shell responsibilities.
+Quest streaming cost isolation is documented in
+[QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md](QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md),
+with public scorecard tooling under `tools/quest-streaming-diagnostics/`.
 
 Current Quest media implementation status:
 
@@ -248,17 +251,20 @@ Current Quest media implementation status:
   camera-projection metadata provider, a bounded app-context Camera2
   open/one-frame capture probe, bounded app-context raw-luma and H.264 binary
   side-channel probes, a broker-local Android MediaCodec H.264 decode probe,
-  and shell-helper status surface. The composite-layer example can now run a
-  separate broker H.264 consumer probe that requests the broker stream,
-  consumes the device-local binary payload, and decodes it in the composite app
-  process, including a surface-backed `SurfaceTexture` external-texture
-  telemetry mode and a hardware-buffer mode that feeds the existing Vulkan
-  GPU-buffer-probe renderer. The hardware-buffer path now carries selected
-  Camera2 intrinsics and platform pose metadata from the broker stream-start
-  result when available, which proves projection-readiness metadata survives
-  broker encode, client decode, and GPU import. The active XR client still owns
-  production camera streaming, aligned stereo source selection, eye views/FOV,
-  shaders, and release-grade OpenXR layer submission.
+  and shell-helper status surface. The composite-layer example can now run
+  broker H.264 consumer probes that request bounded or live-bounded broker
+  streams, consume the device-local binary payload, and decode it in the
+  composite app process, including a surface-backed `SurfaceTexture`
+  external-texture telemetry mode and a hardware-buffer mode that feeds the
+  existing Vulkan/OpenXR GPU-buffer renderer. The stereo live-bounded
+  hardware-buffer path carries selected Camera2 intrinsics and platform pose
+  metadata from stream start, accepts left/right binary stream sockets before
+  capture, decodes paired streams as packets arrive, forwards accepted
+  `AHardwareBuffer` pairs through the native stereo bridge, and can submit them
+  through the `gpu-projected` OpenXR stereo path. The active XR client still
+  owns unbounded production session lifetime, timestamp-based pair/drop policy,
+  remote-device transport, eye views/FOV, shaders, and release-grade OpenXR
+  performance.
 - Public Rusty XR now includes a source-only broker shell-helper example that
   builds a dex jar for `adb shell app_process`. It reports UID/version/basic
   capabilities, optional bounded codec diagnostics, bounded shell-visible
@@ -281,13 +287,21 @@ Current Quest media implementation status:
   High-rate frame payloads belong on a binary transport owned by the
   provider/client adapter; the current helper side channel is a synthetic
   MediaCodec proof, shell screenrecord display-source proof, and bounded camera
-  feasibility proof for that split. The broker app-context luma probe now also
-  proves bounded raw camera payload delivery with `raw_luma8` packets over
-  ADB-forwarded TCP, and the broker app-context H.264 probe proves Camera2
-  frames can feed Android's platform encoder and use the same side channel.
-  The decode fixtures prove platform decoder consumption with byte-buffer
-  output, not Vulkan/OpenXR texture submission. These are still diagnostic
-  bridges rather than streaming camera providers.
+  feasibility proof for that split. The broker app-context luma probe proves
+  bounded raw camera payload delivery with `raw_luma8` packets over
+  ADB-forwarded TCP, the broker app-context H.264 probe proves Camera2 frames
+  can feed Android's platform encoder, and the composite live stereo H.264
+  probe proves the diagnostic decode path can reach Vulkan/OpenXR texture
+  submission. These are still diagnostic bridges rather than release streaming
+  camera providers.
+- A direct-versus-broker streaming matrix now shows that synthetic compositor
+  and broker receive/decode lanes can remain stable while both direct Camera2
+  projected stereo and broker live projected stereo miss cadence at
+  `rustyxr.xrRenderScale=0.75` and recover at `0.65`. Public stage timing also
+  keeps Java image acquisition, decoded-image waits, `HardwareBuffer`
+  extraction, and native bridge calls below roughly sub-millisecond scale, so
+  the next public performance target is projected draw/render attribution
+  rather than transport or handoff.
 - Future native support should still stay in thin optional adapters or public
   examples rather than becoming private app-shell behavior inside core crates.
 

@@ -60,6 +60,12 @@
     </section>
 
     <section class="panel">
+      <h2>Quest Streaming Diagnostics</h2>
+      <p>For camera-composite and broker H.264 work, keep the cost matrix separate: synthetic compositor, direct Camera2 projected stereo, broker receive/decode, and broker live projected stereo. Compare <code>rustyxr.xrRenderScale=0.75</code> against <code>0.65</code>, then summarize the artifacts with <code>tools/quest-streaming-diagnostics</code>.</p>
+      <p>The current public-example evidence points to the shared metadata-backed projected draw path as the next performance target, not the empty compositor path, broker receive/decode, MediaCodec, Java image acquisition, <code>HardwareBuffer</code> extraction, or native bridge handoff. See <a href="QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md">QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md</a>.</p>
+    </section>
+
+    <section class="panel">
       <h2>Pages Deployment</h2>
       <p>Serve GitHub Pages from the repository <code>docs/</code> folder. See <a href="PAGES_SETUP.md">PAGES_SETUP.md</a> for the exact repository setting and local preview command.</p>
     </section>

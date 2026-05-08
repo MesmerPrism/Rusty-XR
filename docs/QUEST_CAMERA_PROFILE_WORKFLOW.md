@@ -179,6 +179,12 @@ Track these signals together:
 - OpenXR display FPS, frame time, render scale, fixed-foveation state, and
   compositor tear/stale-frame signals
 
+For direct camera versus broker H.264 cost isolation, use the broader
+[Quest Streaming Diagnostics Workflow](QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md).
+It adds synthetic compositor, existing-stream receive/decode, broker live
+projected stereo, render-scale, and stage-timing scorecards on top of the same
+profile-run artifacts.
+
 Treat Meta shell `Start sleep timeout`, `Sleep timeout exceeded`, and
 `WaitForWake` lines as warning signals to inspect against the captured power
 and VR-power snapshots. Reject the run when those warnings line up with actual

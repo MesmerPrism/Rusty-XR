@@ -25,16 +25,21 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
+import java.util.zip.CRC32;
 
 final class BrokerH264ConsumerProbe implements Runnable {
     private static final String TAG = "RustyXrComposite";
@@ -46,8 +51,13 @@ final class BrokerH264ConsumerProbe implements Runnable {
     private static final String DECODE_OUTPUT_BYTE_BUFFER = "byte-buffer";
     private static final String DECODE_OUTPUT_SURFACE_TEXTURE = "surface-texture";
     private static final String DECODE_OUTPUT_HARDWARE_BUFFER = "hardware-buffer";
+    private static final String SOURCE_MODE_BROKER_CAMERA = "broker-camera";
+    private static final String SOURCE_MODE_EXISTING_STREAM = "existing-stream";
+    private static final long STEREO_REPLAY_DELIVERY_INTERVAL_NS = 33_333_333L;
+    private static final long STEREO_REPLAY_DELIVERY_MAX_SLEEP_MS = 50L;
+    private static final int LIVE_STEREO_PENDING_QUEUE_LIMIT = 4;
     private static final int MAX_PACKET_BYTES = 1024 * 1024;
-    private static final int MAX_STREAM_PACKETS = 720;
+    private static final int MAX_STREAM_PACKETS = 2400;
     private static final int DEQUEUE_TIMEOUT_US = 10000;
     private static final int SURFACE_FRAME_WAIT_MS = 250;
     private static final int HARDWARE_BUFFER_WAIT_MS = 250;
@@ -76,6 +86,10 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final String decodeOutputMode;
         final boolean stereo;
         final boolean liveStream;
+        final String sourceMode;
+        final boolean startBrokerCameraStream;
+        final boolean liveDecode;
+        final boolean byteIdentityProbe;
 
         Config(
             String brokerHost,
@@ -95,7 +109,10 @@ final class BrokerH264ConsumerProbe implements Runnable {
             int decodeTimeoutMs,
             String decodeOutputMode,
             boolean stereo,
-            boolean liveStream) {
+            boolean liveStream,
+            String sourceMode,
+            boolean liveDecode,
+            boolean byteIdentityProbe) {
             this.brokerHost = brokerHost;
             this.brokerPort = brokerPort;
             this.streamPort = streamPort;
@@ -115,6 +132,10 @@ final class BrokerH264ConsumerProbe implements Runnable {
             this.decodeOutputMode = normalizeDecodeOutputMode(decodeOutputMode);
             this.stereo = stereo;
             this.liveStream = liveStream;
+            this.sourceMode = normalizeSourceMode(sourceMode);
+            this.startBrokerCameraStream = SOURCE_MODE_BROKER_CAMERA.equals(this.sourceMode);
+            this.liveDecode = liveDecode;
+            this.byteIdentityProbe = byteIdentityProbe;
         }
     }
 
@@ -210,7 +231,11 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("bitrate_bps", config.bitrateBps);
             report.put("stereo_requested", config.stereo);
             report.put("live_stream_requested", config.liveStream);
+            report.put("source_mode", config.sourceMode);
+            report.put("broker_camera_stream_start_requested", config.startBrokerCameraStream);
             report.put("decode_output_mode", config.decodeOutputMode);
+            report.put("live_decode_requested", config.liveDecode);
+            report.put("byte_identity_probe_requested", config.byteIdentityProbe);
             report.put(
                 "decode_surface_target_requested",
                 DECODE_OUTPUT_SURFACE_TEXTURE.equals(config.decodeOutputMode));
@@ -240,7 +265,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
     }
 
     private void runMonoProbe(JSONObject report, long startedElapsedNs) throws Exception {
-        StartCommandResult startCommand = sendStartCommand("mono", config.cameraId, config.streamPort);
+        StartCommandResult startCommand = startOrUseExistingStream("mono", config.cameraId, config.streamPort);
         putStartCommandReport(report, "", startCommand);
         if (!startCommand.ack.optBoolean("accepted", false)) {
             throw new IllegalStateException("Broker rejected app-camera H.264 stream command.");
@@ -270,16 +295,21 @@ final class BrokerH264ConsumerProbe implements Runnable {
             throw new IllegalStateException("Broker H.264 stereo probe requires hardware-buffer decode output.");
         }
 
-        StartCommandResult leftStart = sendStartCommand("left", config.leftCameraId, config.streamPort);
+        StartCommandResult leftStart = startOrUseExistingStream("left", config.leftCameraId, config.streamPort);
         putStartCommandReport(report, "left", leftStart);
         if (!leftStart.ack.optBoolean("accepted", false)) {
             throw new IllegalStateException("Broker rejected left app-camera H.264 stream command.");
         }
 
-        StartCommandResult rightStart = sendStartCommand("right", config.rightCameraId, config.rightStreamPort);
+        StartCommandResult rightStart = startOrUseExistingStream("right", config.rightCameraId, config.rightStreamPort);
         putStartCommandReport(report, "right", rightStart);
         if (!rightStart.ack.optBoolean("accepted", false)) {
             throw new IllegalStateException("Broker rejected right app-camera H.264 stream command.");
+        }
+
+        if (shouldUseLiveStereoDecode()) {
+            runLiveStereoProbe(report, startedElapsedNs, leftStart, rightStart);
+            return;
         }
 
         StreamReceiveTask leftReceive = new StreamReceiveTask("left", config.streamPort);
@@ -307,20 +337,67 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 config.rightCameraId,
                 "right",
                 true);
+            boolean paceStereoDelivery = shouldPaceStereoDelivery();
             StereoPairResult pair = deliverStereoPairs(
                 leftDecode.collectedHardwareBufferFrames,
-                rightDecode.collectedHardwareBufferFrames);
+                rightDecode.collectedHardwareBufferFrames,
+                paceStereoDelivery);
             long completedElapsedNs = SystemClock.elapsedRealtimeNanos();
             putStreamDecodeReport(report, "left", leftStream, leftDecode);
             putStreamDecodeReport(report, "right", rightStream, rightDecode);
             report.put("stereo_pair_count", pair.pairCount);
             report.put("stereo_pair_native_accepted_count", pair.nativeAcceptedCount);
             report.put("stereo_pair_native_rejected_count", pair.nativeRejectedCount);
+            report.put("stereo_pair_delivery_paced", pair.deliveryPaced);
+            report.put("stereo_pair_delivery_duration_ns", pair.deliveryDurationNs);
             report.put("stereo_pair_delta_total_ns", pair.deltaTotalNs);
             report.put("stereo_pair_delta_avg_ns", pair.pairCount > 0 ? pair.deltaTotalNs / pair.pairCount : 0L);
             report.put("stereo_pair_delta_max_ns", pair.deltaMaxNs);
+            putStageTimingReport(report, "", "stereo_pair_native_bridge", pair.nativeBridgeTiming);
             report.put("stereo_left_right_resolution_match", pair.resolutionMismatchCount == 0);
             report.put("stereo_resolution_mismatch_count", pair.resolutionMismatchCount);
+            DecodeResult leftByteIdentity = null;
+            DecodeResult rightByteIdentity = null;
+            if (config.byteIdentityProbe) {
+                try {
+                    leftByteIdentity = decodePackets(
+                        leftStream,
+                        config.decodeTimeoutMs,
+                        DECODE_OUTPUT_BYTE_BUFFER,
+                        leftStart.streamProjectionMetadata,
+                        config.leftCameraId,
+                        "left",
+                        false);
+                    rightByteIdentity = decodePackets(
+                        rightStream,
+                        config.decodeTimeoutMs,
+                        DECODE_OUTPUT_BYTE_BUFFER,
+                        rightStart.streamProjectionMetadata,
+                        config.rightCameraId,
+                        "right",
+                        false);
+                    putByteIdentityReport(report, "left", leftByteIdentity);
+                    putByteIdentityReport(report, "right", rightByteIdentity);
+                    Log.i(TAG, String.format(
+                        Locale.US,
+                        "Rusty XR broker H.264 decoded byte identity: leftFrames=%d leftUniqueCrc32=%d leftAdjacentEqual=%d leftAllIdentical=%s leftFirstCrc32=%d leftLastCrc32=%d rightFrames=%d rightUniqueCrc32=%d rightAdjacentEqual=%d rightAllIdentical=%s rightFirstCrc32=%d rightLastCrc32=%d",
+                        leftByteIdentity.outputFrameHashCount,
+                        leftByteIdentity.outputFrameHashUniqueCount,
+                        leftByteIdentity.outputFrameHashAdjacentEqualCount,
+                        outputFramesAllIdentical(leftByteIdentity),
+                        leftByteIdentity.firstOutputFrameCrc32,
+                        leftByteIdentity.lastOutputFrameCrc32,
+                        rightByteIdentity.outputFrameHashCount,
+                        rightByteIdentity.outputFrameHashUniqueCount,
+                        rightByteIdentity.outputFrameHashAdjacentEqualCount,
+                        outputFramesAllIdentical(rightByteIdentity),
+                        rightByteIdentity.firstOutputFrameCrc32,
+                        rightByteIdentity.lastOutputFrameCrc32));
+                } catch (Exception identityError) {
+                    report.put("byte_identity_probe_error", identityError.getClass().getSimpleName() + ": " + safeMessage(identityError));
+                    Log.w(TAG, "Rusty XR broker H.264 byte identity probe failed", identityError);
+                }
+            }
             report.put("total_duration_ns", Math.max(0L, completedElapsedNs - startedElapsedNs));
             report.put("succeeded", pair.nativeAcceptedCount > 0);
             if (leftDecode.lastError.length() > 0) {
@@ -336,7 +413,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             }
             Log.i(TAG, String.format(
                 Locale.US,
-                "Rusty XR broker H.264 stereo summary: succeeded=%s liveStream=%s leftCameraId=%s rightCameraId=%s left=%dx%d right=%dx%d leftPackets=%d rightPackets=%d leftPayloadBytes=%d rightPayloadBytes=%d leftEncodedPacketHz=%.3f rightEncodedPacketHz=%.3f leftSourcePacketHz=%.3f rightSourcePacketHz=%.3f leftWirePacketHz=%.3f rightWirePacketHz=%.3f leftDecodedFrames=%d rightDecodedFrames=%d leftDecodedFrameHz=%.3f rightDecodedFrameHz=%.3f pairCount=%d nativeAccepted=%d nativeRejected=%d pairDeltaAvgNs=%d pairDeltaMaxNs=%d metadataReadyLeft=%s metadataReadyRight=%s poseSourceLeft=%s poseSourceRight=%s totalDurationNs=%d",
+                "Rusty XR broker H.264 stereo summary: succeeded=%s liveStream=%s leftCameraId=%s rightCameraId=%s left=%dx%d right=%dx%d leftPackets=%d rightPackets=%d leftPayloadBytes=%d rightPayloadBytes=%d leftEncodedPacketHz=%.3f rightEncodedPacketHz=%.3f leftSourcePacketHz=%.3f rightSourcePacketHz=%.3f leftWirePacketHz=%.3f rightWirePacketHz=%.3f leftDecodedFrames=%d rightDecodedFrames=%d leftDecodedFrameHz=%.3f rightDecodedFrameHz=%.3f pairCount=%d nativeAccepted=%d nativeRejected=%d pairDeliveryPaced=%s pairDeliveryDurationNs=%d pairDeltaAvgNs=%d pairDeltaMaxNs=%d nativeBridgeAvgNs=%d nativeBridgeMaxNs=%d metadataReadyLeft=%s metadataReadyRight=%s poseSourceLeft=%s poseSourceRight=%s totalDurationNs=%d",
                 pair.nativeAcceptedCount > 0,
                 config.liveStream,
                 leftStart.streamProjectionMetadata != null
@@ -366,8 +443,12 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 pair.pairCount,
                 pair.nativeAcceptedCount,
                 pair.nativeRejectedCount,
+                pair.deliveryPaced,
+                pair.deliveryDurationNs,
                 pair.pairCount > 0 ? pair.deltaTotalNs / pair.pairCount : 0L,
                 pair.deltaMaxNs,
+                pair.nativeBridgeTiming.averageNs(),
+                pair.nativeBridgeTiming.maxNs,
                 leftStart.streamProjectionMetadata != null &&
                     leftStart.streamProjectionMetadata.optBoolean("projectionMetadataReady", false),
                 rightStart.streamProjectionMetadata != null &&
@@ -387,6 +468,327 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 closeFrames(rightDecode.collectedHardwareBufferFrames);
             }
         }
+    }
+
+    private void runLiveStereoProbe(
+        JSONObject report,
+        long startedElapsedNs,
+        StartCommandResult leftStart,
+        StartCommandResult rightStart) throws Exception {
+        report.put("live_decode_path", true);
+        report.put("stereo_pairing_mode", "live-decoded-frame-order");
+        LiveStereoPairer pairer = new LiveStereoPairer();
+        LiveDecodeStreamTask leftDecode = new LiveDecodeStreamTask(
+            "left",
+            config.streamPort,
+            config.leftCameraId,
+            leftStart.streamProjectionMetadata,
+            pairer);
+        LiveDecodeStreamTask rightDecode = new LiveDecodeStreamTask(
+            "right",
+            config.rightStreamPort,
+            config.rightCameraId,
+            rightStart.streamProjectionMetadata,
+            pairer);
+        leftDecode.start();
+        rightDecode.start();
+        LiveDecodeResult leftResult = null;
+        LiveDecodeResult rightResult = null;
+        try {
+            leftResult = leftDecode.awaitResult();
+            rightResult = rightDecode.awaitResult();
+            pairer.closePendingFrames();
+            StereoPairResult pair = pairer.snapshot();
+            long completedElapsedNs = SystemClock.elapsedRealtimeNanos();
+            putLiveDecodeReport(report, "left", leftResult);
+            putLiveDecodeReport(report, "right", rightResult);
+            report.put("stereo_pair_count", pair.pairCount);
+            report.put("stereo_pair_native_accepted_count", pair.nativeAcceptedCount);
+            report.put("stereo_pair_native_rejected_count", pair.nativeRejectedCount);
+            report.put("stereo_pair_delivery_paced", false);
+            report.put("stereo_pair_delivery_duration_ns", pair.deliveryDurationNs);
+            report.put("stereo_pair_delta_total_ns", pair.deltaTotalNs);
+            report.put("stereo_pair_delta_avg_ns", pair.pairCount > 0 ? pair.deltaTotalNs / pair.pairCount : 0L);
+            report.put("stereo_pair_delta_max_ns", pair.deltaMaxNs);
+            putStageTimingReport(report, "", "stereo_pair_native_bridge", pair.nativeBridgeTiming);
+            report.put("stereo_left_right_resolution_match", pair.resolutionMismatchCount == 0);
+            report.put("stereo_resolution_mismatch_count", pair.resolutionMismatchCount);
+            report.put("stereo_live_pair_queue_drop_count", pair.queueDropCount);
+            report.put("total_duration_ns", Math.max(0L, completedElapsedNs - startedElapsedNs));
+            report.put("succeeded", pair.nativeAcceptedCount > 0);
+            if (leftResult.lastError.length() > 0) {
+                report.put("left_last_error", leftResult.lastError);
+            }
+            if (rightResult.lastError.length() > 0) {
+                report.put("right_last_error", rightResult.lastError);
+            }
+            if (pair.nativeAcceptedCount == 0 && pair.pairCount == 0) {
+                report.put("last_error", "Live decoded hardware-buffer frames were not paired from both streams.");
+            } else if (pair.nativeAcceptedCount == 0) {
+                report.put("last_error", "Native live stereo hardware-buffer bridge rejected every decoded pair.");
+            }
+            Log.i(TAG, String.format(
+                Locale.US,
+                "Rusty XR broker H.264 live stereo summary: succeeded=%s liveStream=%s leftCameraId=%s rightCameraId=%s left=%dx%d right=%dx%d leftPackets=%d rightPackets=%d leftPayloadBytes=%d rightPayloadBytes=%d leftWirePacketHz=%.3f rightWirePacketHz=%.3f leftDecodedFrames=%d rightDecodedFrames=%d leftDecodedFrameHz=%.3f rightDecodedFrameHz=%.3f pairCount=%d nativeAccepted=%d nativeRejected=%d queueDrops=%d pairDeltaAvgNs=%d pairDeltaMaxNs=%d nativeBridgeAvgNs=%d nativeBridgeMaxNs=%d metadataReadyLeft=%s metadataReadyRight=%s totalDurationNs=%d",
+                pair.nativeAcceptedCount > 0,
+                config.liveStream,
+                leftStart.streamProjectionMetadata != null
+                    ? leftStart.streamProjectionMetadata.optString("cameraId", "")
+                    : config.leftCameraId,
+                rightStart.streamProjectionMetadata != null
+                    ? rightStart.streamProjectionMetadata.optString("cameraId", "")
+                    : config.rightCameraId,
+                leftResult.width,
+                leftResult.height,
+                rightResult.width,
+                rightResult.height,
+                leftResult.packetCount,
+                rightResult.packetCount,
+                leftResult.payloadBytes,
+                rightResult.payloadBytes,
+                rateHzFromNs(leftResult.packetCount, Math.max(0L, leftResult.lastPacketReceiveElapsedNs - leftResult.firstPacketReceiveElapsedNs)),
+                rateHzFromNs(rightResult.packetCount, Math.max(0L, rightResult.lastPacketReceiveElapsedNs - rightResult.firstPacketReceiveElapsedNs)),
+                leftResult.decodedFrameCount,
+                rightResult.decodedFrameCount,
+                rateHzFromNs(leftResult.decodedFrameCount, Math.max(0L, leftResult.decodeEndElapsedNs - leftResult.decodeStartElapsedNs)),
+                rateHzFromNs(rightResult.decodedFrameCount, Math.max(0L, rightResult.decodeEndElapsedNs - rightResult.decodeStartElapsedNs)),
+                pair.pairCount,
+                pair.nativeAcceptedCount,
+                pair.nativeRejectedCount,
+                pair.queueDropCount,
+                pair.pairCount > 0 ? pair.deltaTotalNs / pair.pairCount : 0L,
+                pair.deltaMaxNs,
+                pair.nativeBridgeTiming.averageNs(),
+                pair.nativeBridgeTiming.maxNs,
+                leftStart.streamProjectionMetadata != null &&
+                    leftStart.streamProjectionMetadata.optBoolean("projectionMetadataReady", false),
+                rightStart.streamProjectionMetadata != null &&
+                    rightStart.streamProjectionMetadata.optBoolean("projectionMetadataReady", false),
+                Math.max(0L, completedElapsedNs - startedElapsedNs)));
+        } finally {
+            pairer.closePendingFrames();
+        }
+    }
+
+    private StartCommandResult startOrUseExistingStream(String label, String cameraId, int streamPort) throws Exception {
+        if (config.startBrokerCameraStream) {
+            return sendStartCommand(label, cameraId, streamPort);
+        }
+
+        JSONObject brokerStatus = fetchBrokerStatusOrNull();
+        JSONObject projectionProfile = brokerStatus != null ? brokerStatus.optJSONObject("projectionProfile") : null;
+        JSONObject streamProjectionMetadata = buildExistingStreamProjectionMetadata(brokerStatus, cameraId);
+        JSONObject ack = new JSONObject();
+        ack.put("type", "command_ack");
+        ack.put("schema", "rusty.xr.broker.command_ack.v1");
+        ack.put("request_id", "composite-h264-existing-stream-" + label + "-" + System.currentTimeMillis());
+        ack.put("command", "camera_provider.start_app_camera_h264_stream");
+        ack.put("accepted", true);
+        ack.put("message", "using_existing_h264_stream");
+        JSONObject result = new JSONObject();
+        result.put("source_mode", config.sourceMode);
+        result.put("stream_port", streamPort);
+        result.put("camera_id", cameraId != null ? cameraId : "");
+        result.put("projection_metadata_attached", streamProjectionMetadata != null);
+        if (streamProjectionMetadata != null) {
+            result.put("projection_metadata", streamProjectionMetadata);
+        }
+        if (projectionProfile != null) {
+            result.put("projection_profile", projectionProfile);
+        }
+        ack.put("result", result);
+        return new StartCommandResult(ack, streamProjectionMetadata, projectionProfile);
+    }
+
+    private JSONObject fetchBrokerStatusOrNull() {
+        Socket socket = null;
+        try {
+            socket = new Socket();
+            socket.connect(new InetSocketAddress(config.brokerHost, config.brokerPort), config.commandTimeoutMs);
+            socket.setSoTimeout(config.commandTimeoutMs);
+            OutputStream output = socket.getOutputStream();
+            String request =
+                "GET /status HTTP/1.1\r\n" +
+                "Host: " + config.brokerHost + ":" + config.brokerPort + "\r\n" +
+                "Connection: close\r\n" +
+                "\r\n";
+            output.write(request.getBytes(StandardCharsets.US_ASCII));
+            output.flush();
+
+            ByteArrayOutputStream response = new ByteArrayOutputStream(32 * 1024);
+            InputStream input = socket.getInputStream();
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                if (read > 0) {
+                    response.write(buffer, 0, read);
+                }
+            }
+            String text = new String(response.toByteArray(), StandardCharsets.UTF_8);
+            int bodyStart = text.indexOf("\r\n\r\n");
+            if (bodyStart < 0) {
+                return null;
+            }
+            return new JSONObject(text.substring(bodyStart + 4));
+        } catch (Exception ex) {
+            Log.w(TAG, "Could not fetch broker status for existing H.264 stream metadata: " + safeMessage(ex));
+            return null;
+        } finally {
+            closeQuietly(socket);
+        }
+    }
+
+    private JSONObject buildExistingStreamProjectionMetadata(JSONObject brokerStatus, String cameraId) {
+        if (brokerStatus == null) {
+            return null;
+        }
+        try {
+            JSONObject candidate = findProjectionCandidate(brokerStatus, cameraId);
+            if (candidate == null) {
+                return null;
+            }
+            JSONArray calibration = candidate.optJSONArray("lens_intrinsic_calibration");
+            JSONArray translation = candidate.optJSONArray("lens_pose_translation_m");
+            JSONArray rotation = candidate.optJSONArray("lens_pose_rotation_xyzw");
+            JSONObject intrinsicsDomain = projectionCandidateDomain(candidate);
+            boolean hasIntrinsics = calibration != null && calibration.length() >= 4 && intrinsicsDomain != null;
+            boolean hasPose = translation != null && translation.length() >= 3 && rotation != null && rotation.length() >= 4;
+
+            JSONObject metadata = new JSONObject();
+            String metadataCameraId = candidate.optString(
+                "camera_id",
+                cameraId != null && cameraId.length() > 0 ? cameraId : "broker-h264");
+            metadata.put("schema", "rusty.xr.camera_projection.stream_source_metadata.v1");
+            metadata.put("source", "broker_existing_h264_stream");
+            metadata.put("sourceLabel", "Broker existing H.264 source " + metadataCameraId);
+            metadata.put("cameraId", metadataCameraId);
+            metadata.put("selectionScore", candidate.optLong("selection_score", 0L));
+            metadata.put("deliveredWidth", config.preferredWidth);
+            metadata.put("deliveredHeight", config.preferredHeight);
+            metadata.put("lensFacing", normalizeLensFacing(candidate.optString("lens_facing", "unknown")));
+            metadata.put("lensFacingRank", lensFacingRank(candidate.optString("lens_facing", "")));
+            if (candidate.has("sensor_orientation_degrees")) {
+                metadata.put("sensorOrientationDegrees", candidate.optInt("sensor_orientation_degrees"));
+            }
+            if (hasIntrinsics) {
+                JSONObject intrinsics = new JSONObject();
+                intrinsics.put("fx", calibration.optDouble(0, 0.0));
+                intrinsics.put("fy", calibration.optDouble(1, 0.0));
+                intrinsics.put("cx", calibration.optDouble(2, 0.0));
+                intrinsics.put("cy", calibration.optDouble(3, 0.0));
+                intrinsics.put("skew", calibration.optDouble(4, 0.0));
+                metadata.put("intrinsics", intrinsics);
+                metadata.put("intrinsicsDomain", intrinsicsDomain);
+                metadata.put("activeArrayDomain", new JSONObject(intrinsicsDomain.toString()));
+                metadata.put("sensorPixelDomain", new JSONObject(intrinsicsDomain.toString()));
+            }
+            metadata.put("missingIntrinsics", !hasIntrinsics);
+            metadata.put("missingPose", !hasPose);
+            metadata.put("poseSource", hasPose ? "platform" : "missing");
+            metadata.put(
+                "poseCoordinateConvention",
+                hasPose
+                    ? "android-camera2-lens-pose-reference-from-camera"
+                    : "broker-decoded-h264-image-space");
+            metadata.put(
+                "lensPoseReferenceLabel",
+                lensPoseReferenceLabel(candidate.optString("lens_pose_reference", "")));
+            if (hasPose) {
+                JSONObject extrinsics = new JSONObject();
+                extrinsics.put("px", translation.optDouble(0, 0.0));
+                extrinsics.put("py", translation.optDouble(1, 0.0));
+                extrinsics.put("pz", translation.optDouble(2, 0.0));
+                extrinsics.put("qx", rotation.optDouble(0, 0.0));
+                extrinsics.put("qy", rotation.optDouble(1, 0.0));
+                extrinsics.put("qz", rotation.optDouble(2, 0.0));
+                extrinsics.put("qw", rotation.optDouble(3, 1.0));
+                metadata.put("extrinsics", extrinsics);
+            }
+            metadata.put("projectionMetadataReady", hasIntrinsics && hasPose);
+            return metadata;
+        } catch (Exception ex) {
+            Log.w(TAG, "Could not build existing H.264 stream projection metadata: " + safeMessage(ex));
+            return null;
+        }
+    }
+
+    private static JSONObject findProjectionCandidate(JSONObject brokerStatus, String cameraId) throws Exception {
+        JSONObject profile = brokerStatus.optJSONObject("projectionProfile");
+        JSONObject candidate = findProjectionCandidate(profile != null ? profile.optJSONArray("source_candidates") : null, cameraId);
+        if (candidate != null) {
+            return candidate;
+        }
+        JSONObject cameraProvider = brokerStatus.optJSONObject("cameraProvider");
+        return findProjectionCandidate(cameraProvider != null ? cameraProvider.optJSONArray("source_candidates") : null, cameraId);
+    }
+
+    private static JSONObject findProjectionCandidate(JSONArray candidates, String cameraId) throws Exception {
+        if (candidates == null || candidates.length() == 0) {
+            return null;
+        }
+        JSONObject firstReady = null;
+        for (int i = 0; i < candidates.length(); i++) {
+            JSONObject candidate = candidates.getJSONObject(i);
+            if (cameraId != null &&
+                    cameraId.length() > 0 &&
+                    cameraId.equals(candidate.optString("camera_id", ""))) {
+                return candidate;
+            }
+            if (firstReady == null &&
+                    candidate.optBoolean("has_lens_pose", false) &&
+                    candidate.optBoolean("has_intrinsics", false)) {
+                firstReady = candidate;
+            }
+        }
+        return firstReady;
+    }
+
+    private static JSONObject projectionCandidateDomain(JSONObject candidate) throws Exception {
+        JSONObject domainSize = candidate.optJSONObject("max_private_size");
+        if (domainSize == null) {
+            domainSize = candidate.optJSONObject("max_yuv_420_888_size");
+        }
+        int width = domainSize != null ? domainSize.optInt("width", 0) : 0;
+        int height = domainSize != null ? domainSize.optInt("height", 0) : 0;
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+        JSONObject domain = new JSONObject();
+        domain.put("kind", "activeArray");
+        domain.put("width", width);
+        domain.put("height", height);
+        return domain;
+    }
+
+    private static String normalizeLensFacing(String value) {
+        return value != null && value.length() > 0 ? value.toLowerCase(Locale.US) : "unknown";
+    }
+
+    private static int lensFacingRank(String value) {
+        String normalized = normalizeLensFacing(value);
+        if ("back".equals(normalized)) {
+            return 3;
+        }
+        if ("external".equals(normalized)) {
+            return 2;
+        }
+        if ("front".equals(normalized)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    private static String lensPoseReferenceLabel(String value) {
+        if ("0".equals(value)) {
+            return "UNDEFINED";
+        }
+        if ("1".equals(value)) {
+            return "GYROSCOPE";
+        }
+        if ("2".equals(value)) {
+            return "PRIMARY_CAMERA";
+        }
+        return value != null && value.length() > 0 ? value : "unknown";
     }
 
     private StartCommandResult sendStartCommand(String label, String cameraId, int streamPort) throws Exception {
@@ -574,6 +976,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
         report.put(reportKey(prefix, "hardware_buffer_native_accepted_count"), decode.hardwareBufferNativeAcceptedCount);
         report.put(reportKey(prefix, "hardware_buffer_native_rejected_count"), decode.hardwareBufferNativeRejectedCount);
         report.put(reportKey(prefix, "hardware_buffer_missing_count"), decode.hardwareBufferMissingCount);
+        putStageTimingReport(report, prefix, "hardware_buffer_await_image", decode.hardwareBufferAwaitImageTiming);
+        putStageTimingReport(report, prefix, "hardware_buffer_get_buffer", decode.hardwareBufferGetBufferTiming);
+        putStageTimingReport(report, prefix, "hardware_buffer_native_bridge", decode.hardwareBufferNativeBridgeTiming);
         report.put(reportKey(prefix, "hardware_buffer_format"), decode.lastHardwareBufferFormat);
         report.put(reportKey(prefix, "hardware_buffer_usage"), decode.lastHardwareBufferUsage);
         report.put(reportKey(prefix, "hardware_buffer_layers"), decode.lastHardwareBufferLayers);
@@ -585,12 +990,120 @@ final class BrokerH264ConsumerProbe implements Runnable {
         report.put(reportKey(prefix, "decode_duration_ns"), Math.max(0L, decode.decodeEndElapsedNs - decode.decodeStartElapsedNs));
     }
 
+    private static void putLiveDecodeReport(JSONObject report, String prefix, LiveDecodeResult result) throws Exception {
+        report.put(reportKey(prefix, "stream_schema_version"), result.schemaVersion);
+        report.put(reportKey(prefix, "stream_codec_id"), result.codecId);
+        report.put(reportKey(prefix, "stream_width"), result.width);
+        report.put(reportKey(prefix, "stream_height"), result.height);
+        report.put(reportKey(prefix, "stream_declared_packet_count"), result.declaredPacketCount);
+        report.put(reportKey(prefix, "stream_packet_count"), result.packetCount);
+        report.put(reportKey(prefix, "stream_ended_by_eof"), result.streamEndedByEof);
+        report.put(reportKey(prefix, "stream_missing_declared_packet_count"), result.streamMissingDeclaredPacketCount);
+        report.put(reportKey(prefix, "stream_payload_bytes"), result.payloadBytes);
+        report.put(reportKey(prefix, "stream_receive_duration_ns"), Math.max(0L, result.receiveEndElapsedNs - result.receiveStartElapsedNs));
+        report.put(
+            reportKey(prefix, "stream_payload_bitrate_bps"),
+            bitrateBpsFromNs(result.payloadBytes, Math.max(0L, result.lastPacketReceiveElapsedNs - result.firstPacketReceiveElapsedNs)));
+        report.put(
+            reportKey(prefix, "stream_wire_packet_rate_hz"),
+            rateHzFromNs(result.packetCount, Math.max(0L, result.lastPacketReceiveElapsedNs - result.firstPacketReceiveElapsedNs)));
+        report.put(
+            reportKey(prefix, "stream_source_packet_rate_hz"),
+            rateHzFromNs(result.packetCount, Math.max(0L, result.lastSourceElapsedNs - result.firstSourceElapsedNs)));
+        report.put(reportKey(prefix, "stream_first_source_elapsed_ns"), result.firstSourceElapsedNs);
+        report.put(reportKey(prefix, "stream_last_source_elapsed_ns"), result.lastSourceElapsedNs);
+        report.put(reportKey(prefix, "decode_succeeded"), result.decodedFrameCount > 0);
+        report.put(reportKey(prefix, "decoder_name"), result.decoderName);
+        report.put(reportKey(prefix, "csd_sps_found"), result.spsBytes > 0);
+        report.put(reportKey(prefix, "csd_pps_found"), result.ppsBytes > 0);
+        report.put(reportKey(prefix, "input_buffer_count"), result.inputBufferCount);
+        report.put(reportKey(prefix, "input_bytes"), result.inputBytes);
+        report.put(reportKey(prefix, "input_eos_queued"), result.inputEosQueued);
+        report.put(reportKey(prefix, "output_format_changes"), result.outputFormatChanges);
+        report.put(reportKey(prefix, "output_buffer_count"), result.outputBufferCount);
+        report.put(reportKey(prefix, "decoded_frame_count"), result.decodedFrameCount);
+        report.put(
+            reportKey(prefix, "decoded_frame_rate_hz"),
+            rateHzFromNs(result.decodedFrameCount, Math.max(0L, result.decodeEndElapsedNs - result.decodeStartElapsedNs)));
+        report.put(reportKey(prefix, "surface_release_count"), result.surfaceReleaseCount);
+        report.put(reportKey(prefix, "hardware_buffer_target_created"), result.hardwareBufferTargetCreated);
+        report.put(reportKey(prefix, "hardware_buffer_reader_width"), result.hardwareBufferReaderWidth);
+        report.put(reportKey(prefix, "hardware_buffer_reader_height"), result.hardwareBufferReaderHeight);
+        report.put(reportKey(prefix, "hardware_buffer_image_count"), result.hardwareBufferImageCount);
+        report.put(reportKey(prefix, "hardware_buffer_delivered_count"), result.hardwareBufferDeliveredCount);
+        report.put(reportKey(prefix, "hardware_buffer_missing_count"), result.hardwareBufferMissingCount);
+        putStageTimingReport(report, prefix, "hardware_buffer_await_image", result.hardwareBufferAwaitImageTiming);
+        putStageTimingReport(report, prefix, "hardware_buffer_get_buffer", result.hardwareBufferGetBufferTiming);
+        putStageTimingReport(report, prefix, "hardware_buffer_native_bridge", result.hardwareBufferNativeBridgeTiming);
+        report.put(reportKey(prefix, "hardware_buffer_format"), result.lastHardwareBufferFormat);
+        report.put(reportKey(prefix, "hardware_buffer_usage"), result.lastHardwareBufferUsage);
+        report.put(reportKey(prefix, "hardware_buffer_layers"), result.lastHardwareBufferLayers);
+        report.put(reportKey(prefix, "hardware_buffer_id"), result.lastHardwareBufferId);
+        report.put(reportKey(prefix, "output_eos_seen"), result.outputEosSeen);
+        report.put(reportKey(prefix, "output_format_mime"), result.outputMime);
+        report.put(reportKey(prefix, "output_format_width"), result.outputWidth);
+        report.put(reportKey(prefix, "output_format_height"), result.outputHeight);
+        report.put(reportKey(prefix, "decode_duration_ns"), Math.max(0L, result.decodeEndElapsedNs - result.decodeStartElapsedNs));
+    }
+
+    private static void putByteIdentityReport(JSONObject report, String prefix, DecodeResult decode) throws Exception {
+        report.put(reportKey(prefix, "byte_identity_decode_output_mode"), decode.decodeOutputMode);
+        report.put(reportKey(prefix, "byte_identity_decoder_name"), decode.decoderName);
+        report.put(reportKey(prefix, "byte_identity_decoded_frame_count"), decode.decodedFrameCount);
+        report.put(reportKey(prefix, "byte_identity_output_frame_crc32_count"), decode.outputFrameHashCount);
+        report.put(reportKey(prefix, "byte_identity_output_frame_unique_crc32_count"), decode.outputFrameHashUniqueCount);
+        report.put(reportKey(prefix, "byte_identity_output_frame_adjacent_equal_count"), decode.outputFrameHashAdjacentEqualCount);
+        report.put(reportKey(prefix, "byte_identity_output_frames_all_identical"), outputFramesAllIdentical(decode));
+        report.put(reportKey(prefix, "byte_identity_first_output_frame_crc32"), decode.firstOutputFrameCrc32);
+        report.put(reportKey(prefix, "byte_identity_last_output_frame_crc32"), decode.lastOutputFrameCrc32);
+        report.put(reportKey(prefix, "byte_identity_output_bytes"), decode.outputBytes);
+        report.put(reportKey(prefix, "byte_identity_output_format_mime"), decode.outputMime);
+        report.put(reportKey(prefix, "byte_identity_output_format_width"), decode.outputWidth);
+        report.put(reportKey(prefix, "byte_identity_output_format_height"), decode.outputHeight);
+        report.put(reportKey(prefix, "byte_identity_output_eos_seen"), decode.outputEosSeen);
+        report.put(reportKey(prefix, "byte_identity_decode_duration_ns"), Math.max(0L, decode.decodeEndElapsedNs - decode.decodeStartElapsedNs));
+        if (decode.lastError.length() > 0) {
+            report.put(reportKey(prefix, "byte_identity_last_error"), decode.lastError);
+        }
+    }
+
+    private static void putStageTimingReport(
+        JSONObject report,
+        String prefix,
+        String key,
+        StageTiming timing) throws Exception {
+        report.put(reportKey(prefix, key + "_count"), timing.count);
+        report.put(reportKey(prefix, key + "_avg_ns"), timing.averageNs());
+        report.put(reportKey(prefix, key + "_max_ns"), timing.maxNs);
+    }
+
+    private static boolean outputFramesAllIdentical(DecodeResult decode) {
+        return decode.outputFrameHashCount > 1 && decode.outputFrameHashUniqueCount == 1;
+    }
+
+    private boolean shouldUseLiveStereoDecode() {
+        return config.liveStream &&
+            config.liveDecode &&
+            DECODE_OUTPUT_HARDWARE_BUFFER.equals(config.decodeOutputMode);
+    }
+
+    private boolean shouldPaceStereoDelivery() {
+        return SOURCE_MODE_EXISTING_STREAM.equals(config.sourceMode) ||
+            (SOURCE_MODE_BROKER_CAMERA.equals(config.sourceMode) && config.liveStream);
+    }
+
     private static StereoPairResult deliverStereoPairs(
         List<DecodedHardwareBufferFrame> leftFrames,
-        List<DecodedHardwareBufferFrame> rightFrames) {
+        List<DecodedHardwareBufferFrame> rightFrames,
+        boolean paceDelivery) {
         StereoPairResult result = new StereoPairResult();
+        result.deliveryPaced = paceDelivery;
+        long deliveryStartNs = SystemClock.elapsedRealtimeNanos();
         int pairCount = Math.min(leftFrames.size(), rightFrames.size());
         for (int i = 0; i < pairCount; i++) {
+            if (paceDelivery && i > 0) {
+                paceStereoPairDelivery(deliveryStartNs, i);
+            }
             DecodedHardwareBufferFrame left = leftFrames.get(i);
             DecodedHardwareBufferFrame right = rightFrames.get(i);
             long deltaNs = Math.abs(left.timestampNs - right.timestampNs);
@@ -601,6 +1114,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 result.resolutionMismatchCount++;
             }
             boolean accepted = false;
+            long nativeBridgeStartedNs = SystemClock.elapsedRealtimeNanos();
             try {
                 accepted = nativeBrokerH264DecodedStereoHardwareBufferFrame(
                     left.width,
@@ -625,6 +1139,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
                     i);
             } catch (RuntimeException error) {
                 Log.w(TAG, "Could not deliver broker H.264 decoded stereo hardware-buffer pair", error);
+            } finally {
+                result.nativeBridgeTiming.record(SystemClock.elapsedRealtimeNanos() - nativeBridgeStartedNs);
             }
             if (accepted) {
                 result.nativeAcceptedCount++;
@@ -632,7 +1148,22 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 result.nativeRejectedCount++;
             }
         }
+        result.deliveryDurationNs = Math.max(0L, SystemClock.elapsedRealtimeNanos() - deliveryStartNs);
         return result;
+    }
+
+    private static void paceStereoPairDelivery(long deliveryStartNs, int pairIndex) {
+        long targetNs = deliveryStartNs + pairIndex * STEREO_REPLAY_DELIVERY_INTERVAL_NS;
+        while (true) {
+            long remainingNs = targetNs - SystemClock.elapsedRealtimeNanos();
+            if (remainingNs <= 0L) {
+                return;
+            }
+            long sleepMs = Math.min(
+                STEREO_REPLAY_DELIVERY_MAX_SLEEP_MS,
+                Math.max(1L, remainingNs / 1_000_000L));
+            SystemClock.sleep(sleepMs);
+        }
     }
 
     private static void closeFrames(List<DecodedHardwareBufferFrame> frames) {
@@ -656,6 +1187,41 @@ final class BrokerH264ConsumerProbe implements Runnable {
 
     private static long bitrateBps(long bytes, int windowMs) {
         return windowMs > 0 ? (bytes * 8000L) / windowMs : 0L;
+    }
+
+    private static long bitrateBpsFromNs(long bytes, long windowNs) {
+        return windowNs > 0L ? (long) ((bytes * 8_000_000_000.0) / windowNs) : 0L;
+    }
+
+    private static void recordOutputFrameHash(DecodeResult result, long crc32) {
+        if (result.outputFrameHashCount == 0) {
+            result.firstOutputFrameCrc32 = crc32;
+        } else if (result.lastOutputFrameCrc32 == crc32) {
+            result.outputFrameHashAdjacentEqualCount++;
+        }
+        result.lastOutputFrameCrc32 = crc32;
+        result.outputFrameHashCount++;
+        result.outputFrameHashes.add(Long.valueOf(crc32));
+        result.outputFrameHashUniqueCount = result.outputFrameHashes.size();
+    }
+
+    private static long crc32Buffer(ByteBuffer buffer, int offset, int size) {
+        CRC32 crc32 = new CRC32();
+        ByteBuffer copy = buffer.duplicate();
+        int start = Math.max(0, offset);
+        int end = Math.min(copy.capacity(), start + Math.max(0, size));
+        if (start >= end) {
+            return crc32.getValue();
+        }
+        copy.position(start);
+        copy.limit(end);
+        byte[] chunk = new byte[Math.min(16384, end - start)];
+        while (copy.hasRemaining()) {
+            int count = Math.min(copy.remaining(), chunk.length);
+            copy.get(chunk, 0, count);
+            crc32.update(chunk, 0, count);
+        }
+        return crc32.getValue();
     }
 
     private int observedStreamWindowMs(StreamResult stream) {
@@ -710,6 +1276,431 @@ final class BrokerH264ConsumerProbe implements Runnable {
         }
     }
 
+    private static final class LiveStereoPairer {
+        private final ArrayDeque<DecodedHardwareBufferFrame> leftFrames =
+            new ArrayDeque<DecodedHardwareBufferFrame>();
+        private final ArrayDeque<DecodedHardwareBufferFrame> rightFrames =
+            new ArrayDeque<DecodedHardwareBufferFrame>();
+        private final StereoPairResult result = new StereoPairResult();
+        private long deliveryStartNs;
+        private long deliveryEndNs;
+
+        synchronized void offer(String eye, DecodedHardwareBufferFrame frame) {
+            ArrayDeque<DecodedHardwareBufferFrame> queue = "right".equals(eye) ? rightFrames : leftFrames;
+            queue.addLast(frame);
+            while (queue.size() > LIVE_STEREO_PENDING_QUEUE_LIMIT) {
+                DecodedHardwareBufferFrame dropped = queue.removeFirst();
+                dropped.close();
+                result.queueDropCount++;
+            }
+            deliverAvailablePairs();
+        }
+
+        synchronized void closePendingFrames() {
+            closeQueue(leftFrames);
+            closeQueue(rightFrames);
+        }
+
+        synchronized StereoPairResult snapshot() {
+            StereoPairResult snapshot = new StereoPairResult();
+            snapshot.pairCount = result.pairCount;
+            snapshot.nativeAcceptedCount = result.nativeAcceptedCount;
+            snapshot.nativeRejectedCount = result.nativeRejectedCount;
+            snapshot.deliveryPaced = result.deliveryPaced;
+            snapshot.deliveryDurationNs = deliveryEndNs > deliveryStartNs
+                ? deliveryEndNs - deliveryStartNs
+                : result.deliveryDurationNs;
+            snapshot.resolutionMismatchCount = result.resolutionMismatchCount;
+            snapshot.deltaTotalNs = result.deltaTotalNs;
+            snapshot.deltaMaxNs = result.deltaMaxNs;
+            snapshot.queueDropCount = result.queueDropCount;
+            snapshot.nativeBridgeTiming.copyFrom(result.nativeBridgeTiming);
+            return snapshot;
+        }
+
+        private void deliverAvailablePairs() {
+            while (!leftFrames.isEmpty() && !rightFrames.isEmpty()) {
+                DecodedHardwareBufferFrame left = leftFrames.removeFirst();
+                DecodedHardwareBufferFrame right = rightFrames.removeFirst();
+                deliverPair(left, right);
+            }
+        }
+
+        private void deliverPair(DecodedHardwareBufferFrame left, DecodedHardwareBufferFrame right) {
+            if (deliveryStartNs == 0L) {
+                deliveryStartNs = SystemClock.elapsedRealtimeNanos();
+            }
+            long deltaNs = Math.abs(left.timestampNs - right.timestampNs);
+            long pairIndex = result.pairCount;
+            result.pairCount++;
+            result.deltaTotalNs += deltaNs;
+            result.deltaMaxNs = Math.max(result.deltaMaxNs, deltaNs);
+            if (left.width != right.width || left.height != right.height) {
+                result.resolutionMismatchCount++;
+            }
+            boolean accepted = false;
+            long nativeBridgeStartedNs = SystemClock.elapsedRealtimeNanos();
+            try {
+                accepted = nativeBrokerH264DecodedStereoHardwareBufferFrame(
+                    left.width,
+                    left.height,
+                    left.timestampNs,
+                    left.metadataJson,
+                    left.buffer,
+                    left.format,
+                    left.usage,
+                    left.layers,
+                    left.bufferId,
+                    right.width,
+                    right.height,
+                    right.timestampNs,
+                    right.metadataJson,
+                    right.buffer,
+                    right.format,
+                    right.usage,
+                    right.layers,
+                    right.bufferId,
+                    deltaNs,
+                    pairIndex);
+            } catch (RuntimeException error) {
+                Log.w(TAG, "Could not deliver live broker H.264 decoded stereo hardware-buffer pair", error);
+            } finally {
+                result.nativeBridgeTiming.record(SystemClock.elapsedRealtimeNanos() - nativeBridgeStartedNs);
+                left.close();
+                right.close();
+                deliveryEndNs = SystemClock.elapsedRealtimeNanos();
+                result.deliveryDurationNs = deliveryEndNs - deliveryStartNs;
+            }
+            if (accepted) {
+                result.nativeAcceptedCount++;
+            } else {
+                result.nativeRejectedCount++;
+            }
+        }
+
+        private static void closeQueue(ArrayDeque<DecodedHardwareBufferFrame> queue) {
+            while (!queue.isEmpty()) {
+                queue.removeFirst().close();
+            }
+        }
+    }
+
+    private final class LiveDecodeStreamTask implements Runnable {
+        private final String label;
+        private final int streamPort;
+        private final String cameraId;
+        private final JSONObject streamProjectionMetadata;
+        private final LiveStereoPairer pairer;
+        private final Thread thread;
+        private LiveDecodeResult result;
+        private Exception error;
+
+        LiveDecodeStreamTask(
+            String label,
+            int streamPort,
+            String cameraId,
+            JSONObject streamProjectionMetadata,
+            LiveStereoPairer pairer) {
+            this.label = label;
+            this.streamPort = streamPort;
+            this.cameraId = cameraId;
+            this.streamProjectionMetadata = streamProjectionMetadata;
+            this.pairer = pairer;
+            this.thread = new Thread(this, "RustyXrBrokerH264LiveDecode-" + label);
+        }
+
+        void start() {
+            thread.start();
+        }
+
+        @Override
+        public void run() {
+            try {
+                result = decodeLiveStream(label, streamPort, cameraId, streamProjectionMetadata, pairer);
+            } catch (Exception ex) {
+                error = ex;
+            }
+        }
+
+        LiveDecodeResult awaitResult() throws Exception {
+            long waitMs = (long) config.streamTimeoutMs + config.decodeTimeoutMs + config.captureMs + 2000L;
+            thread.join(waitMs);
+            if (thread.isAlive()) {
+                throw new IllegalStateException("Timed out waiting for " + label + " broker H.264 live decode task.");
+            }
+            if (error != null) {
+                throw error;
+            }
+            if (result == null) {
+                throw new IllegalStateException("Broker H.264 " + label + " live decode produced no result.");
+            }
+            return result;
+        }
+    }
+
+    private LiveDecodeResult decodeLiveStream(
+        String label,
+        int streamPort,
+        String cameraId,
+        JSONObject streamProjectionMetadata,
+        LiveStereoPairer pairer) throws Exception {
+        Socket socket = connectWithRetry(config.brokerHost, streamPort, config.streamTimeoutMs, label);
+        if ("right".equals(label)) {
+            rightStreamSocket = socket;
+        } else {
+            streamSocket = socket;
+        }
+        socket.setSoTimeout(config.streamTimeoutMs);
+        DataInputStream input = new DataInputStream(socket.getInputStream());
+        LiveDecodeResult result = new LiveDecodeResult();
+        DecodeHardwareBufferTarget hardwareBufferTarget = null;
+        MediaCodec decoder = null;
+        try {
+            byte[] magicBytes = new byte[8];
+            input.readFully(magicBytes);
+            String magic = new String(magicBytes, StandardCharsets.US_ASCII);
+            if (!STREAM_MAGIC.equals(magic)) {
+                throw new IllegalStateException("Unexpected stream magic: " + magic);
+            }
+
+            result.schemaVersion = input.readInt();
+            result.codecId = input.readInt();
+            result.width = input.readInt();
+            result.height = input.readInt();
+            result.declaredPacketCount = input.readInt();
+            input.readInt();
+            if (result.schemaVersion < 1 || result.schemaVersion > 2) {
+                throw new IllegalStateException("Unsupported broker stream schema version: " + result.schemaVersion);
+            }
+            if (result.codecId != CODEC_H264) {
+                throw new IllegalStateException("Broker stream codec is not H.264: " + result.codecId);
+            }
+            if (result.declaredPacketCount < 0 || result.declaredPacketCount > MAX_STREAM_PACKETS) {
+                throw new IllegalStateException("Broker stream packet count is out of range: " + result.declaredPacketCount);
+            }
+
+            result.receiveStartElapsedNs = SystemClock.elapsedRealtimeNanos();
+            List<Packet> pendingPackets = new ArrayList<Packet>();
+            while (running &&
+                pendingPackets.size() < result.declaredPacketCount &&
+                pendingPackets.size() < 8) {
+                Packet packet;
+                try {
+                    packet = readPacket(input, result.schemaVersion);
+                } catch (EOFException eof) {
+                    markLiveStreamEndedByEof(result);
+                    break;
+                }
+                recordLivePacket(result, packet);
+                pendingPackets.add(packet);
+                if (findNalUnit(pendingPackets, 7) != null && findNalUnit(pendingPackets, 8) != null) {
+                    break;
+                }
+            }
+            if (pendingPackets.isEmpty()) {
+                throw new IllegalStateException("Broker H.264 " + label + " live stream ended before any packets were received.");
+            }
+
+            NalUnit sps = findNalUnit(pendingPackets, 7);
+            NalUnit pps = findNalUnit(pendingPackets, 8);
+            result.spsBytes = sps != null ? sps.bytes.length : 0;
+            result.ppsBytes = pps != null ? pps.bytes.length : 0;
+            MediaFormat format = MediaFormat.createVideoFormat("video/avc", result.width, result.height);
+            if (sps != null) {
+                format.setByteBuffer("csd-0", ByteBuffer.wrap(sps.bytes));
+            }
+            if (pps != null) {
+                format.setByteBuffer("csd-1", ByteBuffer.wrap(pps.bytes));
+            }
+
+            hardwareBufferTarget = DecodeHardwareBufferTarget.create(result.width, result.height);
+            result.hardwareBufferTargetCreated = true;
+            result.hardwareBufferReaderWidth = result.width;
+            result.hardwareBufferReaderHeight = result.height;
+            decoder = MediaCodec.createDecoderByType("video/avc");
+            result.decoderName = decoder.getName();
+            decoder.configure(format, hardwareBufferTarget.surface(), null, 0);
+            decoder.start();
+            result.decodeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
+
+            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+            int nextPending = 0;
+            long deadlineNs = SystemClock.elapsedRealtimeNanos() +
+                ((long) config.streamTimeoutMs + config.decodeTimeoutMs + config.captureMs) * 1_000_000L;
+            while (running && !result.outputEosSeen && SystemClock.elapsedRealtimeNanos() < deadlineNs) {
+                if (!result.inputEosQueued) {
+                    int inputIndex = decoder.dequeueInputBuffer(DEQUEUE_TIMEOUT_US);
+                    if (inputIndex >= 0) {
+                        if (nextPending < pendingPackets.size()) {
+                            Packet packet = pendingPackets.get(nextPending++);
+                            queueLivePacket(decoder, inputIndex, packet, result);
+                        } else if (!result.streamEndedByEof && result.packetCount < result.declaredPacketCount) {
+                            Packet packet;
+                            try {
+                                packet = readPacket(input, result.schemaVersion);
+                            } catch (EOFException eof) {
+                                markLiveStreamEndedByEof(result);
+                                queueLiveEos(decoder, inputIndex, result);
+                                continue;
+                            }
+                            recordLivePacket(result, packet);
+                            queueLivePacket(decoder, inputIndex, packet, result);
+                        } else {
+                            queueLiveEos(decoder, inputIndex, result);
+                        }
+                    }
+                }
+
+                int outputIndex = decoder.dequeueOutputBuffer(info, DEQUEUE_TIMEOUT_US);
+                if (outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    continue;
+                }
+                if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    result.outputFormatChanges++;
+                    applyLiveOutputFormat(result, decoder.getOutputFormat());
+                    continue;
+                }
+                if (outputIndex < 0) {
+                    continue;
+                }
+
+                boolean codecConfig = (info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
+                boolean eos = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+                if (!codecConfig && !eos) {
+                    result.outputBufferCount++;
+                    decoder.releaseOutputBuffer(outputIndex, true);
+                    result.surfaceReleaseCount++;
+                    List<DecodedHardwareBufferFrame> frame = new ArrayList<DecodedHardwareBufferFrame>(1);
+                    DecodeHardwareBufferTarget.DeliverResult deliver = hardwareBufferTarget.awaitAndRetainFrame(
+                        HARDWARE_BUFFER_WAIT_MS,
+                        cameraId,
+                        label,
+                        info.presentationTimeUs,
+                        sourceElapsedNsForLivePts(result, info.presentationTimeUs),
+                        streamProjectionMetadata,
+                        frame);
+                    recordHardwareBufferTiming(result, deliver);
+                    result.hardwareBufferImageCount = hardwareBufferTarget.imageCount();
+                    result.hardwareBufferDeliveredCount = hardwareBufferTarget.deliveredCount();
+                    result.hardwareBufferMissingCount = hardwareBufferTarget.missingBufferCount();
+                    if (deliver.delivered && frame.size() > 0) {
+                        DecodedHardwareBufferFrame decodedFrame = frame.remove(0);
+                        result.decodedFrameCount++;
+                        result.lastHardwareBufferFormat = deliver.format;
+                        result.lastHardwareBufferUsage = deliver.usage;
+                        result.lastHardwareBufferLayers = deliver.layers;
+                        result.lastHardwareBufferId = deliver.bufferId;
+                        pairer.offer(label, decodedFrame);
+                    }
+                    closeFrames(frame);
+                } else {
+                    decoder.releaseOutputBuffer(outputIndex, false);
+                }
+                if (eos) {
+                    result.outputEosSeen = true;
+                }
+            }
+            if (result.decodedFrameCount == 0) {
+                result.lastError = result.outputEosSeen
+                    ? "Decoder reached end-of-stream without output frames."
+                    : "Timed out before a decoded output frame was produced.";
+            }
+            if (result.outputWidth == 0 || result.outputHeight == 0) {
+                applyLiveOutputFormat(result, decoder.getOutputFormat());
+            }
+            result.receiveEndElapsedNs = SystemClock.elapsedRealtimeNanos();
+        } finally {
+            result.decodeEndElapsedNs = SystemClock.elapsedRealtimeNanos();
+            if (decoder != null) {
+                try {
+                    decoder.stop();
+                } catch (Exception ignored) {
+                }
+                decoder.release();
+            }
+            if (hardwareBufferTarget != null) {
+                hardwareBufferTarget.release();
+            }
+            closeQuietly(socket);
+            if ("right".equals(label)) {
+                rightStreamSocket = null;
+            } else {
+                streamSocket = null;
+            }
+        }
+        return result;
+    }
+
+    private static void queueLivePacket(MediaCodec decoder, int inputIndex, Packet packet, LiveDecodeResult result) throws Exception {
+        queuePacket(decoder, inputIndex, packet);
+        result.inputBufferCount++;
+        result.inputBytes += packet.payload.length;
+        result.lastPresentationTimeUs = packet.ptsUs;
+    }
+
+    private static void queueLiveEos(MediaCodec decoder, int inputIndex, LiveDecodeResult result) {
+        decoder.queueInputBuffer(
+            inputIndex,
+            0,
+            0,
+            result.lastPresentationTimeUs,
+            MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+        result.inputEosQueued = true;
+    }
+
+    private static void markLiveStreamEndedByEof(LiveDecodeResult result) {
+        result.streamEndedByEof = true;
+        result.streamMissingDeclaredPacketCount = Math.max(0, result.declaredPacketCount - result.packetCount);
+    }
+
+    private static void recordLivePacket(LiveDecodeResult result, Packet packet) {
+        result.packetCount++;
+        result.payloadBytes += packet.payload.length;
+        if (result.firstPacketReceiveElapsedNs == 0L) {
+            result.firstPacketReceiveElapsedNs = packet.receiveElapsedNs;
+        }
+        result.lastPacketReceiveElapsedNs = packet.receiveElapsedNs;
+        if (packet.sourceElapsedNs > 0L) {
+            if (result.firstSourceElapsedNs == 0L) {
+                result.firstSourceElapsedNs = packet.sourceElapsedNs;
+            }
+            result.lastSourceElapsedNs = packet.sourceElapsedNs;
+            result.sourceElapsedByPts.put(Long.valueOf(packet.ptsUs), Long.valueOf(packet.sourceElapsedNs));
+        }
+    }
+
+    private static long sourceElapsedNsForLivePts(LiveDecodeResult result, long ptsUs) {
+        Long exact = result.sourceElapsedByPts.get(Long.valueOf(ptsUs));
+        if (exact != null) {
+            return exact.longValue();
+        }
+        return result.lastSourceElapsedNs;
+    }
+
+    private Packet readPacket(DataInputStream input, int schemaVersion) throws Exception {
+        long ptsUs = input.readLong();
+        int flags = input.readInt();
+        int size = input.readInt();
+        if (size < 0 || size > MAX_PACKET_BYTES) {
+            throw new IllegalStateException("Broker stream packet size is out of range: " + size);
+        }
+        long sourceElapsedNs = 0L;
+        long sourceUnixNs = 0L;
+        if (schemaVersion >= 2) {
+            sourceElapsedNs = input.readLong();
+            sourceUnixNs = input.readLong();
+        }
+        byte[] payload = new byte[size];
+        input.readFully(payload);
+        return new Packet(
+            ptsUs,
+            flags,
+            sourceElapsedNs,
+            sourceUnixNs,
+            SystemClock.elapsedRealtimeNanos(),
+            payload);
+    }
+
     private StreamResult receiveStream(String label, int streamPort) throws Exception {
         Socket socket = connectWithRetry(config.brokerHost, streamPort, config.streamTimeoutMs, label);
         if ("right".equals(label)) {
@@ -751,33 +1742,20 @@ final class BrokerH264ConsumerProbe implements Runnable {
         long firstSourceElapsedNs = 0L;
         long lastSourceElapsedNs = 0L;
         for (int i = 0; i < packetCount && running; i++) {
-            long ptsUs = input.readLong();
-            int flags = input.readInt();
-            int size = input.readInt();
-            if (size < 0 || size > MAX_PACKET_BYTES) {
-                throw new IllegalStateException("Broker stream packet size is out of range: " + size);
-            }
-            long sourceElapsedNs = 0L;
-            long sourceUnixNs = 0L;
-            if (schemaVersion >= 2) {
-                sourceElapsedNs = input.readLong();
-                sourceUnixNs = input.readLong();
-            }
-            byte[] payload = new byte[size];
-            input.readFully(payload);
-            long packetReceiveElapsedNs = SystemClock.elapsedRealtimeNanos();
+            Packet packet = readPacket(input, schemaVersion);
+            long packetReceiveElapsedNs = packet.receiveElapsedNs;
             if (firstPacketReceiveElapsedNs == 0L) {
                 firstPacketReceiveElapsedNs = packetReceiveElapsedNs;
             }
             lastPacketReceiveElapsedNs = packetReceiveElapsedNs;
-            if (sourceElapsedNs > 0L) {
+            if (packet.sourceElapsedNs > 0L) {
                 if (firstSourceElapsedNs == 0L) {
-                    firstSourceElapsedNs = sourceElapsedNs;
+                    firstSourceElapsedNs = packet.sourceElapsedNs;
                 }
-                lastSourceElapsedNs = sourceElapsedNs;
+                lastSourceElapsedNs = packet.sourceElapsedNs;
             }
-            packets.add(new Packet(ptsUs, flags, sourceElapsedNs, sourceUnixNs, packetReceiveElapsedNs, payload));
-            payloadBytes += size;
+            packets.add(packet);
+            payloadBytes += packet.payload.length;
         }
         receiveEndElapsedNs = SystemClock.elapsedRealtimeNanos();
 
@@ -933,6 +1911,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                                 sourceElapsedNsForPts(stream, info.presentationTimeUs),
                                 streamProjectionMetadata);
                         }
+                        recordHardwareBufferTiming(result, deliver);
                         result.hardwareBufferImageCount = hardwareBufferTarget.imageCount();
                         result.hardwareBufferDeliveredCount = hardwareBufferTarget.deliveredCount();
                         result.hardwareBufferNativeAcceptedCount = hardwareBufferTarget.nativeAcceptedCount();
@@ -947,6 +1926,12 @@ final class BrokerH264ConsumerProbe implements Runnable {
                         }
                     } else {
                         if (info.size > 0 && surfaceTarget == null && hardwareBufferTarget == null) {
+                            ByteBuffer outputBuffer = decoder.getOutputBuffer(outputIndex);
+                            if (outputBuffer != null) {
+                                recordOutputFrameHash(
+                                    result,
+                                    crc32Buffer(outputBuffer, info.offset, info.size));
+                            }
                             result.decodedFrameCount++;
                             result.outputBytes += info.size;
                         }
@@ -1039,6 +2024,24 @@ final class BrokerH264ConsumerProbe implements Runnable {
             return DECODE_OUTPUT_BYTE_BUFFER;
         }
         return DECODE_OUTPUT_SURFACE_TEXTURE;
+    }
+
+    private static String normalizeSourceMode(String value) {
+        if (value == null || value.trim().length() == 0) {
+            return SOURCE_MODE_BROKER_CAMERA;
+        }
+        String normalized = value.trim().toLowerCase(Locale.US).replace('_', '-');
+        if ("existing".equals(normalized) ||
+            "existing-stream".equals(normalized) ||
+            "remote".equals(normalized) ||
+            "proxied".equals(normalized) ||
+            "proxy".equals(normalized) ||
+            "proxy-stream".equals(normalized) ||
+            "incoming".equals(normalized) ||
+            "incoming-stream".equals(normalized)) {
+            return SOURCE_MODE_EXISTING_STREAM;
+        }
+        return SOURCE_MODE_BROKER_CAMERA;
     }
 
     private static JSONArray floatArrayJson(float[] values) throws Exception {
@@ -1343,12 +2346,16 @@ final class BrokerH264ConsumerProbe implements Runnable {
             long sourceElapsedNs,
             JSONObject streamProjectionMetadata) {
             long deadline = SystemClock.elapsedRealtime() + Math.max(1, timeoutMs);
+            long awaitImageStartedNs = SystemClock.elapsedRealtimeNanos();
             Image image = null;
             while (SystemClock.elapsedRealtime() < deadline) {
                 try {
                     image = reader.acquireNextImage();
                 } catch (IllegalStateException error) {
-                    return DeliverResult.notDelivered();
+                    return DeliverResult.notDelivered(
+                        SystemClock.elapsedRealtimeNanos() - awaitImageStartedNs,
+                        0L,
+                        0L);
                 }
                 if (image != null) {
                     break;
@@ -1356,16 +2363,24 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 SystemClock.sleep(5);
             }
             if (image == null) {
-                return DeliverResult.notDelivered();
+                return DeliverResult.notDelivered(
+                    SystemClock.elapsedRealtimeNanos() - awaitImageStartedNs,
+                    0L,
+                    0L);
             }
+            long awaitImageNs = SystemClock.elapsedRealtimeNanos() - awaitImageStartedNs;
 
             HardwareBuffer buffer = null;
+            long getBufferNs = 0L;
+            long nativeBridgeNs = 0L;
             try {
                 imageCount++;
+                long getBufferStartedNs = SystemClock.elapsedRealtimeNanos();
                 buffer = image.getHardwareBuffer();
+                getBufferNs = SystemClock.elapsedRealtimeNanos() - getBufferStartedNs;
                 if (buffer == null) {
                     missingBufferCount++;
-                    return DeliverResult.notDelivered();
+                    return DeliverResult.notDelivered(awaitImageNs, getBufferNs, nativeBridgeNs);
                 }
 
                 long bufferId = 0L;
@@ -1388,6 +2403,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                     image.getHeight() > 0 ? image.getHeight() : height,
                     timestampNs,
                     streamProjectionMetadata);
+                long nativeBridgeStartedNs = SystemClock.elapsedRealtimeNanos();
                 boolean accepted = nativeBrokerH264DecodedHardwareBufferFrame(
                     image.getWidth() > 0 ? image.getWidth() : width,
                     image.getHeight() > 0 ? image.getHeight() : height,
@@ -1398,6 +2414,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                     buffer.getUsage(),
                     buffer.getLayers(),
                     bufferId);
+                nativeBridgeNs = SystemClock.elapsedRealtimeNanos() - nativeBridgeStartedNs;
                 deliveredCount++;
                 if (accepted) {
                     nativeAcceptedCount++;
@@ -1410,11 +2427,14 @@ final class BrokerH264ConsumerProbe implements Runnable {
                     buffer.getFormat(),
                     buffer.getUsage(),
                     buffer.getLayers(),
-                    bufferId);
+                    bufferId,
+                    awaitImageNs,
+                    getBufferNs,
+                    nativeBridgeNs);
             } catch (RuntimeException error) {
                 nativeRejectedCount++;
                 Log.w(TAG, "Could not deliver broker H.264 decoded hardware buffer", error);
-                return DeliverResult.notDelivered();
+                return DeliverResult.notDelivered(awaitImageNs, getBufferNs, nativeBridgeNs);
             } finally {
                 if (buffer != null) {
                     buffer.close();
@@ -1432,12 +2452,16 @@ final class BrokerH264ConsumerProbe implements Runnable {
             JSONObject streamProjectionMetadata,
             List<DecodedHardwareBufferFrame> outFrames) {
             long deadline = SystemClock.elapsedRealtime() + Math.max(1, timeoutMs);
+            long awaitImageStartedNs = SystemClock.elapsedRealtimeNanos();
             Image image = null;
             while (SystemClock.elapsedRealtime() < deadline) {
                 try {
                     image = reader.acquireNextImage();
                 } catch (IllegalStateException error) {
-                    return DeliverResult.notDelivered();
+                    return DeliverResult.notDelivered(
+                        SystemClock.elapsedRealtimeNanos() - awaitImageStartedNs,
+                        0L,
+                        0L);
                 }
                 if (image != null) {
                     break;
@@ -1445,16 +2469,23 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 SystemClock.sleep(5);
             }
             if (image == null) {
-                return DeliverResult.notDelivered();
+                return DeliverResult.notDelivered(
+                    SystemClock.elapsedRealtimeNanos() - awaitImageStartedNs,
+                    0L,
+                    0L);
             }
+            long awaitImageNs = SystemClock.elapsedRealtimeNanos() - awaitImageStartedNs;
 
             HardwareBuffer buffer = null;
+            long getBufferNs = 0L;
             try {
                 imageCount++;
+                long getBufferStartedNs = SystemClock.elapsedRealtimeNanos();
                 buffer = image.getHardwareBuffer();
+                getBufferNs = SystemClock.elapsedRealtimeNanos() - getBufferStartedNs;
                 if (buffer == null) {
                     missingBufferCount++;
-                    return DeliverResult.notDelivered();
+                    return DeliverResult.notDelivered(awaitImageNs, getBufferNs, 0L);
                 }
 
                 long bufferId = 0L;
@@ -1502,7 +2533,10 @@ final class BrokerH264ConsumerProbe implements Runnable {
                     buffer.getFormat(),
                     buffer.getUsage(),
                     buffer.getLayers(),
-                    bufferId);
+                    bufferId,
+                    awaitImageNs,
+                    getBufferNs,
+                    0L);
             } catch (RuntimeException error) {
                 Log.w(TAG, "Could not retain broker H.264 decoded hardware buffer", error);
                 if (buffer != null) {
@@ -1511,7 +2545,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                     } catch (RuntimeException ignored) {
                     }
                 }
-                return DeliverResult.notDelivered();
+                return DeliverResult.notDelivered(awaitImageNs, getBufferNs, 0L);
             } finally {
                 image.close();
             }
@@ -1548,19 +2582,74 @@ final class BrokerH264ConsumerProbe implements Runnable {
             final long usage;
             final int layers;
             final long bufferId;
+            final long awaitImageNs;
+            final long getBufferNs;
+            final long nativeBridgeNs;
 
-            DeliverResult(boolean delivered, boolean accepted, int format, long usage, int layers, long bufferId) {
+            DeliverResult(
+                boolean delivered,
+                boolean accepted,
+                int format,
+                long usage,
+                int layers,
+                long bufferId,
+                long awaitImageNs,
+                long getBufferNs,
+                long nativeBridgeNs) {
                 this.delivered = delivered;
                 this.accepted = accepted;
                 this.format = format;
                 this.usage = usage;
                 this.layers = layers;
                 this.bufferId = bufferId;
+                this.awaitImageNs = awaitImageNs;
+                this.getBufferNs = getBufferNs;
+                this.nativeBridgeNs = nativeBridgeNs;
             }
 
             static DeliverResult notDelivered() {
-                return new DeliverResult(false, false, 0, 0L, 0, 0L);
+                return notDelivered(0L, 0L, 0L);
             }
+
+            static DeliverResult notDelivered(long awaitImageNs, long getBufferNs, long nativeBridgeNs) {
+                return new DeliverResult(false, false, 0, 0L, 0, 0L, awaitImageNs, getBufferNs, nativeBridgeNs);
+            }
+        }
+    }
+
+    private static void recordHardwareBufferTiming(
+        LiveDecodeResult result,
+        DecodeHardwareBufferTarget.DeliverResult deliver) {
+        recordHardwareBufferTiming(
+            result.hardwareBufferAwaitImageTiming,
+            result.hardwareBufferGetBufferTiming,
+            result.hardwareBufferNativeBridgeTiming,
+            deliver);
+    }
+
+    private static void recordHardwareBufferTiming(
+        DecodeResult result,
+        DecodeHardwareBufferTarget.DeliverResult deliver) {
+        recordHardwareBufferTiming(
+            result.hardwareBufferAwaitImageTiming,
+            result.hardwareBufferGetBufferTiming,
+            result.hardwareBufferNativeBridgeTiming,
+            deliver);
+    }
+
+    private static void recordHardwareBufferTiming(
+        StageTiming awaitImageTiming,
+        StageTiming getBufferTiming,
+        StageTiming nativeBridgeTiming,
+        DecodeHardwareBufferTarget.DeliverResult deliver) {
+        if (deliver.awaitImageNs > 0L) {
+            awaitImageTiming.record(deliver.awaitImageNs);
+        }
+        if (deliver.getBufferNs > 0L) {
+            getBufferTiming.record(deliver.getBufferNs);
+        }
+        if (deliver.nativeBridgeNs > 0L) {
+            nativeBridgeTiming.record(deliver.nativeBridgeNs);
         }
     }
 
@@ -1895,6 +2984,12 @@ final class BrokerH264ConsumerProbe implements Runnable {
         result.outputHeight = mediaFormatInt(format, MediaFormat.KEY_HEIGHT, stream.height);
     }
 
+    private static void applyLiveOutputFormat(LiveDecodeResult result, MediaFormat format) {
+        result.outputMime = mediaFormatString(format, MediaFormat.KEY_MIME, "video/raw");
+        result.outputWidth = mediaFormatInt(format, MediaFormat.KEY_WIDTH, result.width);
+        result.outputHeight = mediaFormatInt(format, MediaFormat.KEY_HEIGHT, result.height);
+    }
+
     private static int mediaFormatInt(MediaFormat format, String key, int fallback) {
         try {
             return format.containsKey(key) ? format.getInteger(key) : fallback;
@@ -2071,9 +3166,63 @@ final class BrokerH264ConsumerProbe implements Runnable {
         int pairCount;
         int nativeAcceptedCount;
         int nativeRejectedCount;
+        boolean deliveryPaced;
+        long deliveryDurationNs;
         int resolutionMismatchCount;
         long deltaTotalNs;
         long deltaMaxNs;
+        int queueDropCount;
+        final StageTiming nativeBridgeTiming = new StageTiming();
+    }
+
+    private static final class LiveDecodeResult {
+        int schemaVersion;
+        int codecId;
+        int width;
+        int height;
+        int declaredPacketCount;
+        int packetCount;
+        boolean streamEndedByEof;
+        int streamMissingDeclaredPacketCount;
+        long payloadBytes;
+        long receiveStartElapsedNs;
+        long receiveEndElapsedNs;
+        long firstPacketReceiveElapsedNs;
+        long lastPacketReceiveElapsedNs;
+        long firstSourceElapsedNs;
+        long lastSourceElapsedNs;
+        final HashMap<Long, Long> sourceElapsedByPts = new HashMap<Long, Long>();
+        String decoderName = "";
+        String outputMime = "";
+        int outputWidth;
+        int outputHeight;
+        int spsBytes;
+        int ppsBytes;
+        int inputBufferCount;
+        long inputBytes;
+        boolean inputEosQueued;
+        long lastPresentationTimeUs;
+        int outputFormatChanges;
+        int outputBufferCount;
+        int decodedFrameCount;
+        boolean outputEosSeen;
+        int surfaceReleaseCount;
+        boolean hardwareBufferTargetCreated;
+        int hardwareBufferReaderWidth;
+        int hardwareBufferReaderHeight;
+        int hardwareBufferImageCount;
+        int hardwareBufferDeliveredCount;
+        int hardwareBufferMissingCount;
+        final StageTiming hardwareBufferAwaitImageTiming = new StageTiming();
+        final StageTiming hardwareBufferGetBufferTiming = new StageTiming();
+        final StageTiming hardwareBufferNativeBridgeTiming = new StageTiming();
+        int lastHardwareBufferFormat;
+        long lastHardwareBufferUsage;
+        int lastHardwareBufferLayers;
+        long lastHardwareBufferId;
+        long decodeStartElapsedNs;
+        long decodeEndElapsedNs;
+        String lastError = "";
     }
 
     private static final class DecodeResult {
@@ -2091,6 +3240,11 @@ final class BrokerH264ConsumerProbe implements Runnable {
         int outputBufferCount;
         int decodedFrameCount;
         long outputBytes;
+        int outputFrameHashCount;
+        int outputFrameHashUniqueCount;
+        int outputFrameHashAdjacentEqualCount;
+        long firstOutputFrameCrc32 = -1L;
+        long lastOutputFrameCrc32 = -1L;
         boolean outputEosSeen;
         boolean surfaceTargetCreated;
         boolean eglContextCreated;
@@ -2111,6 +3265,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
         int hardwareBufferNativeAcceptedCount;
         int hardwareBufferNativeRejectedCount;
         int hardwareBufferMissingCount;
+        final StageTiming hardwareBufferAwaitImageTiming = new StageTiming();
+        final StageTiming hardwareBufferGetBufferTiming = new StageTiming();
+        final StageTiming hardwareBufferNativeBridgeTiming = new StageTiming();
         int lastHardwareBufferFormat;
         long lastHardwareBufferUsage;
         int lastHardwareBufferLayers;
@@ -2120,6 +3277,34 @@ final class BrokerH264ConsumerProbe implements Runnable {
         long decodeEndElapsedNs;
         final List<DecodedHardwareBufferFrame> collectedHardwareBufferFrames =
             new ArrayList<DecodedHardwareBufferFrame>();
+        final HashSet<Long> outputFrameHashes = new HashSet<Long>();
         String lastError = "";
+    }
+
+    private static final class StageTiming {
+        long count;
+        long totalNs;
+        long maxNs;
+
+        void record(long elapsedNs) {
+            if (elapsedNs < 0L) {
+                return;
+            }
+            count++;
+            totalNs += elapsedNs;
+            if (elapsedNs > maxNs) {
+                maxNs = elapsedNs;
+            }
+        }
+
+        long averageNs() {
+            return count > 0L ? totalNs / count : 0L;
+        }
+
+        void copyFrom(StageTiming other) {
+            count = other.count;
+            totalNs = other.totalNs;
+            maxNs = other.maxNs;
+        }
     }
 }

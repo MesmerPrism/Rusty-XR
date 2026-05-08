@@ -162,6 +162,12 @@ per-vertex projection and near-plane clipping behavior.
 For the reusable particle-side patterns, see
 [Particle Billboard And Animation Performance](PARTICLE_BILLBOARD_AND_ANIMATION_PERFORMANCE.md).
 
+For camera-composite and live H.264 streaming performance, run the dedicated
+[Quest Streaming Diagnostics Workflow](QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md)
+before changing renderer code. That matrix separates synthetic compositor cost,
+direct Camera2 projection, broker receive/decode, broker live projection,
+render scale, and Java/native handoff timings.
+
 ## Simpleperf
 
 Use Simpleperf when the evidence points to CPU hotspots rather than rendering

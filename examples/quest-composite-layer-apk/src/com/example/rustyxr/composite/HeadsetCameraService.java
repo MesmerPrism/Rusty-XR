@@ -23,6 +23,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.os.SystemClock;
 import android.util.Log;
 import android.util.Range;
 import android.util.Size;
@@ -173,6 +174,10 @@ public final class HeadsetCameraService extends Service {
     private final DeliveryStats leftDeliveryStats = new DeliveryStats();
     private final DeliveryStats rightDeliveryStats = new DeliveryStats();
     private final DeliveryStats stereoPairDeliveryStats = new DeliveryStats();
+    private final StageTiming stereoAcquireTiming = new StageTiming();
+    private final StageTiming stereoGetBufferTiming = new StageTiming();
+    private final StageTiming stereoPairSearchTiming = new StageTiming();
+    private final StageTiming stereoNativeBridgeTiming = new StageTiming();
     private boolean leftStereoSessionRunning;
     private boolean rightStereoSessionRunning;
 
@@ -305,6 +310,10 @@ public final class HeadsetCameraService extends Service {
         leftDeliveryStats.reset();
         rightDeliveryStats.reset();
         stereoPairDeliveryStats.reset();
+        stereoAcquireTiming.reset();
+        stereoGetBufferTiming.reset();
+        stereoPairSearchTiming.reset();
+        stereoNativeBridgeTiming.reset();
         leftFrames.clear();
         rightFrames.clear();
 
@@ -1459,7 +1468,9 @@ public final class HeadsetCameraService extends Service {
         Image image = null;
         HardwareBuffer buffer = null;
         try {
+            long acquireStartedNs = SystemClock.elapsedRealtimeNanos();
             image = reader.acquireLatestImage();
+            stereoAcquireTiming.record(SystemClock.elapsedRealtimeNanos() - acquireStartedNs);
             if (image == null) {
                 return;
             }
@@ -1477,7 +1488,9 @@ public final class HeadsetCameraService extends Service {
                 stats,
                 appliedRange,
                 120);
+            long getBufferStartedNs = SystemClock.elapsedRealtimeNanos();
             buffer = image.getHardwareBuffer();
+            stereoGetBufferTiming.record(SystemClock.elapsedRealtimeNanos() - getBufferStartedNs);
             if (buffer == null) {
                 stereoDroppedCount++;
                 Log.w(TAG, "Stereo Camera2 PRIVATE image did not expose a HardwareBuffer eye=" + (leftEye ? "left" : "right"));
@@ -1533,6 +1546,7 @@ public final class HeadsetCameraService extends Service {
 
     private void tryPairStereoFrames() {
         while (!leftFrames.isEmpty() && !rightFrames.isEmpty()) {
+            long pairSearchStartedNs = SystemClock.elapsedRealtimeNanos();
             PendingGpuImage bestLeft = null;
             PendingGpuImage bestRight = null;
             long bestDelta = Long.MAX_VALUE;
@@ -1550,12 +1564,14 @@ public final class HeadsetCameraService extends Service {
             if (bestLeft != null && bestRight != null && bestDelta <= stereoPairMaxDeltaNs) {
                 leftFrames.remove(bestLeft);
                 rightFrames.remove(bestRight);
+                stereoPairSearchTiming.record(SystemClock.elapsedRealtimeNanos() - pairSearchStartedNs);
                 deliverStereoPair(bestLeft, bestRight, bestDelta);
                 continue;
             }
 
             PendingGpuImage latestLeft = leftFrames.removeLast();
             PendingGpuImage latestRight = rightFrames.removeLast();
+            stereoPairSearchTiming.record(SystemClock.elapsedRealtimeNanos() - pairSearchStartedNs);
             stereoDroppedCount += closePendingQueue(leftFrames);
             stereoDroppedCount += closePendingQueue(rightFrames);
             long latestDelta = Math.abs(latestLeft.timestampNs - latestRight.timestampNs);
@@ -1589,6 +1605,7 @@ public final class HeadsetCameraService extends Service {
             long pairIndex = stereoPairedCount;
             long midpointTs = left.timestampNs / 2L + right.timestampNs / 2L;
             stereoPairDeliveryStats.record(midpointTs);
+            long nativeBridgeStartedNs = SystemClock.elapsedRealtimeNanos();
             boolean accepted = nativeHeadsetStereoCameraHardwareBufferFrame(
                 left.width,
                 left.height,
@@ -1610,6 +1627,7 @@ public final class HeadsetCameraService extends Service {
                 right.hardwareBufferId,
                 pairDeltaNs,
                 pairIndex);
+            stereoNativeBridgeTiming.record(SystemClock.elapsedRealtimeNanos() - nativeBridgeStartedNs);
             if (!accepted) {
                 stereoDroppedCount++;
             }
@@ -1636,6 +1654,14 @@ public final class HeadsetCameraService extends Service {
                     " rightReceived=" + stereoRightReceivedCount +
                     " paired=" + stereoPairedCount +
                     " dropped=" + stereoDroppedCount +
+                    " acquireAvgNs=" + stereoAcquireTiming.averageNs() +
+                    " acquireMaxNs=" + stereoAcquireTiming.maxNs +
+                    " getBufferAvgNs=" + stereoGetBufferTiming.averageNs() +
+                    " getBufferMaxNs=" + stereoGetBufferTiming.maxNs +
+                    " pairSearchAvgNs=" + stereoPairSearchTiming.averageNs() +
+                    " pairSearchMaxNs=" + stereoPairSearchTiming.maxNs +
+                    " nativeBridgeAvgNs=" + stereoNativeBridgeTiming.averageNs() +
+                    " nativeBridgeMaxNs=" + stereoNativeBridgeTiming.maxNs +
                     " activeTier=" + activeTierLabel() +
                     " stereoLayout=Separate" +
                     " poseSource=" + stereoPoseSourceLabel(activeStereoChoice));
@@ -2658,6 +2684,31 @@ public final class HeadsetCameraService extends Service {
                 return true;
             }
             return false;
+        }
+    }
+
+    private static final class StageTiming {
+        long count;
+        long totalNs;
+        long maxNs;
+
+        void reset() {
+            count = 0L;
+            totalNs = 0L;
+            maxNs = 0L;
+        }
+
+        void record(long elapsedNs) {
+            if (elapsedNs < 0L) {
+                return;
+            }
+            count++;
+            totalNs += elapsedNs;
+            maxNs = Math.max(maxNs, elapsedNs);
+        }
+
+        long averageNs() {
+            return count > 0L ? totalNs / count : 0L;
         }
     }
 
