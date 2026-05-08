@@ -33,6 +33,10 @@ layout(push_constant) uniform EnvironmentDepthVisualizationPush {
 const uint PARTICLE_CAPACITY = 32768u;
 const uint PARTICLE_SAMPLE_STRIDE_PIXELS = 12u;
 const uint PARTICLE_SOURCE_VIEW_COUNT = 1u;
+const float SCENE_PARTICLE_CELL_METERS = 0.06;
+const uint SCENE_PARTICLE_PROBE_COUNT = 8u;
+const float SCENE_PARTICLE_STALE_REPLACE_FRAMES = 1440.0;
+const float SCENE_PARTICLE_MERGE_WEIGHT = 0.18;
 
 vec2 apply_depth_texture_transform(vec2 uv, int flags) {
     int turns = flags & 3;
@@ -86,9 +90,61 @@ vec3 reconstruct_stage_position(vec2 depth_uv, int eye_index, float depth_meters
     vec4 orientation = eye_index == 0 ? pc.left_orientation : pc.right_orientation;
     vec3 position = (eye_index == 0 ? pc.left_position : pc.right_position).xyz;
     float tangent_x = mix(fov.x, fov.y, depth_uv.x);
-    float tangent_y = mix(fov.w, fov.z, depth_uv.y);
+    float tangent_y = mix(fov.z, fov.w, depth_uv.y);
     vec3 view_position = vec3(tangent_x * depth_meters, tangent_y * depth_meters, -depth_meters);
     return position + rotate_by_quat(view_position, orientation);
+}
+
+uint hash_scene_cell(ivec3 cell) {
+    uint h = (uint(cell.x) * 73856093u)
+        ^ (uint(cell.y) * 19349663u)
+        ^ (uint(cell.z) * 83492791u);
+    h ^= h >> 16;
+    h *= 0x7feb352du;
+    h ^= h >> 15;
+    h *= 0x846ca68bu;
+    h ^= h >> 16;
+    return h;
+}
+
+float compact_scene_cell_key(uint hash_value) {
+    return float((hash_value & 0x00ffffffu) + 1u);
+}
+
+void write_scene_particle(vec3 stage_position, float depth_meters, float confidence) {
+    float frame_marker = max(pc.transform.y, 0.0);
+    ivec3 cell = ivec3(floor(stage_position / SCENE_PARTICLE_CELL_METERS));
+    uint hash_value = hash_scene_cell(cell);
+    float cell_key = compact_scene_cell_key(hash_value);
+    uint base_slot = hash_value % PARTICLE_CAPACITY;
+
+    for (uint probe = 0u; probe < SCENE_PARTICLE_PROBE_COUNT; probe++) {
+        uint slot = (base_slot + probe) % PARTICLE_CAPACITY;
+        DepthParticle existing = particles[slot];
+        bool empty = existing.state.x < 0.5 || existing.state.z < 0.5;
+        bool same_cell = abs(existing.state.z - cell_key) < 0.5;
+        float age_frames = max(frame_marker - existing.state.w, 0.0);
+        bool stale = age_frames > SCENE_PARTICLE_STALE_REPLACE_FRAMES;
+
+        if (empty || same_cell || stale) {
+            float merge_weight = same_cell && !empty && !stale
+                ? SCENE_PARTICLE_MERGE_WEIGHT * clamp(confidence, 0.0, 1.0)
+                : 1.0;
+            vec3 merged_position = same_cell && !empty && !stale
+                ? mix(existing.position_depth.xyz, stage_position, merge_weight)
+                : stage_position;
+            float merged_depth = same_cell && !empty && !stale
+                ? mix(existing.position_depth.w, depth_meters, merge_weight)
+                : depth_meters;
+            float merged_confidence = same_cell && !empty && !stale
+                ? clamp(max(existing.state.y * 0.995, mix(existing.state.y, confidence, 0.22) + (confidence * 0.035)), 0.0, 1.0)
+                : confidence;
+
+            particles[slot].position_depth = vec4(merged_position, merged_depth);
+            particles[slot].state = vec4(1.0, merged_confidence, cell_key, frame_marker);
+            return;
+        }
+    }
 }
 
 void main() {
@@ -126,12 +182,21 @@ void main() {
     float confidence = 1.0 - smoothstep(threshold, threshold * 2.0, discontinuity);
     bool valid = depth_meters <= pc.params.x && confidence >= 0.58;
 
+    bool scene_particle_map = pc.transform.z > 0.5;
+    if (!valid && scene_particle_map) {
+        return;
+    }
     if (!valid) {
         particles[slot].state = vec4(0.0);
         return;
     }
 
     vec3 stage_position = reconstruct_stage_position(surface_uv, int(eye_index), depth_meters);
+    if (scene_particle_map) {
+        write_scene_particle(stage_position, depth_meters, confidence);
+        return;
+    }
+
     particles[slot].position_depth = vec4(stage_position, depth_meters);
     particles[slot].state = vec4(1.0, confidence, float(eye_index), 0.0);
 }

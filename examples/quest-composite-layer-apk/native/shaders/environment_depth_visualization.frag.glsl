@@ -81,7 +81,7 @@ vec3 reconstruct_stage_position(vec2 depth_uv, int eye_index, float depth_meters
     vec4 orientation = eye_index == 0 ? pc.left_orientation : pc.right_orientation;
     vec3 position = (eye_index == 0 ? pc.left_position : pc.right_position).xyz;
     float tangent_x = mix(fov.x, fov.y, depth_uv.x);
-    float tangent_y = mix(fov.w, fov.z, depth_uv.y);
+    float tangent_y = mix(fov.z, fov.w, depth_uv.y);
     vec3 view_position = vec3(tangent_x * depth_meters, tangent_y * depth_meters, -depth_meters);
     return position + rotate_by_quat(view_position, orientation);
 }

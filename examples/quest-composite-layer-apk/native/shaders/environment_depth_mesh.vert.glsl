@@ -72,7 +72,7 @@ vec3 reconstruct_stage_position(vec2 depth_uv, int eye_index, float depth_meters
     vec4 orientation = eye_index == 0 ? pc.left_orientation : pc.right_orientation;
     vec3 position = (eye_index == 0 ? pc.left_position : pc.right_position).xyz;
     float tangent_x = mix(fov.x, fov.y, depth_uv.x);
-    float tangent_y = mix(fov.w, fov.z, depth_uv.y);
+    float tangent_y = mix(fov.z, fov.w, depth_uv.y);
     vec3 view_position = vec3(tangent_x * depth_meters, tangent_y * depth_meters, -depth_meters);
     return position + rotate_by_quat(view_position, orientation);
 }
@@ -96,7 +96,7 @@ vec2 project_render_view_position(vec3 view_position, int eye_index) {
     float tangent_y = view_position.y / forward_z;
     float u = (tangent_x - fov.x) / max(fov.y - fov.x, 0.0001);
     float v = (tangent_y - fov.w) / max(fov.z - fov.w, 0.0001);
-    return vec2(u, v) * 2.0 - vec2(1.0);
+    return vec2((u * 2.0) - 1.0, 1.0 - (v * 2.0));
 }
 
 vec4 project_render_view_clip(vec3 view_position, int eye_index) {
@@ -117,7 +117,7 @@ vec4 project_render_view_clip(vec3 view_position, int eye_index) {
         : (far_z / (near_z - far_z)) * view_position.z
             + ((far_z * near_z) / (near_z - far_z));
     float clip_w = -view_position.z;
-    return vec4(clip_x, clip_y, clip_z, clip_w);
+    return vec4(clip_x, -clip_y, clip_z, clip_w);
 }
 
 void main() {

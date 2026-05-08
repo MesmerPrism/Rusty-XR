@@ -161,10 +161,19 @@ The example names the camera path explicitly:
   The current implementation is a diagnostic bridge rather than a final scene
   map: the retained samples are still sourced from a regular view-sampled grid,
   so headset motion can make the visible sample lattice feel view-attached even
-  though the samples are written in local scene coordinates. The follow-up is a
-  scene-owned particle or sparse surface map with explicit confidence,
-  merge/replace, cell-resolution, and retirement policies. See
+  though the samples are written in local scene coordinates. Use
+  `environment-depth-scene-particle-map` for the first scene-owned variant with
+  explicit confidence, merge/replace, cell-resolution, and retirement policies.
+  See
   [environment depth particle anchoring](../../docs/ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md).
+- `environment-depth-scene-particle-map`: keeps the same environment-depth
+  provider and passthrough underlay active, but writes accepted samples into a
+  persistent local-space particle map. Candidate depth points are quantized into
+  metric local cells, mapped through a bounded spatial hash, confidence-blended
+  with existing particles in the same cell, and faded when stale. Invalid
+  candidate samples preserve existing cells instead of clearing raster-derived
+  slots, so cell lifetime is owned by the scene map. This is a visual
+  headset-validation map, not a CPU point-cloud, TSDF, or mesh export.
 - `meta-hand-mesh-particles`: keeps camera and environment depth off, requests
   OpenXR hand tracking plus `XR_FB_hand_tracking_mesh`, retrieves the immutable
   hand bind mesh once per hand, skins it from per-frame
@@ -755,9 +764,11 @@ was explicit.
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- catalog verify --path .\examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json --app rusty-xr-quest-composite-layer --serial <serial> --stop-catalog-apps --install --launch --device-profile xr-composite-smoke-test --runtime-profile environment-depth-diagnostics --settle-ms 9000 --logcat-lines 1400 --out .\artifacts\verify
 ```
 
-Use `environment-depth-mesh-overlay` with the same command shape to render the
-transparent generated depth-grid surface over passthrough and check logcat for
-`Rusty XR environment depth mesh overlay draw`. The profile submits
+Use `environment-depth-mesh-overlay`, `environment-depth-particle-overlay`, or
+`environment-depth-scene-particle-map` with the same command shape to render the
+surface diagnostics over passthrough and check logcat for the corresponding
+draw line. The scene particle map line is
+`Rusty XR environment depth scene particle map draw`. These profiles submit
 `openxrPassthroughProbe=underlay`; use `passthrough-only-layer-probe` to launch
 the native passthrough layer with `rustyxr.projectionLayerVisible=false` when
 isolating passthrough from projection-layer rendering. ADB screenshots may still
@@ -845,8 +856,19 @@ harnesses should treat this as a required manual step.
   `particleVertexCount`, `sampleStridePixels`, `distanceColorMaxMeters=3`,
   and `passthroughVisible=true`. The visual result is expected to show
   depth-colored particles over native passthrough, but headset-motion anchoring
-  remains a manual design-validation item until the scene-owned particle map is
-  implemented.
+  remains a manual design-validation item for the separate scene particle map.
+- with `environment-depth-scene-particle-map`, logcat contains
+  `Rusty XR environment depth scene particle map draw` with
+  `projection=local-space-scene-particle-map`,
+  `mapPolicy=spatial-hash-local-cells`, `cellMeters`, `hashProbeCount`,
+  `staleFadeStartFrames`, `staleRetireFrames`,
+  `invalidSamplePolicy=preserve-existing-cells`,
+  `depthPoseSource=view-space-composed`,
+  `projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader`,
+  `particleCapacity`, `particleVertexCount`, `distanceColorMaxMeters=3`, and
+  `passthroughVisible=true`. The visual result is expected to show
+  depth-colored particles that remain attached to local space while new
+  observations refresh or fill nearby cells.
 - with `camera-stereo-gpu-composite`, logcat must contain one
   `Rusty XR final projection status` line with `activeTier=gpu-projected`,
   `alignedProjection=true`, `stereoLayout=Separate`,

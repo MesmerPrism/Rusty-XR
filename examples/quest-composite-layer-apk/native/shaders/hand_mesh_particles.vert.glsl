@@ -57,7 +57,7 @@ vec2 project_render_view_position(vec3 view_position, int eye_index) {
     float tangent_y = view_position.y / forward_z;
     float u = (tangent_x - fov.x) / max(fov.y - fov.x, 0.0001);
     float v = (tangent_y - fov.w) / max(fov.z - fov.w, 0.0001);
-    return vec2(u, v) * 2.0 - vec2(1.0);
+    return vec2((u * 2.0) - 1.0, 1.0 - (v * 2.0));
 }
 
 vec4 project_render_view_clip(vec3 view_position, int eye_index) {

@@ -693,6 +693,7 @@ pub(crate) enum EnvironmentDepthMode {
     Visualize,
     MeshOverlay,
     ParticleOverlay,
+    SceneParticleMap,
 }
 
 impl EnvironmentDepthMode {
@@ -707,6 +708,11 @@ impl EnvironmentDepthMode {
             "particles" | "particle-overlay" | "depth-particles" | "surface-particles" => {
                 Some(Self::ParticleOverlay)
             }
+            "scene-particle-map"
+            | "scene-particles"
+            | "spatial-particles"
+            | "surface-particle-map"
+            | "depth-scene-particles" => Some(Self::SceneParticleMap),
             _ => None,
         }
     }
@@ -718,6 +724,7 @@ impl EnvironmentDepthMode {
             Self::Visualize => "visualize",
             Self::MeshOverlay => "mesh-overlay",
             Self::ParticleOverlay => "particle-overlay",
+            Self::SceneParticleMap => "scene-particle-map",
         }
     }
 
@@ -728,7 +735,7 @@ impl EnvironmentDepthMode {
     pub(crate) const fn visualizes(self) -> bool {
         matches!(
             self,
-            Self::Visualize | Self::MeshOverlay | Self::ParticleOverlay
+            Self::Visualize | Self::MeshOverlay | Self::ParticleOverlay | Self::SceneParticleMap
         )
     }
 
@@ -737,7 +744,11 @@ impl EnvironmentDepthMode {
     }
 
     pub(crate) const fn particle_overlay(self) -> bool {
-        matches!(self, Self::ParticleOverlay)
+        matches!(self, Self::ParticleOverlay | Self::SceneParticleMap)
+    }
+
+    pub(crate) const fn scene_particle_map(self) -> bool {
+        matches!(self, Self::SceneParticleMap)
     }
 }
 
@@ -4023,6 +4034,22 @@ mod tests {
             OpenXrColorFormatMode::Rgba8Unorm
         );
         assert_eq!(config.camera_border_cycle_rate_hz, 0.35);
+    }
+
+    #[test]
+    fn environment_depth_scene_particle_map_parses_aliases() {
+        assert_eq!(
+            EnvironmentDepthMode::parse("scene-particle-map"),
+            Some(EnvironmentDepthMode::SceneParticleMap)
+        );
+        assert_eq!(
+            EnvironmentDepthMode::parse("spatial-particles"),
+            Some(EnvironmentDepthMode::SceneParticleMap)
+        );
+        assert!(EnvironmentDepthMode::SceneParticleMap.visualizes());
+        assert!(EnvironmentDepthMode::SceneParticleMap.particle_overlay());
+        assert!(EnvironmentDepthMode::SceneParticleMap.scene_particle_map());
+        assert!(!EnvironmentDepthMode::SceneParticleMap.mesh_overlay());
     }
 
     #[test]

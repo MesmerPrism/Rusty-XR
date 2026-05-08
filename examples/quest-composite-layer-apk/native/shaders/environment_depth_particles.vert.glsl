@@ -32,6 +32,8 @@ layout(location = 1) out float v_depth_meters;
 layout(location = 2) out float v_confidence;
 
 const uint PARTICLE_CAPACITY = 32768u;
+const float SCENE_PARTICLE_FADE_START_FRAMES = 720.0;
+const float SCENE_PARTICLE_RETIRE_FRAMES = 1440.0;
 
 vec3 rotate_by_quat(vec3 value, vec4 q) {
     return value + 2.0 * cross(q.xyz, cross(q.xyz, value) + q.w * value);
@@ -60,7 +62,7 @@ vec2 project_render_view_position(vec3 view_position, int eye_index) {
     float tangent_y = view_position.y / forward_z;
     float u = (tangent_x - fov.x) / max(fov.y - fov.x, 0.0001);
     float v = (tangent_y - fov.w) / max(fov.z - fov.w, 0.0001);
-    return vec2(u, v) * 2.0 - vec2(1.0);
+    return vec2((u * 2.0) - 1.0, 1.0 - (v * 2.0));
 }
 
 vec4 project_render_view_clip(vec3 view_position, int eye_index) {
@@ -81,7 +83,19 @@ vec4 project_render_view_clip(vec3 view_position, int eye_index) {
         : (far_z / (near_z - far_z)) * view_position.z
             + ((far_z * near_z) / (near_z - far_z));
     float clip_w = -view_position.z;
-    return vec4(clip_x, clip_y, clip_z, clip_w);
+    return vec4(clip_x, -clip_y, clip_z, clip_w);
+}
+
+float scene_particle_age_alpha(vec4 state) {
+    if (pc.transform.z <= 0.5) {
+        return 1.0;
+    }
+    float age_frames = max(pc.transform.y - state.w, 0.0);
+    return 1.0 - smoothstep(
+        SCENE_PARTICLE_FADE_START_FRAMES,
+        SCENE_PARTICLE_RETIRE_FRAMES,
+        age_frames
+    );
 }
 
 void main() {
@@ -106,11 +120,12 @@ void main() {
 
     DepthParticle particle = particles[particle_index];
     float valid = particle.state.x;
+    float age_alpha = scene_particle_age_alpha(particle.state);
     int eye_index = int(gl_ViewIndex);
     vec3 view_position = stage_to_render_view_position(particle.position_depth.xyz, eye_index);
     bool behind_near_plane = -view_position.z <= max(pc.params.y, 0.001);
     vec2 ndc = project_render_view_position(view_position, eye_index);
-    if (valid < 0.5 || behind_near_plane || any(lessThan(ndc, vec2(-1.35))) || any(greaterThan(ndc, vec2(1.35)))) {
+    if (valid < 0.5 || age_alpha <= 0.01 || behind_near_plane || any(lessThan(ndc, vec2(-1.35))) || any(greaterThan(ndc, vec2(1.35)))) {
         gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
         v_particle_uv = corner;
         v_depth_meters = particle.position_depth.w;
@@ -124,5 +139,5 @@ void main() {
     gl_Position = project_render_view_clip(corner_view_position, eye_index);
     v_particle_uv = corner;
     v_depth_meters = particle.position_depth.w;
-    v_confidence = particle.state.y;
+    v_confidence = particle.state.y * age_alpha;
 }
