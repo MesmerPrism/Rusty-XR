@@ -835,12 +835,15 @@ harnesses should treat this as a required manual step.
   `mapPolicy=spatial-hash-local-cells`, `cellMeters`, `hashProbeCount`,
   `staleFadeStartFrames`, `staleRetireFrames`,
   `invalidSamplePolicy=preserve-existing-cells`,
+  `activeCorrectionPolicy=visible-free-space-ray-clear`,
+  `occlusionPolicy=preserve-behind-current-depth`,
   `depthPoseSource=view-space-composed`,
   `projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader`,
   `particleCapacity`, `particleVertexCount`, `distanceColorMaxMeters=3`, and
   `passthroughVisible=true`. The visual result is expected to show
   depth-colored particles that remain attached to local space while new
-  observations refresh or fill nearby cells.
+  observations refresh or fill nearby cells and high-confidence current depth
+  clears stale mapped cells from visible free space.
 - with `camera-stereo-gpu-composite`, logcat must contain one
   `Rusty XR final projection status` line with `activeTier=gpu-projected`,
   `alignedProjection=true`, `stereoLayout=Separate`,

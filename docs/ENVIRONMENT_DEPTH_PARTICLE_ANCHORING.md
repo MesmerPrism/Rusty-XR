@@ -41,7 +41,10 @@ creates a new particle, confidence-blends an existing particle in the same
 cell, or replaces a stale particle.
 Invalid candidate samples do not clear arbitrary particle slots in this mode;
 they leave existing cells alone so lifetime is owned by local-space age/fade
-rather than by the current headset raster.
+rather than by the current headset raster. High-confidence current samples also
+actively correct visible free space: cells on the local-space ray in front of
+the observed surface are retired, while cells at or behind the current surface
+are preserved because they may be occluded rather than wrong.
 
 The headset-motion fix has two separate parts:
 
@@ -54,19 +57,19 @@ The headset-motion fix has two separate parts:
 This is intentionally a visual map, not a CPU point-cloud export, TSDF volume,
 or mesh reconstruction. The goal is to make headset-motion validation possible:
 previously observed particles should stay attached to the room while new
-observations fill or refresh nearby cells. Stale cells fade and retire so the
-map can recover when the runtime depth surface changes or confidence drops.
+observations fill or refresh nearby cells. Stale cells fade and retire, and
+high-confidence visible free-space evidence can clear stale foreground cells so
+the map can recover when the runtime depth surface changes without becoming
+headset-raster-owned again.
 
 ## Follow-Up Design Work
 
-The next implementation should build on the explicit scene map policy before
-adding more visual density:
+The next implementation should tune the explicit scene map policy before adding
+more visual density:
 
-- replace passive fade-only retirement with active cell correction: when a
-  currently visible mapped particle projects to a screen location where the new
-  depth observation has enough confidence to prove the old cell is wrong,
-  update, retire, or move that particle without falling back to a headset-raster
-  identity
+- tune active cell correction thresholds for live Quest depth: the current
+  policy clears only visible free-space cells in front of a confident surface
+  and preserves cells behind that surface
 - tune local-space cell size and probe count for Quest depth noise
 - make merge confidence account for observation angle and depth confidence when
   the runtime exposes confidence payloads
@@ -92,6 +95,8 @@ The live path is considered active when logs report:
 - `projection=local-space-scene-particle-map`
 - `mapPolicy=spatial-hash-local-cells`
 - `invalidSamplePolicy=preserve-existing-cells`
+- `activeCorrectionPolicy=visible-free-space-ray-clear`
+- `occlusionPolicy=preserve-behind-current-depth`
 - `depthPoseSource=view-space-composed`
 - `projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader`
 - `rasterization=metric-billboard-particles`
