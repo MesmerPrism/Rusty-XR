@@ -62,8 +62,8 @@
     {
       "label": "Makepad framework source",
       "kind": "rust-git-dependency",
-      "providedBy": "Pinned public Makepad git revision",
-      "notes": "The package pins makepad-xr to the revision listed in Cargo.toml."
+      "providedBy": "Maintained public Makepad fork branch",
+      "notes": "The package consumes the branch listed in Cargo.toml; Cargo.lock records the resolved commit."
     },
     {
       "label": "Android SDK",
@@ -119,11 +119,14 @@
   ],
   "capabilities": [
     "makepad-quest-variant",
+    "maintained-makepad-fork-branch",
     "openxr-generated-android-manifest",
     "makepad-xr-openxr-smoke",
+    "makepad-xr-synthetic-stereo-scene",
     "rusty-xr-runtime-config-core",
     "headset-camera-permission-flow",
     "synthetic-q2q-status-log",
+    "synthetic-stereo-comparison-log",
     "parallel-approach-comparison"
   ]
 }

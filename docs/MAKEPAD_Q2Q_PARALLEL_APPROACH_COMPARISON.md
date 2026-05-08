@@ -15,6 +15,8 @@ adapter until the affordance tradeoffs are proven on device.
 
 The ownership boundary between Rusty XR core and the maintained Makepad fork
 branch is documented in [MAKEPAD_FORK_RELATIONSHIP.md](MAKEPAD_FORK_RELATIONSHIP.md).
+The implementation ledger for the direct stereo-comparison APK path is tracked
+in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.md).
 
 ## Decided For Now
 

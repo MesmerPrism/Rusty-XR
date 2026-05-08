@@ -8,5 +8,5 @@ description = "Makepad-first Quest shell for comparing Rusty XR Q2Q camera workf
 repository = "https://github.com/MesmerPrism/Rusty-XR"
 
 [dependencies]
-makepad-xr = { git = "https://github.com/makepad/makepad.git", rev = "e76019a9f447598ca05697b93e1895a772cbfa8c", version = "1.0.0" }
+makepad-xr = { git = "https://github.com/MesmerPrism/makepad.git", branch = "rusty-xr/android-libstd-packaging", version = "1.0.0" }
 rusty-xr-runtime-config = { path = "../../crates/rusty-xr-runtime-config" }

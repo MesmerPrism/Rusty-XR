@@ -5,9 +5,12 @@ the current custom Android APK workflow with Makepad's generated Android/OpenXR
 packaging without replacing either path too early.
 
 The first pass is intentionally a synthetic OpenXR smoke app. It proves the
-Makepad Quest APK path, emits a Rusty XR log marker, exercises Makepad's XR
+Makepad Quest APK path, emits Rusty XR log markers, exercises Makepad's XR
 root, and documents the integration gaps before adding camera transport,
-stream, or broker behavior.
+stream, or broker behavior. The current source also draws a small synthetic
+stereo comparison scene and emits a comparison marker so renderer smoke runs
+can be lined up against the custom APK camera-stereo baseline before Camera2 is
+opened.
 
 This example consumes the maintained Makepad fork branch as an app-shell
 dependency only. Rusty XR core stays Makepad-independent; the relationship and
@@ -17,18 +20,25 @@ fork-patch policy are documented in
 ## Current Scope
 
 - Uses `cargo-makepad android --variant=quest`.
-- Pins Makepad source to `e76019a9f447598ca05697b93e1895a772cbfa8c`.
-- Uses `makepad-xr` with a minimal `XrRoot`. Earlier isolation passes tried a
-  status panel, a simple cube marker, `XrPermissionsFlow`, and an empty root;
-  the current checked-in variant keeps the smallest repro shape.
+- Uses the maintained Makepad fork branch
+  `rusty-xr/android-libstd-packaging`; the current documented branch head is
+  `c762353fc43c`.
+- Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
+  comparison scene. Earlier isolation passes tried a status panel, a simple
+  cube marker, `XrPermissionsFlow`, and an empty root.
 - Reads its startup marker values through `rusty-xr-runtime-config`, so this
   shell is already attached to a framework-neutral Rusty XR core crate.
-- Emits `RUSTY_XR_MAKEPAD_Q2Q_STATUS` on startup.
+- Emits `RUSTY_XR_MAKEPAD_Q2Q_STATUS` and
+  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` on startup.
 - Keeps Android SDK, generated Java, generated manifest, native library, and APK
   output under ignored local build folders.
 - The current source does not include Makepad's `XrPermissionsFlow`; an earlier
   isolation variant confirmed that the GPU fault also appears when the
   permission flow is removed.
+- The current source does not open Camera2, import hardware buffers, or claim
+  stereo projection parity. It reports `acquisition=none`,
+  `pairedLeftRightGpuBuffers=false`, and `alignedProjection=false` until those
+  slices are implemented.
 
 ## Build
 
@@ -81,8 +91,9 @@ adb -s <quest-serial> shell am start -n io.github.mesmerprism.rustyxr.makepad.q2
   pass through `rusty-xr-runtime-config` before logging. Camera metadata,
   stream framing, and scorecard models should be added the same way, through
   core crates first and Makepad adapters second.
-- The current lane uses a synthetic status marker only. Camera affordances should
-  be added after APK/OpenXR launch is repeatable on device.
+- The current lane uses synthetic status and stereo-comparison markers only.
+  Camera affordances should be added after APK/OpenXR launch is repeatable on
+  device.
 - On Windows, the tested Makepad revision required local `cargo-makepad`
   packaging fixes for generated wrapper paths and dependent Rust shared-library
   bundling.
@@ -113,7 +124,8 @@ adb -s <quest-serial> shell am start -n io.github.mesmerprism.rustyxr.makepad.q2
 ## Validation Status
 
 - `cargo check`: passes for this standalone package.
-- Quest APK build: passes with the tested `cargo-makepad` packaging fixes.
+- Quest APK build: passes with the maintained Makepad fork branch, including
+  dependent Rust shared-library bundling.
 - Quest launcher run: installs, starts, emits `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
   keeps the app process alive.
 - Quest direct XR activity launch: reaches the generated `MakepadAppXr` activity,
@@ -134,3 +146,10 @@ adb -s <quest-serial> shell am start -n io.github.mesmerprism.rustyxr.makepad.q2
   `draw_pass_and_present` on Horizon OS; a targeted wait for the current
   window-frame fence before recreation is now the current local Makepad fork
   candidate patch.
+- Current source/build slice: the synthetic stereo comparison scene and
+  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` marker pass source validation and
+  release APK build. Device launcher/direct-XR validation against the maintained
+  fork branch is the next gate.
+
+The current step-by-step implementation ledger is tracked in
+[../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).

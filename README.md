@@ -221,6 +221,8 @@ dependencies, and remaining decision points, is tracked in
 The public ownership boundary between Rusty XR core and the maintained Makepad
 fork branch is documented in
 [docs/MAKEPAD_FORK_RELATIONSHIP.md](docs/MAKEPAD_FORK_RELATIONSHIP.md).
+The active Makepad stereo-comparison implementation ledger is tracked in
+[docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).
 The first implementation slices add source-only `build-manifest.public.json`
 files beside the public Android examples, the standalone Makepad smoke shell,
 and `tools/schema/check_android_build_manifest.py` to validate them.
