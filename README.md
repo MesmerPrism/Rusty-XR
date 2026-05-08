@@ -49,16 +49,17 @@ The first APK-producing example is a minimal Rust-native Android smoke test:
 [examples/quest-minimal-apk/README.md](examples/quest-minimal-apk/README.md).
 The first immersive Quest example is a Rust/OpenXR/Vulkan APK with explicit
 synthetic, CPU diagnostic, GPU-buffer probe, and paired-camera GPU projection
-tiers. It also includes an explicit environment-depth diagnostics profile that
-starts the OpenXR environment-depth provider, logs depth resolution, near/far
-range, runtime capture timestamps, acquire cost, observed depth cadence, and
-confidence availability, and renders a stereo grayscale depth texture diagnostic
-in headset. It also includes generated depth-mesh and retained local-space
-particle overlays for validating live environment-depth surface reconstruction
+tiers. It also includes explicit environment-depth profiles that start the
+OpenXR environment-depth provider, log depth resolution, near/far range,
+runtime capture timestamps, acquire cost, observed depth cadence, and
+confidence availability, and render live depth diagnostics in headset. The
+current mapping path includes a generated depth mesh, a retained local-space
+particle overlay, and a scene-owned particle map that anchors accepted depth
+samples in OpenXR local space, actively clears visible free-space cells from
+high-confidence observations, and renders small opaque default-disc particles
 over native passthrough:
 [examples/quest-composite-layer-apk/README.md](examples/quest-composite-layer-apk/README.md).
-The current particle anchoring limitation and scene-owned follow-up plan are
-documented in
+The projection-space and scene-map policy are documented in
 [docs/ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md](docs/ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md).
 The same APK has an optional generic diagnostic HUD path that can be driven
 from runtime configuration, ADB hotload intents, or future controller, LSL,

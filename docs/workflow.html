@@ -54,6 +54,12 @@
     </section>
 
     <section class="panel">
+      <h2>Environment Depth Mapping</h2>
+      <p>The Quest composite-layer example now has a scene-owned particle map for real-time environment-depth inspection. Keep depth samples in OpenXR local space, merge them by metric scene cell, and use high-confidence current depth only to clear visible free-space cells in front of the observed surface.</p>
+      <p>Use the log markers <code>projection=local-space-scene-particle-map</code>, <code>activeCorrectionPolicy=visible-free-space-ray-clear</code>, <code>particleMask=default-disc</code>, and <code>particleOpacity=alpha-clipped-opaque</code> when validating the mapping profile. See <a href="ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md">ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md</a>.</p>
+    </section>
+
+    <section class="panel">
       <h2>Pages Deployment</h2>
       <p>Serve GitHub Pages from the repository <code>docs/</code> folder. See <a href="PAGES_SETUP.md">PAGES_SETUP.md</a> for the exact repository setting and local preview command.</p>
     </section>

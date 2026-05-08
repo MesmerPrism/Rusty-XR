@@ -6,6 +6,7 @@ layout(location = 2) in float v_confidence;
 layout(location = 0) out vec4 out_color;
 
 const float PARTICLE_DISTANCE_GRADIENT_MAX_METERS = 3.0;
+const float DEFAULT_PARTICLE_DISC_CLIP = 0.5;
 
 vec3 depth_distance_gradient(float depth_meters) {
     float t = clamp(depth_meters / PARTICLE_DISTANCE_GRADIENT_MAX_METERS, 0.0, 1.0);
@@ -30,12 +31,11 @@ void main() {
     float radius = length(v_particle_uv);
     float disc = 1.0 - smoothstep(0.72, 1.0, radius);
     float core = 1.0 - smoothstep(0.0, 0.45, radius);
-    float alpha = disc * clamp(v_confidence, 0.0, 1.0) * 0.34;
-    if (alpha <= 0.002) {
+    if (disc < DEFAULT_PARTICLE_DISC_CLIP || v_confidence <= 0.002) {
         discard;
     }
 
     vec3 color = depth_distance_gradient(v_depth_meters);
     color = mix(color, vec3(1.0), core * 0.16);
-    out_color = vec4(color * alpha, alpha);
+    out_color = vec4(color, 1.0);
 }

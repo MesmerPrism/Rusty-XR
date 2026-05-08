@@ -114,14 +114,15 @@ Reusable depth-frame and environment-depth contracts that can be consumed by app
 shells, experiments, and analysis tools.
 
 The Quest composite-layer example now proves live environment-depth diagnostics,
-generated mesh visualization, retained local-space particle visualization, and
-native passthrough composition in one public APK source tree. The retained
-particle path is intentionally documented as a diagnostic bridge: it writes
-accepted samples into local scene coordinates, but the visible particle set is
-still refreshed from a view-sampled grid. The next environment-mapping target is
-a scene-owned particle or sparse surface map with explicit confidence
-accumulation, spatial binning, overlap merge/replacement, update resolution, and
-retirement policy.
+generated mesh visualization, retained local-space particle visualization,
+scene-owned local-space particle mapping, and native passthrough composition in
+one public APK source tree. The retained particle path remains documented as a
+diagnostic bridge: it writes accepted samples into local scene coordinates, but
+the visible particle set is still refreshed from a view-sampled grid. The scene
+particle map is the current real-time environment-mapping path: accepted depth
+samples are spatially binned in OpenXR local space, confidence-merged by cell,
+actively corrected from high-confidence visible free-space observations, and
+drawn as small alpha-clipped opaque default-disc particles.
 
 ### SDF Model
 
@@ -394,5 +395,5 @@ responsibilities.
 | Serialization and schemas | In progress | Opt-in `serde` features, round-trip tests, and custom schema export script added. |
 | Boundary scanner and provenance | In progress | Public scanner CLI/config and public utility provenance metadata added. |
 | Feature and adapter policy | `[x]` | Adapter feature names, separate-crate rule, and pre-adapter boundary requirements documented. |
-| Public examples | In progress | Synthetic layout, composite feedback, passthrough style catalog, audio-reactive passthrough style, and visual strobe profile examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming, an OSC listener diagnostics profile, environment-depth diagnostics, passthrough-backed depth mesh visualization, retained local-space particle visualization, and Meta/OpenXR hand-mesh particle visualization; broker APK proof added for localhost WebSocket, optional LSL forwarding, and OSC ingress/egress validation; portable hand-mesh sampler, collider, and SDF fixture examples added. |
+| Public examples | In progress | Synthetic layout, composite feedback, passthrough style catalog, audio-reactive passthrough style, and visual strobe profile examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming, an OSC listener diagnostics profile, environment-depth diagnostics, passthrough-backed depth mesh visualization, retained local-space particle visualization, scene-owned environment-depth particle mapping, and Meta/OpenXR hand-mesh particle visualization; broker APK proof added for localhost WebSocket, optional LSL forwarding, and OSC ingress/egress validation; portable hand-mesh sampler, collider, and SDF fixture examples added. |
 | Optional adapters | `[ ]` | Deferred until contracts stabilize. |

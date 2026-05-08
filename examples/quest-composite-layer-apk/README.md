@@ -170,10 +170,13 @@ The example names the camera path explicitly:
   provider and passthrough underlay active, but writes accepted samples into a
   persistent local-space particle map. Candidate depth points are quantized into
   metric local cells, mapped through a bounded spatial hash, confidence-blended
-  with existing particles in the same cell, and faded when stale. Invalid
-  candidate samples preserve existing cells instead of clearing raster-derived
-  slots, so cell lifetime is owned by the scene map. This is a visual
-  headset-validation map, not a CPU point-cloud, TSDF, or mesh export.
+  with existing particles in the same cell, actively corrected from
+  high-confidence visible free-space observations, and faded when stale.
+  Invalid candidate samples preserve existing cells instead of clearing
+  raster-derived slots, so cell lifetime is owned by the scene map. The draw
+  path uses small alpha-clipped opaque default-disc particles for readable
+  real-time scan feedback. This is a visual headset-validation map, not a CPU
+  point-cloud, TSDF, or mesh export.
 - `meta-hand-mesh-particles`: keeps camera and environment depth off, requests
   OpenXR hand tracking plus `XR_FB_hand_tracking_mesh`, retrieves the immutable
   hand bind mesh once per hand, skins it from per-frame
@@ -837,6 +840,8 @@ harnesses should treat this as a required manual step.
   `invalidSamplePolicy=preserve-existing-cells`,
   `activeCorrectionPolicy=visible-free-space-ray-clear`,
   `occlusionPolicy=preserve-behind-current-depth`,
+  `particleHalfSizeMeters=0.002..0.004`, `particleMask=default-disc`,
+  `particleOpacity=alpha-clipped-opaque`,
   `depthPoseSource=view-space-composed`,
   `projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader`,
   `particleCapacity`, `particleVertexCount`, `distanceColorMaxMeters=3`, and
