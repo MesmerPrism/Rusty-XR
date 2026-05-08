@@ -543,6 +543,10 @@ The catalog keeps camera path experiments as separate runtime profiles:
   for Quest-to-Quest-style live streaming, not a performance target: current
   runs still need frame-cadence and render-time optimization before the path can
   be treated as production quality.
+- `broker-h264-stereo-live-openxr-projection-scale065-probe`: the same
+  live-bounded broker stereo path with `rustyxr.xrRenderScale=0.65`. Use it as
+  the current performance comparison profile when the `0.75` visual-quality
+  profile is render-cost limited.
 - `broker-h264` existing-stream mode: set
   `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264
@@ -739,6 +743,25 @@ The generated screenshots, log bundles, manifests, validation JSON, and
 comparison reports belong under ignored `artifacts/` folders and must not be
 committed.
 
+## Streaming Cost Matrix
+
+Use the
+[Quest Streaming Diagnostics Workflow](../../docs/QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md)
+and [streaming diagnostics tools](../../tools/quest-streaming-diagnostics/README.md)
+when comparing direct in-app Camera2 projection against broker H.264 streaming.
+The current public workflow treats these as separate lanes: synthetic
+compositor, direct projected Camera2, broker existing-stream receive/decode,
+and broker live projected stereo, each at `rustyxr.xrRenderScale=0.75` and
+`0.65` where applicable.
+
+The important current lesson is that broker receive/decode and Java/native
+hardware-buffer handoff can be isolated from the expensive path. In recent
+public-example validation, both direct projected Camera2 and broker live
+projected stereo were render-scale sensitive in the same way, while synthetic
+compositor and broker receive/decode were not. That points the next
+optimization pass at projected draw/render attribution rather than transport,
+MediaCodec, `ImageReader`, or native bridge cost.
+
 ## Run Through Companion
 
 For a camera-only diagnostic renderer validation, install and launch from the
@@ -893,7 +916,8 @@ harnesses should treat this as a required manual step.
   only claimed when a `Rusty XR final projection status` line reports
   `activeTier=gpu-projected`, `alignedProjection=true`,
   `stereoLayout=Separate`, and `pairedLeftRightGpuBuffers=true`.
-- with `broker-h264-stereo-live-openxr-projection-probe`, the same OpenXR
+- with `broker-h264-stereo-live-openxr-projection-probe` or
+  `broker-h264-stereo-live-openxr-projection-scale065-probe`, the same OpenXR
   projection checks apply, and the report should also show
   `live_stream_requested=true`, schema version `2`, non-zero per-eye source
   packet rates, non-zero wire packet rates, `live_decode_path=true`,

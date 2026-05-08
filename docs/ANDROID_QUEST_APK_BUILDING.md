@@ -194,6 +194,10 @@ For intermittent headset-visible pixel pops, screen tears, stale frames, or
 other render artifacts after the coordinate-space path is correct, use the
 direct-device workflow in
 [QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md](QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md).
+For live camera or broker H.264 streaming cost isolation, use
+[QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md](QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md)
+so synthetic compositor, direct projected Camera2, broker receive/decode, and
+broker live projected paths are compared as separate lanes.
 
 ## Headset 2D Launchers
 
@@ -314,18 +318,19 @@ shell-helper status commands for future video-lab work, plus
 `video_lab.register_encoded_stream_manifest`,
 `video_lab.record_encoded_sample_metadata`, and `video_lab.record_metric_sample`
 paths for encoded-stream contract and timing/drop/queue diagnostics. It
-deliberately does not own streaming camera buffers, depth textures, OpenXR frame
-timing, MediaProjection capture, production encoded-frame transport,
-Vulkan/OpenXR texture import, or layer submission. The composite-layer example
-has a separate broker H.264 consumer fixture that can render decoder output to
-a Java-owned `SurfaceTexture` external texture for handoff telemetry, or decode
-into `ImageReader` `PRIVATE` hardware buffers that the existing Vulkan
-GPU-buffer-probe path imports and draws into the submitted OpenXR projection
-layer. When the broker reports selected Camera2 projection metadata in the
-stream-start result, the hardware-buffer consumer forwards intrinsics, pixel
-domains, lens pose, and pose source into the native camera-frame metadata so
-projection-readiness diagnostics can be checked before enabling a stereo
-projected path.
+deliberately does not own production camera sessions, depth textures, OpenXR
+frame timing, MediaProjection capture, unbounded encoded-frame transport, or
+release layer submission. The composite-layer example has broker H.264 consumer
+fixtures that can render decoder output to a Java-owned `SurfaceTexture`
+external texture for handoff telemetry, or decode into `ImageReader` `PRIVATE`
+hardware buffers that the existing Vulkan/OpenXR GPU-buffer path imports and
+draws into the submitted projection layer. The stereo live-bounded fixture
+accepts left/right stream sockets before capture, decodes arriving packets into
+paired hardware buffers, forwards intrinsics, pixel domains, lens pose, and pose
+source into native camera-frame metadata, and can validate the `gpu-projected`
+OpenXR stereo path. It is still a diagnostic profile; unbounded sessions,
+timestamp-based pairing under jitter, remote-device validation, and release
+performance remain future work.
 
 Build it locally with:
 

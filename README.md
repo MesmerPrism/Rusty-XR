@@ -86,17 +86,19 @@ camera-projection metadata provider, a bounded app-context Camera2 capture
 probe, bounded app-context raw-luma and H.264 Camera2 side-channel probes,
 an Android platform MediaCodec decode-consumption probe, shell-helper status
 surface, and video-lab streams for stream manifests, sample metadata, and
-timing metrics while keeping production camera streaming, texture import,
+timing metrics while keeping release-grade camera streaming, texture import,
 OpenXR eye views, and layer submission client-owned. The composite-layer
-example can also run a broker H.264 consumer probe that requests the broker
-stream over localhost, consumes the binary packets in the composite app
-process, and decodes them with platform MediaCodec into a Java-owned
-SurfaceTexture external texture or into hardware buffers that the existing
-Vulkan GPU-buffer probe imports and draws into the OpenXR projection layer. The
-hardware-buffer mode also latches selected Camera2 intrinsics and pose metadata
-from the broker stream-start ack when the broker can report it, so the native
-projection-readiness logs can distinguish "metadata available" from "missing
-projection inputs" before a stereo projected path is selected.
+example can also run broker H.264 consumer probes that request bounded or
+live-bounded broker streams over localhost, consume the binary packets in the
+composite app process, and decode them with platform MediaCodec into a
+Java-owned SurfaceTexture external texture or into hardware buffers that the
+existing Vulkan GPU-buffer path imports and draws into the OpenXR projection
+layer. The stereo live-bounded probe carries selected Camera2 intrinsics and
+pose metadata, decodes paired left/right streams as packets arrive, and can
+submit the decoded hardware buffers through the `gpu-projected` OpenXR stereo
+path. It remains a diagnostic streaming path; unbounded sessions, timestamp
+pairing under jitter, remote-device validation, and release-grade performance
+are still future work.
 The public
 Unity comparison target is
 [The Big Red Button Institute](https://github.com/MesmerPrism/the-big-red-button-institute),
@@ -183,6 +185,13 @@ scene-space anchoring and Vulkan screen-space viewport conventions, live in
 Direct-device Quest render artifact diagnosis, including `VrApi`, OVR Metrics,
 Perfetto, screenshot, and one-variable A/B workflows, is documented in
 [docs/QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md](docs/QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md).
+Quest streaming and camera-composite cost isolation, including direct in-app
+Camera2 versus broker H.264 projected paths, render-scale interpretation, and
+the reusable streaming scorecard tooling, is documented in
+[docs/QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md](docs/QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md).
+An agent-facing onboarding note for a Mac-based collaborator with multiple
+Quest headsets is available at
+[docs/QUEST_Q2Q_AGENT_ONBOARDING.md](docs/QUEST_Q2Q_AGENT_ONBOARDING.md).
 Intentional visual strobe profiles, 120 Hz display-refresh constraints, and
 photoepilepsy warnings are documented in
 [docs/VISUAL_STROBE_PROFILES.md](docs/VISUAL_STROBE_PROFILES.md).
@@ -217,6 +226,9 @@ Media-pipeline streaming and APK permission guidance is documented in
 including the boundary for Companion's optional managed FFmpeg preview runtime:
 FFmpeg remains an external/user-managed media sidecar, while Quest-side
 encoded-video examples use Android platform MediaCodec.
+Streaming diagnostics tooling lives in
+[tools/quest-streaming-diagnostics/README.md](tools/quest-streaming-diagnostics/README.md)
+and produces ignored local scorecards from headset run artifacts.
 
 BLE, LSL, and Polar H10 data-pipeline guidance is documented in
 [docs/BLE_LSL_POLAR_PIPELINE.md](docs/BLE_LSL_POLAR_PIPELINE.md).
