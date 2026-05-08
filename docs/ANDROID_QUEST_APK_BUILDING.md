@@ -29,6 +29,11 @@ This split keeps the public core reusable and prevents app-specific package
 names, tuning, release metadata, or generated artifacts from leaking into the
 public repo.
 
+For a Makepad-compatible Android build path that avoids the current
+Windows/Unity-AndroidPlayer-oriented helper scripts and prepares for Makepad
+Live/hotpatch iteration, see
+[MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md](MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md).
+
 ## Recommended Shell Shape
 
 Use one reusable Rust Android/OpenXR app shell per product family. The shell

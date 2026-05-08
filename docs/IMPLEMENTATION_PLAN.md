@@ -183,6 +183,12 @@ Pages from the main branch. It should summarize crate roles, architecture,
 boundaries, diagrams, and validation workflows without publishing private
 planning notes or raw graph/audit artifacts.
 
+The Makepad-compatible Android build migration is tracked in
+[MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md](MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md).
+That plan keeps current Quest examples usable while moving toward
+`cargo-makepad` packaging, Makepad Live/runtime config hotload, and future
+dynamic-library hotpatch compatibility.
+
 CI checks Pages/local links, schema generation, and the public boundary scanner
 before examples are added.
 

@@ -192,6 +192,9 @@ the reusable streaming scorecard tooling, is documented in
 An agent-facing onboarding note for a Mac-based collaborator with multiple
 Quest headsets is available at
 [docs/QUEST_Q2Q_AGENT_ONBOARDING.md](docs/QUEST_Q2Q_AGENT_ONBOARDING.md).
+A public plan for migrating the current Quest APK examples toward a
+Makepad-compatible Android build and hotload workflow is tracked in
+[docs/MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md](docs/MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md).
 Intentional visual strobe profiles, 120 Hz display-refresh constraints, and
 photoepilepsy warnings are documented in
 [docs/VISUAL_STROBE_PROFILES.md](docs/VISUAL_STROBE_PROFILES.md).
