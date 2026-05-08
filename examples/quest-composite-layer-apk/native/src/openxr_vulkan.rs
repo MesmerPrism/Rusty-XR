@@ -56,6 +56,11 @@ const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_CELL_METERS: f32 = 0.06;
 const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_PROBE_COUNT: u32 = 8;
 const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_FADE_START_FRAMES: u32 = 720;
 const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_RETIRE_FRAMES: u32 = 1440;
+const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_CONFIDENCE: f32 = 0.78;
+const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_STEP_METERS: f32 =
+    XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_CELL_METERS;
+const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_MAX_STEPS: u32 = 64;
+const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_SURFACE_KEEP_METERS: f32 = 0.18;
 const XR_HAND_MESH_PARTICLE_COUNT_PER_HAND: usize = 480;
 const XR_HAND_MESH_PARTICLE_CAPACITY: u32 = 1024;
 const XR_HAND_MESH_PARTICLE_RADIUS_METERS: f32 = 0.00225;
@@ -8626,7 +8631,7 @@ impl EnvironmentDepthVisualizer {
         if frame.frame_count == 0 || frame.frame_count % 120 == 0 {
             if scene_particle_map {
                 log_info(format!(
-                    "Rusty XR environment depth scene particle map update frame={} captureTimeNs={} candidateSamples={} particleCapacity={} sampleStridePixels={} cellMeters={} hashProbeCount={} staleFadeStartFrames={} staleRetireFrames={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} mergePolicy=spatial-cell-confidence-weighted invalidSamplePolicy=preserve-existing-cells depthColorMaxMeters={}",
+                    "Rusty XR environment depth scene particle map update frame={} captureTimeNs={} candidateSamples={} particleCapacity={} sampleStridePixels={} cellMeters={} hashProbeCount={} staleFadeStartFrames={} staleRetireFrames={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} mergePolicy=spatial-cell-confidence-weighted invalidSamplePolicy=preserve-existing-cells activeCorrectionPolicy=visible-free-space-ray-clear activeCorrectionConfidenceThreshold={} activeCorrectionStepMeters={} activeCorrectionMaxSteps={} activeCorrectionSurfaceKeepMeters={} occlusionPolicy=preserve-behind-current-depth depthColorMaxMeters={}",
                     frame.frame_count,
                     frame.capture_time_ns,
                     particle_writes,
@@ -8637,6 +8642,10 @@ impl EnvironmentDepthVisualizer {
                     XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_FADE_START_FRAMES,
                     XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_RETIRE_FRAMES,
                     XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS,
+                    XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_CONFIDENCE,
+                    XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_STEP_METERS,
+                    XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_MAX_STEPS,
+                    XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_SURFACE_KEEP_METERS,
                     XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS
                 ));
             } else {
@@ -8849,7 +8858,7 @@ impl EnvironmentDepthVisualizer {
         }
         if scene_particle_map && (frame.frame_count == 0 || frame.frame_count % 120 == 0) {
             log_info(format!(
-                "Rusty XR environment depth scene particle map draw frame={} swapchainIndex={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} projection=local-space-scene-particle-map rasterization=metric-billboard-particles depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader particleCapacity={} particleVertexCount={} sampleStridePixels={} cellMeters={} hashProbeCount={} staleFadeStartFrames={} staleRetireFrames={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} mapPolicy=spatial-hash-local-cells invalidSamplePolicy=preserve-existing-cells passthroughVisible=true",
+                "Rusty XR environment depth scene particle map draw frame={} swapchainIndex={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} projection=local-space-scene-particle-map rasterization=metric-billboard-particles depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader particleCapacity={} particleVertexCount={} sampleStridePixels={} cellMeters={} hashProbeCount={} staleFadeStartFrames={} staleRetireFrames={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} mapPolicy=spatial-hash-local-cells invalidSamplePolicy=preserve-existing-cells activeCorrectionPolicy=visible-free-space-ray-clear activeCorrectionConfidenceThreshold={} activeCorrectionStepMeters={} activeCorrectionMaxSteps={} activeCorrectionSurfaceKeepMeters={} occlusionPolicy=preserve-behind-current-depth passthroughVisible=true",
                 frame.frame_count,
                 frame.swapchain_index,
                 XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS,
@@ -8866,7 +8875,11 @@ impl EnvironmentDepthVisualizer {
                 XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_PROBE_COUNT,
                 XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_FADE_START_FRAMES,
                 XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_RETIRE_FRAMES,
-                XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS
+                XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS,
+                XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_CONFIDENCE,
+                XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_STEP_METERS,
+                XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_MAX_STEPS,
+                XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_SURFACE_KEEP_METERS
             ));
         } else if particle_overlay && (frame.frame_count == 0 || frame.frame_count % 120 == 0) {
             log_info(format!(

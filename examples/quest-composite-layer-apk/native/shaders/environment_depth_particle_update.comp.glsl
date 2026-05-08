@@ -37,6 +37,10 @@ const float SCENE_PARTICLE_CELL_METERS = 0.06;
 const uint SCENE_PARTICLE_PROBE_COUNT = 8u;
 const float SCENE_PARTICLE_STALE_REPLACE_FRAMES = 1440.0;
 const float SCENE_PARTICLE_MERGE_WEIGHT = 0.18;
+const float SCENE_PARTICLE_ACTIVE_CORRECTION_CONFIDENCE = 0.78;
+const float SCENE_PARTICLE_ACTIVE_CORRECTION_STEP_METERS = SCENE_PARTICLE_CELL_METERS;
+const uint SCENE_PARTICLE_ACTIVE_CORRECTION_MAX_STEPS = 64u;
+const float SCENE_PARTICLE_ACTIVE_CORRECTION_SURFACE_KEEP_METERS = 0.18;
 
 vec2 apply_depth_texture_transform(vec2 uv, int flags) {
     int turns = flags & 3;
@@ -111,9 +115,56 @@ float compact_scene_cell_key(uint hash_value) {
     return float((hash_value & 0x00ffffffu) + 1u);
 }
 
+ivec3 scene_cell_for_stage_position(vec3 stage_position) {
+    return ivec3(floor(stage_position / SCENE_PARTICLE_CELL_METERS));
+}
+
+void retire_scene_cell(ivec3 cell, float frame_marker) {
+    uint hash_value = hash_scene_cell(cell);
+    float cell_key = compact_scene_cell_key(hash_value);
+    uint base_slot = hash_value % PARTICLE_CAPACITY;
+
+    for (uint probe = 0u; probe < SCENE_PARTICLE_PROBE_COUNT; probe++) {
+        uint slot = (base_slot + probe) % PARTICLE_CAPACITY;
+        DepthParticle existing = particles[slot];
+        bool occupied = existing.state.x >= 0.5 && existing.state.z >= 0.5;
+        bool same_cell = abs(existing.state.z - cell_key) < 0.5;
+
+        if (occupied && same_cell) {
+            particles[slot].state = vec4(0.0, 0.0, existing.state.z, frame_marker);
+            return;
+        }
+    }
+}
+
+void active_correct_visible_free_space(vec2 surface_uv, int eye_index, float observed_depth_meters) {
+    float near_z = max(pc.params.y, 0.001);
+    float start_depth = near_z + SCENE_PARTICLE_ACTIVE_CORRECTION_STEP_METERS;
+    float active_range = SCENE_PARTICLE_ACTIVE_CORRECTION_STEP_METERS
+        * float(SCENE_PARTICLE_ACTIVE_CORRECTION_MAX_STEPS);
+    float stop_depth = min(
+        observed_depth_meters - SCENE_PARTICLE_ACTIVE_CORRECTION_SURFACE_KEEP_METERS,
+        active_range);
+
+    if (!(stop_depth > start_depth)) {
+        return;
+    }
+
+    for (uint step_index = 0u; step_index < SCENE_PARTICLE_ACTIVE_CORRECTION_MAX_STEPS; step_index++) {
+        float depth_meters = start_depth
+            + (float(step_index) + 0.5) * SCENE_PARTICLE_ACTIVE_CORRECTION_STEP_METERS;
+        if (depth_meters >= stop_depth) {
+            return;
+        }
+
+        vec3 stage_position = reconstruct_stage_position(surface_uv, eye_index, depth_meters);
+        retire_scene_cell(scene_cell_for_stage_position(stage_position), max(pc.transform.y, 0.0));
+    }
+}
+
 void write_scene_particle(vec3 stage_position, float depth_meters, float confidence) {
     float frame_marker = max(pc.transform.y, 0.0);
-    ivec3 cell = ivec3(floor(stage_position / SCENE_PARTICLE_CELL_METERS));
+    ivec3 cell = scene_cell_for_stage_position(stage_position);
     uint hash_value = hash_scene_cell(cell);
     float cell_key = compact_scene_cell_key(hash_value);
     uint base_slot = hash_value % PARTICLE_CAPACITY;
@@ -193,6 +244,9 @@ void main() {
 
     vec3 stage_position = reconstruct_stage_position(surface_uv, int(eye_index), depth_meters);
     if (scene_particle_map) {
+        if (confidence >= SCENE_PARTICLE_ACTIVE_CORRECTION_CONFIDENCE) {
+            active_correct_visible_free_space(surface_uv, int(eye_index), depth_meters);
+        }
         write_scene_particle(stage_position, depth_meters, confidence);
         return;
     }
