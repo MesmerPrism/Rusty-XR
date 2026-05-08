@@ -52,6 +52,10 @@ const XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY: u32 = 32_768;
 const XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS: u32 = 12;
 const XR_ENVIRONMENT_DEPTH_PARTICLE_SOURCE_VIEW_COUNT: u32 = 1;
 const XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS: f32 = 0.28;
+const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_CELL_METERS: f32 = 0.06;
+const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_PROBE_COUNT: u32 = 8;
+const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_FADE_START_FRAMES: u32 = 720;
+const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_RETIRE_FRAMES: u32 = 1440;
 const XR_HAND_MESH_PARTICLE_COUNT_PER_HAND: usize = 480;
 const XR_HAND_MESH_PARTICLE_CAPACITY: u32 = 1024;
 const XR_HAND_MESH_PARTICLE_RADIUS_METERS: f32 = 0.00225;
@@ -789,7 +793,8 @@ fn pose_orientation(pose: xr::sys::Posef) -> [f32; 4] {
 impl OpenXrEnvironmentDepthProbe {
     fn acquire(
         &mut self,
-        reference_space: &xr::Space,
+        acquire_space: &xr::Space,
+        reference_from_acquire_space: xr::Posef,
         display_time: xr::Time,
         current_views: &[xr::View],
         frame_count: u64,
@@ -801,7 +806,7 @@ impl OpenXrEnvironmentDepthProbe {
         let acquire_info = xr::sys::EnvironmentDepthImageAcquireInfoMETA {
             ty: xr::sys::EnvironmentDepthImageAcquireInfoMETA::TYPE,
             next: ptr::null(),
-            space: reference_space.as_raw(),
+            space: acquire_space.as_raw(),
             display_time,
         };
         let mut timestamp = xr::sys::EnvironmentDepthImageTimestampMETA {
@@ -869,7 +874,7 @@ impl OpenXrEnvironmentDepthProbe {
 
         if self.total_acquired == 1 {
             log_info(format!(
-                "Rusty XR environment depth first frame swapchainIndex={} size={}x{} depthFormat=VK_FORMAT_D16_UNORM layerCount={} nearZ={} farZ={} captureTimeNs={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth depthVisualEncoding=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={}",
+                "Rusty XR environment depth first frame swapchainIndex={} size={}x{} depthFormat=VK_FORMAT_D16_UNORM layerCount={} nearZ={} farZ={} captureTimeNs={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth depthVisualEncoding=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader",
                 image.swapchain_index,
                 self.width,
                 self.height,
@@ -883,6 +888,10 @@ impl OpenXrEnvironmentDepthProbe {
         }
         self.report_status_if_due(frame_count, acquire_ms, true);
         if self.mode.visualizes() {
+            let left_depth_pose =
+                multiply_openxr_pose(reference_from_acquire_space, image.views[0].pose);
+            let right_depth_pose =
+                multiply_openxr_pose(reference_from_acquire_space, image.views[1].pose);
             let left_render_fov = current_views
                 .first()
                 .map(|view| view.fov)
@@ -911,10 +920,10 @@ impl OpenXrEnvironmentDepthProbe {
                 right_fov_tangents: fov_tangents(image.views[1].fov),
                 left_render_fov_tangents: fov_tangents(left_render_fov),
                 right_render_fov_tangents: fov_tangents(right_render_fov),
-                left_position: pose_position(image.views[0].pose),
-                right_position: pose_position(image.views[1].pose),
-                left_orientation: pose_orientation(image.views[0].pose),
-                right_orientation: pose_orientation(image.views[1].pose),
+                left_position: pose_position(left_depth_pose),
+                right_position: pose_position(right_depth_pose),
+                left_orientation: pose_orientation(left_depth_pose),
+                right_orientation: pose_orientation(right_depth_pose),
                 left_render_position: pose_position(left_render_pose),
                 right_render_position: pose_position(right_render_pose),
                 left_render_orientation: pose_orientation(left_render_pose),
@@ -971,7 +980,7 @@ impl OpenXrEnvironmentDepthProbe {
             0.0
         };
         log_info(format!(
-            "Rusty XR environment depth status frame={} depthEnabled=true mode={} extensionAvailable=true supported=true providerCreated=true providerRunning=true swapchainCreated=true size={}x{} depthFormat=VK_FORMAT_D16_UNORM layerCount={} swapchainIndex={} openXrFrameCount={} observedOpenXrFps={:.1} acquireAttempts={} acquiredFrames={} unavailableFrames={} acquireErrors={} uniqueCaptureTimes={} repeatedCaptureTimes={} observedAcquireHz={:.1} observedDepthHz={:.1} lastAcquireCpuMs={:.3} avgAcquireCpuMs={:.3} captureTimeNs={} nearZ={} farZ={} handRemovalSupported={} handRemovalEnabled={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth visualizer={} depthVisualEncoding=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} depthVisualEyeMapping=left-layer-0-right-layer-1 depthMeshOverlay={} depthParticleOverlay={} depthMeshDistanceColorMaxMeters={} depthMeshCellMeters={} depthMeshDiscontinuityMeters={} depthMeshProjection=local-space-depth-surface depthMeshRasterization={} depthMeshGridStridePixels={} depthParticleCapacity={} depthParticleSampleStridePixels={} passthroughVisible={}",
+            "Rusty XR environment depth status frame={} depthEnabled=true mode={} extensionAvailable=true supported=true providerCreated=true providerRunning=true swapchainCreated=true size={}x{} depthFormat=VK_FORMAT_D16_UNORM layerCount={} swapchainIndex={} openXrFrameCount={} observedOpenXrFps={:.1} acquireAttempts={} acquiredFrames={} unavailableFrames={} acquireErrors={} uniqueCaptureTimes={} repeatedCaptureTimes={} observedAcquireHz={:.1} observedDepthHz={:.1} lastAcquireCpuMs={:.3} avgAcquireCpuMs={:.3} captureTimeNs={} nearZ={} farZ={} handRemovalSupported={} handRemovalEnabled={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth visualizer={} depthVisualEncoding=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} depthVisualEyeMapping=left-layer-0-right-layer-1 depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader depthMeshOverlay={} depthParticleOverlay={} depthMeshDistanceColorMaxMeters={} depthMeshCellMeters={} depthMeshDiscontinuityMeters={} depthMeshProjection=local-space-depth-surface depthMeshRasterization={} depthMeshGridStridePixels={} depthParticleCapacity={} depthParticleSampleStridePixels={} passthroughVisible={}",
             frame_count,
             self.mode.stable_id(),
             self.width,
@@ -2236,8 +2245,9 @@ unsafe fn run_vulkan(
 
     let (reference_space, reference_space_label) =
         create_app_reference_space(&session, startup_config.hand_particle_mode)?;
+    let view_reference_space = create_view_reference_space(&session)?;
     log_info(format!(
-        "Rusty XR OpenXR reference space for projection, environment depth, and hand mesh={reference_space_label}"
+        "Rusty XR OpenXR reference space for projection, environment depth, and hand mesh={reference_space_label} viewPoseSource=view-space-composed"
     ));
 
     let cmd_pool = vk_device
@@ -2441,26 +2451,32 @@ unsafe fn run_vulkan(
             fixed_foveation_render_path,
             &mut swapchain,
         )?;
-        let (view_state_flags, views) = session
+        let reference_from_view = view_reference_space
+            .locate(&reference_space, frame_state.predicted_display_time)
+            .map_err(|error| format!("locate OpenXR VIEW space from reference space: {error}"))?;
+        let (view_state_flags, head_space_views) = session
             .locate_views(
                 VIEW_TYPE,
                 frame_state.predicted_display_time,
-                &reference_space,
+                &view_reference_space,
             )
             .map_err(|error| format!("locate OpenXR views: {error}"))?;
+        let views = compose_head_space_views(reference_from_view.pose, &head_space_views);
         if views.len() != VIEW_COUNT as usize {
             return Err(format!(
                 "expected {VIEW_COUNT} OpenXR views, got {}",
                 views.len()
             ));
         }
-        let views_valid = view_state_flags.contains(xr::ViewStateFlags::ORIENTATION_VALID)
+        let view_space_valid = space_location_pose_valid(reference_from_view);
+        let views_valid = view_space_valid
+            && view_state_flags.contains(xr::ViewStateFlags::ORIENTATION_VALID)
             && view_state_flags.contains(xr::ViewStateFlags::POSITION_VALID);
         if !views_valid {
             if frame_count == 0 || frame_count % 120 == 0 {
                 log_info(format!(
-                    "Rusty XR skipped composition frame {} because OpenXR view pose is not valid yet flags={:?}",
-                    frame_count, view_state_flags
+                    "Rusty XR skipped composition frame {} because OpenXR view pose is not valid yet viewFlags={:?} referenceFromViewFlags={:?}",
+                    frame_count, view_state_flags, reference_from_view.location_flags
                 ));
             }
             frame_stream
@@ -2527,7 +2543,8 @@ unsafe fn run_vulkan(
         let mut depth_visual_frame: Option<EnvironmentDepthVisualFrame> = None;
         let depth_visual_clear = if let Some(probe) = openxr_environment_depth_probe.as_mut() {
             let acquired_depth_visual_frame = probe.acquire(
-                &reference_space,
+                &view_reference_space,
+                reference_from_view.pose,
                 frame_state.predicted_display_time,
                 &views,
                 frame_count,
@@ -3401,7 +3418,13 @@ unsafe fn run_vulkan(
     drop(openxr_environment_depth_probe.take());
     drop(openxr_passthrough_probe.take());
     drop(openxr_hand_particle_source.take());
-    drop((session, frame_wait, frame_stream, reference_space));
+    drop((
+        session,
+        frame_wait,
+        frame_stream,
+        reference_space,
+        view_reference_space,
+    ));
     for fence in fences {
         vk_device.destroy_fence(fence, None);
     }
@@ -8402,6 +8425,7 @@ struct EnvironmentDepthVisualizer {
     particle_write_cursor: u32,
     last_particle_capture_time_ns: Option<i64>,
     particles_initialized: bool,
+    last_particle_scene_map: Option<bool>,
     last_draw_failure_frame: Option<u64>,
 }
 
@@ -8414,6 +8438,7 @@ impl EnvironmentDepthVisualizer {
             particle_write_cursor: 0,
             last_particle_capture_time_ns: None,
             particles_initialized: false,
+            last_particle_scene_map: None,
             last_draw_failure_frame: None,
         }
     }
@@ -8465,7 +8490,9 @@ impl EnvironmentDepthVisualizer {
         let Some(resources) = self.resources.as_ref() else {
             return;
         };
-        if !self.particles_initialized {
+        let scene_particle_map = mode.scene_particle_map();
+        let particle_map_changed = self.last_particle_scene_map != Some(scene_particle_map);
+        if !self.particles_initialized || particle_map_changed {
             device.cmd_fill_buffer(
                 cmd,
                 resources.particle_buffer,
@@ -8489,6 +8516,9 @@ impl EnvironmentDepthVisualizer {
                 &[],
             );
             self.particles_initialized = true;
+            self.last_particle_scene_map = Some(scene_particle_map);
+            self.particle_write_cursor = 0;
+            self.last_particle_capture_time_ns = None;
         }
         if self.last_particle_capture_time_ns == Some(frame.capture_time_ns) {
             return;
@@ -8504,6 +8534,11 @@ impl EnvironmentDepthVisualizer {
         let write_base = self.particle_write_cursor;
         let particle_writes =
             environment_depth_particle_samples_per_frame(frame.depth_width, frame.depth_height);
+        let particle_update_marker = if scene_particle_map {
+            frame.frame_count as f32
+        } else {
+            write_base as f32
+        };
         let push = EnvironmentDepthVisualizationPush {
             params: [
                 XR_ENVIRONMENT_DEPTH_VISUAL_MAX_METERS,
@@ -8517,8 +8552,8 @@ impl EnvironmentDepthVisualizer {
             ],
             transform: [
                 XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_FLAGS as f32,
-                write_base as f32,
-                XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS as f32,
+                particle_update_marker,
+                if scene_particle_map { 1.0 } else { 0.0 },
                 XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS,
             ],
             left_fov_tangents: frame.left_fov_tangents,
@@ -8582,22 +8617,41 @@ impl EnvironmentDepthVisualizer {
             &[],
         );
 
-        self.particle_write_cursor =
-            (self.particle_write_cursor + particle_writes) % XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY;
+        if !scene_particle_map {
+            self.particle_write_cursor = (self.particle_write_cursor + particle_writes)
+                % XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY;
+        }
         self.last_particle_capture_time_ns = Some(frame.capture_time_ns);
 
         if frame.frame_count == 0 || frame.frame_count % 120 == 0 {
-            log_info(format!(
-                "Rusty XR environment depth particle update frame={} captureTimeNs={} writeBase={} samplesPerFrame={} particleCapacity={} sampleStridePixels={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} depthColorMaxMeters={}",
-                frame.frame_count,
-                frame.capture_time_ns,
-                write_base,
-                particle_writes,
-                XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY,
-                XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS,
-                XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS,
-                XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS
-            ));
+            if scene_particle_map {
+                log_info(format!(
+                    "Rusty XR environment depth scene particle map update frame={} captureTimeNs={} candidateSamples={} particleCapacity={} sampleStridePixels={} cellMeters={} hashProbeCount={} staleFadeStartFrames={} staleRetireFrames={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} mergePolicy=spatial-cell-confidence-weighted invalidSamplePolicy=preserve-existing-cells depthColorMaxMeters={}",
+                    frame.frame_count,
+                    frame.capture_time_ns,
+                    particle_writes,
+                    XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY,
+                    XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS,
+                    XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_CELL_METERS,
+                    XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_PROBE_COUNT,
+                    XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_FADE_START_FRAMES,
+                    XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_RETIRE_FRAMES,
+                    XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS,
+                    XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS
+                ));
+            } else {
+                log_info(format!(
+                    "Rusty XR environment depth particle update frame={} captureTimeNs={} writeBase={} samplesPerFrame={} particleCapacity={} sampleStridePixels={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} depthColorMaxMeters={}",
+                    frame.frame_count,
+                    frame.capture_time_ns,
+                    write_base,
+                    particle_writes,
+                    XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY,
+                    XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS,
+                    XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS,
+                    XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS
+                ));
+            }
         }
     }
 
@@ -8611,6 +8665,7 @@ impl EnvironmentDepthVisualizer {
     ) {
         let mesh_overlay = mode.mesh_overlay();
         let particle_overlay = mode.particle_overlay();
+        let scene_particle_map = mode.scene_particle_map();
         if mesh_overlay {
             self.remember_depth_frame(frame);
         }
@@ -8681,8 +8736,16 @@ impl EnvironmentDepthVisualizer {
                 ],
                 transform: [
                     XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_FLAGS as f32,
-                    *history_alpha,
-                    XR_ENVIRONMENT_DEPTH_MESH_CELL_METERS,
+                    if scene_particle_map {
+                        frame.frame_count as f32
+                    } else {
+                        *history_alpha
+                    },
+                    if scene_particle_map {
+                        1.0
+                    } else {
+                        XR_ENVIRONMENT_DEPTH_MESH_CELL_METERS
+                    },
                     XR_ENVIRONMENT_DEPTH_MESH_DISCONTINUITY_METERS,
                 ],
                 left_fov_tangents: draw_frame.left_fov_tangents,
@@ -8730,7 +8793,7 @@ impl EnvironmentDepthVisualizer {
         }
         if frame.frame_count == 0 || frame.frame_count % 120 == 0 {
             log_info(format!(
-                "Rusty XR environment depth visualizer draw frame={} swapchainIndex={} captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} grayscale=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} depthMeshOverlay={} depthMeshDistanceColorMaxMeters={} depthMeshCellMeters={} depthMeshDiscontinuityMeters={} depthMeshProjection=local-space-depth-surface depthMeshRasterization={} depthMeshGridStridePixels={} depthMeshVertexCount={} depthMeshHistoryFramesDrawn={} depthMeshHistoryMaxAgeMs={} passthroughVisible={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth",
+                "Rusty XR environment depth visualizer draw frame={} swapchainIndex={} captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} grayscale=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader depthMeshOverlay={} depthMeshDistanceColorMaxMeters={} depthMeshCellMeters={} depthMeshDiscontinuityMeters={} depthMeshProjection=local-space-depth-surface depthMeshRasterization={} depthMeshGridStridePixels={} depthMeshVertexCount={} depthMeshHistoryFramesDrawn={} depthMeshHistoryMaxAgeMs={} passthroughVisible={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth",
                 frame.frame_count,
                 frame.swapchain_index,
                 frame.capture_time_ns,
@@ -8746,7 +8809,11 @@ impl EnvironmentDepthVisualizer {
                 XR_ENVIRONMENT_DEPTH_MESH_CELL_METERS,
                 XR_ENVIRONMENT_DEPTH_MESH_DISCONTINUITY_METERS,
                 if particle_overlay {
-                    "retained-local-space-metric-billboard-particles"
+                    if scene_particle_map {
+                        "scene-owned-spatial-particle-map"
+                    } else {
+                        "retained-local-space-metric-billboard-particles"
+                    }
                 } else if mesh_overlay {
                     "world-space-generated-grid"
                 } else {
@@ -8761,7 +8828,7 @@ impl EnvironmentDepthVisualizer {
         }
         if mesh_overlay && (frame.frame_count == 0 || frame.frame_count % 120 == 0) {
             log_info(format!(
-                "Rusty XR environment depth mesh overlay draw frame={} swapchainIndex={} cellMeters={} discontinuityMeters={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} depthVisualTextureTransform={} projection=local-space-depth-surface rasterization=world-space-generated-grid gridStridePixels={} generatedVertexCount={} historyFramesDrawn={} historyMaxAgeMs={} dominantSurfaceGrid=true screenUvGrid=false passthroughVisible=true",
+                "Rusty XR environment depth mesh overlay draw frame={} swapchainIndex={} cellMeters={} discontinuityMeters={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} depthVisualTextureTransform={} depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader projection=local-space-depth-surface rasterization=world-space-generated-grid gridStridePixels={} generatedVertexCount={} historyFramesDrawn={} historyMaxAgeMs={} dominantSurfaceGrid=true screenUvGrid=false passthroughVisible=true",
                 frame.frame_count,
                 frame.swapchain_index,
                 XR_ENVIRONMENT_DEPTH_MESH_CELL_METERS,
@@ -8780,9 +8847,30 @@ impl EnvironmentDepthVisualizer {
                 XR_ENVIRONMENT_DEPTH_MESH_HISTORY_MAX_AGE_NS / 1_000_000
             ));
         }
-        if particle_overlay && (frame.frame_count == 0 || frame.frame_count % 120 == 0) {
+        if scene_particle_map && (frame.frame_count == 0 || frame.frame_count % 120 == 0) {
             log_info(format!(
-                "Rusty XR environment depth particle overlay draw frame={} swapchainIndex={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} projection=local-space-retained-particles rasterization=metric-billboard-particles particleCapacity={} particleVertexCount={} sampleStridePixels={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} passthroughVisible=true",
+                "Rusty XR environment depth scene particle map draw frame={} swapchainIndex={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} projection=local-space-scene-particle-map rasterization=metric-billboard-particles depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader particleCapacity={} particleVertexCount={} sampleStridePixels={} cellMeters={} hashProbeCount={} staleFadeStartFrames={} staleRetireFrames={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} mapPolicy=spatial-hash-local-cells invalidSamplePolicy=preserve-existing-cells passthroughVisible=true",
+                frame.frame_count,
+                frame.swapchain_index,
+                XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS,
+                frame.capture_time_ns,
+                resolution.width,
+                resolution.height,
+                frame.depth_width,
+                frame.depth_height,
+                VIEW_COUNT,
+                XR_ENVIRONMENT_DEPTH_PARTICLE_CAPACITY,
+                last_vertex_count,
+                XR_ENVIRONMENT_DEPTH_PARTICLE_SAMPLE_STRIDE_PIXELS,
+                XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_CELL_METERS,
+                XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_PROBE_COUNT,
+                XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_FADE_START_FRAMES,
+                XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_RETIRE_FRAMES,
+                XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS
+            ));
+        } else if particle_overlay && (frame.frame_count == 0 || frame.frame_count % 120 == 0) {
+            log_info(format!(
+                "Rusty XR environment depth particle overlay draw frame={} swapchainIndex={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} projection=local-space-retained-particles rasterization=metric-billboard-particles depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader particleCapacity={} particleVertexCount={} sampleStridePixels={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} passthroughVisible=true",
                 frame.frame_count,
                 frame.swapchain_index,
                 XR_ENVIRONMENT_DEPTH_MESH_DISTANCE_GRADIENT_MAX_METERS,
@@ -8860,6 +8948,7 @@ impl EnvironmentDepthVisualizer {
         self.particle_write_cursor = 0;
         self.last_particle_capture_time_ns = None;
         self.particles_initialized = false;
+        self.last_particle_scene_map = None;
     }
 }
 
@@ -9210,6 +9299,98 @@ fn create_app_reference_space(
                 })
         }
     }
+}
+
+fn create_view_reference_space(session: &xr::Session<xr::Vulkan>) -> Result<xr::Space, String> {
+    session
+        .create_reference_space(xr::ReferenceSpaceType::VIEW, xr::Posef::IDENTITY)
+        .map_err(|error| format!("create OpenXR VIEW reference space: {error}"))
+}
+
+fn space_location_pose_valid(location: xr::SpaceLocation) -> bool {
+    location
+        .location_flags
+        .contains(xr::sys::SpaceLocationFlags::ORIENTATION_VALID)
+        && location
+            .location_flags
+            .contains(xr::sys::SpaceLocationFlags::POSITION_VALID)
+}
+
+fn compose_head_space_views(
+    reference_from_head: xr::Posef,
+    head_space_views: &[xr::View],
+) -> Vec<xr::View> {
+    head_space_views
+        .iter()
+        .copied()
+        .map(|view| xr::View {
+            pose: multiply_openxr_pose(reference_from_head, view.pose),
+            fov: view.fov,
+        })
+        .collect()
+}
+
+fn multiply_openxr_pose(a: xr::Posef, b: xr::Posef) -> xr::Posef {
+    let rotated_b_position = rotate_openxr_vec3(a.orientation, b.position);
+    xr::Posef {
+        orientation: normalize_openxr_quat(multiply_openxr_quat(a.orientation, b.orientation)),
+        position: xr::Vector3f {
+            x: a.position.x + rotated_b_position.x,
+            y: a.position.y + rotated_b_position.y,
+            z: a.position.z + rotated_b_position.z,
+        },
+    }
+}
+
+fn multiply_openxr_quat(a: xr::Quaternionf, b: xr::Quaternionf) -> xr::Quaternionf {
+    xr::Quaternionf {
+        x: (a.w * b.x) + (a.x * b.w) + (a.y * b.z) - (a.z * b.y),
+        y: (a.w * b.y) - (a.x * b.z) + (a.y * b.w) + (a.z * b.x),
+        z: (a.w * b.z) + (a.x * b.y) - (a.y * b.x) + (a.z * b.w),
+        w: (a.w * b.w) - (a.x * b.x) - (a.y * b.y) - (a.z * b.z),
+    }
+}
+
+fn normalize_openxr_quat(q: xr::Quaternionf) -> xr::Quaternionf {
+    let len_sq = (q.x * q.x) + (q.y * q.y) + (q.z * q.z) + (q.w * q.w);
+    if !len_sq.is_finite() || len_sq <= f32::EPSILON {
+        return xr::Quaternionf::IDENTITY;
+    }
+    let inv_len = len_sq.sqrt().recip();
+    xr::Quaternionf {
+        x: q.x * inv_len,
+        y: q.y * inv_len,
+        z: q.z * inv_len,
+        w: q.w * inv_len,
+    }
+}
+
+fn rotate_openxr_vec3(q: xr::Quaternionf, v: xr::Vector3f) -> xr::Vector3f {
+    let qv = [q.x, q.y, q.z];
+    let value = [v.x, v.y, v.z];
+    let inner = add3(cross3(qv, value), scale3(value, q.w));
+    let rotated = add3(value, scale3(cross3(qv, inner), 2.0));
+    xr::Vector3f {
+        x: rotated[0],
+        y: rotated[1],
+        z: rotated[2],
+    }
+}
+
+fn add3(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+fn scale3(v: [f32; 3], scale: f32) -> [f32; 3] {
+    [v[0] * scale, v[1] * scale, v[2] * scale]
+}
+
+fn cross3(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        (a[1] * b[2]) - (a[2] * b[1]),
+        (a[2] * b[0]) - (a[0] * b[2]),
+        (a[0] * b[1]) - (a[1] * b[0]),
+    ]
 }
 
 unsafe fn create_hand_mesh_particle_resources(

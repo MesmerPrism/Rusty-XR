@@ -345,6 +345,25 @@
       "description": "Keeps the environment-depth provider and passthrough underlay active, but updates a renderer-owned GPU buffer of retained stage-space billboard particles from confident in-view depth samples. Particles are filtered by local depth discontinuity, persist until the ring buffer overwrites them, and use the same metric distance color ramp clamped at about 3 meters."
     },
     {
+      "id": "environment-depth-scene-particle-map",
+      "label": "Environment depth scene particle map",
+      "values": {
+        "rustyxr.example": "quest-composite-layer-apk",
+        "rustyxr.cameraTier": "synthetic",
+        "rustyxr.camera": "false",
+        "rustyxr.mediaProjection": "false",
+        "rustyxr.source": "environment-depth",
+        "rustyxr.depth": "scene-particle-map",
+        "rustyxr.depthHandRemoval": "false",
+        "rustyxr.openxrPassthroughProbe": "underlay",
+        "rustyxr.passthroughStyleMode": "none",
+        "rustyxr.passthroughOpacity": "1.0",
+        "rustyxr.xrRenderScale": "0.75",
+        "rustyxr.xrFixedFoveationLevel": "0"
+      },
+      "description": "Keeps the environment-depth provider and passthrough underlay active, but writes accepted depth samples into a persistent local-space particle map. Candidate samples are quantized into metric local cells, mapped through a bounded spatial hash, confidence-blended with existing particles in the same cell, preserve existing cells when a candidate sample is invalid, compose depth poses through VIEW space into the stable app space, fade when stale, and render as depth-colored metric billboards for headset-motion anchoring validation."
+    },
+    {
       "id": "passthrough-only-layer-probe",
       "label": "Passthrough only layer probe",
       "values": {

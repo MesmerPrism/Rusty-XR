@@ -1,6 +1,6 @@
 # Environment Depth Particle Anchoring
 
-The Quest composite-layer example now has three useful environment-depth
+The Quest composite-layer example now has four useful environment-depth
 diagnostic paths:
 
 - a stereo grayscale depth visualizer for validating provider cadence and
@@ -9,37 +9,68 @@ diagnostic paths:
   against native passthrough
 - a retained local-space particle overlay for experimenting with depth-derived
   surface markers
+- a scene-owned particle map for testing persistent local-space scan markers
 
 The particle overlay is real progress for live environment-depth mapping: depth
 samples are reconstructed into the OpenXR local reference space, retained in a
 GPU buffer, and rendered as metric billboards through the current eye poses.
 It is not a fullscreen color pass.
 
-## Current Limitation
+## Retained Overlay Limitation
 
-The current particle overlay is still sourced from a regular view-sampled depth
+The `particle-overlay` mode is still sourced from a regular view-sampled depth
 grid. Even though each sample is written into local scene coordinates, the
 active set is continuously refreshed from the headset view. During head motion,
-the visible particle pattern can therefore feel view-attached because the
-sample lattice itself moves with the headset and replaces older samples before
-the scene has an owner-level anchoring policy.
+the visible particle pattern can therefore feel view-attached because the sample
+lattice itself moves with the headset and replaces older samples before the
+scene has an owner-level anchoring policy.
 
 This is different from a scene-owned reconstruction. A scene-owned particle map
 should create, update, merge, and retire particles in the environment coordinate
 system rather than treating the current view grid as the primary identity of
 the particles.
 
+## Scene Particle Map
+
+The `scene-particle-map` mode is the first scene-owned version. It still takes
+candidate observations from the live depth texture, but particle identity is
+based on quantized OpenXR local-space cells rather than screen-raster slots.
+Each accepted depth sample reconstructs a local-space position, hashes its
+metric cell, probes a small neighborhood of particle slots, and then either
+creates a new particle, confidence-blends an existing particle in the same
+cell, or replaces a stale particle.
+Invalid candidate samples do not clear arbitrary particle slots in this mode;
+they leave existing cells alone so lifetime is owned by local-space age/fade
+rather than by the current headset raster.
+
+The headset-motion fix has two separate parts:
+
+- render and depth poses are composed from `VIEW` space into the stable app
+  reference space before they are used for mapping or drawing
+- the environment-depth mesh and particle shaders fold the Vulkan positive
+  viewport Y convention into their manual OpenXR FOV projection, matching the
+  known-good particle renderer path
+
+This is intentionally a visual map, not a CPU point-cloud export, TSDF volume,
+or mesh reconstruction. The goal is to make headset-motion validation possible:
+previously observed particles should stay attached to the room while new
+observations fill or refresh nearby cells. Stale cells fade and retire so the
+map can recover when the runtime depth surface changes or confidence drops.
+
 ## Follow-Up Design Work
 
-The next implementation should choose an explicit scene map policy before
+The next implementation should build on the explicit scene map policy before
 adding more visual density:
 
-- quantize candidate particles into local-space cells or surface bins
-- accumulate confidence across repeated observations of the same cell
-- merge overlapping particles instead of drawing every accepted depth sample
-- keep particle identity independent from the current headset view
+- replace passive fade-only retirement with active cell correction: when a
+  currently visible mapped particle projects to a screen location where the new
+  depth observation has enough confidence to prove the old cell is wrong,
+  update, retire, or move that particle without falling back to a headset-raster
+  identity
+- tune local-space cell size and probe count for Quest depth noise
+- make merge confidence account for observation angle and depth confidence when
+  the runtime exposes confidence payloads
 - update only the cells that are currently observable and pass confidence tests
-- decay or retire stale particles when observations disagree for long enough
 - choose separate scan, display, and confidence resolutions
 - keep the distance color ramp, but treat it as particle metadata rather than
   proof that the particle should remain active
@@ -58,6 +89,11 @@ The live path is considered active when logs report:
 - `depthMeshProjection=local-space-depth-surface`
 - `depthMeshRasterization=retained-local-space-metric-billboard-particles`
 - `projection=local-space-retained-particles`
+- `projection=local-space-scene-particle-map`
+- `mapPolicy=spatial-hash-local-cells`
+- `invalidSamplePolicy=preserve-existing-cells`
+- `depthPoseSource=view-space-composed`
+- `projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader`
 - `rasterization=metric-billboard-particles`
 - `passthroughVisible=true`
 
