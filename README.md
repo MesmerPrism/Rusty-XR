@@ -9,6 +9,8 @@ device diagnostics, passthrough-camera abstractions, depth and SDF contracts,
 plain stereo/feedback layer descriptors and tuning hints, native
 passthrough-layer style descriptors, safety-gated visual strobe descriptors,
 LSL utilities, and general particle or animation primitives.
+The research-streaming surface now also includes source-only broker stream and
+engine-neutral eye-data contracts before native provider adapters.
 
 Rusty XR is not a Quest application, not an APK distribution repo, and not a
 replacement for an app-specific shell. Application repositories remain
@@ -27,6 +29,10 @@ Initial crate layout:
   state primitives.
 - `rusty-xr-lsl`: Lab Streaming Layer models and utilities.
 - `rusty-xr-osc`: Open Sound Control packet and UDP helpers.
+- `rusty-xr-broker-model`: broker command, stream-manifest, sample-header, and
+  transport-lane contracts, plus synthetic stream and replay payload shapes.
+- `rusty-xr-eye-model`: screen-space gaze, XR gaze-ray, AOI, processor-event,
+  and synthetic eye-data contracts.
 - `rusty-xr-polar`: Polar H10 data contracts and protocol helpers.
 - `rusty-xr-quest-diagnostics`: reusable Quest diagnostic status models.
 - `rusty-xr-camera-model`: camera metadata and projection helpers.
@@ -184,6 +190,7 @@ powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Buil
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Build-BrokerShellHelper.ps1
 cargo run -p rusty-xr-broker-client-probe -- status
+python tools\replay\check_replay_fixtures.py --fixtures fixtures\replay
 ```
 
 The immersive Quest example requires a Quest-compatible OpenXR loader and
@@ -268,6 +275,14 @@ BLE, LSL, and Polar H10 data-pipeline guidance is documented in
 [docs/BLE_LSL_POLAR_PIPELINE.md](docs/BLE_LSL_POLAR_PIPELINE.md).
 OSC live-control and sensor-ingress guidance is documented in
 [docs/OSC_ADAPTER.md](docs/OSC_ADAPTER.md).
+Research-XR broker bridge boundaries and the EDIA/RCAS comparison are
+documented in
+[docs/RESEARCH_XR_BROKER_BRIDGE.md](docs/RESEARCH_XR_BROKER_BRIDGE.md).
+The source-level Unity broker adapter contract is documented in
+[docs/UNITY_BROKER_ADAPTER_CONTRACT.md](docs/UNITY_BROKER_ADAPTER_CONTRACT.md).
+The public maintainer-facing collaboration track for EDIA-style integration is
+documented in
+[docs/EDIA_COLLABORATION_TRACK.md](docs/EDIA_COLLABORATION_TRACK.md).
 
 General-purpose XR tool import candidates are tracked in
 [docs/GENERAL_TOOL_IMPORT_AUDIT.md](docs/GENERAL_TOOL_IMPORT_AUDIT.md).

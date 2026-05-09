@@ -99,8 +99,16 @@ examples/quest-broker-apk/catalog/rusty-xr-quest-broker.catalog.json
 It declares runtime profiles for the localhost WebSocket/HTTP status path,
 optional broker-to-laptop LSL forwarding when a compliant Android `liblsl.so`
 is supplied at build time, optional OSC latency egress, and OSC drive ingress
-from a laptop to localhost WebSocket clients. Companion diagnostics can also
-configure OSC ingress at runtime, compare a direct OSC acknowledgement route
+from a laptop to localhost WebSocket clients. Catalog launches use a no-display
+starter activity that keeps the broker foreground service alive while another
+XR app can remain foregrounded. This is the intended broker launch contract:
+the visible console is a Horizon 2D panel for human inspection, and shell focus
+may move to a Horizon placeholder or another foreground app while the service
+and localhost API remain healthy. Broker validation should therefore check
+process and API health rather than requiring the console activity to remain
+foregrounded. The visible console is still available from the headset launcher.
+Companion diagnostics can also configure OSC ingress at runtime, compare a
+direct OSC acknowledgement route
 against the broker route, and publish Polar-compatible HR/RR, ECG, and ACC
 payloads through the broker's generic stream-event command. The public Unity
 comparison target is

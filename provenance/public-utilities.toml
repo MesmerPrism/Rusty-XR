@@ -48,6 +48,24 @@ scrubbed_private_dependencies = ["downstream stream names", "sensor-specific add
 review_status = "foundation-pass"
 
 [[utility]]
+crate = "rusty-xr-broker-model"
+source_family = "research XR broker and sidecar stream workflows"
+extraction_date = "2026-05-09"
+public_safe_rationale = "Broker command envelopes, stream manifests, sample headers, session manifests, timing stamps, transport endpoints, heartbeat state, drop counters, replay records, and deterministic synthetic stream payloads are reusable across engines and providers without embedding a Unity, Android, OpenXR, Makepad, LSL, OSC, or video backend."
+license_assumptions = "Authored for this MIT repository as clean-room public contracts. EDIA and RCAS are treated as public design references only; no source code is copied."
+scrubbed_private_dependencies = ["downstream experiment semantics", "private stream names", "package identity", "generated captures", "device logs", "native SDK payloads"]
+review_status = "first-contract-pass"
+
+[[utility]]
+crate = "rusty-xr-eye-model"
+source_family = "provider-neutral eye-data broker workflows"
+extraction_date = "2026-05-09"
+public_safe_rationale = "Screen-space gaze, XR gaze-ray, AOI hit, processor-event, validity, provenance, and deterministic synthetic eye samples are reusable contracts without bundling tracker SDKs, native runtimes, licenses, calibration UI, or app-specific experiment semantics."
+license_assumptions = "Authored for this MIT repository as clean-room public contracts. Native tracker SDKs and data forwarding providers require separate license and field-of-use review before adapter work."
+scrubbed_private_dependencies = ["device serials", "native tracker SDK binaries", "license keys", "calibration profiles", "participant data", "downstream AOI maps", "app-specific experiment semantics"]
+review_status = "first-contract-pass"
+
+[[utility]]
 crate = "rusty-xr-debug-canvas"
 source_family = "XR diagnostics panel layout workflows"
 extraction_date = "2026-05-02"

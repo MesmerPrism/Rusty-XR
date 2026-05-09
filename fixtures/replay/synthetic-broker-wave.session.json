@@ -1,0 +1,50 @@
+{
+  "schema": "rusty.xr.broker.session_manifest.v1",
+  "session_id": "synthetic-broker-wave-session",
+  "started_time_unix_ns": null,
+  "ended_time_unix_ns": null,
+  "streams": [
+    {
+      "manifest_schema": "rusty.xr.broker.stream_manifest.v1",
+      "stream_id": "synthetic:wave",
+      "session_id": "synthetic-broker-wave-session",
+      "source_id": "synthetic-wave-provider",
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.synthetic.wave.v1",
+      "sequence_start": 0,
+      "recommended_rate_hz": 60.0,
+      "max_datagram_bytes": null,
+      "reliability": "LossTolerant",
+      "ordered": false,
+      "endpoint": {
+        "transport": "MetadataOnly",
+        "host": null,
+        "port": null,
+        "path": null,
+        "channel_id": "fixture:synthetic-broker-wave",
+        "max_datagram_bytes": null,
+        "auth_required": false
+      },
+      "heartbeat": null,
+      "drop_counters": {
+        "received_samples": 4,
+        "emitted_samples": 4,
+        "dropped_samples": 0,
+        "late_samples": 0,
+        "duplicate_samples": 0,
+        "out_of_order_samples": 0,
+        "queue_overflow_count": 0
+      }
+    }
+  ],
+  "metadata": [
+    {
+      "key": "purpose",
+      "value": "desktop replay fixture"
+    },
+    {
+      "key": "source",
+      "value": "synthetic broker wave"
+    }
+  ]
+}

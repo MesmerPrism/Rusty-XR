@@ -1,0 +1,50 @@
+{
+  "schema": "rusty.xr.broker.session_manifest.v1",
+  "session_id": "synthetic-eye-screen-gaze-session",
+  "started_time_unix_ns": null,
+  "ended_time_unix_ns": null,
+  "streams": [
+    {
+      "manifest_schema": "rusty.xr.broker.stream_manifest.v1",
+      "stream_id": "eye.screen.gaze_point",
+      "session_id": "synthetic-eye-screen-gaze-session",
+      "source_id": "synthetic-eye-provider",
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.eye.screen.gaze_point.v1",
+      "sequence_start": 0,
+      "recommended_rate_hz": 90.0,
+      "max_datagram_bytes": null,
+      "reliability": "LossTolerant",
+      "ordered": false,
+      "endpoint": {
+        "transport": "MetadataOnly",
+        "host": null,
+        "port": null,
+        "path": null,
+        "channel_id": "fixture:synthetic-eye-screen-gaze",
+        "max_datagram_bytes": null,
+        "auth_required": false
+      },
+      "heartbeat": null,
+      "drop_counters": {
+        "received_samples": 6,
+        "emitted_samples": 6,
+        "dropped_samples": 0,
+        "late_samples": 0,
+        "duplicate_samples": 0,
+        "out_of_order_samples": 0,
+        "queue_overflow_count": 0
+      }
+    }
+  ],
+  "metadata": [
+    {
+      "key": "purpose",
+      "value": "desktop replay fixture"
+    },
+    {
+      "key": "source",
+      "value": "synthetic screen gaze"
+    }
+  ]
+}

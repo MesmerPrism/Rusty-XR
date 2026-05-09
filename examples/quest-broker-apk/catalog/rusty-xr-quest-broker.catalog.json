@@ -5,9 +5,9 @@
       "id": "rusty-xr-quest-broker",
       "label": "Rusty XR Quest Broker",
       "packageName": "com.example.rustyxr.broker",
-      "activityName": ".MainActivity",
+      "activityName": ".BrokerStartActivity",
       "apkFile": "../build/outputs/rusty-xr-quest-broker-debug.apk",
-      "description": "Public sidecar broker proof-of-concept APK for localhost WebSocket samples, optional LSL forwarding, optional OSC UDP egress, and OSC-to-WebSocket drive events."
+      "description": "Public sidecar broker proof-of-concept APK for localhost WebSocket samples, optional LSL forwarding, optional OSC UDP egress, and OSC-to-WebSocket drive events. Catalog launches use a no-display service starter; the visible console remains available from the headset launcher."
     }
   ],
   "deviceProfiles": [

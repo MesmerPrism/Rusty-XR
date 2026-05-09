@@ -1,3 +1,6 @@
+use rusty_xr_broker_model::{
+    BROKER_COMMAND_SCHEMA, BROKER_LATENCY_SAMPLE_SCHEMA, STREAM_LATENCY_SAMPLE,
+};
 use serde_json::{json, Value};
 use std::env;
 use std::error::Error;
@@ -8,8 +11,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 8765;
 const EVENTS_PATH: &str = "/rustyxr/v1/events";
-const COMMAND_SCHEMA: &str = "rusty.xr.broker.command.v1";
-const LATENCY_SAMPLE_SCHEMA: &str = "rusty.xr.broker.latency_sample.v1";
 const CLIENT_ID: &str = "rusty-xr-broker-client-probe";
 const APP_LABEL: &str = "Rusty XR Broker Client Probe";
 
@@ -227,8 +228,10 @@ fn send_latency_sample(host: &str, port: u16, subscribe: bool) -> io::Result<Vec
     let mut messages = vec![read_text_frame_json(&mut socket)?];
 
     if subscribe {
-        let subscribe_command =
-            build_command_json("subscribe", Some(json!({ "stream": "latency:sample" })));
+        let subscribe_command = build_command_json(
+            "subscribe",
+            Some(json!({ "stream": STREAM_LATENCY_SAMPLE })),
+        );
         send_text_frame(&mut socket, subscribe_command.to_string().as_bytes())?;
         messages.push(read_text_frame_json(&mut socket)?);
     }
@@ -378,7 +381,7 @@ fn read_text_frame(stream: &mut TcpStream) -> io::Result<String> {
 fn build_command_json(command: &str, params: Option<Value>) -> Value {
     let mut message = json!({
         "type": "command",
-        "schema": COMMAND_SCHEMA,
+        "schema": BROKER_COMMAND_SCHEMA,
         "request_id": format!("rust-{}", next_sequence_id()),
         "command": command,
         "client_id": CLIENT_ID,
@@ -396,7 +399,7 @@ fn build_command_json(command: &str, params: Option<Value>) -> Value {
 fn build_latency_sample_json(sequence_id: u128) -> Value {
     json!({
         "type": "latency_sample",
-        "schema": LATENCY_SAMPLE_SCHEMA,
+        "schema": BROKER_LATENCY_SAMPLE_SCHEMA,
         "sequence_id": sequence_id,
         "path": "rust_probe",
         "client_send_time_unix_ns": unix_time_ns(),
@@ -490,17 +493,17 @@ mod tests {
     fn subscribe_command_uses_broker_envelope() {
         let command = build_command_json("subscribe", Some(json!({ "stream": "latency:sample" })));
         assert_eq!(command["type"], "command");
-        assert_eq!(command["schema"], COMMAND_SCHEMA);
+        assert_eq!(command["schema"], BROKER_COMMAND_SCHEMA);
         assert_eq!(command["command"], "subscribe");
         assert_eq!(command["client_id"], CLIENT_ID);
-        assert_eq!(command["params"]["stream"], "latency:sample");
+        assert_eq!(command["params"]["stream"], STREAM_LATENCY_SAMPLE);
     }
 
     #[test]
     fn projection_profile_command_uses_broker_envelope() {
         let command = build_command_json("camera_provider.get_projection_profile", None);
         assert_eq!(command["type"], "command");
-        assert_eq!(command["schema"], COMMAND_SCHEMA);
+        assert_eq!(command["schema"], BROKER_COMMAND_SCHEMA);
         assert_eq!(command["command"], "camera_provider.get_projection_profile");
         assert_eq!(command["client_id"], CLIENT_ID);
         assert!(command.get("params").is_none());
@@ -598,7 +601,7 @@ mod tests {
     fn open_ui_command_uses_broker_envelope() {
         let command = build_command_json("open_ui", None);
         assert_eq!(command["type"], "command");
-        assert_eq!(command["schema"], COMMAND_SCHEMA);
+        assert_eq!(command["schema"], BROKER_COMMAND_SCHEMA);
         assert_eq!(command["command"], "open_ui");
         assert_eq!(command["client_id"], CLIENT_ID);
         assert!(command.get("params").is_none());
@@ -608,7 +611,7 @@ mod tests {
     fn close_ui_command_uses_broker_envelope() {
         let command = build_command_json("close_ui", None);
         assert_eq!(command["type"], "command");
-        assert_eq!(command["schema"], COMMAND_SCHEMA);
+        assert_eq!(command["schema"], BROKER_COMMAND_SCHEMA);
         assert_eq!(command["command"], "close_ui");
         assert_eq!(command["client_id"], CLIENT_ID);
         assert!(command.get("params").is_none());
@@ -618,7 +621,7 @@ mod tests {
     fn latency_sample_uses_probe_metadata() {
         let sample = build_latency_sample_json(7);
         assert_eq!(sample["type"], "latency_sample");
-        assert_eq!(sample["schema"], LATENCY_SAMPLE_SCHEMA);
+        assert_eq!(sample["schema"], BROKER_LATENCY_SAMPLE_SCHEMA);
         assert_eq!(sample["sequence_id"], 7);
         assert_eq!(sample["path"], "rust_probe");
         assert_eq!(sample["payload_size_bytes"], 128);

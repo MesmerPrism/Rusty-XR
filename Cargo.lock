@@ -391,6 +391,15 @@ dependencies = [
 name = "rusty-xr-broker-client-probe"
 version = "0.1.0"
 dependencies = [
+ "rusty-xr-broker-model",
+ "serde_json",
+]
+
+[[package]]
+name = "rusty-xr-broker-model"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -421,6 +430,15 @@ dependencies = [
 
 [[package]]
 name = "rusty-xr-depth-model"
+version = "0.1.0"
+dependencies = [
+ "rusty-xr-contracts",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "rusty-xr-eye-model"
 version = "0.1.0"
 dependencies = [
  "rusty-xr-contracts",

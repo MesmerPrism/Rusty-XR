@@ -76,6 +76,11 @@ The initial export covers:
 - Semantic room mesh snapshots.
 - Polar accelerometer frames.
 - Scan surface samples.
+- Broker command envelopes, acknowledgements, stream manifests, stream sample
+  headers, stream events, replay records, synthetic wave samples, and session
+  manifests.
+- Eye screen-gaze points, XR gaze rays, screen AOI hits, and derived processor
+  events.
 
 Future schemas should be added only after the corresponding contract has tests
 and a clear downstream use.

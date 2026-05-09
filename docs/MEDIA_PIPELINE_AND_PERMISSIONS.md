@@ -508,9 +508,10 @@ contracts.
 
 The broker proof-of-concept in `examples/quest-broker-apk/` adds a second OSC
 test shape. Launching the `broker-osc-drive-ingress` profile starts a
-non-rendering sidecar service that listens for `/rusty-xr/drive/radius` on UDP
-port `9000` and rebroadcasts accepted values to localhost WebSocket clients as
-`osc_drive` JSON events. This was validated with
+non-rendering sidecar service through a no-display starter activity. The service
+listens for `/rusty-xr/drive/radius` on UDP port `9000` and rebroadcasts
+accepted values to localhost WebSocket clients as `osc_drive` JSON events. This
+was validated with
 [The Big Red Button Institute](https://github.com/MesmerPrism/the-big-red-button-institute),
 the public Unity Quest example that drives one visible button through direct
 Unity input and broker-routed events.

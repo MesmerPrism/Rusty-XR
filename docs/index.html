@@ -42,8 +42,8 @@
 
     <section class="grid cols-3">
       <div class="metric">
-        <strong>15</strong>
-        <p>Workspace members: 12 reusable crates plus 3 public example or probe packages.</p>
+        <strong>17</strong>
+        <p>Workspace members: 14 reusable crates plus 3 public example or probe packages.</p>
       </div>
       <div class="metric">
         <strong>3</strong>
@@ -66,6 +66,8 @@
             <tr><td>Core contracts</td><td>Math, pose, timing, views, camera/depth metadata, hands, render payloads, plain layers, native passthrough style descriptors, safety-gated visual strobe descriptors, counters, interaction rays, room mesh state, capture lifecycle metadata, and depth query summaries.</td><td>In progress</td></tr>
             <tr><td>Runtime config</td><td>Generic runtime keys, typed values, config maps, Android property naming helpers.</td><td>In progress</td></tr>
             <tr><td>BLE / LSL / OSC / Polar</td><td>BLE permission and GATT models, LSL stream schemas, OSC packet and UDP helpers, Polar H10 HR/RR/ECG/ACC helpers.</td><td>In progress</td></tr>
+            <tr><td>Broker model</td><td>Command envelopes, acknowledgements, client hello, stream manifests, sample headers, session manifests, transport endpoints, timing stamps, heartbeat state, drop counters, replay records, and synthetic stream samples.</td><td>In progress</td></tr>
+            <tr><td>Eye model</td><td>Screen-space gaze points, XR gaze rays, AOI hits, derived processor events, validity flags, provenance, and deterministic synthetic eye samples.</td><td>In progress</td></tr>
             <tr><td>Debug canvas</td><td>Normalized diagnostic HUD documents, draw lists, text runs, tones, and input-neutral HUD commands.</td><td>In progress</td></tr>
             <tr><td>Quest diagnostics</td><td>Device readiness, package launch state, frame-rate summaries, runtime counters.</td><td>In progress</td></tr>
             <tr><td>Camera / depth / SDF</td><td>Projection helpers, timestamp matching, environment-depth diagnostics, unique capture cadence, readback policies, per-view metadata, packed SDF, sparse TSDF snapshots, dynamic mesh-to-SDF reference conversion, and depth-derived support/impact query contracts.</td><td>In progress</td></tr>
@@ -116,7 +118,7 @@
 
     <section class="panel">
       <h2>Utility Foundation</h2>
-      <p>The public examples include contracts-only layout, composite feedback, native passthrough style catalog, audio-reactive passthrough style, visual strobe profile demos, portable hand-mesh coordinate, collider, and SDF particle demos, a minimal Rust-native Android APK smoke test, a camera-driven Quest OpenXR/Vulkan custom-layer example with optional screen streaming, OSC ingress, diagnostic HUD, environment-depth diagnostics, scene-owned real-time depth particle mapping, and live hand-mesh particle visualization, plus a broker APK proof for localhost WebSocket, optional LSL forwarding, OSC drive events, and bounded media probes. Native adapters remain narrow and example-owned while the public utility surface stabilizes.</p>
+      <p>The public examples include contracts-only layout, composite feedback, native passthrough style catalog, audio-reactive passthrough style, visual strobe profile demos, portable hand-mesh coordinate, collider, and SDF particle demos, a minimal Rust-native Android APK smoke test, a camera-driven Quest OpenXR/Vulkan custom-layer example with optional screen streaming, OSC ingress, diagnostic HUD, environment-depth diagnostics, scene-owned real-time depth particle mapping, and live hand-mesh particle visualization, plus a broker APK proof for localhost WebSocket, optional LSL forwarding, OSC drive events, bounded media probes, and source-only broker/eye stream contracts. Native adapters remain narrow and example-owned while the public utility surface stabilizes.</p>
       <div class="grid cols-3">
         <a class="card" href="SERIALIZATION_AND_SCHEMA_POLICY.md">
           <h3>Serialization</h3>
@@ -137,6 +139,14 @@
         <a class="card" href="OSC_ADAPTER.md">
           <h3>OSC</h3>
           <p>Generic OSC packet, UDP, headset listener, and broker drive-event guidance.</p>
+        </a>
+        <a class="card" href="RESEARCH_XR_BROKER_BRIDGE.md">
+          <h3>Research Broker</h3>
+          <p>Public-safe EDIA/RCAS comparison and broker bridge boundaries for research XR streams.</p>
+        </a>
+        <a class="card" href="EDIA_COLLABORATION_TRACK.md">
+          <h3>EDIA Track</h3>
+          <p>Maintainer-facing notes on what is implemented, what is deferred, and where feedback is useful.</p>
         </a>
         <a class="card" href="DIAGNOSTIC_HUD_STEREO_RENDERING.md">
           <h3>Debug HUD</h3>

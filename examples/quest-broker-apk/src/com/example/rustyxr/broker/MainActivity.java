@@ -202,7 +202,11 @@ public final class MainActivity extends Activity {
             openedByBrokerCommand = launchIntent.getBooleanExtra("rustyxr.openedByBrokerCommand", openedByBrokerCommand);
             rememberReturnTarget(launchIntent);
         }
-        startService(serviceIntent);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
+        }
         Log.i(BrokerService.TAG, "MainActivity launched broker service");
     }
 

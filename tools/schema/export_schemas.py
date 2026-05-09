@@ -37,6 +37,18 @@ def integer(minimum: int | None = None) -> dict:
     return schema
 
 
+def string() -> dict:
+    return {"type": "string"}
+
+
+def nullable_string() -> dict:
+    return {"type": ["string", "null"]}
+
+
+def boolean() -> dict:
+    return {"type": "boolean"}
+
+
 def array(items: dict) -> dict:
     return {"type": "array", "items": items}
 
@@ -164,6 +176,205 @@ def schemas() -> dict[str, dict]:
             "label": {"type": "string"},
             "values": {"type": "object", "additionalProperties": {"type": "string"}},
             "description": {"type": "string"},
+        },
+    )
+    broker_transport_kind = enum(
+        "BrokerTransportKind",
+        ["WebSocket", "Tcp", "Udp", "AdbForwardedTcp", "MetadataOnly"],
+    )
+    broker_reliability_class = enum(
+        "BrokerReliabilityClass",
+        ["Reliable", "LossTolerant", "BestEffort", "MetadataOnly"],
+    )
+    broker_payload_kind = enum(
+        "BrokerPayloadKind",
+        ["Json", "Text", "Binary", "H264", "H265", "RawLuma8", "Custom"],
+    )
+    broker_drop_counters = obj(
+        "BrokerDropCounters",
+        {
+            "received_samples": integer(0),
+            "emitted_samples": integer(0),
+            "dropped_samples": integer(0),
+            "late_samples": integer(0),
+            "duplicate_samples": integer(0),
+            "out_of_order_samples": integer(0),
+            "queue_overflow_count": integer(0),
+        },
+    )
+    broker_transport_endpoint = obj(
+        "BrokerTransportEndpoint",
+        {
+            "transport": broker_transport_kind,
+            "host": nullable_string(),
+            "port": {"type": ["integer", "null"], "minimum": 1, "maximum": 65535},
+            "path": nullable_string(),
+            "channel_id": nullable_string(),
+            "max_datagram_bytes": {"type": ["integer", "null"], "minimum": 1, "maximum": 65507},
+            "auth_required": boolean(),
+        },
+    )
+    broker_heartbeat = obj(
+        "BrokerHeartbeatState",
+        {
+            "last_heartbeat_elapsed_ns": {"type": ["integer", "null"], "minimum": 0},
+            "timeout_after_ns": integer(0),
+        },
+    )
+    broker_stream_manifest = obj(
+        "BrokerStreamManifest",
+        {
+            "manifest_schema": string(),
+            "stream_id": string(),
+            "session_id": nullable_string(),
+            "source_id": string(),
+            "payload_kind": broker_payload_kind,
+            "payload_schema": string(),
+            "sequence_start": integer(0),
+            "recommended_rate_hz": {"type": ["number", "null"], "exclusiveMinimum": 0},
+            "max_datagram_bytes": {"type": ["integer", "null"], "minimum": 1, "maximum": 65507},
+            "reliability": broker_reliability_class,
+            "ordered": boolean(),
+            "endpoint": {"oneOf": [broker_transport_endpoint, {"type": "null"}]},
+            "heartbeat": {"oneOf": [broker_heartbeat, {"type": "null"}]},
+            "drop_counters": broker_drop_counters,
+        },
+    )
+    broker_sample_header = obj(
+        "BrokerStreamSampleHeader",
+        {
+            "schema": string(),
+            "stream_id": string(),
+            "session_id": nullable_string(),
+            "source_id": string(),
+            "payload_kind": broker_payload_kind,
+            "payload_schema": string(),
+            "sequence_number": integer(0),
+            "broker_time_elapsed_ns": integer(0),
+            "broker_time_unix_ns": {"type": ["integer", "null"], "minimum": 0},
+            "source_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "source_time_unix_ns": {"type": ["integer", "null"], "minimum": 0},
+            "dropped_before_sample": integer(0),
+            "late_before_sample": integer(0),
+        },
+    )
+    broker_session_metadata = obj(
+        "BrokerSessionMetadata",
+        {
+            "key": string(),
+            "value": string(),
+        },
+    )
+    broker_replay_record = obj(
+        "BrokerReplayRecord",
+        {
+            "type": {"const": "replay_record"},
+            "schema": string(),
+            "session_id": string(),
+            "stream": string(),
+            "header": broker_sample_header,
+            "payload": {},
+        },
+    )
+    synthetic_wave_sample = obj(
+        "SyntheticWaveSample",
+        {
+            "sequence_number": integer(0),
+            "sample_time_elapsed_ns": integer(0),
+            "value01": {"type": "number", "minimum": 0, "maximum": 1},
+            "phase01": {"type": "number", "minimum": 0, "maximum": 1},
+            "valid": boolean(),
+        },
+    )
+    eye_coordinate_space = enum(
+        "EyeCoordinateSpace",
+        ["ScreenNormalized", "ScreenPixels", "XrLocal", "XrWorld", "SceneObject"],
+    )
+    eye_identity = enum("EyeIdentity", ["Left", "Right", "Combined"])
+    eye_derived_kind = enum("EyeDerivedKind", ["Fixation", "Dwell", "Blink"])
+    eye_validity_flags = obj(
+        "EyeValidityFlags",
+        {
+            "sample_valid": boolean(),
+            "left_valid": boolean(),
+            "right_valid": boolean(),
+            "blink": boolean(),
+            "tracking_lost": boolean(),
+        },
+    )
+    eye_sample_base = obj(
+        "EyeSampleBase",
+        {
+            "provider_id": string(),
+            "source_device_id": string(),
+            "sequence_number": integer(0),
+            "sample_time_ns": integer(0),
+            "broker_receive_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "validity": eye_validity_flags,
+            "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+            "eye": {"oneOf": [eye_identity, {"type": "null"}]},
+            "coordinate_space": eye_coordinate_space,
+        },
+    )
+    eye_derived_provenance = obj(
+        "EyeDerivedProvenance",
+        {
+            "source_stream_id": string(),
+            "processor_id": string(),
+            "source_sequence_start": integer(0),
+            "source_sequence_end": integer(0),
+        },
+    )
+    eye_scene_hit = obj(
+        "EyeSceneHit",
+        {
+            "target_id": string(),
+            "position_m": vec3(),
+            "normal": {"oneOf": [vec3(), {"type": "null"}]},
+            "distance_m": {"type": ["number", "null"], "minimum": 0},
+            "derived_from": eye_derived_provenance,
+        },
+    )
+    eye_screen_gaze_point = obj(
+        "EyeScreenGazePoint",
+        {
+            "schema": string(),
+            "base": eye_sample_base,
+            "display_id": nullable_string(),
+            "normalized_point": vec2(),
+            "screen_pixel": {"oneOf": [vec2(), {"type": "null"}]},
+            "pupil_diameter_mm": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        },
+    )
+    eye_xr_gaze_ray = obj(
+        "EyeXrGazeRay",
+        {
+            "schema": string(),
+            "base": eye_sample_base,
+            "origin_m": vec3(),
+            "direction": vec3(),
+            "scene_hit": {"oneOf": [eye_scene_hit, {"type": "null"}]},
+        },
+    )
+    eye_screen_aoi_hit = obj(
+        "EyeScreenAoiHit",
+        {
+            "schema": string(),
+            "base": eye_sample_base,
+            "aoi_id": string(),
+            "hit": boolean(),
+            "dwell_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "derived_from": eye_derived_provenance,
+        },
+    )
+    eye_processor_event = obj(
+        "EyeProcessorEvent",
+        {
+            "schema": string(),
+            "kind": eye_derived_kind,
+            "base": eye_sample_base,
+            "duration_ns": {"type": ["integer", "null"], "minimum": 0},
+            "derived_from": eye_derived_provenance,
         },
     )
     return {
@@ -365,6 +576,58 @@ def schemas() -> dict[str, dict]:
                 "last_seen_time_ns": {"type": ["integer", "null"], "minimum": 0},
             },
         ),
+        "broker-stream-manifest.schema.json": broker_stream_manifest,
+        "broker-stream-sample-header.schema.json": broker_sample_header,
+        "broker-session-manifest.schema.json": obj(
+            "BrokerSessionManifest",
+            {
+                "schema": string(),
+                "session_id": string(),
+                "started_time_unix_ns": {"type": ["integer", "null"], "minimum": 0},
+                "ended_time_unix_ns": {"type": ["integer", "null"], "minimum": 0},
+                "streams": array(broker_stream_manifest),
+                "metadata": array(broker_session_metadata),
+            },
+        ),
+        "broker-command.schema.json": obj(
+            "BrokerCommand",
+            {
+                "type": {"const": "command"},
+                "schema": string(),
+                "request_id": string(),
+                "client_id": string(),
+                "command": string(),
+                "params": {"type": ["object", "null"], "additionalProperties": True},
+            },
+        ),
+        "broker-command-ack.schema.json": obj(
+            "BrokerCommandAck",
+            {
+                "type": {"const": "command_ack"},
+                "schema": string(),
+                "request_id": string(),
+                "accepted": boolean(),
+                "result": {"type": ["object", "null"], "additionalProperties": True},
+                "error": nullable_string(),
+            },
+        ),
+        "broker-stream-event.schema.json": obj(
+            "BrokerStreamEvent",
+            {
+                "type": {"const": "stream_event"},
+                "schema": string(),
+                "stream": string(),
+                "subscription_id": nullable_string(),
+                "header": broker_sample_header,
+                "payload": {},
+            },
+        ),
+        "broker-replay-record.schema.json": broker_replay_record,
+        "synthetic-wave-sample.schema.json": synthetic_wave_sample,
+        "eye-screen-gaze-point.schema.json": eye_screen_gaze_point,
+        "eye-xr-gaze-ray.schema.json": eye_xr_gaze_ray,
+        "eye-screen-aoi-hit.schema.json": eye_screen_aoi_hit,
+        "eye-processor-event.schema.json": eye_processor_event,
     }
 
 

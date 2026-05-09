@@ -81,6 +81,14 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".BrokerStartActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <service
             android:name=".BrokerService"
             android:enabled="true"

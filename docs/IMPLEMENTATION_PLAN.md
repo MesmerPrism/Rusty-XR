@@ -53,6 +53,26 @@ and a small UDP helper for live control and sensor ingress.
 OSC address trees and value semantics remain app-owned. The public crate should
 stay transport-oriented until a stable sensor contract is ready.
 
+### Broker Model
+
+Reusable broker command, acknowledgement, client hello, stream manifest, sample
+header, session manifest, timing, drop counter, replay record, synthetic stream,
+and transport-lane contracts. These models keep reliable control,
+loss-tolerant streams, replay, and WebSocket/UDP fallbacks explicit without
+implementing sockets or engine adapters in core.
+The research-XR bridge split is documented in
+[RESEARCH_XR_BROKER_BRIDGE.md](RESEARCH_XR_BROKER_BRIDGE.md).
+
+### Eye Model
+
+Engine-neutral eye-data contracts for screen-space gaze points, XR gaze rays,
+screen-space AOI hits, derived processor events, validity flags, and provenance.
+The screen-space and XR-ray shapes stay separate so desktop tracker samples can
+validate timing, recording, replay, and AOI processors without pretending to
+validate headset-local gaze vectors or scene-hit semantics. Native tracker SDKs,
+provider licenses, calibration UX, and LSL/OSC/WebSocket forwarding stay in
+optional adapters or downstream shells.
+
 ### BLE And Polar H10 Utilities
 
 Reusable BLE/GATT contracts, Android Bluetooth permission models, Polar H10
@@ -396,6 +416,8 @@ responsibilities.
 | BLE utilities | In progress | Framework-neutral BLE UUID, GATT path, notification, operation, scan result, and Android permission models added. |
 | LSL utilities | In progress | Pure stream descriptor, stream role, channel schema, discovery filter, endpoint status, staleness, roundtrip, biofeedback, and telemetry models added. |
 | OSC utilities | In progress | Pure OSC message/bundle codec, UDP helper, loopback probe, and Quest example listener profile added. |
+| Broker model | In progress | Public command envelopes, acknowledgements, client hello, stream manifests, sample headers, session manifests, transport endpoints, timing stamps, heartbeat state, drop counters, replay records, and synthetic wave streams added for sidecar broker streams. |
+| Eye model | In progress | Public screen-space gaze, XR gaze-ray, AOI hit, processor-event, validity, provenance, and deterministic synthetic eye-data contracts added without native tracker SDK dependencies. |
 | Debug canvas | In progress | Dependency-light logical canvas crate added for reusable diagnostics panels, with normalized rectangle/text draw lists, input-neutral diagnostic HUD command state, and optional serde. |
 | Polar H10 utilities | In progress | Public Polar GATT IDs, HR/RR decoder, uncompressed ECG/ACC PMD decoders, PMD command builders, and LSL schemas added. |
 | Quest diagnostics | In progress | Generic readiness, package launch, and frame-rate status models added. |

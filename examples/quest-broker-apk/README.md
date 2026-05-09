@@ -376,6 +376,15 @@ Without `liblsl.so`, the broker still builds, answers status requests, accepts
 WebSocket latency samples, emits logcat diagnostics, and supports OSC ingress
 and OSC egress.
 
+An LSL-capable validation build should report `enabled=true` and
+`publisher=native-lsl` under `/status` -> `lsl`. Accepted latency samples
+should acknowledge `lsl_forwarded=true` and
+`fallback_transport=native-lsl`, and a host-side LSL resolver on the same LAN
+should discover the `rusty_xr_broker_latency` stream and receive the forwarded
+JSON sample. Because `liblsl.so` is user supplied, keep generated APK outputs
+and native library payloads out of source and include downstream license
+notices before distributing APK bytes.
+
 ## Launch Profiles
 
 The companion catalog is in:
@@ -389,6 +398,18 @@ path. Use `broker-osc-drive-ingress` when a laptop sends OSC control values to
 the headset and a Unity-side client consumes the resulting WebSocket
 `osc_drive` or subscribed `stream_event` events.
 
+Catalog launches target `.BrokerStartActivity`, a no-display activity that
+starts the foreground broker service and exits. This is the intended long-term
+automation path, not a crash workaround: on Horizon OS the visible console is a
+2D panel, and shell focus may return to a Horizon placeholder or another
+foreground XR app while the broker service remains healthy. Catalog validation
+should therefore check the broker process/service and localhost API rather than
+expecting `.MainActivity` to own foreground focus.
+
+The visible console remains available from the headset launcher through
+`.MainActivity`. It also starts the same foreground service path, but it is
+for human inspection and control rather than sidecar launch automation.
+
 Runtime OSC ingress can also be configured over the broker WebSocket command
 API, which lets comparison tools start the listener without restarting the
 broker Activity.
@@ -396,7 +417,7 @@ broker Activity.
 Direct ADB launch for OSC ingress:
 
 ```powershell
-adb shell am start -n com.example.rustyxr.broker/.MainActivity `
+adb shell am start -n com.example.rustyxr.broker/.BrokerStartActivity `
   --ez rustyxr.oscIngressEnabled true `
   --ei rustyxr.oscIngressPort 9000 `
   --es rustyxr.oscIngressAddress /rusty-xr/drive/radius
@@ -405,7 +426,7 @@ adb shell am start -n com.example.rustyxr.broker/.MainActivity `
 Direct ADB launch with the broker-side Polar PMD source enabled:
 
 ```powershell
-adb shell am start -n com.example.rustyxr.broker/.MainActivity `
+adb shell am start -n com.example.rustyxr.broker/.BrokerStartActivity `
   --ez rustyxr.polarPmdEnabled true `
   --el rustyxr.polarScanTimeoutMs 60000
 ```
