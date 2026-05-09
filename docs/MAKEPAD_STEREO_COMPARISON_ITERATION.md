@@ -52,31 +52,33 @@ launcher / generated-XR activity gate.
 7. **Stereo projection pass.** Implement metadata-backed per-eye projection and
    compare against the custom APK `camera-stereo-gpu-composite` and
    `quad-surface` profiles.
+8. **Parity performance pass.** Capture comparable Makepad direct-XR and custom
+   Rusty XR stereo projection diagnostics, while treating awake/proximity state
+   and small hardware-buffer warnings as independent run-quality counters.
 
 ## Current Slice
 
-The current slice is step 7:
+The current slice is step 8:
 
 - keep the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging` as the Android app-shell dependency
-- preserve the completed Camera2 metadata and bounded acquisition diagnostics
-- preserve the completed single-buffer Makepad hardware-buffer import proof
-- select a left/right source pair from the Camera2 metadata pass and correlate
-  it with Makepad's Android camera source enumeration by source index
-- start two Makepad-owned Android camera playbacks with distinct
-  `VideoExternal` textures
-- emit explicit paired import and projection-mapping markers after both
-  textures update
+- preserve the completed Camera2 metadata, bounded acquisition, paired Makepad
+  import, and metadata-backed projection-mapping markers
+- compare the direct generated-XR Makepad path with the custom Rusty XR stereo
+  projection baseline using the same core counters where possible: app-process
+  GPU page-faults, fatal signatures, small hardware-buffer warnings, `VrApi`
+  cadence, camera/source progression, CPU upload count, and projection-ready
+  flags
 - kept the small `AHardwareBuffer` warning class visible as a separate counter
   from app-process GPU page-fault and fatal signatures
-- use the direct generated-XR activity path as the first performance comparison
-  target now that the paired-buffer and projection-mapping markers are present
-  there
+- use passive awake/proximity readback before and after samples; do not issue a
+  new proximity-control command during comparison captures unless an operator
+  explicitly asks for it
 
-This slice should prove that Makepad can own two camera hardware-buffer texture
-imports and that the selected pair can be mapped to the same public per-eye
-projection vocabulary as the custom path. It does not add broker streaming,
-private visual-effect policy, or a completed performance comparison run.
+This slice should determine whether the Makepad direct generated-XR path is
+cadence- and fault-comparable to the custom path after S7 proved paired import
+and projection mapping. It does not add broker streaming, private visual-effect
+policy, or visual release acceptance.
 
 Device validation now uses two log windows:
 
@@ -129,6 +131,33 @@ still tracked separately through `visualInspection=required` and
 activity/lifecycle regression after one S7 run hit a Horizon OS display-event
 receiver failure before app startup markers.
 
+The S8 comparison must avoid changing the headset keep-awake/proximity mode as
+part of the run itself. Capture passive `vrpowermanager` and power snapshots
+before and after each sample, then reject or annotate runs where the device
+moves toward standby, an automation/proximity transition appears in logcat, or
+a Horizon OS service restart occurs.
+
+The first S8 batch is informative but not yet a fair normalized performance
+comparison. A 75s direct generated-XR Makepad sample held the S7 markers,
+reported paired/aligned projection readiness, kept CPU uploads at zero, and had
+zero app-process GPU page-fault or fatal signatures. Runtime cadence rows
+showed about 90/90Hz with app work around 3-5ms; the separate small
+`AHardwareBuffer` warning class remained noisy and visible. The custom Rusty XR
+0.65 profile remains the valid comparison baseline from this batch: it reported
+paired/aligned projection, zero CPU uploads, zero GPU import failures, about
+70.8/72Hz OpenXR cadence, and about 29Hz paired camera progression, with a
+warning status due to sleep-timeout / compositor-delay signals. The attempted
+custom 0.75 normalization run is invalid for comparison because it failed before
+final projection markers with a display-event-receiver startup failure and also
+reproduced a keep-awake/proximity state transition from the operator-maintained
+hold toward standby; the keep-awake state was restored after the run.
+
+The next fair comparison needs either a stable custom 0.75 rerun with the
+awake/proximity and Horizon OS lifecycle behavior controlled, or a Makepad-side
+0.65 / 72Hz profile knob. The shared scorecard also needs Makepad continuous
+frame/camera cadence markers equivalent to the custom OpenXR frame and stereo
+camera pair markers before it can compare camera progression directly.
+
 ## Attempt Ledger
 
 | Attempt | Slice | Validation | Result | Next |
@@ -141,6 +170,7 @@ receiver failure before app startup markers.
 | S5 | Camera2 metadata/acquisition gate | Source validation, release APK build, clean install, runtime camera permission grants where allowed, short startup marker capture, and 90s liveness/fault capture with hardware-buffer warning counters kept separate | Passed for metadata/acquisition. Both Makepad launcher and generated-XR startup windows emitted Java/native/app markers, enumerated three Camera2 `PRIVATE` sources, selected a back-facing 1280x1280 source with intrinsics and pose metadata, received one hardware-buffer-backed frame, and completed with `status=ok`. The first-frame descriptor reported native format 35, usage 131840, one layer, stride 1280, and a present buffer id. Both 90s liveness windows stayed focused/alive with no app-process GPU page-fault or fatal lines. The small `AHardwareBuffer` 4x4 warning class remains visible: 528 / 929 lines in launcher startup/liveness and 612 / 1586 lines in generated-XR startup/liveness. | Start hardware-buffer import as a separate pass; keep the existing warning class and GPU-fault counters separate |
 | S6 | Hardware-buffer import gate | Source validation, release APK build, clean install, short launcher and generated-XR marker captures, and 90s liveness/fault capture with small hardware-buffer warnings counted separately | Passed for single-buffer Makepad import readiness. Both short launch paths emitted Java/native/app markers, Camera2 metadata/acquisition markers, and the new hardware-buffer import marker sequence. Makepad enumerated three camera sources and 66 camera formats, selected a back-facing 1280x1280 YUV420 source, started the delayed `VideoExternal` import path, reported playback prepared at 1280x1280, and emitted `phase=texture-updated status=ok makepadVulkanImport=true`. Both short windows had zero app-process GPU page-fault and fatal lines. Small `AHardwareBuffer` 4x4 warning counts stayed visible: 428 in the launcher import window and 452 in the generated-XR import window. A generated-XR 90s liveness window had zero app-process GPU page-fault and fatal lines while retaining 1339 small warning lines; startup/import markers were expectedly evicted from that longer noisy log window. | Start the stereo projection pass by adding paired-buffer ownership and per-eye projection mapping, or first isolate the repeated 4x4 hardware-buffer warning class if it starts correlating with projection work |
 | S7 | Paired import and projection-mapping gate | Source implementation, host validation, Quest APK build, direct generated-XR smoke, and marker-spam guard | Passed for the direct generated-XR path. The final short generated-XR smoke emitted startup, Camera2 metadata/acquisition, paired source enumeration, paired playback start, left/right prepared, left/right texture-updated, projection complete, and paired comparison markers. The selected pair was a back-facing 1280x1280 left/right pair with projection metadata ready; the completion marker reported `pairedLeftRightGpuBuffers=true`, `makepadVulkanImport=true`, `projectionMappingReady=true`, `alignedProjection=true`, `cpuUploadCount=0`, and `visualInspection=required`. App-process GPU page-fault and fatal counts were zero. The separate small `AHardwareBuffer` warning class remained visible. The normal launcher path remains separate after one S7 run hit a Horizon OS display-event-receiver startup failure before app markers. | Start parity performance diagnostics for the direct generated-XR path against the custom Rusty XR stereo camera projection baseline, while keeping launcher lifecycle, awake-state/proximity, and small hardware-buffer warning counters separate |
+| S8 | Parity performance diagnostics | Passive pre/post awake-proximity readback, 75s Makepad direct generated-XR sample, custom Rusty XR 0.65 baseline sample, custom Rusty XR 0.75 normalization attempt, and shared scorecard/counter extraction | Partial. Makepad direct-XR held paired/aligned projection markers with zero CPU uploads and zero app-process GPU/fatal signatures while retaining the small `AHardwareBuffer` warning class. The custom 0.65 profile remains a valid warning baseline with paired/aligned projection, zero CPU uploads, zero GPU import failures, about 70.8/72Hz OpenXR cadence, and about 29Hz paired camera progression. The custom 0.75 normalization attempt is invalid: it failed before final projection markers with a display-event-receiver startup failure and reproduced a keep-awake/proximity transition toward standby despite the comparison run avoiding an explicit proximity hold. | Stabilize the custom 0.75 lifecycle/proximity state or add a Makepad 0.65 / 72Hz comparison profile; also add Makepad continuous frame/camera cadence markers before treating scorecard output as directly comparable |
 
 ## Validation Rule
 
@@ -156,6 +186,9 @@ state as a preflight condition. One S7 validation sequence coincided with the
 device moving back toward standby after a Horizon OS display-event-receiver
 failure and service restart. If this recurs, record the immediately preceding
 adb action separately from app-level marker results.
+If the operator has already set a keep-awake hold, comparison harnesses should
+prefer passive readback and skip their own timed proximity hold to avoid
+competing state transitions.
 
 ## Open Questions
 
