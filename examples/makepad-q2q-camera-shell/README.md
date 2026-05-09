@@ -4,13 +4,14 @@ This is a standalone Makepad-first Quest lane. It exists so Rusty XR can compare
 the current custom Android APK workflow with Makepad's generated Android/OpenXR
 packaging without replacing either path too early.
 
-The first pass is intentionally a synthetic OpenXR smoke app. It proves the
-Makepad Quest APK path, emits Rusty XR log markers, exercises Makepad's XR
-root, and documents the integration gaps before adding camera transport,
-stream, or broker behavior. The current source also draws a small synthetic
-stereo comparison scene and emits a comparison marker so renderer smoke runs
-can be lined up against the custom APK camera-stereo baseline before Camera2 is
-opened.
+The first pass was intentionally a synthetic OpenXR smoke app. It proved the
+Makepad Quest APK path, emitted Rusty XR log markers, exercised Makepad's XR
+root, and documented the integration gaps before adding camera transport,
+stream, or broker behavior. The current source now keeps that synthetic stereo
+comparison scene and adds a bounded Android NDK Camera2 metadata/acquisition
+probe so renderer smoke runs can be lined up against the custom APK
+camera-stereo baseline before hardware-buffer import or projection parity is
+claimed.
 
 This example consumes the maintained Makepad fork branch as an app-shell
 dependency only. Rusty XR core stays Makepad-independent; the relationship and
@@ -22,7 +23,7 @@ fork-patch policy are documented in
 - Uses `cargo-makepad android --variant=quest`.
 - Uses the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging`; the current documented branch head is
-  `4e1d5fd68951`.
+  `aebeabf32278`.
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
@@ -32,6 +33,12 @@ fork-patch policy are documented in
   `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` on startup.
 - On Android, emits those startup markers directly through logcat under a
   Rusty XR tag so device smoke tests have a reliable startup signal.
+- On Android, starts one bounded NDK Camera2 diagnostic pass that emits
+  `RUSTY_XR_MAKEPAD_CAMERA2_METADATA` after enumeration and
+  `RUSTY_XR_MAKEPAD_CAMERA2_ACQUISITION` during setup, first-frame, and
+  completion. The pass opens one selected `PRIVATE` `AImageReader` source and
+  records the first hardware-buffer descriptor without importing the buffer into
+  Makepad or Vulkan.
 - The maintained Makepad fork also emits public-safe Java activity and native
   bootstrap phase markers for Android activity creation, native handoff,
   EGL/GL setup, Vulkan readiness, and main-loop handoff.
@@ -40,10 +47,9 @@ fork-patch policy are documented in
 - The current source does not include Makepad's `XrPermissionsFlow`; an earlier
   isolation variant confirmed that the GPU fault also appears when the
   permission flow is removed.
-- The current source does not open Camera2, import hardware buffers, or claim
-  stereo projection parity. It reports `acquisition=none`,
-  `pairedLeftRightGpuBuffers=false`, and `alignedProjection=false` until those
-  slices are implemented.
+- The current source does not import hardware buffers or claim stereo
+  projection parity. It reports `pairedLeftRightGpuBuffers=false` and
+  `alignedProjection=false` until those slices are implemented.
 
 ## Build
 
@@ -96,9 +102,9 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   pass through `rusty-xr-runtime-config` before logging. Camera metadata,
   stream framing, and scorecard models should be added the same way, through
   core crates first and Makepad adapters second.
-- The current lane uses synthetic status and stereo-comparison markers only.
-  Camera affordances should be added after APK/OpenXR launch is repeatable on
-  device.
+- The current lane uses synthetic status/stereo-comparison markers plus a
+  bounded Camera2 metadata/acquisition probe. Hardware-buffer import and
+  projection parity remain separate later gates.
 - On Windows, the tested Makepad revision required local `cargo-makepad`
   packaging fixes for generated wrapper paths and dependent Rust shared-library
   bundling.
@@ -143,15 +149,19 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   short capture, reaches Vulkan ready / before main loop, and keeps the app
   process alive in the longer liveness window with no app-process GPU page-fault
   or fatal lines.
+- Camera2 metadata/acquisition gate: both Makepad launcher and generated-XR
+  startup windows enumerate three Camera2 `PRIVATE` sources, select a
+  back-facing 1280x1280 source with intrinsics and pose metadata, receive one
+  hardware-buffer-backed frame, and complete the bounded probe with
+  `status=ok`. The first-frame descriptor reports native format 35, usage
+  131840, one layer, stride 1280, and a present buffer id.
 - Current tracked warning: repeated small hardware-buffer lines appear in the
   synthetic stereo device logs. They are not counted as GPU page faults, but
   they should stay visible in the iteration ledger before Camera2
   hardware-buffer import is added.
-- Current source/build slice: the synthetic stereo comparison scene and
-  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` marker pass source validation, release
-  APK build, launcher startup/liveness validation, and generated-XR
-  startup/liveness validation against the maintained fork branch. The next gate
-  is Camera2 metadata/acquisition, not projection parity.
+- Current source/build slice: Camera2 metadata/acquisition is validated against
+  the maintained fork branch. The next gate is hardware-buffer import, not
+  projection parity.
 
 The current step-by-step implementation ledger is tracked in
 [../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).

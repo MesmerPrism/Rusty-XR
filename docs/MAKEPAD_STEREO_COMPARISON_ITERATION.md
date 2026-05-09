@@ -55,23 +55,26 @@ launcher / generated-XR activity gate.
 
 ## Current Slice
 
-The current slice is step 2:
+The current slice has completed steps 4 and 5:
 
-- point the example at the maintained Makepad fork branch
-  `rusty-xr/android-libstd-packaging`
-- add example-local maintenance instructions for future contributors
-- add a synthetic stereo comparison scene in `XrRoot`
-- emit `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` on startup
-- emit the startup markers through Android logcat on Android so startup
-  evidence is not dependent on Makepad's normal logger path
-- consume Makepad fork activity/bootstrap markers for Java load, native activity
-  handoff, render thread startup, EGL/GL setup, Vulkan readiness, and main-loop
-  handoff
-- keep `acquisition=none`, `pairedLeftRightGpuBuffers=false`, and
-  `alignedProjection=false` until the camera and projection passes exist
+- keep the maintained Makepad fork branch
+  `rusty-xr/android-libstd-packaging` as the Android app-shell dependency
+- add the standard Android camera permission to the Makepad Quest manifest so
+  the generated APK can exercise the NDK Camera2 path
+- add a Rusty XR-owned, example-local Camera2 metadata probe using Android NDK
+  `ACameraManager`
+- open one selected Camera2 `PRIVATE` source through a bounded diagnostic
+  `AImageReader` acquisition pass
+- emit explicit `RUSTY_XR_MAKEPAD_CAMERA2_METADATA` and
+  `RUSTY_XR_MAKEPAD_CAMERA2_ACQUISITION` markers
+- continue reporting `pairedLeftRightGpuBuffers=false` and
+  `alignedProjection=false` until hardware-buffer import and stereo projection
+  are implemented
 
-This slice creates a comparable log surface and visual renderer load without
-touching Camera2, broker streaming, or hardware-buffer import.
+This slice proves camera permission, metadata visibility, and first-buffer
+acquisition through the Makepad-generated Android shell. It does not import
+camera buffers into Makepad/Vulkan textures, claim projection parity, or add
+broker streaming.
 
 Device validation now uses two log windows:
 
@@ -92,6 +95,7 @@ lines during noisy 90s captures even when the app started correctly.
 | S2 | Device liveness gate before marker-route fix | Clean install, runtime permission grants where allowed, 90s launcher capture, and 90s generated-XR activity capture | Partial. Both paths stayed alive/focused and showed no app-process GPU page-fault or fatal lines. Startup markers were absent from the retained 90s logs, and repeated small hardware-buffer warnings appeared. | Instrument marker routing and separate startup marker capture from long fault windows |
 | S3 | Android marker route and Makepad bootstrap instrumentation | Rust app markers emitted through Android logcat; Makepad fork emitted public-safe Java activity and native bootstrap phase markers; clean APK string checks confirmed marker strings in Java and native outputs | Passed. The APK contained the Java activity, native bootstrap, and app marker strings. The first 90s samples still missed startup-only markers, which pointed to log retention/noise rather than missing code. | Use short startup captures for marker presence and keep 90s captures for liveness/fault counters |
 | S4 | Resolved synthetic stereo device gate | Clean install; short startup capture plus 90s liveness/fault captures for both Makepad launcher and generated-XR activity paths | Passed for step 2. Both launch paths emitted Java activity markers, native bootstrap markers through Vulkan ready / before main loop, and the Rusty XR Q2Q plus stereo-comparison startup markers. Both launch paths stayed alive in 90s windows with no app-process GPU page-fault or fatal lines. Repeated small hardware-buffer warnings remain tracked separately. | Start the Camera2 metadata/acquisition pass, keeping hardware-buffer warnings separate from the GPU page-fault gate |
+| S5 | Camera2 metadata/acquisition gate | Source validation, release APK build, clean install, runtime camera permission grants where allowed, short startup marker capture, and 90s liveness/fault capture with hardware-buffer warning counters kept separate | Passed for metadata/acquisition. Both Makepad launcher and generated-XR startup windows emitted Java/native/app markers, enumerated three Camera2 `PRIVATE` sources, selected a back-facing 1280x1280 source with intrinsics and pose metadata, received one hardware-buffer-backed frame, and completed with `status=ok`. The first-frame descriptor reported native format 35, usage 131840, one layer, stride 1280, and a present buffer id. Both 90s liveness windows stayed focused/alive with no app-process GPU page-fault or fatal lines. The small `AHardwareBuffer` 4x4 warning class remains visible: 528 / 929 lines in launcher startup/liveness and 612 / 1586 lines in generated-XR startup/liveness. | Start hardware-buffer import as a separate pass; keep the existing warning class and GPU-fault counters separate |
 
 ## Validation Rule
 
@@ -112,6 +116,7 @@ ownership.
   import?
 - Should the first camera pass use Makepad's headset-camera surface, a Rusty
   XR-owned Camera2 adapter, or a thin bridge that reports both surfaces?
+  Answer for S5: use a Rusty XR-owned Android NDK Camera2 probe first.
 - Should the first projection pass reproduce `display-screen-homography`,
   `quad-surface`, or both?
 - Which activity/bootstrap/app markers should become shared scorecard inputs

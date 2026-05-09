@@ -36,8 +36,9 @@ Move in small validated slices:
 6. Add metadata-backed stereo projection parity checks against the custom APK
    `camera-stereo-gpu-composite` profile.
 
-Do not skip directly to Camera2 or broker transport before the renderer smoke
-path is clean enough to trust measurements.
+The renderer smoke path is now the gate before Camera2 work. Keep future camera
+slices separate: metadata/acquisition first, hardware-buffer import second, and
+projection parity after both are validated.
 
 ## Validation
 

@@ -37,6 +37,8 @@ scope is limited to:
   Quest/Horizon OS suboptimal or out-of-date recreation path.
 - Public-safe Android activity and native bootstrap markers used to validate
   launcher/generated-XR startup without publishing raw device logs.
+- Quest manifest camera permission and optional camera feature declarations
+  needed by public examples that exercise Android NDK Camera2 diagnostics.
 - Cargo workspace metadata exclusions for standalone CSG leaf crates that are
   outside Makepad's main workspace validation path.
 - Ignore rules for local generated Android-control target folders.
@@ -71,8 +73,9 @@ this order:
 5. Rusty XR Makepad example launcher and generated-XR startup/liveness smoke,
    with short startup marker capture separated from longer fault-counter
    capture.
-6. Camera, broker, or stream adapters only after the renderer smoke path is
-   stable enough to trust measurements.
+6. Camera2 metadata/acquisition through the Rusty XR-owned Android NDK probe.
+7. Hardware-buffer import, broker, or stream adapters only after the renderer
+   smoke and camera acquisition paths are stable enough to trust measurements.
 
 The current isolation log is tracked in
 [MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md](MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md),

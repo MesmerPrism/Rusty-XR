@@ -10,3 +10,6 @@ repository = "https://github.com/MesmerPrism/Rusty-XR"
 [dependencies]
 makepad-xr = { git = "https://github.com/MesmerPrism/makepad.git", branch = "rusty-xr/android-libstd-packaging", version = "1.0.0" }
 rusty-xr-runtime-config = { path = "../../crates/rusty-xr-runtime-config" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+ndk-sys = "0.6"

@@ -18,11 +18,14 @@
     "permissions": [
       "org.khronos.openxr.permission.OPENXR",
       "org.khronos.openxr.permission.OPENXR_SYSTEM",
+      "android.permission.CAMERA",
       "horizonos.permission.HEADSET_CAMERA"
     ],
     "features": [
       "android.hardware.vr.headtracking",
-      "com.oculus.feature.PASSTHROUGH"
+      "com.oculus.feature.PASSTHROUGH",
+      "android.hardware.camera",
+      "android.hardware.camera2.full"
     ]
   },
   "sourceInputs": [
@@ -125,8 +128,12 @@
     "makepad-xr-synthetic-stereo-scene",
     "rusty-xr-runtime-config-core",
     "headset-camera-permission-flow",
+    "android-ndk-camera2-metadata-probe",
+    "android-ndk-camera2-private-acquisition-probe",
     "synthetic-q2q-status-log",
     "synthetic-stereo-comparison-log",
+    "camera2-metadata-log",
+    "camera2-acquisition-log",
     "parallel-approach-comparison"
   ]
 }

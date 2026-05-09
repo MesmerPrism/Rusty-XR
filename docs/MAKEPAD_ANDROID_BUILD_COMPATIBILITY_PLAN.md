@@ -292,17 +292,21 @@ current window-frame fence before recreation stayed clean.
 The maintained Makepad fork now carries the targeted frame-fence wait as source
 state, alongside the Windows Android packaging fixes needed for this build
 lane. A no-diagnostic Quest/Vulkan counter repeat stayed clean, and the Rusty XR
-synthetic stereo shell now passes launcher plus generated-XR startup/liveness
-validation against that fork state. The current validation method uses a short
-startup capture for Java activity, native bootstrap, and Rust app markers, plus
-a separate 90s liveness/fault capture for app-process GPU page-fault and fatal
-counters. Repeated small hardware-buffer warnings remain tracked separately
-before Camera2 hardware-buffer import.
+Makepad shell now passes launcher plus generated-XR startup/liveness validation
+against that fork state. The same shell also passes the Camera2
+metadata/acquisition gate: both launch paths enumerate three `PRIVATE` sources,
+select a back-facing 1280x1280 source with intrinsics and pose metadata, acquire
+one hardware-buffer-backed frame, and complete the bounded probe with
+`status=ok`. The current validation method uses a short startup capture for
+Java activity, native bootstrap, Rust app, and camera markers, plus a separate
+90s liveness/fault capture for app-process GPU page-fault and fatal counters.
+Repeated small hardware-buffer warnings remain tracked separately before
+Camera2 hardware-buffer import into Makepad/Vulkan textures.
 
-Do not start with a full renderer port. Keep the synthetic launch and diagnostic
-log path repeatable, extend the fork-state repeat window, and then add Camera2
-metadata/acquisition before interpreting projection or renderer measurements
-from this lane.
+Do not start with a full renderer port. Keep the launch and diagnostic log path
+repeatable, keep hardware-buffer warnings separate from GPU-fault counters, and
+add Camera2 hardware-buffer import before interpreting projection or renderer
+measurements from this lane.
 
 The Makepad-vs-current affordance and cost ledger is tracked in
 [MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md](MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md).

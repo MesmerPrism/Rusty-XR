@@ -1,5 +1,10 @@
 pub use makepad_xr::makepad_widgets;
 
+#[cfg(target_os = "android")]
+mod acamera_sys;
+#[cfg(target_os = "android")]
+mod android_camera_probe;
+
 use makepad_widgets::*;
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,22 +13,24 @@ app_main!(App);
 
 static STARTUP_MARKERS_EMITTED: AtomicBool = AtomicBool::new(false);
 
-const DEFAULT_PROFILE: &str = "makepad-synthetic-stereo-projection";
+const DEFAULT_PROFILE: &str = "makepad-camera2-acquisition-probe";
 const DEFAULT_TRANSPORT: &str = "synthetic";
-const DEFAULT_CAMERA_TIER: &str = "synthetic-stereo-projection";
+const DEFAULT_CAMERA_TIER: &str = "native-camera2-acquisition-probe";
 const DEFAULT_CAMERA_PROJECTION_MODE: &str = "synthetic-stereo-panels";
 const DEFAULT_COMPARISON_BASELINE: &str = "custom-apk-camera-stereo-gpu-composite";
 const DEFAULT_SYNTHETIC_SCENE: &str = "dual-panel-grid-v1";
+const DEFAULT_ACQUISITION_PROFILE: &str = "bounded-camera2-private-probe";
 const DEFAULT_PROJECTION_SCALE: f64 = 0.75;
 const DEFAULT_XR_RENDER_SCALE: f64 = 0.75;
 const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
-const MAKEPAD_REV: &str = "4e1d5fd68951";
+const MAKEPAD_REV: &str = "aebeabf32278";
 const KEY_RUNTIME_PROFILE: &str = "runtime_profile";
 const KEY_TRANSPORT_PROFILE: &str = "transport_profile";
 const KEY_CAMERA_TIER: &str = "camera_tier";
 const KEY_CAMERA_PROJECTION_MODE: &str = "camera_projection_mode";
 const KEY_COMPARISON_BASELINE: &str = "comparison_baseline";
 const KEY_SYNTHETIC_SCENE: &str = "synthetic_scene";
+const KEY_ACQUISITION_PROFILE: &str = "acquisition_profile";
 const KEY_PROJECTION_SCALE: &str = "projection_scale";
 const KEY_XR_RENDER_SCALE: &str = "xr_render_scale";
 const KEY_RENDERER: &str = "renderer";
@@ -123,6 +130,7 @@ impl App {
 
         Self::emit_status_marker(phase);
         Self::emit_stereo_comparison_marker(phase);
+        Self::start_camera_probe_once();
     }
 
     fn emit_status_marker(phase: &str) {
@@ -142,11 +150,12 @@ impl App {
         let config = Self::runtime_config();
 
         emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition=none transport={} projectionMode={} syntheticScene={} leftEyeSource=synthetic-left rightEyeSource=synthetic-right sourceEyeMapping=display-eye projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=false alignedProjection=false renderPath=makepad-xr makepadForkBranch={} makepadForkCommit={}",
+            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=synthetic-left rightEyeSource=synthetic-right sourceEyeMapping=display-eye projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=false alignedProjection=false renderPath=makepad-xr makepadForkBranch={} makepadForkCommit={}",
             phase,
             runtime_text(&config, KEY_RUNTIME_PROFILE),
             runtime_text(&config, KEY_COMPARISON_BASELINE),
             runtime_text(&config, KEY_CAMERA_TIER),
+            runtime_text(&config, KEY_ACQUISITION_PROFILE),
             runtime_text(&config, KEY_TRANSPORT_PROFILE),
             runtime_text(&config, KEY_CAMERA_PROJECTION_MODE),
             runtime_text(&config, KEY_SYNTHETIC_SCENE),
@@ -201,6 +210,13 @@ impl App {
                 .unwrap_or_else(|_| DEFAULT_SYNTHETIC_SCENE.to_string()),
             RuntimeConfigSource::Environment,
         );
+        set_runtime_text(
+            &mut config,
+            KEY_ACQUISITION_PROFILE,
+            std::env::var("RUSTY_XR_ACQUISITION_PROFILE")
+                .unwrap_or_else(|_| DEFAULT_ACQUISITION_PROFILE.to_string()),
+            RuntimeConfigSource::Environment,
+        );
         set_runtime_float(
             &mut config,
             KEY_PROJECTION_SCALE,
@@ -245,6 +261,14 @@ impl App {
         );
         config
     }
+
+    #[cfg(target_os = "android")]
+    fn start_camera_probe_once() {
+        android_camera_probe::start_camera_probe_once();
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn start_camera_probe_once() {}
 }
 
 fn set_runtime_text(
