@@ -48,8 +48,14 @@ The parser extracts:
 - OpenXR frame cadence, render scale, import-cache counters, and frame timing.
 - Makepad direct-XR cadence samples from `RUSTY_XR_MAKEPAD_CADENCE` markers,
   including Makepad `NextFrame` callback rate and paired left/right camera
-  texture-update rate. Use `VrApi` rows, when present, for runtime display
-  cadence.
+  texture-update rate. Newer markers also include Makepad `XrUpdate` and
+  draw-event rates for cadence-source isolation. Use `VrApi` rows, when
+  present, for runtime display cadence.
+- Horizon launch-state hints, including volumetric-window launches, immersive
+  transition/focus events, loading-complete events, launch-blocked events, and
+  permission-controller dialogs. These are guards against treating app-process
+  markers as full headset-presentation evidence when the device is still on a
+  loading screen.
 - final projection status, active tier, shader path, and alignment state.
 - `VrApi` app, CPU+GPU, timewarp, tear, stale, CPU, and GPU rows when present.
 - optional pre/post battery, thermal, process CPU, and meminfo snapshots when a
@@ -75,6 +81,12 @@ Do not call a run successful just because FPS is high. Check whether the path
 was actually `gpu-projected`, whether `alignedProjection=true`, whether
 left/right decoded counts and native accepted counts are nonzero, and whether
 queue drops or `VrApi` tear/stale counters moved.
+
+For Makepad-generated Android/XR shells, also check the Horizon launch-state
+columns. Cadence markers and camera texture updates can be useful while the app
+process is alive, but they are not proof that the headset has left the loading
+screen or that the runtime is presenting the app as the immersive foreground
+client.
 
 Treat `0.65` and `0.75` as linear XR render scales. The `0.65` profile renders
 about 25 percent fewer render-target pixels than `0.75`, because pixel area

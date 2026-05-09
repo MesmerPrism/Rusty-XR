@@ -237,9 +237,30 @@ def parse_logcat(path: Path) -> dict[str, Any]:
     makepad_cadence_rows: list[dict[str, Any]] = []
     makepad_projection_statuses: list[dict[str, Any]] = []
     makepad_comparison_markers: list[dict[str, Any]] = []
+    launch_state: dict[str, int] = {
+        "horizon_volumetric_window_launches": 0,
+        "horizon_immersive_transition_events": 0,
+        "horizon_immersive_focus_events": 0,
+        "horizon_loading_complete_events": 0,
+        "horizon_launch_blocked_events": 0,
+        "horizon_permission_dialog_events": 0,
+    }
 
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
+            if "launch into NEW_VOLUMETRIC_WINDOW" in line:
+                launch_state["horizon_volumetric_window_launches"] += 1
+            if "ImmersiveTransitionSystem" in line:
+                launch_state["horizon_immersive_transition_events"] += 1
+            if "isImmersiveAppTopActivity: true" in line or re.search(r"immersiveApp now is: '[^']+'", line):
+                launch_state["horizon_immersive_focus_events"] += 1
+            if "loading complete" in line:
+                launch_state["horizon_loading_complete_events"] += 1
+            if "Launch is blocked" in line:
+                launch_state["horizon_launch_blocked_events"] += 1
+            if "GrantPermissionsActivity" in line:
+                launch_state["horizon_permission_dialog_events"] += 1
+
             if CONSUMER_MARKER in line:
                 report = extract_json_after_marker(line, CONSUMER_MARKER)
                 if report is not None:
@@ -288,6 +309,7 @@ def parse_logcat(path: Path) -> dict[str, Any]:
         "makepad_cadence_rows": makepad_cadence_rows,
         "makepad_projection_statuses": makepad_projection_statuses,
         "makepad_comparison_markers": makepad_comparison_markers,
+        "launch_state": launch_state,
     }
 
 
@@ -402,6 +424,7 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "makepad_cadence_rows": [],
         "makepad_projection_statuses": [],
         "makepad_comparison_markers": [],
+        "launch_state": {},
     }
 
     pre_thermal = parse_thermal(choose_existing(artifact_dir, ["pre-thermalservice.txt"]))
@@ -453,6 +476,12 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "logcat_path": logcat["logcat_path"],
         "runtime_profile": run_manifest.get("runtimeProfile", run_metadata.get("variant")),
         "succeeded": inferred_succeeded,
+        "horizon_volumetric_window_launches": logcat["launch_state"].get("horizon_volumetric_window_launches"),
+        "horizon_immersive_transition_events": logcat["launch_state"].get("horizon_immersive_transition_events"),
+        "horizon_immersive_focus_events": logcat["launch_state"].get("horizon_immersive_focus_events"),
+        "horizon_loading_complete_events": logcat["launch_state"].get("horizon_loading_complete_events"),
+        "horizon_launch_blocked_events": logcat["launch_state"].get("horizon_launch_blocked_events"),
+        "horizon_permission_dialog_events": logcat["launch_state"].get("horizon_permission_dialog_events"),
         "source_mode": consumer.get("source_mode"),
         "live_decode_path": consumer.get("live_decode_path"),
         "live_stream_requested": consumer.get("live_stream_requested", stereo_summary.get("liveStream")),
@@ -550,6 +579,10 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "makepad_cadence_rows": len(logcat["makepad_cadence_rows"]),
         "makepad_app_frame_rate_hz": final_makepad_cadence.get("appFrameRateHz"),
         "makepad_app_frame_count": final_makepad_cadence.get("appFrameCount"),
+        "makepad_xr_update_rate_hz": final_makepad_cadence.get("xrUpdateRateHz"),
+        "makepad_xr_update_count": final_makepad_cadence.get("xrUpdateCount"),
+        "makepad_draw_event_rate_hz": final_makepad_cadence.get("drawEventRateHz"),
+        "makepad_draw_event_count": final_makepad_cadence.get("drawEventCount"),
         "makepad_left_texture_update_rate_hz": final_makepad_cadence.get("leftTextureUpdateRateHz"),
         "makepad_right_texture_update_rate_hz": final_makepad_cadence.get("rightTextureUpdateRateHz"),
         "makepad_paired_texture_update_rate_hz": final_makepad_cadence.get("pairedTextureUpdateRateHz"),
@@ -603,6 +636,7 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "latest_makepad_cadence": final_makepad_cadence,
         "latest_makepad_projection": final_makepad_projection,
         "latest_makepad_comparison": final_makepad_comparison,
+        "launch_state": logcat["launch_state"],
         "pre_thermal": pre_thermal,
         "post_thermal": post_thermal,
         "pre_battery": pre_battery,
@@ -629,6 +663,10 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("artifact", None),
         ("profile", "runtime_profile"),
         ("ok", "succeeded"),
+        ("volumetric", "horizon_volumetric_window_launches"),
+        ("immersive", "horizon_immersive_focus_events"),
+        ("load done", "horizon_loading_complete_events"),
+        ("perm dlg", "horizon_permission_dialog_events"),
         ("scale", "openxr_render_scale"),
         ("shader", "projectionShaderPath"),
         ("aligned", "alignedProjection"),
@@ -648,6 +686,7 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("OpenXR fps min", None),
         ("OpenXR avg ms last", None),
         ("OpenXR avg ms steady", None),
+        ("Makepad XrUpdate Hz", "makepad_xr_update_rate_hz"),
         ("Makepad NextFrame Hz", "makepad_app_frame_rate_hz"),
         ("Makepad cam Hz", "makepad_paired_texture_update_rate_hz"),
         ("Makepad rows", "makepad_cadence_rows"),

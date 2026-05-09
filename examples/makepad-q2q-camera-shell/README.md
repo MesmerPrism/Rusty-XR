@@ -47,7 +47,10 @@ fork-patch policy are documented in
   buffers.
 - Emits `RUSTY_XR_MAKEPAD_CADENCE` samples every five seconds, using Makepad
   `NextFrame` events for callback cadence and left/right
-  `VideoTextureUpdated` events for Makepad camera texture progression.
+  `VideoTextureUpdated` events for Makepad camera texture progression. The
+  marker also carries Makepad `XrUpdate` and draw-event rates so a low camera
+  texture cadence can be separated from OpenXR loop cadence and app callback
+  cadence.
 - The maintained Makepad fork also emits public-safe Java activity and native
   bootstrap phase markers for Android activity creation, native handoff,
   EGL/GL setup, Vulkan readiness, and main-loop handoff.
@@ -170,15 +173,22 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   select a back-facing 1280x1280 YUV420 source, start the delayed
   `VideoExternal` import path, prepare playback at 1280x1280, and emit
   `makepadVulkanImport=true` on `VideoTextureUpdated`.
-- Performance comparison gate: open for the direct generated-XR path. The
-  current APK reports `pairedLeftRightGpuBuffers=true` and
-  `alignedProjection=true` after both Makepad-owned camera textures update, with
-  `visualInspection=required` and `visualReleaseAccepted=false` still making
-  visual acceptance a separate gate. The source now also emits rolling
-  `RUSTY_XR_MAKEPAD_CADENCE` samples so the next device run can compare Makepad
-  callback cadence and left/right camera texture-update cadence against the
-  custom shell scorecard. Runtime display cadence still comes from `VrApi`
-  rows when present.
+- Performance comparison gate: blocked on presentation completion. The current
+  APK can report `pairedLeftRightGpuBuffers=true` and `alignedProjection=true`
+  after both Makepad-owned camera textures update, with `cpuUploadCount=0`.
+  A later S11 launch-state check showed that these markers can be emitted while
+  Horizon OS is still showing the loading experience and has placed the app in a
+  volumetric-window launch state rather than a confirmed immersive presentation
+  state. Treat the cadence markers as app/surface/camera-path evidence until a
+  device run also proves the loading screen clears and the immersive handoff is
+  complete.
+- Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
+  Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
+  texture-update counters. The latest partial S11 run reported `NextFrame`,
+  draw-event, and paired texture rates around the same low cadence, with
+  `XrUpdate` still at zero in the app marker path, but that run is not a
+  presentation-performance sample because the headset view did not leave the
+  loading screen.
 - Current tracked warning: repeated small hardware-buffer lines appear in the
   device logs. They are not counted as GPU page faults, persisted through the
   successful paired import/projection marker gate, and should stay visible in

@@ -174,6 +174,14 @@ pub struct App {
     #[rust]
     cadence_frame_count_at_last_sample: u64,
     #[rust]
+    cadence_xr_update_count: u64,
+    #[rust]
+    cadence_xr_update_count_at_last_sample: u64,
+    #[rust]
+    cadence_draw_event_count: u64,
+    #[rust]
+    cadence_draw_event_count_at_last_sample: u64,
+    #[rust]
     cadence_left_texture_update_count: u64,
     #[rust]
     cadence_right_texture_update_count: u64,
@@ -365,6 +373,16 @@ impl App {
             return;
         }
 
+        match event {
+            Event::XrUpdate(_) => {
+                self.cadence_xr_update_count = self.cadence_xr_update_count.saturating_add(1);
+            }
+            Event::Draw(_) => {
+                self.cadence_draw_event_count = self.cadence_draw_event_count.saturating_add(1);
+            }
+            _ => {}
+        }
+
         let Some(next_frame) = self.cadence_next_frame else {
             return;
         };
@@ -413,8 +431,16 @@ impl App {
         let right_delta = self
             .cadence_right_texture_update_count
             .saturating_sub(self.cadence_right_texture_update_count_at_last_sample);
+        let xr_update_delta = self
+            .cadence_xr_update_count
+            .saturating_sub(self.cadence_xr_update_count_at_last_sample);
+        let draw_event_delta = self
+            .cadence_draw_event_count
+            .saturating_sub(self.cadence_draw_event_count_at_last_sample);
         let paired_delta = left_delta.min(right_delta);
         let app_frame_rate_hz = rate_hz(frame_delta, interval_seconds);
+        let xr_update_rate_hz = rate_hz(xr_update_delta, interval_seconds);
+        let draw_event_rate_hz = rate_hz(draw_event_delta, interval_seconds);
         let left_texture_rate_hz = rate_hz(left_delta, interval_seconds);
         let right_texture_rate_hz = rate_hz(right_delta, interval_seconds);
         let paired_texture_rate_hz = rate_hz(paired_delta, interval_seconds);
@@ -432,12 +458,18 @@ impl App {
         };
 
         Self::emit_cadence_marker(&format!(
-            "phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightGpuBuffers={} projectionMappingReady={} alignedProjection={} cpuUploadCount=0 renderPath=makepad-xr cameraFrameSource=makepad-video-texture-updated",
+            "phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} xrUpdateCount={} xrUpdateDelta={} xrUpdateRateHz={:.2} drawEventCount={} drawEventDelta={} drawEventRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightGpuBuffers={} projectionMappingReady={} alignedProjection={} cpuUploadCount=0 renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated",
             elapsed_seconds * 1000.0,
             interval_seconds * 1000.0,
             self.cadence_frame_count,
             frame_delta,
             app_frame_rate_hz,
+            self.cadence_xr_update_count,
+            xr_update_delta,
+            xr_update_rate_hz,
+            self.cadence_draw_event_count,
+            draw_event_delta,
+            draw_event_rate_hz,
             self.cadence_left_texture_update_count,
             self.cadence_right_texture_update_count,
             self.cadence_left_texture_update_count.min(self.cadence_right_texture_update_count),
@@ -456,6 +488,8 @@ impl App {
 
         self.cadence_last_sample_time = now_seconds;
         self.cadence_frame_count_at_last_sample = self.cadence_frame_count;
+        self.cadence_xr_update_count_at_last_sample = self.cadence_xr_update_count;
+        self.cadence_draw_event_count_at_last_sample = self.cadence_draw_event_count;
         self.cadence_left_texture_update_count_at_last_sample =
             self.cadence_left_texture_update_count;
         self.cadence_right_texture_update_count_at_last_sample =
@@ -620,7 +654,7 @@ impl App {
         self.paired_import_started = true;
 
         Self::emit_hardware_buffer_import_marker(&format!(
-            "phase=start status=started importPlan=paired-makepad-video-hardware-buffer leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} pixelFormat={} importPath=makepad-android-video-external-vulkan textureFormat=VideoExternal delayedAfterAcquisitionSeconds={:.0}",
+            "phase=start status=started importPlan=paired-makepad-video-hardware-buffer leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftFrameRate={} rightFrameRate={} pixelFormat={} importPath=makepad-android-video-external-vulkan textureFormat=VideoExternal delayedAfterAcquisitionSeconds={:.0}",
             pair.left.source_index,
             pair.right.source_index,
             pair.left.source_class,
@@ -629,6 +663,8 @@ impl App {
             pair.left.height,
             pair.right.width,
             pair.right.height,
+            frame_rate_token(pair.left.frame_rate),
+            frame_rate_token(pair.right.frame_rate),
             pixel_format_label(pair.left.pixel_format),
             PAIRED_IMPORT_DELAY_SECONDS,
         ));
@@ -673,7 +709,7 @@ impl App {
         match &self.paired_import_choice {
             Some(pair) => {
                 Self::emit_hardware_buffer_import_marker(&format!(
-                "phase=enumerated status=ok makepadSourceCount={} makepadFormatCount={} selected=true importPlan=paired-makepad-video-hardware-buffer leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} pixelFormat={}",
+                "phase=enumerated status=ok makepadSourceCount={} makepadFormatCount={} selected=true importPlan=paired-makepad-video-hardware-buffer leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftFrameRate={} rightFrameRate={} pixelFormat={}",
                 source_count,
                 format_count,
                 pair.left.source_index,
@@ -684,6 +720,8 @@ impl App {
                 pair.left.height,
                 pair.right.width,
                 pair.right.height,
+                frame_rate_token(pair.left.frame_rate),
+                frame_rate_token(pair.right.frame_rate),
                 pixel_format_label(pair.left.pixel_format),
             ));
                 Self::emit_stereo_projection_marker(&format!(
@@ -867,6 +905,7 @@ struct MakepadCameraChoice {
     source_class: &'static str,
     width: usize,
     height: usize,
+    frame_rate: Option<f64>,
     pixel_format: VideoPixelFormat,
 }
 
@@ -884,22 +923,29 @@ impl MakepadCameraChoice {
             source_class,
             width: format.width,
             height: format.height,
+            frame_rate: format.frame_rate,
             pixel_format: format.pixel_format,
         }
     }
 
-    fn score(&self) -> (i32, i64, i64) {
+    fn score(&self) -> (i32, i64, i64, i64) {
         let source_rank = match self.source_class {
             "back" => 3,
             "external" => 2,
             "front" => 1,
             _ => 0,
         };
+        let frame_rate_milli = self
+            .frame_rate
+            .filter(|rate| rate.is_finite() && *rate > 0.0)
+            .map(|rate| (rate * 1000.0).round() as i64)
+            .unwrap_or(0);
         let target_penalty = self.width.abs_diff(1280) + self.height.abs_diff(1280);
         let square_penalty = self.width.abs_diff(self.height);
         let area = (self.width as i64) * (self.height as i64);
         (
             source_rank,
+            frame_rate_milli,
             area - (target_penalty as i64) * 2048 - (square_penalty as i64) * 4096,
             area,
         )
@@ -975,7 +1021,7 @@ impl MakepadCameraPair {
         let mut best: Option<(
             MakepadCameraChoice,
             MakepadCameraChoice,
-            (i32, i64, i64, i64),
+            (i32, i64, i64, i64, i64),
         )> = None;
 
         for left in choices {
@@ -990,12 +1036,25 @@ impl MakepadCameraPair {
 
                 let source_rank =
                     source_class_rank(left.source_class) + source_class_rank(right.source_class);
+                let frame_rate_milli = left
+                    .frame_rate
+                    .zip(right.frame_rate)
+                    .filter(|(left_rate, right_rate)| {
+                        left_rate.is_finite()
+                            && right_rate.is_finite()
+                            && *left_rate > 0.0
+                            && *right_rate > 0.0
+                    })
+                    .map(|(left_rate, right_rate)| left_rate.min(right_rate))
+                    .map(|rate| (rate * 1000.0).round() as i64)
+                    .unwrap_or(0);
                 let area = (left.width as i64) * (left.height as i64);
                 let target_penalty = left.width.abs_diff(1280) + left.height.abs_diff(1280);
                 let square_penalty = left.width.abs_diff(left.height);
                 let index_spacing = left.source_index.abs_diff(right.source_index) as i64;
                 let score = (
                     source_rank,
+                    frame_rate_milli,
                     area - (target_penalty as i64) * 2048 - (square_penalty as i64) * 4096,
                     area,
                     -index_spacing,
@@ -1108,6 +1167,13 @@ fn pixel_format_label(format: VideoPixelFormat) -> &'static str {
         VideoPixelFormat::MJPEG => "mjpeg",
         VideoPixelFormat::Unsupported(_) => "unsupported",
     }
+}
+
+fn frame_rate_token(frame_rate: Option<f64>) -> String {
+    frame_rate
+        .filter(|rate| rate.is_finite() && *rate > 0.0)
+        .map(|rate| format!("{rate:.2}"))
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn set_runtime_text(
