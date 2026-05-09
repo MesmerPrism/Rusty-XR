@@ -272,41 +272,37 @@ fault is isolated. It currently proves:
 - the app can emit the same public diagnostic marker style used by existing
   scorecard tools
 
-Current device validation also exposed the next blockers: the tested Makepad
-tool needed Windows packaging fixes for generated wrapper paths and dependent
-Rust shared libraries, and the Quest log reports GPU page faults during the
-Makepad XR activity. Earlier isolation variants showed that the fault does not
-require the permission-flow widget, Makepad UI surfaces, a simple cube marker,
-the environment cube, a persistent headset-camera grant, fixed foveation, or a
+Current device validation first exposed two blockers: the tested Makepad tool
+needed Windows packaging fixes for generated wrapper paths and dependent Rust
+shared libraries, and the Quest log reported GPU page faults during the Makepad
+XR path. Earlier isolation variants showed that the fault does not require the
+permission-flow widget, Makepad UI surfaces, a simple cube marker, the
+environment cube, a persistent headset-camera grant, fixed foveation, or a
 simple app-side queue-idle after submit. A control run of Makepad's upstream XR
-example on the same headset reproduced the GPU page fault symptom. Depth
-acquire/readback changed timing in one run, but follow-up splits showed the
-fault still appears without provider start, per-frame acquire/readback, or
-depth image view creation. Later splits also faulted without passthrough
-creation, without environment-depth provider/swapchain creation, and with zero
-composition layers submitted, without OpenXR color swapchain creation, without
-the OpenXR frame loop, without OpenXR session creation, and without Makepad
-OpenXR instance creation. A same-APK launch of the normal Makepad Android
-activity also reproduced the page-fault class, while fresh default
-Android/GLES-only controls did not reproduce the fault in short runs. A plain
-upstream Makepad counter app then faulted when built with the Quest/Vulkan
-backend and stayed clean when the same Quest-shaped control was forced through
-GLES. A Quest/Vulkan control that returned before Vulkan window draw/present
-also stayed clean. Further splits showed that suppressing suboptimal-triggered
-swapchain recreation stayed clean, a same-toolchain Quest/Vulkan baseline still
-faulted, and waiting either device idle or the current window-frame fence before
-suboptimal-triggered recreation stayed clean. The local Makepad fork now carries
-the targeted frame-fence wait as source state, alongside the Windows Android
-packaging fixes needed for this build lane, and a no-diagnostic Quest/Vulkan
-counter repeat stayed clean. The active lead has moved below `makepad-xr` and
-below Vulkan backend/surface setup to Makepad's Android Vulkan
-window-swapchain recreation on the acquire/present suboptimal path on Horizon
-OS.
+example on the same headset reproduced the GPU page fault symptom. Follow-up
+splits then ruled out depth provider/swapchain creation, passthrough creation,
+composition-layer submission, OpenXR color swapchain creation, OpenXR
+frame-loop work, OpenXR session creation, Makepad OpenXR instance creation, and
+the generated-XR activity as required causes. The active bracket moved into
+Makepad's Android Vulkan window-swapchain recreation after acquire/present
+reports suboptimal. Suppressing that recreation stayed clean, a same-toolchain
+Quest/Vulkan baseline still faulted, and waiting either device idle or the
+current window-frame fence before recreation stayed clean.
 
-Do not start with a full renderer port. Start by making the synthetic launch and
-diagnostic log path repeatable, then validate the fork-state frame-fence patch
-over longer repeats before interpreting camera or renderer measurements from
-this lane.
+The maintained Makepad fork now carries the targeted frame-fence wait as source
+state, alongside the Windows Android packaging fixes needed for this build
+lane. A no-diagnostic Quest/Vulkan counter repeat stayed clean, and the Rusty XR
+synthetic stereo shell now passes launcher plus generated-XR startup/liveness
+validation against that fork state. The current validation method uses a short
+startup capture for Java activity, native bootstrap, and Rust app markers, plus
+a separate 90s liveness/fault capture for app-process GPU page-fault and fatal
+counters. Repeated small hardware-buffer warnings remain tracked separately
+before Camera2 hardware-buffer import.
+
+Do not start with a full renderer port. Keep the synthetic launch and diagnostic
+log path repeatable, extend the fork-state repeat window, and then add Camera2
+metadata/acquisition before interpreting projection or renderer measurements
+from this lane.
 
 The Makepad-vs-current affordance and cost ledger is tracked in
 [MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md](MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md).

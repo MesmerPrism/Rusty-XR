@@ -2,8 +2,11 @@ pub use makepad_xr::makepad_widgets;
 
 use makepad_widgets::*;
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 app_main!(App);
+
+static STARTUP_MARKERS_EMITTED: AtomicBool = AtomicBool::new(false);
 
 const DEFAULT_PROFILE: &str = "makepad-synthetic-stereo-projection";
 const DEFAULT_TRANSPORT: &str = "synthetic";
@@ -14,7 +17,7 @@ const DEFAULT_SYNTHETIC_SCENE: &str = "dual-panel-grid-v1";
 const DEFAULT_PROJECTION_SCALE: f64 = 0.75;
 const DEFAULT_XR_RENDER_SCALE: f64 = 0.75;
 const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
-const MAKEPAD_REV: &str = "c762353fc43c";
+const MAKEPAD_REV: &str = "4e1d5fd68951";
 const KEY_RUNTIME_PROFILE: &str = "runtime_profile";
 const KEY_TRANSPORT_PROFILE: &str = "transport_profile";
 const KEY_CAMERA_TIER: &str = "camera_tier";
@@ -110,23 +113,35 @@ pub struct App {
 }
 
 impl App {
+    fn emit_startup_markers_once(phase: &str) {
+        if STARTUP_MARKERS_EMITTED
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+
+        Self::emit_status_marker(phase);
+        Self::emit_stereo_comparison_marker(phase);
+    }
+
     fn emit_status_marker(phase: &str) {
         let config = Self::runtime_config();
 
-        log!(
+        emit_marker_line(&format!(
             "RUSTY_XR_MAKEPAD_Q2Q_STATUS schema=rusty.xr.makepad-q2q.status.v1 phase={} profile={} transport={} renderer=makepad android_packager=cargo-makepad makepad_rev={} studio_host={}",
             phase,
             runtime_text(&config, KEY_RUNTIME_PROFILE),
             runtime_text(&config, KEY_TRANSPORT_PROFILE),
             runtime_text(&config, KEY_MAKEPAD_REVISION),
             runtime_text(&config, KEY_STUDIO_HOST)
-        );
+        ));
     }
 
     fn emit_stereo_comparison_marker(phase: &str) {
         let config = Self::runtime_config();
 
-        log!(
+        emit_marker_line(&format!(
             "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition=none transport={} projectionMode={} syntheticScene={} leftEyeSource=synthetic-left rightEyeSource=synthetic-right sourceEyeMapping=display-eye projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=false alignedProjection=false renderPath=makepad-xr makepadForkBranch={} makepadForkCommit={}",
             phase,
             runtime_text(&config, KEY_RUNTIME_PROFILE),
@@ -139,7 +154,7 @@ impl App {
             runtime_float(&config, KEY_XR_RENDER_SCALE),
             runtime_text(&config, KEY_MAKEPAD_BRANCH),
             runtime_text(&config, KEY_MAKEPAD_REVISION)
-        );
+        ));
     }
 
     fn runtime_config() -> RuntimeConfig {
@@ -277,10 +292,35 @@ fn env_f64(key: &str, default: f64) -> f64 {
         .unwrap_or(default)
 }
 
+#[cfg(target_os = "android")]
+fn emit_marker_line(line: &str) {
+    use std::ffi::CString;
+    use std::os::raw::{c_char, c_int};
+
+    const ANDROID_LOG_INFO: c_int = 4;
+
+    #[link(name = "log")]
+    unsafe extern "C" {
+        fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
+    }
+
+    let tag = CString::new("RustyXRMakepad");
+    let msg = CString::new(line);
+    if let (Ok(tag), Ok(msg)) = (tag, msg) {
+        unsafe {
+            __android_log_write(ANDROID_LOG_INFO, tag.as_ptr(), msg.as_ptr());
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn emit_marker_line(line: &str) {
+    log!("{}", line);
+}
+
 impl MatchEvent for App {
     fn handle_startup(&mut self, _cx: &mut Cx) {
-        Self::emit_status_marker("startup");
-        Self::emit_stereo_comparison_marker("startup");
+        Self::emit_startup_markers_once("startup");
     }
 
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions) {
@@ -299,6 +339,10 @@ impl AppMain for App {
         crate::makepad_widgets::script_mod(vm);
         makepad_xr::script_mod(vm);
         self::script_mod(vm)
+    }
+
+    fn after_new_from_script(_vm: &mut ScriptVm, _app: &mut Self) {
+        Self::emit_startup_markers_once("startup");
     }
 
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {

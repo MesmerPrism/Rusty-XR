@@ -33,12 +33,21 @@ suboptimal-triggered recreation stayed clean, and waiting Makepad's current
 window-frame fence before the same recreation also stayed clean. The same
 frame-fence wait has now been promoted from a temporary diagnostic into the
 local Makepad fork state and stayed clean in a no-diagnostic Quest/Vulkan
-counter run. The strongest current lead is therefore a synchronization/lifetime
-issue in Makepad's Android Vulkan window-swapchain recreation after
-acquire/present reports suboptimal, not generic Makepad Android activity
-startup, the Quest manifest shape alone, Vulkan backend/surface setup by
-itself, `makepad-xr` scene content, environment depth, passthrough, OpenXR
-composition layers, or OpenXR session ownership.
+counter run. The Rusty XR synthetic stereo Makepad shell was then rebuilt
+against that fork state and passed both the launcher and generated-XR activity
+startup/liveness gate: short startup captures saw Java activity markers, native
+bootstrap markers through Vulkan ready / before main loop, and Rusty XR app
+markers; separate 90s liveness captures showed no app-process GPU page-fault or
+fatal lines.
+
+The strongest current lead remains a synchronization/lifetime issue in
+Makepad's Android Vulkan window-swapchain recreation after acquire/present
+reports suboptimal, not generic Makepad Android activity startup, the Quest
+manifest shape alone, Vulkan backend/surface setup by itself, `makepad-xr` scene
+content, environment depth, passthrough, OpenXR composition layers, or OpenXR
+session ownership. Repeated small hardware-buffer warnings in the current
+synthetic stereo shell are tracked separately because the next Camera2 passes
+will intentionally add hardware-buffer ownership.
 
 ## Investigation Rules
 
@@ -46,6 +55,9 @@ composition layers, or OpenXR session ownership.
 - Clear old logs before each run and stop unrelated XR probes when possible.
 - Treat a running process and emitted marker as startup evidence, not as GPU
   stability.
+- Capture startup markers in a short logcat window and capture GPU/fatal
+  counters in a separate longer window; noisy long captures can lose
+  startup-only marker lines.
 - Do not add camera transport, broker integration, or projected camera rendering
   until the Makepad XR smoke path is clean or the fault is narrowly bracketed.
 - Record whether the run used the Makepad launcher activity or the generated XR
@@ -96,6 +108,7 @@ composition layers, or OpenXR session ownership.
 | 37 | Same upstream Makepad counter Quest/Vulkan package shape, but with a temporary local diagnostic gate calling device idle immediately before suboptimal-triggered swapchain recreation | Normal launcher activity | App process stayed alive/visible for a 90s sample; no page-fault-like, small hardware-buffer, Vulkan-fault, or fatal-signature lines were observed | Synchronizing before suboptimal-triggered swapchain recreation changes the outcome, pointing at a resource-lifetime race rather than normal Vulkan use in general. |
 | 38 | Same upstream Makepad counter Quest/Vulkan package shape, but with a temporary local diagnostic gate waiting Makepad's current window-frame fence before suboptimal-triggered swapchain recreation | Normal launcher activity | App process stayed alive/visible for a 90s sample; no page-fault-like, small hardware-buffer, Vulkan-fault, or fatal-signature lines were observed | A targeted frame-fence wait is enough in this sample; the likely Makepad-side fix candidate is to wait the submitted window frame before destroying/recreating swapchain-owned resources on the suboptimal path. |
 | 39 | Same upstream Makepad counter Quest/Vulkan package shape rebuilt from the maintained local Makepad fork state, with the frame-fence wait applied as a persistent source patch and no diagnostic environment gates | Normal launcher activity | App process stayed alive/visible for a 90s sample; no page-fault-like, small hardware-buffer, Vulkan-fault, or fatal-signature lines were observed | The maintained fork state preserves the clean result without relying on temporary diagnostic gates. Next validation should repeat for longer and then move back to the Makepad XR smoke path. |
+| 40 | Rusty XR synthetic stereo Makepad shell rebuilt against the maintained fork state with Java activity, native bootstrap, and direct Android app markers | Makepad launcher and direct generated-XR activity | Short startup captures saw activity/bootstrap/app markers on both launch paths, including Vulkan ready and before main loop. Separate 90s liveness captures stayed alive with no app-process GPU page-fault or fatal lines; repeated small hardware-buffer warnings remained. | The marker route is working, the fork-state frame-fence patch stays clean in the Rusty XR synthetic stereo shell, and future validation should keep startup marker checks separate from longer fault-counter windows. |
 
 ## Depth Path Comparison
 
@@ -169,18 +182,21 @@ not equivalent to Makepad's Android window WSI path now implicated by attempts
 The next useful Makepad isolation is therefore fork-state validation rather than
 another broad renderer split:
 
-- repeat the Quest/Vulkan counter run for a longer sample and a few launch
-  cycles
+- repeat the Quest/Vulkan counter and synthetic stereo runs for longer samples
+  and a few launch cycles
 - keep the same wait on the post-submit `ERROR_OUT_OF_DATE_KHR` path and
   validate whether surface update/suspend need additional coverage
-- only after that, move the patch back into the Rusty XR Makepad Q2Q shell and
-  re-run the XR smoke path
+- keep small hardware-buffer warning counts visible as the Camera2
+  metadata/acquisition pass starts
 
 ## Open Isolation Questions
 
 - Does a targeted frame-fence wait before suboptimal-triggered
   `recreate_swapchain` stay clean across longer samples and repeated
   launch/stop cycles?
+- Are the repeated small hardware-buffer warnings in the current synthetic
+  stereo shell benign Makepad/Quest surface churn, or do they matter once
+  Camera2 hardware-buffer import is introduced?
 - Does the same synchronization need to be applied to the out-of-date and
   surface-lost paths, or is the Quest/Horizon symptom specific to suboptimal
   acquire/present returns?

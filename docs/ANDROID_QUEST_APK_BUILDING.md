@@ -406,10 +406,12 @@ surface. The first implementation is a synthetic smoke lane: it logs
 before camera transport or broker integration is added. Current validation uses
 the generated launcher activity for Makepad's normal run path and direct adb
 launch of the generated XR activity for immersive smoke checks. The lane reaches
-the XR activity and emits the marker, but repeated GPU page fault lines in the
-Quest log remain the active blocker before camera or renderer measurements from
-this path should be trusted. Current isolation has moved below `makepad-xr`:
-the fault still appears without depth, passthrough, composition layers, OpenXR
-color swapchains, OpenXR frame-loop work, OpenXR session creation, or Makepad
-OpenXR instance creation, and the same page-fault class also appears in a
-same-APK launch of the normal Makepad Android activity.
+the launcher and generated-XR startup paths, emits Java activity, native
+bootstrap, Q2Q status, and stereo-comparison markers in short startup captures,
+and stays alive in separate 90s liveness windows with no app-process GPU
+page-fault or fatal lines when built against the maintained Makepad fork state.
+Repeated small hardware-buffer warnings remain tracked separately before
+Camera2 hardware-buffer import. Current isolation moved the earlier GPU
+page-fault class below `makepad-xr` and into Makepad's Android Vulkan
+window-swapchain recreation after acquire/present reports suboptimal; the
+maintained fork carries the current frame-fence wait candidate.

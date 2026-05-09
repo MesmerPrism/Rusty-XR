@@ -35,6 +35,8 @@ scope is limited to:
 - Android packaging fixes needed for the tested Windows-to-Quest build lane.
 - A targeted Android Vulkan window-swapchain frame-fence wait for the
   Quest/Horizon OS suboptimal or out-of-date recreation path.
+- Public-safe Android activity and native bootstrap markers used to validate
+  launcher/generated-XR startup without publishing raw device logs.
 - Cargo workspace metadata exclusions for standalone CSG leaf crates that are
   outside Makepad's main workspace validation path.
 - Ignore rules for local generated Android-control target folders.
@@ -66,7 +68,9 @@ this order:
 2. Cargo metadata checks for any workspace or manifest changes.
 3. `cargo-makepad` check and release build.
 4. Quest/Vulkan smoke for the minimal Makepad Android surface.
-5. Rusty XR Makepad example launcher and direct-XR smoke.
+5. Rusty XR Makepad example launcher and generated-XR startup/liveness smoke,
+   with short startup marker capture separated from longer fault-counter
+   capture.
 6. Camera, broker, or stream adapters only after the renderer smoke path is
    stable enough to trust measurements.
 

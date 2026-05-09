@@ -22,7 +22,7 @@ fork-patch policy are documented in
 - Uses `cargo-makepad android --variant=quest`.
 - Uses the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging`; the current documented branch head is
-  `c762353fc43c`.
+  `4e1d5fd68951`.
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
@@ -30,6 +30,11 @@ fork-patch policy are documented in
   shell is already attached to a framework-neutral Rusty XR core crate.
 - Emits `RUSTY_XR_MAKEPAD_Q2Q_STATUS` and
   `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` on startup.
+- On Android, emits those startup markers directly through logcat under a
+  Rusty XR tag so device smoke tests have a reliable startup signal.
+- The maintained Makepad fork also emits public-safe Java activity and native
+  bootstrap phase markers for Android activity creation, native handoff,
+  EGL/GL setup, Vulkan readiness, and main-loop handoff.
 - Keeps Android SDK, generated Java, generated manifest, native library, and APK
   output under ignored local build folders.
 - The current source does not include Makepad's `XrPermissionsFlow`; an earlier
@@ -57,13 +62,13 @@ cargo makepad android --abi=aarch64 --sdk-path <local-makepad-android-sdk> insta
 Build the Quest APK from this example directory:
 
 ```powershell
-cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path <local-makepad-android-sdk> --package-name=io.github.mesmerprism.rustyxr.makepad.q2q --app-label="Rusty XR Makepad Q2Q" build -p rusty-xr-makepad-q2q-camera-shell --release
+cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path <local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" build -p rusty-xr-makepad-q2q-camera-shell --release
 ```
 
 Run on a selected Quest device:
 
 ```powershell
-cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path <local-makepad-android-sdk> --package-name=io.github.mesmerprism.rustyxr.makepad.q2q --app-label="Rusty XR Makepad Q2Q" run -p rusty-xr-makepad-q2q-camera-shell --release
+cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path <local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" run -p rusty-xr-makepad-q2q-camera-shell --release
 ```
 
 The generated APK lands under
@@ -73,7 +78,7 @@ The Makepad runner starts the generated launcher activity. For direct XR
 activity validation, launch the generated XR activity with adb:
 
 ```powershell
-adb -s <quest-serial> shell am start -n io.github.mesmerprism.rustyxr.makepad.q2q/.MakepadAppXr
+adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-activity>
 ```
 
 ## Known Affordances And Gaps
@@ -97,12 +102,12 @@ adb -s <quest-serial> shell am start -n io.github.mesmerprism.rustyxr.makepad.q2
 - On Windows, the tested Makepad revision required local `cargo-makepad`
   packaging fixes for generated wrapper paths and dependent Rust shared-library
   bundling.
-- Current Quest validation reaches the generated XR activity and emits the
-  marker, but the device log also reports GPU page faults. Treat that as the
-  active Makepad-lane blocker before adding camera transport.
+- Earlier Quest validation reached the generated XR activity and emitted the
+  marker, but the device log also reported GPU page faults. That fault class was
+  later narrowed below this Rusty XR smoke panel.
 - A control run of Makepad's upstream XR example on the same headset also
-  reported GPU page faults, so this is likely not specific to this Rusty XR
-  smoke panel.
+  reported GPU page faults, so the investigation moved into Makepad's
+  Android/Vulkan path rather than this example's scene content.
 - The depth-stack comparison showed that Makepad's eager environment-depth path
   differs from the non-Makepad Rusty XR composite stack, but follow-up splits
   still faulted without provider start, per-frame acquire/readback, or depth
@@ -117,39 +122,36 @@ adb -s <quest-serial> shell am start -n io.github.mesmerprism.rustyxr.makepad.q2
   recreation stayed clean, the same-toolchain baseline still faulted, and
   waiting the current window-frame fence before recreation stayed clean. That
   wait is now part of the maintained local Makepad fork state and a
-  no-diagnostic counter repeat stayed clean. See the repository-level GPU
-  investigation note for the current attempt log and the next
-  base-Android-renderer isolation steps.
+  no-diagnostic counter repeat stayed clean. The current synthetic stereo APK
+  built against that fork state now passes the launcher and generated-XR
+  startup/liveness gate with no app-process GPU page-fault or fatal lines in
+  the 90s windows. Repeated small hardware-buffer warnings remain tracked
+  separately before Camera2 hardware-buffer import. See the repository-level
+  GPU investigation note for the current attempt log.
 
 ## Validation Status
 
 - `cargo check`: passes for this standalone package.
 - Quest APK build: passes with the maintained Makepad fork branch, including
   dependent Rust shared-library bundling.
-- Quest launcher run: installs, starts, emits `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
-  keeps the app process alive.
-- Quest direct XR activity launch: reaches the generated `MakepadAppXr` activity,
-  emits the marker, and enters the immersive activity path.
-- Known blocker: repeated GPU page fault lines appear in logcat during the
-  Makepad XR smoke path. No camera transport or broker integration should be
-  judged against this lane until that is isolated or fixed. The same symptom was
-  reproduced with Makepad's upstream XR example on the same headset. The
-  current isolation target has moved past depth acquire/readback,
-  passthrough/composition setup, composition-layer submission, OpenXR color
-  swapchain creation, OpenXR session creation, and OpenXR instance creation.
-  A same-APK normal-activity launch still reproduced the fault, while fresh
-  default Android/GLES-only controls did not. A plain upstream Makepad counter
-  app reproduced the fault in the Quest/Vulkan package shape and stayed clean
-  when the same Quest-shaped control was forced through GLES. A Quest/Vulkan
-  control that skipped Vulkan window draw/present also stayed clean. The active
-  lead is Makepad's Android Vulkan suboptimal-triggered swapchain recreation in
-  `draw_pass_and_present` on Horizon OS; a targeted wait for the current
-  window-frame fence before recreation is now the current local Makepad fork
-  candidate patch.
+- Quest launcher run: installs, starts, emits Java activity, native bootstrap,
+  `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
+  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` startup markers in a short capture, then
+  keeps the app process alive in the longer liveness window with no app-process
+  GPU page-fault or fatal lines.
+- Quest generated-XR activity launch: emits the same startup marker set in a
+  short capture, reaches Vulkan ready / before main loop, and keeps the app
+  process alive in the longer liveness window with no app-process GPU page-fault
+  or fatal lines.
+- Current tracked warning: repeated small hardware-buffer lines appear in the
+  synthetic stereo device logs. They are not counted as GPU page faults, but
+  they should stay visible in the iteration ledger before Camera2
+  hardware-buffer import is added.
 - Current source/build slice: the synthetic stereo comparison scene and
-  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` marker pass source validation and
-  release APK build. Device launcher/direct-XR validation against the maintained
-  fork branch is the next gate.
+  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` marker pass source validation, release
+  APK build, launcher startup/liveness validation, and generated-XR
+  startup/liveness validation against the maintained fork branch. The next gate
+  is Camera2 metadata/acquisition, not projection parity.
 
 The current step-by-step implementation ledger is tracked in
 [../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).

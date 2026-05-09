@@ -74,10 +74,13 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
   recreation stayed clean, a same-toolchain baseline still faulted, and waiting
   either device idle or the current window-frame fence before suboptimal
   recreation stayed clean. The current local Makepad fork state promotes that
-  frame-fence wait to a persistent source patch, and the no-diagnostic
-  Quest/Vulkan counter run stayed clean. The active lead is Makepad's Android
-  Vulkan window-swapchain recreation on the acquire/present suboptimal path on
-  Horizon OS.
+  frame-fence wait to a persistent source patch, the no-diagnostic Quest/Vulkan
+  counter run stayed clean, and the Rusty XR synthetic stereo shell now passes
+  launcher plus generated-XR startup/liveness validation against that fork
+  state. The remaining lead is to harden Makepad's Android Vulkan
+  window-swapchain recreation on the acquire/present suboptimal path on Horizon
+  OS and keep repeated small hardware-buffer warnings visible before Camera2
+  import.
 - Launch surface: whether automation should use Makepad's launcher `run` path,
   direct adb launch of the generated XR activity, or both as separate checks.
 
@@ -111,7 +114,7 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 | XR dependency surface | Custom shell owns OpenXR/Vulkan dependencies directly. | `makepad-xr` pulls in Makepad's XR, rendering, physics/math, asset, and UI dependency graph. |
 | Output location | Example `build/` folders. | Makepad `target/android/makepad-android-apk/...` folders. |
 | Licensing | Rusty XR MIT plus Android/OpenXR inputs. | Rusty XR MIT plus Makepad MIT OR Apache-2.0 and Android/OpenXR inputs. |
-| Current blocker cost | Existing lane already has measured camera/stream diagnostics, but the scripts are less portable. | Tested Makepad revision currently needs local Windows packaging patches and reports GPU page faults on Quest XR smoke. |
+| Current blocker cost | Existing lane already has measured camera/stream diagnostics, but the scripts are less portable. | The maintained Makepad fork currently needs local Windows packaging patches plus the Android Vulkan frame-fence wait. The synthetic stereo smoke path is clean for the current startup/liveness gate, but small hardware-buffer warnings remain tracked before Camera2 import. |
 
 ## Immediate Validation Ladder
 
@@ -120,12 +123,14 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 2. Desktop smoke: the standalone Makepad package passes `cargo check`.
 3. Android build: `cargo makepad android --variant=quest build` produces a Quest
    APK and bundles required native shared libraries.
-4. Launcher smoke: install/run on a selected Quest and confirm
-   `RUSTY_XR_MAKEPAD_Q2Q_STATUS` in logcat.
-5. Direct XR smoke: launch the generated XR activity directly and confirm the
-   marker, focused XR activity, and absence of native crashes.
-6. Fault isolation: resolve or bracket the current GPU page fault before
-   interpreting renderer or camera measurements from this lane.
+4. Launcher startup smoke: install/run on a selected Quest and confirm Java
+   activity, native bootstrap, `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
+   `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` markers in a short log window.
+5. Generated-XR startup smoke: launch the generated XR activity directly and
+   confirm the same marker chain, focused immersive activity, and absence of
+   native crashes.
+6. Liveness/fault window: run a separate longer capture for app-process GPU
+   page-fault, fatal, and small hardware-buffer counters.
 7. Adapter pass: add runtime profile propagation and then compare camera
    affordances against the current custom APK lane.
 
@@ -135,16 +140,17 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 - Quest APK build and install pass with the tested Makepad tooling plus local
   Windows packaging fixes for generated wrapper paths and dependent Rust shared
   libraries.
-- The generated launcher activity starts and emits
-  `RUSTY_XR_MAKEPAD_Q2Q_STATUS`.
+- The generated launcher activity starts and emits Java activity, native
+  bootstrap, `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
+  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` markers in a short startup capture.
 - The generated XR activity can be launched directly, becomes the focused
-  headset activity, emits the same marker, and enters the immersive activity
-  path.
+  headset activity, emits the same marker chain, and reaches Vulkan ready /
+  before main loop in a short startup capture.
 - Makepad's XR permission flow requests `horizonos.permission.HEADSET_CAMERA`
   even though Q2Q camera transport is not wired yet.
-- The Quest log reports repeated GPU page faults during the Makepad XR smoke
-  path. The app process can remain alive, but the lane is not yet a clean XR
-  success signal.
+- Separate 90s launcher and generated-XR liveness captures against the
+  maintained fork state showed no app-process GPU page-fault or fatal lines.
+  Repeated small hardware-buffer warnings remain tracked separately.
 - A control run of Makepad's upstream XR example on the same headset reproduced
   the GPU page fault symptom after the Windows tool patches, so the fault is
   likely in the current Makepad/Quest XR stack rather than this Rusty XR smoke
@@ -173,9 +179,11 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
   still faulted, and waiting the device or the current window-frame fence before
   recreation stayed clean. The local Makepad fork now carries that frame-fence
   wait as source state and a no-diagnostic Quest/Vulkan counter repeat stayed
-  clean. The next Makepad tests should extend the repeat window and then repeat
-  the XR smoke path rather than continuing to focus on `makepad-xr` depth,
-  passthrough, or composition-layer ownership.
+  clean. The Rusty XR synthetic stereo shell now also stays clean for the
+  current startup/liveness gate against that fork state. The next Makepad tests
+  should extend the repeat window, keep small hardware-buffer warnings visible,
+  and then start Camera2 metadata/acquisition rather than continuing to focus on
+  `makepad-xr` depth, passthrough, or composition-layer ownership.
 
 The active fault-isolation log is tracked in
 [MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md](MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md).
