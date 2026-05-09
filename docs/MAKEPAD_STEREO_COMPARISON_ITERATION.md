@@ -195,6 +195,16 @@ default this is a warning so existing smoke workflows keep producing artifacts;
 unattended comparison jobs can opt into a hard stop with
 `-FailOnPowerStateDrift`.
 
+Follow-up inspection of the invalid S8 custom 0.75 run found no retained
+`automation_disable`, `prox_close`, or `setVirtualProxState` command lines in
+the logcat window. Instead, the app-side display-event-receiver failure was
+followed by a fatal `android.ui` / `system_server` path, `VrPowerManagerService`
+was recreated, and the recreated VR power-manager event log started from a new
+initial state without the previous virtual `CLOSE` override. Treat this as a
+service-restart loss of the virtual keep-awake override. The mitigation is to
+make autonomous runners preserve or reapply the operator-requested keep-awake
+hold after such a reset, rather than relying on one synthetic wake signal.
+
 ## Open Questions
 
 - Does the forked Makepad shell stay clean over longer Quest/Vulkan XR repeats
