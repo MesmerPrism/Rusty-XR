@@ -55,27 +55,28 @@ launcher / generated-XR activity gate.
 
 ## Current Slice
 
-The current slice has completed step 6:
+The current slice is step 7:
 
 - keep the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging` as the Android app-shell dependency
 - preserve the completed Camera2 metadata and bounded acquisition diagnostics
-- after the bounded acquisition probe closes, started a Makepad-owned Android
-  camera playback and import one camera hardware buffer through the
-  Makepad/Android Vulkan texture path
-- emitted an explicit `RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT` marker for the
-  import attempt and result
+- preserve the completed single-buffer Makepad hardware-buffer import proof
+- select a left/right source pair from the Camera2 metadata pass and correlate
+  it with Makepad's Android camera source enumeration by source index
+- start two Makepad-owned Android camera playbacks with distinct
+  `VideoExternal` textures
+- emit explicit paired import and projection-mapping markers after both
+  textures update
 - kept the small `AHardwareBuffer` warning class visible as a separate counter
   from app-process GPU page-fault and fatal signatures
-- continue reporting `pairedLeftRightGpuBuffers=false` and
-  `alignedProjection=false` until paired-buffer import and projection parity
-  are implemented
+- use the direct generated-XR activity path as the first performance comparison
+  target now that the paired-buffer and projection-mapping markers are present
+  there
 
-This slice should prove only Makepad-path hardware-buffer import readiness. It
-does not pass the exact one-frame `AImageReader` buffer from the Rusty XR-owned
-metadata/acquisition probe into Makepad internals, claim stereo projection
-parity, add broker streaming, or treat repeated small hardware-buffer warnings
-as GPU page faults.
+This slice should prove that Makepad can own two camera hardware-buffer texture
+imports and that the selected pair can be mapped to the same public per-eye
+projection vocabulary as the custom path. It does not add broker streaming,
+private visual-effect policy, or a completed performance comparison run.
 
 Device validation now uses two log windows:
 
@@ -121,8 +122,12 @@ Before running parity performance diagnostics, the Makepad path must:
 - keep the current strict counters for app-process GPU page faults, fatal
   signals, and the separate small hardware-buffer warning class
 
-Until those markers are true, performance captures are useful only as
-non-parity readiness samples for Makepad import/liveness overhead.
+The generated-XR S7 smoke has now flipped those markers true for the direct XR
+activity path. Performance captures can start there, with visual inspection
+still tracked separately through `visualInspection=required` and
+`visualReleaseAccepted=false`. The normal launcher path remains a separate
+activity/lifecycle regression after one S7 run hit a Horizon OS display-event
+receiver failure before app startup markers.
 
 ## Attempt Ledger
 
@@ -135,6 +140,7 @@ non-parity readiness samples for Makepad import/liveness overhead.
 | S4 | Resolved synthetic stereo device gate | Clean install; short startup capture plus 90s liveness/fault captures for both Makepad launcher and generated-XR activity paths | Passed for step 2. Both launch paths emitted Java activity markers, native bootstrap markers through Vulkan ready / before main loop, and the Rusty XR Q2Q plus stereo-comparison startup markers. Both launch paths stayed alive in 90s windows with no app-process GPU page-fault or fatal lines. Repeated small hardware-buffer warnings remain tracked separately. | Start the Camera2 metadata/acquisition pass, keeping hardware-buffer warnings separate from the GPU page-fault gate |
 | S5 | Camera2 metadata/acquisition gate | Source validation, release APK build, clean install, runtime camera permission grants where allowed, short startup marker capture, and 90s liveness/fault capture with hardware-buffer warning counters kept separate | Passed for metadata/acquisition. Both Makepad launcher and generated-XR startup windows emitted Java/native/app markers, enumerated three Camera2 `PRIVATE` sources, selected a back-facing 1280x1280 source with intrinsics and pose metadata, received one hardware-buffer-backed frame, and completed with `status=ok`. The first-frame descriptor reported native format 35, usage 131840, one layer, stride 1280, and a present buffer id. Both 90s liveness windows stayed focused/alive with no app-process GPU page-fault or fatal lines. The small `AHardwareBuffer` 4x4 warning class remains visible: 528 / 929 lines in launcher startup/liveness and 612 / 1586 lines in generated-XR startup/liveness. | Start hardware-buffer import as a separate pass; keep the existing warning class and GPU-fault counters separate |
 | S6 | Hardware-buffer import gate | Source validation, release APK build, clean install, short launcher and generated-XR marker captures, and 90s liveness/fault capture with small hardware-buffer warnings counted separately | Passed for single-buffer Makepad import readiness. Both short launch paths emitted Java/native/app markers, Camera2 metadata/acquisition markers, and the new hardware-buffer import marker sequence. Makepad enumerated three camera sources and 66 camera formats, selected a back-facing 1280x1280 YUV420 source, started the delayed `VideoExternal` import path, reported playback prepared at 1280x1280, and emitted `phase=texture-updated status=ok makepadVulkanImport=true`. Both short windows had zero app-process GPU page-fault and fatal lines. Small `AHardwareBuffer` 4x4 warning counts stayed visible: 428 in the launcher import window and 452 in the generated-XR import window. A generated-XR 90s liveness window had zero app-process GPU page-fault and fatal lines while retaining 1339 small warning lines; startup/import markers were expectedly evicted from that longer noisy log window. | Start the stereo projection pass by adding paired-buffer ownership and per-eye projection mapping, or first isolate the repeated 4x4 hardware-buffer warning class if it starts correlating with projection work |
+| S7 | Paired import and projection-mapping gate | Source implementation, host validation, Quest APK build, direct generated-XR smoke, and marker-spam guard | Passed for the direct generated-XR path. The final short generated-XR smoke emitted startup, Camera2 metadata/acquisition, paired source enumeration, paired playback start, left/right prepared, left/right texture-updated, projection complete, and paired comparison markers. The selected pair was a back-facing 1280x1280 left/right pair with projection metadata ready; the completion marker reported `pairedLeftRightGpuBuffers=true`, `makepadVulkanImport=true`, `projectionMappingReady=true`, `alignedProjection=true`, `cpuUploadCount=0`, and `visualInspection=required`. App-process GPU page-fault and fatal counts were zero. The separate small `AHardwareBuffer` warning class remained visible. The normal launcher path remains separate after one S7 run hit a Horizon OS display-event-receiver startup failure before app markers. | Start parity performance diagnostics for the direct generated-XR path against the custom Rusty XR stereo camera projection baseline, while keeping launcher lifecycle, awake-state/proximity, and small hardware-buffer warning counters separate |
 
 ## Validation Rule
 
@@ -144,6 +150,12 @@ window, then run a separate longer liveness/fault window. Count small
 hardware-buffer warnings separately from GPU page-fault and fatal signatures,
 because the next Camera2 slices will intentionally introduce hardware-buffer
 ownership.
+
+For autonomous device runs, also treat the headset awake/proximity control
+state as a preflight condition. One S7 validation sequence coincided with the
+device moving back toward standby after a Horizon OS display-event-receiver
+failure and service restart. If this recurs, record the immediately preceding
+adb action separately from app-level marker results.
 
 ## Open Questions
 

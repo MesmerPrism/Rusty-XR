@@ -8,30 +8,37 @@ mod android_camera_probe;
 use makepad_widgets::makepad_platform::{
     event::video_playback::{CameraPreviewMode, VideoSource},
     permission::Permission,
+    thread::SignalToUI,
     video::{VideoFormat, VideoInputsEvent, VideoPixelFormat},
 };
 use makepad_widgets::*;
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    thread,
+    time::Duration,
+};
 
 app_main!(App);
 
 static STARTUP_MARKERS_EMITTED: AtomicBool = AtomicBool::new(false);
+static PAIRED_IMPORT_SIGNAL_READY: AtomicBool = AtomicBool::new(false);
 
-const DEFAULT_PROFILE: &str = "makepad-camera2-acquisition-probe";
-const DEFAULT_TRANSPORT: &str = "synthetic";
-const DEFAULT_CAMERA_TIER: &str = "native-camera2-makepad-vulkan-import-probe";
-const DEFAULT_CAMERA_PROJECTION_MODE: &str = "synthetic-stereo-panels";
+const DEFAULT_PROFILE: &str = "makepad-stereo-projection-pair-probe";
+const DEFAULT_TRANSPORT: &str = "makepad-video-external";
+const DEFAULT_CAMERA_TIER: &str = "native-camera2-makepad-stereo-vulkan-import-probe";
+const DEFAULT_CAMERA_PROJECTION_MODE: &str = "display-screen-homography";
 const DEFAULT_COMPARISON_BASELINE: &str = "custom-apk-camera-stereo-gpu-composite";
-const DEFAULT_SYNTHETIC_SCENE: &str = "dual-panel-grid-v1";
-const DEFAULT_ACQUISITION_PROFILE: &str = "bounded-camera2-private-plus-makepad-import-probe";
+const DEFAULT_SYNTHETIC_SCENE: &str = "dual-panel-grid-v1-with-camera-pair";
+const DEFAULT_ACQUISITION_PROFILE: &str =
+    "bounded-camera2-private-plus-makepad-paired-import-probe";
 const DEFAULT_PROJECTION_SCALE: f64 = 0.75;
 const DEFAULT_XR_RENDER_SCALE: f64 = 0.75;
 const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
 const MAKEPAD_REV: &str = "aebeabf32278";
-const HARDWARE_BUFFER_IMPORT_DELAY_SECONDS: f64 = 6.0;
-const HARDWARE_BUFFER_IMPORT_RETRY_SECONDS: f64 = 1.0;
-const HARDWARE_BUFFER_IMPORT_MAX_WAITS: usize = 10;
+const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
+const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
+const PAIRED_IMPORT_MAX_WAITS: usize = 10;
 const KEY_RUNTIME_PROFILE: &str = "runtime_profile";
 const KEY_TRANSPORT_PROFILE: &str = "transport_profile";
 const KEY_CAMERA_TIER: &str = "camera_tier";
@@ -126,19 +133,33 @@ pub struct App {
     #[live]
     ui: WidgetRef,
     #[rust]
-    hardware_buffer_import_timer: Timer,
+    paired_import_timer: Timer,
     #[rust]
-    hardware_buffer_import_wait_count: usize,
+    paired_import_wait_count: usize,
     #[rust]
-    hardware_buffer_import_choice: Option<MakepadCameraChoice>,
+    paired_import_choice: Option<MakepadCameraPair>,
     #[rust]
-    hardware_buffer_import_selection_logged: bool,
+    paired_import_selection_logged: bool,
     #[rust]
-    hardware_buffer_import_started: bool,
+    paired_import_started: bool,
     #[rust]
-    hardware_buffer_import_finished: bool,
+    paired_import_finished: bool,
     #[rust]
-    hardware_buffer_import_texture: Option<Texture>,
+    paired_import_left_texture: Option<Texture>,
+    #[rust]
+    paired_import_right_texture: Option<Texture>,
+    #[rust]
+    paired_import_left_prepared: bool,
+    #[rust]
+    paired_import_right_prepared: bool,
+    #[rust]
+    paired_import_left_updated: bool,
+    #[rust]
+    paired_import_right_updated: bool,
+    #[rust]
+    paired_import_left_rotation_steps: f32,
+    #[rust]
+    paired_import_right_rotation_steps: f32,
 }
 
 impl App {
@@ -291,114 +312,212 @@ impl App {
         ));
     }
 
-    fn arm_hardware_buffer_import_timer(&mut self, cx: &mut Cx, delay_seconds: f64) {
-        if self.hardware_buffer_import_finished {
-            return;
-        }
-        self.hardware_buffer_import_timer = cx.start_timeout(delay_seconds);
+    fn emit_stereo_projection_marker(body: &str) {
+        emit_marker_line(&format!(
+            "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 {}",
+            body
+        ));
     }
 
-    fn handle_hardware_buffer_import_event(&mut self, cx: &mut Cx, event: &Event) {
+    fn arm_paired_import_timer(&mut self, cx: &mut Cx, delay_seconds: f64, reason: &str) {
+        if self.paired_import_finished {
+            return;
+        }
+        self.paired_import_timer = cx.start_timeout(delay_seconds);
+        PAIRED_IMPORT_SIGNAL_READY.store(false, Ordering::Release);
+        thread::spawn(move || {
+            thread::sleep(Duration::from_secs_f64(delay_seconds.max(0.0)));
+            PAIRED_IMPORT_SIGNAL_READY.store(true, Ordering::Release);
+            SignalToUI::set_ui_signal();
+        });
+        Self::emit_hardware_buffer_import_marker(&format!(
+            "phase=timer status=armed reason={} delaySeconds={:.1} signalFallback=true importPlan=paired-makepad-video-hardware-buffer",
+            marker_token(reason),
+            delay_seconds,
+        ));
+    }
+
+    fn handle_paired_import_event(&mut self, cx: &mut Cx, event: &Event) {
         match event {
             Event::Startup => {
                 cx.request_permission(Permission::Camera);
                 cx.request_permission(Permission::HeadsetCamera);
-                self.arm_hardware_buffer_import_timer(cx, HARDWARE_BUFFER_IMPORT_DELAY_SECONDS);
+                self.arm_paired_import_timer(cx, PAIRED_IMPORT_DELAY_SECONDS, "startup");
             }
             Event::VideoInputs(inputs) => {
-                self.hardware_buffer_import_choice = Self::pick_makepad_camera_choice(inputs);
-                if !self.hardware_buffer_import_selection_logged {
-                    self.hardware_buffer_import_selection_logged = true;
+                self.paired_import_choice = Self::pick_makepad_camera_pair(inputs);
+                if !self.paired_import_selection_logged {
+                    self.paired_import_selection_logged = true;
                     self.emit_makepad_camera_selection_marker(inputs);
+                }
+                if self.paired_import_timer.is_empty()
+                    && !self.paired_import_started
+                    && !self.paired_import_finished
+                {
+                    self.arm_paired_import_timer(cx, PAIRED_IMPORT_DELAY_SECONDS, "video-inputs");
                 }
             }
             Event::VideoPlaybackPrepared(prepared) => {
-                if prepared.video_id == hardware_buffer_import_video_id() {
+                if let Some(side) = StereoEye::from_video_id(prepared.video_id) {
+                    match side {
+                        StereoEye::Left => self.paired_import_left_prepared = true,
+                        StereoEye::Right => self.paired_import_right_prepared = true,
+                    }
                     Self::emit_hardware_buffer_import_marker(&format!(
-                        "phase=prepared status=ok width={} height={} importPath=makepad-android-video-external-vulkan textureMode=hardware-buffer-external",
+                        "phase=prepared status=ok side={} width={} height={} importPath=makepad-android-video-external-vulkan textureMode=hardware-buffer-external importPlan=paired-makepad-video-hardware-buffer",
+                        side.label(),
                         prepared.video_width,
                         prepared.video_height,
                     ));
+                    self.emit_paired_projection_progress("prepared");
                 }
             }
             Event::VideoTextureUpdated(updated) => {
-                if updated.video_id == hardware_buffer_import_video_id()
-                    && !self.hardware_buffer_import_finished
-                {
-                    self.hardware_buffer_import_finished = true;
+                if self.paired_import_finished {
+                    return;
+                }
+                if let Some(side) = StereoEye::from_video_id(updated.video_id) {
+                    match side {
+                        StereoEye::Left => {
+                            self.paired_import_left_updated = true;
+                            self.paired_import_left_rotation_steps = updated.yuv.rotation_steps;
+                        }
+                        StereoEye::Right => {
+                            self.paired_import_right_updated = true;
+                            self.paired_import_right_rotation_steps = updated.yuv.rotation_steps;
+                        }
+                    }
                     Self::emit_hardware_buffer_import_marker(&format!(
-                        "phase=texture-updated status=ok makepadVulkanImport=true yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} pairedLeftRightGpuBuffers=false alignedProjection=false",
+                        "phase=texture-updated status=ok side={} makepadVulkanImport=true yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} importPlan=paired-makepad-video-hardware-buffer",
+                        side.label(),
                         updated.yuv.enabled,
                         updated.yuv.biplanar,
                         updated.yuv.rotation_steps,
                     ));
+                    self.complete_paired_import_if_ready();
                 }
             }
             Event::VideoDecodingError(error) => {
-                if error.video_id == hardware_buffer_import_video_id()
-                    && !self.hardware_buffer_import_finished
-                {
-                    self.hardware_buffer_import_finished = true;
+                if let Some(side) = StereoEye::from_video_id(error.video_id) {
+                    self.paired_import_finished = true;
                     Self::emit_hardware_buffer_import_marker(&format!(
-                        "phase=complete status=error errorKind=makepad_video_import_failed message={}",
+                        "phase=complete status=error side={} errorKind=makepad_video_import_failed message={}",
+                        side.label(),
                         marker_token(&error.error),
+                    ));
+                    Self::emit_stereo_projection_marker(&format!(
+                        "phase=complete status=error side={} pairedLeftRightGpuBuffers=false projectionMappingReady=false alignedProjection=false fallbackReason=makepad_video_import_failed",
+                        side.label()
                     ));
                 }
             }
             _ => {}
         }
 
-        if !self.hardware_buffer_import_timer.is_empty()
-            && self.hardware_buffer_import_timer.is_event(event).is_some()
+        if !self.paired_import_timer.is_empty()
+            && self.paired_import_timer.is_event(event).is_some()
         {
-            self.hardware_buffer_import_timer = Timer::empty();
-            self.try_start_hardware_buffer_import(cx);
+            self.paired_import_timer = Timer::empty();
+            Self::emit_hardware_buffer_import_marker(&format!(
+                "phase=timer status=fired source=makepad-timer hasPair={} importStarted={} importFinished={} importPlan=paired-makepad-video-hardware-buffer",
+                self.paired_import_choice.is_some(),
+                self.paired_import_started,
+                self.paired_import_finished,
+            ));
+            self.try_start_paired_import(cx);
+        }
+
+        if !self.paired_import_timer.is_empty()
+            && matches!(event, Event::Signal)
+            && PAIRED_IMPORT_SIGNAL_READY.swap(false, Ordering::AcqRel)
+        {
+            self.paired_import_timer = Timer::empty();
+            Self::emit_hardware_buffer_import_marker(&format!(
+                "phase=timer status=fired source=signal-fallback hasPair={} importStarted={} importFinished={} importPlan=paired-makepad-video-hardware-buffer",
+                self.paired_import_choice.is_some(),
+                self.paired_import_started,
+                self.paired_import_finished,
+            ));
+            self.try_start_paired_import(cx);
         }
     }
 
-    fn try_start_hardware_buffer_import(&mut self, cx: &mut Cx) {
-        if self.hardware_buffer_import_started || self.hardware_buffer_import_finished {
+    fn try_start_paired_import(&mut self, cx: &mut Cx) {
+        if self.paired_import_started || self.paired_import_finished {
             return;
         }
 
-        let Some(choice) = self.hardware_buffer_import_choice.clone() else {
-            self.hardware_buffer_import_wait_count =
-                self.hardware_buffer_import_wait_count.saturating_add(1);
-            if self.hardware_buffer_import_wait_count > HARDWARE_BUFFER_IMPORT_MAX_WAITS {
-                self.hardware_buffer_import_finished = true;
+        let Some(pair) = self.paired_import_choice.clone() else {
+            self.paired_import_wait_count = self.paired_import_wait_count.saturating_add(1);
+            if self.paired_import_wait_count > PAIRED_IMPORT_MAX_WAITS {
+                self.paired_import_finished = true;
                 Self::emit_hardware_buffer_import_marker(
-                    "phase=start status=error errorKind=no_makepad_camera_source",
+                    "phase=start status=error errorKind=no_makepad_camera_stereo_pair",
+                );
+                Self::emit_stereo_projection_marker(
+                    "phase=start status=error pairedLeftRightGpuBuffers=false projectionMappingReady=false alignedProjection=false fallbackReason=no_makepad_camera_stereo_pair",
                 );
             } else {
                 Self::emit_hardware_buffer_import_marker(&format!(
-                    "phase=start status=waiting waitCount={} reason=no_makepad_camera_source_yet",
-                    self.hardware_buffer_import_wait_count,
+                    "phase=start status=waiting waitCount={} reason=no_makepad_camera_stereo_pair_yet",
+                    self.paired_import_wait_count,
                 ));
-                self.arm_hardware_buffer_import_timer(cx, HARDWARE_BUFFER_IMPORT_RETRY_SECONDS);
+                self.arm_paired_import_timer(cx, PAIRED_IMPORT_RETRY_SECONDS, "stereo-pair-retry");
             }
             return;
         };
 
-        let texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
-        let texture_id = texture.texture_id();
-        self.hardware_buffer_import_texture = Some(texture);
-        self.hardware_buffer_import_started = true;
+        let left_texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
+        let right_texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
+        let left_texture_id = left_texture.texture_id();
+        let right_texture_id = right_texture.texture_id();
+        self.paired_import_left_texture = Some(left_texture);
+        self.paired_import_right_texture = Some(right_texture);
+        self.paired_import_started = true;
 
         Self::emit_hardware_buffer_import_marker(&format!(
-            "phase=start status=started sourceClass={} width={} height={} pixelFormat={} importPath=makepad-android-video-external-vulkan textureFormat=VideoExternal delayedAfterAcquisitionSeconds={:.0}",
-            choice.source_class,
-            choice.width,
-            choice.height,
-            pixel_format_label(choice.pixel_format),
-            HARDWARE_BUFFER_IMPORT_DELAY_SECONDS,
+            "phase=start status=started importPlan=paired-makepad-video-hardware-buffer leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} pixelFormat={} importPath=makepad-android-video-external-vulkan textureFormat=VideoExternal delayedAfterAcquisitionSeconds={:.0}",
+            pair.left.source_index,
+            pair.right.source_index,
+            pair.left.source_class,
+            pair.right.source_class,
+            pair.left.width,
+            pair.left.height,
+            pair.right.width,
+            pair.right.height,
+            pixel_format_label(pair.left.pixel_format),
+            PAIRED_IMPORT_DELAY_SECONDS,
+        ));
+        Self::emit_stereo_projection_marker(&format!(
+            "phase=start status=started pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} leftSourceIndex={} rightSourceIndex={} projectionMode={} projectionScale={:.2} xrRenderScale={:.2} fallbackReason={}",
+            pair.projection_metadata_ready,
+            pair.projection_metadata_ready,
+            pair.pose_source,
+            pair.source_eye_mapping,
+            pair.coordinate_chain,
+            pair.left.source_index,
+            pair.right.source_index,
+            runtime_text(&Self::runtime_config(), KEY_CAMERA_PROJECTION_MODE),
+            runtime_float(&Self::runtime_config(), KEY_PROJECTION_SCALE),
+            runtime_float(&Self::runtime_config(), KEY_XR_RENDER_SCALE),
+            marker_token(&pair.fallback_reason),
         ));
 
         cx.prepare_headset_camera_playback(
-            hardware_buffer_import_video_id(),
-            VideoSource::Camera(choice.input_id, choice.format_id),
+            StereoEye::Left.video_id(),
+            VideoSource::Camera(pair.left.input_id, pair.left.format_id),
             CameraPreviewMode::Texture,
             0,
-            texture_id,
+            left_texture_id,
+            true,
+            false,
+        );
+        cx.prepare_headset_camera_playback(
+            StereoEye::Right.video_id(),
+            VideoSource::Camera(pair.right.input_id, pair.right.format_id),
+            CameraPreviewMode::Texture,
+            0,
+            right_texture_id,
             true,
             false,
         );
@@ -407,40 +526,164 @@ impl App {
     fn emit_makepad_camera_selection_marker(&self, inputs: &VideoInputsEvent) {
         let source_count = inputs.descs.len();
         let format_count: usize = inputs.descs.iter().map(|desc| desc.formats.len()).sum();
-        match &self.hardware_buffer_import_choice {
-            Some(choice) => Self::emit_hardware_buffer_import_marker(&format!(
-                "phase=enumerated status=ok makepadSourceCount={} makepadFormatCount={} selected=true sourceClass={} width={} height={} pixelFormat={} importPlan=single-makepad-video-hardware-buffer",
+        match &self.paired_import_choice {
+            Some(pair) => {
+                Self::emit_hardware_buffer_import_marker(&format!(
+                "phase=enumerated status=ok makepadSourceCount={} makepadFormatCount={} selected=true importPlan=paired-makepad-video-hardware-buffer leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} pixelFormat={}",
                 source_count,
                 format_count,
-                choice.source_class,
-                choice.width,
-                choice.height,
-                pixel_format_label(choice.pixel_format),
-            )),
+                pair.left.source_index,
+                pair.right.source_index,
+                pair.left.source_class,
+                pair.right.source_class,
+                pair.left.width,
+                pair.left.height,
+                pair.right.width,
+                pair.right.height,
+                pixel_format_label(pair.left.pixel_format),
+            ));
+                Self::emit_stereo_projection_marker(&format!(
+                    "phase=enumerated status=ok makepadSourceCount={} makepadFormatCount={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} fallbackReason={}",
+                    source_count,
+                    format_count,
+                    pair.projection_metadata_ready,
+                    pair.projection_metadata_ready,
+                    pair.pose_source,
+                    pair.source_eye_mapping,
+                    pair.coordinate_chain,
+                    pair.left.source_index,
+                    pair.right.source_index,
+                    pair.left.source_class,
+                    pair.right.source_class,
+                    pair.left.width,
+                    pair.left.height,
+                    pair.right.width,
+                    pair.right.height,
+                    marker_token(&pair.fallback_reason),
+                ));
+            }
             None => Self::emit_hardware_buffer_import_marker(&format!(
-                "phase=enumerated status=error makepadSourceCount={} makepadFormatCount={} selected=false errorKind=no_yuv420_makepad_camera_format",
+                "phase=enumerated status=error makepadSourceCount={} makepadFormatCount={} selected=false errorKind=no_yuv420_makepad_camera_stereo_pair",
                 source_count,
                 format_count,
             )),
         }
     }
 
-    fn pick_makepad_camera_choice(inputs: &VideoInputsEvent) -> Option<MakepadCameraChoice> {
-        inputs
-            .descs
-            .iter()
-            .flat_map(|desc| {
-                desc.formats.iter().filter_map(move |format| {
-                    (format.pixel_format == VideoPixelFormat::YUV420).then(|| {
-                        MakepadCameraChoice::new(
-                            desc.input_id,
-                            *format,
-                            camera_source_class(&desc.name),
-                        )
-                    })
-                })
-            })
-            .max_by_key(MakepadCameraChoice::score)
+    fn pick_makepad_camera_pair(inputs: &VideoInputsEvent) -> Option<MakepadCameraPair> {
+        let choices = collect_makepad_camera_choices(inputs);
+        let camera2_plan = Self::latest_camera2_stereo_plan();
+        camera2_plan
+            .as_ref()
+            .and_then(|plan| MakepadCameraPair::from_camera2_plan(&choices, plan))
+            .or_else(|| MakepadCameraPair::from_best_available_pair(&choices))
+    }
+
+    fn emit_paired_projection_progress(&self, phase: &str) {
+        let Some(pair) = &self.paired_import_choice else {
+            return;
+        };
+        Self::emit_stereo_projection_marker(&format!(
+            "phase={} status=progress leftPrepared={} rightPrepared={} leftUpdated={} rightUpdated={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} leftSourceIndex={} rightSourceIndex={} fallbackReason={}",
+            phase,
+            self.paired_import_left_prepared,
+            self.paired_import_right_prepared,
+            self.paired_import_left_updated,
+            self.paired_import_right_updated,
+            pair.projection_metadata_ready,
+            pair.projection_metadata_ready,
+            pair.pose_source,
+            pair.source_eye_mapping,
+            pair.left.source_index,
+            pair.right.source_index,
+            marker_token(&pair.fallback_reason),
+        ));
+    }
+
+    fn complete_paired_import_if_ready(&mut self) {
+        if self.paired_import_finished {
+            return;
+        }
+
+        if !self.paired_import_left_updated || !self.paired_import_right_updated {
+            self.emit_paired_projection_progress("texture-updated");
+            return;
+        }
+
+        let Some(pair) = &self.paired_import_choice else {
+            return;
+        };
+        self.paired_import_finished = true;
+        let aligned_projection = pair.projection_metadata_ready;
+        Self::emit_stereo_projection_marker(&format!(
+            "phase=complete status=ok pairedLeftRightGpuBuffers=true makepadVulkanImport=true projectionMappingReady={} alignedProjection={} projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionMode={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftRotationSteps={:.0} rightRotationSteps={:.0} projectionScale={:.2} xrRenderScale={:.2} renderPath=makepad-xr projectionShaderPath=makepad-video-external-pair-map cpuUploadCount=0 visualInspection=required visualReleaseAccepted=false fallbackReason={}",
+            pair.projection_metadata_ready,
+            aligned_projection,
+            pair.projection_metadata_ready,
+            pair.pose_source,
+            pair.source_eye_mapping,
+            pair.coordinate_chain,
+            runtime_text(&Self::runtime_config(), KEY_CAMERA_PROJECTION_MODE),
+            pair.left.source_index,
+            pair.right.source_index,
+            pair.left.source_class,
+            pair.right.source_class,
+            pair.left.width,
+            pair.left.height,
+            pair.right.width,
+            pair.right.height,
+            self.paired_import_left_rotation_steps,
+            self.paired_import_right_rotation_steps,
+            runtime_float(&Self::runtime_config(), KEY_PROJECTION_SCALE),
+            runtime_float(&Self::runtime_config(), KEY_XR_RENDER_SCALE),
+            marker_token(&pair.fallback_reason),
+        ));
+        Self::emit_stereo_comparison_parity_marker(
+            "paired-projection-ready",
+            pair,
+            aligned_projection,
+        );
+    }
+
+    fn emit_stereo_comparison_parity_marker(
+        phase: &str,
+        pair: &MakepadCameraPair,
+        aligned_projection: bool,
+    ) {
+        let config = Self::runtime_config();
+        emit_marker_line(&format!(
+            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} sourceEyeMapping={} projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=true alignedProjection={} renderPath=makepad-xr projectionShaderPath=makepad-video-external-pair-map makepadForkBranch={} makepadForkCommit={} visualInspection=required visualReleaseAccepted=false",
+            phase,
+            runtime_text(&config, KEY_RUNTIME_PROFILE),
+            runtime_text(&config, KEY_COMPARISON_BASELINE),
+            runtime_text(&config, KEY_CAMERA_TIER),
+            runtime_text(&config, KEY_ACQUISITION_PROFILE),
+            runtime_text(&config, KEY_TRANSPORT_PROFILE),
+            runtime_text(&config, KEY_CAMERA_PROJECTION_MODE),
+            runtime_text(&config, KEY_SYNTHETIC_SCENE),
+            pair.left.source_index,
+            pair.right.source_index,
+            pair.source_eye_mapping,
+            runtime_float(&config, KEY_PROJECTION_SCALE),
+            runtime_float(&config, KEY_XR_RENDER_SCALE),
+            aligned_projection,
+            runtime_text(&config, KEY_MAKEPAD_BRANCH),
+            runtime_text(&config, KEY_MAKEPAD_REVISION)
+        ));
+    }
+
+    #[cfg(target_os = "android")]
+    fn camera2_stereo_plan() -> Option<Camera2StereoPlan> {
+        android_camera_probe::latest_stereo_projection_plan().map(Camera2StereoPlan::from)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn camera2_stereo_plan() -> Option<Camera2StereoPlan> {
+        None
+    }
+
+    fn latest_camera2_stereo_plan() -> Option<Camera2StereoPlan> {
+        Self::camera2_stereo_plan()
     }
 
     #[cfg(target_os = "android")]
@@ -452,8 +695,29 @@ impl App {
     fn start_camera_probe_once() {}
 }
 
+fn collect_makepad_camera_choices(inputs: &VideoInputsEvent) -> Vec<MakepadCameraChoice> {
+    inputs
+        .descs
+        .iter()
+        .enumerate()
+        .flat_map(|(source_index, desc)| {
+            desc.formats.iter().filter_map(move |format| {
+                (format.pixel_format == VideoPixelFormat::YUV420).then(|| {
+                    MakepadCameraChoice::new(
+                        source_index,
+                        desc.input_id,
+                        *format,
+                        camera_source_class(&desc.name),
+                    )
+                })
+            })
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 struct MakepadCameraChoice {
+    source_index: usize,
     input_id: makepad_widgets::makepad_platform::video::VideoInputId,
     format_id: makepad_widgets::makepad_platform::video::VideoFormatId,
     source_class: &'static str,
@@ -464,11 +728,13 @@ struct MakepadCameraChoice {
 
 impl MakepadCameraChoice {
     fn new(
+        source_index: usize,
         input_id: makepad_widgets::makepad_platform::video::VideoInputId,
         format: VideoFormat,
         source_class: &'static str,
     ) -> Self {
         Self {
+            source_index,
             input_id,
             format_id: format.format_id,
             source_class,
@@ -496,8 +762,183 @@ impl MakepadCameraChoice {
     }
 }
 
-fn hardware_buffer_import_video_id() -> LiveId {
-    live_id!(rusty_xr_makepad_hardware_buffer_import_probe)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StereoEye {
+    Left,
+    Right,
+}
+
+impl StereoEye {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
+
+    fn video_id(self) -> LiveId {
+        match self {
+            Self::Left => live_id!(rusty_xr_makepad_left_camera_import_probe),
+            Self::Right => live_id!(rusty_xr_makepad_right_camera_import_probe),
+        }
+    }
+
+    fn from_video_id(video_id: LiveId) -> Option<Self> {
+        if video_id == Self::Left.video_id() {
+            Some(Self::Left)
+        } else if video_id == Self::Right.video_id() {
+            Some(Self::Right)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Clone)]
+struct MakepadCameraPair {
+    left: MakepadCameraChoice,
+    right: MakepadCameraChoice,
+    projection_metadata_ready: bool,
+    pose_source: String,
+    source_eye_mapping: String,
+    coordinate_chain: String,
+    fallback_reason: String,
+}
+
+impl MakepadCameraPair {
+    fn from_camera2_plan(
+        choices: &[MakepadCameraChoice],
+        plan: &Camera2StereoPlan,
+    ) -> Option<Self> {
+        let left = best_choice_for_source_index(choices, plan.left_source_index, plan.size())?;
+        let right = best_choice_for_source_index(choices, plan.right_source_index, plan.size())?;
+        if left.source_index == right.source_index {
+            return None;
+        }
+
+        Some(Self {
+            left,
+            right,
+            projection_metadata_ready: plan.projection_metadata_ready,
+            pose_source: plan.pose_source.clone(),
+            source_eye_mapping: plan.source_eye_mapping.clone(),
+            coordinate_chain: plan.coordinate_chain.clone(),
+            fallback_reason: plan.fallback_reason.clone(),
+        })
+    }
+
+    fn from_best_available_pair(choices: &[MakepadCameraChoice]) -> Option<Self> {
+        let mut best: Option<(
+            MakepadCameraChoice,
+            MakepadCameraChoice,
+            (i32, i64, i64, i64),
+        )> = None;
+
+        for left in choices {
+            for right in choices {
+                if left.source_index == right.source_index
+                    || left.pixel_format != right.pixel_format
+                    || left.width != right.width
+                    || left.height != right.height
+                {
+                    continue;
+                }
+
+                let source_rank =
+                    source_class_rank(left.source_class) + source_class_rank(right.source_class);
+                let area = (left.width as i64) * (left.height as i64);
+                let target_penalty = left.width.abs_diff(1280) + left.height.abs_diff(1280);
+                let square_penalty = left.width.abs_diff(left.height);
+                let index_spacing = left.source_index.abs_diff(right.source_index) as i64;
+                let score = (
+                    source_rank,
+                    area - (target_penalty as i64) * 2048 - (square_penalty as i64) * 4096,
+                    area,
+                    -index_spacing,
+                );
+
+                if best
+                    .as_ref()
+                    .map(|(_, _, best_score)| score > *best_score)
+                    .unwrap_or(true)
+                {
+                    best = Some((left.clone(), right.clone(), score));
+                }
+            }
+        }
+
+        let (left, right, _) = best?;
+        Some(Self {
+            left,
+            right,
+            projection_metadata_ready: false,
+            pose_source: "missing".to_string(),
+            source_eye_mapping: "display-eye-by-makepad-heuristic".to_string(),
+            coordinate_chain: "unresolved".to_string(),
+            fallback_reason: "camera2 stereo projection metadata was not correlated".to_string(),
+        })
+    }
+}
+
+#[derive(Clone)]
+struct Camera2StereoPlan {
+    left_source_index: usize,
+    right_source_index: usize,
+    width: u32,
+    height: u32,
+    projection_metadata_ready: bool,
+    pose_source: String,
+    source_eye_mapping: String,
+    coordinate_chain: String,
+    fallback_reason: String,
+}
+
+impl Camera2StereoPlan {
+    fn size(&self) -> (usize, usize) {
+        (self.width as usize, self.height as usize)
+    }
+}
+
+#[cfg(target_os = "android")]
+impl From<android_camera_probe::StereoProjectionPlan> for Camera2StereoPlan {
+    fn from(plan: android_camera_probe::StereoProjectionPlan) -> Self {
+        Self {
+            left_source_index: plan.left_source_index,
+            right_source_index: plan.right_source_index,
+            width: plan.width,
+            height: plan.height,
+            projection_metadata_ready: plan.projection_metadata_ready,
+            pose_source: plan.pose_source.to_string(),
+            source_eye_mapping: plan.source_eye_mapping.to_string(),
+            coordinate_chain: plan.coordinate_chain.to_string(),
+            fallback_reason: plan.fallback_reason.to_string(),
+        }
+    }
+}
+
+fn best_choice_for_source_index(
+    choices: &[MakepadCameraChoice],
+    source_index: usize,
+    preferred_size: (usize, usize),
+) -> Option<MakepadCameraChoice> {
+    choices
+        .iter()
+        .filter(|choice| choice.source_index == source_index)
+        .max_by_key(|choice| {
+            let preferred_match =
+                (choice.width == preferred_size.0 && choice.height == preferred_size.1) as i32;
+            (preferred_match, choice.score())
+        })
+        .cloned()
+}
+
+fn source_class_rank(source_class: &str) -> i32 {
+    match source_class {
+        "back" => 3,
+        "external" => 2,
+        "front" => 1,
+        _ => 0,
+    }
 }
 
 fn camera_source_class(name: &str) -> &'static str {
@@ -638,7 +1079,7 @@ impl AppMain for App {
 
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
         self.match_event(cx, event);
-        self.handle_hardware_buffer_import_event(cx, event);
+        self.handle_paired_import_event(cx, event);
         self.ui.handle_event(cx, event, &mut Scope::empty());
     }
 }

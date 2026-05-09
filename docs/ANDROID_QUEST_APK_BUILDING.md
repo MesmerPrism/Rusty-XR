@@ -410,8 +410,11 @@ the launcher and generated-XR startup paths, emits Java activity, native
 bootstrap, Q2Q status, and stereo-comparison markers in short startup captures,
 and stays alive in separate 90s liveness windows with no app-process GPU
 page-fault or fatal lines when built against the maintained Makepad fork state.
-Repeated small hardware-buffer warnings remain tracked separately before
-Camera2 hardware-buffer import. Current isolation moved the earlier GPU
-page-fault class below `makepad-xr` and into Makepad's Android Vulkan
-window-swapchain recreation after acquire/present reports suboptimal; the
-maintained fork carries the current frame-fence wait candidate.
+The direct generated-XR path also now emits paired Makepad camera import and
+projection-mapping markers with `pairedLeftRightGpuBuffers=true` and
+`alignedProjection=true`. Repeated small hardware-buffer warnings remain
+tracked separately during paired import/performance comparison work. Current
+isolation moved the earlier GPU page-fault class below `makepad-xr` and into
+Makepad's Android Vulkan window-swapchain recreation after acquire/present
+reports suboptimal; the maintained fork carries the current frame-fence wait
+candidate.

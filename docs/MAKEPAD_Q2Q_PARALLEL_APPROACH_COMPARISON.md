@@ -77,12 +77,12 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
   frame-fence wait to a persistent source patch, the no-diagnostic Quest/Vulkan
   counter run stayed clean, and the Rusty XR Makepad shell now passes launcher
   plus generated-XR startup/liveness validation against that fork state,
-  including Android NDK Camera2 metadata enumeration and bounded first
-  `PRIVATE` buffer acquisition. The remaining lead is to harden Makepad's
-  Android Vulkan
-  window-swapchain recreation on the acquire/present suboptimal path on Horizon
-  OS and keep repeated small hardware-buffer warnings visible before Camera2
-  buffer import into Makepad/Vulkan textures.
+  including Android NDK Camera2 metadata enumeration, bounded first `PRIVATE`
+  buffer acquisition, and direct generated-XR paired Makepad `VideoExternal`
+  import/projection-mapping markers. The remaining lead is to harden Makepad's
+  Android Vulkan window-swapchain recreation on the acquire/present suboptimal
+  path on Horizon OS and keep repeated small hardware-buffer warnings visible
+  during paired import/performance comparison work.
 - Launch surface: whether automation should use Makepad's launcher `run` path,
   direct adb launch of the generated XR activity, or both as separate checks.
 
@@ -99,7 +99,7 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 | Shared core usage | Uses Rusty XR crates directly for config, diagnostics, camera, broker, and scorecard behavior. | First shared-core bridge uses `rusty-xr-runtime-config`; next bridges should add stream, camera, and scorecard contracts. |
 | UI/runtime | Minimal Android shell plus Rust examples. | Full Makepad UI, live/studio ecosystem, OpenXR render loop, and Quest shell. |
 | XR scene/root | Rusty XR example owns OpenXR/Vulkan setup directly. | `makepad-xr` provides `XrRoot`, scene nodes, XR permission flow, passthrough hooks, and Makepad draw abstractions. |
-| Camera affordance | Camera2 `PRIVATE`, MediaCodec, and projection probes are explicit in example code. | The Makepad shell now has a Rusty XR-owned Android NDK Camera2 metadata/acquisition probe that acquires one hardware-buffer-backed `PRIVATE` frame. Hardware-buffer import, projection, and Q2Q transport are still later gates. |
+| Camera affordance | Camera2 `PRIVATE`, MediaCodec, and projection probes are explicit in example code. | The Makepad shell now has a Rusty XR-owned Android NDK Camera2 metadata/acquisition probe and a direct generated-XR paired Makepad `VideoExternal` import/projection-mapping marker path. Q2Q transport remains a later gate. |
 | Accessibility for contributors | Uses common Android concepts but more custom scripts. | One Makepad command path, but contributors must understand Makepad tooling. |
 | Maintenance burden | Rusty XR owns Android packaging details. | Rusty XR tracks Makepad tool changes and pins revisions. |
 | Debug/install flow | ADB and Rusty XR scripts. | `cargo makepad android run`, with device selection through `--devices`; direct `adb -s` remains useful when multiple devices are connected. |
@@ -116,7 +116,7 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 | XR dependency surface | Custom shell owns OpenXR/Vulkan dependencies directly. | `makepad-xr` pulls in Makepad's XR, rendering, physics/math, asset, and UI dependency graph. |
 | Output location | Example `build/` folders. | Makepad `target/android/makepad-android-apk/...` folders. |
 | Licensing | Rusty XR MIT plus Android/OpenXR inputs. | Rusty XR MIT plus Makepad MIT OR Apache-2.0 and Android/OpenXR inputs. |
-| Current blocker cost | Existing lane already has measured camera/stream diagnostics, but the scripts are less portable. | The maintained Makepad fork currently needs local Windows packaging patches plus the Android Vulkan frame-fence wait. The Makepad shell is clean for startup/liveness plus Camera2 metadata/acquisition, but small hardware-buffer warnings remain tracked before Camera2 buffer import. |
+| Current blocker cost | Existing lane already has measured camera/stream diagnostics, but the scripts are less portable. | The maintained Makepad fork currently needs local Windows packaging patches plus the Android Vulkan frame-fence wait. The Makepad shell is clean for direct generated-XR paired import/projection markers, but launcher lifecycle, device awake-state, and small hardware-buffer warnings remain tracked separately. |
 
 ## Immediate Validation Ladder
 

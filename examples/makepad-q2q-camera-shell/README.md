@@ -9,9 +9,9 @@ Makepad Quest APK path, emitted Rusty XR log markers, exercised Makepad's XR
 root, and documented the integration gaps before adding camera transport,
 stream, or broker behavior. The current source now keeps that synthetic stereo
 comparison scene and adds a bounded Android NDK Camera2 metadata/acquisition
-probe plus a delayed Makepad-owned hardware-buffer import probe so renderer
-smoke runs can be lined up against the custom APK camera-stereo baseline before
-projection parity is claimed.
+probe plus a delayed Makepad-owned paired hardware-buffer import probe so
+renderer smoke runs can be lined up against the custom APK camera-stereo
+baseline before performance parity is measured.
 
 This example consumes the maintained Makepad fork branch as an app-shell
 dependency only. Rusty XR core stays Makepad-independent; the relationship and
@@ -38,10 +38,13 @@ fork-patch policy are documented in
   `RUSTY_XR_MAKEPAD_CAMERA2_ACQUISITION` during setup, first-frame, and
   completion. The pass opens one selected `PRIVATE` `AImageReader` source and
   records the first hardware-buffer descriptor.
-- On Android, after that bounded acquisition window, starts one Makepad-owned
-  camera playback and emits `RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT` when
-  Makepad's Android/Vulkan video texture path enumerates, starts, prepares, and
-  accepts a single camera hardware buffer.
+- On Android, after that bounded acquisition window, selects a left/right source
+  pair, starts two Makepad-owned camera playbacks with distinct
+  `VideoExternal` textures, and emits
+  `RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT` plus
+  `RUSTY_XR_MAKEPAD_STEREO_PROJECTION` as Makepad's Android/Vulkan video
+  texture path enumerates, starts, prepares, and accepts both camera hardware
+  buffers.
 - The maintained Makepad fork also emits public-safe Java activity and native
   bootstrap phase markers for Android activity creation, native handoff,
   EGL/GL setup, Vulkan readiness, and main-loop handoff.
@@ -50,10 +53,10 @@ fork-patch policy are documented in
 - The current source does not include Makepad's `XrPermissionsFlow`; an earlier
   isolation variant confirmed that the GPU fault also appears when the
   permission flow is removed.
-- The current source imports a single Makepad-owned camera hardware buffer, but
-  does not claim paired-buffer ownership or stereo projection parity. It
-  reports `pairedLeftRightGpuBuffers=false` and `alignedProjection=false` until
-  those slices are implemented.
+- The current source imports a Makepad-owned paired camera source in the direct
+  generated-XR activity path and reports paired-buffer/projection readiness
+  when both textures update. Visual release acceptance remains a separate manual
+  inspection gate.
 
 ## Build
 
@@ -107,9 +110,8 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   stream framing, and scorecard models should be added the same way, through
   core crates first and Makepad adapters second.
 - The current lane uses synthetic status/stereo-comparison markers, a bounded
-  Camera2 metadata/acquisition probe, and a single-buffer Makepad
-  hardware-buffer import probe. Paired import and projection parity remain
-  separate later gates.
+  Camera2 metadata/acquisition probe, and a paired Makepad hardware-buffer
+  import/projection-mapping probe.
 - On Windows, the tested Makepad revision required local `cargo-makepad`
   packaging fixes for generated wrapper paths and dependent Rust shared-library
   bundling.
@@ -137,8 +139,8 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   built against that fork state now passes the launcher and generated-XR
   startup/liveness gate with no app-process GPU page-fault or fatal lines in
   the 90s windows. Repeated small hardware-buffer warnings remain tracked
-  separately before Camera2 hardware-buffer import. See the repository-level
-  GPU investigation note for the current attempt log.
+  separately through Camera2 acquisition and Makepad hardware-buffer import.
+  See the repository-level GPU investigation note for the current attempt log.
 
 ## Validation Status
 
@@ -165,18 +167,19 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   select a back-facing 1280x1280 YUV420 source, start the delayed
   `VideoExternal` import path, prepare playback at 1280x1280, and emit
   `makepadVulkanImport=true` on `VideoTextureUpdated`.
-- Performance comparison gate: not open yet. The current APK is validated for
-  single-buffer Makepad import readiness, but it still reports
-  `pairedLeftRightGpuBuffers=false` and `alignedProjection=false`. A fair
-  custom-path comparison starts after paired-buffer ownership and projection
-  mapping are implemented.
+- Performance comparison gate: open for the direct generated-XR path. The
+  current APK reports `pairedLeftRightGpuBuffers=true` and
+  `alignedProjection=true` after both Makepad-owned camera textures update, with
+  `visualInspection=required` and `visualReleaseAccepted=false` still making
+  visual acceptance a separate gate.
 - Current tracked warning: repeated small hardware-buffer lines appear in the
-  device logs. They are not counted as GPU page faults, persisted during the
-  successful single-buffer import gate, and should stay visible in the
-  iteration ledger during paired import and projection work.
-- Current source/build slice: single-buffer Makepad hardware-buffer import is
-  validated against the maintained fork branch. The next gate is paired-buffer
-  ownership and projection mapping, not visual parity yet.
+  device logs. They are not counted as GPU page faults, persisted through the
+  successful paired import/projection marker gate, and should stay visible in
+  the iteration ledger during performance comparison work.
+- Current source/build slice: paired Makepad hardware-buffer import and
+  projection-mapping markers are validated in the direct generated-XR activity
+  path against the maintained fork branch. The normal launcher activity path
+  remains tracked separately for lifecycle/awake-state regressions.
 
 The current step-by-step implementation ledger is tracked in
 [../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).

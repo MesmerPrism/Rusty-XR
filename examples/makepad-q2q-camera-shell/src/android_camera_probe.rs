@@ -9,11 +9,71 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 static CAMERA_PROBE_STARTED: AtomicBool = AtomicBool::new(false);
+static STEREO_PROJECTION_PLAN: Mutex<Option<StereoProjectionPlan>> = Mutex::new(None);
 
 const READER_MAX_IMAGES: i32 = 3;
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 const PREFERRED_DIMENSION: u32 = 1280;
 const MAX_CAPTURE_DIMENSION: u32 = 1920;
+
+#[derive(Clone, Debug)]
+pub struct StereoProjectionPlan {
+    pub left_source_index: usize,
+    pub right_source_index: usize,
+    pub left_facing: &'static str,
+    pub right_facing: &'static str,
+    pub width: u32,
+    pub height: u32,
+    pub projection_metadata_ready: bool,
+    pub pose_source: &'static str,
+    pub source_eye_mapping: &'static str,
+    pub coordinate_chain: &'static str,
+    pub fallback_reason: &'static str,
+}
+
+impl StereoProjectionPlan {
+    fn from_sources(
+        left_source_index: usize,
+        left: &CameraSource,
+        right_source_index: usize,
+        right: &CameraSource,
+        width: u32,
+        height: u32,
+    ) -> Self {
+        let projection_metadata_ready = left.has_projection_metadata()
+            && right.has_projection_metadata()
+            && width > 0
+            && height > 0;
+        Self {
+            left_source_index,
+            right_source_index,
+            left_facing: left.lens_facing_label(),
+            right_facing: right.lens_facing_label(),
+            width,
+            height,
+            projection_metadata_ready,
+            pose_source: if projection_metadata_ready {
+                "platform"
+            } else {
+                "missing"
+            },
+            source_eye_mapping: "display-eye-by-camera2-index",
+            coordinate_chain: "camera2-sensor-reference-to-openxr-head-basis",
+            fallback_reason: if projection_metadata_ready {
+                "none"
+            } else {
+                "selected stereo pair is missing intrinsics or pose metadata"
+            },
+        }
+    }
+}
+
+pub fn latest_stereo_projection_plan() -> Option<StereoProjectionPlan> {
+    STEREO_PROJECTION_PLAN
+        .lock()
+        .ok()
+        .and_then(|plan| plan.clone())
+}
 
 pub fn start_camera_probe_once() {
     if CAMERA_PROBE_STARTED
@@ -71,11 +131,20 @@ unsafe fn run_camera_probe_with_manager(
         .filter(|source| !source.private_sizes.is_empty())
         .count();
     let selected = select_camera_source(&sources);
+    let stereo_plan = select_stereo_projection_plan(&sources);
+    if let Ok(mut plan) = STEREO_PROJECTION_PLAN.lock() {
+        *plan = stereo_plan.clone();
+    }
 
     emit_metadata_marker(&metadata_marker_line(
         &sources,
         private_source_count,
         selected,
+        stereo_plan.as_ref(),
+    ));
+    emit_stereo_projection_marker(&stereo_projection_metadata_line(
+        &sources,
+        stereo_plan.as_ref(),
     ));
 
     let Some(selected_index) = selected else {
@@ -144,15 +213,23 @@ fn emit_acquisition_marker(body: &str) {
     ));
 }
 
+fn emit_stereo_projection_marker(body: &str) {
+    emit_marker_line(&format!(
+        "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 {}",
+        body
+    ));
+}
+
 fn metadata_marker_line(
     sources: &[CameraSource],
     private_source_count: usize,
     selected: Option<usize>,
+    stereo_plan: Option<&StereoProjectionPlan>,
 ) -> String {
     let selected_source = selected.and_then(|index| sources.get(index));
     let selected_size = selected_source.and_then(select_capture_size);
     format!(
-        "phase=enumerated status=ok sourceCount={} privateSourceCount={} selected={} selectedIndex={} selectedFacing={} selectedWidth={} selectedHeight={} selectedHasIntrinsics={} selectedHasPose={} selectedLogicalMultiCamera={} selectedPhysicalCount={} selectedSensorSync={} acquisitionPlan=bounded-single-private import=none",
+        "phase=enumerated status=ok sourceCount={} privateSourceCount={} selected={} selectedIndex={} selectedFacing={} selectedWidth={} selectedHeight={} selectedHasIntrinsics={} selectedHasPose={} selectedLogicalMultiCamera={} selectedPhysicalCount={} selectedSensorSync={} stereoPairSelected={} stereoLeftIndex={} stereoRightIndex={} stereoProjectionMetadataReady={} acquisitionPlan=bounded-single-private import=none",
         sources.len(),
         private_source_count,
         selected.is_some(),
@@ -177,8 +254,46 @@ fn metadata_marker_line(
         selected_source
             .and_then(|source| source.sensor_sync_type)
             .map(index_token)
-            .unwrap_or_else(|| "none".to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        stereo_plan.is_some(),
+        stereo_plan
+            .map(|plan| plan.left_source_index.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        stereo_plan
+            .map(|plan| plan.right_source_index.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        stereo_plan
+            .map(|plan| plan.projection_metadata_ready)
+            .unwrap_or(false)
     )
+}
+
+fn stereo_projection_metadata_line(
+    sources: &[CameraSource],
+    stereo_plan: Option<&StereoProjectionPlan>,
+) -> String {
+    match stereo_plan {
+        Some(plan) => format!(
+            "phase=metadata status=ok sourceCount={} leftSourceIndex={} rightSourceIndex={} leftFacing={} rightFacing={} width={} height={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} fallbackReason={}",
+            sources.len(),
+            plan.left_source_index,
+            plan.right_source_index,
+            plan.left_facing,
+            plan.right_facing,
+            plan.width,
+            plan.height,
+            plan.projection_metadata_ready,
+            plan.projection_metadata_ready,
+            plan.pose_source,
+            plan.source_eye_mapping,
+            plan.coordinate_chain,
+            marker_token(plan.fallback_reason)
+        ),
+        None => format!(
+            "phase=metadata status=error sourceCount={} pairedLeftRightGpuBuffers=false projectionMappingReady=false alignedProjection=false projectionMetadataReady=false poseSource=missing fallbackReason=no_camera2_stereo_pair",
+            sources.len()
+        ),
+    }
 }
 
 #[derive(Clone)]
@@ -211,6 +326,10 @@ impl CameraSource {
             ACAMERA_LENS_FACING_FRONT => 1,
             _ => 0,
         }
+    }
+
+    fn has_projection_metadata(&self) -> bool {
+        self.intrinsics.is_some() && self.pose_translation.is_some() && self.pose_rotation.is_some()
     }
 }
 
@@ -711,6 +830,78 @@ fn select_camera_source(sources: &[CameraSource]) -> Option<usize> {
             )
         })
         .map(|(index, _)| index)
+}
+
+fn select_stereo_projection_plan(sources: &[CameraSource]) -> Option<StereoProjectionPlan> {
+    let mut best: Option<(usize, usize, (u8, i64, i64, i64), (u32, u32))> = None;
+
+    for left_index in 0..sources.len() {
+        for right_index in 0..sources.len() {
+            if left_index == right_index {
+                continue;
+            }
+
+            let left = &sources[left_index];
+            let right = &sources[right_index];
+            if left.private_sizes.is_empty() || right.private_sizes.is_empty() {
+                continue;
+            }
+
+            let Some((width, height)) = select_stereo_capture_size(left, right) else {
+                continue;
+            };
+
+            let metadata_rank =
+                (left.has_projection_metadata() as u8) + (right.has_projection_metadata() as u8);
+            let source_rank = (left.lens_facing_rank() as i64) + (right.lens_facing_rank() as i64);
+            let sync_rank = (left.sensor_sync_type == right.sensor_sync_type) as i64
+                + left.logical_multi_camera as i64
+                + right.logical_multi_camera as i64;
+            let index_spacing = left_index.abs_diff(right_index) as i64;
+            let score = (
+                metadata_rank,
+                source_rank,
+                score_size(width, height) + sync_rank * 1_000_000,
+                -index_spacing,
+            );
+
+            if best
+                .as_ref()
+                .map(|(_, _, best_score, _)| score > *best_score)
+                .unwrap_or(true)
+            {
+                best = Some((left_index, right_index, score, (width, height)));
+            }
+        }
+    }
+
+    let (left_index, right_index, _, (width, height)) = best?;
+    Some(StereoProjectionPlan::from_sources(
+        left_index,
+        &sources[left_index],
+        right_index,
+        &sources[right_index],
+        width,
+        height,
+    ))
+}
+
+fn select_stereo_capture_size(left: &CameraSource, right: &CameraSource) -> Option<(u32, u32)> {
+    left.private_sizes
+        .iter()
+        .copied()
+        .filter(|size| right.private_sizes.contains(size))
+        .filter(|(width, height)| {
+            *width <= MAX_CAPTURE_DIMENSION && *height <= MAX_CAPTURE_DIMENSION
+        })
+        .max_by_key(|(width, height)| score_size(*width, *height))
+        .or_else(|| {
+            left.private_sizes
+                .iter()
+                .copied()
+                .filter(|size| right.private_sizes.contains(size))
+                .min_by_key(|(width, height)| (*width as u64) * (*height as u64))
+        })
 }
 
 fn select_capture_size(source: &CameraSource) -> Option<(u32, u32)> {

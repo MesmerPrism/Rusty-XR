@@ -297,16 +297,18 @@ against that fork state. The same shell also passes the Camera2
 metadata/acquisition gate: both launch paths enumerate three `PRIVATE` sources,
 select a back-facing 1280x1280 source with intrinsics and pose metadata, acquire
 one hardware-buffer-backed frame, and complete the bounded probe with
-`status=ok`. The current validation method uses a short startup capture for
-Java activity, native bootstrap, Rust app, and camera markers, plus a separate
-90s liveness/fault capture for app-process GPU page-fault and fatal counters.
-Repeated small hardware-buffer warnings remain tracked separately before
-Camera2 hardware-buffer import into Makepad/Vulkan textures.
+`status=ok`. The direct generated-XR path now also emits paired Makepad
+`VideoExternal` import/projection markers with `pairedLeftRightGpuBuffers=true`
+and `alignedProjection=true`. The current validation method uses a short
+startup/marker capture for Java activity, native bootstrap, Rust app, camera,
+and import markers, plus a separate liveness/fault capture for app-process GPU
+page-fault and fatal counters. Repeated small hardware-buffer warnings remain
+tracked separately during paired import and performance comparison work.
 
 Do not start with a full renderer port. Keep the launch and diagnostic log path
 repeatable, keep hardware-buffer warnings separate from GPU-fault counters, and
-add Camera2 hardware-buffer import before interpreting projection or renderer
-measurements from this lane.
+use the direct generated-XR paired import/projection marker path before
+interpreting projection or renderer measurements from this lane.
 
 The Makepad-vs-current affordance and cost ledger is tracked in
 [MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md](MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md).

@@ -42,7 +42,13 @@ fatal lines. The next Makepad shell gate added Android NDK Camera2 metadata and
 bounded `PRIVATE` acquisition. Both launch paths enumerated three `PRIVATE`
 sources, selected a back-facing 1280x1280 source with intrinsics and pose
 metadata, acquired one hardware-buffer-backed frame, and completed without
-app-process GPU page-fault or fatal lines.
+app-process GPU page-fault or fatal lines. The following direct generated-XR
+gate selected a left/right source pair, started two Makepad-owned
+`VideoExternal` camera imports, observed left/right prepared and texture-updated
+events, and emitted paired projection markers with
+`pairedLeftRightGpuBuffers=true`, `makepadVulkanImport=true`,
+`projectionMappingReady=true`, `alignedProjection=true`, and zero app-process
+GPU page-fault or fatal lines.
 
 The strongest current lead remains a synchronization/lifetime issue in
 Makepad's Android Vulkan window-swapchain recreation after acquire/present
@@ -50,8 +56,9 @@ reports suboptimal, not generic Makepad Android activity startup, the Quest
 manifest shape alone, Vulkan backend/surface setup by itself, `makepad-xr` scene
 content, environment depth, passthrough, OpenXR composition layers, or OpenXR
 session ownership. Repeated small hardware-buffer warnings remain tracked
-separately because the next pass will intentionally import Camera2 hardware
-buffers into Makepad/Vulkan textures.
+separately because paired Makepad camera imports and performance comparison
+work intentionally exercise Camera2 hardware buffers through Makepad/Vulkan
+textures.
 
 ## Investigation Rules
 
@@ -114,6 +121,7 @@ buffers into Makepad/Vulkan textures.
 | 39 | Same upstream Makepad counter Quest/Vulkan package shape rebuilt from the maintained local Makepad fork state, with the frame-fence wait applied as a persistent source patch and no diagnostic environment gates | Normal launcher activity | App process stayed alive/visible for a 90s sample; no page-fault-like, small hardware-buffer, Vulkan-fault, or fatal-signature lines were observed | The maintained fork state preserves the clean result without relying on temporary diagnostic gates. Next validation should repeat for longer and then move back to the Makepad XR smoke path. |
 | 40 | Rusty XR synthetic stereo Makepad shell rebuilt against the maintained fork state with Java activity, native bootstrap, and direct Android app markers | Makepad launcher and direct generated-XR activity | Short startup captures saw activity/bootstrap/app markers on both launch paths, including Vulkan ready and before main loop. Separate 90s liveness captures stayed alive with no app-process GPU page-fault or fatal lines; repeated small hardware-buffer warnings remained. | The marker route is working, the fork-state frame-fence patch stays clean in the Rusty XR synthetic stereo shell, and future validation should keep startup marker checks separate from longer fault-counter windows. |
 | 41 | Rusty XR Makepad shell rebuilt against the maintained fork state with Android NDK Camera2 metadata enumeration and bounded `PRIVATE` `AImageReader` acquisition | Makepad launcher and direct generated-XR activity | Short startup captures on both launch paths emitted activity/bootstrap/app markers, enumerated three Camera2 `PRIVATE` sources, selected a back-facing 1280x1280 source with intrinsics and pose metadata, acquired one hardware-buffer-backed frame, and completed with `status=ok`. Separate 90s liveness captures stayed alive with no app-process GPU page-fault or fatal lines. The small `AHardwareBuffer` 4x4 warning class remained visible and was counted separately. | Camera2 metadata and first-buffer acquisition work through the Makepad-generated Android shell. The next split is hardware-buffer import into the Makepad/Vulkan texture path, not projection parity. |
+| 42 | Rusty XR Makepad shell rebuilt with paired Makepad `VideoExternal` camera import and projection-mapping markers | Direct generated-XR activity | Short marker capture emitted startup, Camera2 metadata/acquisition, paired source enumeration, paired playback start, left/right prepared, left/right texture-updated, projection complete, and paired comparison markers. The completion marker reported `pairedLeftRightGpuBuffers=true`, `makepadVulkanImport=true`, `projectionMappingReady=true`, `alignedProjection=true`, `cpuUploadCount=0`, and `visualInspection=required`. App-process GPU page-fault and fatal counts were zero; the small hardware-buffer warning class remained visible. | Direct generated-XR path is ready for parity performance diagnostics against the custom stereo projection baseline. Keep normal launcher lifecycle, device awake-state/proximity, and small hardware-buffer warnings as separate counters. |
 
 ## Depth Path Comparison
 
