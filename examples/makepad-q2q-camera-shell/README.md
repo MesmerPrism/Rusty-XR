@@ -165,6 +165,11 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   select a back-facing 1280x1280 YUV420 source, start the delayed
   `VideoExternal` import path, prepare playback at 1280x1280, and emit
   `makepadVulkanImport=true` on `VideoTextureUpdated`.
+- Performance comparison gate: not open yet. The current APK is validated for
+  single-buffer Makepad import readiness, but it still reports
+  `pairedLeftRightGpuBuffers=false` and `alignedProjection=false`. A fair
+  custom-path comparison starts after paired-buffer ownership and projection
+  mapping are implemented.
 - Current tracked warning: repeated small hardware-buffer lines appear in the
   device logs. They are not counted as GPU page faults, persisted during the
   successful single-buffer import gate, and should stay visible in the

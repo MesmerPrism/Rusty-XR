@@ -105,6 +105,25 @@ the custom app's import cache. That keeps the split focused on whether
 Makepad's Android/Vulkan backend can import camera buffers on the same device
 class where the custom Vulkan path is already known to work.
 
+## Performance Comparison Gate
+
+A proper performance comparison against the custom stereo camera projection
+baseline is not open yet. The S6 Makepad APK proves that one Makepad-owned
+camera hardware buffer can reach `VideoTextureUpdated`; it still reports
+`pairedLeftRightGpuBuffers=false` and `alignedProjection=false`.
+
+Before running parity performance diagnostics, the Makepad path must:
+
+- own or bridge paired left/right camera buffer sources
+- map the selected sources into per-eye projection descriptors
+- report `pairedLeftRightGpuBuffers=true`
+- report `alignedProjection=true` for the selected projection mode
+- keep the current strict counters for app-process GPU page faults, fatal
+  signals, and the separate small hardware-buffer warning class
+
+Until those markers are true, performance captures are useful only as
+non-parity readiness samples for Makepad import/liveness overhead.
+
 ## Attempt Ledger
 
 | Attempt | Slice | Validation | Result | Next |
