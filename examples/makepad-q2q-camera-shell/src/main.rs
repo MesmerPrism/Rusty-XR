@@ -5,6 +5,11 @@ mod acamera_sys;
 #[cfg(target_os = "android")]
 mod android_camera_probe;
 
+use makepad_widgets::makepad_platform::{
+    event::video_playback::{CameraPreviewMode, VideoSource},
+    permission::Permission,
+    video::{VideoFormat, VideoInputsEvent, VideoPixelFormat},
+};
 use makepad_widgets::*;
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,15 +20,18 @@ static STARTUP_MARKERS_EMITTED: AtomicBool = AtomicBool::new(false);
 
 const DEFAULT_PROFILE: &str = "makepad-camera2-acquisition-probe";
 const DEFAULT_TRANSPORT: &str = "synthetic";
-const DEFAULT_CAMERA_TIER: &str = "native-camera2-acquisition-probe";
+const DEFAULT_CAMERA_TIER: &str = "native-camera2-makepad-vulkan-import-probe";
 const DEFAULT_CAMERA_PROJECTION_MODE: &str = "synthetic-stereo-panels";
 const DEFAULT_COMPARISON_BASELINE: &str = "custom-apk-camera-stereo-gpu-composite";
 const DEFAULT_SYNTHETIC_SCENE: &str = "dual-panel-grid-v1";
-const DEFAULT_ACQUISITION_PROFILE: &str = "bounded-camera2-private-probe";
+const DEFAULT_ACQUISITION_PROFILE: &str = "bounded-camera2-private-plus-makepad-import-probe";
 const DEFAULT_PROJECTION_SCALE: f64 = 0.75;
 const DEFAULT_XR_RENDER_SCALE: f64 = 0.75;
 const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
 const MAKEPAD_REV: &str = "aebeabf32278";
+const HARDWARE_BUFFER_IMPORT_DELAY_SECONDS: f64 = 6.0;
+const HARDWARE_BUFFER_IMPORT_RETRY_SECONDS: f64 = 1.0;
+const HARDWARE_BUFFER_IMPORT_MAX_WAITS: usize = 10;
 const KEY_RUNTIME_PROFILE: &str = "runtime_profile";
 const KEY_TRANSPORT_PROFILE: &str = "transport_profile";
 const KEY_CAMERA_TIER: &str = "camera_tier";
@@ -117,6 +125,20 @@ script_mod! {
 pub struct App {
     #[live]
     ui: WidgetRef,
+    #[rust]
+    hardware_buffer_import_timer: Timer,
+    #[rust]
+    hardware_buffer_import_wait_count: usize,
+    #[rust]
+    hardware_buffer_import_choice: Option<MakepadCameraChoice>,
+    #[rust]
+    hardware_buffer_import_selection_logged: bool,
+    #[rust]
+    hardware_buffer_import_started: bool,
+    #[rust]
+    hardware_buffer_import_finished: bool,
+    #[rust]
+    hardware_buffer_import_texture: Option<Texture>,
 }
 
 impl App {
@@ -262,6 +284,165 @@ impl App {
         config
     }
 
+    fn emit_hardware_buffer_import_marker(body: &str) {
+        emit_marker_line(&format!(
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 {}",
+            body
+        ));
+    }
+
+    fn arm_hardware_buffer_import_timer(&mut self, cx: &mut Cx, delay_seconds: f64) {
+        if self.hardware_buffer_import_finished {
+            return;
+        }
+        self.hardware_buffer_import_timer = cx.start_timeout(delay_seconds);
+    }
+
+    fn handle_hardware_buffer_import_event(&mut self, cx: &mut Cx, event: &Event) {
+        match event {
+            Event::Startup => {
+                cx.request_permission(Permission::Camera);
+                cx.request_permission(Permission::HeadsetCamera);
+                self.arm_hardware_buffer_import_timer(cx, HARDWARE_BUFFER_IMPORT_DELAY_SECONDS);
+            }
+            Event::VideoInputs(inputs) => {
+                self.hardware_buffer_import_choice = Self::pick_makepad_camera_choice(inputs);
+                if !self.hardware_buffer_import_selection_logged {
+                    self.hardware_buffer_import_selection_logged = true;
+                    self.emit_makepad_camera_selection_marker(inputs);
+                }
+            }
+            Event::VideoPlaybackPrepared(prepared) => {
+                if prepared.video_id == hardware_buffer_import_video_id() {
+                    Self::emit_hardware_buffer_import_marker(&format!(
+                        "phase=prepared status=ok width={} height={} importPath=makepad-android-video-external-vulkan textureMode=hardware-buffer-external",
+                        prepared.video_width,
+                        prepared.video_height,
+                    ));
+                }
+            }
+            Event::VideoTextureUpdated(updated) => {
+                if updated.video_id == hardware_buffer_import_video_id()
+                    && !self.hardware_buffer_import_finished
+                {
+                    self.hardware_buffer_import_finished = true;
+                    Self::emit_hardware_buffer_import_marker(&format!(
+                        "phase=texture-updated status=ok makepadVulkanImport=true yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} pairedLeftRightGpuBuffers=false alignedProjection=false",
+                        updated.yuv.enabled,
+                        updated.yuv.biplanar,
+                        updated.yuv.rotation_steps,
+                    ));
+                }
+            }
+            Event::VideoDecodingError(error) => {
+                if error.video_id == hardware_buffer_import_video_id()
+                    && !self.hardware_buffer_import_finished
+                {
+                    self.hardware_buffer_import_finished = true;
+                    Self::emit_hardware_buffer_import_marker(&format!(
+                        "phase=complete status=error errorKind=makepad_video_import_failed message={}",
+                        marker_token(&error.error),
+                    ));
+                }
+            }
+            _ => {}
+        }
+
+        if !self.hardware_buffer_import_timer.is_empty()
+            && self.hardware_buffer_import_timer.is_event(event).is_some()
+        {
+            self.hardware_buffer_import_timer = Timer::empty();
+            self.try_start_hardware_buffer_import(cx);
+        }
+    }
+
+    fn try_start_hardware_buffer_import(&mut self, cx: &mut Cx) {
+        if self.hardware_buffer_import_started || self.hardware_buffer_import_finished {
+            return;
+        }
+
+        let Some(choice) = self.hardware_buffer_import_choice.clone() else {
+            self.hardware_buffer_import_wait_count =
+                self.hardware_buffer_import_wait_count.saturating_add(1);
+            if self.hardware_buffer_import_wait_count > HARDWARE_BUFFER_IMPORT_MAX_WAITS {
+                self.hardware_buffer_import_finished = true;
+                Self::emit_hardware_buffer_import_marker(
+                    "phase=start status=error errorKind=no_makepad_camera_source",
+                );
+            } else {
+                Self::emit_hardware_buffer_import_marker(&format!(
+                    "phase=start status=waiting waitCount={} reason=no_makepad_camera_source_yet",
+                    self.hardware_buffer_import_wait_count,
+                ));
+                self.arm_hardware_buffer_import_timer(cx, HARDWARE_BUFFER_IMPORT_RETRY_SECONDS);
+            }
+            return;
+        };
+
+        let texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
+        let texture_id = texture.texture_id();
+        self.hardware_buffer_import_texture = Some(texture);
+        self.hardware_buffer_import_started = true;
+
+        Self::emit_hardware_buffer_import_marker(&format!(
+            "phase=start status=started sourceClass={} width={} height={} pixelFormat={} importPath=makepad-android-video-external-vulkan textureFormat=VideoExternal delayedAfterAcquisitionSeconds={:.0}",
+            choice.source_class,
+            choice.width,
+            choice.height,
+            pixel_format_label(choice.pixel_format),
+            HARDWARE_BUFFER_IMPORT_DELAY_SECONDS,
+        ));
+
+        cx.prepare_headset_camera_playback(
+            hardware_buffer_import_video_id(),
+            VideoSource::Camera(choice.input_id, choice.format_id),
+            CameraPreviewMode::Texture,
+            0,
+            texture_id,
+            true,
+            false,
+        );
+    }
+
+    fn emit_makepad_camera_selection_marker(&self, inputs: &VideoInputsEvent) {
+        let source_count = inputs.descs.len();
+        let format_count: usize = inputs.descs.iter().map(|desc| desc.formats.len()).sum();
+        match &self.hardware_buffer_import_choice {
+            Some(choice) => Self::emit_hardware_buffer_import_marker(&format!(
+                "phase=enumerated status=ok makepadSourceCount={} makepadFormatCount={} selected=true sourceClass={} width={} height={} pixelFormat={} importPlan=single-makepad-video-hardware-buffer",
+                source_count,
+                format_count,
+                choice.source_class,
+                choice.width,
+                choice.height,
+                pixel_format_label(choice.pixel_format),
+            )),
+            None => Self::emit_hardware_buffer_import_marker(&format!(
+                "phase=enumerated status=error makepadSourceCount={} makepadFormatCount={} selected=false errorKind=no_yuv420_makepad_camera_format",
+                source_count,
+                format_count,
+            )),
+        }
+    }
+
+    fn pick_makepad_camera_choice(inputs: &VideoInputsEvent) -> Option<MakepadCameraChoice> {
+        inputs
+            .descs
+            .iter()
+            .flat_map(|desc| {
+                desc.formats.iter().filter_map(move |format| {
+                    (format.pixel_format == VideoPixelFormat::YUV420).then(|| {
+                        MakepadCameraChoice::new(
+                            desc.input_id,
+                            *format,
+                            camera_source_class(&desc.name),
+                        )
+                    })
+                })
+            })
+            .max_by_key(MakepadCameraChoice::score)
+    }
+
     #[cfg(target_os = "android")]
     fn start_camera_probe_once() {
         android_camera_probe::start_camera_probe_once();
@@ -269,6 +450,79 @@ impl App {
 
     #[cfg(not(target_os = "android"))]
     fn start_camera_probe_once() {}
+}
+
+#[derive(Clone)]
+struct MakepadCameraChoice {
+    input_id: makepad_widgets::makepad_platform::video::VideoInputId,
+    format_id: makepad_widgets::makepad_platform::video::VideoFormatId,
+    source_class: &'static str,
+    width: usize,
+    height: usize,
+    pixel_format: VideoPixelFormat,
+}
+
+impl MakepadCameraChoice {
+    fn new(
+        input_id: makepad_widgets::makepad_platform::video::VideoInputId,
+        format: VideoFormat,
+        source_class: &'static str,
+    ) -> Self {
+        Self {
+            input_id,
+            format_id: format.format_id,
+            source_class,
+            width: format.width,
+            height: format.height,
+            pixel_format: format.pixel_format,
+        }
+    }
+
+    fn score(&self) -> (i32, i64, i64) {
+        let source_rank = match self.source_class {
+            "back" => 3,
+            "external" => 2,
+            "front" => 1,
+            _ => 0,
+        };
+        let target_penalty = self.width.abs_diff(1280) + self.height.abs_diff(1280);
+        let square_penalty = self.width.abs_diff(self.height);
+        let area = (self.width as i64) * (self.height as i64);
+        (
+            source_rank,
+            area - (target_penalty as i64) * 2048 - (square_penalty as i64) * 4096,
+            area,
+        )
+    }
+}
+
+fn hardware_buffer_import_video_id() -> LiveId {
+    live_id!(rusty_xr_makepad_hardware_buffer_import_probe)
+}
+
+fn camera_source_class(name: &str) -> &'static str {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("back") {
+        "back"
+    } else if lower.contains("external") {
+        "external"
+    } else if lower.contains("front") {
+        "front"
+    } else {
+        "unknown"
+    }
+}
+
+fn pixel_format_label(format: VideoPixelFormat) -> &'static str {
+    match format {
+        VideoPixelFormat::RGB24 => "rgb24",
+        VideoPixelFormat::YUY2 => "yuy2",
+        VideoPixelFormat::NV12 => "nv12",
+        VideoPixelFormat::YUV420 => "yuv420",
+        VideoPixelFormat::GRAY => "gray",
+        VideoPixelFormat::MJPEG => "mjpeg",
+        VideoPixelFormat::Unsupported(_) => "unsupported",
+    }
 }
 
 fn set_runtime_text(
@@ -314,6 +568,19 @@ fn env_f64(key: &str, default: f64) -> f64 {
         .and_then(|value| value.parse::<f64>().ok())
         .filter(|value| value.is_finite() && *value > 0.0)
         .unwrap_or(default)
+}
+
+fn marker_token(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 #[cfg(target_os = "android")]
@@ -371,6 +638,7 @@ impl AppMain for App {
 
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
         self.match_event(cx, event);
+        self.handle_hardware_buffer_import_event(cx, event);
         self.ui.handle_event(cx, event, &mut Scope::empty());
     }
 }

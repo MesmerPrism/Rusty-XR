@@ -9,9 +9,9 @@ Makepad Quest APK path, emitted Rusty XR log markers, exercised Makepad's XR
 root, and documented the integration gaps before adding camera transport,
 stream, or broker behavior. The current source now keeps that synthetic stereo
 comparison scene and adds a bounded Android NDK Camera2 metadata/acquisition
-probe so renderer smoke runs can be lined up against the custom APK
-camera-stereo baseline before hardware-buffer import or projection parity is
-claimed.
+probe plus a delayed Makepad-owned hardware-buffer import probe so renderer
+smoke runs can be lined up against the custom APK camera-stereo baseline before
+projection parity is claimed.
 
 This example consumes the maintained Makepad fork branch as an app-shell
 dependency only. Rusty XR core stays Makepad-independent; the relationship and
@@ -37,8 +37,11 @@ fork-patch policy are documented in
   `RUSTY_XR_MAKEPAD_CAMERA2_METADATA` after enumeration and
   `RUSTY_XR_MAKEPAD_CAMERA2_ACQUISITION` during setup, first-frame, and
   completion. The pass opens one selected `PRIVATE` `AImageReader` source and
-  records the first hardware-buffer descriptor without importing the buffer into
-  Makepad or Vulkan.
+  records the first hardware-buffer descriptor.
+- On Android, after that bounded acquisition window, starts one Makepad-owned
+  camera playback and emits `RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT` when
+  Makepad's Android/Vulkan video texture path enumerates, starts, prepares, and
+  accepts a single camera hardware buffer.
 - The maintained Makepad fork also emits public-safe Java activity and native
   bootstrap phase markers for Android activity creation, native handoff,
   EGL/GL setup, Vulkan readiness, and main-loop handoff.
@@ -47,9 +50,10 @@ fork-patch policy are documented in
 - The current source does not include Makepad's `XrPermissionsFlow`; an earlier
   isolation variant confirmed that the GPU fault also appears when the
   permission flow is removed.
-- The current source does not import hardware buffers or claim stereo
-  projection parity. It reports `pairedLeftRightGpuBuffers=false` and
-  `alignedProjection=false` until those slices are implemented.
+- The current source imports a single Makepad-owned camera hardware buffer, but
+  does not claim paired-buffer ownership or stereo projection parity. It
+  reports `pairedLeftRightGpuBuffers=false` and `alignedProjection=false` until
+  those slices are implemented.
 
 ## Build
 
@@ -102,9 +106,10 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   pass through `rusty-xr-runtime-config` before logging. Camera metadata,
   stream framing, and scorecard models should be added the same way, through
   core crates first and Makepad adapters second.
-- The current lane uses synthetic status/stereo-comparison markers plus a
-  bounded Camera2 metadata/acquisition probe. Hardware-buffer import and
-  projection parity remain separate later gates.
+- The current lane uses synthetic status/stereo-comparison markers, a bounded
+  Camera2 metadata/acquisition probe, and a single-buffer Makepad
+  hardware-buffer import probe. Paired import and projection parity remain
+  separate later gates.
 - On Windows, the tested Makepad revision required local `cargo-makepad`
   packaging fixes for generated wrapper paths and dependent Rust shared-library
   bundling.
@@ -155,13 +160,18 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   hardware-buffer-backed frame, and complete the bounded probe with
   `status=ok`. The first-frame descriptor reports native format 35, usage
   131840, one layer, stride 1280, and a present buffer id.
+- Makepad hardware-buffer import gate: both Makepad launcher and generated-XR
+  short windows enumerate three Makepad camera sources and 66 camera formats,
+  select a back-facing 1280x1280 YUV420 source, start the delayed
+  `VideoExternal` import path, prepare playback at 1280x1280, and emit
+  `makepadVulkanImport=true` on `VideoTextureUpdated`.
 - Current tracked warning: repeated small hardware-buffer lines appear in the
-  synthetic stereo device logs. They are not counted as GPU page faults, but
-  they should stay visible in the iteration ledger before Camera2
-  hardware-buffer import is added.
-- Current source/build slice: Camera2 metadata/acquisition is validated against
-  the maintained fork branch. The next gate is hardware-buffer import, not
-  projection parity.
+  device logs. They are not counted as GPU page faults, persisted during the
+  successful single-buffer import gate, and should stay visible in the
+  iteration ledger during paired import and projection work.
+- Current source/build slice: single-buffer Makepad hardware-buffer import is
+  validated against the maintained fork branch. The next gate is paired-buffer
+  ownership and projection mapping, not visual parity yet.
 
 The current step-by-step implementation ledger is tracked in
 [../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).
