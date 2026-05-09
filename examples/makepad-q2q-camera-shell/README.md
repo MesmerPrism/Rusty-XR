@@ -45,6 +45,9 @@ fork-patch policy are documented in
   `RUSTY_XR_MAKEPAD_STEREO_PROJECTION` as Makepad's Android/Vulkan video
   texture path enumerates, starts, prepares, and accepts both camera hardware
   buffers.
+- Emits `RUSTY_XR_MAKEPAD_CADENCE` samples every five seconds, using Makepad
+  `NextFrame` events for callback cadence and left/right
+  `VideoTextureUpdated` events for Makepad camera texture progression.
 - The maintained Makepad fork also emits public-safe Java activity and native
   bootstrap phase markers for Android activity creation, native handoff,
   EGL/GL setup, Vulkan readiness, and main-loop handoff.
@@ -171,7 +174,11 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   current APK reports `pairedLeftRightGpuBuffers=true` and
   `alignedProjection=true` after both Makepad-owned camera textures update, with
   `visualInspection=required` and `visualReleaseAccepted=false` still making
-  visual acceptance a separate gate.
+  visual acceptance a separate gate. The source now also emits rolling
+  `RUSTY_XR_MAKEPAD_CADENCE` samples so the next device run can compare Makepad
+  callback cadence and left/right camera texture-update cadence against the
+  custom shell scorecard. Runtime display cadence still comes from `VrApi`
+  rows when present.
 - Current tracked warning: repeated small hardware-buffer lines appear in the
   device logs. They are not counted as GPU page faults, persisted through the
   successful paired import/projection marker gate, and should stay visible in

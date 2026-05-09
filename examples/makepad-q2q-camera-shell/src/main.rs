@@ -39,6 +39,7 @@ const MAKEPAD_REV: &str = "aebeabf32278";
 const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
 const PAIRED_IMPORT_MAX_WAITS: usize = 10;
+const CADENCE_SAMPLE_SECONDS: f64 = 5.0;
 const KEY_RUNTIME_PROFILE: &str = "runtime_profile";
 const KEY_TRANSPORT_PROFILE: &str = "transport_profile";
 const KEY_CAMERA_TIER: &str = "camera_tier";
@@ -160,6 +161,30 @@ pub struct App {
     paired_import_left_rotation_steps: f32,
     #[rust]
     paired_import_right_rotation_steps: f32,
+    #[rust]
+    cadence_next_frame: Option<NextFrame>,
+    #[rust]
+    cadence_started: bool,
+    #[rust]
+    cadence_start_time: f64,
+    #[rust]
+    cadence_last_sample_time: f64,
+    #[rust]
+    cadence_frame_count: u64,
+    #[rust]
+    cadence_frame_count_at_last_sample: u64,
+    #[rust]
+    cadence_left_texture_update_count: u64,
+    #[rust]
+    cadence_right_texture_update_count: u64,
+    #[rust]
+    cadence_left_texture_update_count_at_last_sample: u64,
+    #[rust]
+    cadence_right_texture_update_count_at_last_sample: u64,
+    #[rust]
+    cadence_left_last_position_ms: u128,
+    #[rust]
+    cadence_right_last_position_ms: u128,
 }
 
 impl App {
@@ -319,6 +344,124 @@ impl App {
         ));
     }
 
+    fn emit_cadence_marker(body: &str) {
+        emit_marker_line(&format!(
+            "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 {}",
+            body
+        ));
+    }
+
+    fn arm_cadence_probe(&mut self, cx: &mut Cx) {
+        self.cadence_next_frame = Some(cx.new_next_frame());
+        Self::emit_cadence_marker(&format!(
+            "phase=start status=started samplePeriodSeconds={:.1} appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated",
+            CADENCE_SAMPLE_SECONDS
+        ));
+    }
+
+    fn handle_cadence_event(&mut self, cx: &mut Cx, event: &Event) {
+        if matches!(event, Event::Startup) && self.cadence_next_frame.is_none() {
+            self.arm_cadence_probe(cx);
+            return;
+        }
+
+        let Some(next_frame) = self.cadence_next_frame else {
+            return;
+        };
+        let Some(next_frame_event) = next_frame.is_event(event) else {
+            return;
+        };
+
+        if !self.cadence_started {
+            self.cadence_started = true;
+            self.cadence_start_time = next_frame_event.time;
+            self.cadence_last_sample_time = next_frame_event.time;
+        }
+
+        self.cadence_frame_count = self.cadence_frame_count.saturating_add(1);
+        let interval_seconds = (next_frame_event.time - self.cadence_last_sample_time).max(0.0);
+        if interval_seconds >= CADENCE_SAMPLE_SECONDS {
+            self.emit_cadence_sample(next_frame_event.time, interval_seconds);
+        }
+
+        self.cadence_next_frame = Some(cx.new_next_frame());
+    }
+
+    fn record_camera_texture_update(&mut self, side: StereoEye, position_ms: u128) {
+        match side {
+            StereoEye::Left => {
+                self.cadence_left_texture_update_count =
+                    self.cadence_left_texture_update_count.saturating_add(1);
+                self.cadence_left_last_position_ms = position_ms;
+            }
+            StereoEye::Right => {
+                self.cadence_right_texture_update_count =
+                    self.cadence_right_texture_update_count.saturating_add(1);
+                self.cadence_right_last_position_ms = position_ms;
+            }
+        }
+    }
+
+    fn emit_cadence_sample(&mut self, now_seconds: f64, interval_seconds: f64) {
+        let elapsed_seconds = (now_seconds - self.cadence_start_time).max(0.0);
+        let frame_delta = self
+            .cadence_frame_count
+            .saturating_sub(self.cadence_frame_count_at_last_sample);
+        let left_delta = self
+            .cadence_left_texture_update_count
+            .saturating_sub(self.cadence_left_texture_update_count_at_last_sample);
+        let right_delta = self
+            .cadence_right_texture_update_count
+            .saturating_sub(self.cadence_right_texture_update_count_at_last_sample);
+        let paired_delta = left_delta.min(right_delta);
+        let app_frame_rate_hz = rate_hz(frame_delta, interval_seconds);
+        let left_texture_rate_hz = rate_hz(left_delta, interval_seconds);
+        let right_texture_rate_hz = rate_hz(right_delta, interval_seconds);
+        let paired_texture_rate_hz = rate_hz(paired_delta, interval_seconds);
+        let paired_buffers_ready =
+            self.paired_import_left_updated && self.paired_import_right_updated;
+        let projection_ready = self
+            .paired_import_choice
+            .as_ref()
+            .map(|pair| pair.projection_metadata_ready)
+            .unwrap_or(false);
+        let (projection_mapping_ready, aligned_projection) = if paired_buffers_ready {
+            (projection_ready, projection_ready)
+        } else {
+            (false, false)
+        };
+
+        Self::emit_cadence_marker(&format!(
+            "phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightGpuBuffers={} projectionMappingReady={} alignedProjection={} cpuUploadCount=0 renderPath=makepad-xr cameraFrameSource=makepad-video-texture-updated",
+            elapsed_seconds * 1000.0,
+            interval_seconds * 1000.0,
+            self.cadence_frame_count,
+            frame_delta,
+            app_frame_rate_hz,
+            self.cadence_left_texture_update_count,
+            self.cadence_right_texture_update_count,
+            self.cadence_left_texture_update_count.min(self.cadence_right_texture_update_count),
+            left_delta,
+            right_delta,
+            paired_delta,
+            left_texture_rate_hz,
+            right_texture_rate_hz,
+            paired_texture_rate_hz,
+            self.cadence_left_last_position_ms,
+            self.cadence_right_last_position_ms,
+            paired_buffers_ready,
+            projection_mapping_ready,
+            aligned_projection,
+        ));
+
+        self.cadence_last_sample_time = now_seconds;
+        self.cadence_frame_count_at_last_sample = self.cadence_frame_count;
+        self.cadence_left_texture_update_count_at_last_sample =
+            self.cadence_left_texture_update_count;
+        self.cadence_right_texture_update_count_at_last_sample =
+            self.cadence_right_texture_update_count;
+    }
+
     fn arm_paired_import_timer(&mut self, cx: &mut Cx, delay_seconds: f64, reason: &str) {
         if self.paired_import_finished {
             return;
@@ -373,10 +516,11 @@ impl App {
                 }
             }
             Event::VideoTextureUpdated(updated) => {
-                if self.paired_import_finished {
-                    return;
-                }
                 if let Some(side) = StereoEye::from_video_id(updated.video_id) {
+                    self.record_camera_texture_update(side, updated.current_position_ms);
+                    if self.paired_import_finished {
+                        return;
+                    }
                     match side {
                         StereoEye::Left => {
                             self.paired_import_left_updated = true;
@@ -1079,7 +1223,16 @@ impl AppMain for App {
 
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
         self.match_event(cx, event);
+        self.handle_cadence_event(cx, event);
         self.handle_paired_import_event(cx, event);
         self.ui.handle_event(cx, event, &mut Scope::empty());
+    }
+}
+
+fn rate_hz(count: u64, seconds: f64) -> f64 {
+    if seconds <= 0.0 {
+        0.0
+    } else {
+        count as f64 / seconds
     }
 }

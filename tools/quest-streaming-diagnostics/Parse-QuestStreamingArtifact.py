@@ -19,6 +19,9 @@ CAMERA_CONFIG_MARKER = "Rusty XR camera path config "
 LIVE_STEREO_SUMMARY_MARKER = "Rusty XR broker H.264 live stereo summary:"
 STEREO_SUMMARY_MARKER = "Rusty XR broker H.264 stereo summary:"
 DIRECT_STEREO_PAIR_MARKER = "Stereo headset camera pair "
+MAKEPAD_CADENCE_MARKER = "RUSTY_XR_MAKEPAD_CADENCE"
+MAKEPAD_STEREO_PROJECTION_MARKER = "RUSTY_XR_MAKEPAD_STEREO_PROJECTION"
+MAKEPAD_STEREO_COMPARISON_MARKER = "RUSTY_XR_MAKEPAD_STEREO_COMPARISON"
 
 KV_RE = re.compile(r"([A-Za-z0-9_%&]+)=([^,\s]+)")
 JSON_PAIR_RE = re.compile(
@@ -102,6 +105,13 @@ def choose_logcat_path(artifact_dir: Path) -> Path | None:
             return path
     candidates = sorted(
         artifact_dir.glob("*-logcat-tail.txt"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if candidates:
+        return candidates[0]
+    candidates = sorted(
+        artifact_dir.glob("*logcat*.txt"),
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
@@ -224,6 +234,9 @@ def parse_logcat(path: Path) -> dict[str, Any]:
     vrapi_rows: list[dict[str, Any]] = []
     stereo_summaries: list[dict[str, Any]] = []
     direct_stereo_pairs: list[dict[str, Any]] = []
+    makepad_cadence_rows: list[dict[str, Any]] = []
+    makepad_projection_statuses: list[dict[str, Any]] = []
+    makepad_comparison_markers: list[dict[str, Any]] = []
 
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
@@ -247,6 +260,18 @@ def parse_logcat(path: Path) -> dict[str, Any]:
                 body = line.split(DIRECT_STEREO_PAIR_MARKER, 1)[1]
                 if "acquireAvgNs=" in body:
                     direct_stereo_pairs.append(parse_key_values(body))
+            elif MAKEPAD_CADENCE_MARKER in line:
+                makepad_cadence_rows.append(
+                    parse_key_values(line.split(MAKEPAD_CADENCE_MARKER, 1)[1])
+                )
+            elif MAKEPAD_STEREO_PROJECTION_MARKER in line:
+                makepad_projection_statuses.append(
+                    parse_key_values(line.split(MAKEPAD_STEREO_PROJECTION_MARKER, 1)[1])
+                )
+            elif MAKEPAD_STEREO_COMPARISON_MARKER in line:
+                makepad_comparison_markers.append(
+                    parse_key_values(line.split(MAKEPAD_STEREO_COMPARISON_MARKER, 1)[1])
+                )
             elif "/VrApi" in line or "I/VrApi" in line or "I VrApi" in line:
                 vrapi_rows.append(parse_vrapi(line))
 
@@ -260,6 +285,9 @@ def parse_logcat(path: Path) -> dict[str, Any]:
         "vrapi_rows": vrapi_rows,
         "stereo_summaries": stereo_summaries,
         "direct_stereo_pairs": direct_stereo_pairs,
+        "makepad_cadence_rows": makepad_cadence_rows,
+        "makepad_projection_statuses": makepad_projection_statuses,
+        "makepad_comparison_markers": makepad_comparison_markers,
     }
 
 
@@ -371,6 +399,9 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "vrapi_rows": [],
         "stereo_summaries": [],
         "direct_stereo_pairs": [],
+        "makepad_cadence_rows": [],
+        "makepad_projection_statuses": [],
+        "makepad_comparison_markers": [],
     }
 
     pre_thermal = parse_thermal(choose_existing(artifact_dir, ["pre-thermalservice.txt"]))
@@ -389,6 +420,9 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
     final_projection = pick_last(logcat["projection_statuses"])
     final_gpu_draw = pick_last(logcat["gpu_draws"])
     final_openxr = pick_last(logcat["openxr_frames"])
+    final_makepad_cadence = pick_last(logcat["makepad_cadence_rows"])
+    final_makepad_projection = pick_last(logcat["makepad_projection_statuses"])
+    final_makepad_comparison = pick_last(logcat["makepad_comparison_markers"])
 
     openxr_frames = logcat["openxr_frames"]
     vrapi_rows = logcat["vrapi_rows"]
@@ -407,6 +441,11 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         inferred_succeeded = (
             (final_projection.get("activeTier") or final_gpu_draw.get("activeTier")) is not None
             and (final_projection.get("projectionShaderPath") or final_gpu_draw.get("projectionShaderPath")) is not None
+        )
+    if inferred_succeeded is None and (final_makepad_projection or final_makepad_comparison):
+        inferred_succeeded = (
+            final_makepad_projection.get("status") == "ok"
+            or final_makepad_comparison.get("pairedLeftRightGpuBuffers") is True
         )
 
     summary: dict[str, Any] = {
@@ -476,9 +515,21 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "left_projection_metadata_ready": consumer.get("left_broker_projection_metadata_ready", stereo_summary.get("metadataReadyLeft")),
         "right_projection_metadata_ready": consumer.get("right_broker_projection_metadata_ready", stereo_summary.get("metadataReadyRight")),
         "activeTier": pick_present(final_projection.get("activeTier"), final_gpu_draw.get("activeTier")),
-        "alignedProjection": pick_present(final_projection.get("alignedProjection"), final_gpu_draw.get("alignedProjection")),
-        "projectionShaderPath": pick_present(final_projection.get("projectionShaderPath"), final_gpu_draw.get("projectionShaderPath")),
-        "projectionMetadataReady": final_gpu_draw.get("projectionMetadataReady"),
+        "alignedProjection": pick_present(
+            final_projection.get("alignedProjection"),
+            final_gpu_draw.get("alignedProjection"),
+            final_makepad_projection.get("alignedProjection"),
+            final_makepad_cadence.get("alignedProjection"),
+        ),
+        "projectionShaderPath": pick_present(
+            final_projection.get("projectionShaderPath"),
+            final_gpu_draw.get("projectionShaderPath"),
+            final_makepad_projection.get("projectionShaderPath"),
+        ),
+        "projectionMetadataReady": pick_present(
+            final_gpu_draw.get("projectionMetadataReady"),
+            final_makepad_projection.get("projectionMetadataReady"),
+        ),
         "gpuImportSuccess": final_openxr.get("gpuImportSuccess"),
         "gpuImportFailure": final_openxr.get("gpuImportFailure"),
         "gpuImportCacheHit": final_openxr.get("gpuImportCacheHit"),
@@ -491,7 +542,29 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "openxr_steady_avg_frame_ms": summarize_numbers(steady_openxr_avg_frame_ms_values),
         "openxr_record_cpu_ms": summarize_numbers(numeric_series(openxr_frames, "recordCpuMs")),
         "openxr_submit_cpu_ms": summarize_numbers(numeric_series(openxr_frames, "submitCpuMs")),
-        "openxr_render_scale": final_openxr.get("renderScale") or final_projection.get("renderScale") or final_gpu_draw.get("renderScale"),
+        "openxr_render_scale": final_openxr.get("renderScale")
+        or final_projection.get("renderScale")
+        or final_gpu_draw.get("renderScale")
+        or final_makepad_projection.get("xrRenderScale")
+        or final_makepad_comparison.get("xrRenderScale"),
+        "makepad_cadence_rows": len(logcat["makepad_cadence_rows"]),
+        "makepad_app_frame_rate_hz": final_makepad_cadence.get("appFrameRateHz"),
+        "makepad_app_frame_count": final_makepad_cadence.get("appFrameCount"),
+        "makepad_left_texture_update_rate_hz": final_makepad_cadence.get("leftTextureUpdateRateHz"),
+        "makepad_right_texture_update_rate_hz": final_makepad_cadence.get("rightTextureUpdateRateHz"),
+        "makepad_paired_texture_update_rate_hz": final_makepad_cadence.get("pairedTextureUpdateRateHz"),
+        "makepad_paired_texture_update_count": final_makepad_cadence.get("pairedTextureUpdateCount"),
+        "makepad_cadence_interval_ms": final_makepad_cadence.get("intervalMs"),
+        "makepad_projection_status": final_makepad_projection.get("status"),
+        "makepad_paired_left_right_gpu_buffers": pick_present(
+            final_makepad_projection.get("pairedLeftRightGpuBuffers"),
+            final_makepad_cadence.get("pairedLeftRightGpuBuffers"),
+            final_makepad_comparison.get("pairedLeftRightGpuBuffers"),
+        ),
+        "makepad_cpu_upload_count": pick_present(
+            final_makepad_projection.get("cpuUploadCount"),
+            final_makepad_cadence.get("cpuUploadCount"),
+        ),
         "vrapi_rows": len(vrapi_rows),
         "vrapi_fps": summarize_numbers(vrapi_fps_values),
         "vrapi_tear_sum": int(sum(vrapi_tear_values)) if vrapi_tear_values else None,
@@ -527,6 +600,9 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "latest_projection_status": final_projection,
         "latest_gpu_draw": final_gpu_draw,
         "latest_openxr_frame": final_openxr,
+        "latest_makepad_cadence": final_makepad_cadence,
+        "latest_makepad_projection": final_makepad_projection,
+        "latest_makepad_comparison": final_makepad_comparison,
         "pre_thermal": pre_thermal,
         "post_thermal": post_thermal,
         "pre_battery": pre_battery,
@@ -572,6 +648,9 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("OpenXR fps min", None),
         ("OpenXR avg ms last", None),
         ("OpenXR avg ms steady", None),
+        ("Makepad NextFrame Hz", "makepad_app_frame_rate_hz"),
+        ("Makepad cam Hz", "makepad_paired_texture_update_rate_hz"),
+        ("Makepad rows", "makepad_cadence_rows"),
         ("VrApi App ms", None),
         ("VrApi CPU+GPU ms", None),
         ("VrApi tear", "vrapi_tear_sum"),
