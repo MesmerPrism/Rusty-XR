@@ -62,7 +62,10 @@ fork-patch policy are documented in
   was removed.
 - The current source imports a Makepad-owned paired camera source after XR
   startup and reports paired-buffer/projection readiness when both textures
-  update. Visual release acceptance remains a separate manual inspection gate.
+  update. Those markers prove import and mapping readiness, not visible camera
+  projection; the current visible Makepad scene is still the synthetic stereo
+  alignment scene until the paired `VideoExternal` textures are drawn into XR
+  geometry.
 
 ## Build
 
@@ -183,12 +186,14 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   select a back-facing 1280x1280 YUV420 source, start the delayed
   `VideoExternal` import path, prepare playback at 1280x1280, and emit
   `makepadVulkanImport=true` on `VideoTextureUpdated`.
-- Performance comparison gate: open again after S14. Earlier S11/S12/S13 runs
-  showed that paired/projection markers could be emitted while Horizon OS was
-  still showing the loading experience, but S14 added the optional
-  environment-depth fallback and proved active launcher-path presentation in
-  headset. Use the launcher path for performance comparison, not direct
-  generated-XR launch.
+- Performance comparison gate: active-presentation comparison reopened after
+  S14, but final parity performance is still blocked on visible Makepad camera
+  projection. S14 proved launcher-path XR presentation and paired import/cadence
+  with the synthetic scene visible. S15 confirmed the custom Rusty XR baseline
+  visibly renders proper stereo camera projection, but the current sample was
+  performance-degraded. Use the launcher path for Makepad validation, not direct
+  generated-XR launch, and draw the paired Makepad textures into visible XR
+  content before treating scorecards as final parity evidence.
 - Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
   Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
   texture-update counters. The S14 active launcher sample reported
@@ -200,7 +205,8 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   the iteration ledger during performance comparison work.
 - Current source/build slice: paired Makepad hardware-buffer import and
   projection-mapping markers are validated against the maintained fork branch,
-  and launcher-path active presentation is the performance-comparison route.
+  launcher-path active presentation is validated, and the next gate is visible
+  camera-texture projection from those paired Makepad sources.
 
 The current step-by-step implementation ledger is tracked in
 [../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).

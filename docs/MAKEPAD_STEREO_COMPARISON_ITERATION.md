@@ -58,8 +58,13 @@ launcher / generated-XR activity gate.
 
 ## Current Slice
 
-The current slice is the active-presentation gate that must pass before step 8
-performance comparison can resume:
+The current slice is the visible Makepad camera-projection gate. S14 cleared the
+active-presentation blocker for the Makepad launcher path, and S15 confirmed the
+custom Rusty XR baseline is visibly rendering proper stereo camera projection
+even though the current sample is performance-degraded. The remaining Makepad
+parity blocker is to draw the paired Makepad `VideoExternal` camera textures
+into visible XR scene geometry with the same per-eye source mapping before
+treating Makepad scorecards as final parity-performance evidence:
 
 - keep the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging` as the Android app-shell dependency
@@ -70,6 +75,8 @@ performance comparison can resume:
   activity
 - treat direct generated-XR launches as bootstrap/control smokes until a run is
   explicitly designed around that switch behavior
+- render the paired Makepad camera textures into visible XR content before
+  calling the Makepad path visually comparable to the custom projection path
 - keep environment depth optional/non-fatal in the maintained Makepad fork so a
   depth-policy failure cannot block passthrough/projection startup
 - kept the small `AHardwareBuffer` warning class visible as a separate counter
@@ -78,12 +85,13 @@ performance comparison can resume:
   new proximity-control command during comparison captures unless an operator
   explicitly asks for it
 
-Once the launcher path proves active presentation and app-level `XrUpdate`
-cadence, the same counters can be used for a Makepad-vs-custom comparison:
-app-process GPU page-faults, fatal signatures, small hardware-buffer warnings,
-runtime cadence, camera/source progression, CPU upload count, and
-projection-ready flags. This slice does not add broker streaming, private
-visual-effect policy, or visual release acceptance.
+The same counters remain valid for comparison runs: app-process GPU page-faults,
+fatal signatures, small hardware-buffer warnings, runtime cadence,
+camera/source progression, CPU upload count, and projection-ready flags. S15
+adds the key visual distinction: the custom path has proper visible stereo, but
+the Makepad path still needs its camera textures displayed rather than only
+imported and marked projection-ready. This slice does not add broker streaming,
+private visual-effect policy, or downstream effect acceptance.
 
 Device validation now uses two log windows:
 
@@ -115,9 +123,15 @@ class where the custom Vulkan path is already known to work.
 
 ## Performance Comparison Gate
 
-A proper performance comparison against the custom stereo camera projection
-baseline is not open yet. The S6 Makepad APK proves that one Makepad-owned
-camera hardware buffer can reach `VideoTextureUpdated`; it still reports
+A final performance comparison against the custom stereo camera projection
+baseline is not open yet. S14 opened active-presentation and cadence comparison
+again, and S15 confirmed the custom path's visible stereo output, but the
+Makepad path still shows the synthetic alignment scene while its paired camera
+textures are imported and reported projection-ready. Final parity performance
+requires visible Makepad camera projection first.
+
+Earlier S6 state proved that one Makepad-owned camera hardware buffer could
+reach `VideoTextureUpdated` while still reporting
 `pairedLeftRightGpuBuffers=false` and `alignedProjection=false`.
 
 Before running parity performance diagnostics, the Makepad path must:
@@ -281,6 +295,20 @@ GPU page-fault and fatal counters stayed at zero, paired/projection markers
 were true, `cpuUploadCount=0`, and the small hardware-buffer warning class
 remained visible but much lower than earlier noisy loading-screen samples.
 
+S15 ran the first post-S14 comparison batch and then split it into valid and
+invalid evidence. The initial custom sample is discarded because Makepad was
+still running and polluted the shared log window with Makepad cadence markers.
+A clean custom 0.75 sample after force-stopping the Makepad package retained
+proper visible custom stereo projection according to operator inspection, but
+it was degraded: the live passive sample showed OpenXR around 52-53Hz against a
+72Hz target, paired camera progression around 28Hz, zero GPU import failures,
+zero CPU uploads, no app fatal or GPU-fault signatures, and a high compositor
+slice-tear count. Power/proximity readback stayed mounted/awake. Therefore S15
+is useful custom-baseline evidence and a Makepad active-presentation/import
+comparison, but not a final parity-performance conclusion. S16 should render
+the paired Makepad `VideoExternal` textures into visible XR geometry with
+per-eye mapping, then rerun the comparison.
+
 ## Attempt Ledger
 
 | Attempt | Slice | Validation | Result | Next |
@@ -300,6 +328,7 @@ remained visible but much lower than earlier noisy loading-screen samples.
 | S12 | Quest manifest/activity presentation split | Maintained Makepad fork manifest patch, generated manifest inspection, clean install, direct generated-XR launch-state smoke | Partial. The generated package carried required head-tracking, VR-only/focus-aware metadata, non-resizeable declarations, and native-library extraction. The installed package consumed the non-resizeable attributes, but the device still reported a volumetric-window/loading path and app-level `XrUpdate` stayed at zero. App-process GPU page-fault and fatal counters stayed zero. | Add the Makepad permission/presentation flow back to the Rusty XR example and validate through the launcher/normal activity path |
 | S13 | Makepad presentation-flow route correction | Added `XrPermissionsFlow`; updated startup markers; release APK build; direct-XR control smoke; launcher/normal-activity smoke | Partial but decisive. Direct generated-XR launch is no longer the active-presentation route because the permission flow can switch back to the paired normal activity. The launcher path switched into the generated XR activity, reached Makepad OpenXR session creation, and started passthrough, then aborted session setup when environment-depth provider creation failed. App-process GPU page-fault and fatal counters stayed zero; the separate small hardware-buffer warning class stayed visible. | Make environment depth optional/non-fatal in the maintained Makepad fork, then rerun launcher-path validation |
 | S14 | Optional environment-depth fork patch and launcher presentation pass | Makepad fork source patch; `rustfmt --check`; `cargo check -p makepad-platform`; `cargo check -p cargo-makepad`; `cargo test -p cargo-makepad`; Rusty XR lock update; host source validation; release APK build; clean install; launcher-path 90s device sample; operator visual confirmation | Passed for active Makepad presentation. The launcher path switched into active XR, showed the synthetic stereo scene in headset, retained 18 cadence markers, and reached about 90Hz Makepad app / `XrUpdate` / draw cadence with about 50Hz paired camera texture progression. Paired/projection markers were true with `cpuUploadCount=0`; app-process GPU page-fault and fatal counters were zero. The runtime still rejected environment-depth provider creation, but the new fork fallback logged it as optional and session creation continued. The invalid `cargo test -p cargo-makepad android::tests --lib` command still fails because `cargo-makepad` has no lib target; the package test target passes. | Start a fresh S15 parity performance comparison using the S14 Makepad launcher path and the known custom Rusty XR stereo camera projection baseline, while preserving passive awake/proximity readback and the separate small hardware-buffer warning counter |
+| S15 | Active-presentation comparison and custom visual baseline correction | S14 Makepad scorecard input; custom 0.75 camera-projection rerun with Makepad force-stopped; passive live 30s custom sample; operator visual confirmation; power/proximity readback | Partial. The first custom sample was discarded because a still-running Makepad process polluted the shared log window. The clean custom 0.75 run and live passive sample confirmed proper visible custom stereo projection, `alignedProjection=true`, `pairedLeftRightGpuBuffers=true`, `cpuUploadCount=0`, and zero GPU import failures, but performance was degraded: OpenXR was about 52-53Hz against a 72Hz target, paired camera progression was about 28Hz, and compositor slice-tear counts were high. Power/proximity stayed mounted/awake. Makepad S14 remains active-presentation plus paired import/cadence evidence, but the visible Makepad scene is still synthetic rather than camera projection. | S16: draw the paired Makepad `VideoExternal` textures into visible XR geometry with per-eye source mapping, then rerun a clean Makepad-vs-custom performance comparison |
 
 ## Validation Rule
 
