@@ -178,6 +178,40 @@ progression evidence, not display FPS; the scorecard continues to use `VrApi`
 rows for runtime display cadence when they are present. The separate small
 hardware-buffer warning class remained visible.
 
+S10 starts the normalized comparison rerun. The Makepad side uses the S9
+direct-XR scorecard input with paired/projection readiness, zero CPU uploads,
+Makepad callback/camera texture cadence, `VrApi` timing, app fault counters, and
+the visible small hardware-buffer warning class. The custom side reruns the
+matching 0.75 camera projection profile with the external/device-side
+proximity watchdogs already active and the comparison harness configured for
+passive pre/post power-state readback instead of sending an additional timed
+proximity hold. This split is intended to determine whether the earlier custom
+0.75 failure was a stale lifecycle/proximity artifact and whether Makepad's
+observed 12.5-12.7Hz camera texture cadence is a real parity bottleneck.
+
+The first S10 same-session batch makes the comparison materially clearer. The
+custom 0.75 profile no longer reproduces the previous display-event-receiver
+startup failure when the watchdog state is preserved and the comparison harness
+does not send an extra timed proximity hold. It reached focused GPU projection
+at 0.75 render scale with paired/aligned buffers, `cpuUploadCount=0`, zero GPU
+import failures, a steady OpenXR cadence near 72Hz, and about 49Hz paired camera
+progression. It remains a warning baseline rather than a clean pass because
+runtime sleep/wake and compositor warning counters were still present. A fresh
+Makepad direct-XR sample in the same session stayed app-fault clean, retained
+paired/projection readiness through cadence rows, reported `cpuUploadCount=0`,
+held `VrApi` around 90/90Hz with zero tear, and again reported only about
+12.6Hz for Makepad `NextFrame` callback and paired camera texture-update
+progression. The small hardware-buffer warning class remained visible on the
+Makepad side and still did not correlate with app-process GPU page-fault or
+fatal signatures.
+
+S10 therefore turns the next investigation from "can custom 0.75 launch
+stably?" into "why is Makepad-owned camera texture progression much slower than
+the custom Camera2 pair progression?" The next split should isolate whether that
+12.6Hz signal is caused by Makepad `NextFrame` scheduling, Android video
+playback cadence, source/FPS negotiation, or the diagnostic marker sampling
+point.
+
 ## Attempt Ledger
 
 | Attempt | Slice | Validation | Result | Next |
@@ -192,6 +226,7 @@ hardware-buffer warning class remained visible.
 | S7 | Paired import and projection-mapping gate | Source implementation, host validation, Quest APK build, direct generated-XR smoke, and marker-spam guard | Passed for the direct generated-XR path. The final short generated-XR smoke emitted startup, Camera2 metadata/acquisition, paired source enumeration, paired playback start, left/right prepared, left/right texture-updated, projection complete, and paired comparison markers. The selected pair was a back-facing 1280x1280 left/right pair with projection metadata ready; the completion marker reported `pairedLeftRightGpuBuffers=true`, `makepadVulkanImport=true`, `projectionMappingReady=true`, `alignedProjection=true`, `cpuUploadCount=0`, and `visualInspection=required`. App-process GPU page-fault and fatal counts were zero. The separate small `AHardwareBuffer` warning class remained visible. The normal launcher path remains separate after one S7 run hit a Horizon OS display-event-receiver startup failure before app markers. | Start parity performance diagnostics for the direct generated-XR path against the custom Rusty XR stereo camera projection baseline, while keeping launcher lifecycle, awake-state/proximity, and small hardware-buffer warning counters separate |
 | S8 | Parity performance diagnostics | Passive pre/post awake-proximity readback, 75s Makepad direct generated-XR sample, custom Rusty XR 0.65 baseline sample, custom Rusty XR 0.75 normalization attempt, and shared scorecard/counter extraction | Partial. Makepad direct-XR held paired/aligned projection markers with zero CPU uploads and zero app-process GPU/fatal signatures while retaining the small `AHardwareBuffer` warning class. The custom 0.65 profile remains a valid warning baseline with paired/aligned projection, zero CPU uploads, zero GPU import failures, about 70.8/72Hz OpenXR cadence, and about 29Hz paired camera progression. The custom 0.75 normalization attempt is invalid: it failed before final projection markers with a display-event-receiver startup failure and reproduced a keep-awake/proximity transition toward standby despite the comparison run avoiding an explicit proximity hold. | Stabilize the custom 0.75 lifecycle/proximity state or add a Makepad 0.65 / 72Hz comparison profile; also add Makepad continuous frame/camera cadence markers before treating scorecard output as directly comparable |
 | S9 | Makepad continuous cadence markers | Source implementation; host `cargo fmt`; host `cargo check`; docs/schema/link/boundary checks; APK build; direct generated-XR 25s startup/projection and 60s liveness windows; scorecard parser update | Passed for Makepad marker availability and scorecard consumption. The direct generated-XR run retained the full startup/projection marker chain in the short window and retained five cadence samples in the longer window. Cadence rows reported paired/projection readiness true, `cpuUploadCount=0`, and about 12.5-12.7Hz Makepad `NextFrame` callback / paired camera texture-update rates. App-process GPU page-fault and fatal counts stayed zero; the small hardware-buffer warning class remained visible. The public scorecard parser now extracts Makepad cadence/projection markers. This is still not a normalized parity conclusion because the custom comparison rerun has not been repeated under the new watchdog state. | Run a normalized comparison batch: Makepad direct-XR S9 scorecard plus stable custom-shell baseline with proximity/watchdog state controlled, then decide whether the Makepad 12.5Hz camera texture-update cadence is expected or a bottleneck |
+| S10 | Normalized comparison rerun under watchdog control | Same-session Makepad direct-XR 0.75 sample plus custom Rusty XR 0.75 camera projection rerun with passive power-state readback and no extra harness proximity hold | Passed for custom 0.75 lifecycle mitigation and exposed the next Makepad bottleneck candidate. Custom 0.75 reached paired/aligned GPU projection with zero CPU uploads, zero GPU import failures, steady OpenXR near 72Hz, and about 49Hz paired camera progression, but retained runtime warning counters. Makepad direct-XR stayed app-fault clean at about 90/90Hz `VrApi` with zero tear, retained paired/projection readiness and zero CPU uploads, but repeated the about 12.6Hz Makepad `NextFrame` / camera texture-update cadence. Both samples preserved the watchdog-backed `CLOSE` / mounted state. | Isolate Makepad camera texture cadence: distinguish `NextFrame` scheduling, Android video playback cadence, camera FPS negotiation, and marker sampling |
 
 ## Validation Rule
 
