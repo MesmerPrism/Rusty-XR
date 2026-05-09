@@ -23,7 +23,7 @@ fork-patch policy are documented in
 - Uses `cargo-makepad android --variant=quest`.
 - Uses the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging`; the current documented branch head is
-  `aebeabf32278`.
+  `396307a98595`.
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
@@ -56,13 +56,13 @@ fork-patch policy are documented in
   EGL/GL setup, Vulkan readiness, and main-loop handoff.
 - Keeps Android SDK, generated Java, generated manifest, native library, and APK
   output under ignored local build folders.
-- The current source does not include Makepad's `XrPermissionsFlow`; an earlier
-  isolation variant confirmed that the GPU fault also appears when the
-  permission flow is removed.
-- The current source imports a Makepad-owned paired camera source in the direct
-  generated-XR activity path and reports paired-buffer/projection readiness
-  when both textures update. Visual release acceptance remains a separate manual
-  inspection gate.
+- The current source includes Makepad's `XrPermissionsFlow` so normal launcher
+  startup can enter active XR presentation. Earlier isolation variants
+  confirmed that the original GPU fault also appeared when the permission flow
+  was removed.
+- The current source imports a Makepad-owned paired camera source after XR
+  startup and reports paired-buffer/projection readiness when both textures
+  update. Visual release acceptance remains a separate manual inspection gate.
 
 ## Build
 
@@ -93,8 +93,11 @@ cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --n
 The generated APK lands under
 `target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/apk/`.
 
-The Makepad runner starts the generated launcher activity. For direct XR
-activity validation, launch the generated XR activity with adb:
+The Makepad runner starts the generated launcher activity. Use the launcher or
+normal generated activity for active XR presentation; with `XrPermissionsFlow`
+enabled, that path switches into the generated XR activity. Directly launching
+the generated XR activity remains useful as a bootstrap/control smoke only,
+because the permission flow can switch back to the paired normal activity:
 
 ```powershell
 adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-activity>
@@ -105,8 +108,9 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
 - Makepad owns the generated Android manifest, Java activities, OpenXR loader
   packaging, debug signing, install, and launch flow.
 - The Quest variant generates both a normal launcher activity and an XR activity.
-- The Makepad runner starts the launcher activity. Direct XR smoke validation can
-  launch the generated XR activity explicitly.
+- The Makepad runner starts the launcher activity. Active XR validation should
+  use the launcher path; direct XR launch is now a shell/bootstrap control path
+  rather than the primary presentation path.
 - Rusty XR runtime profiles are not yet mapped from arbitrary Android intent
   extras into Makepad Rust. This smoke pass reads environment variables for
   desktop/tooling runs and records that Android profile injection still needs an
@@ -146,6 +150,10 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   startup/liveness gate with no app-process GPU page-fault or fatal lines in
   the 90s windows. Repeated small hardware-buffer warnings remain tracked
   separately through Camera2 acquisition and Makepad hardware-buffer import.
+  A later active-presentation gate reached Makepad OpenXR session creation and
+  showed that passthrough could start while the runtime rejected environment
+  depth provider setup; the maintained fork now treats environment depth as an
+  optional feature so a depth-policy failure cannot block projection startup.
   See the repository-level GPU investigation note for the current attempt log.
 
 ## Validation Status
@@ -155,8 +163,10 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   dependent Rust shared-library bundling.
 - Quest launcher run: installs, starts, emits Java activity, native bootstrap,
   `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
-  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` startup markers in a short capture, then
-  keeps the app process alive in the longer liveness window with no app-process
+  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` startup markers, switches into active
+  XR presentation through `XrPermissionsFlow`, and shows the synthetic stereo
+  scene in headset. The S14 launcher pass retained app/`XrUpdate`/draw cadence
+  near 90Hz, paired camera texture progression near 50Hz, and no app-process
   GPU page-fault or fatal lines.
 - Quest generated-XR activity launch: emits the same startup marker set in a
   short capture, reaches Vulkan ready / before main loop, and keeps the app
@@ -173,30 +183,24 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   select a back-facing 1280x1280 YUV420 source, start the delayed
   `VideoExternal` import path, prepare playback at 1280x1280, and emit
   `makepadVulkanImport=true` on `VideoTextureUpdated`.
-- Performance comparison gate: blocked on presentation completion. The current
-  APK can report `pairedLeftRightGpuBuffers=true` and `alignedProjection=true`
-  after both Makepad-owned camera textures update, with `cpuUploadCount=0`.
-  A later S11 launch-state check showed that these markers can be emitted while
-  Horizon OS is still showing the loading experience and has placed the app in a
-  volumetric-window launch state rather than a confirmed immersive presentation
-  state. Treat the cadence markers as app/surface/camera-path evidence until a
-  device run also proves the loading screen clears and the immersive handoff is
-  complete.
+- Performance comparison gate: open again after S14. Earlier S11/S12/S13 runs
+  showed that paired/projection markers could be emitted while Horizon OS was
+  still showing the loading experience, but S14 added the optional
+  environment-depth fallback and proved active launcher-path presentation in
+  headset. Use the launcher path for performance comparison, not direct
+  generated-XR launch.
 - Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
   Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
-  texture-update counters. The latest partial S11 run reported `NextFrame`,
-  draw-event, and paired texture rates around the same low cadence, with
-  `XrUpdate` still at zero in the app marker path, but that run is not a
-  presentation-performance sample because the headset view did not leave the
-  loading screen.
+  texture-update counters. The S14 active launcher sample reported
+  app/`XrUpdate`/draw cadence near 90Hz and paired texture-update cadence near
+  50Hz.
 - Current tracked warning: repeated small hardware-buffer lines appear in the
   device logs. They are not counted as GPU page faults, persisted through the
   successful paired import/projection marker gate, and should stay visible in
   the iteration ledger during performance comparison work.
 - Current source/build slice: paired Makepad hardware-buffer import and
-  projection-mapping markers are validated in the direct generated-XR activity
-  path against the maintained fork branch. The normal launcher activity path
-  remains tracked separately for lifecycle/awake-state regressions.
+  projection-mapping markers are validated against the maintained fork branch,
+  and launcher-path active presentation is the performance-comparison route.
 
 The current step-by-step implementation ledger is tracked in
 [../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).

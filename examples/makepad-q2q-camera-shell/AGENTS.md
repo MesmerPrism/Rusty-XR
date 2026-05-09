@@ -35,10 +35,12 @@ Move in small validated slices:
 5. Add hardware-buffer import.
 6. Add metadata-backed stereo projection parity checks against the custom APK
    `camera-stereo-gpu-composite` profile.
+7. Add cadence/performance markers only after active XR presentation is
+   confirmed through the launcher path.
 
-The renderer smoke path is now the gate before Camera2 work. Keep future camera
-slices separate: metadata/acquisition first, hardware-buffer import second, and
-projection parity after both are validated.
+Keep future slices separate: active launcher presentation first,
+metadata/acquisition second, hardware-buffer import third, projection parity
+after those are validated, and performance comparison last.
 
 ## Validation
 

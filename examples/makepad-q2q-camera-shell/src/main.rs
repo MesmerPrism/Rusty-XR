@@ -35,7 +35,7 @@ const DEFAULT_ACQUISITION_PROFILE: &str =
 const DEFAULT_PROJECTION_SCALE: f64 = 0.75;
 const DEFAULT_XR_RENDER_SCALE: f64 = 0.75;
 const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
-const MAKEPAD_REV: &str = "aebeabf32278";
+const MAKEPAD_REV: &str = "396307a98595";
 const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
 const PAIRED_IMPORT_MAX_WAITS: usize = 10;
@@ -125,6 +125,8 @@ script_mod! {
                     }
                 }
             }
+
+            xr_permissions := XrPermissionsFlow{}
         }
     }
 }
@@ -1261,8 +1263,10 @@ fn emit_marker_line(line: &str) {
 }
 
 impl MatchEvent for App {
-    fn handle_startup(&mut self, _cx: &mut Cx) {
+    fn handle_startup(&mut self, cx: &mut Cx) {
         Self::emit_startup_markers_once("startup");
+        let config = Self::runtime_config();
+        cx.xr_set_render_scale(runtime_float(&config, KEY_XR_RENDER_SCALE) as f32);
     }
 
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions) {
