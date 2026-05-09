@@ -213,6 +213,23 @@ companion wake helper now applies the same durable keep-awake hold so a wake
 action does not shorten an operator-maintained autonomous-run hold. Raw device
 logs remain private.
 
+Additional autonomous-run hardening has been added through the optional broker
+shell helper. Because the helper is launched by an authorized ADB host and runs
+as Android `shell`, it can maintain the same virtual-close hold from the device
+side while the external Companion watchdog remains active. The coordination rule
+is intentionally idempotent: both watchdogs preserve `Virtual proximity state:
+CLOSE`, neither sends normal-proximity restoration while preserving a hold, and
+the shell helper only rebroadcasts `prox_close` after readback shows a non-close
+virtual state.
+
+The first coexistence gate passed with both watchdogs active. Baseline readback
+was `CLOSE` / `HEADSET_MOUNTED`; a controlled virtual-proximity reset was
+followed by a shell-helper `reapply_count=1`, later passive readbacks remained
+`CLOSE`, and no standby progression appeared in the validation window. The stop
+marker path also reported the shell helper disconnected cleanly, then the helper
+was restarted with the normal long-duration hold for continued autonomous-run
+protection. Raw device logs remain private.
+
 ## Open Questions
 
 - Does the forked Makepad shell stay clean over longer Quest/Vulkan XR repeats

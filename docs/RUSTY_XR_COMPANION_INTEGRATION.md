@@ -170,7 +170,15 @@ dotnet run --project .\src\RustyXr.Companion.Cli -- catalog verify --path ..\Rus
 dotnet run --project .\src\RustyXr.Companion.Cli -- osc send --host <quest-lan-ip> --port 9000 --address /rusty-xr/drive/radius --arg float:0.75
 dotnet run --project .\src\RustyXr.Companion.Cli -- broker compare --quest-host <quest-lan-ip> --serial <serial> --out .\artifacts\broker-compare --json
 dotnet run --project .\src\RustyXr.Companion.Cli -- broker bio-simulate --serial <serial> --out .\artifacts\broker-bio-sim --json
+dotnet run --project .\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root ..\Rusty-XR --proximity-watchdog --json
+dotnet run --project .\src\RustyXr.Companion.Cli -- broker shell-helper stop --serial <serial> --rusty-xr-root ..\Rusty-XR --no-build --json
 ```
+
+The optional shell-helper proximity watchdog runs only when an authorized ADB
+host starts the helper. It is designed to coexist with the external Companion
+watchdog by only reapplying the virtual-close state when readback is not already
+`CLOSE`; normal proximity restoration remains a separate operator action after
+the helper is stopped.
 
 ## Boundary
 

@@ -278,6 +278,15 @@ codec diagnostics, shell-visible camera metadata, and Camera2 open/capture
 feasibility through `shell_helper.report_status`. The source-only helper
 example lives in `examples/quest-broker-shell-helper`.
 
+The same helper can optionally run a shell-side proximity watchdog for long
+off-face development sessions. It reads `dumpsys vrpowermanager` and only
+re-applies `com.oculus.vrpowermanager.prox_close` when the virtual proximity
+state is not already `CLOSE`. This is intended to be idempotent with an
+external companion watchdog: both preserve the same close state, and neither
+helper restores normal proximity while a hold is being preserved. Stop the
+shell helper before intentionally returning the headset to normal wear-sensor
+behavior.
+
 `video_lab.register_encoded_stream_manifest` and
 `video_lab.record_encoded_sample_metadata` define the control-plane shape for a
 future encoded stream: session id, codec/MIME, dimensions, frame rate, payload

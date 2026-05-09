@@ -27,7 +27,12 @@ param(
     [int]$EncodedVideoWidth = 640,
     [int]$EncodedVideoHeight = 360,
     [int]$EncodedVideoBitrate = 1000000,
-    [int]$ScreenrecordTimeLimit = 1
+    [int]$ScreenrecordTimeLimit = 1,
+    [switch]$ProximityWatchdog,
+    [switch]$StopProximityWatchdog,
+    [int]$ProximityWatchdogDurationMs = 28800000,
+    [int]$ProximityWatchdogHoldDurationMs = 28800000,
+    [int]$ProximityWatchdogIntervalMs = 5000
 )
 
 Set-StrictMode -Version Latest
@@ -182,5 +187,21 @@ if ($EmitScreenrecordVideo) {
         '--screenrecord-time-limit', $ScreenrecordTimeLimit.ToString()
     )
 }
+if ($ProximityWatchdog) {
+    $helperArgs += @(
+        '--proximity-watchdog',
+        '--proximity-watchdog-duration-ms', $ProximityWatchdogDurationMs.ToString(),
+        '--proximity-watchdog-hold-duration-ms', $ProximityWatchdogHoldDurationMs.ToString(),
+        '--proximity-watchdog-interval-ms', $ProximityWatchdogIntervalMs.ToString()
+    )
+}
+if ($StopProximityWatchdog) {
+    $helperArgs += '--stop-proximity-watchdog'
+}
 
-Invoke-Adb -Arguments $helperArgs
+if ($ProximityWatchdog -and -not $StopProximityWatchdog) {
+    $deviceCommand = (($helperArgs | Select-Object -Skip 1) -join ' ') + ' > /data/local/tmp/rusty-xr-proximity-watchdog.log 2>&1 &'
+    Invoke-Adb -Arguments @('shell', 'sh', '-c', $deviceCommand)
+} else {
+    Invoke-Adb -Arguments $helperArgs
+}
