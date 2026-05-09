@@ -205,6 +205,14 @@ service-restart loss of the virtual keep-awake override. The mitigation is to
 make autonomous runners preserve or reapply the operator-requested keep-awake
 hold after such a reset, rather than relying on one synthetic wake signal.
 
+Follow-up companion validation restarted the source companion app from a fresh
+session, observed the existing keep-awake hold, then induced a controlled
+device-side proximity reset. Passive readback showed the virtual state move to
+`DISABLED` briefly, then return to `CLOSE` before standby markers appeared. The
+companion wake helper now applies the same durable keep-awake hold so a wake
+action does not shorten an operator-maintained autonomous-run hold. Raw device
+logs remain private.
+
 ## Open Questions
 
 - Does the forked Makepad shell stay clean over longer Quest/Vulkan XR repeats
