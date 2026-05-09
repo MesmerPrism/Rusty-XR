@@ -39,10 +39,18 @@ scope is limited to:
   launcher/generated-XR startup without publishing raw device logs.
 - Quest manifest camera permission and optional camera feature declarations
   needed by public examples that exercise Android NDK Camera2 diagnostics.
+- A Makepad `Video` widget camera-permission option used by public examples
+  where headset raw-camera sources are gated separately from ordinary app
+  cameras.
 - Cargo workspace metadata exclusions for standalone CSG leaf crates that are
   outside Makepad's main workspace validation path.
 - Ignore rules for local generated Android-control target folders.
 - Branch-local notes that document how Rusty XR consumes the fork.
+
+Rejected fork experiments should remain in the public iteration ledger, not in
+the active patch queue. The Android video cleanup-completion experiment was
+tested in the Rusty XR visual gate and reverted after it reintroduced the Quest
+app-process GPU page-fault class when exercised by native `Video` widgets.
 
 Do not use the fork as a place to copy Rusty XR app behavior, generated APKs,
 device logs, local SDK caches, package identities, private paths, or

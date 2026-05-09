@@ -12,6 +12,7 @@ use makepad_widgets::makepad_platform::{
     video::{VideoFormat, VideoInputsEvent, VideoPixelFormat},
 };
 use makepad_widgets::*;
+use makepad_xr::scene::{xr_widget_world_transform, XrNode};
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 use std::{
     sync::atomic::{AtomicBool, Ordering},
@@ -23,23 +24,28 @@ app_main!(App);
 
 static STARTUP_MARKERS_EMITTED: AtomicBool = AtomicBool::new(false);
 static PAIRED_IMPORT_SIGNAL_READY: AtomicBool = AtomicBool::new(false);
+static CAMERA_PANEL_DRAW_MARKER_EMITTED: AtomicBool = AtomicBool::new(false);
 
 const DEFAULT_PROFILE: &str = "makepad-stereo-projection-pair-probe";
 const DEFAULT_TRANSPORT: &str = "makepad-video-external";
 const DEFAULT_CAMERA_TIER: &str = "native-camera2-makepad-stereo-vulkan-import-probe";
 const DEFAULT_CAMERA_PROJECTION_MODE: &str = "display-screen-homography";
 const DEFAULT_COMPARISON_BASELINE: &str = "custom-apk-camera-stereo-gpu-composite";
-const DEFAULT_SYNTHETIC_SCENE: &str = "dual-panel-grid-v1-with-camera-pair";
+const DEFAULT_SYNTHETIC_SCENE: &str = "camera-pair-projection-no-debug-overlay";
 const DEFAULT_ACQUISITION_PROFILE: &str =
     "bounded-camera2-private-plus-makepad-paired-import-probe";
 const DEFAULT_PROJECTION_SCALE: f64 = 0.75;
 const DEFAULT_XR_RENDER_SCALE: f64 = 0.75;
 const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
-const MAKEPAD_REV: &str = "396307a98595";
+const MAKEPAD_REV: &str = "a57e68adf4c3";
 const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
 const PAIRED_IMPORT_MAX_WAITS: usize = 10;
 const CADENCE_SAMPLE_SECONDS: f64 = 5.0;
+// S25 showed this diagnostic can reintroduce app-process GPU page faults on Quest.
+const NATIVE_VIDEO_WIDGET_SURFACE_DIAGNOSTIC: bool = false;
+const NATIVE_VIDEO_WIDGET_RETRY_SECONDS: f64 = 0.5;
+const NATIVE_VIDEO_WIDGET_MAX_RESETS: usize = 3;
 const KEY_RUNTIME_PROFILE: &str = "runtime_profile";
 const KEY_TRANSPORT_PROFILE: &str = "transport_profile";
 const KEY_CAMERA_TIER: &str = "camera_tier";
@@ -56,8 +62,98 @@ const KEY_MAKEPAD_BRANCH: &str = "makepad_branch";
 const KEY_STUDIO_HOST: &str = "studio_host";
 
 script_mod! {
+    use mod.pod.*
+    use mod.math.*
+    use mod.shader.*
+    use mod.draw
+    use mod.geom
     use mod.prelude.widgets.*
     use mod.widgets.*
+
+    mod.draw.DrawMakepadStereoCameraPanel = mod.std.set_type_default() do #(DrawMakepadStereoCameraPanel::script_shader(vm)){
+        ..mod.draw.DrawCube
+        backface_culling: false
+
+        left_camera_texture: texture_video()
+        right_camera_texture: texture_video()
+        v_uv: varying(vec2f)
+
+        vertex: fn() {
+            let pos = self.get_size() * self.geom.geom_pos + self.get_pos();
+            let model_view = self.draw_list.view_transform * self.transform;
+            self.world = model_view * vec4(pos.x, pos.y, pos.z, 1.0);
+            self.v_uv = self.geom.geom_uv;
+            let view_pos = self.draw_pass.camera_view * self.world;
+            self.vertex_pos = self.draw_pass.camera_projection * view_pos;
+        }
+
+        active_eye_is_right: fn() -> float {
+            return 0.0;
+        }
+
+        rotate_uv: fn(coord: vec2f, rotation_steps: float) -> vec2f {
+            let coord_90 = vec2(1.0 - coord.y, coord.x);
+            let coord_180 = vec2(1.0 - coord.x, 1.0 - coord.y);
+            let coord_270 = vec2(coord.y, 1.0 - coord.x);
+            let is_90 = step(0.5, rotation_steps) * step(rotation_steps, 1.5);
+            let is_180 = step(1.5, rotation_steps) * step(rotation_steps, 2.5);
+            let is_270 = step(2.5, rotation_steps);
+            let is_0 = 1.0 - is_90 - is_180 - is_270;
+            return coord * is_0 + coord_90 * is_90 + coord_180 * is_180 + coord_270 * is_270;
+        }
+
+        guide_mask: fn(coord: vec2f) -> float {
+            let edge_x = min(coord.x, 1.0 - coord.x);
+            let edge_y = min(coord.y, 1.0 - coord.y);
+            let border = 1.0 - step(0.018, min(edge_x, edge_y));
+            let center_x = 1.0 - step(0.009, abs(coord.x - 0.5));
+            let center_y = 1.0 - step(0.009, abs(coord.y - 0.5));
+            return clamp(max(border, max(center_x, center_y)), 0.0, 1.0);
+        }
+
+        pixel: fn() {
+            if self.camera_ready <= 0.5 {
+                return vec4(0.0, 0.0, 0.0, 0.0);
+            }
+
+            let uv = clamp(self.rotate_uv(self.v_uv, mix(self.left_rotation_steps, self.right_rotation_steps, self.active_eye_is_right())), vec2(0.0, 0.0), vec2(1.0, 1.0));
+            let guide = self.guide_mask(uv) * self.alignment_guide;
+            if self.diagnostic_solid > 0.5 {
+                let left_color = vec3(0.02 + 0.28 * uv.x, 0.72 + 0.20 * uv.y, 0.95);
+                let right_color = vec3(0.95, 0.10 + 0.24 * uv.y, 0.70 + 0.18 * uv.x);
+                let diagnostic = mix(left_color, right_color, self.active_eye_is_right());
+                let guided_diagnostic = mix(diagnostic, vec3(1.0, 1.0, 1.0), guide);
+                return vec4(guided_diagnostic.x, guided_diagnostic.y, guided_diagnostic.z, 1.0);
+            }
+
+            let left_sample = self.left_camera_texture.sample_video(uv).xyz;
+            let right_sample = self.right_camera_texture.sample_video(uv).xyz;
+            let sample = mix(left_sample, right_sample, self.active_eye_is_right());
+            let rgb = vec3(
+                clamp(sample.x * self.exposure, 0.0, 1.0),
+                clamp(sample.y * self.exposure, 0.0, 1.0),
+                clamp(sample.z * self.exposure, 0.0, 1.0)
+            );
+            let guided = mix(rgb, vec3(0.92, 0.95, 0.88), guide);
+            return vec4(guided.x, guided.y, guided.z, 1.0);
+        }
+
+        fragment: fn() {
+            self.fb0 = depth_clip(self.world, self.pixel(), self.depth_clip);
+        }
+    }
+
+    mod.widgets.MakepadStereoCameraPanelBase = #(MakepadStereoCameraPanel::register_widget(vm))
+    mod.widgets.MakepadStereoCameraPanel = set_type_default() do mod.widgets.MakepadStereoCameraPanelBase{
+        body: mod.widgets.XrBodyKind.Fixed
+        shared_object_policy: mod.widgets.XrSharedObjectPolicy.None
+        size: vec3(0.92, 0.52, 0.010)
+        draw_panel +: {
+            exposure: 1.0
+            diagnostic_solid: 0.0
+            alignment_guide: 0.0
+        }
+    }
 
     startup() do #(App::script_component(vm)){
         ui: XrRoot{
@@ -70,58 +166,41 @@ script_mod! {
             env.env_cube: false
             env.depth_mesh: false
 
-            comparison_scene := XrNode{
-                pos: vec3(0.0, -0.04, -0.78)
+            camera_projection_scene := XrNode{
+                pos: vec3(0.0, -0.04, -0.762)
 
-                on_render: ||{
-                    Cube{
-                        body: mod.widgets.XrBodyKind.Fixed
-                        size: vec3(0.52, 0.32, 0.018)
-                        corner_radius: 0.012
-                        roughness: 0.72
-                        metallic: 0.0
-                        color: #x214966
-                        pos: vec3(-0.31, 0.0, 0.0)
+                camera_projection_panel := mod.widgets.MakepadStereoCameraPanel{
+                    body: mod.widgets.XrBodyKind.Fixed
+                    size: vec3(0.92, 0.52, 0.010)
+                    pos: vec3(0.0, 0.0, 0.0)
+                }
+            }
+
+            camera_video_view := XrView{
+                pos: vec3(0.0, -0.04, -0.764)
+                logical_size: vec2(960, 540)
+                pixel_scale: 0.00096
+                dpi_factor: 1.0
+
+                SolidView{
+                    width: Fill
+                    height: Fill
+                    flow: Right
+                    spacing: 0
+                    draw_bg.color: #x05090dff
+
+                    left_camera_video := Video{
+                        width: 480
+                        height: Fill
+                        autoplay: false
+                        show_controls: false
                     }
 
-                    Cube{
-                        body: mod.widgets.XrBodyKind.Fixed
-                        size: vec3(0.52, 0.32, 0.018)
-                        corner_radius: 0.012
-                        roughness: 0.72
-                        metallic: 0.0
-                        color: #x5b315b
-                        pos: vec3(0.31, 0.0, 0.0)
-                    }
-
-                    Cube{
-                        body: mod.widgets.XrBodyKind.Fixed
-                        size: vec3(0.018, 0.36, 0.026)
-                        corner_radius: 0.006
-                        roughness: 0.32
-                        metallic: 0.02
-                        color: #xe8edf2
-                        pos: vec3(0.0, 0.0, 0.012)
-                    }
-
-                    Cube{
-                        body: mod.widgets.XrBodyKind.Fixed
-                        size: vec3(0.68, 0.018, 0.024)
-                        corner_radius: 0.006
-                        roughness: 0.32
-                        metallic: 0.02
-                        color: #xc8d2dc
-                        pos: vec3(0.0, 0.18, 0.012)
-                    }
-
-                    Cube{
-                        body: mod.widgets.XrBodyKind.Fixed
-                        size: vec3(0.68, 0.018, 0.024)
-                        corner_radius: 0.006
-                        roughness: 0.32
-                        metallic: 0.02
-                        color: #xc8d2dc
-                        pos: vec3(0.0, -0.18, 0.012)
+                    right_camera_video := Video{
+                        width: 480
+                        height: Fill
+                        autoplay: false
+                        show_controls: false
                     }
                 }
             }
@@ -146,6 +225,14 @@ pub struct App {
     #[rust]
     paired_import_started: bool,
     #[rust]
+    native_video_widget_started: bool,
+    #[rust]
+    native_video_widget_retry_timer: Timer,
+    #[rust]
+    native_video_widget_retry_pair: Option<MakepadCameraPair>,
+    #[rust]
+    native_video_widget_retry_count: usize,
+    #[rust]
     paired_import_finished: bool,
     #[rust]
     paired_import_left_texture: Option<Texture>,
@@ -163,6 +250,12 @@ pub struct App {
     paired_import_left_rotation_steps: f32,
     #[rust]
     paired_import_right_rotation_steps: f32,
+    #[rust]
+    camera_projection_textures_bound: bool,
+    #[rust]
+    camera_projection_bind_error_logged: bool,
+    #[rust]
+    synthetic_scene_hidden_for_camera: bool,
     #[rust]
     cadence_next_frame: Option<NextFrame>,
     #[rust]
@@ -195,6 +288,109 @@ pub struct App {
     cadence_left_last_position_ms: u128,
     #[rust]
     cadence_right_last_position_ms: u128,
+}
+
+#[derive(Script, ScriptHook, Debug)]
+#[repr(C)]
+pub struct DrawMakepadStereoCameraPanel {
+    #[deref]
+    pub draw_super: DrawCube,
+    #[live(0.0_f32)]
+    pub camera_ready: f32,
+    #[live(0.0_f32)]
+    pub left_rotation_steps: f32,
+    #[live(0.0_f32)]
+    pub right_rotation_steps: f32,
+    #[live(1.0_f32)]
+    pub exposure: f32,
+    #[live(0.0_f32)]
+    pub diagnostic_solid: f32,
+    #[live(0.0_f32)]
+    pub alignment_guide: f32,
+    #[live(1.0_f32)]
+    pub depth_clip: f32,
+}
+
+impl DrawMakepadStereoCameraPanel {
+    fn set_camera_textures(&mut self, left: Option<Texture>, right: Option<Texture>) {
+        self.draw_super.draw_vars.texture_slots[0] = left;
+        self.draw_super.draw_vars.texture_slots[1] = right;
+    }
+
+    fn draw(&mut self, cx: &mut CxDraw) {
+        self.draw_super.draw(cx);
+    }
+}
+
+#[derive(Script, Widget)]
+pub struct MakepadStereoCameraPanel {
+    #[redraw]
+    #[live]
+    draw_panel: DrawMakepadStereoCameraPanel,
+    #[live(vec3(0.92, 0.52, 0.010))]
+    size: Vec3f,
+    #[rust(false)]
+    camera_ready: bool,
+    #[cast]
+    #[deref]
+    node: XrNode,
+}
+
+impl MakepadStereoCameraPanel {
+    fn set_camera_textures(
+        &mut self,
+        cx: &mut Cx,
+        left: Option<Texture>,
+        right: Option<Texture>,
+        left_rotation_steps: f32,
+        right_rotation_steps: f32,
+    ) {
+        self.draw_panel.set_camera_textures(left, right);
+        self.draw_panel.left_rotation_steps = left_rotation_steps;
+        self.draw_panel.right_rotation_steps = right_rotation_steps;
+        self.draw_panel.camera_ready = 1.0;
+        self.camera_ready = true;
+        self.node.redraw(cx);
+    }
+}
+
+impl ScriptHook for MakepadStereoCameraPanel {
+    fn on_after_apply(
+        &mut self,
+        _vm: &mut ScriptVm,
+        _apply: &Apply,
+        _scope: &mut Scope,
+        _value: ScriptValue,
+    ) {
+        self.node.set_implicit_physics_size(self.size);
+    }
+}
+
+impl Widget for MakepadStereoCameraPanel {
+    fn draw_3d(&mut self, cx: &mut Cx3d, scope: &mut Scope) -> DrawStep {
+        if self.camera_ready {
+            if cx.scene_state_3d().is_none() {
+                return self.node.draw_3d(cx, scope);
+            }
+            if !CAMERA_PANEL_DRAW_MARKER_EMITTED.swap(true, Ordering::AcqRel) {
+                emit_marker_line(
+                    "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=visible-panel-draw status=ok visibleCameraPanelDrawn=true renderPath=makepad-xr sceneOwnedPanel=true projectionShaderPath=makepad-video-external-sample-video-rgb-no-guide diagnosticSolidPanel=false debugAlignmentGuide=false visualInspection=required visualReleaseAccepted=false",
+                );
+            }
+            let world = xr_widget_world_transform(cx, scope, self.widget_uid(), &self.node);
+            self.draw_panel.draw_super.transform = world;
+            self.draw_panel.draw_super.cube_pos = vec3f(0.0, 0.0, 0.0);
+            self.draw_panel.draw_super.cube_size = self.size;
+            self.draw_panel.draw_super.depth_clip = 1.0;
+            self.draw_panel.draw(cx);
+        }
+
+        self.node.draw_3d(cx, scope)
+    }
+
+    fn draw_walk(&mut self, _cx: &mut Cx2d, _scope: &mut Scope, _walk: Walk) -> DrawStep {
+        DrawStep::done()
+    }
 }
 
 impl App {
@@ -460,7 +656,7 @@ impl App {
         };
 
         Self::emit_cadence_marker(&format!(
-            "phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} xrUpdateCount={} xrUpdateDelta={} xrUpdateRateHz={:.2} drawEventCount={} drawEventDelta={} drawEventRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightGpuBuffers={} projectionMappingReady={} alignedProjection={} cpuUploadCount=0 renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated",
+            "phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} xrUpdateCount={} xrUpdateDelta={} xrUpdateRateHz={:.2} drawEventCount={} drawEventDelta={} drawEventRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightGpuBuffers={} projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} cpuUploadCount=0 renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated",
             elapsed_seconds * 1000.0,
             interval_seconds * 1000.0,
             self.cadence_frame_count,
@@ -486,6 +682,7 @@ impl App {
             paired_buffers_ready,
             projection_mapping_ready,
             aligned_projection,
+            self.camera_projection_textures_bound,
         ));
 
         self.cadence_last_sample_time = now_seconds;
@@ -555,6 +752,7 @@ impl App {
                 if let Some(side) = StereoEye::from_video_id(updated.video_id) {
                     self.record_camera_texture_update(side, updated.current_position_ms);
                     if self.paired_import_finished {
+                        self.bind_camera_projection_panel(cx);
                         return;
                     }
                     match side {
@@ -574,7 +772,7 @@ impl App {
                         updated.yuv.biplanar,
                         updated.yuv.rotation_steps,
                     ));
-                    self.complete_paired_import_if_ready();
+                    self.complete_paired_import_if_ready(cx);
                 }
             }
             Event::VideoDecodingError(error) => {
@@ -619,6 +817,21 @@ impl App {
                 self.paired_import_finished,
             ));
             self.try_start_paired_import(cx);
+        }
+
+        if !self.native_video_widget_retry_timer.is_empty()
+            && self
+                .native_video_widget_retry_timer
+                .is_event(event)
+                .is_some()
+        {
+            self.native_video_widget_retry_timer = Timer::empty();
+            if let Some(pair) = self.native_video_widget_retry_pair.clone() {
+                if self.start_native_video_widget_surface(cx, &pair) {
+                    self.paired_import_finished = true;
+                    self.native_video_widget_retry_pair = None;
+                }
+            }
         }
     }
 
@@ -685,6 +898,13 @@ impl App {
             marker_token(&pair.fallback_reason),
         ));
 
+        if NATIVE_VIDEO_WIDGET_SURFACE_DIAGNOSTIC {
+            if self.start_native_video_widget_surface(cx, &pair) {
+                self.paired_import_finished = true;
+            }
+            return;
+        }
+
         cx.prepare_headset_camera_playback(
             StereoEye::Left.video_id(),
             VideoSource::Camera(pair.left.input_id, pair.left.format_id),
@@ -703,6 +923,80 @@ impl App {
             true,
             false,
         );
+    }
+
+    fn start_native_video_widget_surface(&mut self, cx: &mut Cx, pair: &MakepadCameraPair) -> bool {
+        if self.native_video_widget_started {
+            return true;
+        }
+
+        let left_video = self.ui.video(cx, &[live_id!(left_camera_video)]);
+        let right_video = self.ui.video(cx, &[live_id!(right_camera_video)]);
+        let left_unprepared = left_video.is_unprepared();
+        let right_unprepared = right_video.is_unprepared();
+        if !left_unprepared || !right_unprepared {
+            if self.native_video_widget_retry_count >= NATIVE_VIDEO_WIDGET_MAX_RESETS {
+                Self::emit_stereo_projection_marker(&format!(
+                    "phase=native-video-widget-reset status=error leftUnprepared={} rightUnprepared={} leftPlaying={} rightPlaying={} leftCleaningUp={} rightCleaningUp={} resetCount={} fallbackReason=makepad_video_widget_not_unprepared",
+                    left_unprepared,
+                    right_unprepared,
+                    left_video.is_playing(),
+                    right_video.is_playing(),
+                    left_video.is_cleaning_up(),
+                    right_video.is_cleaning_up(),
+                    self.native_video_widget_retry_count,
+                ));
+                return true;
+            }
+
+            if !left_unprepared && !left_video.is_cleaning_up() {
+                left_video.stop_and_cleanup_resources(cx);
+            }
+            if !right_unprepared && !right_video.is_cleaning_up() {
+                right_video.stop_and_cleanup_resources(cx);
+            }
+            self.native_video_widget_retry_count =
+                self.native_video_widget_retry_count.saturating_add(1);
+            self.native_video_widget_retry_pair = Some(pair.clone());
+            self.native_video_widget_retry_timer =
+                cx.start_timeout(NATIVE_VIDEO_WIDGET_RETRY_SECONDS);
+            Self::emit_stereo_projection_marker(&format!(
+                "phase=native-video-widget-reset status=waiting leftUnprepared={} rightUnprepared={} leftPlaying={} rightPlaying={} leftCleaningUp={} rightCleaningUp={} resetCount={} retrySeconds={:.1} fallbackReason=makepad_video_widget_not_unprepared",
+                left_unprepared,
+                right_unprepared,
+                left_video.is_playing(),
+                right_video.is_playing(),
+                left_video.is_cleaning_up(),
+                right_video.is_cleaning_up(),
+                self.native_video_widget_retry_count,
+                NATIVE_VIDEO_WIDGET_RETRY_SECONDS,
+            ));
+            return false;
+        }
+
+        left_video.set_camera_preview_mode(cx, VideoCameraPreviewMode::Texture);
+        right_video.set_camera_preview_mode(cx, VideoCameraPreviewMode::Texture);
+        left_video.set_camera_permission(VideoCameraPermission::HeadsetCamera);
+        right_video.set_camera_permission(VideoCameraPermission::HeadsetCamera);
+        left_video.set_source_camera(cx, pair.left.input_id, pair.left.format_id);
+        right_video.set_source_camera(cx, pair.right.input_id, pair.right.format_id);
+        left_video.should_dispatch_texture_updates(true);
+        right_video.should_dispatch_texture_updates(true);
+        left_video.begin_playback(cx);
+        right_video.begin_playback(cx);
+        self.native_video_widget_started = true;
+
+        Self::emit_stereo_projection_marker(&format!(
+            "phase=native-video-widget-surface status=started renderPath=makepad-xr-view-video-widget visibleCameraProjectionReady=false leftSourceIndex={} rightSourceIndex={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} resetCount={} projectionShaderPath=makepad-video-widget-yuv visualInspection=required visualReleaseAccepted=false",
+            pair.left.source_index,
+            pair.right.source_index,
+            pair.left.width,
+            pair.left.height,
+            pair.right.width,
+            pair.right.height,
+            self.native_video_widget_retry_count,
+        ));
+        true
     }
 
     fn emit_makepad_camera_selection_marker(&self, inputs: &VideoInputsEvent) {
@@ -784,7 +1078,56 @@ impl App {
         ));
     }
 
-    fn complete_paired_import_if_ready(&mut self) {
+    fn bind_camera_projection_panel(&mut self, cx: &mut Cx) -> bool {
+        if self.camera_projection_textures_bound {
+            return true;
+        }
+
+        let (Some(left_texture), Some(right_texture), Some(pair)) = (
+            self.paired_import_left_texture.clone(),
+            self.paired_import_right_texture.clone(),
+            self.paired_import_choice.clone(),
+        ) else {
+            return false;
+        };
+
+        let panel_ref = self.ui.widget(cx, ids!(camera_projection_panel));
+        let Some(mut panel) = panel_ref.borrow_mut::<MakepadStereoCameraPanel>() else {
+            if !self.camera_projection_bind_error_logged {
+                Self::emit_stereo_projection_marker(
+                    "phase=visible-panel-bound status=error visibleCameraProjectionReady=false fallbackReason=makepad_camera_projection_panel_missing",
+                );
+                self.camera_projection_bind_error_logged = true;
+            }
+            return false;
+        };
+
+        panel.set_camera_textures(
+            cx,
+            Some(left_texture),
+            Some(right_texture),
+            self.paired_import_left_rotation_steps,
+            self.paired_import_right_rotation_steps,
+        );
+        self.camera_projection_textures_bound = true;
+        if !self.synthetic_scene_hidden_for_camera {
+            self.synthetic_scene_hidden_for_camera = true;
+            Self::emit_stereo_projection_marker(
+                "phase=synthetic-scene-hidden status=ok visibleCameraProjectionReady=true fallbackSceneVisible=false fallbackReason=makepad_synthetic_scene_removed_for_visual_gate",
+            );
+        }
+        Self::emit_stereo_projection_marker(&format!(
+            "phase=visible-panel-bound status=ok visibleCameraProjectionReady=true eyeSelection=left-eye-texture-control sourceEyeMapping={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftRotationSteps={:.0} rightRotationSteps={:.0} sceneOwnedPanel=true projectionShaderPath=makepad-video-external-sample-video-rgb-no-guide diagnosticSolidPanel=false debugAlignmentGuide=false visualInspection=required visualReleaseAccepted=false",
+            pair.source_eye_mapping,
+            pair.left.source_index,
+            pair.right.source_index,
+            self.paired_import_left_rotation_steps,
+            self.paired_import_right_rotation_steps,
+        ));
+        true
+    }
+
+    fn complete_paired_import_if_ready(&mut self, cx: &mut Cx) {
         if self.paired_import_finished {
             return;
         }
@@ -794,15 +1137,17 @@ impl App {
             return;
         }
 
-        let Some(pair) = &self.paired_import_choice else {
+        let Some(pair) = self.paired_import_choice.clone() else {
             return;
         };
         self.paired_import_finished = true;
         let aligned_projection = pair.projection_metadata_ready;
+        let visible_projection_ready = self.bind_camera_projection_panel(cx);
         Self::emit_stereo_projection_marker(&format!(
-            "phase=complete status=ok pairedLeftRightGpuBuffers=true makepadVulkanImport=true projectionMappingReady={} alignedProjection={} projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionMode={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftRotationSteps={:.0} rightRotationSteps={:.0} projectionScale={:.2} xrRenderScale={:.2} renderPath=makepad-xr projectionShaderPath=makepad-video-external-pair-map cpuUploadCount=0 visualInspection=required visualReleaseAccepted=false fallbackReason={}",
+            "phase=complete status=ok pairedLeftRightGpuBuffers=true makepadVulkanImport=true projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionMode={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftRotationSteps={:.0} rightRotationSteps={:.0} projectionScale={:.2} xrRenderScale={:.2} renderPath=makepad-xr projectionShaderPath=makepad-video-external-eye-map-no-guide cpuUploadCount=0 debugAlignmentGuide=false visualInspection=required visualReleaseAccepted=false fallbackReason={}",
             pair.projection_metadata_ready,
             aligned_projection,
+            visible_projection_ready,
             pair.projection_metadata_ready,
             pair.pose_source,
             pair.source_eye_mapping,
@@ -824,8 +1169,9 @@ impl App {
         ));
         Self::emit_stereo_comparison_parity_marker(
             "paired-projection-ready",
-            pair,
+            &pair,
             aligned_projection,
+            visible_projection_ready,
         );
     }
 
@@ -833,10 +1179,11 @@ impl App {
         phase: &str,
         pair: &MakepadCameraPair,
         aligned_projection: bool,
+        visible_projection_ready: bool,
     ) {
         let config = Self::runtime_config();
         emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} sourceEyeMapping={} projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=true alignedProjection={} renderPath=makepad-xr projectionShaderPath=makepad-video-external-pair-map makepadForkBranch={} makepadForkCommit={} visualInspection=required visualReleaseAccepted=false",
+            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} sourceEyeMapping={} projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=true alignedProjection={} visibleCameraProjectionReady={} renderPath=makepad-xr projectionShaderPath=makepad-video-external-eye-map-no-guide makepadForkBranch={} makepadForkCommit={} debugAlignmentGuide=false visualInspection=required visualReleaseAccepted=false",
             phase,
             runtime_text(&config, KEY_RUNTIME_PROFILE),
             runtime_text(&config, KEY_COMPARISON_BASELINE),
@@ -851,6 +1198,7 @@ impl App {
             runtime_float(&config, KEY_PROJECTION_SCALE),
             runtime_float(&config, KEY_XR_RENDER_SCALE),
             aligned_projection,
+            visible_projection_ready,
             runtime_text(&config, KEY_MAKEPAD_BRANCH),
             runtime_text(&config, KEY_MAKEPAD_REVISION)
         ));

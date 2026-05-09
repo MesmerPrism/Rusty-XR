@@ -58,13 +58,35 @@ launcher / generated-XR activity gate.
 
 ## Current Slice
 
-The current slice is the visible Makepad camera-projection gate. S14 cleared the
-active-presentation blocker for the Makepad launcher path, and S15 confirmed the
-custom Rusty XR baseline is visibly rendering proper stereo camera projection
-even though the current sample is performance-degraded. The remaining Makepad
-parity blocker is to draw the paired Makepad `VideoExternal` camera textures
-into visible XR scene geometry with the same per-eye source mapping before
-treating Makepad scorecards as final parity-performance evidence:
+The current slice is S29, the no-debug-overlay visual gate after S28 proved
+that removing the extra color conversion was not by itself enough to make adb
+screen capture show camera pixels. S14 cleared the active-presentation blocker
+for the Makepad launcher path, S15 confirmed the custom Rusty XR baseline is
+visibly rendering proper stereo camera projection even though the current sample
+is performance-degraded, and S16 bound the paired Makepad `VideoExternal`
+camera textures to persistent XR scene geometry with per-eye source selection.
+S17-S20 then removed the synthetic fallback scene and proved a scene-owned
+Makepad `DrawCube` diagnostic panel is visibly rendering. S21/S22 showed that
+the custom shader and the stock native `Video` widget surface were not enough to
+show camera pixels. S23/S24 isolated the `Video` widget source assignment and
+cleanup state. S25 tested a Makepad Android cleanup-completion patch, but it
+reintroduced the app-process GPU page-fault class once the native `Video`
+widget route proceeded, so that fork patch has been reverted and the native
+widget diagnostic is disabled. S26 restored the manual `VideoExternal` route:
+after scene access was granted, the launcher path reached the generated XR
+activity, retained paired import/projection/cadence markers, stayed app-fault
+clean, and screenshot inspection showed the scene-owned cyan diagnostic panel.
+S27 turned off the solid diagnostic and sampled the imported texture path, but
+inspection still showed the cyan/guide pattern. Comparison with Makepad's stock
+`Video` shader showed one concrete issue: `sample_video()` already returns
+display color for the current external-texture path, while the Rusty XR panel
+was treating that RGB sample as YUV and converting it again. S28 changed the
+shader to use `sample_video()` color directly, but the captured image still
+showed the cyan/guide pattern. S29 then disabled the alignment guide overlay by
+default, so the forced white guide rectangles are no longer part of the visual
+gate. The remaining blocker is now the external texture visibility path in the
+custom scene-owned shader, not activity launch, XR presentation, Camera2
+acquisition, paired import, or basic scene ownership:
 
 - keep the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging` as the Android app-shell dependency
@@ -75,8 +97,9 @@ treating Makepad scorecards as final parity-performance evidence:
   activity
 - treat direct generated-XR launches as bootstrap/control smokes until a run is
   explicitly designed around that switch behavior
-- render the paired Makepad camera textures into visible XR content before
-  calling the Makepad path visually comparable to the custom projection path
+- keep the paired Makepad camera textures bound through the manual
+  `VideoExternal` import route, retain the projection markers through cadence
+  samples, and treat visual confirmation as a separate gate from marker success
 - keep environment depth optional/non-fatal in the maintained Makepad fork so a
   depth-policy failure cannot block passthrough/projection startup
 - kept the small `AHardwareBuffer` warning class visible as a separate counter
@@ -88,9 +111,26 @@ treating Makepad scorecards as final parity-performance evidence:
 The same counters remain valid for comparison runs: app-process GPU page-faults,
 fatal signatures, small hardware-buffer warnings, runtime cadence,
 camera/source progression, CPU upload count, and projection-ready flags. S15
-adds the key visual distinction: the custom path has proper visible stereo, but
-the Makepad path still needs its camera textures displayed rather than only
-imported and marked projection-ready. This slice does not add broker streaming,
+added the key visual distinction that the custom path had proper visible stereo
+while Makepad was still synthetic-only. S16 flipped the Makepad marker set to
+`pairedLeftRightGpuBuffers=true`, `alignedProjection=true`, and
+`visibleCameraProjectionReady=true`, but visual inspection reclassified it as a
+marker-only pass because the debug geometry was still visible. S17-S20 kept the
+markers true, removed the debug scene, moved the panel under an `XrNode`, and
+proved a normal Makepad draw primitive is visible from that panel position. S21
+and S22 showed that neither the earlier custom shader correction nor a stock
+`Video` widget surface was enough. S23's headset-camera permission option
+remains in the fork because it is general and did not correlate with faults.
+S25's cleanup completion patch is not retained because it correlated with
+app-process GPU page faults and premature surface-free lines in the native
+`Video` widget route. S26 restored an app-fault-clean launcher run and proved
+the scene-owned panel is visible again. S27 turned off the solid diagnostic and
+kept the run app-fault clean, but visual inspection stayed cyan/guide. S28 used
+the sampled color directly and stayed app-fault clean, but the cyan capture
+persisted. S29 removed the alignment guide overlay and kept
+`debugAlignmentGuide=false` in the markers. The next split should decide
+whether the cyan result is a capture/privacy artifact or a texture sampling /
+binding issue in the custom shader. This slice does not add broker streaming,
 private visual-effect policy, or downstream effect acceptance.
 
 Device validation now uses two log windows:
@@ -124,11 +164,17 @@ class where the custom Vulkan path is already known to work.
 ## Performance Comparison Gate
 
 A final performance comparison against the custom stereo camera projection
-baseline is not open yet. S14 opened active-presentation and cadence comparison
-again, and S15 confirmed the custom path's visible stereo output, but the
-Makepad path still shows the synthetic alignment scene while its paired camera
-textures are imported and reported projection-ready. Final parity performance
-requires visible Makepad camera projection first.
+baseline is almost open, but it must wait for visible camera pixels in the
+Makepad headset view. S14 opened active-presentation and cadence comparison
+again, S15 confirmed the custom path's visible stereo output, and S16 reports
+camera-panel readiness from paired `VideoExternal` textures. S16 headset
+inspection still showed the synthetic debug scene; S20 now shows a visible
+scene-owned diagnostic panel but not camera texture sampling. Final parity
+performance should use the first marker set that also visibly samples the
+paired camera textures, plus a headset screenshot/operator visual check. S22
+kept that gate closed: native `Video` widgets could be started inside an XR
+view, but they did not produce a confirmed prepared/update sequence for visible
+camera pixels.
 
 Earlier S6 state proved that one Makepad-owned camera hardware buffer could
 reach `VideoTextureUpdated` while still reporting
@@ -305,9 +351,61 @@ it was degraded: the live passive sample showed OpenXR around 52-53Hz against a
 zero CPU uploads, no app fatal or GPU-fault signatures, and a high compositor
 slice-tear count. Power/proximity readback stayed mounted/awake. Therefore S15
 is useful custom-baseline evidence and a Makepad active-presentation/import
-comparison, but not a final parity-performance conclusion. S16 should render
-the paired Makepad `VideoExternal` textures into visible XR geometry with
-per-eye mapping, then rerun the comparison.
+comparison, but not a final parity-performance conclusion.
+
+S16 adds a persistent Makepad XR camera panel that samples the left/right
+`VideoExternal` textures with Makepad's XR view index. The first successful
+launcher-path S16 validation retained `visibleCameraProjectionReady=true` in
+startup and liveness windows, held app/`XrUpdate`/draw cadence near 90Hz, held
+paired texture-update cadence near 50Hz, kept `cpuUploadCount=0`, and reported
+zero app-process GPU page-fault and fatal signatures. The small hardware-buffer
+warning class remained visible in the startup window. Follow-up headset
+inspection reclassified S16 as marker-level only because the visible scene was
+still the synthetic blue/red debug geometry. S17 now hides that fallback scene
+after camera binding and adds a panel draw marker so screenshot inspection can
+separate "panel not drawn" from "texture drawn but visually wrong."
+
+S17-S20 continued that visual split. Removing the fallback scene produced a
+black headset view with markers still true. A solid-color branch in the custom
+shader also stayed black. Moving the panel under a scene-owned `XrNode` kept the
+draw marker scene-owned but still stayed black. Replacing the custom shader
+output with Makepad's existing `DrawCube` path from the same widget transform
+produced a visible cyan diagnostic panel. That isolates the next blocker to the
+custom shader / video-texture draw path, not the launcher path, XR scene
+ownership, or paired texture readiness markers.
+
+S21/S22 tested both directions from that control. Inheriting the custom shader
+from `DrawCube`, first with the original deref field and then with Makepad's
+`draw_super` convention, stayed app-fault clean but also exposed a shader
+compile limitation around the attempted XR view-index helper, so it still
+produced a black headset view. Replacing the custom shader with Makepad-native
+`Video` widgets in an XR view started the native video-widget diagnostic path,
+but no confirmed prepared camera playback or paired texture-update sequence
+appeared and headset inspection remained dark. The native widget result points
+at Makepad's default camera-video path rather than scene geometry: the Rusty XR
+manual path uses the headset-camera playback permission route, while stock
+`Video` camera playback currently routes through Makepad's ordinary camera
+playback API. S23 added that permission option and proved the shader noise is
+gone, but it also showed the selected `Video` widgets were already in a
+`Playing` state by the time the diagnostic assigned the camera source. S24 added
+an explicit cleanup/retry gate before assigning the headset-camera source, which
+then exposed a Makepad Android cleanup completion gap: cleanup for a video id
+without a retained platform resource left the widget in `CleaningUp`. S25 moved
+that completion into the maintained Makepad fork and reran the visual gate. That
+split is now rejected: the native `Video` widget surface started after one
+reset, but no prepared/update sequence appeared and the old app-process GPU page
+fault plus premature surface-free class returned. The cleanup-completion fork
+patch has been reverted, and S26 disables the native widget diagnostic before
+rerunning the launcher path as a recovery control.
+
+S27-S29 returned to the manual `VideoExternal` route from that recovery state.
+S27 disabled the solid diagnostic branch, S28 switched the shader to direct
+`sample_video()` color, and S29 disabled the alignment-guide overlay. The
+launcher path stayed app-fault clean with paired prepared/update markers and
+`visibleCameraProjectionReady=true`. The direct generated-XR activity remains a
+control path: one S29 direct launch briefly opened the generated activity, then
+Horizon OS rebuilt the normal Makepad activity as a volumetric surface. The
+launcher path remains the authoritative active-XR visual gate.
 
 ## Attempt Ledger
 
@@ -329,6 +427,20 @@ per-eye mapping, then rerun the comparison.
 | S13 | Makepad presentation-flow route correction | Added `XrPermissionsFlow`; updated startup markers; release APK build; direct-XR control smoke; launcher/normal-activity smoke | Partial but decisive. Direct generated-XR launch is no longer the active-presentation route because the permission flow can switch back to the paired normal activity. The launcher path switched into the generated XR activity, reached Makepad OpenXR session creation, and started passthrough, then aborted session setup when environment-depth provider creation failed. App-process GPU page-fault and fatal counters stayed zero; the separate small hardware-buffer warning class stayed visible. | Make environment depth optional/non-fatal in the maintained Makepad fork, then rerun launcher-path validation |
 | S14 | Optional environment-depth fork patch and launcher presentation pass | Makepad fork source patch; `rustfmt --check`; `cargo check -p makepad-platform`; `cargo check -p cargo-makepad`; `cargo test -p cargo-makepad`; Rusty XR lock update; host source validation; release APK build; clean install; launcher-path 90s device sample; operator visual confirmation | Passed for active Makepad presentation. The launcher path switched into active XR, showed the synthetic stereo scene in headset, retained 18 cadence markers, and reached about 90Hz Makepad app / `XrUpdate` / draw cadence with about 50Hz paired camera texture progression. Paired/projection markers were true with `cpuUploadCount=0`; app-process GPU page-fault and fatal counters were zero. The runtime still rejected environment-depth provider creation, but the new fork fallback logged it as optional and session creation continued. The invalid `cargo test -p cargo-makepad android::tests --lib` command still fails because `cargo-makepad` has no lib target; the package test target passes. | Start a fresh S15 parity performance comparison using the S14 Makepad launcher path and the known custom Rusty XR stereo camera projection baseline, while preserving passive awake/proximity readback and the separate small hardware-buffer warning counter |
 | S15 | Active-presentation comparison and custom visual baseline correction | S14 Makepad scorecard input; custom 0.75 camera-projection rerun with Makepad force-stopped; passive live 30s custom sample; operator visual confirmation; power/proximity readback | Partial. The first custom sample was discarded because a still-running Makepad process polluted the shared log window. The clean custom 0.75 run and live passive sample confirmed proper visible custom stereo projection, `alignedProjection=true`, `pairedLeftRightGpuBuffers=true`, `cpuUploadCount=0`, and zero GPU import failures, but performance was degraded: OpenXR was about 52-53Hz against a 72Hz target, paired camera progression was about 28Hz, and compositor slice-tear counts were high. Power/proximity stayed mounted/awake. Makepad S14 remains active-presentation plus paired import/cadence evidence, but the visible Makepad scene is still synthetic rather than camera projection. | S16: draw the paired Makepad `VideoExternal` textures into visible XR geometry with per-eye source mapping, then rerun a clean Makepad-vs-custom performance comparison |
+| S16 | Visible Makepad camera projection marker gate | Persistent XR camera panel implementation; host source validation; release APK build; clean install; launcher-path startup and liveness windows; passive power readback; headset screenshot/operator inspection | Marker-level pass, visual fail. The first placement attempt exposed a widget-tree lookup error, and the second exposed a Makepad script-scope resolution error. After making the panel persistent and referencing it through `mod.widgets.MakepadStereoCameraPanel`, the launcher path retained paired import/projection readiness, emitted `visibleCameraProjectionReady=true`, kept app/`XrUpdate`/draw cadence near 90Hz and paired texture-update cadence near 50Hz, and had zero app-process GPU page-fault and fatal signatures. Follow-up visual inspection still showed the synthetic blue/red debug scene, so `visualReleaseAccepted=false` remains correct. | S17: hide or remove the fallback synthetic scene after camera binding, require a panel draw marker, and verify the visible headset image before performance comparison |
+| S17 | Remove fallback synthetic scene | Host validation, release APK build, clean install, launcher-path startup smoke, marker counts, and headset screenshot inspection | Partial. The synthetic blue/red debug scene was removed and the markers stayed true, but the headset view became black aside from runtime overlay. This proved S16's visible geometry was only the fallback scene. | Add a solid-color diagnostic branch to decide whether the camera panel geometry is visible before testing texture sampling |
+| S18 | Solid custom-shader panel diagnostic | Host validation, release APK build, clean install, launcher-path startup smoke, marker counts, and headset screenshot inspection | Partial. The custom shader reported a drawn solid diagnostic panel, but headset inspection still showed a black scene. | Move the panel under a scene-owned `XrNode` and make the draw marker require an active XR scene state |
+| S19 | Scene-owned panel routing | Host validation, release APK build, clean install, launcher-path startup smoke, marker counts, and headset screenshot inspection | Partial. The panel marker became scene-owned and remained fault-clean, but the custom shader still produced no visible pixels. | Replace the custom shader output with Makepad's known-good `DrawCube` primitive from the same widget transform |
+| S20 | Makepad `DrawCube` panel positive control | Host validation, release APK build, clean install, launcher-path startup smoke, marker counts, and headset screenshot inspection | Passed for visible scene-owned panel geometry. A cyan diagnostic panel rendered visibly from the same camera-panel widget transform while paired/projection/cadence markers stayed true and app-process GPU page-fault/fatal counters stayed zero. | S21: fix or replace the custom video-texture shader path, using the visible `DrawCube` panel as the geometry/control baseline |
+| S21 | Inherited custom video shader | Host validation, release APK build, clean install, launcher-path startup smoke, marker counts, and headset screenshot inspection | Partial. Both the inherited `DrawCube` shader variant and the `draw_super` convention variant stayed app-fault clean but still produced a black headset view; device logs also showed the attempted XR view-index shader helper was not available in that path. This keeps S20 as the positive scene/transform control and points away from activity/presentation as the cause. | Replace the custom shader route with a Makepad-native video-widget surface, or patch the general Makepad video draw path |
+| S22 | Native Makepad `Video` widget surface | Host validation, release APK build, clean install, launcher-path startup smoke, marker counts, and headset screenshot inspection | Partial. The XR view started left/right Makepad `Video` widgets and stayed app-fault clean, but headset inspection remained dark and no confirmed prepared camera playback / paired texture-update sequence appeared. The diagnostic suggests the stock `Video` camera path is not using the headset-camera playback route needed for Quest raw camera sources. | S23: add a small Makepad-side headset-camera permission option for `Video` camera playback, then rerun the launcher visual gate |
+| S23 | `Video` headset-camera permission option | Makepad fork patch and push; Rusty XR lock update; host validation; release APK build; clean install; launcher startup/liveness windows; screenshot inspection | Partial but useful. The Makepad `Video` widget now has a general headset-camera permission option and the Rusty XR example consumed the pushed fork revision. Device validation stayed app-fault clean, active XR cadence stayed near 90Hz, and the previous custom-shader compile noise was gone. However the native `Video` widgets were already `Playing` before the camera source was assigned, so `set_camera_permission` / `set_source_camera` were rejected and no prepared/update sequence appeared. Screenshot inspection remained dark. | S24: reset/cleanup the native `Video` widgets before assigning headset-camera sources, then rerun the visual gate |
+| S24 | Native `Video` widget reset before source assignment | Source validation, release APK build, clean install, launcher startup/liveness windows, and screenshot inspection | Partial. The reset/retry gate fired and stayed app-fault clean, but the widgets remained in `CleaningUp` because the Android platform cleanup path did not emit `VideoPlaybackResourcesReleased` when no retained platform player or surface existed for that video id. No native video-widget surface start, prepared event, or texture update appeared; screenshot inspection remained dark. | S25: patch the maintained Makepad fork so Android video cleanup completes even without a retained platform resource, then rerun the native widget visual gate |
+| S25 | Android video cleanup-completion experiment | Makepad fork patch and push; Rusty XR lock update; host validation; release APK build; clean install; launcher startup/liveness windows; log and screenshot inspection | Rejected. The native `Video` widget surface started after one reset, but no `VideoPlaybackPrepared` or `VideoTextureUpdated` sequence appeared. The old Quest app-process GPU page-fault class returned with premature surface-free lines tied to the app process. The headset view stayed dark. | Revert the cleanup-completion fork patch, disable the native `Video` widget diagnostic, and rerun the launcher path as an app-fault recovery control |
+| S26 | Recovery to manual `VideoExternal` import path | Fork revert, Rusty XR lock update, diagnostic disable, host validation, APK rebuild, clean install, launcher smoke, scene-permission grant, liveness window, and screenshot inspection | Passed as a recovery control. With scene access granted, the launcher path focused the generated XR activity, the native `Video` widget diagnostic stayed disabled, paired import/projection markers completed, cadence returned to active-XR rates, app-process GPU page-fault and fatal counters stayed zero, and headset screenshot inspection showed the visible cyan diagnostic panel. | S27: disable the panel's solid diagnostic mode and sample the paired `VideoExternal` camera textures directly |
+| S27 | Live `VideoExternal` texture sampling | Source toggle, host validation, APK rebuild, clean install, launcher smoke, liveness window, and screenshot inspection | Partial. The run stayed active-XR and app-fault clean with paired prepared/update markers retained, but headset inspection still showed the cyan/guide panel. Makepad's stock `Video` shader showed the likely cause: the panel double-converted `sample_video()` output as YUV even though the external-texture path already returns display color. | S28: use `sample_video()` color directly, then rerun the launcher visual gate |
+| S28 | Direct `sample_video()` color path | Source patch, host validation, APK rebuild, launcher smoke, and screenshot inspection | Partial. The panel now samples `sample_video()` color directly instead of applying a YUV conversion to the returned sample, and the run stayed app-fault clean with paired prepared/update markers. Screenshot inspection still showed the cyan/guide pattern, so double-conversion was not the only visual blocker. | S29: disable the alignment guide overlay and mark the no-guide shader path explicitly |
+| S29 | No-debug-overlay visual gate | Source patch, host validation, APK rebuild, in-place install, direct generated-XR control smoke, launcher-path smoke, marker/fault counters, and screenshot inspection | Partial. The forced alignment guide is now disabled by default and markers report `debugAlignmentGuide=false`. The direct generated-XR launch split again into a non-authoritative volumetric/normal-activity state, while the launcher path reached the generated XR activity, retained paired prepared/update and visible-panel markers, and had zero app-process GPU page-fault and fatal counters. Screenshot inspection no longer shows the white guide rectangles but still shows the cyan external-texture placeholder/capture result. | Isolate whether the cyan result is an adb capture limitation/protected camera-content artifact or a custom-shader texture sampling/binding issue; keep no-debug-overlay as the default visual gate |
 
 ## Validation Rule
 
