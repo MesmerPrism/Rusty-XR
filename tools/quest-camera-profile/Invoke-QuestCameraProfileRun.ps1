@@ -22,6 +22,7 @@ param(
     [int]$ProximityHoldDurationMs = 600000,
     [switch]$CaptureHzdbScreencap,
     [switch]$CaptureMetacam,
+    [switch]$FailOnPowerStateDrift,
     [int]$LogcatLines = 12000,
     [string]$Validator = ""
 )
@@ -259,6 +260,93 @@ function Capture-PowerSnapshot {
     Save-AdbTextCapture -Arguments @("shell", "dumpsys", "vrpowermanager") -OutputPath (Join-Path $Dir "$Prefix-vrpowermanager.txt")
 }
 
+function Read-TextCaptureValue {
+    param(
+        [string]$Path,
+        [string]$Pattern
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $options = [System.Text.RegularExpressions.RegexOptions]::Multiline
+    $match = [regex]::Match($text, $Pattern, $options)
+    if ($match.Success) {
+        return $match.Groups[1].Value.Trim()
+    }
+    return $null
+}
+
+function Test-TextCapturePattern {
+    param(
+        [string]$Path,
+        [string]$Pattern
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $options = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Multiline
+    return [regex]::IsMatch($text, $Pattern, $options)
+}
+
+function Get-PowerSnapshotState {
+    param(
+        [string]$Dir,
+        [string]$Prefix
+    )
+
+    $vrPath = Join-Path $Dir "$Prefix-vrpowermanager.txt"
+    $powerPath = Join-Path $Dir "$Prefix-power.txt"
+
+    return [ordered]@{
+        prefix = $Prefix
+        virtualProximityState = Read-TextCaptureValue -Path $vrPath -Pattern '^Virtual proximity state:\s*(.+)$'
+        headsetState = Read-TextCaptureValue -Path $vrPath -Pattern '^State:\s*(.+)$'
+        autoSleepTimeMs = Read-TextCaptureValue -Path $vrPath -Pattern '^AutoSleepTime:\s*([-\d]+)\s*ms'
+        wakefulness = Read-TextCaptureValue -Path $powerPath -Pattern '^\s*mWakefulness=(.+)$'
+        sleepTimeoutMs = Read-TextCaptureValue -Path $powerPath -Pattern '^Sleep timeout:\s*([-\d]+)\s*ms'
+        hasStandbyHistory = Test-TextCapturePattern -Path $vrPath -Pattern 'transition from .* to STANDBY|Calling goToSleep'
+    }
+}
+
+function New-PowerStateSummary {
+    param(
+        [string]$Dir,
+        [string]$BaselinePrefix,
+        [string]$FinalPrefix
+    )
+
+    $baseline = Get-PowerSnapshotState -Dir $Dir -Prefix $BaselinePrefix
+    $final = Get-PowerSnapshotState -Dir $Dir -Prefix $FinalPrefix
+    $issues = [System.Collections.Generic.List[string]]::new()
+
+    if ($baseline.virtualProximityState -and $final.virtualProximityState -and $baseline.virtualProximityState -ne $final.virtualProximityState) {
+        $issues.Add("virtual proximity changed from $($baseline.virtualProximityState) to $($final.virtualProximityState)")
+    }
+    if ($final.wakefulness -and $final.wakefulness -ne "Awake") {
+        $issues.Add("final wakefulness is $($final.wakefulness)")
+    }
+    if ($final.headsetState -and $final.headsetState -match 'STANDBY|UNMOUNTED|WAITING') {
+        $issues.Add("final headset state is $($final.headsetState)")
+    }
+
+    $summary = [ordered]@{
+        schemaVersion = "rusty.xr.quest-camera-profile-power-state.v1"
+        status = if ($issues.Count -gt 0) { "warning" } else { "ok" }
+        baseline = $baseline
+        final = $final
+        issues = @($issues)
+    }
+
+    $summary | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $Dir "power-state-summary.json") -Encoding UTF8
+    return $summary
+}
+
 function Invoke-ProximityHold {
     param(
         [string]$Dir,
@@ -465,6 +553,13 @@ Save-AdbTextCapture -Arguments $launchArgs.ToArray() -OutputPath (Join-Path $dir
 Start-Sleep -Seconds $WarmupSeconds
 $label = $RuntimeProfile
 Capture-Artifacts -Dir $dir -Label $label -Package $packageName
+$powerStateSummary = New-PowerStateSummary -Dir $dir -BaselinePrefix "post-proximity-hold" -FinalPrefix $label
+if ($powerStateSummary.status -ne "ok") {
+    Write-Warning "Power/proximity state drift detected; see $dir\power-state-summary.json."
+    if ($FailOnPowerStateDrift) {
+        throw "Power/proximity state drift detected."
+    }
+}
 
 $manifest = [ordered]@{
     schemaVersion = "rusty.xr.quest-camera-profile-run.v1"
@@ -484,9 +579,11 @@ $manifest = [ordered]@{
     proximityHoldDurationMs = if ($SkipProximityHold) { 0 } else { $ProximityHoldDurationMs }
     captureHzdbScreencap = [bool]$CaptureHzdbScreencap
     captureMetacam = [bool]$CaptureMetacam
+    failOnPowerStateDrift = [bool]$FailOnPowerStateDrift
     overrides = $Override
     values = $values
     artifactDir = $dir
+    powerState = $powerStateSummary
     validations = @(Get-ChildItem -LiteralPath $dir -Filter "*-validation.json" -ErrorAction SilentlyContinue | ForEach-Object {
         try {
             Get-Content -Raw -LiteralPath $_.FullName | ConvertFrom-Json

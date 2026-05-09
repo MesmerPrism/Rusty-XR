@@ -189,6 +189,11 @@ adb action separately from app-level marker results.
 If the operator has already set a keep-awake hold, comparison harnesses should
 prefer passive readback and skip their own timed proximity hold to avoid
 competing state transitions.
+The public camera-profile harness now writes `power-state-summary.json` after
+each run, comparing the post-proximity-hold snapshot to the final capture. By
+default this is a warning so existing smoke workflows keep producing artifacts;
+unattended comparison jobs can opt into a hard stop with
+`-FailOnPowerStateDrift`.
 
 ## Open Questions
 
