@@ -227,6 +227,39 @@ projection parity:
   can stay in the regular/preflight activity with `XrUpdate=0` while app-level
   camera and marker code still runs.
 
+## S68 Run-Log Review Notes
+
+A post-S68 review of the long device-run transcript found several items that
+must stay explicit before S69/S70:
+
+- S51 fixed horizontal image mirroring by changing the single-stream diagnostic
+  sample to a vertical-only UV flip. The S68 defect is different: the left and
+  right camera sources are swapped between eyes. S69 should swap the source-eye
+  selection first, not reintroduce horizontal UV mirroring.
+- S58 reclassified the earlier swapped-U/V color candidate as color-regressed.
+  Keep S59's no-swap limited-BT.601 CPU-YUV shader path as the Makepad color
+  control until a new device run proves a better candidate.
+- S60/S61/S62 fixed per-eye texture selection, paired-stream waiting, and the
+  Makepad environment-camera competition. Preserve those fixes while changing
+  S69 source selection and S70 alignment.
+- The visible S62 world-space target was recovered from ignored device
+  artifacts rather than from a standalone committed source revision. Future
+  visible gates should be committed and pushed before extended iteration, so
+  they can be restored without artifact archaeology.
+- A Makepad launch stuck in loading/preflight, or showing `XrUpdate=0`, is a
+  failed launch even if app-level marker strings are present. Native compositor
+  passthrough filling the display is not proof that the app-owned panel is
+  visible.
+- Use multi-frame screenshot freshness checks for every visual gate. A single
+  screenshot is not enough to distinguish live camera content from stale or
+  loading imagery.
+- Keep CPU/GPU level, proximity/awake state, small hardware-buffer warnings,
+  app-process GPU-fault counters, and fatal-signal counters as separate
+  run-quality fields. Do not change proximity or performance levels during a
+  comparison unless that is the variable under test.
+- When more than one Android device is connected, all Quest commands must carry
+  the selected Quest serial explicitly.
+
 ## Android Toolchain Path Policy
 
 The custom Rusty XR APK scripts and the Makepad APK lane intentionally remain
@@ -241,12 +274,27 @@ separate build routes:
 - Makepad comparison builds use `cargo makepad android` with a Makepad Android
   SDK path. This is the preferred route for testing Makepad Android lifecycle,
   generated activities, and fork changes because it exercises the same
-  packager Makepad downstream apps will use.
+  packager Makepad downstream apps will use. Build this example from
+  `examples/makepad-q2q-camera-shell` and pass Makepad Android options before
+  the `build`/`run` subcommand with `--key=value` syntax.
 - Keep both routes while they answer different questions. Collapse them only if
   the Makepad route can also build the custom Rusty XR profiles without losing
   the explicit OpenXR/Vulkan diagnostics, or if the custom scripts can exercise
   Makepad's generated Android surface without bypassing the behavior under
   test.
+
+Makepad workflow guardrails from the S68 transcript review:
+
+- A failed Makepad build can leave an older APK in place. Delete or timestamp
+  the expected APK path before building, then record the fresh APK hash.
+- Because APK compression can hide marker strings from plain text search,
+  extract `lib/arm64-v8a/libmakepad.so` before checking diagnostic strings.
+- Clean generated Makepad `target/` outputs before public pushes and public
+  boundary scans. Generated APKs, wrapper output, and local compiler metadata
+  are not source artifacts.
+- Commit and push Makepad fork changes first, then update this Rusty XR
+  example's lockfile/revision. Avoid relying on local-only fork edits during
+  Quest device gates.
 
 The same counters remain valid for comparison runs: app-process GPU page-faults,
 fatal signatures, small hardware-buffer warnings, runtime cadence,

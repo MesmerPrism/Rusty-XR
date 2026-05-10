@@ -75,6 +75,26 @@ with its Makepad SDK path. That route answers a different question: whether the
 Makepad packager, generated Android activities, lifecycle, and renderer surface
 match the custom Rusty XR path on Quest.
 
+For the public Makepad comparison example, run the Makepad build from
+`examples/makepad-q2q-camera-shell` and pass Android options before the
+`build`/`run` subcommand. The tested command shape is:
+
+```powershell
+cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" build -p rusty-xr-makepad-q2q-camera-shell --release
+```
+
+For run/install:
+
+```powershell
+cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" run -p rusty-xr-makepad-q2q-camera-shell --release
+```
+
+Before using a Makepad APK as evidence, remove or timestamp the expected output
+path, record the fresh APK hash, and extract `lib/arm64-v8a/libmakepad.so` for
+diagnostic string checks. Direct text search against the APK can miss compressed
+native-library strings. Remove generated Makepad `target/` output before public
+pushes and public boundary scans.
+
 ## Recommended Shell Shape
 
 Use one reusable Rust Android/OpenXR app shell per product family. The shell

@@ -84,14 +84,20 @@ cargo makepad android --abi=aarch64 --sdk-path <local-makepad-android-sdk> insta
 Build the Quest APK from this example directory:
 
 ```powershell
-cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path <local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" build -p rusty-xr-makepad-q2q-camera-shell --release
+cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" build -p rusty-xr-makepad-q2q-camera-shell --release
 ```
 
 Run on a selected Quest device:
 
 ```powershell
-cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path <local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" run -p rusty-xr-makepad-q2q-camera-shell --release
+cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" run -p rusty-xr-makepad-q2q-camera-shell --release
 ```
+
+Keep the Makepad options before `build` or `run` and use `--key=value` for
+paths and package/app values. Before treating an APK as fresh evidence, remove
+or timestamp the expected output, record the rebuilt APK hash, and extract
+`lib/arm64-v8a/libmakepad.so` for diagnostic string checks. Delete generated
+`target/` output before public pushes and public boundary scans.
 
 For unattended camera validation after install, pregrant the declared runtime
 camera permissions before the measurement window:
@@ -176,6 +182,11 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   panel alignment is not yet good enough for the intended stereo effect. The
   next gates fix source-eye mapping first, then tune alignment against the
   custom Rusty XR target notes before performance comparison.
+- Run-log review after S68 found one important distinction for the next fix:
+  S51 already solved horizontal image mirroring with a vertical-only UV flip.
+  The S68 issue is source-eye mapping, so S69 should swap the selected
+  left/right camera texture sets or active-eye selection without changing the
+  accepted no-swap limited-BT.601 color path.
 - On Windows, the tested Makepad revision required local `cargo-makepad`
   packaging fixes for generated wrapper paths and dependent Rust shared-library
   bundling.

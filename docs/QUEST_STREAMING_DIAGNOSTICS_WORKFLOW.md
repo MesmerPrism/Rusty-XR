@@ -48,6 +48,33 @@ The sanitized parity target map for this projected path is tracked in
 Use that note when comparing the public accepted profile against downstream
 custom stereo camera evidence or depth-alignment work.
 
+## Makepad Device-Gate Guardrails
+
+For the Makepad comparison lane, keep launch, freshness, and artifact hygiene
+strict enough that a run cannot be mistaken for a different APK or a native
+passthrough/loading state:
+
+- Build from `examples/makepad-q2q-camera-shell`, pass Makepad Android options
+  before `build`/`run`, and use `--key=value` syntax for option values.
+- Remove or timestamp the expected APK output before a build, then record the
+  fresh APK hash. A failed build can leave an older APK in place.
+- Extract `lib/arm64-v8a/libmakepad.so` when checking diagnostic strings,
+  because APK compression can make direct string search unreliable.
+- After clean installs, pregrant ordinary runtime camera and scene permissions
+  where Android allows it. Treat MediaProjection as a separate consent flow.
+- A loading/preflight screen or `XrUpdate=0` is a failed launch, not a
+  passthrough-off success. Native compositor passthrough filling the headset is
+  not evidence that the app-owned Makepad panel is visible.
+- Use explicit Quest serials whenever more than one Android device is attached.
+- Capture a short multi-frame screenshot sequence and record unique hashes for
+  visual gates. Byte-identical frames must be annotated before using the
+  capture as live-camera evidence.
+- Keep proximity/awake state and CPU/GPU levels passive unless that setting is
+  the variable under test. Performance comparisons are not comparable if power
+  levels or proximity state change mid-run.
+- Keep small hardware-buffer warnings visible as their own counter instead of
+  merging them with app-process GPU page-faults or fatal signatures.
+
 ## Render Scale Semantics
 
 `rustyxr.xrRenderScale` is a linear OpenXR render-target scale. A profile at
