@@ -43,6 +43,11 @@ empty synthetic compositor path is not the expensive path in the measured
 matrix. The expensive path is the projected per-eye camera render path that is
 shared by direct Camera2 and broker live projected streaming.
 
+The sanitized parity target map for this projected path is tracked in
+[CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).
+Use that note when comparing the public accepted profile against downstream
+custom stereo camera evidence or depth-alignment work.
+
 ## Render Scale Semantics
 
 `rustyxr.xrRenderScale` is a linear OpenXR render-target scale. A profile at
@@ -105,7 +110,18 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
   -RuntimeProfile camera-stereo-gpu-composite-performance-065 `
   -WarmupSeconds 35 `
   -CaptureHzdbScreencap
+
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
+  -Serial <serial> `
+  -RuntimeProfile camera-stereo-gpu-composite-fast075 `
+  -WarmupSeconds 35 `
+  -CaptureHzdbScreencap
 ```
+
+Use `camera-stereo-gpu-composite-fast075` when comparing the direct in-app
+Camera2 projection renderer against the Q2Q fast profile. It keeps direct
+Camera2 stereo capture and projection metadata, but selects the same fast public
+raw-projection shader.
 
 ### Broker Live Projected Stream
 
@@ -113,6 +129,11 @@ Use the live broker H.264 profiles to test broker-owned Camera2 capture,
 Android platform encoder output, device-local binary H.264 transport,
 MediaCodec decode into `ImageReader` `PRIVATE` buffers, native stereo handoff,
 and the same projected OpenXR draw path.
+
+The Quest custom stereo profiles pin Camera2 IDs `50` and `51` for the outside
+front camera pair. Override `rustyxr.brokerH264LeftCameraId` and
+`rustyxr.brokerH264RightCameraId` only when validating a different device
+profile or camera topology.
 
 Start the broker APK first, then launch the composite profile:
 
@@ -128,7 +149,17 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
   -Serial <serial> `
   -RuntimeProfile broker-h264-stereo-live-openxr-projection-scale065-probe `
   -WarmupSeconds 35
+
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
+  -Serial <serial> `
+  -RuntimeProfile broker-h264-stereo-live-openxr-projection-fast075-probe `
+  -WarmupSeconds 35
 ```
+
+Use the `fast075` profile as the renderer-parity run. It keeps the same broker
+capture ID pair, MediaCodec decode, and GPU-import path; uses square
+`1280x1280` broker frames and frame-order live stereo pairing; and swaps the
+projection draw to the fast public raw-projection shader at render scale `0.75`.
 
 For longer timing windows, override capture and packet limits in the launch:
 
@@ -210,3 +241,5 @@ The next public implementation slice is deeper projected draw attribution:
 separate projection shader cost, border/perimeter work, descriptor/import
 reuse, command recording, and submit behavior from the already-measured
 transport, decode, image-acquire, `HardwareBuffer`, and native bridge stages.
+Keep that attribution tied to the acceptance gate in
+[CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).

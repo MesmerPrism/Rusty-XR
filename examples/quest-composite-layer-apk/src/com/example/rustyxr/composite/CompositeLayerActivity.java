@@ -2,18 +2,29 @@ package com.example.rustyxr.composite;
 
 import android.Manifest;
 import android.app.NativeActivity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.ImageFormat;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.projection.MediaProjectionManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.util.Size;
+import android.view.Surface;
 import android.view.Window;
 import android.view.WindowManager;
 import org.json.JSONObject;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public final class CompositeLayerActivity extends NativeActivity {
     private static final String TAG = "RustyXrComposite";
@@ -96,6 +107,8 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final int DEFAULT_BROKER_PORT = 8765;
     private static final int DEFAULT_BROKER_H264_STREAM_PORT = 8879;
     private static final int DEFAULT_BROKER_H264_RIGHT_STREAM_PORT = 8880;
+    private static final String DEFAULT_BROKER_H264_LEFT_CAMERA_ID = "50";
+    private static final String DEFAULT_BROKER_H264_RIGHT_CAMERA_ID = "51";
     private static final int DEFAULT_BROKER_H264_WIDTH = 720;
     private static final int DEFAULT_BROKER_H264_HEIGHT = 480;
     private static final int DEFAULT_BROKER_H264_CAPTURE_MS = 900;
@@ -108,6 +121,8 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final String DEFAULT_BROKER_H264_SOURCE_MODE = "broker-camera";
     private static final boolean DEFAULT_BROKER_H264_LIVE_DECODE = true;
     private static final boolean DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE = false;
+    private static final String DEFAULT_BROKER_H264_STEREO_PAIRING_MODE = "timestamp-nearest";
+    private static final int DEFAULT_BROKER_H264_LIVE_PAIR_QUEUE_LIMIT = 8;
 
     private MediaProjectionManager mediaProjectionManager;
     private BrokerH264ConsumerProbe brokerH264ConsumerProbe;
@@ -639,16 +654,42 @@ public final class CompositeLayerActivity extends NativeActivity {
             return;
         }
 
+        boolean brokerStereo = booleanExtra("rustyxr.brokerH264Stereo", false);
+        String brokerCameraId = stringExtra("rustyxr.brokerH264CameraId", "");
+        String brokerLeftCameraId = stringExtra(
+            "rustyxr.brokerH264LeftCameraId",
+            brokerStereo ? DEFAULT_BROKER_H264_LEFT_CAMERA_ID : brokerCameraId);
+        String brokerRightCameraId = stringExtra(
+            "rustyxr.brokerH264RightCameraId",
+            brokerStereo ? DEFAULT_BROKER_H264_RIGHT_CAMERA_ID : "");
+        if (brokerStereo && shouldAutoSelectBrokerH264StereoCameraIds(brokerLeftCameraId, brokerRightCameraId)) {
+            BrokerH264StereoCameraIds autoIds =
+                chooseBrokerH264StereoCameraIds(brokerLeftCameraId, brokerRightCameraId);
+            if (autoIds != null) {
+                if (brokerLeftCameraId.length() == 0 || brokerLeftCameraId.equals(brokerRightCameraId)) {
+                    brokerLeftCameraId = autoIds.leftCameraId;
+                }
+                if (brokerRightCameraId.length() == 0 || brokerRightCameraId.equals(brokerLeftCameraId)) {
+                    brokerRightCameraId = autoIds.rightCameraId;
+                }
+                Log.i(TAG, "Broker H.264 stereo Camera2 ids left=" + brokerLeftCameraId +
+                    " right=" + brokerRightCameraId +
+                    " reason=" + autoIds.reason);
+                sendNativeEvent("brokerH264StereoCameraIdsSelected");
+            } else {
+                Log.w(TAG, "Broker H.264 stereo Camera2 auto-selection found no distinct concurrent pair");
+                sendNativeEvent("brokerH264StereoCameraIdsUnavailable");
+            }
+        }
+
         BrokerH264ConsumerProbe.Config config = new BrokerH264ConsumerProbe.Config(
             stringExtra("rustyxr.brokerHost", DEFAULT_BROKER_HOST),
             Math.max(1, intExtra("rustyxr.brokerPort", DEFAULT_BROKER_PORT)),
             Math.max(1, intExtra("rustyxr.brokerH264StreamPort", DEFAULT_BROKER_H264_STREAM_PORT)),
             Math.max(1, intExtra("rustyxr.brokerH264RightStreamPort", DEFAULT_BROKER_H264_RIGHT_STREAM_PORT)),
-            stringExtra("rustyxr.brokerH264CameraId", ""),
-            stringExtra(
-                "rustyxr.brokerH264LeftCameraId",
-                stringExtra("rustyxr.brokerH264CameraId", "")),
-            stringExtra("rustyxr.brokerH264RightCameraId", ""),
+            brokerCameraId,
+            brokerLeftCameraId,
+            brokerRightCameraId,
             Math.max(16, intExtra("rustyxr.brokerH264Width", DEFAULT_BROKER_H264_WIDTH)),
             Math.max(16, intExtra("rustyxr.brokerH264Height", DEFAULT_BROKER_H264_HEIGHT)),
             Math.max(100, intExtra("rustyxr.brokerH264CaptureMs", DEFAULT_BROKER_H264_CAPTURE_MS)),
@@ -658,11 +699,15 @@ public final class CompositeLayerActivity extends NativeActivity {
             Math.max(1000, intExtra("rustyxr.brokerH264StreamTimeoutMs", DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS)),
             Math.max(1000, intExtra("rustyxr.brokerH264DecodeTimeoutMs", DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS)),
             stringExtra("rustyxr.brokerH264DecodeOutputMode", DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE),
-            booleanExtra("rustyxr.brokerH264Stereo", false),
+            brokerStereo,
             booleanExtra("rustyxr.brokerH264LiveStream", false),
             stringExtra("rustyxr.brokerH264SourceMode", DEFAULT_BROKER_H264_SOURCE_MODE),
             booleanExtra("rustyxr.brokerH264LiveDecode", DEFAULT_BROKER_H264_LIVE_DECODE),
-            booleanExtra("rustyxr.brokerH264ByteIdentityProbe", DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE));
+            booleanExtra("rustyxr.brokerH264ByteIdentityProbe", DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE),
+            stringExtra("rustyxr.brokerH264StereoPairingMode", DEFAULT_BROKER_H264_STEREO_PAIRING_MODE),
+            Math.max(2, intExtra(
+                "rustyxr.brokerH264LivePairQueueLimit",
+                DEFAULT_BROKER_H264_LIVE_PAIR_QUEUE_LIMIT)));
         Log.i(TAG, "Starting broker H.264 consumer probe");
         sendNativeEvent("brokerH264ConsumerStarting");
         brokerH264ConsumerProbe = BrokerH264ConsumerProbe.start(
@@ -679,6 +724,249 @@ public final class CompositeLayerActivity extends NativeActivity {
                     brokerH264ConsumerProbe = null;
                 }
             });
+    }
+
+    private boolean shouldAutoSelectBrokerH264StereoCameraIds(String leftCameraId, String rightCameraId) {
+        if (!booleanExtra("rustyxr.brokerH264AutoStereoCameraIds", true)) {
+            return false;
+        }
+        return leftCameraId == null ||
+            rightCameraId == null ||
+            leftCameraId.length() == 0 ||
+            rightCameraId.length() == 0 ||
+            leftCameraId.equals(rightCameraId);
+    }
+
+    private BrokerH264StereoCameraIds chooseBrokerH264StereoCameraIds(
+        String requestedLeftCameraId,
+        String requestedRightCameraId) {
+        CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+        if (manager == null) {
+            return null;
+        }
+        try {
+            List<Set<String>> concurrentSets = brokerH264ConcurrentCameraSets(manager);
+            List<BrokerH264CameraCandidate> candidates = new ArrayList<BrokerH264CameraCandidate>();
+            String[] cameraIds = manager.getCameraIdList();
+            for (int i = 0; i < cameraIds.length; i++) {
+                BrokerH264CameraCandidate candidate = brokerH264CameraCandidate(manager, cameraIds[i]);
+                if (candidate != null && candidate.hasPrivateOutput) {
+                    candidates.add(candidate);
+                }
+            }
+
+            BrokerH264StereoCameraIds best = null;
+            long bestScore = Long.MIN_VALUE;
+            for (int leftIndex = 0; leftIndex < candidates.size(); leftIndex++) {
+                for (int rightIndex = leftIndex + 1; rightIndex < candidates.size(); rightIndex++) {
+                    BrokerH264CameraCandidate first = candidates.get(leftIndex);
+                    BrokerH264CameraCandidate second = candidates.get(rightIndex);
+                    if (!concurrentSets.isEmpty() &&
+                            !brokerH264CanRunConcurrently(concurrentSets, first.cameraId, second.cameraId)) {
+                        continue;
+                    }
+
+                    BrokerH264CameraCandidate left = first;
+                    BrokerH264CameraCandidate right = second;
+                    if (requestedLeftCameraId != null && requestedLeftCameraId.length() > 0) {
+                        if (requestedLeftCameraId.equals(second.cameraId)) {
+                            left = second;
+                            right = first;
+                        } else if (!requestedLeftCameraId.equals(first.cameraId)) {
+                            continue;
+                        }
+                    }
+                    if (requestedRightCameraId != null && requestedRightCameraId.length() > 0) {
+                        if (requestedRightCameraId.equals(left.cameraId)) {
+                            BrokerH264CameraCandidate swap = left;
+                            left = right;
+                            right = swap;
+                        }
+                        if (!requestedRightCameraId.equals(right.cameraId)) {
+                            continue;
+                        }
+                    }
+                    if (left.cameraId.equals(right.cameraId)) {
+                        continue;
+                    }
+
+                    long score = brokerH264StereoScore(left, right);
+                    if (!concurrentSets.isEmpty()) {
+                        score += 100_000_000_000_000L;
+                    }
+                    if (score > bestScore) {
+                        bestScore = score;
+                        String reason = (!concurrentSets.isEmpty() ? "selected concurrent Camera2 pair " : "selected distinct Camera2 pair ") +
+                            left.cameraId + "/" + right.cameraId;
+                        best = new BrokerH264StereoCameraIds(left.cameraId, right.cameraId, reason);
+                    }
+                }
+            }
+            return best;
+        } catch (CameraAccessException error) {
+            Log.w(TAG, "Could not auto-select broker H.264 stereo Camera2 ids", error);
+            return null;
+        } catch (SecurityException error) {
+            Log.w(TAG, "Camera permission blocked broker H.264 stereo Camera2 id auto-selection", error);
+            return null;
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Broker H.264 stereo Camera2 id auto-selection failed", error);
+            return null;
+        }
+    }
+
+    private static List<Set<String>> brokerH264ConcurrentCameraSets(CameraManager manager)
+        throws CameraAccessException {
+        List<Set<String>> sets = new ArrayList<Set<String>>();
+        if (Build.VERSION.SDK_INT < 30) {
+            return sets;
+        }
+        Set<Set<String>> exposed = manager.getConcurrentCameraIds();
+        if (exposed == null) {
+            return sets;
+        }
+        for (Set<String> set : exposed) {
+            if (set != null && set.size() >= 2) {
+                sets.add(new HashSet<String>(set));
+            }
+        }
+        return sets;
+    }
+
+    private static boolean brokerH264CanRunConcurrently(List<Set<String>> sets, String left, String right) {
+        for (int i = 0; i < sets.size(); i++) {
+            Set<String> set = sets.get(i);
+            if (set.contains(left) && set.contains(right)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static BrokerH264CameraCandidate brokerH264CameraCandidate(CameraManager manager, String cameraId)
+        throws CameraAccessException {
+        CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+        StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        if (map == null) {
+            return null;
+        }
+        Size bestSize = brokerH264BestOutputSize(map);
+        if (bestSize == null) {
+            return null;
+        }
+        Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+        boolean hasPose =
+            characteristics.get(CameraCharacteristics.LENS_POSE_TRANSLATION) != null &&
+            characteristics.get(CameraCharacteristics.LENS_POSE_ROTATION) != null;
+        boolean hasIntrinsics =
+            characteristics.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION) != null;
+        return new BrokerH264CameraCandidate(
+            cameraId,
+            bestSize.getWidth(),
+            bestSize.getHeight(),
+            brokerH264LensFacingRank(facing),
+            hasPose,
+            hasIntrinsics);
+    }
+
+    private static Size brokerH264BestOutputSize(StreamConfigurationMap map) {
+        Size best = brokerH264BestOutputSize(map.getOutputSizes(ImageFormat.PRIVATE), null);
+        if (best != null) {
+            return best;
+        }
+        try {
+            return brokerH264BestOutputSize(map.getOutputSizes(Surface.class), null);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private static Size brokerH264BestOutputSize(Size[] sizes, Size fallback) {
+        Size best = fallback;
+        long bestArea = fallback != null ? (long) fallback.getWidth() * (long) fallback.getHeight() : -1L;
+        if (sizes == null) {
+            return best;
+        }
+        for (int i = 0; i < sizes.length; i++) {
+            Size size = sizes[i];
+            long area = (long) size.getWidth() * (long) size.getHeight();
+            if (area > bestArea) {
+                best = size;
+                bestArea = area;
+            }
+        }
+        return best;
+    }
+
+    private static int brokerH264LensFacingRank(Integer facing) {
+        if (facing == null) {
+            return 0;
+        }
+        if (facing.intValue() == CameraCharacteristics.LENS_FACING_BACK) {
+            return 3;
+        }
+        if (facing.intValue() == CameraCharacteristics.LENS_FACING_EXTERNAL) {
+            return 2;
+        }
+        if (facing.intValue() == CameraCharacteristics.LENS_FACING_FRONT) {
+            return 1;
+        }
+        return 0;
+    }
+
+    private static long brokerH264StereoScore(BrokerH264CameraCandidate left, BrokerH264CameraCandidate right) {
+        long score = 0L;
+        score += (long) (left.lensFacingRank + right.lensFacingRank) * 1_000_000_000_000L;
+        score += (long) left.width * (long) left.height;
+        score += (long) right.width * (long) right.height;
+        if (left.width == right.width && left.height == right.height) {
+            score += 50_000_000_000L;
+        }
+        if (left.hasPose && right.hasPose) {
+            score += 20_000_000_000L;
+        }
+        if (left.hasIntrinsics && right.hasIntrinsics) {
+            score += 20_000_000_000L;
+        }
+        return score;
+    }
+
+    private static final class BrokerH264StereoCameraIds {
+        final String leftCameraId;
+        final String rightCameraId;
+        final String reason;
+
+        BrokerH264StereoCameraIds(String leftCameraId, String rightCameraId, String reason) {
+            this.leftCameraId = leftCameraId;
+            this.rightCameraId = rightCameraId;
+            this.reason = reason;
+        }
+    }
+
+    private static final class BrokerH264CameraCandidate {
+        final String cameraId;
+        final int width;
+        final int height;
+        final int lensFacingRank;
+        final boolean hasPose;
+        final boolean hasIntrinsics;
+        final boolean hasPrivateOutput;
+
+        BrokerH264CameraCandidate(
+            String cameraId,
+            int width,
+            int height,
+            int lensFacingRank,
+            boolean hasPose,
+            boolean hasIntrinsics) {
+            this.cameraId = cameraId;
+            this.width = width;
+            this.height = height;
+            this.lensFacingRank = lensFacingRank;
+            this.hasPose = hasPose;
+            this.hasIntrinsics = hasIntrinsics;
+            this.hasPrivateOutput = width > 0 && height > 0;
+        }
     }
 
     private void stopBrokerH264ConsumerProbe() {

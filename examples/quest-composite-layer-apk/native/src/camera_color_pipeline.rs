@@ -162,6 +162,13 @@ impl CameraProjectionEffectMode {
             }
         }
     }
+
+    pub(crate) const fn uses_fast_projection_pipeline(self) -> bool {
+        match self {
+            Self::RawProjectionFast => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

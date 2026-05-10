@@ -180,7 +180,17 @@ def schemas() -> dict[str, dict]:
     )
     broker_transport_kind = enum(
         "BrokerTransportKind",
-        ["WebSocket", "Tcp", "Udp", "AdbForwardedTcp", "MetadataOnly"],
+        [
+            "WebSocket",
+            "Tcp",
+            "Udp",
+            "AdbForwardedTcp",
+            "Quic",
+            "WebTransport",
+            "WebRtcDiagnostic",
+            "ExternalSidecar",
+            "MetadataOnly",
+        ],
     )
     broker_reliability_class = enum(
         "BrokerReliabilityClass",
@@ -189,6 +199,41 @@ def schemas() -> dict[str, dict]:
     broker_payload_kind = enum(
         "BrokerPayloadKind",
         ["Json", "Text", "Binary", "H264", "H265", "RawLuma8", "Custom"],
+    )
+    broker_stream_kind = enum(
+        "BrokerStreamKind",
+        ["Media", "Audio", "Telemetry", "Control", "XrInput", "Bio", "Synthetic", "Custom"],
+    )
+    broker_codec_id = enum(
+        "BrokerCodecId",
+        ["H264", "H265", "Av1", "RawLuma8", "RawRgba8", "Opus", "PcmF32", "Json", "Custom"],
+    )
+    broker_stream_direction = enum(
+        "BrokerStreamDirection",
+        ["ProducerToConsumer", "ConsumerToProducer", "Bidirectional", "MetadataOnly"],
+    )
+    broker_security_mode = enum(
+        "BrokerSecurityMode",
+        ["LoopbackOnly", "PairingToken", "PreSharedKey", "ExternalSidecarOwned"],
+    )
+    broker_transport_session_state = enum(
+        "BrokerTransportSessionState",
+        ["Created", "Offered", "Accepted", "Starting", "Streaming", "Draining", "Closed", "Failed"],
+    )
+    broker_packet_drop_reason = enum(
+        "BrokerPacketDropReason",
+        [
+            "LatePacket",
+            "DecodeTimeout",
+            "MissingKeyframe",
+            "SurfaceUnavailable",
+            "HardwareBufferImportFailed",
+            "ProjectionMetadataMissing",
+            "XrFrameBudgetExceeded",
+            "QueueOverflow",
+            "ClientShutdown",
+            "Unknown",
+        ],
     )
     broker_drop_counters = obj(
         "BrokerDropCounters",
@@ -212,6 +257,106 @@ def schemas() -> dict[str, dict]:
             "channel_id": nullable_string(),
             "max_datagram_bytes": {"type": ["integer", "null"], "minimum": 1, "maximum": 65507},
             "auth_required": boolean(),
+        },
+    )
+    broker_transport_security_policy = obj(
+        "BrokerTransportSecurityPolicy",
+        {
+            "schema": string(),
+            "mode": broker_security_mode,
+            "non_loopback_allowed": boolean(),
+            "pairing_token_required": boolean(),
+            "expires_elapsed_ns": {"type": ["integer", "null"], "minimum": 0},
+            "capability_scope": array(string()),
+        },
+    )
+    broker_transport_stream_descriptor = obj(
+        "BrokerTransportStreamDescriptor",
+        {
+            "stream_id": string(),
+            "stream_kind": broker_stream_kind,
+            "direction": broker_stream_direction,
+            "payload_kind": broker_payload_kind,
+            "payload_schema": string(),
+            "codec": {"oneOf": [broker_codec_id, {"type": "null"}]},
+            "reliability": broker_reliability_class,
+            "ordered": boolean(),
+            "nominal_rate_hz": {"type": ["number", "null"], "exclusiveMinimum": 0},
+            "target_latency_ms": {"type": ["number", "null"], "minimum": 0},
+            "max_payload_bytes": {"type": ["integer", "null"], "minimum": 1},
+        },
+    )
+    broker_transport_session_offer = obj(
+        "BrokerTransportSessionOffer",
+        {
+            "schema": string(),
+            "session_id": string(),
+            "client_id": string(),
+            "requested_transports": array(broker_transport_kind),
+            "streams": array(broker_transport_stream_descriptor),
+            "security": broker_transport_security_policy,
+            "target_latency_ms": {"type": ["number", "null"], "minimum": 0},
+        },
+    )
+    broker_transport_session_answer = obj(
+        "BrokerTransportSessionAnswer",
+        {
+            "schema": string(),
+            "session_id": string(),
+            "accepted": boolean(),
+            "state": broker_transport_session_state,
+            "selected_transport": {"oneOf": [broker_transport_kind, {"type": "null"}]},
+            "accepted_streams": array(broker_transport_stream_descriptor),
+            "security": broker_transport_security_policy,
+            "reason": nullable_string(),
+        },
+    )
+    broker_media_sample_timing = obj(
+        "BrokerMediaSampleTiming",
+        {
+            "schema": string(),
+            "session_id": string(),
+            "stream_id": string(),
+            "sequence_number": integer(0),
+            "source_capture_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "encode_start_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "encode_done_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "packet_send_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "packet_receive_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "decode_start_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "decode_done_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "texture_import_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "xr_submit_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "present_estimate_time_ns": {"type": ["integer", "null"], "minimum": 0},
+        },
+    )
+    broker_network_quality_sample = obj(
+        "BrokerNetworkQualitySample",
+        {
+            "schema": string(),
+            "session_id": string(),
+            "stream_id": nullable_string(),
+            "measured_time_elapsed_ns": integer(0),
+            "packet_loss_estimate01": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+            "late_packet_count": integer(0),
+            "decode_gap_count": integer(0),
+            "jitter_buffer_depth": integer(0),
+            "target_latency_ms": {"type": ["number", "null"], "minimum": 0},
+            "actual_latency_ms": {"type": ["number", "null"], "minimum": 0},
+            "clock_sync_quality01": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        },
+    )
+    broker_packet_descriptor = obj(
+        "BrokerPacketDescriptor",
+        {
+            "schema": string(),
+            "session_id": string(),
+            "stream_id": string(),
+            "sequence_number": integer(0),
+            "payload_kind": broker_payload_kind,
+            "payload_byte_len": integer(1),
+            "key_frame": boolean(),
+            "drop_reason": {"oneOf": [broker_packet_drop_reason, {"type": "null"}]},
         },
     )
     broker_heartbeat = obj(
@@ -578,6 +723,12 @@ def schemas() -> dict[str, dict]:
         ),
         "broker-stream-manifest.schema.json": broker_stream_manifest,
         "broker-stream-sample-header.schema.json": broker_sample_header,
+        "broker-transport-security-policy.schema.json": broker_transport_security_policy,
+        "broker-transport-session-offer.schema.json": broker_transport_session_offer,
+        "broker-transport-session-answer.schema.json": broker_transport_session_answer,
+        "broker-media-sample-timing.schema.json": broker_media_sample_timing,
+        "broker-network-quality-sample.schema.json": broker_network_quality_sample,
+        "broker-packet-descriptor.schema.json": broker_packet_descriptor,
         "broker-session-manifest.schema.json": obj(
             "BrokerSessionManifest",
             {

@@ -7,7 +7,9 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 final class BrokerState {
@@ -35,6 +37,7 @@ final class BrokerState {
     private final CameraProjectionProviderState cameraProjectionProvider = new CameraProjectionProviderState();
     private final ShellHelperState shellHelper = new ShellHelperState();
     private final VideoLabState videoLab = new VideoLabState();
+    private final TransportSessionRegistry transportSessions = new TransportSessionRegistry();
     private final BreathAssessmentState breathAssessment = new BreathAssessmentState();
     private JSONObject polarPmdStatus = defaultPolarPmdStatus();
 
@@ -58,6 +61,7 @@ final class BrokerState {
         status.put("polarPmd", polarPmdStatusJson());
         status.put("breathAssessment", breathAssessment.toStatusJson());
         status.put("videoLab", videoLabStatusJson());
+        status.put("transportSessions", transportSessions.statusJson());
 
         JSONObject commands = new JSONObject();
         commands.put("schema", "rusty.xr.broker.command.v1");
@@ -95,7 +99,13 @@ final class BrokerState {
         supportedCommands.put("camera_provider.record_visual_acceptance");
         supportedCommands.put("shell_helper.get_status");
         supportedCommands.put("shell_helper.report_status");
+        supportedCommands.put("transport.describe_capabilities");
+        supportedCommands.put("transport.create_session");
+        supportedCommands.put("transport.get_session");
+        supportedCommands.put("transport.list_sessions");
+        supportedCommands.put("transport.close_session");
         supportedCommands.put("video_lab.get_status");
+        supportedCommands.put("video_lab.get_scorecard");
         supportedCommands.put("video_lab.register_encoded_stream_manifest");
         supportedCommands.put("video_lab.record_encoded_sample_metadata");
         supportedCommands.put("video_lab.record_metric_sample");
@@ -168,9 +178,13 @@ final class BrokerState {
         capabilities.put("broker.h264_tcp_proxy_probe.v1");
         capabilities.put("broker.lan_control.opt_in.v1");
         capabilities.put("shell_helper.status.v1");
+        capabilities.put("broker.transport.session_control.v1");
+        capabilities.put("broker.transport.security_policy.v1");
+        capabilities.put("broker.transport.metrics.v1");
         capabilities.put("video_lab.metrics.v1");
         capabilities.put("video_lab.encoded_stream_manifest.v1");
         capabilities.put("video_lab.encoded_sample_metadata.v1");
+        capabilities.put("video_lab.scorecard.v1");
         capabilities.put("latency.sample.accept");
         capabilities.put("logcat.diagnostics");
         if (publisher != null && publisher.isLslAvailable()) {
@@ -205,6 +219,9 @@ final class BrokerState {
         streams.put(streamJson("camera_provider.projection_profile", "camera", "Projection profile changes for XR clients that render their own layers.", true));
         streams.put(streamJson("camera_provider.visual_acceptance", "camera", "Operator visual-acceptance markers for projection profiles.", true));
         streams.put(streamJson("shell_helper.status", "shell_helper", "ADB-launched shell-helper status when a helper is connected.", shellHelper.isConnected()));
+        streams.put(streamJson("transport.session_created", "transport", "Transport session creation events.", transportSessions.createdCount() > 0));
+        streams.put(streamJson("transport.session_closed", "transport", "Transport session close events.", transportSessions.closedCount() > 0));
+        streams.put(streamJson("transport.session_failed", "transport", "Transport session failure events.", transportSessions.failedCount() > 0));
         streams.put(streamJson("video_lab.metric_sample", "video", "Video texture latency lab metric samples.", videoLabMetricSamples.get() > 0));
         streams.put(streamJson(
             "video_lab.encoded_stream_manifest",
@@ -278,6 +295,33 @@ final class BrokerState {
             videoLabMetricSamples.get(),
             videoLabEncodedStreamManifests.get(),
             videoLabEncodedSampleMetadata.get());
+    }
+
+    JSONObject videoLabScorecardJson() throws Exception {
+        return videoLab.toScorecardJson(
+            videoLabMetricSamples.get(),
+            videoLabEncodedStreamManifests.get(),
+            videoLabEncodedSampleMetadata.get());
+    }
+
+    JSONObject transportCapabilitiesJson() throws Exception {
+        return transportSessions.capabilitiesJson();
+    }
+
+    JSONObject createTransportSession(JSONObject params, String clientId) throws Exception {
+        return transportSessions.createSession(params, clientId);
+    }
+
+    JSONObject getTransportSession(String sessionId) throws Exception {
+        return transportSessions.getSession(sessionId);
+    }
+
+    JSONObject listTransportSessions() throws Exception {
+        return transportSessions.listSessions();
+    }
+
+    JSONObject closeTransportSession(String sessionId, String reason) throws Exception {
+        return transportSessions.closeSession(sessionId, reason);
     }
 
     JSONObject breathAssessmentStatusJson() throws Exception {
@@ -1094,6 +1138,157 @@ final class BrokerState {
             return status;
         }
 
+        synchronized JSONObject toScorecardJson(
+            long acceptedMetricSamples,
+            long acceptedEncodedStreamManifests,
+            long acceptedEncodedSampleMetadata) throws Exception {
+            boolean hasManifest = latestEncodedStreamManifest.length() > 0;
+            boolean hasMetric = latestMetricSample.length() > 0;
+            String manifestSessionId = latestEncodedStreamManifest.optString("session_id", "");
+            String metricSessionId = latestMetricSample.optString("session_id", "");
+            boolean metricMatchesManifest = hasManifest && hasMetric && metricSessionId.equals(manifestSessionId);
+            String payloadTransport = hasManifest
+                ? latestEncodedStreamManifest.optString("payload_transport", "")
+                : latestMetricSample.optString("payload_transport", "");
+            boolean hasPayloadTransport = payloadTransport.length() > 0 && !"metadata_only".equals(payloadTransport);
+            boolean hasLastError = latestMetricSample.optString("last_error", "").length() > 0;
+            long packetCount = latestMetricSample.optLong("packet_count", 0L);
+            long payloadBytes = latestMetricSample.optLong("payload_size_bytes", 0L);
+            boolean payloadTransportReady = hasPayloadTransport && hasMetric && !hasLastError &&
+                packetCount > 0L && payloadBytes > 0L && (!hasManifest || metricMatchesManifest);
+            boolean nativeDecodeVerified = payloadTransportReady &&
+                "broker_app_camera2_mediacodec_decode_probe".equals(latestMetricSample.optString("source", "")) &&
+                latestMetricSample.optBoolean("decode_succeeded", false) &&
+                latestMetricSample.optLong("decoded_frame_count", 0L) > 0L;
+            boolean binaryProxyVerified = payloadTransportReady &&
+                "broker_peer_tcp_binary_proxy".equals(payloadTransport) &&
+                "broker_peer_h264_tcp_proxy".equals(latestMetricSample.optString("source", ""));
+
+            JSONObject scorecard = new JSONObject();
+            scorecard.put("schema", "rusty.xr.video_lab.scorecard.v1");
+            scorecard.put("state", !hasManifest && !hasMetric
+                ? "empty"
+                : hasLastError
+                ? "failed"
+                : (nativeDecodeVerified || binaryProxyVerified || payloadTransportReady)
+                ? "passed"
+                : "pending");
+            scorecard.put("session_id", metricSessionId.length() > 0 ? metricSessionId : manifestSessionId);
+            scorecard.put("stream_id", latestMetricSample.optString(
+                "stream_id",
+                latestEncodedStreamManifest.optString("stream_id", "")));
+            scorecard.put("source", latestMetricSample.optString(
+                "source",
+                latestEncodedStreamManifest.optString("source", "")));
+            scorecard.put("codec", latestMetricSample.optString(
+                "codec",
+                latestEncodedStreamManifest.optString("codec", "")));
+            scorecard.put("payload_transport", payloadTransport);
+            scorecard.put("transport", latestMetricSample.optString(
+                "transport",
+                latestEncodedStreamManifest.optString("transport", "")));
+            scorecard.put("width", latestMetricSample.optInt(
+                "width",
+                latestEncodedStreamManifest.optInt("width", 0)));
+            scorecard.put("height", latestMetricSample.optInt(
+                "height",
+                latestEncodedStreamManifest.optInt("height", 0)));
+            scorecard.put("accepted_metric_samples", acceptedMetricSamples);
+            scorecard.put("accepted_encoded_stream_manifests", acceptedEncodedStreamManifests);
+            scorecard.put("accepted_encoded_sample_metadata", acceptedEncodedSampleMetadata);
+            scorecard.put("packet_count", packetCount);
+            scorecard.put("video_packet_count", latestMetricSample.optLong("video_packet_count", 0L));
+            scorecard.put("codec_config_packet_count", latestMetricSample.optLong("codec_config_packet_count", 0L));
+            scorecard.put("payload_size_bytes", payloadBytes);
+            scorecard.put("wire_size_bytes", latestMetricSample.optLong("wire_size_bytes", 0L));
+            scorecard.put("dropped_frames", latestMetricSample.optLong("dropped_frames", 0L));
+            scorecard.put("stale_frames", latestMetricSample.optLong("stale_frames", 0L));
+            scorecard.put("queue_depth", latestMetricSample.optLong("queue_depth", 0L));
+            scorecard.put("writer_backpressure_isolated", latestMetricSample.optBoolean(
+                "writer_backpressure_isolated",
+                latestEncodedStreamManifest.optBoolean("writer_backpressure_isolated", false)));
+            scorecard.put("writer_packet_count", latestMetricSample.optLong("writer_packet_count", 0L));
+            scorecard.put("writer_queue_capacity", latestMetricSample.optLong("writer_queue_capacity", 0L));
+            scorecard.put("writer_queue_enqueued_packets", latestMetricSample.optLong("writer_queue_enqueued_packets", 0L));
+            scorecard.put("writer_queue_max_depth", latestMetricSample.optLong("writer_queue_max_depth", 0L));
+            scorecard.put("writer_queue_final_depth", latestMetricSample.optLong("writer_queue_final_depth", 0L));
+            scorecard.put("writer_queue_dropped_packets", latestMetricSample.optLong("writer_queue_dropped_packets", 0L));
+            scorecard.put("writer_queue_dropped_video_packets", latestMetricSample.optLong("writer_queue_dropped_video_packets", 0L));
+            scorecard.put("writer_queue_dropped_non_keyframe_packets", latestMetricSample.optLong("writer_queue_dropped_non_keyframe_packets", 0L));
+            scorecard.put("writer_queue_dropped_keyframe_packets", latestMetricSample.optLong("writer_queue_dropped_keyframe_packets", 0L));
+            scorecard.put("writer_queue_dropped_codec_config_packets", latestMetricSample.optLong("writer_queue_dropped_codec_config_packets", 0L));
+            scorecard.put("writer_queue_dropped_incoming_packets", latestMetricSample.optLong("writer_queue_dropped_incoming_packets", 0L));
+            scorecard.put("decode_succeeded", latestMetricSample.optBoolean("decode_succeeded", false));
+            scorecard.put("decoded_frame_count", latestMetricSample.optLong("decoded_frame_count", 0L));
+            scorecard.put("camera_encode_duration_ns", latestMetricSample.optLong("camera_encode_duration_ns", 0L));
+            scorecard.put("decoder_duration_ns", latestMetricSample.optLong("decoder_duration_ns", 0L));
+            scorecard.put("decoder_low_latency_feature_supported", latestMetricSample.optBoolean(
+                "decoder_low_latency_feature_supported",
+                latestEncodedStreamManifest.optBoolean("decoder_low_latency_feature_supported", false)));
+            scorecard.put("decoder_low_latency_parameter_succeeded", latestMetricSample.optBoolean(
+                "decoder_low_latency_parameter_succeeded",
+                latestEncodedStreamManifest.optBoolean("decoder_low_latency_parameter_succeeded", false)));
+            scorecard.put("proxy_forward_duration_ns", latestMetricSample.optLong("proxy_forward_duration_ns", 0L));
+            scorecard.put("encoder_name", latestMetricSample.optString(
+                "encoder_name",
+                latestEncodedStreamManifest.optString("encoder_name", "")));
+            scorecard.put("encoder_hardware_accelerated", latestMetricSample.optBoolean(
+                "encoder_hardware_accelerated",
+                latestEncodedStreamManifest.optBoolean("encoder_hardware_accelerated", false)));
+            scorecard.put("bitrate_mode_requested", latestMetricSample.optString(
+                "bitrate_mode_requested",
+                latestEncodedStreamManifest.optString("bitrate_mode_requested", "")));
+            scorecard.put("bitrate_mode_applied", latestMetricSample.optString(
+                "bitrate_mode_applied",
+                latestEncodedStreamManifest.optString("bitrate_mode_applied", "")));
+            scorecard.put("csd_sps_bytes", latestMetricSample.optLong(
+                "csd_sps_bytes",
+                latestEncodedStreamManifest.optLong("csd_sps_bytes", 0L)));
+            scorecard.put("csd_pps_bytes", latestMetricSample.optLong(
+                "csd_pps_bytes",
+                latestEncodedStreamManifest.optLong("csd_pps_bytes", 0L)));
+            scorecard.put("sync_frame_request_on_start_succeeded", latestMetricSample.optBoolean(
+                "sync_frame_request_on_start_succeeded",
+                latestEncodedStreamManifest.optBoolean("sync_frame_request_on_start_succeeded", false)));
+            scorecard.put("sensor_timestamp_source", latestMetricSample.optString(
+                "sensor_timestamp_source",
+                latestEncodedStreamManifest.optString("sensor_timestamp_source", "")));
+            scorecard.put("camera_capture_started_count", latestMetricSample.optLong(
+                "camera_capture_started_count",
+                latestEncodedStreamManifest.optLong("camera_capture_started_count", 0L)));
+            scorecard.put("camera_first_frame_number", latestMetricSample.optLong(
+                "camera_first_frame_number",
+                latestEncodedStreamManifest.optLong("camera_first_frame_number", -1L)));
+            scorecard.put("camera_last_frame_number", latestMetricSample.optLong(
+                "camera_last_frame_number",
+                latestEncodedStreamManifest.optLong("camera_last_frame_number", -1L)));
+            if (hasLastError) {
+                scorecard.put("last_error", latestMetricSample.optString("last_error", ""));
+            }
+
+            JSONObject evidence = new JSONObject();
+            evidence.put("has_manifest", hasManifest);
+            evidence.put("has_metric", hasMetric);
+            evidence.put("metric_matches_manifest", metricMatchesManifest);
+            evidence.put("payload_transport_ready", payloadTransportReady);
+            evidence.put("native_decode_verified", nativeDecodeVerified);
+            evidence.put("binary_proxy_verified", binaryProxyVerified);
+            scorecard.put("evidence", evidence);
+
+            JSONArray limitations = new JSONArray();
+            limitations.put("latest_sample_only");
+            limitations.put("no_high_rate_payload_over_json_websocket");
+            if (nativeDecodeVerified) {
+                limitations.put("decode_probe_outputs_byte_buffers_not_xr_textures");
+            }
+            if (binaryProxyVerified) {
+                limitations.put("proxy_probe_uses_bounded_synthetic_payloads");
+            }
+            limitations.put("xr_layer_submit_client_owned");
+            scorecard.put("limitations", limitations);
+            return scorecard;
+        }
+
         synchronized JSONObject registerEncodedStreamManifest(
             JSONObject params,
             long revision,
@@ -1192,6 +1387,212 @@ final class BrokerState {
         synchronized JSONObject recordMetricSample(JSONObject params) throws Exception {
             latestMetricSample = new JSONObject(params.toString());
             return new JSONObject(latestMetricSample.toString());
+        }
+    }
+
+    private static final class TransportSessionRegistry {
+        private final Map<String, JSONObject> sessions = new LinkedHashMap<>();
+        private long created;
+        private long closed;
+        private long failed;
+
+        synchronized long createdCount() {
+            return created;
+        }
+
+        synchronized long closedCount() {
+            return closed;
+        }
+
+        synchronized long failedCount() {
+            return failed;
+        }
+
+        synchronized JSONObject capabilitiesJson() throws Exception {
+            JSONObject capabilities = new JSONObject();
+            capabilities.put("schema", "rusty.xr.broker.transport_capabilities.v1");
+            capabilities.put("control_schema", "rusty.xr.broker.transport_session_offer.v1");
+            capabilities.put("answer_schema", "rusty.xr.broker.transport_session_answer.v1");
+            capabilities.put("security_schema", "rusty.xr.broker.transport_security_policy.v1");
+
+            JSONArray transports = new JSONArray();
+            transports.put("WebSocket");
+            transports.put("Tcp");
+            transports.put("AdbForwardedTcp");
+            transports.put("MetadataOnly");
+            capabilities.put("supported_transports", transports);
+
+            JSONArray streamKinds = new JSONArray();
+            streamKinds.put("Media");
+            streamKinds.put("Telemetry");
+            streamKinds.put("Control");
+            streamKinds.put("XrInput");
+            streamKinds.put("Bio");
+            streamKinds.put("Synthetic");
+            capabilities.put("stream_kinds", streamKinds);
+
+            JSONArray securityModes = new JSONArray();
+            securityModes.put("LoopbackOnly");
+            securityModes.put("PairingToken");
+            capabilities.put("security_modes", securityModes);
+
+            JSONArray limitations = new JSONArray();
+            limitations.put("in_memory_registry");
+            limitations.put("loopback_only_default");
+            limitations.put("no_binary_payload_change");
+            limitations.put("client_owned_decode_texture_import_and_xr_submit");
+            capabilities.put("limitations", limitations);
+            return capabilities;
+        }
+
+        synchronized JSONObject statusJson() throws Exception {
+            JSONObject status = new JSONObject();
+            status.put("schema", "rusty.xr.broker.transport_session_registry.v1");
+            status.put("active_count", activeCount());
+            status.put("created_count", created);
+            status.put("closed_count", closed);
+            status.put("failed_count", failed);
+            status.put("sessions", sessionsArray());
+            return status;
+        }
+
+        synchronized JSONObject listSessions() throws Exception {
+            JSONObject result = new JSONObject();
+            result.put("schema", "rusty.xr.broker.transport_session_list.v1");
+            result.put("sessions", sessionsArray());
+            result.put("active_count", activeCount());
+            return result;
+        }
+
+        synchronized JSONObject getSession(String sessionId) throws Exception {
+            JSONObject session = sessions.get(sessionId);
+            if (session == null) {
+                JSONObject result = new JSONObject();
+                result.put("found", false);
+                result.put("session_id", sessionId != null ? sessionId : "");
+                return result;
+            }
+
+            JSONObject result = new JSONObject();
+            result.put("found", true);
+            result.put("session", new JSONObject(session.toString()));
+            return result;
+        }
+
+        synchronized JSONObject createSession(JSONObject params, String clientId) throws Exception {
+            JSONObject offer = params != null ? new JSONObject(params.toString()) : new JSONObject();
+            String sessionId = offer.optString("session_id", "");
+            if (sessionId.trim().length() == 0) {
+                sessionId = "transport-session-" + SystemClock.elapsedRealtimeNanos();
+            }
+            JSONArray streams = offer.optJSONArray("streams");
+            if (streams == null || streams.length() == 0) {
+                streams = new JSONArray();
+                streams.put(defaultSyntheticStream());
+            }
+
+            JSONObject security = normalizeSecurity(offer.optJSONObject("security"));
+            JSONObject session = new JSONObject();
+            session.put("schema", "rusty.xr.broker.transport_session_answer.v1");
+            session.put("session_id", sessionId);
+            session.put("client_id", clientId != null ? clientId : "");
+            session.put("accepted", true);
+            session.put("state", "Accepted");
+            session.put("selected_transport", selectTransport(offer.optJSONArray("requested_transports")));
+            session.put("accepted_streams", new JSONArray(streams.toString()));
+            session.put("security", security);
+            session.put("created_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+            session.put("last_heartbeat_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+            session.put("reason", JSONObject.NULL);
+            sessions.put(sessionId, session);
+            created++;
+            return new JSONObject(session.toString());
+        }
+
+        synchronized JSONObject closeSession(String sessionId, String reason) throws Exception {
+            JSONObject session = sessions.get(sessionId);
+            if (session == null) {
+                failed++;
+                JSONObject result = new JSONObject();
+                result.put("found", false);
+                result.put("session_id", sessionId != null ? sessionId : "");
+                result.put("state", "Failed");
+                result.put("reason", "unknown_session");
+                return result;
+            }
+
+            session.put("state", "Closed");
+            session.put("closed_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+            session.put("reason", reason != null && reason.trim().length() > 0 ? reason.trim() : "closed_by_command");
+            closed++;
+            return new JSONObject(session.toString());
+        }
+
+        private int activeCount() {
+            int count = 0;
+            for (JSONObject session : sessions.values()) {
+                String state = session.optString("state", "");
+                if (!"Closed".equals(state) && !"Failed".equals(state)) {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        private JSONArray sessionsArray() throws Exception {
+            JSONArray array = new JSONArray();
+            for (JSONObject session : sessions.values()) {
+                array.put(new JSONObject(session.toString()));
+            }
+            return array;
+        }
+
+        private JSONObject defaultSyntheticStream() throws Exception {
+            JSONObject stream = new JSONObject();
+            stream.put("stream_id", "synthetic:wave");
+            stream.put("stream_kind", "Synthetic");
+            stream.put("direction", "ProducerToConsumer");
+            stream.put("payload_kind", "Json");
+            stream.put("payload_schema", "rusty.xr.synthetic.wave.v1");
+            stream.put("codec", "Json");
+            stream.put("reliability", "LossTolerant");
+            stream.put("ordered", false);
+            stream.put("nominal_rate_hz", 90.0);
+            stream.put("target_latency_ms", 30.0);
+            stream.put("max_payload_bytes", 4096);
+            return stream;
+        }
+
+        private JSONObject normalizeSecurity(JSONObject requested) throws Exception {
+            JSONObject security = requested != null ? new JSONObject(requested.toString()) : new JSONObject();
+            String mode = security.optString("mode", "LoopbackOnly");
+            security.put("schema", "rusty.xr.broker.transport_security_policy.v1");
+            security.put("mode", mode);
+            boolean nonLoopback = !"LoopbackOnly".equals(mode) && security.optBoolean("non_loopback_allowed", true);
+            security.put("non_loopback_allowed", nonLoopback);
+            security.put("pairing_token_required", "PairingToken".equals(mode));
+            if (!security.has("expires_elapsed_ns")) {
+                security.put("expires_elapsed_ns", JSONObject.NULL);
+            }
+            if (!security.has("capability_scope")) {
+                security.put("capability_scope", new JSONArray());
+            }
+            return security;
+        }
+
+        private String selectTransport(JSONArray requested) {
+            if (requested != null) {
+                for (int i = 0; i < requested.length(); i++) {
+                    String value = requested.optString(i, "");
+                    if ("AdbForwardedTcp".equals(value) ||
+                        "Tcp".equals(value) ||
+                        "WebSocket".equals(value) ||
+                        "MetadataOnly".equals(value)) {
+                        return value;
+                    }
+                }
+            }
+            return "AdbForwardedTcp";
         }
     }
 }

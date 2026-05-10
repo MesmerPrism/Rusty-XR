@@ -78,6 +78,14 @@ available, payload schema, reliability class, ordered/unordered behavior,
 maximum datagram bytes, drop counters, late packet counters, heartbeat state,
 and any required auth/session token.
 
+The current public H.264 diagnostics apply the same split to app-visible
+preview media: JSON/WebSocket commands negotiate the stream, while encoded
+Camera2/MediaCodec payloads travel through a binary lane with codec
+configuration, keyframe state, source timestamps, queue/drop counters, and
+decode/import timing reported back as telemetry. That shape is the part relevant
+to research-toolbox collaboration; renderer-specific stereo projection,
+headset-local camera selection, and downstream visual effects stay app-owned.
+
 ## Example Stream Manifest
 
 ```json

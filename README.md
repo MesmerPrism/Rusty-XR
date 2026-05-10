@@ -81,6 +81,9 @@ reference.
 Current camera color and cadence work is tracked as explicit runtime profiles
 and reusable headset-run tools:
 [docs/QUEST_CAMERA_PROFILE_WORKFLOW.md](docs/QUEST_CAMERA_PROFILE_WORKFLOW.md).
+The public parity workplan for moving the accepted custom stereo Camera2
+projection path from visible/correct to smooth with GPU headroom is tracked in
+[docs/CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](docs/CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).
 The first broker APK proof-of-concept is a separate Quest sidecar service with
 localhost status/WebSocket endpoints, optional LSL forwarding, OSC latency
 egress, runtime-configurable OSC-to-WebSocket drive events, generic published
@@ -216,6 +219,9 @@ Quest streaming and camera-composite cost isolation, including direct in-app
 Camera2 versus broker H.264 projected paths, render-scale interpretation, and
 the reusable streaming scorecard tooling, is documented in
 [docs/QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md](docs/QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md).
+The current custom stereo projection parity target and depth-alignment impact
+plan is documented in
+[docs/CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](docs/CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).
 An agent-facing onboarding note for a Mac-based collaborator with multiple
 Quest headsets is available at
 [docs/QUEST_Q2Q_AGENT_ONBOARDING.md](docs/QUEST_Q2Q_AGENT_ONBOARDING.md).

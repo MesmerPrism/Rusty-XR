@@ -103,12 +103,30 @@ Relevant profiles:
   `rustyxr.xrRenderScale=0.75`.
 - `camera-stereo-gpu-composite-performance-065`: same direct projected path at
   `rustyxr.xrRenderScale=0.65`.
+- `camera-stereo-gpu-composite-fast075`: direct in-app Camera2 projected stereo
+  at `rustyxr.xrRenderScale=0.75` using the fast public raw-projection shader.
+- `camera-stereo-gpu-composite-fast065`: same direct fast shader path at
+  `rustyxr.xrRenderScale=0.65` for fragment-load headroom checks.
 - `broker-h264-stereo-live-openxr-projection-probe`: broker live stereo
   H.264, live decode, hardware-buffer handoff, and projected OpenXR draw.
 - `broker-h264-stereo-live-openxr-projection-scale065-probe`: same broker live
   projected path at render scale `0.65`.
+- `broker-h264-stereo-live-openxr-projection-fast075-probe`: broker live
+  projected path at render scale `0.75`, square `1280x1280` broker frames, and
+  frame-order live stereo pairing using the fast public raw-projection
+  renderer. Use this as the Q2Q renderer-parity profile before reintroducing
+  the accepted soft-border visual path. It is accepted for stereo
+  orientation/alignment; motion-induced stream-latency artifacts are tracked
+  separately.
+- `broker-h264-stereo-live-openxr-projection-fast065-probe`: same fast
+  renderer path at render scale `0.65` for fragment-load headroom checks.
 - `broker-h264-stereo-openxr-projection-probe`: retained/bounded stereo broker
   H.264 path for regression comparisons.
+
+For the Quest custom stereo broker profiles, use Camera2 IDs `50` and `51` for
+the outside front camera pair. The catalog pins those IDs by default; override
+`rustyxr.brokerH264LeftCameraId` and `rustyxr.brokerH264RightCameraId` only for
+a different headset camera topology.
 
 Use the broker catalog:
 
@@ -165,10 +183,17 @@ Before attempting two headsets, prove the examples on one headset.
    projected camera path reports `activeTier=gpu-projected`,
    `alignedProjection=true`, `stereoLayout=Separate`, zero CPU uploads, and
    nonzero OpenXR frame logs.
-6. Start the broker APK, then launch
+6. Launch `camera-stereo-gpu-composite-fast075` when comparing the direct
+   in-app renderer against the Q2Q fast profile. It keeps direct Camera2
+   capture and stereo mapping, but selects the same fast projection shader.
+7. Start the broker APK, then launch
    `broker-h264-stereo-live-openxr-projection-scale065-probe` and confirm
    nonzero source packets, wire packets, decoded frames, native accepted stereo
    pairs, and final projected status.
+8. Launch `broker-h264-stereo-live-openxr-projection-fast075-probe` before
+   declaring a renderer regression. It keeps square broker capture, frame-order
+   live stereo pairing, decode, and GPU import behavior fixed while selecting
+   the fast public projection shader.
 
 Use `adb -s <serial>` for every command when more than one headset is attached.
 Keep each run's artifacts in a separate ignored folder.

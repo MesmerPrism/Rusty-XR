@@ -481,11 +481,38 @@ final class LocalBrokerServer implements Closeable {
             return reportShellHelperStatus(requestId, command, message.optJSONObject("params"));
         }
 
+        if ("transport.describe_capabilities".equals(command)) {
+            return describeTransportCapabilities(requestId, command);
+        }
+
+        if ("transport.create_session".equals(command)) {
+            return createTransportSession(connection, requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("transport.get_session".equals(command)) {
+            return getTransportSession(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("transport.list_sessions".equals(command)) {
+            return listTransportSessions(requestId, command);
+        }
+
+        if ("transport.close_session".equals(command)) {
+            return closeTransportSession(requestId, command, message.optJSONObject("params"));
+        }
+
         if ("video_lab.get_status".equals(command)) {
             state.acceptedCommands.incrementAndGet();
             JSONObject result = new JSONObject();
             result.put("status", state.videoLabStatusJson());
             return commandAck(requestId, command, true, "video_lab_status", result);
+        }
+
+        if ("video_lab.get_scorecard".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("scorecard", state.videoLabScorecardJson());
+            return commandAck(requestId, command, true, "video_lab_scorecard", result);
         }
 
         if ("video_lab.register_encoded_stream_manifest".equals(command)) {
@@ -934,6 +961,42 @@ final class LocalBrokerServer implements Closeable {
         manifest.put("max_packets", probe.optInt("max_packets", 0));
         manifest.put("decoder_api", probe.optString("decoder_api", "android.media.MediaCodec"));
         manifest.put("decoder_output_mode", probe.optString("decoder_output_mode", "byte_buffer"));
+        manifest.put("decoder_low_latency_feature_supported", probe.optBoolean("decoder_low_latency_feature_supported", false));
+        manifest.put("decoder_low_latency_config_requested", probe.optBoolean("decoder_low_latency_config_requested", false));
+        manifest.put("decoder_low_latency_parameter_succeeded", probe.optBoolean("decoder_low_latency_parameter_succeeded", false));
+        manifest.put("encoder_name", probe.optString("encoder_name", ""));
+        manifest.put("encoder_selection_source", probe.optString("encoder_selection_source", ""));
+        manifest.put("encoder_selected_name", probe.optString("encoder_selected_name", ""));
+        manifest.put("encoder_hardware_accelerated", probe.optBoolean("encoder_hardware_accelerated", false));
+        manifest.put("encoder_software_only", probe.optBoolean("encoder_software_only", false));
+        manifest.put("encoder_size_supported", probe.optBoolean("encoder_size_supported", false));
+        manifest.put("encoder_size_and_rate_supported", probe.optBoolean("encoder_size_and_rate_supported", false));
+        manifest.put("encoder_bitrate_supported", probe.optBoolean("encoder_bitrate_supported", false));
+        manifest.put("encoder_cbr_supported", probe.optBoolean("encoder_cbr_supported", false));
+        manifest.put("encoder_cbr_fd_supported", probe.optBoolean("encoder_cbr_fd_supported", false));
+        manifest.put("encoder_vbr_supported", probe.optBoolean("encoder_vbr_supported", false));
+        manifest.put("bitrate_mode_requested", probe.optString("bitrate_mode_requested", ""));
+        manifest.put("bitrate_mode_applied", probe.optString("bitrate_mode_applied", ""));
+        manifest.put("bitrate_mode_output_format", probe.optString("bitrate_mode_output_format", ""));
+        manifest.put("encoder_output_format_changes", probe.optInt("encoder_output_format_changes", 0));
+        manifest.put("encoder_output_mime", probe.optString("encoder_output_mime", ""));
+        manifest.put("encoder_output_width", probe.optInt("encoder_output_width", 0));
+        manifest.put("encoder_output_height", probe.optInt("encoder_output_height", 0));
+        manifest.put("prepend_headers_to_sync_frames_applied", probe.optBoolean("prepend_headers_to_sync_frames_applied", false));
+        manifest.put("sync_frame_request_on_start_succeeded", probe.optBoolean("sync_frame_request_on_start_succeeded", false));
+        manifest.put("csd_source", probe.optString("csd_source", ""));
+        manifest.put("csd_sps_bytes", probe.optInt("csd_sps_bytes", 0));
+        manifest.put("csd_pps_bytes", probe.optInt("csd_pps_bytes", 0));
+        manifest.put("csd_sps_base64", probe.optString("csd_sps_base64", ""));
+        manifest.put("csd_pps_base64", probe.optString("csd_pps_base64", ""));
+        manifest.put("sensor_timestamp_source", probe.optString("sensor_timestamp_source", ""));
+        manifest.put("camera_capture_started_count", probe.optInt("camera_capture_started_count", 0));
+        manifest.put("camera_first_capture_started_ns", probe.optLong("camera_first_capture_started_ns", 0L));
+        manifest.put("camera_last_capture_started_ns", probe.optLong("camera_last_capture_started_ns", 0L));
+        manifest.put("camera_first_frame_number", probe.optLong("camera_first_frame_number", -1L));
+        manifest.put("camera_last_frame_number", probe.optLong("camera_last_frame_number", -1L));
+        manifest.put("camera_first_capture_callback_elapsed_ns", probe.optLong("camera_first_capture_callback_elapsed_ns", 0L));
+        manifest.put("camera_last_capture_callback_elapsed_ns", probe.optLong("camera_last_capture_callback_elapsed_ns", 0L));
         return manifest;
     }
 
@@ -958,6 +1021,8 @@ final class LocalBrokerServer implements Closeable {
         metric.put("decoder_end_elapsed_ns", probe.optLong("decode_end_elapsed_ns", 0L));
         metric.put("decoder_duration_ns", probe.optLong("decode_duration_ns", 0L));
         metric.put("packet_count", probe.optInt("encoded_packet_count", 0));
+        metric.put("video_packet_count", probe.optInt("encoded_video_packet_count", 0));
+        metric.put("codec_config_packet_count", probe.optInt("codec_config_packet_count", 0));
         metric.put("payload_size_bytes", probe.optLong("encoded_payload_bytes", 0L));
         metric.put("decoder_input_buffers", probe.optInt("input_buffer_count", 0));
         metric.put("decoder_input_bytes", probe.optLong("input_bytes", 0L));
@@ -965,12 +1030,46 @@ final class LocalBrokerServer implements Closeable {
         metric.put("decoded_frame_count", probe.optInt("decoded_frame_count", 0));
         metric.put("decoder_output_bytes", probe.optLong("decoder_output_bytes", 0L));
         metric.put("decoder_output_mode", probe.optString("decoder_output_mode", "byte_buffer"));
+        metric.put("decoder_low_latency_feature_supported", probe.optBoolean("decoder_low_latency_feature_supported", false));
+        metric.put("decoder_low_latency_config_requested", probe.optBoolean("decoder_low_latency_config_requested", false));
+        metric.put("decoder_low_latency_parameter_succeeded", probe.optBoolean("decoder_low_latency_parameter_succeeded", false));
         metric.put("decode_succeeded", probe.optBoolean("decode_succeeded", false));
         metric.put("dropped_frames", 0);
         metric.put("stale_frames", 0);
         metric.put("queue_depth", 0);
         metric.put("width", probe.optInt("width", 0));
         metric.put("height", probe.optInt("height", 0));
+        metric.put("encoder_name", probe.optString("encoder_name", ""));
+        metric.put("encoder_selection_source", probe.optString("encoder_selection_source", ""));
+        metric.put("encoder_selected_name", probe.optString("encoder_selected_name", ""));
+        metric.put("encoder_hardware_accelerated", probe.optBoolean("encoder_hardware_accelerated", false));
+        metric.put("encoder_software_only", probe.optBoolean("encoder_software_only", false));
+        metric.put("encoder_size_supported", probe.optBoolean("encoder_size_supported", false));
+        metric.put("encoder_size_and_rate_supported", probe.optBoolean("encoder_size_and_rate_supported", false));
+        metric.put("encoder_bitrate_supported", probe.optBoolean("encoder_bitrate_supported", false));
+        metric.put("encoder_cbr_supported", probe.optBoolean("encoder_cbr_supported", false));
+        metric.put("encoder_cbr_fd_supported", probe.optBoolean("encoder_cbr_fd_supported", false));
+        metric.put("encoder_vbr_supported", probe.optBoolean("encoder_vbr_supported", false));
+        metric.put("bitrate_mode_requested", probe.optString("bitrate_mode_requested", ""));
+        metric.put("bitrate_mode_applied", probe.optString("bitrate_mode_applied", ""));
+        metric.put("bitrate_mode_output_format", probe.optString("bitrate_mode_output_format", ""));
+        metric.put("encoder_output_format_changes", probe.optInt("encoder_output_format_changes", 0));
+        metric.put("encoder_output_mime", probe.optString("encoder_output_mime", ""));
+        metric.put("encoder_output_width", probe.optInt("encoder_output_width", 0));
+        metric.put("encoder_output_height", probe.optInt("encoder_output_height", 0));
+        metric.put("prepend_headers_to_sync_frames_applied", probe.optBoolean("prepend_headers_to_sync_frames_applied", false));
+        metric.put("sync_frame_request_on_start_succeeded", probe.optBoolean("sync_frame_request_on_start_succeeded", false));
+        metric.put("csd_source", probe.optString("csd_source", ""));
+        metric.put("csd_sps_bytes", probe.optInt("csd_sps_bytes", 0));
+        metric.put("csd_pps_bytes", probe.optInt("csd_pps_bytes", 0));
+        metric.put("sensor_timestamp_source", probe.optString("sensor_timestamp_source", ""));
+        metric.put("camera_capture_started_count", probe.optInt("camera_capture_started_count", 0));
+        metric.put("camera_first_capture_started_ns", probe.optLong("camera_first_capture_started_ns", 0L));
+        metric.put("camera_last_capture_started_ns", probe.optLong("camera_last_capture_started_ns", 0L));
+        metric.put("camera_first_frame_number", probe.optLong("camera_first_frame_number", -1L));
+        metric.put("camera_last_frame_number", probe.optLong("camera_last_frame_number", -1L));
+        metric.put("camera_first_capture_callback_elapsed_ns", probe.optLong("camera_first_capture_callback_elapsed_ns", 0L));
+        metric.put("camera_last_capture_callback_elapsed_ns", probe.optLong("camera_last_capture_callback_elapsed_ns", 0L));
         if (!probe.optBoolean("decode_succeeded", false) || probe.optString("last_error", "").length() > 0) {
             metric.put("last_error", probe.optString("last_error", "Decode probe completed without a decoded frame."));
         }
@@ -1335,6 +1434,94 @@ final class LocalBrokerServer implements Closeable {
             result.put("breath_broadcasts", breathBroadcasts);
         }
         return result;
+    }
+
+    private JSONObject describeTransportCapabilities(String requestId, String command) throws Exception {
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("capabilities", state.transportCapabilitiesJson());
+        return commandAck(requestId, command, true, "transport_capabilities", result);
+    }
+
+    private JSONObject createTransportSession(
+        WebSocketClientConnection connection,
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (params == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_params", "Command requires transport session params.");
+        }
+
+        String clientId = connection != null ? connection.clientId : "";
+        JSONObject answer = state.createTransportSession(params, clientId);
+        int broadcasts = broadcastStreamEvent(
+            "transport.session_created",
+            answer.optLong("created_elapsed_ns", SystemClock.elapsedRealtimeNanos()),
+            unixNowNs(),
+            new JSONObject(answer.toString()));
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("answer", answer);
+        result.put("broadcasts", broadcasts);
+        return commandAck(requestId, command, true, "transport_session_created", result);
+    }
+
+    private JSONObject getTransportSession(String requestId, String command, JSONObject params) throws Exception {
+        if (params == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_params", "Command requires params.session_id.");
+        }
+
+        String sessionId = params.optString("session_id", "");
+        if (sessionId.trim().length() == 0) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_session_id", "Command requires params.session_id.");
+        }
+
+        JSONObject result = state.getTransportSession(sessionId);
+        state.acceptedCommands.incrementAndGet();
+        return commandAck(requestId, command, true, "transport_session", result);
+    }
+
+    private JSONObject listTransportSessions(String requestId, String command) throws Exception {
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("registry", state.listTransportSessions());
+        return commandAck(requestId, command, true, "transport_sessions", result);
+    }
+
+    private JSONObject closeTransportSession(String requestId, String command, JSONObject params) throws Exception {
+        if (params == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_params", "Command requires params.session_id.");
+        }
+
+        String sessionId = params.optString("session_id", "");
+        if (sessionId.trim().length() == 0) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_session_id", "Command requires params.session_id.");
+        }
+
+        JSONObject session = state.closeTransportSession(sessionId, params.optString("reason", ""));
+        boolean found = session.optBoolean("found", true);
+        int broadcasts = broadcastStreamEvent(
+            found ? "transport.session_closed" : "transport.session_failed",
+            SystemClock.elapsedRealtimeNanos(),
+            unixNowNs(),
+            new JSONObject(session.toString()));
+
+        JSONObject result = new JSONObject();
+        result.put("session", session);
+        result.put("broadcasts", broadcasts);
+        if (!found) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "unknown_session", "Transport session was not found.");
+        }
+
+        state.acceptedCommands.incrementAndGet();
+        return commandAck(requestId, command, true, "transport_session_closed", result);
     }
 
     private JSONObject subscribe(

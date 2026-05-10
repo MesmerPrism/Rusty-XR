@@ -23,7 +23,7 @@ fork-patch policy are documented in
 - Uses `cargo-makepad android --variant=quest`.
 - Uses the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging`; the current documented branch head is
-  `a57e68adf4c3`.
+  `7a47fb6e6d4a`.
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
@@ -211,6 +211,13 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   the launcher path for Makepad validation, not direct generated-XR launch, and
   verify the paired Makepad textures are the visible XR content before treating
   scorecards as final parity evidence.
+- Current comparison target: the accepted source-provenance target run used
+  visible stereo Camera2 projection at 72Hz, render scale `0.75`, no stale
+  frames, and explicit Quest CPU/GPU level `4` / `4`. Future Makepad parity
+  runs must capture the same device performance props, preserve the small
+  hardware-buffer warning class separately from GPU-fault counters, and include
+  screenshot or headset-cast visual review so a marker-only pass cannot be
+  mistaken for projection parity.
 - Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
   Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
   texture-update counters. The S14 active launcher sample reported
@@ -223,12 +230,50 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
 - Current source/build slice: paired Makepad hardware-buffer import and
   projection-mapping markers are validated against the maintained fork branch,
   launcher-path active presentation is validated, the fallback synthetic scene
-  has been removed from the visual gate, the rejected native `Video` widget
-  diagnostic is disabled, and the current S29 gate keeps both the solid
-  diagnostic and alignment guide off while the panel samples the paired Makepad
-  `VideoExternal` textures directly. Screenshot/cast capture can still show a
-  cyan external-texture result, so visual acceptance remains a separate gate
-  from marker success.
+  has been removed from the visual gate, and the rejected native `Video` widget
+  diagnostic is disabled. S32 operator review reclassified the Makepad visual
+  evidence as native compositor passthrough plus a low app-owned rectangle, not
+  custom projection parity. S33 proved app-owned geometry and improved
+  alignment, but the panel still rendered solid split-proof colors rather than
+  camera pixels. S34 switched the custom panel to Makepad Y/U/V camera plane
+  textures, but device validation still showed proof colors: only one CPU YUV
+  stream updated, no paired visual bind completed, and one screenshot exposed an
+  unwanted depth-clip/occlusion class where room geometry could cover the app
+  panel. S35 keeps panel depth clipping disabled and treats a single updating
+  CPU YUV stream as a camera-pixel proof only, not final zero-copy or stereo
+  projection parity. The S35 device run did not yet validate that proof because
+  the generated XR activity bounced back to the normal activity surface; the
+  next slice is an explicit Makepad Android XR activity handoff fix before
+  rerunning the YUV proof. The desired visual state for this proof is an
+  app-owned panel without runtime depth/environment occlusion; passthrough
+  behind the app layer is expected, but real-world geometry covering the panel
+  is tracked as a separate depth-clip regression. S36 fixed the activity
+  handoff: launcher and direct generated-XR routes now stay in active XR,
+  emit YUV-ready/prepared/update and single-stream-proof markers, and remain
+  app-fault clean. The visible panel still shows the blue/red proof state
+  instead of camera pixels, so S37 focuses on the custom panel's late draw-var
+  texture binding/redraw path before paired left/right ownership resumes.
+  S37 added an explicit draw-vars-bound marker and kept the same stable/fault
+  profile, but the visual result remained blue/red. S38 preferred the actually
+  updating YUV stream and removed proof tint, and S39 forced the live
+  camera-ready/YUV state onto the active draw area, but both still rendered the
+  blue/red proof colors. S40 then made the waiting/default path neutral black
+  and set the panel default to camera-ready. The S40 device gate is decisive:
+  launcher and direct generated-XR routes stay in active XR, remain
+  app-fault clean, keep depth/environment occlusion off, and now render a
+  neutral black app-owned panel instead of blue/red. That proves the shader
+  edits are active and moves the remaining blocker to Makepad YUV texture
+  sampling/content rather than passthrough ambiguity, depth occlusion, activity
+  handoff, or stale proof-color state. S41-S45 then proved the camera update
+  event carries nonzero CPU-side Y/U/V plane content and kept active OpenXR
+  presentation stable through gain-boosted luma, generated R8 Y-slot, generated
+  all-slot, and constant shader-bypass controls. S46 proved the visible panel
+  executes the edited shader body when the fragment path returns before any
+  texture sampling: the panel turned green with the same guide overlay. The
+  S47 then visibly sampled a generated R8 texture through the panel's
+  `left_tex_y` slot, proving ordinary 2D texture-slot sampling works. The
+  current gate disables that generated replacement and samples only the real
+  Makepad camera Y plane through the same direct shader path.
 
 The current step-by-step implementation ledger is tracked in
 [../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).

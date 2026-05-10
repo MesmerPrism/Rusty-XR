@@ -4916,7 +4916,11 @@ impl GpuCameraRenderer {
         }
         device.cmd_set_viewport(cmd, 0, &viewport);
         device.cmd_set_scissor(cmd, 0, &scissor);
-        device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, resources.pipeline);
+        device.cmd_bind_pipeline(
+            cmd,
+            vk::PipelineBindPoint::GRAPHICS,
+            resources.pipeline_for_config(config),
+        );
         device.cmd_bind_descriptor_sets(
             cmd,
             vk::PipelineBindPoint::GRAPHICS,
@@ -4987,7 +4991,11 @@ impl GpuCameraRenderer {
         }
         device.cmd_set_viewport(cmd, 0, &viewport);
         device.cmd_set_scissor(cmd, 0, &scissor);
-        device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, resources.pipeline);
+        device.cmd_bind_pipeline(
+            cmd,
+            vk::PipelineBindPoint::GRAPHICS,
+            resources.pipeline_for_config(config),
+        );
         device.cmd_bind_descriptor_sets(
             cmd,
             vk::PipelineBindPoint::GRAPHICS,
@@ -5091,6 +5099,7 @@ struct GpuCameraPipelineResources {
     descriptor_pool: vk::DescriptorPool,
     pipeline_layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
+    fast_pipeline: vk::Pipeline,
     projection_uniform_buffer: vk::Buffer,
     projection_uniform_memory: vk::DeviceMemory,
     projection_uniform_stride: vk::DeviceSize,
@@ -5099,6 +5108,7 @@ struct GpuCameraPipelineResources {
 
 impl GpuCameraPipelineResources {
     unsafe fn destroy(self, device: &ash::Device) {
+        device.destroy_pipeline(self.fast_pipeline, None);
         device.destroy_pipeline(self.pipeline, None);
         device.destroy_pipeline_layout(self.pipeline_layout, None);
         device.destroy_descriptor_pool(self.descriptor_pool, None);
@@ -5112,6 +5122,17 @@ impl GpuCameraPipelineResources {
     fn projection_uniform_offset(&self, frame_count: u64) -> u32 {
         let slot = frame_count % self.projection_uniform_slots.max(1) as u64;
         (slot * self.projection_uniform_stride) as u32
+    }
+
+    fn pipeline_for_config(&self, config: &crate::RuntimeConfig) -> vk::Pipeline {
+        if config
+            .camera_projection_effect_mode
+            .uses_fast_projection_pipeline()
+        {
+            self.fast_pipeline
+        } else {
+            self.pipeline
+        }
     }
 }
 
@@ -5699,7 +5720,21 @@ unsafe fn create_gpu_camera_pipeline_resources(
         render_pass,
         pipeline_layout,
         format_key.sampler_binding_mode,
+        false,
     )?;
+    let fast_pipeline = match create_gpu_camera_pipeline(
+        device,
+        render_pass,
+        pipeline_layout,
+        format_key.sampler_binding_mode,
+        true,
+    ) {
+        Ok(pipeline) => pipeline,
+        Err(error) => {
+            device.destroy_pipeline(pipeline, None);
+            return Err(error);
+        }
+    };
 
     Ok(GpuCameraPipelineResources {
         format_key,
@@ -5709,6 +5744,7 @@ unsafe fn create_gpu_camera_pipeline_resources(
         descriptor_pool,
         pipeline_layout,
         pipeline,
+        fast_pipeline,
         projection_uniform_buffer,
         projection_uniform_memory,
         projection_uniform_stride,
@@ -6009,19 +6045,29 @@ unsafe fn create_gpu_camera_pipeline(
     render_pass: vk::RenderPass,
     pipeline_layout: vk::PipelineLayout,
     sampler_binding_mode: crate::CameraSamplerBindingMode,
+    fast_raw_projection: bool,
 ) -> Result<vk::Pipeline, String> {
     let vertex_words = spirv_words(include_bytes!(concat!(
         env!("OUT_DIR"),
         "/camera_projection.vert.spv"
     )))?;
-    let fragment_words = match sampler_binding_mode {
-        crate::CameraSamplerBindingMode::CombinedImmutableSampler => spirv_words(include_bytes!(
-            concat!(env!("OUT_DIR"), "/camera_projection.frag.spv")
-        ))?,
-        crate::CameraSamplerBindingMode::SeparateImageSampler => {
+    let fragment_words = match (sampler_binding_mode, fast_raw_projection) {
+        (crate::CameraSamplerBindingMode::CombinedImmutableSampler, false) => spirv_words(
+            include_bytes!(concat!(env!("OUT_DIR"), "/camera_projection.frag.spv")),
+        )?,
+        (crate::CameraSamplerBindingMode::CombinedImmutableSampler, true) => spirv_words(
+            include_bytes!(concat!(env!("OUT_DIR"), "/camera_projection_fast.frag.spv")),
+        )?,
+        (crate::CameraSamplerBindingMode::SeparateImageSampler, false) => {
             spirv_words(include_bytes!(concat!(
                 env!("OUT_DIR"),
                 "/camera_projection_separate_sampler.frag.spv"
+            )))?
+        }
+        (crate::CameraSamplerBindingMode::SeparateImageSampler, true) => {
+            spirv_words(include_bytes!(concat!(
+                env!("OUT_DIR"),
+                "/camera_projection_fast_separate_sampler.frag.spv"
             )))?
         }
     };

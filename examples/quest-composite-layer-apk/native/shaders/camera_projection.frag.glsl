@@ -930,6 +930,19 @@ void main() {
         center_color *= 0.12;
     }
 
+#ifdef RUSTY_XR_CAMERA_PROJECTION_FAST_ONLY
+    float fast_surface_edge_distance = min(
+        min(v_surface_uv.x, 1.0 - v_surface_uv.x),
+        min(v_surface_uv.y, 1.0 - v_surface_uv.y)
+    );
+    float fast_surface_edge_dim = edge_fade > 0.0
+        ? mix(0.90, 1.0, smoothstep(0.0, edge_fade, fast_surface_edge_distance))
+        : 1.0;
+    float fast_source_edge_dim = mix(0.94, 1.0, coverage);
+    out_color = vec4(clamp01(center_color * fast_surface_edge_dim * fast_source_edge_dim), 1.0);
+    return;
+#endif
+
     bool raw_projection_fast = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_FAST) != 0;
     bool raw_projection_invalid_fill = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_INVALID_FILL) != 0;
     bool raw_projection_perimeter_fill = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_PERIMETER_FILL) != 0;

@@ -196,6 +196,14 @@ Before refactoring build or runtime ownership, preserve a scorecard for:
 - broker existing-stream receive/decode at `0.75` and `0.65`
 - broker live projected stereo at `0.75` and `0.65`
 
+For any scorecard that will be used as comparison evidence, record the Quest
+device performance props before launch and in the final artifact summary:
+`debug.oculus.cpuLevel`, `debug.oculus.gpuLevel`,
+`debug.oculus.foveation.dynamic`, and `debug.oculus.foveation.level`. Current
+target evidence uses CPU/GPU level `4` / `4`; runs captured at other levels
+remain useful diagnostics, but should not be presented as parity evidence
+without repeating or normalizing the device profile.
+
 This protects the current finding: the measured dominant cost is the shared
 metadata-backed projected draw/render path, not broker receive/decode or
 Java/native hardware-buffer handoff.
@@ -304,6 +312,17 @@ startup/marker capture for Java activity, native bootstrap, Rust app, camera,
 and import markers, plus a separate liveness/fault capture for app-process GPU
 page-fault and fatal counters. Repeated small hardware-buffer warnings remain
 tracked separately during paired import and performance comparison work.
+S32 visual review reclassified the Makepad headset image as native compositor
+passthrough plus a low app-owned panel rather than proof of custom projection
+parity. The current S33 gate therefore treats marker success as necessary but
+insufficient: the Makepad example must visibly show an app-owned, eye-aligned
+camera texture panel before per-eye projection mapping or performance numbers
+can be compared against the custom lane.
+S33 then proved app-owned geometry and improved alignment but still rendered
+solid split-proof colors instead of camera pixels. The active S34 source split
+binds Makepad's Y/U/V camera plane textures directly for a camera-pixel proof
+path and marks it as a CPU YUV plane upload, so it must not be used as a
+performance comparison result until the Vulkan YUV-plane import path is wired.
 
 Do not start with a full renderer port. Keep the launch and diagnostic log path
 repeatable, keep hardware-buffer warnings separate from GPU-fault counters, and
@@ -398,6 +417,8 @@ Whichever path is chosen, keep the scorecard stages stable:
 - projection shader/draw timing
 - OpenXR frame time
 - `VrApi` app and CPU+GPU time
+- device performance profile and foveation props
+- screenshot or headset-cast visual acceptance of the actual camera projection
 
 ### Phase 7: Align With Makepad Hotloading
 
@@ -500,7 +521,8 @@ The migration is successful when a new contributor on macOS can:
 6. Run either receiver existing-stream mode or direct Camera2 mode.
 7. Run a two-headset sender/receiver stream over Wi-Fi.
 8. Produce a `scorecard.md` that compares transport/decode, handoff, projected
-   render, and OpenXR runtime cost.
+   render, OpenXR runtime cost, device performance levels, and visual
+   acceptance state.
 9. Iterate scalar visual/projection settings without rebuilding the APK.
 10. Eventually hotpatch selected Rust policy/math modules without rebuilding
     the APK, once the upstream Makepad tool supports that flow.

@@ -36,6 +36,12 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 - Route Makepad lane profile values through `rusty-xr-runtime-config` first;
   add camera metadata, stream framing, and scorecard contracts through core
   crates before adding Makepad-specific adapters.
+- Treat performance comparison as a controlled device-profile test. Current
+  source-provenance target evidence shows accepted stereo camera projection at
+  72Hz, render scale `0.75`, no stale frames, and roughly half GPU utilization
+  under explicit Quest CPU/GPU level `4` / `4`. Future Makepad-vs-custom runs
+  must either use the same declared device performance levels or label the
+  difference as an intentional variable.
 
 ## Still Needs A Decision
 
@@ -116,7 +122,7 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 | XR dependency surface | Custom shell owns OpenXR/Vulkan dependencies directly. | `makepad-xr` pulls in Makepad's XR, rendering, physics/math, asset, and UI dependency graph. |
 | Output location | Example `build/` folders. | Makepad `target/android/makepad-android-apk/...` folders. |
 | Licensing | Rusty XR MIT plus Android/OpenXR inputs. | Rusty XR MIT plus Makepad MIT OR Apache-2.0 and Android/OpenXR inputs. |
-| Current blocker cost | Existing lane already has measured camera/stream diagnostics, but the scripts are less portable. | The maintained Makepad fork currently needs local Windows packaging patches plus the Android Vulkan frame-fence wait. The Makepad shell is clean for direct generated-XR paired import/projection markers, but launcher lifecycle, device awake-state, and small hardware-buffer warnings remain tracked separately. |
+| Current blocker cost | Existing lane already has measured camera/stream diagnostics, but the scripts are less portable. | The maintained Makepad fork currently needs local Windows packaging patches plus the Android Vulkan frame-fence wait. The Makepad shell is clean for paired import/projection markers and launcher-path app/fault cadence, but S32 visual review showed native compositor passthrough plus a low app-owned rectangle rather than custom projection parity. S33 proved app-owned geometry/alignment but still showed proof colors rather than camera pixels. The active S34 cost is proving YUV camera-plane visibility before zero-copy import, per-eye mapping, or performance comparison. |
 
 ## Immediate Validation Ladder
 
@@ -137,6 +143,16 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
    hardware-buffer-backed `PRIVATE` frame without importing it into Makepad.
 8. Hardware-buffer import: import the acquired buffers into the Makepad/Vulkan
    texture path before attempting projection parity.
+9. Visible projection gate: prove that paired left/right camera textures are the
+   visible XR content, not a synthetic fallback, debug overlay, protected-content
+   capture artifact, native compositor passthrough background, or loading state.
+10. Normalized performance batch: run current custom and Makepad samples in the
+    same session with matching device performance levels, runtime scale, power
+    state, screenshot capture, and scorecard parsing.
+11. Target comparison: compare against the accepted source-provenance target
+    using the same counters: `VrApi` FPS/`Stale`/`Tear`/`GPU%`, app-process
+    fatal/GPU-fault counts, camera progression, CPU upload count, and small
+    hardware-buffer warning class.
 
 ## Current Device Findings
 
@@ -159,6 +175,24 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
   startup capture enumerated three `PRIVATE` sources, selected a back-facing
   1280x1280 source with intrinsics and pose metadata, acquired one
   hardware-buffer-backed frame, and completed with `status=ok`.
+- A later source-provenance target correction established a cleaner performance
+  target for future comparison: accepted visible stereo camera projection at
+  72Hz with no stale frames, render scale `0.75`, and roughly 50% GPU usage when
+  the Quest device performance props are explicitly pinned to CPU/GPU level
+  `4` / `4`. This does not replace the public custom lane; it sets the current
+  comparison envelope and keeps GPU saturation as the leading custom-path
+  performance hypothesis.
+- A same-session S32 Makepad launcher sample reached the generated XR activity,
+  retained paired/projection markers, and stayed app-fault clean, but operator
+  visual review reclassified the visible room image as native compositor
+  passthrough rather than app-owned camera projection. The next Makepad device
+  gate must show the app-owned camera texture panel itself, aligned in the
+  headset view, before any performance comparison is meaningful.
+- S33 then moved the app-owned panel into view and made it opaque, but the
+  visible content remained split proof colors instead of camera pixels. The
+  active S34 split binds Makepad's Y/U/V camera plane textures directly as a
+  camera-pixel proof path. It is not a final performance path because it uses a
+  CPU YUV plane upload until the Vulkan YUV-plane import route is wired.
 - A control run of Makepad's upstream XR example on the same headset reproduced
   the GPU page fault symptom after the Windows tool patches, so the fault is
   likely in the current Makepad/Quest XR stack rather than this Rusty XR smoke

@@ -1,9 +1,10 @@
 //! Broker protocol and stream-manifest contracts for Rusty XR.
 //!
 //! This crate contains pure data models for broker control envelopes, stream
-//! manifests, sample headers, timing stamps, drop counters, and negotiated
-//! transport lanes. It does not open sockets, depend on Android, or implement a
-//! Unity, Makepad, OpenXR, LSL, OSC, or video backend.
+//! manifests, sample headers, timing stamps, drop counters, diagnostic binary
+//! video headers, and negotiated transport lanes. It does not open sockets,
+//! depend on Android, or implement a Unity, Makepad, OpenXR, LSL, OSC, or video
+//! backend.
 //!
 //! Enable the `serde` feature when these public contracts need to cross
 //! process boundaries.
@@ -55,6 +56,57 @@ pub const BROKER_STREAM_SAMPLE_HEADER_SCHEMA: &str = "rusty.xr.broker.stream_sam
 /// Versioned JSON schema id for broker status snapshots.
 pub const BROKER_STATUS_SCHEMA: &str = "rusty.xr.broker.status.v1";
 
+/// Versioned JSON schema id for broker transport session offers.
+pub const BROKER_TRANSPORT_SESSION_OFFER_SCHEMA: &str =
+    "rusty.xr.broker.transport_session_offer.v1";
+
+/// Versioned JSON schema id for broker transport session answers.
+pub const BROKER_TRANSPORT_SESSION_ANSWER_SCHEMA: &str =
+    "rusty.xr.broker.transport_session_answer.v1";
+
+/// Versioned JSON schema id for transport security policies.
+pub const BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA: &str =
+    "rusty.xr.broker.transport_security_policy.v1";
+
+/// Versioned JSON schema id for media sample timing reports.
+pub const BROKER_MEDIA_SAMPLE_TIMING_SCHEMA: &str = "rusty.xr.broker.media_sample_timing.v1";
+
+/// Versioned JSON schema id for network quality samples.
+pub const BROKER_NETWORK_QUALITY_SAMPLE_SCHEMA: &str = "rusty.xr.broker.network_quality_sample.v1";
+
+/// Versioned JSON schema id for Rusty XR diagnostic packet descriptors.
+pub const BROKER_PACKET_DESCRIPTOR_SCHEMA: &str = "rusty.xr.broker.packet_descriptor.v1";
+
+/// Public schema id for the Rusty XR-owned diagnostic binary video stream.
+pub const BROKER_DIAGNOSTIC_VIDEO_STREAM_SCHEMA: &str = "rusty.xr.video_lab.binary_stream.v1";
+
+/// Magic bytes for the Rusty XR-owned diagnostic video stream framing.
+pub const BROKER_DIAGNOSTIC_VIDEO_MAGIC: &[u8; 8] = b"RXYRVID1";
+
+/// Current Rusty XR-owned diagnostic binary video stream format version.
+pub const BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION: u32 = 2;
+
+/// Fixed byte length of the diagnostic video stream header.
+pub const BROKER_DIAGNOSTIC_VIDEO_HEADER_BYTES: usize = 32;
+
+/// Fixed byte length of each v2 diagnostic video packet header.
+pub const BROKER_DIAGNOSTIC_VIDEO_PACKET_HEADER_BYTES: usize = 32;
+
+/// Wire codec id for H.264 inside the diagnostic video stream framing.
+pub const BROKER_DIAGNOSTIC_VIDEO_CODEC_H264: u32 = 1;
+
+/// Maximum packet count accepted by bounded diagnostic video streams.
+pub const BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_COUNT: u32 = 720;
+
+/// Maximum payload size accepted for one diagnostic video packet.
+pub const BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_BYTES: u32 = 1024 * 1024;
+
+/// Diagnostic video packet flag for key frames.
+pub const BROKER_DIAGNOSTIC_VIDEO_PACKET_FLAG_KEY_FRAME: u32 = 1;
+
+/// Diagnostic video packet flag for codec configuration packets.
+pub const BROKER_DIAGNOSTIC_VIDEO_PACKET_FLAG_CODEC_CONFIG: u32 = 2;
+
 /// Existing broker latency sample schema id used by public probes.
 pub const BROKER_LATENCY_SAMPLE_SCHEMA: &str = "rusty.xr.broker.latency_sample.v1";
 
@@ -87,6 +139,10 @@ pub enum BrokerTransportKind {
     Tcp,
     Udp,
     AdbForwardedTcp,
+    Quic,
+    WebTransport,
+    WebRtcDiagnostic,
+    ExternalSidecar,
     MetadataOnly,
 }
 
@@ -111,6 +167,85 @@ pub enum BrokerPayloadKind {
     H265,
     RawLuma8,
     Custom,
+}
+
+/// Broad stream role for low-latency broker sessions.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerStreamKind {
+    Media,
+    Audio,
+    Telemetry,
+    Control,
+    XrInput,
+    Bio,
+    Synthetic,
+    Custom,
+}
+
+/// Codec or payload family negotiated for a transport stream.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerCodecId {
+    H264,
+    H265,
+    Av1,
+    RawLuma8,
+    RawRgba8,
+    Opus,
+    PcmF32,
+    Json,
+    Custom,
+}
+
+/// Direction of samples on a negotiated stream.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerStreamDirection {
+    ProducerToConsumer,
+    ConsumerToProducer,
+    Bidirectional,
+    MetadataOnly,
+}
+
+/// Security gate required before a transport session can expose endpoints.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerSecurityMode {
+    LoopbackOnly,
+    PairingToken,
+    PreSharedKey,
+    ExternalSidecarOwned,
+}
+
+/// Lifecycle state for a negotiated transport session.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerTransportSessionState {
+    Created,
+    Offered,
+    Accepted,
+    Starting,
+    Streaming,
+    Draining,
+    Closed,
+    Failed,
+}
+
+/// Reason a packet or frame was dropped in a low-latency stream.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerPacketDropReason {
+    LatePacket,
+    DecodeTimeout,
+    MissingKeyframe,
+    SurfaceUnavailable,
+    HardwareBufferImportFailed,
+    ProjectionMetadataMissing,
+    XrFrameBudgetExceeded,
+    QueueOverflow,
+    ClientShutdown,
+    Unknown,
 }
 
 /// Endpoint details returned after a stream lane is negotiated.
@@ -177,7 +312,10 @@ impl BrokerTransportEndpoint {
                 .unwrap_or(false),
             BrokerTransportKind::Tcp
             | BrokerTransportKind::Udp
-            | BrokerTransportKind::AdbForwardedTcp => {
+            | BrokerTransportKind::AdbForwardedTcp
+            | BrokerTransportKind::Quic
+            | BrokerTransportKind::WebTransport
+            | BrokerTransportKind::WebRtcDiagnostic => {
                 self.host
                     .as_deref()
                     .map(|host| !host.trim().is_empty())
@@ -188,12 +326,905 @@ impl BrokerTransportEndpoint {
                         .map(valid_datagram_size)
                         .unwrap_or(true)
             }
+            BrokerTransportKind::ExternalSidecar => self
+                .channel_id
+                .as_deref()
+                .map(|channel_id| !channel_id.trim().is_empty())
+                .unwrap_or(false),
             BrokerTransportKind::MetadataOnly => self
                 .channel_id
                 .as_deref()
                 .map(|channel_id| !channel_id.trim().is_empty())
                 .unwrap_or(false),
         }
+    }
+
+    pub fn is_loopback(&self) -> bool {
+        matches!(
+            self.transport,
+            BrokerTransportKind::WebSocket
+                | BrokerTransportKind::AdbForwardedTcp
+                | BrokerTransportKind::MetadataOnly
+        ) || self.host.as_deref().map(is_loopback_host).unwrap_or(false)
+    }
+}
+
+/// Security policy attached to a low-latency transport session.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerTransportSecurityPolicy {
+    pub schema: String,
+    pub mode: BrokerSecurityMode,
+    pub non_loopback_allowed: bool,
+    pub pairing_token_required: bool,
+    pub expires_elapsed_ns: Option<u64>,
+    pub capability_scope: Vec<String>,
+}
+
+impl BrokerTransportSecurityPolicy {
+    pub fn loopback_only() -> Self {
+        Self {
+            schema: BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA.to_string(),
+            mode: BrokerSecurityMode::LoopbackOnly,
+            non_loopback_allowed: false,
+            pairing_token_required: false,
+            expires_elapsed_ns: None,
+            capability_scope: Vec::new(),
+        }
+    }
+
+    pub fn pairing_token(expires_elapsed_ns: u64) -> Self {
+        Self {
+            schema: BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA.to_string(),
+            mode: BrokerSecurityMode::PairingToken,
+            non_loopback_allowed: true,
+            pairing_token_required: true,
+            expires_elapsed_ns: Some(expires_elapsed_ns),
+            capability_scope: Vec::new(),
+        }
+    }
+
+    pub fn with_capability_scope(mut self, capability: impl Into<String>) -> Self {
+        self.capability_scope.push(capability.into());
+        self
+    }
+
+    pub fn allows_endpoint(&self, endpoint: &BrokerTransportEndpoint) -> bool {
+        endpoint.is_loopback() || self.non_loopback_allowed
+    }
+
+    pub fn is_valid(&self) -> bool {
+        let mode_shape_valid = match self.mode {
+            BrokerSecurityMode::LoopbackOnly => {
+                !self.non_loopback_allowed && !self.pairing_token_required
+            }
+            BrokerSecurityMode::PairingToken => {
+                self.non_loopback_allowed
+                    && self.pairing_token_required
+                    && self.expires_elapsed_ns.is_some()
+            }
+            BrokerSecurityMode::PreSharedKey | BrokerSecurityMode::ExternalSidecarOwned => {
+                self.non_loopback_allowed
+            }
+        };
+
+        mode_shape_valid
+            && self
+                .capability_scope
+                .iter()
+                .all(|capability| !capability.trim().is_empty())
+    }
+}
+
+/// Stream descriptor used by transport session offers and answers.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrokerTransportStreamDescriptor {
+    pub stream_id: String,
+    pub stream_kind: BrokerStreamKind,
+    pub direction: BrokerStreamDirection,
+    pub payload_kind: BrokerPayloadKind,
+    pub payload_schema: String,
+    pub codec: Option<BrokerCodecId>,
+    pub reliability: BrokerReliabilityClass,
+    pub ordered: bool,
+    pub nominal_rate_hz: Option<f32>,
+    pub target_latency_ms: Option<f32>,
+    pub max_payload_bytes: Option<u32>,
+}
+
+impl BrokerTransportStreamDescriptor {
+    pub fn new(
+        stream_id: impl Into<String>,
+        stream_kind: BrokerStreamKind,
+        payload_kind: BrokerPayloadKind,
+        payload_schema: impl Into<String>,
+    ) -> Self {
+        Self {
+            stream_id: stream_id.into(),
+            stream_kind,
+            direction: BrokerStreamDirection::ProducerToConsumer,
+            payload_kind,
+            payload_schema: payload_schema.into(),
+            codec: None,
+            reliability: BrokerReliabilityClass::Reliable,
+            ordered: true,
+            nominal_rate_hz: None,
+            target_latency_ms: None,
+            max_payload_bytes: None,
+        }
+    }
+
+    pub const fn with_direction(mut self, direction: BrokerStreamDirection) -> Self {
+        self.direction = direction;
+        self
+    }
+
+    pub const fn with_codec(mut self, codec: BrokerCodecId) -> Self {
+        self.codec = Some(codec);
+        self
+    }
+
+    pub const fn with_reliability(mut self, reliability: BrokerReliabilityClass) -> Self {
+        self.reliability = reliability;
+        self
+    }
+
+    pub const fn with_ordered(mut self, ordered: bool) -> Self {
+        self.ordered = ordered;
+        self
+    }
+
+    pub fn with_nominal_rate_hz(mut self, nominal_rate_hz: f32) -> Self {
+        self.nominal_rate_hz = Some(nominal_rate_hz);
+        self
+    }
+
+    pub fn with_target_latency_ms(mut self, target_latency_ms: f32) -> Self {
+        self.target_latency_ms = Some(target_latency_ms);
+        self
+    }
+
+    pub fn with_max_payload_bytes(mut self, max_payload_bytes: u32) -> Self {
+        self.max_payload_bytes = Some(max_payload_bytes);
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.stream_id.trim().is_empty()
+            && !self.payload_schema.trim().is_empty()
+            && self
+                .nominal_rate_hz
+                .map(|rate| rate.is_finite() && rate > 0.0)
+                .unwrap_or(true)
+            && self
+                .target_latency_ms
+                .map(|latency| latency.is_finite() && latency >= 0.0)
+                .unwrap_or(true)
+            && self.max_payload_bytes.map(|size| size > 0).unwrap_or(true)
+    }
+}
+
+/// Clean-room transport session offer from a client or operator.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrokerTransportSessionOffer {
+    pub schema: String,
+    pub session_id: String,
+    pub client_id: String,
+    pub requested_transports: Vec<BrokerTransportKind>,
+    pub streams: Vec<BrokerTransportStreamDescriptor>,
+    pub security: BrokerTransportSecurityPolicy,
+    pub target_latency_ms: Option<f32>,
+}
+
+impl BrokerTransportSessionOffer {
+    pub fn new(session_id: impl Into<String>, client_id: impl Into<String>) -> Self {
+        Self {
+            schema: BROKER_TRANSPORT_SESSION_OFFER_SCHEMA.to_string(),
+            session_id: session_id.into(),
+            client_id: client_id.into(),
+            requested_transports: Vec::new(),
+            streams: Vec::new(),
+            security: BrokerTransportSecurityPolicy::loopback_only(),
+            target_latency_ms: None,
+        }
+    }
+
+    pub fn with_transport(mut self, transport: BrokerTransportKind) -> Self {
+        self.requested_transports.push(transport);
+        self
+    }
+
+    pub fn with_stream(mut self, stream: BrokerTransportStreamDescriptor) -> Self {
+        self.streams.push(stream);
+        self
+    }
+
+    pub fn with_security(mut self, security: BrokerTransportSecurityPolicy) -> Self {
+        self.security = security;
+        self
+    }
+
+    pub fn with_target_latency_ms(mut self, target_latency_ms: f32) -> Self {
+        self.target_latency_ms = Some(target_latency_ms);
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.session_id.trim().is_empty()
+            && !self.client_id.trim().is_empty()
+            && !self.requested_transports.is_empty()
+            && !self.streams.is_empty()
+            && self
+                .streams
+                .iter()
+                .all(BrokerTransportStreamDescriptor::is_valid)
+            && self.security.is_valid()
+            && self
+                .target_latency_ms
+                .map(|latency| latency.is_finite() && latency >= 0.0)
+                .unwrap_or(true)
+    }
+}
+
+/// Broker answer to a clean-room transport session offer.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrokerTransportSessionAnswer {
+    pub schema: String,
+    pub session_id: String,
+    pub accepted: bool,
+    pub state: BrokerTransportSessionState,
+    pub selected_transport: Option<BrokerTransportKind>,
+    pub accepted_streams: Vec<BrokerTransportStreamDescriptor>,
+    pub security: BrokerTransportSecurityPolicy,
+    pub reason: Option<String>,
+}
+
+impl BrokerTransportSessionAnswer {
+    pub fn accepted(
+        session_id: impl Into<String>,
+        selected_transport: BrokerTransportKind,
+        security: BrokerTransportSecurityPolicy,
+    ) -> Self {
+        Self {
+            schema: BROKER_TRANSPORT_SESSION_ANSWER_SCHEMA.to_string(),
+            session_id: session_id.into(),
+            accepted: true,
+            state: BrokerTransportSessionState::Accepted,
+            selected_transport: Some(selected_transport),
+            accepted_streams: Vec::new(),
+            security,
+            reason: None,
+        }
+    }
+
+    pub fn rejected(session_id: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            schema: BROKER_TRANSPORT_SESSION_ANSWER_SCHEMA.to_string(),
+            session_id: session_id.into(),
+            accepted: false,
+            state: BrokerTransportSessionState::Failed,
+            selected_transport: None,
+            accepted_streams: Vec::new(),
+            security: BrokerTransportSecurityPolicy::loopback_only(),
+            reason: Some(reason.into()),
+        }
+    }
+
+    pub fn with_stream(mut self, stream: BrokerTransportStreamDescriptor) -> Self {
+        self.accepted_streams.push(stream);
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.session_id.trim().is_empty()
+            && self.security.is_valid()
+            && self
+                .accepted_streams
+                .iter()
+                .all(BrokerTransportStreamDescriptor::is_valid)
+            && if self.accepted {
+                self.selected_transport.is_some()
+                    && !matches!(
+                        self.state,
+                        BrokerTransportSessionState::Failed | BrokerTransportSessionState::Closed
+                    )
+            } else {
+                self.reason
+                    .as_deref()
+                    .map(|reason| !reason.trim().is_empty())
+                    .unwrap_or(false)
+            }
+    }
+}
+
+/// Per-sample timing report for media and XR submission diagnostics.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerMediaSampleTiming {
+    pub schema: String,
+    pub session_id: String,
+    pub stream_id: String,
+    pub sequence_number: u64,
+    pub source_capture_time_ns: Option<u64>,
+    pub encode_start_time_ns: Option<u64>,
+    pub encode_done_time_ns: Option<u64>,
+    pub packet_send_time_ns: Option<u64>,
+    pub packet_receive_time_ns: Option<u64>,
+    pub decode_start_time_ns: Option<u64>,
+    pub decode_done_time_ns: Option<u64>,
+    pub texture_import_time_ns: Option<u64>,
+    pub xr_submit_time_ns: Option<u64>,
+    pub present_estimate_time_ns: Option<u64>,
+}
+
+impl BrokerMediaSampleTiming {
+    pub fn new(
+        session_id: impl Into<String>,
+        stream_id: impl Into<String>,
+        sequence_number: u64,
+    ) -> Self {
+        Self {
+            schema: BROKER_MEDIA_SAMPLE_TIMING_SCHEMA.to_string(),
+            session_id: session_id.into(),
+            stream_id: stream_id.into(),
+            sequence_number,
+            source_capture_time_ns: None,
+            encode_start_time_ns: None,
+            encode_done_time_ns: None,
+            packet_send_time_ns: None,
+            packet_receive_time_ns: None,
+            decode_start_time_ns: None,
+            decode_done_time_ns: None,
+            texture_import_time_ns: None,
+            xr_submit_time_ns: None,
+            present_estimate_time_ns: None,
+        }
+    }
+
+    pub const fn with_source_capture_time_ns(mut self, value: u64) -> Self {
+        self.source_capture_time_ns = Some(value);
+        self
+    }
+
+    pub const fn with_packet_receive_time_ns(mut self, value: u64) -> Self {
+        self.packet_receive_time_ns = Some(value);
+        self
+    }
+
+    pub const fn with_decode_done_time_ns(mut self, value: u64) -> Self {
+        self.decode_done_time_ns = Some(value);
+        self
+    }
+
+    pub const fn with_texture_import_time_ns(mut self, value: u64) -> Self {
+        self.texture_import_time_ns = Some(value);
+        self
+    }
+
+    pub const fn with_xr_submit_time_ns(mut self, value: u64) -> Self {
+        self.xr_submit_time_ns = Some(value);
+        self
+    }
+
+    pub fn source_to_receive_latency_ns(&self) -> Option<u64> {
+        self.packet_receive_time_ns?
+            .checked_sub(self.source_capture_time_ns?)
+    }
+
+    pub fn receive_to_decode_latency_ns(&self) -> Option<u64> {
+        self.decode_done_time_ns?
+            .checked_sub(self.packet_receive_time_ns?)
+    }
+
+    pub fn decode_to_submit_latency_ns(&self) -> Option<u64> {
+        self.xr_submit_time_ns?
+            .checked_sub(self.decode_done_time_ns?)
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.session_id.trim().is_empty()
+            && !self.stream_id.trim().is_empty()
+            && ordered_optional_pair(self.encode_start_time_ns, self.encode_done_time_ns)
+            && ordered_optional_pair(self.packet_send_time_ns, self.packet_receive_time_ns)
+            && ordered_optional_pair(self.decode_start_time_ns, self.decode_done_time_ns)
+            && ordered_optional_pair(self.decode_done_time_ns, self.texture_import_time_ns)
+            && ordered_optional_pair(self.texture_import_time_ns, self.xr_submit_time_ns)
+            && ordered_optional_pair(self.xr_submit_time_ns, self.present_estimate_time_ns)
+    }
+}
+
+/// Network and jitter quality sample for a transport session or stream.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrokerNetworkQualitySample {
+    pub schema: String,
+    pub session_id: String,
+    pub stream_id: Option<String>,
+    pub measured_time_elapsed_ns: u64,
+    pub packet_loss_estimate01: Option<f32>,
+    pub late_packet_count: u64,
+    pub decode_gap_count: u64,
+    pub jitter_buffer_depth: u32,
+    pub target_latency_ms: Option<f32>,
+    pub actual_latency_ms: Option<f32>,
+    pub clock_sync_quality01: Option<f32>,
+}
+
+impl BrokerNetworkQualitySample {
+    pub fn new(session_id: impl Into<String>, measured_time_elapsed_ns: u64) -> Self {
+        Self {
+            schema: BROKER_NETWORK_QUALITY_SAMPLE_SCHEMA.to_string(),
+            session_id: session_id.into(),
+            stream_id: None,
+            measured_time_elapsed_ns,
+            packet_loss_estimate01: None,
+            late_packet_count: 0,
+            decode_gap_count: 0,
+            jitter_buffer_depth: 0,
+            target_latency_ms: None,
+            actual_latency_ms: None,
+            clock_sync_quality01: None,
+        }
+    }
+
+    pub fn with_stream_id(mut self, stream_id: impl Into<String>) -> Self {
+        self.stream_id = Some(stream_id.into());
+        self
+    }
+
+    pub fn with_packet_loss_estimate01(mut self, packet_loss_estimate01: f32) -> Self {
+        self.packet_loss_estimate01 = Some(packet_loss_estimate01);
+        self
+    }
+
+    pub fn with_target_latency_ms(mut self, target_latency_ms: f32) -> Self {
+        self.target_latency_ms = Some(target_latency_ms);
+        self
+    }
+
+    pub fn with_actual_latency_ms(mut self, actual_latency_ms: f32) -> Self {
+        self.actual_latency_ms = Some(actual_latency_ms);
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.session_id.trim().is_empty()
+            && self
+                .stream_id
+                .as_deref()
+                .map(|stream_id| !stream_id.trim().is_empty())
+                .unwrap_or(true)
+            && self
+                .packet_loss_estimate01
+                .map(valid_unit_interval)
+                .unwrap_or(true)
+            && self
+                .clock_sync_quality01
+                .map(valid_unit_interval)
+                .unwrap_or(true)
+            && self
+                .target_latency_ms
+                .map(|latency| latency.is_finite() && latency >= 0.0)
+                .unwrap_or(true)
+            && self
+                .actual_latency_ms
+                .map(|latency| latency.is_finite() && latency >= 0.0)
+                .unwrap_or(true)
+    }
+}
+
+/// Rusty XR-owned packet descriptor for diagnostic binary payloads.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerPacketDescriptor {
+    pub schema: String,
+    pub session_id: String,
+    pub stream_id: String,
+    pub sequence_number: u64,
+    pub payload_kind: BrokerPayloadKind,
+    pub payload_byte_len: u32,
+    pub key_frame: bool,
+    pub drop_reason: Option<BrokerPacketDropReason>,
+}
+
+impl BrokerPacketDescriptor {
+    pub fn new(
+        session_id: impl Into<String>,
+        stream_id: impl Into<String>,
+        sequence_number: u64,
+        payload_kind: BrokerPayloadKind,
+        payload_byte_len: u32,
+    ) -> Self {
+        Self {
+            schema: BROKER_PACKET_DESCRIPTOR_SCHEMA.to_string(),
+            session_id: session_id.into(),
+            stream_id: stream_id.into(),
+            sequence_number,
+            payload_kind,
+            payload_byte_len,
+            key_frame: false,
+            drop_reason: None,
+        }
+    }
+
+    pub const fn with_key_frame(mut self, key_frame: bool) -> Self {
+        self.key_frame = key_frame;
+        self
+    }
+
+    pub const fn with_drop_reason(mut self, drop_reason: BrokerPacketDropReason) -> Self {
+        self.drop_reason = Some(drop_reason);
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.session_id.trim().is_empty()
+            && !self.stream_id.trim().is_empty()
+            && self.payload_byte_len > 0
+    }
+}
+
+/// Parse or write failure for Rusty XR diagnostic binary video framing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BrokerDiagnosticVideoFormatError {
+    ShortHeader { expected: usize, actual: usize },
+    InvalidMagic { actual: [u8; 8] },
+    UnsupportedSchemaVersion(i64),
+    UnsupportedCodecId(i64),
+    UnsupportedCodec(BrokerCodecId),
+    InvalidDimensions { width: i64, height: i64 },
+    InvalidPacketCount(i64),
+    InvalidDeclaredPacketBytes(i64),
+    InvalidPayloadByteLen(i64),
+    InvalidFlags(u64),
+    InvalidTimestamp { field: &'static str, value: i128 },
+    DeclaredPacketBytesMismatch { declared: u32, actual: u32 },
+}
+
+/// Fixed Rusty XR-owned diagnostic video stream header.
+///
+/// This is a clean-room bounded diagnostic format used by public examples and
+/// tests. It is not a compatibility claim for any external low-latency SDK.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerDiagnosticVideoStreamHeader {
+    pub schema: String,
+    pub schema_version: u32,
+    pub codec: BrokerCodecId,
+    pub width: u32,
+    pub height: u32,
+    pub packet_count: u32,
+    pub declared_packet_bytes: Option<u32>,
+}
+
+impl BrokerDiagnosticVideoStreamHeader {
+    pub fn h264(width: u32, height: u32, packet_count: u32) -> Self {
+        Self {
+            schema: BROKER_DIAGNOSTIC_VIDEO_STREAM_SCHEMA.to_string(),
+            schema_version: BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION,
+            codec: BrokerCodecId::H264,
+            width,
+            height,
+            packet_count,
+            declared_packet_bytes: None,
+        }
+    }
+
+    pub const fn with_declared_packet_bytes(mut self, declared_packet_bytes: u32) -> Self {
+        self.declared_packet_bytes = Some(declared_packet_bytes);
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == BROKER_DIAGNOSTIC_VIDEO_STREAM_SCHEMA
+            && self.schema_version == BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION
+            && diagnostic_video_codec_wire_id(self.codec).is_some()
+            && self.width > 0
+            && self.width <= i32::MAX as u32
+            && self.height > 0
+            && self.height <= i32::MAX as u32
+            && (1..=BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_COUNT).contains(&self.packet_count)
+            && self
+                .declared_packet_bytes
+                .map(valid_diagnostic_packet_bytes)
+                .unwrap_or(true)
+    }
+
+    pub fn encode(
+        &self,
+    ) -> Result<[u8; BROKER_DIAGNOSTIC_VIDEO_HEADER_BYTES], BrokerDiagnosticVideoFormatError> {
+        self.validate_for_encode()?;
+
+        let mut bytes = [0u8; BROKER_DIAGNOSTIC_VIDEO_HEADER_BYTES];
+        bytes[..BROKER_DIAGNOSTIC_VIDEO_MAGIC.len()].copy_from_slice(BROKER_DIAGNOSTIC_VIDEO_MAGIC);
+        write_i32_be(
+            &mut bytes,
+            8,
+            BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION as i32,
+        );
+        write_i32_be(
+            &mut bytes,
+            12,
+            diagnostic_video_codec_wire_id(self.codec).unwrap_or_default() as i32,
+        );
+        write_i32_be(&mut bytes, 16, self.width as i32);
+        write_i32_be(&mut bytes, 20, self.height as i32);
+        write_i32_be(&mut bytes, 24, self.packet_count as i32);
+        write_i32_be(
+            &mut bytes,
+            28,
+            self.declared_packet_bytes.unwrap_or_default() as i32,
+        );
+        Ok(bytes)
+    }
+
+    pub fn parse(bytes: &[u8]) -> Result<Self, BrokerDiagnosticVideoFormatError> {
+        if bytes.len() < BROKER_DIAGNOSTIC_VIDEO_HEADER_BYTES {
+            return Err(BrokerDiagnosticVideoFormatError::ShortHeader {
+                expected: BROKER_DIAGNOSTIC_VIDEO_HEADER_BYTES,
+                actual: bytes.len(),
+            });
+        }
+
+        let mut magic = [0u8; 8];
+        magic.copy_from_slice(&bytes[..8]);
+        if &magic != BROKER_DIAGNOSTIC_VIDEO_MAGIC {
+            return Err(BrokerDiagnosticVideoFormatError::InvalidMagic { actual: magic });
+        }
+
+        let schema_version = read_i32_be(bytes, 8) as i64;
+        if schema_version != BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION as i64 {
+            return Err(BrokerDiagnosticVideoFormatError::UnsupportedSchemaVersion(
+                schema_version,
+            ));
+        }
+
+        let codec_id = read_i32_be(bytes, 12) as i64;
+        let codec = diagnostic_video_codec_from_wire_id(codec_id)?;
+        let width = read_i32_be(bytes, 16) as i64;
+        let height = read_i32_be(bytes, 20) as i64;
+        if width <= 0 || height <= 0 {
+            return Err(BrokerDiagnosticVideoFormatError::InvalidDimensions { width, height });
+        }
+
+        let packet_count = read_i32_be(bytes, 24) as i64;
+        if !(1..=BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_COUNT as i64).contains(&packet_count) {
+            return Err(BrokerDiagnosticVideoFormatError::InvalidPacketCount(
+                packet_count,
+            ));
+        }
+
+        let declared_packet_bytes = read_i32_be(bytes, 28) as i64;
+        if declared_packet_bytes < 0
+            || declared_packet_bytes > BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_BYTES as i64
+        {
+            return Err(
+                BrokerDiagnosticVideoFormatError::InvalidDeclaredPacketBytes(declared_packet_bytes),
+            );
+        }
+
+        Ok(Self {
+            schema: BROKER_DIAGNOSTIC_VIDEO_STREAM_SCHEMA.to_string(),
+            schema_version: schema_version as u32,
+            codec,
+            width: width as u32,
+            height: height as u32,
+            packet_count: packet_count as u32,
+            declared_packet_bytes: (declared_packet_bytes > 0)
+                .then_some(declared_packet_bytes as u32),
+        })
+    }
+
+    fn validate_for_encode(&self) -> Result<(), BrokerDiagnosticVideoFormatError> {
+        if self.schema_version != BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION {
+            return Err(BrokerDiagnosticVideoFormatError::UnsupportedSchemaVersion(
+                self.schema_version as i64,
+            ));
+        }
+        if diagnostic_video_codec_wire_id(self.codec).is_none() {
+            return Err(BrokerDiagnosticVideoFormatError::UnsupportedCodec(
+                self.codec,
+            ));
+        }
+        if self.width == 0
+            || self.width > i32::MAX as u32
+            || self.height == 0
+            || self.height > i32::MAX as u32
+        {
+            return Err(BrokerDiagnosticVideoFormatError::InvalidDimensions {
+                width: self.width as i64,
+                height: self.height as i64,
+            });
+        }
+        if !(1..=BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_COUNT).contains(&self.packet_count) {
+            return Err(BrokerDiagnosticVideoFormatError::InvalidPacketCount(
+                self.packet_count as i64,
+            ));
+        }
+        if let Some(declared_packet_bytes) = self.declared_packet_bytes {
+            if !valid_diagnostic_packet_bytes(declared_packet_bytes) {
+                return Err(
+                    BrokerDiagnosticVideoFormatError::InvalidDeclaredPacketBytes(
+                        declared_packet_bytes as i64,
+                    ),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Fixed Rusty XR-owned diagnostic video packet header.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerDiagnosticVideoPacketHeader {
+    pub pts_us: u64,
+    pub flags: u32,
+    pub payload_byte_len: u32,
+    pub source_time_elapsed_ns: u64,
+    pub source_time_unix_ns: u64,
+}
+
+impl BrokerDiagnosticVideoPacketHeader {
+    pub const fn new(pts_us: u64, payload_byte_len: u32) -> Self {
+        Self {
+            pts_us,
+            flags: 0,
+            payload_byte_len,
+            source_time_elapsed_ns: 0,
+            source_time_unix_ns: 0,
+        }
+    }
+
+    pub const fn with_key_frame(mut self, key_frame: bool) -> Self {
+        if key_frame {
+            self.flags |= BROKER_DIAGNOSTIC_VIDEO_PACKET_FLAG_KEY_FRAME;
+        } else {
+            self.flags &= !BROKER_DIAGNOSTIC_VIDEO_PACKET_FLAG_KEY_FRAME;
+        }
+        self
+    }
+
+    pub const fn with_codec_config(mut self, codec_config: bool) -> Self {
+        if codec_config {
+            self.flags |= BROKER_DIAGNOSTIC_VIDEO_PACKET_FLAG_CODEC_CONFIG;
+        } else {
+            self.flags &= !BROKER_DIAGNOSTIC_VIDEO_PACKET_FLAG_CODEC_CONFIG;
+        }
+        self
+    }
+
+    pub const fn with_source_times(
+        mut self,
+        source_time_elapsed_ns: u64,
+        source_time_unix_ns: u64,
+    ) -> Self {
+        self.source_time_elapsed_ns = source_time_elapsed_ns;
+        self.source_time_unix_ns = source_time_unix_ns;
+        self
+    }
+
+    pub const fn is_key_frame(&self) -> bool {
+        self.flags & BROKER_DIAGNOSTIC_VIDEO_PACKET_FLAG_KEY_FRAME != 0
+    }
+
+    pub const fn is_codec_config(&self) -> bool {
+        self.flags & BROKER_DIAGNOSTIC_VIDEO_PACKET_FLAG_CODEC_CONFIG != 0
+    }
+
+    pub fn is_valid(&self) -> bool {
+        valid_diagnostic_packet_bytes(self.payload_byte_len)
+            && self.pts_us <= i64::MAX as u64
+            && self.flags <= i32::MAX as u32
+            && self.source_time_elapsed_ns <= i64::MAX as u64
+            && self.source_time_unix_ns <= i64::MAX as u64
+    }
+
+    pub fn encode(
+        &self,
+    ) -> Result<[u8; BROKER_DIAGNOSTIC_VIDEO_PACKET_HEADER_BYTES], BrokerDiagnosticVideoFormatError>
+    {
+        self.validate_for_encode()?;
+
+        let mut bytes = [0u8; BROKER_DIAGNOSTIC_VIDEO_PACKET_HEADER_BYTES];
+        write_i64_be(&mut bytes, 0, self.pts_us as i64);
+        write_i32_be(&mut bytes, 8, self.flags as i32);
+        write_i32_be(&mut bytes, 12, self.payload_byte_len as i32);
+        write_i64_be(&mut bytes, 16, self.source_time_elapsed_ns as i64);
+        write_i64_be(&mut bytes, 24, self.source_time_unix_ns as i64);
+        Ok(bytes)
+    }
+
+    pub fn parse(bytes: &[u8]) -> Result<Self, BrokerDiagnosticVideoFormatError> {
+        if bytes.len() < BROKER_DIAGNOSTIC_VIDEO_PACKET_HEADER_BYTES {
+            return Err(BrokerDiagnosticVideoFormatError::ShortHeader {
+                expected: BROKER_DIAGNOSTIC_VIDEO_PACKET_HEADER_BYTES,
+                actual: bytes.len(),
+            });
+        }
+
+        let pts_us = read_non_negative_i64(bytes, 0, "pts_us")?;
+        let flags = read_i32_be(bytes, 8) as i64;
+        if flags < 0 {
+            return Err(BrokerDiagnosticVideoFormatError::InvalidFlags(flags as u64));
+        }
+
+        let payload_byte_len = read_i32_be(bytes, 12) as i64;
+        if !(1..=BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_BYTES as i64).contains(&payload_byte_len) {
+            return Err(BrokerDiagnosticVideoFormatError::InvalidPayloadByteLen(
+                payload_byte_len,
+            ));
+        }
+
+        Ok(Self {
+            pts_us,
+            flags: flags as u32,
+            payload_byte_len: payload_byte_len as u32,
+            source_time_elapsed_ns: read_non_negative_i64(bytes, 16, "source_time_elapsed_ns")?,
+            source_time_unix_ns: read_non_negative_i64(bytes, 24, "source_time_unix_ns")?,
+        })
+    }
+
+    pub fn parse_for_stream(
+        bytes: &[u8],
+        stream: &BrokerDiagnosticVideoStreamHeader,
+    ) -> Result<Self, BrokerDiagnosticVideoFormatError> {
+        let packet = Self::parse(bytes)?;
+        packet.validate_for_stream(stream)?;
+        Ok(packet)
+    }
+
+    pub fn validate_for_stream(
+        &self,
+        stream: &BrokerDiagnosticVideoStreamHeader,
+    ) -> Result<(), BrokerDiagnosticVideoFormatError> {
+        if let Some(declared) = stream.declared_packet_bytes {
+            if declared != self.payload_byte_len {
+                return Err(
+                    BrokerDiagnosticVideoFormatError::DeclaredPacketBytesMismatch {
+                        declared,
+                        actual: self.payload_byte_len,
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn to_h264_packet_descriptor(
+        &self,
+        session_id: impl Into<String>,
+        stream_id: impl Into<String>,
+        sequence_number: u64,
+    ) -> BrokerPacketDescriptor {
+        BrokerPacketDescriptor::new(
+            session_id,
+            stream_id,
+            sequence_number,
+            BrokerPayloadKind::H264,
+            self.payload_byte_len,
+        )
+        .with_key_frame(self.is_key_frame())
+    }
+
+    fn validate_for_encode(&self) -> Result<(), BrokerDiagnosticVideoFormatError> {
+        if !valid_diagnostic_packet_bytes(self.payload_byte_len) {
+            return Err(BrokerDiagnosticVideoFormatError::InvalidPayloadByteLen(
+                self.payload_byte_len as i64,
+            ));
+        }
+        if self.flags > i32::MAX as u32 {
+            return Err(BrokerDiagnosticVideoFormatError::InvalidFlags(
+                self.flags as u64,
+            ));
+        }
+        validate_i64_wire_timestamp("pts_us", self.pts_us)?;
+        validate_i64_wire_timestamp("source_time_elapsed_ns", self.source_time_elapsed_ns)?;
+        validate_i64_wire_timestamp("source_time_unix_ns", self.source_time_unix_ns)?;
+        Ok(())
     }
 }
 
@@ -998,8 +2029,104 @@ impl BrokerStatus {
     }
 }
 
+fn diagnostic_video_codec_wire_id(codec: BrokerCodecId) -> Option<u32> {
+    match codec {
+        BrokerCodecId::H264 => Some(BROKER_DIAGNOSTIC_VIDEO_CODEC_H264),
+        _ => None,
+    }
+}
+
+fn diagnostic_video_codec_from_wire_id(
+    codec_id: i64,
+) -> Result<BrokerCodecId, BrokerDiagnosticVideoFormatError> {
+    match codec_id {
+        value if value == BROKER_DIAGNOSTIC_VIDEO_CODEC_H264 as i64 => Ok(BrokerCodecId::H264),
+        _ => Err(BrokerDiagnosticVideoFormatError::UnsupportedCodecId(
+            codec_id,
+        )),
+    }
+}
+
+fn valid_diagnostic_packet_bytes(value: u32) -> bool {
+    (1..=BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_BYTES).contains(&value)
+}
+
+fn read_i32_be(bytes: &[u8], offset: usize) -> i32 {
+    i32::from_be_bytes([
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+    ])
+}
+
+fn read_i64_be(bytes: &[u8], offset: usize) -> i64 {
+    i64::from_be_bytes([
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+        bytes[offset + 4],
+        bytes[offset + 5],
+        bytes[offset + 6],
+        bytes[offset + 7],
+    ])
+}
+
+fn read_non_negative_i64(
+    bytes: &[u8],
+    offset: usize,
+    field: &'static str,
+) -> Result<u64, BrokerDiagnosticVideoFormatError> {
+    let value = read_i64_be(bytes, offset);
+    if value < 0 {
+        return Err(BrokerDiagnosticVideoFormatError::InvalidTimestamp {
+            field,
+            value: value as i128,
+        });
+    }
+    Ok(value as u64)
+}
+
+fn write_i32_be(bytes: &mut [u8], offset: usize, value: i32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
+}
+
+fn write_i64_be(bytes: &mut [u8], offset: usize, value: i64) {
+    bytes[offset..offset + 8].copy_from_slice(&value.to_be_bytes());
+}
+
+fn validate_i64_wire_timestamp(
+    field: &'static str,
+    value: u64,
+) -> Result<(), BrokerDiagnosticVideoFormatError> {
+    if value > i64::MAX as u64 {
+        return Err(BrokerDiagnosticVideoFormatError::InvalidTimestamp {
+            field,
+            value: value as i128,
+        });
+    }
+    Ok(())
+}
+
 fn valid_datagram_size(value: u32) -> bool {
     value > 0 && value <= MAX_UDP_DATAGRAM_BYTES
+}
+
+fn valid_unit_interval(value: f32) -> bool {
+    value.is_finite() && (0.0..=1.0).contains(&value)
+}
+
+fn ordered_optional_pair(earlier: Option<u64>, later: Option<u64>) -> bool {
+    later
+        .zip(earlier)
+        .map(|(later, earlier)| later >= earlier)
+        .unwrap_or(true)
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim().to_ascii_lowercase();
+    host == "localhost" || host == "::1" || host == "[::1]" || host.starts_with("127.")
 }
 
 #[cfg(test)]
@@ -1141,6 +2268,229 @@ mod tests {
     }
 
     #[test]
+    fn transport_session_offer_validates_streams_and_security() {
+        let stream = BrokerTransportStreamDescriptor::new(
+            "camera.left.h264",
+            BrokerStreamKind::Media,
+            BrokerPayloadKind::H264,
+            "video/h264",
+        )
+        .with_codec(BrokerCodecId::H264)
+        .with_reliability(BrokerReliabilityClass::LossTolerant)
+        .with_ordered(false)
+        .with_nominal_rate_hz(60.0)
+        .with_target_latency_ms(25.0)
+        .with_max_payload_bytes(64_000);
+        let offer = BrokerTransportSessionOffer::new("session-001", "client-1")
+            .with_transport(BrokerTransportKind::AdbForwardedTcp)
+            .with_stream(stream)
+            .with_security(
+                BrokerTransportSecurityPolicy::loopback_only()
+                    .with_capability_scope("camera_provider.start_app_camera_h264_stream"),
+            )
+            .with_target_latency_ms(35.0);
+
+        assert!(offer.is_valid());
+        assert_eq!(offer.schema, BROKER_TRANSPORT_SESSION_OFFER_SCHEMA);
+    }
+
+    #[test]
+    fn security_policy_gates_non_loopback_endpoints() {
+        let loopback = BrokerTransportEndpoint {
+            transport: BrokerTransportKind::Tcp,
+            host: Some("127.0.0.1".to_string()),
+            port: Some(8791),
+            path: None,
+            channel_id: None,
+            max_datagram_bytes: None,
+            auth_required: false,
+        };
+        let lan = BrokerTransportEndpoint {
+            host: Some("192.168.0.20".to_string()),
+            ..loopback.clone()
+        };
+        let loopback_only = BrokerTransportSecurityPolicy::loopback_only();
+        let paired = BrokerTransportSecurityPolicy::pairing_token(10_000);
+
+        assert!(loopback.is_loopback());
+        assert!(!lan.is_loopback());
+        assert!(loopback_only.allows_endpoint(&loopback));
+        assert!(!loopback_only.allows_endpoint(&lan));
+        assert!(paired.allows_endpoint(&lan));
+        assert!(paired.is_valid());
+    }
+
+    #[test]
+    fn transport_answer_requires_reason_when_rejected() {
+        let stream = BrokerTransportStreamDescriptor::new(
+            STREAM_SYNTHETIC_WAVE,
+            BrokerStreamKind::Synthetic,
+            BrokerPayloadKind::Json,
+            SYNTHETIC_WAVE_PAYLOAD_SCHEMA,
+        );
+        let accepted = BrokerTransportSessionAnswer::accepted(
+            "session-001",
+            BrokerTransportKind::AdbForwardedTcp,
+            BrokerTransportSecurityPolicy::loopback_only(),
+        )
+        .with_stream(stream);
+        let rejected = BrokerTransportSessionAnswer::rejected("session-002", "unsupported codec");
+
+        assert!(accepted.is_valid());
+        assert!(rejected.is_valid());
+        assert!(!BrokerTransportSessionAnswer::rejected("session-003", "").is_valid());
+    }
+
+    #[test]
+    fn media_sample_timing_reports_stage_latencies() {
+        let timing = BrokerMediaSampleTiming::new("session-001", "camera.left.h264", 7)
+            .with_source_capture_time_ns(1_000)
+            .with_packet_receive_time_ns(1_700)
+            .with_decode_done_time_ns(2_200)
+            .with_texture_import_time_ns(2_400)
+            .with_xr_submit_time_ns(2_900);
+
+        assert!(timing.is_valid());
+        assert_eq!(timing.source_to_receive_latency_ns(), Some(700));
+        assert_eq!(timing.receive_to_decode_latency_ns(), Some(500));
+        assert_eq!(timing.decode_to_submit_latency_ns(), Some(700));
+    }
+
+    #[test]
+    fn media_sample_timing_rejects_reversed_stage_order() {
+        let mut timing = BrokerMediaSampleTiming::new("session-001", "camera.left.h264", 7)
+            .with_packet_receive_time_ns(2_000);
+        timing.packet_send_time_ns = Some(3_000);
+
+        assert!(!timing.is_valid());
+    }
+
+    #[test]
+    fn network_quality_sample_validates_unit_ranges() {
+        let valid = BrokerNetworkQualitySample::new("session-001", 10_000)
+            .with_stream_id("camera.left.h264")
+            .with_packet_loss_estimate01(0.05)
+            .with_target_latency_ms(35.0)
+            .with_actual_latency_ms(42.5);
+        let invalid_loss =
+            BrokerNetworkQualitySample::new("session-001", 10_000).with_packet_loss_estimate01(1.5);
+
+        assert!(valid.is_valid());
+        assert!(!invalid_loss.is_valid());
+    }
+
+    #[test]
+    fn packet_descriptor_requires_payload_bytes() {
+        let packet = BrokerPacketDescriptor::new(
+            "session-001",
+            "camera.left.h264",
+            42,
+            BrokerPayloadKind::H264,
+            1200,
+        )
+        .with_key_frame(true);
+        let dropped = BrokerPacketDescriptor::new(
+            "session-001",
+            "camera.left.h264",
+            43,
+            BrokerPayloadKind::H264,
+            1,
+        )
+        .with_drop_reason(BrokerPacketDropReason::LatePacket);
+        let empty = BrokerPacketDescriptor::new(
+            "session-001",
+            "camera.left.h264",
+            44,
+            BrokerPayloadKind::H264,
+            0,
+        );
+
+        assert!(packet.is_valid());
+        assert!(dropped.is_valid());
+        assert!(!empty.is_valid());
+    }
+
+    #[test]
+    fn diagnostic_video_v2_headers_round_trip() {
+        let stream = BrokerDiagnosticVideoStreamHeader::h264(64, 64, 4);
+        let stream_bytes = stream.encode().expect("stream header should encode");
+
+        assert_eq!(&stream_bytes[..8], BROKER_DIAGNOSTIC_VIDEO_MAGIC);
+        assert_eq!(stream_bytes.len(), BROKER_DIAGNOSTIC_VIDEO_HEADER_BYTES);
+
+        let parsed_stream = BrokerDiagnosticVideoStreamHeader::parse(&stream_bytes)
+            .expect("stream header should parse");
+        assert_eq!(parsed_stream, stream);
+        assert!(parsed_stream.is_valid());
+
+        let packet = BrokerDiagnosticVideoPacketHeader::new(33_333, 96)
+            .with_key_frame(true)
+            .with_codec_config(true)
+            .with_source_times(1_000_000, 2_000_000);
+        let packet_bytes = packet.encode().expect("packet header should encode");
+        let parsed_packet =
+            BrokerDiagnosticVideoPacketHeader::parse_for_stream(&packet_bytes, &parsed_stream)
+                .expect("packet header should parse");
+
+        assert_eq!(parsed_packet, packet);
+        assert!(parsed_packet.is_key_frame());
+        assert!(parsed_packet.is_codec_config());
+        assert_eq!(
+            packet_bytes.len(),
+            BROKER_DIAGNOSTIC_VIDEO_PACKET_HEADER_BYTES
+        );
+
+        let descriptor =
+            parsed_packet.to_h264_packet_descriptor("session-001", "camera.left.h264", 7);
+        assert!(descriptor.is_valid());
+        assert_eq!(descriptor.payload_byte_len, 96);
+        assert!(descriptor.key_frame);
+    }
+
+    #[test]
+    fn diagnostic_video_v2_rejects_malformed_headers() {
+        let mut stream_bytes = BrokerDiagnosticVideoStreamHeader::h264(64, 64, 4)
+            .encode()
+            .expect("stream header should encode");
+        stream_bytes[0] = b'X';
+        assert!(matches!(
+            BrokerDiagnosticVideoStreamHeader::parse(&stream_bytes),
+            Err(BrokerDiagnosticVideoFormatError::InvalidMagic { .. })
+        ));
+
+        let mut unsupported_version = BrokerDiagnosticVideoStreamHeader::h264(64, 64, 4)
+            .encode()
+            .expect("stream header should encode");
+        write_i32_be(&mut unsupported_version, 8, 3);
+        assert_eq!(
+            BrokerDiagnosticVideoStreamHeader::parse(&unsupported_version),
+            Err(BrokerDiagnosticVideoFormatError::UnsupportedSchemaVersion(
+                3
+            ))
+        );
+
+        let fixed_size_stream =
+            BrokerDiagnosticVideoStreamHeader::h264(64, 64, 4).with_declared_packet_bytes(128);
+        let mismatch = BrokerDiagnosticVideoPacketHeader::new(0, 96)
+            .encode()
+            .expect("packet header should encode");
+        assert_eq!(
+            BrokerDiagnosticVideoPacketHeader::parse_for_stream(&mismatch, &fixed_size_stream),
+            Err(
+                BrokerDiagnosticVideoFormatError::DeclaredPacketBytesMismatch {
+                    declared: 128,
+                    actual: 96,
+                },
+            )
+        );
+
+        assert_eq!(
+            BrokerDiagnosticVideoPacketHeader::new(0, 0).encode(),
+            Err(BrokerDiagnosticVideoFormatError::InvalidPayloadByteLen(0))
+        );
+    }
+
+    #[test]
     fn command_and_ack_validate_required_ids() {
         let command = BrokerCommand::new("req-1", "client-1", "subscribe", Some("synthetic:wave"));
         let ack = BrokerCommandAck::accepted("req-1", Some("sub-1"));
@@ -1175,6 +2525,26 @@ mod tests {
             serde_json::from_str(&encoded).expect("manifest should deserialize");
 
         assert_eq!(decoded, manifest);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn transport_offer_round_trips_with_serde() {
+        let offer = BrokerTransportSessionOffer::new("session-001", "client-1")
+            .with_transport(BrokerTransportKind::AdbForwardedTcp)
+            .with_stream(BrokerTransportStreamDescriptor::new(
+                STREAM_SYNTHETIC_WAVE,
+                BrokerStreamKind::Synthetic,
+                BrokerPayloadKind::Json,
+                SYNTHETIC_WAVE_PAYLOAD_SCHEMA,
+            ));
+
+        let encoded = serde_json::to_string(&offer).expect("offer should serialize");
+        let decoded: BrokerTransportSessionOffer =
+            serde_json::from_str(&encoded).expect("offer should deserialize");
+
+        assert_eq!(decoded, offer);
+        assert!(decoded.is_valid());
     }
 
     #[cfg(feature = "serde")]

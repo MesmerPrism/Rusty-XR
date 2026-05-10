@@ -349,11 +349,24 @@ external texture for handoff telemetry, or decode into `ImageReader` `PRIVATE`
 hardware buffers that the existing Vulkan/OpenXR GPU-buffer path imports and
 draws into the submitted projection layer. The stereo live-bounded fixture
 accepts left/right stream sockets before capture, decodes arriving packets into
-paired hardware buffers, forwards intrinsics, pixel domains, lens pose, and pose
-source into native camera-frame metadata, and can validate the `gpu-projected`
-OpenXR stereo path. It is still a diagnostic profile; unbounded sessions,
-timestamp-based pairing under jitter, remote-device validation, and release
-performance remain future work.
+timestamp-nearest paired hardware buffers, forwards intrinsics, pixel domains,
+lens pose, and pose source into native camera-frame metadata, and can validate
+the `gpu-projected` OpenXR stereo path. It is still a diagnostic profile;
+unbounded sessions, remote-device validation, and release performance remain
+future work.
+
+The broker H.264 encoder path records the selected platform encoder,
+hardware/software status, size/rate and bitrate-mode support, requested/applied
+CBR mode, encoder output-format changes, SPS/PPS CSD as base64 manifest fields,
+sync-frame request status, codec-config packet counts, video packet counts, and
+Camera2 capture-start timestamps/frame numbers. Live-bounded streams decouple
+MediaCodec draining from TCP writes with a bounded writer queue, keeping
+codec-config packets and newer keyframes ahead of droppable non-keyframes while
+reporting queue depth, writer packet counts, and drop counters. Decoder probes
+and composite H.264 consumers request Android decoder low-latency mode
+separately from encoder latency hints. Codec-config packets are reported
+separately from real video packets so short bounded probes do not hide frame
+starvation behind SPS/PPS setup data.
 
 Build it locally with:
 
@@ -367,6 +380,18 @@ To enable broker-to-laptop LSL forwarding, supply a license-compliant Android
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1 -LslAndroidLibraryPath C:\path\to\liblsl.so
 ```
+
+For local machines that should always build the broker with native LSL enabled,
+set `RUSTY_XR_ANDROID_LIBLSL` to that same `liblsl.so` path. Use
+`-RequireNativeLsl` in validation or release-prep scripts so the build fails
+instead of silently producing an LSL-fallback APK:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1 -RequireNativeLsl
+```
+
+The build script checks `RUSTY_XR_ANDROID_LIBLSL` in the process, user, and
+machine environment scopes, in that order.
 
 Rusty XR does not vendor `liblsl.so` in this example. Without it, the broker
 still answers the localhost API, accepts samples, logs diagnostics, and can

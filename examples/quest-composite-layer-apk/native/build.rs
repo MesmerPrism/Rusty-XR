@@ -63,8 +63,25 @@ fn main() {
         &glslc,
         "fragment",
         Path::new("shaders/camera_projection.frag.glsl"),
+        &out_dir.join("camera_projection_fast.frag.spv"),
+        &["RUSTY_XR_CAMERA_PROJECTION_FAST_ONLY=1"],
+    );
+    compile_shader(
+        &glslc,
+        "fragment",
+        Path::new("shaders/camera_projection.frag.glsl"),
         &out_dir.join("camera_projection_separate_sampler.frag.spv"),
         &["RUSTY_XR_SEPARATE_CAMERA_SAMPLER=1"],
+    );
+    compile_shader(
+        &glslc,
+        "fragment",
+        Path::new("shaders/camera_projection.frag.glsl"),
+        &out_dir.join("camera_projection_fast_separate_sampler.frag.spv"),
+        &[
+            "RUSTY_XR_SEPARATE_CAMERA_SAMPLER=1",
+            "RUSTY_XR_CAMERA_PROJECTION_FAST_ONLY=1",
+        ],
     );
     compile_shader(
         &glslc,

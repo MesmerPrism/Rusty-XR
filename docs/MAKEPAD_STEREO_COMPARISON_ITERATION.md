@@ -58,35 +58,22 @@ launcher / generated-XR activity gate.
 
 ## Current Slice
 
-The current slice is S29, the no-debug-overlay visual gate after S28 proved
-that removing the extra color conversion was not by itself enough to make adb
-screen capture show camera pixels. S14 cleared the active-presentation blocker
-for the Makepad launcher path, S15 confirmed the custom Rusty XR baseline is
-visibly rendering proper stereo camera projection even though the current sample
-is performance-degraded, and S16 bound the paired Makepad `VideoExternal`
-camera textures to persistent XR scene geometry with per-eye source selection.
-S17-S20 then removed the synthetic fallback scene and proved a scene-owned
-Makepad `DrawCube` diagnostic panel is visibly rendering. S21/S22 showed that
-the custom shader and the stock native `Video` widget surface were not enough to
-show camera pixels. S23/S24 isolated the `Video` widget source assignment and
-cleanup state. S25 tested a Makepad Android cleanup-completion patch, but it
-reintroduced the app-process GPU page-fault class once the native `Video`
-widget route proceeded, so that fork patch has been reverted and the native
-widget diagnostic is disabled. S26 restored the manual `VideoExternal` route:
-after scene access was granted, the launcher path reached the generated XR
-activity, retained paired import/projection/cadence markers, stayed app-fault
-clean, and screenshot inspection showed the scene-owned cyan diagnostic panel.
-S27 turned off the solid diagnostic and sampled the imported texture path, but
-inspection still showed the cyan/guide pattern. Comparison with Makepad's stock
-`Video` shader showed one concrete issue: `sample_video()` already returns
-display color for the current external-texture path, while the Rusty XR panel
-was treating that RGB sample as YUV and converting it again. S28 changed the
-shader to use `sample_video()` color directly, but the captured image still
-showed the cyan/guide pattern. S29 then disabled the alignment guide overlay by
-default, so the forced white guide rectangles are no longer part of the visual
-gate. The remaining blocker is now the external texture visibility path in the
-custom scene-owned shader, not activity launch, XR presentation, Camera2
-acquisition, paired import, or basic scene ownership:
+The current slice is S48, a direct camera Y-plane sampler control for the
+scene-owned Makepad camera panel. S14 cleared the active-presentation blocker
+for the Makepad launcher path, S16-S20 proved scene-owned geometry, S26
+restored the manual `VideoExternal` import route, S33 isolated the app-owned
+panel from native compositor passthrough ambiguity, S36 fixed the generated-XR
+activity handoff, and S40 proved that shader edits can change the visible
+panel from stale proof colors to a neutral guide state. S41-S45 then moved the
+blocker below Camera2 acquisition: CPU-side Y/U/V plane content is present,
+active OpenXR cadence is present, the same result holds with gain-boosted
+Y-plane sampling, synthetic R8 texture controls, all-slot texture controls,
+and a marker-selected constant-gray bypass. S46 then proved the visible panel
+does execute edited shader code when the fragment path returns before any
+texture sampling. S47 then proved a generated R8 texture bound through the same
+panel slot can be sampled visibly as a checker pattern. The next split disables
+the generated replacement and samples only the real Makepad camera Y plane,
+still before any `sample_video()` or YUV conversion work:
 
 - keep the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging` as the Android app-shell dependency
@@ -102,7 +89,7 @@ acquisition, paired import, or basic scene ownership:
   samples, and treat visual confirmation as a separate gate from marker success
 - keep environment depth optional/non-fatal in the maintained Makepad fork so a
   depth-policy failure cannot block passthrough/projection startup
-- kept the small `AHardwareBuffer` warning class visible as a separate counter
+- keep the small `AHardwareBuffer` warning class visible as a separate counter
   from app-process GPU page-fault and fatal signatures
 - use passive awake/proximity readback before and after samples; do not issue a
   new proximity-control command during comparison captures unless an operator
@@ -110,28 +97,12 @@ acquisition, paired import, or basic scene ownership:
 
 The same counters remain valid for comparison runs: app-process GPU page-faults,
 fatal signatures, small hardware-buffer warnings, runtime cadence,
-camera/source progression, CPU upload count, and projection-ready flags. S15
-added the key visual distinction that the custom path had proper visible stereo
-while Makepad was still synthetic-only. S16 flipped the Makepad marker set to
-`pairedLeftRightGpuBuffers=true`, `alignedProjection=true`, and
-`visibleCameraProjectionReady=true`, but visual inspection reclassified it as a
-marker-only pass because the debug geometry was still visible. S17-S20 kept the
-markers true, removed the debug scene, moved the panel under an `XrNode`, and
-proved a normal Makepad draw primitive is visible from that panel position. S21
-and S22 showed that neither the earlier custom shader correction nor a stock
-`Video` widget surface was enough. S23's headset-camera permission option
-remains in the fork because it is general and did not correlate with faults.
-S25's cleanup completion patch is not retained because it correlated with
-app-process GPU page faults and premature surface-free lines in the native
-`Video` widget route. S26 restored an app-fault-clean launcher run and proved
-the scene-owned panel is visible again. S27 turned off the solid diagnostic and
-kept the run app-fault clean, but visual inspection stayed cyan/guide. S28 used
-the sampled color directly and stayed app-fault clean, but the cyan capture
-persisted. S29 removed the alignment guide overlay and kept
-`debugAlignmentGuide=false` in the markers. The next split should decide
-whether the cyan result is a capture/privacy artifact or a texture sampling /
-binding issue in the custom shader. This slice does not add broker streaming,
-private visual-effect policy, or downstream effect acceptance.
+camera/source progression, CPU upload count, projection-ready flags, and
+visual-classification evidence. The current camera-streaming proof remains
+open because the app-owned panel is visible and non-occluded, shader edits are
+live, and generated texture-slot sampling now has a positive proof. Real camera
+plane sampling is the next acceptance gate. This slice does not add broker
+streaming, private visual-effect policy, or downstream effect acceptance.
 
 Device validation now uses two log windows:
 
@@ -407,6 +378,24 @@ control path: one S29 direct launch briefly opened the generated activity, then
 Horizon OS rebuilt the normal Makepad activity as a volumetric surface. The
 launcher path remains the authoritative active-XR visual gate.
 
+S30 corrected the custom Rusty XR comparison baseline after a degraded live
+sample used the default `camera-stereo-gpu-composite` 0.75 render-scale profile.
+That default profile is useful for visual geometry/color comparison, but recent
+device runs show it can fall into stale-frame and slice-tear-heavy performance.
+The documented performance comparison baseline is
+`camera-stereo-gpu-composite-performance-065`: it keeps the same stereo
+projection, border, source-eye mapping, and `external-rgb` sampler assumptions,
+while lowering only the OpenXR render scale. A fresh harness run with
+proximity-hold changes disabled and the previous VR foreground app stopped
+focused the custom composite activity, showed visible in-headset stereo camera
+projection, reached `observedOpenXrFps=70.7` against a 72Hz target with
+`activeDisplayRefreshHz=72.0`, and retained paired/aligned GPU projection with
+`cpuUploadCount=0`, `gpuImportFailure=0`, and no app-process fatal or GPU-fault
+signatures. The last stereo-pair marker reported about 29Hz paired camera
+progression with zero drops. The run remains a warning baseline, not a clean
+release pass, because the log retained sleep/wake warning signals and a small
+number of compositor slice-tear warnings.
+
 ## Attempt Ledger
 
 | Attempt | Slice | Validation | Result | Next |
@@ -441,6 +430,33 @@ launcher path remains the authoritative active-XR visual gate.
 | S27 | Live `VideoExternal` texture sampling | Source toggle, host validation, APK rebuild, clean install, launcher smoke, liveness window, and screenshot inspection | Partial. The run stayed active-XR and app-fault clean with paired prepared/update markers retained, but headset inspection still showed the cyan/guide panel. Makepad's stock `Video` shader showed the likely cause: the panel double-converted `sample_video()` output as YUV even though the external-texture path already returns display color. | S28: use `sample_video()` color directly, then rerun the launcher visual gate |
 | S28 | Direct `sample_video()` color path | Source patch, host validation, APK rebuild, launcher smoke, and screenshot inspection | Partial. The panel now samples `sample_video()` color directly instead of applying a YUV conversion to the returned sample, and the run stayed app-fault clean with paired prepared/update markers. Screenshot inspection still showed the cyan/guide pattern, so double-conversion was not the only visual blocker. | S29: disable the alignment guide overlay and mark the no-guide shader path explicitly |
 | S29 | No-debug-overlay visual gate | Source patch, host validation, APK rebuild, in-place install, direct generated-XR control smoke, launcher-path smoke, marker/fault counters, and screenshot inspection | Partial. The forced alignment guide is now disabled by default and markers report `debugAlignmentGuide=false`. The direct generated-XR launch split again into a non-authoritative volumetric/normal-activity state, while the launcher path reached the generated XR activity, retained paired prepared/update and visible-panel markers, and had zero app-process GPU page-fault and fatal counters. Screenshot inspection no longer shows the white guide rectangles but still shows the cyan external-texture placeholder/capture result. | Isolate whether the cyan result is an adb capture limitation/protected camera-content artifact or a custom-shader texture sampling/binding issue; keep no-debug-overlay as the default visual gate |
+| S30 | Custom baseline correction to 0.65 performance profile | Stopped foreground-conflicting VR apps, ran the Quest camera-profile harness with `camera-stereo-gpu-composite-performance-065`, `-SkipProximityHold`, a 35s warm-up, screenshot capture, logcat validation, and power-state summary | Passed as the current custom performance baseline, with warning status. The focused custom activity showed visible stereo camera projection, `activeTier=gpu-projected`, `alignedProjection=true`, `pairedLeftRightGpuBuffers=true`, `cpuUploadCount=0`, `gpuImportFailure=0`, no app-process fatal/GPU-fault signatures, `observedOpenXrFps=70.7` against 72Hz, and about 29Hz paired camera progression with zero drops. Warning status came from retained sleep/wake and small compositor slice-tear signals. | Use the 0.65 custom profile, not the default 0.75 profile, for the next fair Makepad-vs-custom performance comparison unless explicitly testing render-scale headroom |
+| S31 | Downstream source-provenance target correction | Rebuilt a downstream Vulkan Camera2 target from a clean source-lineage worktree and validated it on-device after an operator camera-permission grant. The run used the generated XR activity route, render scale `0.75`, capture/export disabled, and explicit device performance props `debug.oculus.cpuLevel=4` / `debug.oculus.gpuLevel=4`. | Passed as a target-candidate correction, not as an unattended launcher pass. The headset visual inspection accepted the downstream target's stereo camera projection and performance. Parsed VrApi evidence for the accepted post-grant capture showed `72/72` to `73/72`, `Stale=0`, `SF=0.75`, and `GPU%` about `0.46..0.51` with average `0.4868`; app-process fatal and GPU-fault counts were zero. Small bounded `Tear` counters were present in that post-grant window and should stay visible in future comparisons. | Future Makepad-vs-custom performance comparisons must capture or normalize device CPU/GPU performance levels. The current leading performance hypothesis is GPU saturation: the accepted downstream target sits near 50% GPU usage, while stale/tear-heavy custom samples can approach full GPU utilization. |
+| S32 | Controlled level-4 parity batch | Same-session custom Rusty XR profile sample and Makepad launcher-path sample with explicit device CPU/GPU level `4` / `4`, foveation props captured, foreground-conflicting VR apps stopped, startup/liveness logs, screenshots, and shared scorecard parsing. | Reclassified after operator visual review. The custom Rusty XR sample remains valid visible stereo camera projection and reached 72Hz with no app-process fatal/GPU-fault counters, but still sat near GPU saturation. The Makepad sample reached the generated XR activity, retained paired/projection markers, showed 90Hz `VrApi` with low GPU use, zero app-process fatal/GPU-fault counters, and the small hardware-buffer warning class remained bounded. However the visible room image was compositor passthrough, not proof of app-owned custom camera projection, and the app-owned blue/cyan panel was low in the view instead of aligned as the headset projection target. Therefore the Makepad half of S32 is app/fault/cadence evidence only, not projection parity. | S33: make the Makepad visual gate unambiguous by disabling or masking compositor passthrough, drawing an app-owned non-passthrough background, placing the camera panel in an eye-aligned position, and requiring the custom panel content itself to be visibly accepted before any performance comparison. |
+| S33 | App-owned visual isolation gate | Source patch, host validation, release APK build, clean install, launcher-path 90s capture, screenshot inspection, and marker/fault counters. | Partial but useful. The corrected run installed cleanly, focused the generated XR activity through the launcher path, reached the split-proof marker path, stayed app-fault clean, and kept CPU/GPU device props at `4` / `4`. The screenshot reclassified the visual state again: the panel is now clearly app-owned and better aligned, but it still renders solid cyan/magenta proof halves rather than camera pixels. This proves the previous failure was not only passthrough ambiguity; the remaining visible-projection blocker is Makepad camera texture sampling/binding. | S34: bind and sample Makepad's Y/U/V camera plane textures directly for a visual proof path. Treat this as a camera-pixel proof, not final zero-copy performance parity, until the Vulkan YUV-plane import path is wired. |
+| S34 | YUV-plane camera-pixel proof | Source patch, host validation, release APK build, clean install, launcher-path 90s capture, screenshot inspection, and marker/fault counters. | Partial and reclassified. The app stayed focused and app-fault clean, and right-side CPU YUV texture-update markers streamed repeatedly, but no left-side prepared/update marker completed, no YUV-ready marker reached the app-level handler, and the visible panel still showed cyan/magenta proof colors rather than camera pixels. The operator also identified an unwanted real-world occlusion/depth-clip class in one screenshot: room geometry could cover the app-owned panel. That occlusion is not desired for the camera-streaming proof and is now tracked separately from passthrough visibility and camera-pixel ownership. | S35: keep environment/depth clipping disabled for the proof panel, add raw YUV-ready/prepared/update id markers, and allow a single updating CPU YUV camera stream to bind into both panel halves as a camera-pixel proof before returning to paired stereo ownership. |
+| S35 | Depth-clip-off single-stream YUV proof | Source patch, host validation, release APK build, clean install, launcher-path run, direct generated-XR control run, screenshot inspection, and marker/fault counters. | Partial and reclassified. The source-side depth-clip mitigation is still correct, and the unwanted real-world occlusion class was not present in the S35 screenshots. However neither device route produced a valid camera-pixel proof: the generated XR activity briefly appeared, then the app switched back to the normal activity surface. The headset view showed a volumetric environment with a black normal-activity panel, `XrUpdate` stayed at `0`, and no YUV-ready/raw-video/bind markers appeared. The cadence loop still ran and one camera stream updated around 50Hz, with zero app-process fatal/GPU-fault counters and CPU/GPU device levels recorded at `4` / `4`. | S36: fix the Makepad activity handoff so `xr_start_presenting()` cannot bounce from the generated XR activity back to the normal activity. Keep the depth-clip-off rule and rerun the same single-stream YUV proof gate only after active XR presentation is confirmed. |
+| S36 | Explicit XR activity handoff | Makepad fork patch, Rusty XR lock update, generated Java/manifest inspection, release APK rebuild, clean install, launcher-path run, direct generated-XR control run, screenshot inspection, and marker/fault counters. | Passed for activity handoff, failed for camera-pixel visual proof. Both routes stayed in active XR presentation with `XrUpdate`/draw cadence near 90Hz, emitted YUV-ready/prepared/update plus single-stream-proof and visible-panel-bound markers, and kept app-process GPU-fault/fatal counters at zero. The unwanted real-world occlusion/depth-clip class remained off. Visual inspection still showed the blue/red app-owned proof panel rather than camera pixels, and cadence showed only the right camera stream updating at about 50Hz while the left stream stayed at zero. The small hardware-buffer warning class remained visible and bounded. | S37: patch the custom panel binding path to update/redraw draw vars in the same style as Makepad's `Video` widget, keep the activity handoff fork state, and rerun the launcher/direct visual proof gate before returning to paired buffer ownership. |
+| S37 | Draw-vars camera texture bind proof | Source patch, host validation, release APK build, clean install, launcher-path run, direct generated-XR control run, screenshot inspection, and marker/fault counters. | Failed as a camera-pixel proof while keeping the system stable. The new `draw-vars-bound` marker appeared in both routes and app-process GPU-fault/fatal counters stayed zero, so the app is receiving the event and executing the post-bind path. Visual inspection still showed the blue/red app-owned proof panel, with no depth/environment occlusion. The logs also exposed a bookkeeping issue: both YUV texture handles can be ready while only one side has update events, causing the bind marker to under-report the single-stream fallback. | S38: bind the actually updating YUV stream into both panel halves for the visual proof and remove proof-color tint while camera-ready, so empty texture sampling shows as black and real camera sampling shows as camera pixels. |
+| S38 | Updated-stream no-tint YUV proof | Source patch, host validation, release APK build, clean install, launcher-path run, screenshot inspection, and marker/fault counters. | Failed as a camera-pixel proof while staying app-fault clean. The bind path preferred the actually updating camera stream and reported `proofTintStrength=0.0`, but the visible panel still showed blue/red proof colors. That reclassified the blocker away from stream selection alone and toward shader-area state or waiting/default visual state. The unwanted real-world depth/environment occlusion class stayed off, and the small hardware-buffer warning class remained bounded. | S39: force the camera-ready/YUV/proof-tint values onto the active draw area as well as the Rust-side live fields, then rerun the visual gate. |
+| S39 | Shader-area state proof | Source patch, host validation, release APK build, clean install, launcher-path run, screenshot inspection, and marker/fault counters. | Failed as a camera-pixel proof while further narrowing the fault. The `shaderAreaStateUpdate=true` marker appeared and counters stayed stable, but the visible panel still showed blue/red proof colors. This made the remaining ambiguity the panel's waiting/default color path versus actual texture sampling. | S40: make the waiting/default state neutral black, set the panel default to camera-ready, keep depth clipping off, and rerun both launcher and direct generated-XR routes. |
+| S40 | Neutral-wait texture-content proof | Source patch, host validation, release APK build, clean install, launcher-path run, direct generated-XR control run, screenshot inspection, and marker/fault counters. | Decisive partial. Both routes stayed in active XR, emitted the same YUV-ready/prepared/update, draw-vars-bound, shader-area-state, single-stream-proof, and visible-panel markers, kept app-process GPU-fault/fatal counters at zero, and kept the small hardware-buffer warning class bounded. The app-owned panel changed from blue/red to neutral black with the expected guide border, proving the shader edits and active draw state are taking effect. The unwanted real-world depth/environment occlusion class remained off. Camera pixels still did not appear, so the remaining blocker is texture sampling/content in the Makepad YUV texture path, not passthrough ambiguity, depth occlusion, activity handoff, or stale proof-color state. | S41: inspect the Makepad `Video` YUV texture path against the custom panel sampler, then add a narrow texture-content proof that distinguishes empty/black texture content from wrong sampler/format binding before resuming paired left/right projection parity. |
+| S41 | Y-plane texture-content proof | Source patch, host validation, release APK build, clean install, permission-state correction, launcher-path active-XR rerun, screenshot inspection, and marker/fault counters. | Partial. The first rerun was invalid for visual judgment because scene access was not restored and app-level `XrUpdate` cadence stayed at zero. The corrected launcher-path rerun restored scene/camera grants, reached active OpenXR presentation, emitted nonzero app/`XrUpdate`/draw cadence near runtime rate, and reported bounded texture-content probes with nonzero CPU-side Y/U/V plane content. App-process GPU-fault/fatal counters stayed zero and the small hardware-buffer warning class remained visible. The panel still rendered black inside the guide, so CPU-visible camera content is present but the custom panel sampler has not visually proven it. | S42: boost Y-plane luma in the shader so a dark-room camera frame cannot be mistaken for a zero GPU sample. |
+| S42 | Gain-boosted Y-plane visual proof | Source patch, host validation, release APK build, clean install, active-XR launcher run, screenshot inspection, and marker/fault counters. | Failed as a camera-pixel proof while staying stable. The run retained active OpenXR cadence, texture-content probes, nonzero CPU-side plane content, and no app-process GPU-fault/fatal lines. The visible panel stayed black inside the guide even with gain-boosted luma sampling, making normal dark exposure an unlikely explanation. | S43: bind a generated non-camera R8 texture into the Y-plane slot as a positive sampler/slot control. |
+| S43 | Synthetic R8 Y-slot control | Source patch, host validation, release APK build, clean install, active-XR launcher run, screenshot inspection, and marker/fault counters. | Failed as a sampler-slot proof while staying stable. The generated R8 control texture was created and bound into the camera-panel Y-plane path, markers stayed active, CPU-side camera content remained nonzero, and app-process GPU-fault/fatal counters stayed zero. The panel still rendered black inside the guide. | S44: bind the generated R8 control texture across all panel texture slots to distinguish a named-slot mismatch from a broader texture sampling/panel path issue. |
+| S44 | Synthetic all-slot texture control | Source patch, host validation, release APK build, clean install, active-XR launcher run, screenshot inspection, and marker/fault counters. | Failed as an all-slot texture proof while staying stable. Binding the same generated R8 control across the panel texture slots did not change the visible black panel. Active OpenXR cadence, startup markers, visible-panel markers, and fault counters remained healthy, and the small hardware-buffer warning class stayed visible. | S45: bypass texture sampling entirely with a marker-selected constant shader color to decide whether the visible panel is executing that shader branch. |
+| S45 | Constant shader bypass control | Source patch, host validation, release APK build, clean install, active-XR launcher run, screenshot inspection, and marker/fault counters. | Partial and decisive for the next split. The marker path reported the constant-bypass branch and the app remained active-XR, app-fault clean, and camera-texture-updated. Visual inspection still showed the same black panel inside the guide instead of the expected constant color. This moves the immediate blocker from camera content or texture slots to live shader-branch / visible-panel path verification. | S46: make the panel fragment output unconditional and visually obvious, then rerun. If that still stays black, trace the visible draw path instead of adding more texture diagnostics. |
+| S46 | Unconditional shader-output control | Source patch, host validation, clean release APK rebuild with APK string check, clean install, active-XR launcher run, screenshot inspection, and marker/fault counters. | Passed as a shader-path control. The rebuilt APK contained the S46 marker strings and no S45 constant-bypass strings. The launcher path retained active OpenXR cadence, camera texture-update markers, zero app-process GPU-fault/fatal counters, and the separate small hardware-buffer warning class. The app-owned panel turned green with the expected guide overlay, proving the visible panel executes the edited shader body when the shader returns before texture sampling. S45 was therefore not a true texture-free bypass because texture sampling occurred before its branch. | S47: sample only a generated R8 texture in the shader, with no `sample_video()` or YUV pre-sampling, to isolate texture-slot binding from camera data and external-video sampling. |
+| S47 | Direct generated-R8 texture sample | Source patch, host validation, clean release APK rebuild with APK string check, clean install, active-XR launcher run, screenshot inspection, and marker/fault counters. | Passed as a texture-slot control. The launcher path retained active OpenXR cadence, camera update markers, zero app-process GPU-fault/fatal counters, and the separate small hardware-buffer warning class. The panel visibly sampled the generated R8 texture as a checker pattern through `left_tex_y`, proving that the scene-owned shader can sample a normal `texture_2d(float)` slot when the shader returns before external-video and YUV pre-sampling. | S48: disable the generated replacement and sample only the real Makepad camera Y plane through the same direct shader path. |
+| S48 | Direct camera Y-plane texture sample | Source patch, host validation, clean release APK rebuild with APK string check. | Device gate pending. The source and APK are ready, and the APK contains the direct camera-Y marker path while the S47 generated-R8 marker path is absent. The planned device run could not start because no Quest ADB target was enumerated after the build; an ADB server restart and Wi-Fi ADB connect attempt did not restore a device. | When a Quest ADB target reappears, clean-install the S48 APK, pregrant the active-XR permission set, and run the launcher screenshot/counter gate. |
+
+Operator visual note carried forward from S34/S35: the previous occlusion screenshot
+showed real-world geometry masking the app-owned colored panel, while the
+current S40 APK state does not. The current non-occluded state is preferred for the
+camera-streaming proof because it avoids confusing runtime depth/environment
+masking with app-owned camera pixels. If this occlusion class returns, treat it
+as a separate regression in depth-clip/environment-depth state, not as evidence
+for or against Camera2 acquisition.
 
 ## Validation Rule
 
@@ -456,6 +472,11 @@ state as a preflight condition. One S7 validation sequence coincided with the
 device moving back toward standby after a Horizon OS display-event-receiver
 failure and service restart. If this recurs, record the immediately preceding
 adb action separately from app-level marker results.
+For performance comparisons, also record `debug.oculus.cpuLevel` and
+`debug.oculus.gpuLevel` before launch and in the final artifact summary. A
+Makepad-vs-custom result is only comparable if both sides use the same declared
+device performance levels, or if the levels are intentionally varied as a test
+axis.
 If the operator has already set a keep-awake hold, comparison harnesses should
 prefer passive readback and skip their own timed proximity hold to avoid
 competing state transitions.
@@ -464,6 +485,20 @@ each run, comparing the post-proximity-hold snapshot to the final capture. By
 default this is a warning so existing smoke workflows keep producing artifacts;
 unattended comparison jobs can opt into a hard stop with
 `-FailOnPowerStateDrift`.
+
+For visual gates, classify headset imagery into three separate buckets:
+native compositor passthrough behind the projection layer, app-owned panel
+content, and environment-depth/depth-clip occlusion of app geometry. The current
+camera-streaming proof should keep the app panel's depth clipping disabled so
+room geometry cannot cover the diagnostic panel and masquerade as camera
+alignment behavior.
+The occlusion bucket is intentionally independent of camera ownership: a
+headset screenshot where room geometry covers the app-owned panel is evidence
+that a runtime depth/depth-clip path is active, not evidence that the app is
+sampling raw camera pixels. For the current camera-streaming proof, that
+occlusion should remain off. The live comparison state after S35 is therefore
+directionally better for camera-streaming isolation even though camera pixels
+are not yet proven.
 
 Follow-up inspection of the invalid S8 custom 0.75 run found no retained
 `automation_disable`, `prox_close`, or `setVirtualProxState` command lines in

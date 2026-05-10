@@ -6,6 +6,7 @@ import android.hardware.HardwareBuffer;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.opengl.EGL14;
 import android.opengl.EGLConfig;
@@ -15,6 +16,7 @@ import android.opengl.EGLSurface;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.Base64;
 import android.util.Log;
@@ -53,9 +55,13 @@ final class BrokerH264ConsumerProbe implements Runnable {
     private static final String DECODE_OUTPUT_HARDWARE_BUFFER = "hardware-buffer";
     private static final String SOURCE_MODE_BROKER_CAMERA = "broker-camera";
     private static final String SOURCE_MODE_EXISTING_STREAM = "existing-stream";
+    private static final String STEREO_PAIRING_TIMESTAMP_NEAREST = "timestamp-nearest";
+    private static final String STEREO_PAIRING_FRAME_ORDER = "frame-order";
     private static final long STEREO_REPLAY_DELIVERY_INTERVAL_NS = 33_333_333L;
     private static final long STEREO_REPLAY_DELIVERY_MAX_SLEEP_MS = 50L;
-    private static final int LIVE_STEREO_PENDING_QUEUE_LIMIT = 4;
+    private static final long STEREO_PAIR_MAX_DELTA_NS = 25_000_000L;
+    private static final int DEFAULT_LIVE_STEREO_PENDING_QUEUE_LIMIT = 8;
+    private static final int MAX_LIVE_STEREO_PENDING_QUEUE_LIMIT = 16;
     private static final int MAX_PACKET_BYTES = 1024 * 1024;
     private static final int MAX_STREAM_PACKETS = 2400;
     private static final int DEQUEUE_TIMEOUT_US = 10000;
@@ -90,6 +96,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final boolean startBrokerCameraStream;
         final boolean liveDecode;
         final boolean byteIdentityProbe;
+        final String stereoPairingMode;
+        final int liveStereoPendingQueueLimit;
 
         Config(
             String brokerHost,
@@ -112,7 +120,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
             boolean liveStream,
             String sourceMode,
             boolean liveDecode,
-            boolean byteIdentityProbe) {
+            boolean byteIdentityProbe,
+            String stereoPairingMode,
+            int liveStereoPendingQueueLimit) {
             this.brokerHost = brokerHost;
             this.brokerPort = brokerPort;
             this.streamPort = streamPort;
@@ -136,6 +146,11 @@ final class BrokerH264ConsumerProbe implements Runnable {
             this.startBrokerCameraStream = SOURCE_MODE_BROKER_CAMERA.equals(this.sourceMode);
             this.liveDecode = liveDecode;
             this.byteIdentityProbe = byteIdentityProbe;
+            this.stereoPairingMode = normalizeStereoPairingMode(stereoPairingMode);
+            this.liveStereoPendingQueueLimit = clampInt(
+                liveStereoPendingQueueLimit,
+                2,
+                MAX_LIVE_STEREO_PENDING_QUEUE_LIMIT);
         }
     }
 
@@ -236,6 +251,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("decode_output_mode", config.decodeOutputMode);
             report.put("live_decode_requested", config.liveDecode);
             report.put("byte_identity_probe_requested", config.byteIdentityProbe);
+            report.put("stereo_pairing_mode_requested", config.stereoPairingMode);
+            report.put("stereo_live_pending_queue_limit", config.liveStereoPendingQueueLimit);
             report.put(
                 "decode_surface_target_requested",
                 DECODE_OUTPUT_SURFACE_TEXTURE.equals(config.decodeOutputMode));
@@ -290,7 +307,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
     }
 
     private void runStereoProbe(JSONObject report, long startedElapsedNs) throws Exception {
-        report.put("stereo_pairing_mode", "decoded-frame-index");
+        report.put("stereo_pairing_mode", "timestamp-nearest");
+        report.put("stereo_pair_max_delta_target_ns", STEREO_PAIR_MAX_DELTA_NS);
         if (!DECODE_OUTPUT_HARDWARE_BUFFER.equals(config.decodeOutputMode)) {
             throw new IllegalStateException("Broker H.264 stereo probe requires hardware-buffer decode output.");
         }
@@ -353,6 +371,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("stereo_pair_delta_total_ns", pair.deltaTotalNs);
             report.put("stereo_pair_delta_avg_ns", pair.pairCount > 0 ? pair.deltaTotalNs / pair.pairCount : 0L);
             report.put("stereo_pair_delta_max_ns", pair.deltaMaxNs);
+            report.put("stereo_pair_delta_over_target_count", pair.deltaOverTargetCount);
             putStageTimingReport(report, "", "stereo_pair_native_bridge", pair.nativeBridgeTiming);
             report.put("stereo_left_right_resolution_match", pair.resolutionMismatchCount == 0);
             report.put("stereo_resolution_mismatch_count", pair.resolutionMismatchCount);
@@ -476,8 +495,11 @@ final class BrokerH264ConsumerProbe implements Runnable {
         StartCommandResult leftStart,
         StartCommandResult rightStart) throws Exception {
         report.put("live_decode_path", true);
-        report.put("stereo_pairing_mode", "live-decoded-frame-order");
-        LiveStereoPairer pairer = new LiveStereoPairer();
+        report.put("stereo_pairing_mode", "live-" + config.stereoPairingMode);
+        report.put("stereo_pair_max_delta_target_ns", STEREO_PAIR_MAX_DELTA_NS);
+        LiveStereoPairer pairer = new LiveStereoPairer(
+            config.stereoPairingMode,
+            config.liveStereoPendingQueueLimit);
         LiveDecodeStreamTask leftDecode = new LiveDecodeStreamTask(
             "left",
             config.streamPort,
@@ -510,6 +532,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("stereo_pair_delta_total_ns", pair.deltaTotalNs);
             report.put("stereo_pair_delta_avg_ns", pair.pairCount > 0 ? pair.deltaTotalNs / pair.pairCount : 0L);
             report.put("stereo_pair_delta_max_ns", pair.deltaMaxNs);
+            report.put("stereo_pair_delta_over_target_count", pair.deltaOverTargetCount);
             putStageTimingReport(report, "", "stereo_pair_native_bridge", pair.nativeBridgeTiming);
             report.put("stereo_left_right_resolution_match", pair.resolutionMismatchCount == 0);
             report.put("stereo_resolution_mismatch_count", pair.resolutionMismatchCount);
@@ -945,6 +968,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
         report.put(reportKey(prefix, "stream_last_source_elapsed_ns"), stream.lastSourceElapsedNs);
         report.put(reportKey(prefix, "decode_succeeded"), decode.decodedFrameCount > 0);
         report.put(reportKey(prefix, "decoder_name"), decode.decoderName);
+        report.put(reportKey(prefix, "decoder_low_latency_feature_supported"), decode.lowLatencyFeatureSupported);
+        report.put(reportKey(prefix, "decoder_low_latency_config_requested"), decode.lowLatencyConfigRequested);
+        report.put(reportKey(prefix, "decoder_low_latency_parameter_succeeded"), decode.lowLatencyParameterSucceeded);
         report.put(reportKey(prefix, "csd_sps_found"), decode.spsBytes > 0);
         report.put(reportKey(prefix, "csd_pps_found"), decode.ppsBytes > 0);
         report.put(reportKey(prefix, "input_buffer_count"), decode.inputBufferCount);
@@ -1014,6 +1040,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
         report.put(reportKey(prefix, "stream_last_source_elapsed_ns"), result.lastSourceElapsedNs);
         report.put(reportKey(prefix, "decode_succeeded"), result.decodedFrameCount > 0);
         report.put(reportKey(prefix, "decoder_name"), result.decoderName);
+        report.put(reportKey(prefix, "decoder_low_latency_feature_supported"), result.lowLatencyFeatureSupported);
+        report.put(reportKey(prefix, "decoder_low_latency_config_requested"), result.lowLatencyConfigRequested);
+        report.put(reportKey(prefix, "decoder_low_latency_parameter_succeeded"), result.lowLatencyParameterSucceeded);
         report.put(reportKey(prefix, "csd_sps_found"), result.spsBytes > 0);
         report.put(reportKey(prefix, "csd_pps_found"), result.ppsBytes > 0);
         report.put(reportKey(prefix, "input_buffer_count"), result.inputBufferCount);
@@ -1099,17 +1128,22 @@ final class BrokerH264ConsumerProbe implements Runnable {
         StereoPairResult result = new StereoPairResult();
         result.deliveryPaced = paceDelivery;
         long deliveryStartNs = SystemClock.elapsedRealtimeNanos();
-        int pairCount = Math.min(leftFrames.size(), rightFrames.size());
-        for (int i = 0; i < pairCount; i++) {
-            if (paceDelivery && i > 0) {
-                paceStereoPairDelivery(deliveryStartNs, i);
+        List<DecodedHardwareBufferFrame> remainingRight =
+            new ArrayList<DecodedHardwareBufferFrame>(rightFrames);
+        for (int i = 0; i < leftFrames.size() && !remainingRight.isEmpty(); i++) {
+            int pairIndex = result.pairCount;
+            if (paceDelivery && pairIndex > 0) {
+                paceStereoPairDelivery(deliveryStartNs, pairIndex);
             }
             DecodedHardwareBufferFrame left = leftFrames.get(i);
-            DecodedHardwareBufferFrame right = rightFrames.get(i);
+            DecodedHardwareBufferFrame right = removeNearestFrame(left, remainingRight);
             long deltaNs = Math.abs(left.timestampNs - right.timestampNs);
             result.pairCount++;
             result.deltaTotalNs += deltaNs;
             result.deltaMaxNs = Math.max(result.deltaMaxNs, deltaNs);
+            if (deltaNs > STEREO_PAIR_MAX_DELTA_NS) {
+                result.deltaOverTargetCount++;
+            }
             if (left.width != right.width || left.height != right.height) {
                 result.resolutionMismatchCount++;
             }
@@ -1136,7 +1170,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                     right.layers,
                     right.bufferId,
                     deltaNs,
-                    i);
+                    pairIndex);
             } catch (RuntimeException error) {
                 Log.w(TAG, "Could not deliver broker H.264 decoded stereo hardware-buffer pair", error);
             } finally {
@@ -1150,6 +1184,21 @@ final class BrokerH264ConsumerProbe implements Runnable {
         }
         result.deliveryDurationNs = Math.max(0L, SystemClock.elapsedRealtimeNanos() - deliveryStartNs);
         return result;
+    }
+
+    private static DecodedHardwareBufferFrame removeNearestFrame(
+        DecodedHardwareBufferFrame target,
+        List<DecodedHardwareBufferFrame> candidates) {
+        int bestIndex = 0;
+        long bestDeltaNs = Long.MAX_VALUE;
+        for (int i = 0; i < candidates.size(); i++) {
+            long deltaNs = Math.abs(target.timestampNs - candidates.get(i).timestampNs);
+            if (deltaNs < bestDeltaNs) {
+                bestDeltaNs = deltaNs;
+                bestIndex = i;
+            }
+        }
+        return candidates.remove(bestIndex);
     }
 
     private static void paceStereoPairDelivery(long deliveryStartNs, int pairIndex) {
@@ -1282,13 +1331,20 @@ final class BrokerH264ConsumerProbe implements Runnable {
         private final ArrayDeque<DecodedHardwareBufferFrame> rightFrames =
             new ArrayDeque<DecodedHardwareBufferFrame>();
         private final StereoPairResult result = new StereoPairResult();
+        private final String pairingMode;
+        private final int queueLimit;
         private long deliveryStartNs;
         private long deliveryEndNs;
+
+        LiveStereoPairer(String pairingMode, int queueLimit) {
+            this.pairingMode = normalizeStereoPairingMode(pairingMode);
+            this.queueLimit = clampInt(queueLimit, 2, MAX_LIVE_STEREO_PENDING_QUEUE_LIMIT);
+        }
 
         synchronized void offer(String eye, DecodedHardwareBufferFrame frame) {
             ArrayDeque<DecodedHardwareBufferFrame> queue = "right".equals(eye) ? rightFrames : leftFrames;
             queue.addLast(frame);
-            while (queue.size() > LIVE_STEREO_PENDING_QUEUE_LIMIT) {
+            while (queue.size() > queueLimit) {
                 DecodedHardwareBufferFrame dropped = queue.removeFirst();
                 dropped.close();
                 result.queueDropCount++;
@@ -1313,6 +1369,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             snapshot.resolutionMismatchCount = result.resolutionMismatchCount;
             snapshot.deltaTotalNs = result.deltaTotalNs;
             snapshot.deltaMaxNs = result.deltaMaxNs;
+            snapshot.deltaOverTargetCount = result.deltaOverTargetCount;
             snapshot.queueDropCount = result.queueDropCount;
             snapshot.nativeBridgeTiming.copyFrom(result.nativeBridgeTiming);
             return snapshot;
@@ -1320,8 +1377,32 @@ final class BrokerH264ConsumerProbe implements Runnable {
 
         private void deliverAvailablePairs() {
             while (!leftFrames.isEmpty() && !rightFrames.isEmpty()) {
-                DecodedHardwareBufferFrame left = leftFrames.removeFirst();
-                DecodedHardwareBufferFrame right = rightFrames.removeFirst();
+                DecodedHardwareBufferFrame left;
+                DecodedHardwareBufferFrame right;
+                if (STEREO_PAIRING_FRAME_ORDER.equals(pairingMode)) {
+                    left = leftFrames.removeFirst();
+                    right = rightFrames.removeFirst();
+                    deliverPair(left, right);
+                    continue;
+                }
+                left = null;
+                right = null;
+                long bestDeltaNs = Long.MAX_VALUE;
+                for (DecodedHardwareBufferFrame leftCandidate : leftFrames) {
+                    for (DecodedHardwareBufferFrame rightCandidate : rightFrames) {
+                        long deltaNs = Math.abs(leftCandidate.timestampNs - rightCandidate.timestampNs);
+                        if (deltaNs < bestDeltaNs) {
+                            bestDeltaNs = deltaNs;
+                            left = leftCandidate;
+                            right = rightCandidate;
+                        }
+                    }
+                }
+                if (left == null || right == null) {
+                    return;
+                }
+                leftFrames.remove(left);
+                rightFrames.remove(right);
                 deliverPair(left, right);
             }
         }
@@ -1335,6 +1416,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
             result.pairCount++;
             result.deltaTotalNs += deltaNs;
             result.deltaMaxNs = Math.max(result.deltaMaxNs, deltaNs);
+            if (deltaNs > STEREO_PAIR_MAX_DELTA_NS) {
+                result.deltaOverTargetCount++;
+            }
             if (left.width != right.width || left.height != right.height) {
                 result.resolutionMismatchCount++;
             }
@@ -1519,8 +1603,12 @@ final class BrokerH264ConsumerProbe implements Runnable {
             result.hardwareBufferReaderHeight = result.height;
             decoder = MediaCodec.createDecoderByType("video/avc");
             result.decoderName = decoder.getName();
+            result.lowLatencyFeatureSupported = decoderLowLatencySupported(decoder);
+            result.lowLatencyConfigRequested = true;
+            format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
             decoder.configure(format, hardwareBufferTarget.surface(), null, 0);
             decoder.start();
+            result.lowLatencyParameterSucceeded = requestDecoderLowLatency(decoder);
             result.decodeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
 
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
@@ -1829,8 +1917,12 @@ final class BrokerH264ConsumerProbe implements Runnable {
             Surface decoderSurface = surfaceTarget != null
                 ? surfaceTarget.surface()
                 : (hardwareBufferTarget != null ? hardwareBufferTarget.surface() : null);
+            result.lowLatencyFeatureSupported = decoderLowLatencySupported(decoder);
+            result.lowLatencyConfigRequested = true;
+            format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
             decoder.configure(format, decoderSurface, null, 0);
             decoder.start();
+            result.lowLatencyParameterSucceeded = requestDecoderLowLatency(decoder);
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             long deadline = SystemClock.elapsedRealtimeNanos() + timeoutMs * 1_000_000L;
             int nextInput = 0;
@@ -2042,6 +2134,25 @@ final class BrokerH264ConsumerProbe implements Runnable {
             return SOURCE_MODE_EXISTING_STREAM;
         }
         return SOURCE_MODE_BROKER_CAMERA;
+    }
+
+    private static String normalizeStereoPairingMode(String value) {
+        if (value == null || value.trim().length() == 0) {
+            return STEREO_PAIRING_TIMESTAMP_NEAREST;
+        }
+        String normalized = value.trim().toLowerCase(Locale.US).replace('_', '-');
+        if ("frame".equals(normalized) ||
+            "frame-order".equals(normalized) ||
+            "frame-index".equals(normalized) ||
+            "ordered".equals(normalized) ||
+            "fifo".equals(normalized)) {
+            return STEREO_PAIRING_FRAME_ORDER;
+        }
+        return STEREO_PAIRING_TIMESTAMP_NEAREST;
+    }
+
+    private static int clampInt(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private static JSONArray floatArrayJson(float[] values) throws Exception {
@@ -2990,6 +3101,27 @@ final class BrokerH264ConsumerProbe implements Runnable {
         result.outputHeight = mediaFormatInt(format, MediaFormat.KEY_HEIGHT, result.height);
     }
 
+    private static boolean decoderLowLatencySupported(MediaCodec decoder) {
+        try {
+            MediaCodecInfo.CodecCapabilities capabilities =
+                decoder.getCodecInfo().getCapabilitiesForType("video/avc");
+            return capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean requestDecoderLowLatency(MediaCodec decoder) {
+        Bundle params = new Bundle();
+        params.putInt(MediaCodec.PARAMETER_KEY_LOW_LATENCY, 1);
+        try {
+            decoder.setParameters(params);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private static int mediaFormatInt(MediaFormat format, String key, int fallback) {
         try {
             return format.containsKey(key) ? format.getInteger(key) : fallback;
@@ -3171,6 +3303,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
         int resolutionMismatchCount;
         long deltaTotalNs;
         long deltaMaxNs;
+        int deltaOverTargetCount;
         int queueDropCount;
         final StageTiming nativeBridgeTiming = new StageTiming();
     }
@@ -3194,6 +3327,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final HashMap<Long, Long> sourceElapsedByPts = new HashMap<Long, Long>();
         String decoderName = "";
         String outputMime = "";
+        boolean lowLatencyFeatureSupported;
+        boolean lowLatencyConfigRequested;
+        boolean lowLatencyParameterSucceeded;
         int outputWidth;
         int outputHeight;
         int spsBytes;
@@ -3229,6 +3365,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
         String decodeOutputMode = "";
         String decoderName = "";
         String outputMime = "";
+        boolean lowLatencyFeatureSupported;
+        boolean lowLatencyConfigRequested;
+        boolean lowLatencyParameterSucceeded;
         int outputWidth;
         int outputHeight;
         int spsBytes;

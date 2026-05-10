@@ -64,6 +64,49 @@
       "term": "adbkey",
       "reason": "ADB key material reference",
       "allowed_path_globs": []
+    },
+    {
+      "term": "Kyber SDK",
+      "reason": "Kyber SDK references belong only in clean-room boundary docs/provenance unless an adapter license is explicitly reviewed",
+      "allowed_path_globs": [
+        "docs/LOW_LATENCY_TRANSPORT_ARCHITECTURE.md",
+        "docs/IMPLEMENTATION_PLAN.md",
+        "provenance/public-utilities.toml"
+      ]
+    },
+    {
+      "term": "Kyber source",
+      "reason": "Kyber source must not be copied into the MIT public core",
+      "allowed_path_globs": [
+        "docs/LOW_LATENCY_TRANSPORT_ARCHITECTURE.md",
+        "docs/IMPLEMENTATION_PLAN.md",
+        "provenance/public-utilities.toml"
+      ]
+    },
+    {
+      "term": "Kyber packet",
+      "reason": "Kyber packet layouts must not be copied into the MIT public core",
+      "allowed_path_globs": [
+        "docs/LOW_LATENCY_TRANSPORT_ARCHITECTURE.md",
+        "docs/IMPLEMENTATION_PLAN.md",
+        "provenance/public-utilities.toml"
+      ]
+    },
+    {
+      "term": "Kyber binary",
+      "reason": "Kyber binaries must not be bundled into public release payloads without explicit licensing",
+      "allowed_path_globs": [
+        "docs/LOW_LATENCY_TRANSPORT_ARCHITECTURE.md",
+        "docs/IMPLEMENTATION_PLAN.md",
+        "provenance/public-utilities.toml"
+      ]
+    },
+    {
+      "term": "CloudXR SDK",
+      "reason": "CloudXR SDK references require adapter-level license review and must not enter core source",
+      "allowed_path_globs": [
+        "docs/LOW_LATENCY_TRANSPORT_ARCHITECTURE.md"
+      ]
     }
   ],
   "deny_regex": [

@@ -2,7 +2,9 @@ package com.example.rustyxr.broker;
 
 import android.content.Context;
 import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
+import android.os.Bundle;
 import android.os.SystemClock;
 
 import org.json.JSONObject;
@@ -50,19 +52,61 @@ final class BrokerAppCameraH264DecodeProbe {
             probe.put("bitrate_bps", capture.bitrateBps);
             probe.put("decode_timeout_ms", decodeTimeoutMs);
             probe.put("encoded_packet_count", capture.packets.size());
+            probe.put("encoded_video_packet_count", videoPacketCount(capture.packets));
+            probe.put("codec_config_packet_count", codecConfigPacketCount(capture.packets));
             probe.put("encoded_payload_bytes", encodedPayloadBytes(capture.packets));
             probe.put("camera_encode_start_elapsed_ns", capture.encodeStartElapsedNs);
             probe.put("camera_encode_end_elapsed_ns", capture.encodeEndElapsedNs);
             probe.put("camera_encode_duration_ns", Math.max(0L, capture.encodeEndElapsedNs - capture.encodeStartElapsedNs));
+            if (capture.encoderMetadata != null) {
+                probe.put("encoder_name", capture.encoderMetadata.encoderName);
+                probe.put("encoder_selection_source", capture.encoderMetadata.encoderSelectionSource);
+                probe.put("encoder_selected_name", capture.encoderMetadata.encoderSelectedName);
+                probe.put("encoder_hardware_accelerated", capture.encoderMetadata.encoderHardwareAccelerated);
+                probe.put("encoder_software_only", capture.encoderMetadata.encoderSoftwareOnly);
+                probe.put("encoder_size_supported", capture.encoderMetadata.encoderSizeSupported);
+                probe.put("encoder_size_and_rate_supported", capture.encoderMetadata.encoderSizeAndRateSupported);
+                probe.put("encoder_bitrate_supported", capture.encoderMetadata.encoderBitrateSupported);
+                probe.put("encoder_cbr_supported", capture.encoderMetadata.encoderCbrSupported);
+                probe.put("encoder_cbr_fd_supported", capture.encoderMetadata.encoderCbrFdSupported);
+                probe.put("encoder_vbr_supported", capture.encoderMetadata.encoderVbrSupported);
+                probe.put("bitrate_mode_requested", capture.encoderMetadata.bitrateModeRequested);
+                probe.put("bitrate_mode_applied", capture.encoderMetadata.bitrateModeApplied);
+                probe.put("bitrate_mode_output_format", capture.encoderMetadata.outputBitrateMode);
+                probe.put("encoder_output_format_changes", capture.encoderMetadata.outputFormatChangeCount);
+                probe.put("encoder_output_mime", capture.encoderMetadata.outputMime);
+                probe.put("encoder_output_width", capture.encoderMetadata.outputWidth);
+                probe.put("encoder_output_height", capture.encoderMetadata.outputHeight);
+                probe.put("prepend_headers_to_sync_frames_applied", capture.encoderMetadata.prependHeadersToSyncFramesApplied);
+                probe.put("sync_frame_request_on_start_succeeded", capture.encoderMetadata.syncFrameRequestOnStartSucceeded);
+                probe.put("sensor_timestamp_source", capture.encoderMetadata.sensorTimestampSource);
+                probe.put("camera_capture_started_count", capture.encoderMetadata.cameraCaptureStartedCount);
+                probe.put("camera_first_capture_started_ns", capture.encoderMetadata.cameraFirstCaptureStartedNs);
+                probe.put("camera_last_capture_started_ns", capture.encoderMetadata.cameraLastCaptureStartedNs);
+                probe.put("camera_first_frame_number", capture.encoderMetadata.cameraFirstFrameNumber);
+                probe.put("camera_last_frame_number", capture.encoderMetadata.cameraLastFrameNumber);
+                probe.put("camera_first_capture_callback_elapsed_ns", capture.encoderMetadata.cameraFirstCaptureCallbackElapsedNs);
+                probe.put("camera_last_capture_callback_elapsed_ns", capture.encoderMetadata.cameraLastCaptureCallbackElapsedNs);
+                probe.put("csd_sps_base64", capture.encoderMetadata.csdSps != null
+                    ? android.util.Base64.encodeToString(capture.encoderMetadata.csdSps, android.util.Base64.NO_WRAP)
+                    : "");
+                probe.put("csd_pps_base64", capture.encoderMetadata.csdPps != null
+                    ? android.util.Base64.encodeToString(capture.encoderMetadata.csdPps, android.util.Base64.NO_WRAP)
+                    : "");
+            }
             probe.put("decode_start_elapsed_ns", decode.decodeStartElapsedNs);
             probe.put("decode_end_elapsed_ns", decode.decodeEndElapsedNs);
             probe.put("decode_duration_ns", Math.max(0L, decode.decodeEndElapsedNs - decode.decodeStartElapsedNs));
             probe.put("total_duration_ns", Math.max(0L, totalEndElapsedNs - totalStartElapsedNs));
             probe.put("decoder_name", decode.decoderName);
+            probe.put("decoder_low_latency_feature_supported", decode.lowLatencyFeatureSupported);
+            probe.put("decoder_low_latency_config_requested", decode.lowLatencyConfigRequested);
+            probe.put("decoder_low_latency_parameter_succeeded", decode.lowLatencyParameterSucceeded);
             probe.put("csd_sps_found", decode.spsBytes > 0);
             probe.put("csd_pps_found", decode.ppsBytes > 0);
             probe.put("csd_sps_bytes", decode.spsBytes);
             probe.put("csd_pps_bytes", decode.ppsBytes);
+            probe.put("csd_source", decode.csdSource);
             probe.put("codec_config_packets_skipped", decode.codecConfigPacketsSkipped);
             probe.put("input_buffer_count", decode.inputBufferCount);
             probe.put("input_bytes", decode.inputBytes);
@@ -95,10 +139,21 @@ final class BrokerAppCameraH264DecodeProbe {
         int timeoutMs) throws Exception {
         DecodeResult result = new DecodeResult();
         result.decodeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
-        NalUnit sps = findNalUnit(capture.packets, 7);
-        NalUnit pps = findNalUnit(capture.packets, 8);
-        result.spsBytes = sps != null ? sps.bytes.length : 0;
-        result.ppsBytes = pps != null ? pps.bytes.length : 0;
+        NalUnit packetSps = findNalUnit(capture.packets, 7);
+        NalUnit packetPps = findNalUnit(capture.packets, 8);
+        byte[] sps = capture.encoderMetadata != null && capture.encoderMetadata.csdSps != null
+            ? capture.encoderMetadata.csdSps
+            : (packetSps != null ? packetSps.bytes : null);
+        byte[] pps = capture.encoderMetadata != null && capture.encoderMetadata.csdPps != null
+            ? capture.encoderMetadata.csdPps
+            : (packetPps != null ? packetPps.bytes : null);
+        result.spsBytes = sps != null ? sps.length : 0;
+        result.ppsBytes = pps != null ? pps.length : 0;
+        result.csdSource = capture.encoderMetadata != null &&
+            capture.encoderMetadata.csdSps != null &&
+            capture.encoderMetadata.csdPps != null
+            ? "encoder_output_format"
+            : (packetSps != null && packetPps != null ? "packet_payload" : "missing");
         boolean hasCompleteCsd = sps != null && pps != null;
 
         MediaFormat format = MediaFormat.createVideoFormat(
@@ -106,17 +161,21 @@ final class BrokerAppCameraH264DecodeProbe {
             capture.size.getWidth(),
             capture.size.getHeight());
         if (sps != null) {
-            format.setByteBuffer("csd-0", ByteBuffer.wrap(sps.bytes));
+            format.setByteBuffer("csd-0", ByteBuffer.wrap(sps));
         }
         if (pps != null) {
-            format.setByteBuffer("csd-1", ByteBuffer.wrap(pps.bytes));
+            format.setByteBuffer("csd-1", ByteBuffer.wrap(pps));
         }
 
         MediaCodec decoder = MediaCodec.createDecoderByType("video/avc");
         try {
             result.decoderName = decoder.getName();
+            result.lowLatencyFeatureSupported = decoderLowLatencySupported(decoder);
+            result.lowLatencyConfigRequested = true;
+            format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
             decoder.configure(format, null, null, 0);
             decoder.start();
+            result.lowLatencyParameterSucceeded = requestDecoderLowLatency(decoder);
 
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             long deadlineElapsedNs = SystemClock.elapsedRealtimeNanos() + timeoutMs * 1_000_000L;
@@ -228,6 +287,27 @@ final class BrokerAppCameraH264DecodeProbe {
         result.outputHeight = mediaFormatInt(format, MediaFormat.KEY_HEIGHT, capture.size.getHeight());
     }
 
+    private static boolean decoderLowLatencySupported(MediaCodec decoder) {
+        try {
+            MediaCodecInfo.CodecCapabilities capabilities =
+                decoder.getCodecInfo().getCapabilitiesForType("video/avc");
+            return capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean requestDecoderLowLatency(MediaCodec decoder) {
+        Bundle params = new Bundle();
+        params.putInt(MediaCodec.PARAMETER_KEY_LOW_LATENCY, 1);
+        try {
+            decoder.setParameters(params);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private static NalUnit findNalUnit(
         List<BrokerAppCameraH264StreamSession.EncodedPacket> packets,
         int nalType) {
@@ -291,6 +371,26 @@ final class BrokerAppCameraH264DecodeProbe {
         return bytes;
     }
 
+    private static int videoPacketCount(List<BrokerAppCameraH264StreamSession.EncodedPacket> packets) {
+        int count = 0;
+        for (int i = 0; i < packets.size(); i++) {
+            if (!packets.get(i).isCodecConfig()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static int codecConfigPacketCount(List<BrokerAppCameraH264StreamSession.EncodedPacket> packets) {
+        int count = 0;
+        for (int i = 0; i < packets.size(); i++) {
+            if (packets.get(i).isCodecConfig()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     private static long lastPresentationTimeUs(List<BrokerAppCameraH264StreamSession.EncodedPacket> packets) {
         return packets.size() > 0 ? packets.get(packets.size() - 1).ptsUs : 0L;
     }
@@ -332,6 +432,10 @@ final class BrokerAppCameraH264DecodeProbe {
     private static final class DecodeResult {
         String decoderName = "";
         String outputMime = "";
+        String csdSource = "";
+        boolean lowLatencyFeatureSupported;
+        boolean lowLatencyConfigRequested;
+        boolean lowLatencyParameterSucceeded;
         int outputWidth;
         int outputHeight;
         int spsBytes;

@@ -6,6 +6,7 @@
 param(
     [string]$AndroidPlayerRoot = '',
     [string]$LslAndroidLibraryPath = '',
+    [switch]$RequireNativeLsl,
     [ValidateRange(29, 35)]
     [int]$TargetSdkVersion = 35
 )
@@ -118,9 +119,15 @@ function Resolve-LslAndroidLibrary {
         return $resolved
     }
 
-    $envPath = [Environment]::GetEnvironmentVariable('RUSTY_XR_ANDROID_LIBLSL')
-    if (-not [string]::IsNullOrWhiteSpace($envPath)) {
-        return Resolve-LslAndroidLibrary -RequestedPath $envPath
+    foreach ($target in @('', 'User', 'Machine')) {
+        $envPath = if ([string]::IsNullOrWhiteSpace($target)) {
+            [Environment]::GetEnvironmentVariable('RUSTY_XR_ANDROID_LIBLSL')
+        } else {
+            [Environment]::GetEnvironmentVariable('RUSTY_XR_ANDROID_LIBLSL', $target)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($envPath)) {
+            return Resolve-LslAndroidLibrary -RequestedPath $envPath
+        }
     }
 
     return ''
@@ -211,6 +218,10 @@ $javacArgs = @(
 Invoke-Tool -File $javac -Arguments $javacArgs
 
 $lslAndroidLibrary = Resolve-LslAndroidLibrary -RequestedPath $LslAndroidLibraryPath
+if ($RequireNativeLsl -and [string]::IsNullOrWhiteSpace($lslAndroidLibrary)) {
+    throw 'Native LSL packaging was required, but no Android liblsl.so was supplied. Pass -LslAndroidLibraryPath or set RUSTY_XR_ANDROID_LIBLSL.'
+}
+
 if (-not [string]::IsNullOrWhiteSpace($lslAndroidLibrary)) {
     $ndkToolchainRoot = Resolve-NdkToolchainRoot -AndroidRoot $androidRoot
     $clangxx = Join-Path $ndkToolchainRoot 'bin\aarch64-linux-android29-clang++.cmd'
@@ -223,6 +234,7 @@ if (-not [string]::IsNullOrWhiteSpace($lslAndroidLibrary)) {
 
     New-Item -ItemType Directory -Force -Path $jniLibraryRoot, $packagedLibraryRoot | Out-Null
     Copy-Item -LiteralPath $lslAndroidLibrary -Destination (Join-Path $jniLibraryRoot 'liblsl.so') -Force
+    Write-Host "Packaging native LSL runtime: $lslAndroidLibrary"
 
     Invoke-Tool -File $clangxx -Arguments @(
         '-shared',

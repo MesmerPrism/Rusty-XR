@@ -49,12 +49,12 @@ review_status = "foundation-pass"
 
 [[utility]]
 crate = "rusty-xr-broker-model"
-source_family = "research XR broker and sidecar stream workflows"
+source_family = "research XR broker, sidecar stream, and clean-room low-latency transport workflows"
 extraction_date = "2026-05-09"
-public_safe_rationale = "Broker command envelopes, stream manifests, sample headers, session manifests, timing stamps, transport endpoints, heartbeat state, drop counters, replay records, and deterministic synthetic stream payloads are reusable across engines and providers without embedding a Unity, Android, OpenXR, Makepad, LSL, OSC, or video backend."
-license_assumptions = "Authored for this MIT repository as clean-room public contracts. EDIA and RCAS are treated as public design references only; no source code is copied."
-scrubbed_private_dependencies = ["downstream experiment semantics", "private stream names", "package identity", "generated captures", "device logs", "native SDK payloads"]
-review_status = "first-contract-pass"
+public_safe_rationale = "Broker command envelopes, stream manifests, sample headers, session manifests, timing stamps, transport endpoints, heartbeat state, drop counters, replay records, deterministic synthetic stream payloads, and low-latency session/metric boundaries are reusable across engines and providers without embedding a Unity, Android, OpenXR, Makepad, LSL, OSC, vendor SDK, or video backend."
+license_assumptions = "Authored for this MIT repository as clean-room public contracts. EDIA, RCAS, Kyber, WebRTC, QUIC, FFmpeg, libVLC, and vendor SDKs are treated as public behavioral references only unless separately licensed and attributed. No Kyber source, SDK headers, binaries, packet layouts, or proprietary implementation details are copied."
+scrubbed_private_dependencies = ["downstream experiment semantics", "private stream names", "package identity", "generated captures", "device logs", "native SDK payloads", "Kyber SDK code", "Kyber packet layouts", "vendor binaries"]
+review_status = "first-contract-pass-plus-transport-boundary"
 
 [[utility]]
 crate = "rusty-xr-eye-model"

@@ -1,5 +1,6 @@
 use rusty_xr_broker_model::{
-    BROKER_COMMAND_SCHEMA, BROKER_LATENCY_SAMPLE_SCHEMA, STREAM_LATENCY_SAMPLE,
+    BROKER_COMMAND_SCHEMA, BROKER_LATENCY_SAMPLE_SCHEMA, BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA,
+    BROKER_TRANSPORT_SESSION_OFFER_SCHEMA, STREAM_LATENCY_SAMPLE,
 };
 use serde_json::{json, Value};
 use std::env;
@@ -13,6 +14,8 @@ const DEFAULT_PORT: u16 = 8765;
 const EVENTS_PATH: &str = "/rustyxr/v1/events";
 const CLIENT_ID: &str = "rusty-xr-broker-client-probe";
 const APP_LABEL: &str = "Rusty XR Broker Client Probe";
+const DEFAULT_TRANSPORT_SESSION_ID: &str = "probe-transport-session";
+const DEFAULT_H264_DECODE_SESSION_ID: &str = "probe-h264-decode-session";
 
 fn main() -> Result<(), Box<dyn Error>> {
     let options = ProbeOptions::parse(env::args().skip(1))?;
@@ -55,6 +58,19 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             print_messages(&response);
         }
+        "app-camera-h264-decode-probe" => {
+            let session_id = options
+                .session
+                .as_deref()
+                .unwrap_or(DEFAULT_H264_DECODE_SESSION_ID);
+            let response = send_command(
+                &options.host,
+                options.port,
+                "camera_provider.run_app_camera_h264_decode_probe",
+                Some(build_h264_decode_probe_params_json(session_id)),
+            )?;
+            print_messages(&response);
+        }
         "shell-helper-status" => {
             let response =
                 send_command(&options.host, options.port, "shell_helper.get_status", None)?;
@@ -62,6 +78,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         "video-lab-status" => {
             let response = send_command(&options.host, options.port, "video_lab.get_status", None)?;
+            print_messages(&response);
+        }
+        "video-lab-scorecard" => {
+            let response =
+                send_command(&options.host, options.port, "video_lab.get_scorecard", None)?;
             print_messages(&response);
         }
         "shell-helper-report-stub" => {
@@ -157,6 +178,71 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             print_messages(&response);
         }
+        "h264-proxy-probe" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                "media.run_h264_tcp_proxy_probe",
+                Some(build_h264_proxy_probe_params_json()),
+            )?;
+            print_messages(&response);
+        }
+        "transport-capabilities" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                "transport.describe_capabilities",
+                None,
+            )?;
+            print_messages(&response);
+        }
+        "transport-create-session" => {
+            let session_id = options
+                .session
+                .as_deref()
+                .unwrap_or(DEFAULT_TRANSPORT_SESSION_ID);
+            let response = send_command(
+                &options.host,
+                options.port,
+                "transport.create_session",
+                Some(build_transport_session_offer_json(session_id)),
+            )?;
+            print_messages(&response);
+        }
+        "transport-list-sessions" => {
+            let response =
+                send_command(&options.host, options.port, "transport.list_sessions", None)?;
+            print_messages(&response);
+        }
+        "transport-get-session" => {
+            let session_id = options
+                .session
+                .as_deref()
+                .ok_or("--session <id> is required for transport-get-session")?;
+            let response = send_command(
+                &options.host,
+                options.port,
+                "transport.get_session",
+                Some(json!({ "session_id": session_id })),
+            )?;
+            print_messages(&response);
+        }
+        "transport-close-session" => {
+            let session_id = options
+                .session
+                .as_deref()
+                .ok_or("--session <id> is required for transport-close-session")?;
+            let response = send_command(
+                &options.host,
+                options.port,
+                "transport.close_session",
+                Some(json!({
+                    "session_id": session_id,
+                    "reason": "closed_by_probe"
+                })),
+            )?;
+            print_messages(&response);
+        }
         "subscribe" => {
             let stream = options
                 .stream
@@ -184,7 +270,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         _ => {
             return Err(format!(
-                "unknown command '{}'; use status, capabilities, streams, camera-provider, projection-profile, app-camera-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-manifest-stub, video-sample-meta-stub, video-metric-stub, subscribe, open-ui, close-ui, or sample",
+                "unknown command '{}'; use status, capabilities, streams, camera-provider, projection-profile, app-camera-probe, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
                 options.command
             )
             .into());
@@ -410,6 +496,59 @@ fn build_latency_sample_json(sequence_id: u128) -> Value {
     })
 }
 
+fn build_transport_session_offer_json(session_id: &str) -> Value {
+    json!({
+        "schema": BROKER_TRANSPORT_SESSION_OFFER_SCHEMA,
+        "session_id": session_id,
+        "client_id": CLIENT_ID,
+        "requested_transports": ["AdbForwardedTcp", "Tcp", "WebSocket"],
+        "streams": [{
+            "stream_id": "camera.left.h264",
+            "stream_kind": "Media",
+            "direction": "ProducerToConsumer",
+            "payload_kind": "H264",
+            "payload_schema": "video/h264",
+            "codec": "H264",
+            "reliability": "LossTolerant",
+            "ordered": false,
+            "nominal_rate_hz": 60.0,
+            "target_latency_ms": 35.0,
+            "max_payload_bytes": 65507
+        }],
+        "security": {
+            "schema": BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA,
+            "mode": "LoopbackOnly",
+            "non_loopback_allowed": false,
+            "pairing_token_required": false,
+            "expires_elapsed_ns": null,
+            "capability_scope": ["camera_provider.start_app_camera_h264_stream"]
+        },
+        "target_latency_ms": 35.0
+    })
+}
+
+fn build_h264_decode_probe_params_json(session_id: &str) -> Value {
+    json!({
+        "session_id": session_id,
+        "preferred_width": 720,
+        "preferred_height": 480,
+        "capture_ms": 900,
+        "max_packets": 12,
+        "bitrate_bps": 1_000_000,
+        "decode_timeout_ms": 5000
+    })
+}
+
+fn build_h264_proxy_probe_params_json() -> Value {
+    json!({
+        "width": 64,
+        "height": 64,
+        "packet_count": 4,
+        "packet_bytes": 96,
+        "timeout_ms": 10000
+    })
+}
+
 fn print_messages(messages: &[Value]) {
     for message in messages {
         println!(
@@ -439,6 +578,7 @@ struct ProbeOptions {
     host: String,
     port: u16,
     stream: Option<String>,
+    session: Option<String>,
     subscribe: bool,
 }
 
@@ -448,6 +588,7 @@ impl ProbeOptions {
         let mut host = DEFAULT_HOST.to_string();
         let mut port = DEFAULT_PORT;
         let mut stream = None;
+        let mut session = None;
         let mut subscribe = false;
         let mut iterator = args.into_iter();
 
@@ -462,6 +603,9 @@ impl ProbeOptions {
                 }
                 "--stream" => {
                     stream = Some(iterator.next().ok_or("--stream requires a value")?);
+                }
+                "--session" => {
+                    session = Some(iterator.next().ok_or("--session requires a value")?);
                 }
                 "--subscribe" => {
                     subscribe = true;
@@ -480,6 +624,7 @@ impl ProbeOptions {
             host,
             port,
             stream,
+            session,
             subscribe,
         })
     }
@@ -549,6 +694,15 @@ mod tests {
     }
 
     #[test]
+    fn video_scorecard_command_uses_broker_envelope() {
+        let command = build_command_json("video_lab.get_scorecard", None);
+        assert_eq!(command["type"], "command");
+        assert_eq!(command["schema"], BROKER_COMMAND_SCHEMA);
+        assert_eq!(command["command"], "video_lab.get_scorecard");
+        assert!(command.get("params").is_none());
+    }
+
+    #[test]
     fn video_manifest_stub_uses_manifest_schema() {
         let command = build_command_json(
             "video_lab.register_encoded_stream_manifest",
@@ -595,6 +749,74 @@ mod tests {
             "rusty.xr.video_lab.encoded_sample_metadata.v1"
         );
         assert_eq!(command["params"]["session_id"], "synthetic-h264-session");
+    }
+
+    #[test]
+    fn transport_session_offer_uses_clean_room_schemas() {
+        let offer = build_transport_session_offer_json("transport-test");
+        assert_eq!(offer["schema"], BROKER_TRANSPORT_SESSION_OFFER_SCHEMA);
+        assert_eq!(offer["session_id"], "transport-test");
+        assert_eq!(
+            offer["security"]["schema"],
+            BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA
+        );
+        assert_eq!(offer["security"]["mode"], "LoopbackOnly");
+        assert_eq!(offer["streams"][0]["payload_kind"], "H264");
+        assert_eq!(offer["streams"][0]["codec"], "H264");
+        assert_eq!(offer["requested_transports"][0], "AdbForwardedTcp");
+    }
+
+    #[test]
+    fn transport_get_session_uses_session_param() {
+        let command = build_command_json(
+            "transport.get_session",
+            Some(json!({ "session_id": "transport-test" })),
+        );
+        assert_eq!(command["type"], "command");
+        assert_eq!(command["command"], "transport.get_session");
+        assert_eq!(command["params"]["session_id"], "transport-test");
+    }
+
+    #[test]
+    fn options_accept_session_id() {
+        let options = ProbeOptions::parse(vec![
+            "transport-get-session".to_string(),
+            "--session".to_string(),
+            "transport-test".to_string(),
+        ])
+        .expect("options should parse");
+        assert_eq!(options.command, "transport-get-session");
+        assert_eq!(options.session.as_deref(), Some("transport-test"));
+    }
+
+    #[test]
+    fn h264_decode_probe_uses_session_param() {
+        let params = build_h264_decode_probe_params_json("transport-test");
+        assert_eq!(params["session_id"], "transport-test");
+        assert_eq!(params["preferred_width"], 720);
+        assert_eq!(params["preferred_height"], 480);
+        assert_eq!(params["max_packets"], 12);
+
+        let command = build_command_json(
+            "camera_provider.run_app_camera_h264_decode_probe",
+            Some(params),
+        );
+        assert_eq!(
+            command["command"],
+            "camera_provider.run_app_camera_h264_decode_probe"
+        );
+        assert_eq!(command["params"]["session_id"], "transport-test");
+    }
+
+    #[test]
+    fn h264_proxy_probe_uses_bounded_synthetic_source() {
+        let command = build_command_json(
+            "media.run_h264_tcp_proxy_probe",
+            Some(build_h264_proxy_probe_params_json()),
+        );
+        assert_eq!(command["command"], "media.run_h264_tcp_proxy_probe");
+        assert_eq!(command["params"]["packet_count"], 4);
+        assert_eq!(command["params"]["packet_bytes"], 96);
     }
 
     #[test]

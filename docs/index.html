@@ -118,7 +118,7 @@
 
     <section class="panel">
       <h2>Utility Foundation</h2>
-      <p>The public examples include contracts-only layout, composite feedback, native passthrough style catalog, audio-reactive passthrough style, visual strobe profile demos, portable hand-mesh coordinate, collider, and SDF particle demos, a minimal Rust-native Android APK smoke test, a camera-driven Quest OpenXR/Vulkan custom-layer example with optional screen streaming, OSC ingress, diagnostic HUD, environment-depth diagnostics, scene-owned real-time depth particle mapping, and live hand-mesh particle visualization, plus a broker APK proof for localhost WebSocket, optional LSL forwarding, OSC drive events, bounded media probes, and source-only broker/eye stream contracts. Native adapters remain narrow and example-owned while the public utility surface stabilizes.</p>
+      <p>The public examples include contracts-only layout, composite feedback, native passthrough style catalog, audio-reactive passthrough style, visual strobe profile demos, portable hand-mesh coordinate, collider, and SDF particle demos, a minimal Rust-native Android APK smoke test, a camera-driven Quest OpenXR/Vulkan custom-layer example with optional screen streaming, OSC ingress, diagnostic HUD, environment-depth diagnostics, scene-owned real-time depth particle mapping, and live hand-mesh particle visualization, plus a broker APK proof for localhost WebSocket, optional LSL forwarding, OSC drive events, bounded media probes, H.264 live stereo projection diagnostics, and source-only broker/eye stream contracts. Native adapters remain narrow and example-owned while the public utility surface stabilizes.</p>
       <div class="grid cols-3">
         <a class="card" href="SERIALIZATION_AND_SCHEMA_POLICY.md">
           <h3>Serialization</h3>
@@ -190,11 +190,19 @@
         </a>
         <a class="card" href="QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md">
           <h3>Streaming Diagnostics</h3>
-          <p>Compare synthetic compositor, direct Camera2 projection, broker receive/decode, and broker live projected stereo with reusable scorecards.</p>
+          <p>Compare synthetic compositor, direct Camera2 projection, broker receive/decode, and broker live projected stereo, including the fast 0.75 renderer-parity profile.</p>
         </a>
         <a class="card" href="QUEST_Q2Q_AGENT_ONBOARDING.md">
           <h3>Q2Q Agent Brief</h3>
           <p>Orient a Mac-based collaborator or agent toward a proper multi-headset Quest-to-Quest streaming setup.</p>
+        </a>
+        <a class="card" href="CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md">
+          <h3>Projection Parity</h3>
+          <p>Track direct and broker stereo projection parity targets without copying downstream app-specific behavior.</p>
+        </a>
+        <a class="card" href="LOW_LATENCY_TRANSPORT_ARCHITECTURE.md">
+          <h3>Low Latency</h3>
+          <p>Keep media control, packet framing, codec configuration, and renderer timing split for streaming diagnostics.</p>
         </a>
         <a class="card" href="MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md">
           <h3>Makepad Android Build</h3>

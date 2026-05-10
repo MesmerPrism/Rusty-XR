@@ -363,6 +363,7 @@ Useful launch extras:
   consumption. Optional extras:
   `rustyxr.brokerHost`, `rustyxr.brokerPort`,
   `rustyxr.brokerH264StreamPort`, `rustyxr.brokerH264CameraId`,
+  `rustyxr.brokerH264LeftCameraId`, `rustyxr.brokerH264RightCameraId`,
   `rustyxr.brokerH264Width`, `rustyxr.brokerH264Height`,
   `rustyxr.brokerH264CaptureMs`, `rustyxr.brokerH264MaxPackets`,
   `rustyxr.brokerH264BitrateBps`, and
@@ -530,7 +531,9 @@ The catalog keeps camera path experiments as separate runtime profiles:
   per-eye resolution, packet counts, payload bitrate, decoded frame rate,
   native stereo pair acceptance, and left/right timestamp deltas. Supply
   device-specific left/right camera IDs as launch extras when the default
-  source selection is not the intended stereo pair.
+  source selection is not the intended stereo pair. The Quest custom stereo
+  profiles pin Camera2 IDs `50` and `51`, the outside front camera pair used
+  for current stereo diagnostics.
 - `broker-h264-stereo-live-openxr-projection-probe`: the same broker-decoded
   stereo OpenXR path with the live-bounded H.264 provider enabled. The broker
   accepts the binary stream sockets before Camera2 capture starts, drains
@@ -547,6 +550,16 @@ The catalog keeps camera path experiments as separate runtime profiles:
   live-bounded broker stereo path with `rustyxr.xrRenderScale=0.65`. Use it as
   the current performance comparison profile when the `0.75` visual-quality
   profile is render-cost limited.
+- `broker-h264-stereo-live-openxr-projection-fast075-probe`: the same live
+  broker stereo capture/decode/pair/import path at `rustyxr.xrRenderScale=0.75`
+  with square `1280x1280` broker frames and frame-order live stereo pairing, but
+  with the fast public raw-projection shader variant selected. Use it as the
+  renderer-parity profile before reintroducing the accepted soft-border visual
+  path. This profile is visually accepted for stereo orientation/alignment;
+  motion-induced stream-latency artifacts remain a separate compensation task.
+- `broker-h264-stereo-live-openxr-projection-fast065-probe`: the same fast
+  raw-projection path at `rustyxr.xrRenderScale=0.65` for fragment-load headroom
+  checks.
 - `broker-h264` existing-stream mode: set
   `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264
@@ -563,6 +576,12 @@ The catalog keeps camera path experiments as separate runtime profiles:
   but with `rustyxr.xrRenderScale=0.65`. Use this to separate shader/fragment
   headroom from camera delivery cadence without changing projection, border, or
   color assumptions.
+- `camera-stereo-gpu-composite-fast075`: same direct in-app Camera2 stereo
+  projection at `rustyxr.xrRenderScale=0.75`, but selects the fast public
+  raw-projection shader path. Use it for direct renderer parity checks against
+  the Q2Q fast profile.
+- `camera-stereo-gpu-composite-fast065`: same direct fast raw-projection path
+  at `rustyxr.xrRenderScale=0.65` for fragment-load headroom checks.
 - `camera-stereo-gpu-composite-ycbcr-diagnostic`: same projection and border,
   but with shader-side `Cr/Y/Cb` BT.601 narrow-range decode. Use this only
   when `Vulkan imported camera hardware buffer` diagnostics show the external

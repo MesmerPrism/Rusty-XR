@@ -526,6 +526,9 @@ For Rusty XR, the matching public commitment is:
 - keep the broker contracts engine-neutral and source-only
 - publish schemas for stream manifests, sample headers, eye samples, commands,
   acknowledgements, and replay records
+- keep preview-media streams on explicit binary lanes that expose codec config,
+  keyframe state, source timestamps, queue/drop counters, and decode/import
+  timing as telemetry instead of hiding them inside a renderer
 - make Unity adapter proposals reviewable as docs before writing adapter code
 - use EDIA maintainers' preferred names and boundaries for EDIA-owned concepts
 - avoid implying EDIA endorsement or replacing EDIA's Unity experiment model
@@ -577,11 +580,14 @@ The most useful early feedback would be:
 1. Expand JSONL replay fixtures from synthetic broker and eye streams.
 2. Add small processor tests for validation, blink/dropout detection, AOI hit
    counting, and deterministic replay output.
-3. Keep the minimal Unity adapter shape reviewable in
+3. Add sanitized preview-stream fixture metadata that mirrors the broker
+   H.264 control/data split without including headset captures or app-specific
+   renderer behavior.
+4. Keep the minimal Unity adapter shape reviewable in
    [UNITY_BROKER_ADAPTER_CONTRACT.md](UNITY_BROKER_ADAPTER_CONTRACT.md).
-4. Ask EDIA maintainers to review the bridge boundary and stream naming before
+5. Ask EDIA maintainers to review the bridge boundary and stream naming before
    a public adapter spike.
-5. Only after that, build source-only adapter prototypes with explicit license
+6. Only after that, build source-only adapter prototypes with explicit license
    and attribution checks.
 
 ## PR-Ready Maintainer Checklist

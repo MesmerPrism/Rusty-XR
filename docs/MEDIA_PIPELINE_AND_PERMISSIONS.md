@@ -425,6 +425,26 @@ artifacts produced by the profile harness and writes `scorecard.md` plus
 [QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md](QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md)
 for the matrix lanes, reject rules, and current findings.
 
+### Low-Latency Transport Control/Data Split
+
+Low-latency media work should keep session control, high-rate payload bytes,
+and telemetry separate. The broker can negotiate capabilities, stream
+descriptors, security policy, and operator approval over JSON commands/events,
+while encoded media, raw luma, or future packetized diagnostic payloads stay on
+binary endpoints.
+
+This keeps the public broker useful for diagnostics without making it a
+vendor-SDK wrapper or a production camera-streaming service. The active XR
+client still owns decode-to-texture, hardware-buffer import, eye-view/FOV use,
+frame pairing, projected rendering, and OpenXR submission. Timing reports
+should flow back through telemetry so scorecards can distinguish transport,
+decode, import, projected render, and submit costs.
+
+External low-latency SDKs should be treated as optional sidecars or comparison
+lanes. Public Rusty XR may record their version/license/path metadata and
+compare measurements, but must not bundle, link, or copy their SDK code,
+headers, binaries, or packet formats into the MIT core.
+
 ## Windows Streaming Shape
 
 Use one of these app-shell patterns:

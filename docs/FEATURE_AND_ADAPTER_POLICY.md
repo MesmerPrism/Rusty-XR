@@ -38,6 +38,28 @@ optional:
 If a feature would pull in a large SDK, renderer, app lifecycle, build system,
 or platform service, prefer a separate adapter crate instead of a core feature.
 
+## External Media And Control SDKs
+
+External low-latency, codec, media, browser, or vendor-control SDKs should not
+be pulled into core crates. Model their public-facing requirements as
+framework-neutral contracts first, then use a separate adapter, tool, sidecar,
+or downstream shell after dependency and license review.
+
+Public core may contain:
+
+- capability descriptors
+- session offer/answer contracts
+- timing and network-quality metrics
+- security-policy descriptors
+- adapter-neutral endpoint metadata
+
+Public core must not contain:
+
+- vendor SDK headers, source files, examples, or binaries
+- copied proprietary packet layouts or wire formats
+- native codec/media payloads
+- release payloads that require separate commercial terms
+
 ## Adapter Requirements
 
 Before adding an adapter:

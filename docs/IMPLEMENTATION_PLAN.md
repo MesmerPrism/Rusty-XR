@@ -63,6 +63,13 @@ implementing sockets or engine adapters in core.
 The research-XR bridge split is documented in
 [RESEARCH_XR_BROKER_BRIDGE.md](RESEARCH_XR_BROKER_BRIDGE.md).
 
+The clean-room low-latency transport direction is documented in
+[LOW_LATENCY_TRANSPORT_ARCHITECTURE.md](LOW_LATENCY_TRANSPORT_ARCHITECTURE.md).
+Rusty XR may model session negotiation, stream descriptors, timing metrics,
+network-quality samples, security policy, and optional external-sidecar
+comparison lanes, but public core must not copy vendor SDK source, packet
+layouts, SDK headers, binaries, or proprietary wire details.
+
 ### Eye Model
 
 Engine-neutral eye-data contracts for screen-space gaze points, XR gaze rays,
@@ -250,6 +257,9 @@ capture and headset permission prompts remain shell responsibilities.
 Quest streaming cost isolation is documented in
 [QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md](QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md),
 with public scorecard tooling under `tools/quest-streaming-diagnostics/`.
+The custom stereo Camera2 projection parity workplan, including the public
+depth-alignment impact gate, is tracked in
+[CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).
 
 Current Quest media implementation status:
 
@@ -327,7 +337,9 @@ Current Quest media implementation status:
   keeps Java image acquisition, decoded-image waits, `HardwareBuffer`
   extraction, and native bridge calls below roughly sub-millisecond scale, so
   the next public performance target is projected draw/render attribution
-  rather than transport or handoff.
+  rather than transport or handoff. The dedicated parity target map is
+  documented in
+  [CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).
 - Future native support should still stay in thin optional adapters or public
   examples rather than becoming private app-shell behavior inside core crates.
 
@@ -416,7 +428,7 @@ responsibilities.
 | BLE utilities | In progress | Framework-neutral BLE UUID, GATT path, notification, operation, scan result, and Android permission models added. |
 | LSL utilities | In progress | Pure stream descriptor, stream role, channel schema, discovery filter, endpoint status, staleness, roundtrip, biofeedback, and telemetry models added. |
 | OSC utilities | In progress | Pure OSC message/bundle codec, UDP helper, loopback probe, and Quest example listener profile added. |
-| Broker model | In progress | Public command envelopes, acknowledgements, client hello, stream manifests, sample headers, session manifests, transport endpoints, timing stamps, heartbeat state, drop counters, replay records, and synthetic wave streams added for sidecar broker streams. |
+| Broker model | In progress | Public command envelopes, acknowledgements, client hello, stream manifests, sample headers, session manifests, transport endpoints, timing stamps, heartbeat state, drop counters, replay records, synthetic wave streams, transport-session contracts, and Rusty XR diagnostic video headers added for sidecar broker streams. |
 | Eye model | In progress | Public screen-space gaze, XR gaze-ray, AOI hit, processor-event, validity, provenance, and deterministic synthetic eye-data contracts added without native tracker SDK dependencies. |
 | Debug canvas | In progress | Dependency-light logical canvas crate added for reusable diagnostics panels, with normalized rectangle/text draw lists, input-neutral diagnostic HUD command state, and optional serde. |
 | Polar H10 utilities | In progress | Public Polar GATT IDs, HR/RR decoder, uncompressed ECG/ACC PMD decoders, PMD command builders, and LSL schemas added. |

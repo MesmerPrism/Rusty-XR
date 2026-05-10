@@ -6,16 +6,17 @@ mod acamera_sys;
 mod android_camera_probe;
 
 use makepad_widgets::makepad_platform::{
-    event::video_playback::{CameraPreviewMode, VideoSource},
+    event::video_playback::{CameraPreviewMode, VideoSource, VideoYuvMetadata},
     permission::Permission,
     thread::SignalToUI,
     video::{VideoFormat, VideoInputsEvent, VideoPixelFormat},
+    TextureFormat, TextureId, TextureUpdated,
 };
 use makepad_widgets::*;
 use makepad_xr::scene::{xr_widget_world_transform, XrNode};
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 use std::{
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     thread,
     time::Duration,
 };
@@ -25,19 +26,21 @@ app_main!(App);
 static STARTUP_MARKERS_EMITTED: AtomicBool = AtomicBool::new(false);
 static PAIRED_IMPORT_SIGNAL_READY: AtomicBool = AtomicBool::new(false);
 static CAMERA_PANEL_DRAW_MARKER_EMITTED: AtomicBool = AtomicBool::new(false);
+static VIDEO_EVENT_RAW_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
+static TEXTURE_CONTENT_PROBE_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
 
 const DEFAULT_PROFILE: &str = "makepad-stereo-projection-pair-probe";
-const DEFAULT_TRANSPORT: &str = "makepad-video-external";
+const DEFAULT_TRANSPORT: &str = "makepad-direct-camera-y-texture-sample-control";
 const DEFAULT_CAMERA_TIER: &str = "native-camera2-makepad-stereo-vulkan-import-probe";
 const DEFAULT_CAMERA_PROJECTION_MODE: &str = "display-screen-homography";
 const DEFAULT_COMPARISON_BASELINE: &str = "custom-apk-camera-stereo-gpu-composite";
-const DEFAULT_SYNTHETIC_SCENE: &str = "camera-pair-projection-no-debug-overlay";
+const DEFAULT_SYNTHETIC_SCENE: &str = "camera-panel-s48-direct-camera-y-texture-sample-proof";
 const DEFAULT_ACQUISITION_PROFILE: &str =
     "bounded-camera2-private-plus-makepad-paired-import-probe";
 const DEFAULT_PROJECTION_SCALE: f64 = 0.75;
 const DEFAULT_XR_RENDER_SCALE: f64 = 0.75;
 const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
-const MAKEPAD_REV: &str = "a57e68adf4c3";
+const MAKEPAD_REV: &str = "7a47fb6e6d4a";
 const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
 const PAIRED_IMPORT_MAX_WAITS: usize = 10;
@@ -46,6 +49,11 @@ const CADENCE_SAMPLE_SECONDS: f64 = 5.0;
 const NATIVE_VIDEO_WIDGET_SURFACE_DIAGNOSTIC: bool = false;
 const NATIVE_VIDEO_WIDGET_RETRY_SECONDS: f64 = 0.5;
 const NATIVE_VIDEO_WIDGET_MAX_RESETS: usize = 3;
+const RAW_VIDEO_EVENT_MARKER_LIMIT: usize = 18;
+const TEXTURE_CONTENT_PROBE_MARKER_LIMIT: usize = 8;
+const SYNTHETIC_LUMA_SLOT_PROOF: bool = false;
+const SYNTHETIC_LUMA_ALL_SLOT_PROOF: bool = false;
+const SYNTHETIC_LUMA_PROBE_SIZE: usize = 128;
 const KEY_RUNTIME_PROFILE: &str = "runtime_profile";
 const KEY_TRANSPORT_PROFILE: &str = "transport_profile";
 const KEY_CAMERA_TIER: &str = "camera_tier";
@@ -76,6 +84,12 @@ script_mod! {
 
         left_camera_texture: texture_video()
         right_camera_texture: texture_video()
+        left_tex_y: texture_2d(float)
+        left_tex_u: texture_2d(float)
+        left_tex_v: texture_2d(float)
+        right_tex_y: texture_2d(float)
+        right_tex_u: texture_2d(float)
+        right_tex_v: texture_2d(float)
         v_uv: varying(vec2f)
 
         vertex: fn() {
@@ -102,39 +116,119 @@ script_mod! {
             return coord * is_0 + coord_90 * is_90 + coord_180 * is_180 + coord_270 * is_270;
         }
 
+        yuv_to_rgb: fn(y_val: float, u_val: float, v_val: float) -> vec3f {
+            let y = (y_val * 255.0 - 16.0) / 219.0;
+            let u = (u_val * 255.0 - 128.0) / 224.0;
+            let v = (v_val * 255.0 - 128.0) / 224.0;
+
+            let r709 = y + 1.5748 * v;
+            let g709 = y - 0.1873 * u - 0.4681 * v;
+            let b709 = y + 1.8556 * u;
+
+            let r601 = y + 1.402 * v;
+            let g601 = y - 0.3441 * u - 0.7141 * v;
+            let b601 = y + 1.772 * u;
+
+            let r2020 = y + 1.4746 * v;
+            let g2020 = y - 0.1646 * u - 0.5714 * v;
+            let b2020 = y + 1.8814 * u;
+
+            let is_601 = step(0.5, self.yuv_matrix) * step(self.yuv_matrix, 1.5);
+            let is_2020 = step(1.5, self.yuv_matrix);
+            let is_709 = 1.0 - is_601 - is_2020;
+
+            return vec3(
+                clamp(is_709 * r709 + is_601 * r601 + is_2020 * r2020, 0.0, 1.0),
+                clamp(is_709 * g709 + is_601 * g601 + is_2020 * g2020, 0.0, 1.0),
+                clamp(is_709 * b709 + is_601 * b601 + is_2020 * b2020, 0.0, 1.0)
+            );
+        }
+
+        sample_left_yuv: fn(coord: vec2f) -> vec3f {
+            let y_val = self.left_tex_y.sample(coord).x;
+            let uv_sample = self.left_tex_u.sample(coord);
+            let u_val = uv_sample.x;
+            let v_val = mix(self.left_tex_v.sample(coord).x, uv_sample.y, step(0.5, self.yuv_biplanar));
+            return self.yuv_to_rgb(y_val, u_val, v_val);
+        }
+
+        sample_right_yuv: fn(coord: vec2f) -> vec3f {
+            let y_val = self.right_tex_y.sample(coord).x;
+            let uv_sample = self.right_tex_u.sample(coord);
+            let u_val = uv_sample.x;
+            let v_val = mix(self.right_tex_v.sample(coord).x, uv_sample.y, step(0.5, self.yuv_biplanar));
+            return self.yuv_to_rgb(y_val, u_val, v_val);
+        }
+
         guide_mask: fn(coord: vec2f) -> float {
             let edge_x = min(coord.x, 1.0 - coord.x);
             let edge_y = min(coord.y, 1.0 - coord.y);
-            let border = 1.0 - step(0.018, min(edge_x, edge_y));
-            let center_x = 1.0 - step(0.009, abs(coord.x - 0.5));
-            let center_y = 1.0 - step(0.009, abs(coord.y - 0.5));
-            return clamp(max(border, max(center_x, center_y)), 0.0, 1.0);
+            let border = 1.0 - step(0.015, min(edge_x, edge_y));
+            let split = 1.0 - step(0.010, abs(coord.x - 0.5));
+            let center_y = 1.0 - step(0.008, abs(coord.y - 0.5));
+            return clamp(max(border, max(split, center_y)), 0.0, 1.0);
         }
 
         pixel: fn() {
+            let panel_uv = clamp(self.v_uv, vec2(0.0, 0.0), vec2(1.0, 1.0));
+            let proof_guide = self.guide_mask(panel_uv);
+            let direct_luma = self.left_tex_y.sample(panel_uv).x;
+            let direct_visual = clamp(direct_luma * 8.0, 0.0, 1.0);
+            let direct_rgb = vec3(direct_visual, direct_visual, direct_visual);
+            let guided_direct = mix(direct_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
+            return vec4(guided_direct.x, guided_direct.y, guided_direct.z, 1.0);
+
+            let half_selector = step(0.5, panel_uv.x);
+            let source_uv = vec2(mix(panel_uv.x * 2.0, (panel_uv.x - 0.5) * 2.0, half_selector), panel_uv.y);
+            let left_uv = clamp(self.rotate_uv(source_uv, self.left_rotation_steps), vec2(0.0, 0.0), vec2(1.0, 1.0));
+            let right_uv = clamp(self.rotate_uv(source_uv, self.right_rotation_steps), vec2(0.0, 0.0), vec2(1.0, 1.0));
+            let left_proof_tint = vec3(0.02, 0.42, 1.0);
+            let right_proof_tint = vec3(1.0, 0.06, 0.06);
+            let proof_tint = mix(left_proof_tint, right_proof_tint, half_selector);
+
             if self.camera_ready <= 0.5 {
-                return vec4(0.0, 0.0, 0.0, 0.0);
+                let waiting = vec3(0.015, 0.020, 0.024);
+                let guided_waiting = mix(waiting, vec3(1.0, 1.0, 1.0), proof_guide);
+                return vec4(guided_waiting.x, guided_waiting.y, guided_waiting.z, 1.0);
             }
 
-            let uv = clamp(self.rotate_uv(self.v_uv, mix(self.left_rotation_steps, self.right_rotation_steps, self.active_eye_is_right())), vec2(0.0, 0.0), vec2(1.0, 1.0));
-            let guide = self.guide_mask(uv) * self.alignment_guide;
+            let guide = proof_guide * self.alignment_guide;
             if self.diagnostic_solid > 0.5 {
-                let left_color = vec3(0.02 + 0.28 * uv.x, 0.72 + 0.20 * uv.y, 0.95);
-                let right_color = vec3(0.95, 0.10 + 0.24 * uv.y, 0.70 + 0.18 * uv.x);
-                let diagnostic = mix(left_color, right_color, self.active_eye_is_right());
+                let left_color = vec3(0.02 + 0.28 * source_uv.x, 0.72 + 0.20 * source_uv.y, 0.95);
+                let right_color = vec3(0.95, 0.10 + 0.24 * source_uv.y, 0.70 + 0.18 * source_uv.x);
+                let diagnostic = mix(left_color, right_color, half_selector);
                 let guided_diagnostic = mix(diagnostic, vec3(1.0, 1.0, 1.0), guide);
                 return vec4(guided_diagnostic.x, guided_diagnostic.y, guided_diagnostic.z, 1.0);
             }
 
-            let left_sample = self.left_camera_texture.sample_video(uv).xyz;
-            let right_sample = self.right_camera_texture.sample_video(uv).xyz;
-            let sample = mix(left_sample, right_sample, self.active_eye_is_right());
+            let left_external_sample = self.left_camera_texture.sample_video(left_uv).xyz;
+            let right_external_sample = self.right_camera_texture.sample_video(right_uv).xyz;
+            let left_luma_sample = self.left_tex_y.sample(left_uv).x;
+            let right_luma_sample = self.right_tex_y.sample(right_uv).x;
+            let left_yuv_sample = self.sample_left_yuv(left_uv);
+            let right_yuv_sample = self.sample_right_yuv(right_uv);
+            if self.texture_probe_mode > 1.5 {
+                let bypass_rgb = vec3(0.42, 0.42, 0.42);
+                let guided_bypass = mix(bypass_rgb, vec3(0.98, 0.98, 0.92), guide);
+                return vec4(guided_bypass.x, guided_bypass.y, guided_bypass.z, 1.0);
+            }
+            if self.texture_probe_mode > 0.5 {
+                let luma = mix(left_luma_sample, right_luma_sample, half_selector);
+                let luma_visual = clamp(luma * 8.0, 0.0, 1.0);
+                let luma_rgb = vec3(luma_visual, luma_visual, luma_visual);
+                let guided_luma = mix(luma_rgb, vec3(0.98, 0.98, 0.92), guide);
+                return vec4(guided_luma.x, guided_luma.y, guided_luma.z, 1.0);
+            }
+            let left_sample = mix(left_external_sample, left_yuv_sample, self.yuv_mode);
+            let right_sample = mix(right_external_sample, right_yuv_sample, self.yuv_mode);
+            let sample = mix(left_sample, right_sample, half_selector);
             let rgb = vec3(
                 clamp(sample.x * self.exposure, 0.0, 1.0),
                 clamp(sample.y * self.exposure, 0.0, 1.0),
                 clamp(sample.z * self.exposure, 0.0, 1.0)
             );
-            let guided = mix(rgb, vec3(0.92, 0.95, 0.88), guide);
+            let tinted = mix(rgb, proof_tint, self.proof_tint_strength);
+            let guided = mix(tinted, vec3(0.98, 0.98, 0.92), guide);
             return vec4(guided.x, guided.y, guided.z, 1.0);
         }
 
@@ -147,11 +241,18 @@ script_mod! {
     mod.widgets.MakepadStereoCameraPanel = set_type_default() do mod.widgets.MakepadStereoCameraPanelBase{
         body: mod.widgets.XrBodyKind.Fixed
         shared_object_policy: mod.widgets.XrSharedObjectPolicy.None
-        size: vec3(0.92, 0.52, 0.010)
+        size: vec3(1.36, 0.88, 0.010)
         draw_panel +: {
-            exposure: 1.0
+            exposure: 1.06
+            camera_ready: 1.0
             diagnostic_solid: 0.0
-            alignment_guide: 0.0
+            alignment_guide: 1.0
+            yuv_mode: 1.0
+            yuv_matrix: 1.0
+            yuv_biplanar: 0.0
+            texture_probe_mode: 2.0
+            proof_tint_strength: 0.0
+            depth_clip: 0.0
         }
     }
 
@@ -167,16 +268,17 @@ script_mod! {
             env.depth_mesh: false
 
             camera_projection_scene := XrNode{
-                pos: vec3(0.0, -0.04, -0.762)
+                pos: vec3(0.0, 0.56, -0.762)
 
                 camera_projection_panel := mod.widgets.MakepadStereoCameraPanel{
                     body: mod.widgets.XrBodyKind.Fixed
-                    size: vec3(0.92, 0.52, 0.010)
+                    size: vec3(1.36, 0.88, 0.010)
                     pos: vec3(0.0, 0.0, 0.0)
                 }
             }
 
             camera_video_view := XrView{
+                visible: false
                 pos: vec3(0.0, -0.04, -0.764)
                 logical_size: vec2(960, 540)
                 pixel_scale: 0.00096
@@ -239,6 +341,10 @@ pub struct App {
     #[rust]
     paired_import_right_texture: Option<Texture>,
     #[rust]
+    paired_import_left_yuv_textures: Option<MakepadCameraYuvTextures>,
+    #[rust]
+    paired_import_right_yuv_textures: Option<MakepadCameraYuvTextures>,
+    #[rust]
     paired_import_left_prepared: bool,
     #[rust]
     paired_import_right_prepared: bool,
@@ -295,7 +401,7 @@ pub struct App {
 pub struct DrawMakepadStereoCameraPanel {
     #[deref]
     pub draw_super: DrawCube,
-    #[live(0.0_f32)]
+    #[live(1.0_f32)]
     pub camera_ready: f32,
     #[live(0.0_f32)]
     pub left_rotation_steps: f32,
@@ -308,13 +414,71 @@ pub struct DrawMakepadStereoCameraPanel {
     #[live(0.0_f32)]
     pub alignment_guide: f32,
     #[live(1.0_f32)]
+    pub yuv_mode: f32,
+    #[live(1.0_f32)]
+    pub yuv_matrix: f32,
+    #[live(0.0_f32)]
+    pub yuv_biplanar: f32,
+    #[live(2.0_f32)]
+    pub texture_probe_mode: f32,
+    #[live(0.0_f32)]
+    pub proof_tint_strength: f32,
+    #[live(0.0_f32)]
     pub depth_clip: f32,
 }
 
 impl DrawMakepadStereoCameraPanel {
-    fn set_camera_textures(&mut self, left: Option<Texture>, right: Option<Texture>) {
-        self.draw_super.draw_vars.texture_slots[0] = left;
-        self.draw_super.draw_vars.texture_slots[1] = right;
+    fn assign_texture_slot(&mut self, slot: usize, texture: Option<Texture>) {
+        match texture {
+            Some(texture) => self.draw_super.draw_vars.set_texture(slot, &texture),
+            None => self.draw_super.draw_vars.empty_texture(slot),
+        }
+    }
+
+    fn set_camera_textures(&mut self, cx: &mut Cx, left: Option<Texture>, right: Option<Texture>) {
+        self.assign_texture_slot(0, left);
+        self.assign_texture_slot(1, right);
+        self.draw_super.draw_vars.redraw(cx);
+    }
+
+    fn set_camera_yuv_textures(
+        &mut self,
+        cx: &mut Cx,
+        left: Option<MakepadCameraYuvTextures>,
+        right: Option<MakepadCameraYuvTextures>,
+    ) {
+        let left_effective = left.clone().or_else(|| right.clone());
+        let right_effective = right.clone().or_else(|| left_effective.clone());
+        self.assign_texture_slot(
+            2,
+            left_effective.as_ref().map(|textures| textures.y.clone()),
+        );
+        self.assign_texture_slot(
+            3,
+            left_effective.as_ref().map(|textures| textures.u.clone()),
+        );
+        self.assign_texture_slot(
+            4,
+            left_effective.as_ref().map(|textures| textures.v.clone()),
+        );
+        self.assign_texture_slot(
+            5,
+            right_effective.as_ref().map(|textures| textures.y.clone()),
+        );
+        self.assign_texture_slot(
+            6,
+            right_effective.as_ref().map(|textures| textures.u.clone()),
+        );
+        self.assign_texture_slot(
+            7,
+            right_effective.as_ref().map(|textures| textures.v.clone()),
+        );
+        self.yuv_mode = if left_effective.is_some() && right_effective.is_some() {
+            1.0
+        } else {
+            0.0
+        };
+        self.draw_super.draw_vars.redraw(cx);
     }
 
     fn draw(&mut self, cx: &mut CxDraw) {
@@ -334,21 +498,108 @@ pub struct MakepadStereoCameraPanel {
     #[cast]
     #[deref]
     node: XrNode,
+    #[rust]
+    synthetic_luma_probe_texture: Option<Texture>,
 }
 
 impl MakepadStereoCameraPanel {
+    fn synthetic_luma_probe_texture(&mut self, cx: &mut Cx) -> Texture {
+        if let Some(texture) = &self.synthetic_luma_probe_texture {
+            return texture.clone();
+        }
+
+        let size = SYNTHETIC_LUMA_PROBE_SIZE;
+        let mut data = Vec::with_capacity(size * size);
+        for y in 0..size {
+            for x in 0..size {
+                let band = ((x / 16) + (y / 16)) % 4;
+                data.push(8 + (band as u8) * 8);
+            }
+        }
+
+        let texture = Texture::new_with_format(
+            cx,
+            TextureFormat::VecRu8 {
+                width: size,
+                height: size,
+                data: Some(data),
+                unpack_row_length: None,
+                updated: TextureUpdated::Full,
+            },
+        );
+        self.synthetic_luma_probe_texture = Some(texture.clone());
+        texture
+    }
+
     fn set_camera_textures(
         &mut self,
         cx: &mut Cx,
         left: Option<Texture>,
         right: Option<Texture>,
+        left_yuv: Option<MakepadCameraYuvTextures>,
+        right_yuv: Option<MakepadCameraYuvTextures>,
         left_rotation_steps: f32,
         right_rotation_steps: f32,
     ) {
-        self.draw_panel.set_camera_textures(left, right);
+        self.draw_panel.set_camera_textures(cx, left, right);
+        let (left_yuv, right_yuv) = if SYNTHETIC_LUMA_SLOT_PROOF {
+            let probe = self.synthetic_luma_probe_texture(cx);
+            if SYNTHETIC_LUMA_ALL_SLOT_PROOF {
+                for slot in 0..8 {
+                    self.draw_panel
+                        .assign_texture_slot(slot, Some(probe.clone()));
+                }
+            }
+            let textures = MakepadCameraYuvTextures::new(probe.clone(), probe.clone(), probe);
+            (Some(textures.clone()), Some(textures))
+        } else {
+            (left_yuv, right_yuv)
+        };
+        self.draw_panel
+            .set_camera_yuv_textures(cx, left_yuv, right_yuv);
         self.draw_panel.left_rotation_steps = left_rotation_steps;
         self.draw_panel.right_rotation_steps = right_rotation_steps;
         self.draw_panel.camera_ready = 1.0;
+        self.draw_panel.texture_probe_mode = 2.0;
+        self.draw_panel.draw_super.draw_vars.redraw(cx);
+        self.draw_panel.draw_super.draw_vars.set_instance_on_area(
+            cx,
+            live_id!(camera_ready),
+            &[1.0],
+        );
+        self.draw_panel.draw_super.draw_vars.set_uniform_on_area(
+            cx,
+            live_id!(camera_ready),
+            &[1.0],
+        );
+        self.draw_panel
+            .draw_super
+            .draw_vars
+            .set_instance_on_area(cx, live_id!(yuv_mode), &[1.0]);
+        self.draw_panel
+            .draw_super
+            .draw_vars
+            .set_uniform_on_area(cx, live_id!(yuv_mode), &[1.0]);
+        self.draw_panel.draw_super.draw_vars.set_instance_on_area(
+            cx,
+            live_id!(proof_tint_strength),
+            &[0.0],
+        );
+        self.draw_panel.draw_super.draw_vars.set_uniform_on_area(
+            cx,
+            live_id!(proof_tint_strength),
+            &[0.0],
+        );
+        self.draw_panel.draw_super.draw_vars.set_instance_on_area(
+            cx,
+            live_id!(texture_probe_mode),
+            &[2.0],
+        );
+        self.draw_panel.draw_super.draw_vars.set_uniform_on_area(
+            cx,
+            live_id!(texture_probe_mode),
+            &[2.0],
+        );
         self.camera_ready = true;
         self.node.redraw(cx);
     }
@@ -368,22 +619,21 @@ impl ScriptHook for MakepadStereoCameraPanel {
 
 impl Widget for MakepadStereoCameraPanel {
     fn draw_3d(&mut self, cx: &mut Cx3d, scope: &mut Scope) -> DrawStep {
-        if self.camera_ready {
-            if cx.scene_state_3d().is_none() {
-                return self.node.draw_3d(cx, scope);
-            }
-            if !CAMERA_PANEL_DRAW_MARKER_EMITTED.swap(true, Ordering::AcqRel) {
-                emit_marker_line(
-                    "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=visible-panel-draw status=ok visibleCameraPanelDrawn=true renderPath=makepad-xr sceneOwnedPanel=true projectionShaderPath=makepad-video-external-sample-video-rgb-no-guide diagnosticSolidPanel=false debugAlignmentGuide=false visualInspection=required visualReleaseAccepted=false",
-                );
-            }
-            let world = xr_widget_world_transform(cx, scope, self.widget_uid(), &self.node);
-            self.draw_panel.draw_super.transform = world;
-            self.draw_panel.draw_super.cube_pos = vec3f(0.0, 0.0, 0.0);
-            self.draw_panel.draw_super.cube_size = self.size;
-            self.draw_panel.draw_super.depth_clip = 1.0;
-            self.draw_panel.draw(cx);
+        if cx.scene_state_3d().is_none() {
+            return self.node.draw_3d(cx, scope);
         }
+        if !CAMERA_PANEL_DRAW_MARKER_EMITTED.swap(true, Ordering::AcqRel) {
+            emit_marker_line(&format!(
+                "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=visible-panel-draw status=ok visibleCameraPanelDrawn=true cameraTextureReady={} renderPath=makepad-xr sceneOwnedPanel=true projectionShaderPath=makepad-direct-camera-y-texture-sample-panel textureProbeMode=direct-camera-y-sample syntheticLumaSlotProof=false directCameraYTextureSample=true diagnosticSolidPanel=false debugAlignmentGuide=true proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=opaque_app_owned_panel depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
+                self.camera_ready
+            ));
+        }
+        let world = xr_widget_world_transform(cx, scope, self.widget_uid(), &self.node);
+        self.draw_panel.draw_super.transform = world;
+        self.draw_panel.draw_super.cube_pos = vec3f(0.0, 0.0, 0.0);
+        self.draw_panel.draw_super.cube_size = self.size;
+        self.draw_panel.draw_super.depth_clip = 0.0;
+        self.draw_panel.draw(cx);
 
         self.node.draw_3d(cx, scope)
     }
@@ -656,7 +906,7 @@ impl App {
         };
 
         Self::emit_cadence_marker(&format!(
-            "phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} xrUpdateCount={} xrUpdateDelta={} xrUpdateRateHz={:.2} drawEventCount={} drawEventDelta={} drawEventRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightGpuBuffers={} projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} cpuUploadCount=0 renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated",
+            "phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} xrUpdateCount={} xrUpdateDelta={} xrUpdateRateHz={:.2} drawEventCount={} drawEventDelta={} drawEventRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightCameraFrames={} projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} cpuUploadPath=makepad-camera-cpu-yuv-plane renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated",
             elapsed_seconds * 1000.0,
             interval_seconds * 1000.0,
             self.cadence_frame_count,
@@ -733,14 +983,33 @@ impl App {
                     self.arm_paired_import_timer(cx, PAIRED_IMPORT_DELAY_SECONDS, "video-inputs");
                 }
             }
+            Event::VideoYuvTexturesReady(ready) => {
+                emit_raw_video_event_marker("yuv-textures-ready", ready.video_id);
+                if let Some(side) = StereoEye::from_video_id(ready.video_id) {
+                    let textures = MakepadCameraYuvTextures::new(
+                        ready.tex_y.clone(),
+                        ready.tex_u.clone(),
+                        ready.tex_v.clone(),
+                    );
+                    match side {
+                        StereoEye::Left => self.paired_import_left_yuv_textures = Some(textures),
+                        StereoEye::Right => self.paired_import_right_yuv_textures = Some(textures),
+                    }
+                    Self::emit_hardware_buffer_import_marker(&format!(
+                        "phase=yuv-textures-ready status=ok side={} textureMode=makepad-yuv-plane visualProofPath=single-stream-yuv-proof depthClip=false environmentDepthClip=false",
+                        side.label(),
+                    ));
+                }
+            }
             Event::VideoPlaybackPrepared(prepared) => {
+                emit_raw_video_event_marker("prepared", prepared.video_id);
                 if let Some(side) = StereoEye::from_video_id(prepared.video_id) {
                     match side {
                         StereoEye::Left => self.paired_import_left_prepared = true,
                         StereoEye::Right => self.paired_import_right_prepared = true,
                     }
                     Self::emit_hardware_buffer_import_marker(&format!(
-                        "phase=prepared status=ok side={} width={} height={} importPath=makepad-android-video-external-vulkan textureMode=hardware-buffer-external importPlan=paired-makepad-video-hardware-buffer",
+                        "phase=prepared status=ok side={} width={} height={} importPath=makepad-android-camera-yuv-plane-cpu-proof textureMode=yuv-plane importPlan=single-stream-yuv-proof",
                         side.label(),
                         prepared.video_width,
                         prepared.video_height,
@@ -749,8 +1018,10 @@ impl App {
                 }
             }
             Event::VideoTextureUpdated(updated) => {
+                emit_raw_video_event_marker("texture-updated", updated.video_id);
                 if let Some(side) = StereoEye::from_video_id(updated.video_id) {
                     self.record_camera_texture_update(side, updated.current_position_ms);
+                    self.emit_yuv_texture_content_probe(cx, side, updated.yuv);
                     if self.paired_import_finished {
                         self.bind_camera_projection_panel(cx);
                         return;
@@ -766,7 +1037,7 @@ impl App {
                         }
                     }
                     Self::emit_hardware_buffer_import_marker(&format!(
-                        "phase=texture-updated status=ok side={} makepadVulkanImport=true yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} importPlan=paired-makepad-video-hardware-buffer",
+                        "phase=texture-updated status=ok side={} makepadVulkanImport=false yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} importPlan=single-stream-yuv-proof cpuUploadPath=makepad-camera-cpu-yuv-plane",
                         side.label(),
                         updated.yuv.enabled,
                         updated.yuv.biplanar,
@@ -776,6 +1047,7 @@ impl App {
                 }
             }
             Event::VideoDecodingError(error) => {
+                emit_raw_video_event_marker("decode-error", error.video_id);
                 if let Some(side) = StereoEye::from_video_id(error.video_id) {
                     self.paired_import_finished = true;
                     Self::emit_hardware_buffer_import_marker(&format!(
@@ -862,14 +1134,12 @@ impl App {
 
         let left_texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
         let right_texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
-        let left_texture_id = left_texture.texture_id();
-        let right_texture_id = right_texture.texture_id();
         self.paired_import_left_texture = Some(left_texture);
         self.paired_import_right_texture = Some(right_texture);
         self.paired_import_started = true;
 
         Self::emit_hardware_buffer_import_marker(&format!(
-            "phase=start status=started importPlan=paired-makepad-video-hardware-buffer leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftFrameRate={} rightFrameRate={} pixelFormat={} importPath=makepad-android-video-external-vulkan textureFormat=VideoExternal delayedAfterAcquisitionSeconds={:.0}",
+            "phase=start status=started importPlan=single-stream-yuv-proof leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftFrameRate={} rightFrameRate={} pixelFormat={} importPath=makepad-android-camera-yuv-plane-cpu-proof textureFormat=VideoYuvPlane depthClip=false environmentDepthClip=false delayedAfterAcquisitionSeconds={:.0}",
             pair.left.source_index,
             pair.right.source_index,
             pair.left.source_class,
@@ -910,7 +1180,7 @@ impl App {
             VideoSource::Camera(pair.left.input_id, pair.left.format_id),
             CameraPreviewMode::Texture,
             0,
-            left_texture_id,
+            TextureId::default(),
             true,
             false,
         );
@@ -919,7 +1189,7 @@ impl App {
             VideoSource::Camera(pair.right.input_id, pair.right.format_id),
             CameraPreviewMode::Texture,
             0,
-            right_texture_id,
+            TextureId::default(),
             true,
             false,
         );
@@ -1078,6 +1348,50 @@ impl App {
         ));
     }
 
+    fn emit_yuv_texture_content_probe(&self, cx: &mut Cx, side: StereoEye, yuv: VideoYuvMetadata) {
+        if TEXTURE_CONTENT_PROBE_MARKERS_EMITTED.fetch_add(1, Ordering::AcqRel)
+            >= TEXTURE_CONTENT_PROBE_MARKER_LIMIT
+        {
+            return;
+        }
+
+        let textures = match side {
+            StereoEye::Left => self.paired_import_left_yuv_textures.clone(),
+            StereoEye::Right => self.paired_import_right_yuv_textures.clone(),
+        };
+
+        let Some(textures) = textures else {
+            Self::emit_stereo_projection_marker(&format!(
+                "phase=texture-content-probe status=missing side={} textureProbeMode=direct-camera-y-sample syntheticLumaSlotProof=false directCameraYTextureSample=true yuvEnabled={} yuvBiplanar={} yuvMatrix={:.1} rotationSteps={:.0} cpuPlaneContentPresent=false visualInspection=required visualReleaseAccepted=false",
+                side.label(),
+                yuv.enabled,
+                yuv.biplanar,
+                yuv.matrix,
+                yuv.rotation_steps,
+            ));
+            return;
+        };
+
+        let y_stats = texture_plane_content_stats(cx, &textures.y);
+        let u_stats = texture_plane_content_stats(cx, &textures.u);
+        let v_stats = texture_plane_content_stats(cx, &textures.v);
+        let cpu_content_present =
+            y_stats.readable && y_stats.data_present && y_stats.sample_count > 0 && y_stats.max > 0;
+
+        Self::emit_stereo_projection_marker(&format!(
+            "phase=texture-content-probe status=ok side={} textureProbeMode=direct-camera-y-sample syntheticLumaSlotProof=false directCameraYTextureSample=true yuvEnabled={} yuvBiplanar={} yuvMatrix={:.1} rotationSteps={:.0} cpuPlaneContentPresent={} {} {} {} gpuSamplingStillVisual=direct-camera-y-texture visualInspection=required visualReleaseAccepted=false",
+            side.label(),
+            yuv.enabled,
+            yuv.biplanar,
+            yuv.matrix,
+            yuv.rotation_steps,
+            cpu_content_present,
+            y_stats.marker_fields("y"),
+            u_stats.marker_fields("u"),
+            v_stats.marker_fields("v"),
+        ));
+    }
+
     fn bind_camera_projection_panel(&mut self, cx: &mut Cx) -> bool {
         if self.camera_projection_textures_bound {
             return true;
@@ -1088,6 +1402,50 @@ impl App {
             self.paired_import_right_texture.clone(),
             self.paired_import_choice.clone(),
         ) else {
+            return false;
+        };
+        let left_updated_yuv = if self.paired_import_left_updated {
+            self.paired_import_left_yuv_textures.clone()
+        } else {
+            None
+        };
+        let right_updated_yuv = if self.paired_import_right_updated {
+            self.paired_import_right_yuv_textures.clone()
+        } else {
+            None
+        };
+        let proof_source_side = match (left_updated_yuv.is_some(), right_updated_yuv.is_some()) {
+            (true, true) => "paired",
+            (true, false) => "left",
+            (false, true) => "right",
+            (false, false) => "ready-only",
+        };
+        let (left_yuv_source, right_yuv_source) =
+            match (left_updated_yuv.clone(), right_updated_yuv.clone()) {
+                (Some(left), Some(right)) => (Some(left), Some(right)),
+                (Some(left), None) => (Some(left.clone()), Some(left)),
+                (None, Some(right)) => (Some(right.clone()), Some(right)),
+                (None, None) => {
+                    let left_ready = self
+                        .paired_import_left_yuv_textures
+                        .clone()
+                        .or_else(|| self.paired_import_right_yuv_textures.clone());
+                    let right_ready = self
+                        .paired_import_right_yuv_textures
+                        .clone()
+                        .or_else(|| left_ready.clone());
+                    (left_ready, right_ready)
+                }
+            };
+        let single_stream_visual_proof =
+            !(self.paired_import_left_updated && self.paired_import_right_updated);
+        let (Some(left_yuv), Some(right_yuv)) = (left_yuv_source, right_yuv_source) else {
+            if !self.camera_projection_bind_error_logged {
+                Self::emit_stereo_projection_marker(
+                    "phase=visible-panel-bound status=waiting visibleCameraProjectionReady=false fallbackReason=makepad_camera_yuv_plane_textures_missing",
+                );
+                self.camera_projection_bind_error_logged = true;
+            }
             return false;
         };
 
@@ -1106,10 +1464,17 @@ impl App {
             cx,
             Some(left_texture),
             Some(right_texture),
+            Some(left_yuv),
+            Some(right_yuv),
             self.paired_import_left_rotation_steps,
             self.paired_import_right_rotation_steps,
         );
         self.camera_projection_textures_bound = true;
+        Self::emit_stereo_projection_marker(&format!(
+            "phase=draw-vars-bound status=ok cameraReady=true yuvMode=true proofTintStrength=0.0 neutralWaitingPanel=true textureProbeMode=direct-camera-y-sample syntheticLumaSlotProof=false directCameraYTextureSample=true drawVarsTextureRedraw=true shaderAreaStateUpdate=true leftYuvTextureBound=true rightYuvTextureBound=true singleStreamVisualProof={} updatedStreamVisualProofSide={} visibleCameraProjectionReady=true sceneOwnedPanel=true projectionShaderPath=makepad-direct-camera-y-texture-sample-panel depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
+            single_stream_visual_proof,
+            proof_source_side,
+        ));
         if !self.synthetic_scene_hidden_for_camera {
             self.synthetic_scene_hidden_for_camera = true;
             Self::emit_stereo_projection_marker(
@@ -1117,12 +1482,14 @@ impl App {
             );
         }
         Self::emit_stereo_projection_marker(&format!(
-            "phase=visible-panel-bound status=ok visibleCameraProjectionReady=true eyeSelection=left-eye-texture-control sourceEyeMapping={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftRotationSteps={:.0} rightRotationSteps={:.0} sceneOwnedPanel=true projectionShaderPath=makepad-video-external-sample-video-rgb-no-guide diagnosticSolidPanel=false debugAlignmentGuide=false visualInspection=required visualReleaseAccepted=false",
+            "phase=visible-panel-bound status=ok visibleCameraProjectionReady=true eyeSelection=split-panel-left-right-direct-camera-y-texture-proof sourceEyeMapping={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftRotationSteps={:.0} rightRotationSteps={:.0} sceneOwnedPanel=true projectionShaderPath=makepad-direct-camera-y-texture-sample-panel textureProbeMode=direct-camera-y-sample syntheticLumaSlotProof=false directCameraYTextureSample=true diagnosticSolidPanel=false debugAlignmentGuide=true proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=opaque_app_owned_panel depthClip=false environmentDepthClip=false singleStreamVisualProof={} updatedStreamVisualProofSide={} cpuUploadPath=makepad-camera-cpu-yuv-plane drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false",
             pair.source_eye_mapping,
             pair.left.source_index,
             pair.right.source_index,
             self.paired_import_left_rotation_steps,
             self.paired_import_right_rotation_steps,
+            single_stream_visual_proof,
+            proof_source_side,
         ));
         true
     }
@@ -1132,7 +1499,22 @@ impl App {
             return;
         }
 
-        if !self.paired_import_left_updated || !self.paired_import_right_updated {
+        let paired_streams_ready =
+            self.paired_import_left_updated && self.paired_import_right_updated;
+        let updated_stream_visual_proof_side = match (
+            self.paired_import_left_updated,
+            self.paired_import_right_updated,
+        ) {
+            (true, true) => "paired",
+            (true, false) => "left",
+            (false, true) => "right",
+            (false, false) => "none",
+        };
+        let single_stream_ready = (self.paired_import_left_updated
+            || self.paired_import_right_updated)
+            && (self.paired_import_left_yuv_textures.is_some()
+                || self.paired_import_right_yuv_textures.is_some());
+        if !paired_streams_ready && !single_stream_ready {
             self.emit_paired_projection_progress("texture-updated");
             return;
         }
@@ -1141,10 +1523,23 @@ impl App {
             return;
         };
         self.paired_import_finished = true;
-        let aligned_projection = pair.projection_metadata_ready;
+        let aligned_projection = pair.projection_metadata_ready && paired_streams_ready;
         let visible_projection_ready = self.bind_camera_projection_panel(cx);
+        if !paired_streams_ready {
+            Self::emit_stereo_projection_marker(&format!(
+                "phase=single-stream-proof status=ok pairedLeftRightCameraFrames=false singleStreamCameraPixels=true leftUpdated={} rightUpdated={} leftYuvReady={} rightYuvReady={} projectionMappingReady={} alignedProjection=false visibleCameraProjectionReady={} sceneOwnedPanel=true projectionShaderPath=makepad-direct-camera-y-texture-sample-panel textureProbeMode=direct-camera-y-sample syntheticLumaSlotProof=false directCameraYTextureSample=true proofTintStrength=0.0 neutralWaitingPanel=true depthClip=false environmentDepthClip=false drawVarsTextureRedraw=true shaderAreaStateUpdate=true updatedStreamVisualProofSide={} visualInspection=required visualReleaseAccepted=false fallbackReason=single_cpu_yuv_stream_only",
+                self.paired_import_left_updated,
+                self.paired_import_right_updated,
+                self.paired_import_left_yuv_textures.is_some(),
+                self.paired_import_right_yuv_textures.is_some(),
+                pair.projection_metadata_ready,
+                visible_projection_ready,
+                updated_stream_visual_proof_side,
+            ));
+            return;
+        }
         Self::emit_stereo_projection_marker(&format!(
-            "phase=complete status=ok pairedLeftRightGpuBuffers=true makepadVulkanImport=true projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionMode={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftRotationSteps={:.0} rightRotationSteps={:.0} projectionScale={:.2} xrRenderScale={:.2} renderPath=makepad-xr projectionShaderPath=makepad-video-external-eye-map-no-guide cpuUploadCount=0 debugAlignmentGuide=false visualInspection=required visualReleaseAccepted=false fallbackReason={}",
+            "phase=complete status=ok pairedLeftRightCameraFrames=true makepadVulkanImport=false projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionMode={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftRotationSteps={:.0} rightRotationSteps={:.0} projectionScale={:.2} xrRenderScale={:.2} renderPath=makepad-xr projectionShaderPath=makepad-direct-camera-y-texture-sample-panel textureProbeMode=direct-camera-y-sample syntheticLumaSlotProof=false directCameraYTextureSample=true cpuUploadPath=makepad-camera-cpu-yuv-plane debugAlignmentGuide=true proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=opaque_app_owned_panel depthClip=false environmentDepthClip=false drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false fallbackReason={}",
             pair.projection_metadata_ready,
             aligned_projection,
             visible_projection_ready,
@@ -1183,7 +1578,7 @@ impl App {
     ) {
         let config = Self::runtime_config();
         emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} sourceEyeMapping={} projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=true alignedProjection={} visibleCameraProjectionReady={} renderPath=makepad-xr projectionShaderPath=makepad-video-external-eye-map-no-guide makepadForkBranch={} makepadForkCommit={} debugAlignmentGuide=false visualInspection=required visualReleaseAccepted=false",
+            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} sourceEyeMapping={} projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightCameraFrames=true alignedProjection={} visibleCameraProjectionReady={} renderPath=makepad-xr projectionShaderPath=makepad-direct-camera-y-texture-sample-panel textureProbeMode=direct-camera-y-sample syntheticLumaSlotProof=false directCameraYTextureSample=true makepadForkBranch={} makepadForkCommit={} debugAlignmentGuide=true proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=opaque_app_owned_panel depthClip=false environmentDepthClip=false cpuUploadPath=makepad-camera-cpu-yuv-plane drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false",
             phase,
             runtime_text(&config, KEY_RUNTIME_PROFILE),
             runtime_text(&config, KEY_COMPARISON_BASELINE),
@@ -1331,6 +1726,37 @@ impl StereoEye {
         } else {
             None
         }
+    }
+}
+
+fn emit_raw_video_event_marker(event_name: &str, video_id: LiveId) {
+    let marker_index = VIDEO_EVENT_RAW_MARKERS_EMITTED.fetch_add(1, Ordering::AcqRel);
+    if marker_index >= RAW_VIDEO_EVENT_MARKER_LIMIT {
+        return;
+    }
+    let side = StereoEye::from_video_id(video_id)
+        .map(StereoEye::label)
+        .unwrap_or("unknown");
+    emit_marker_line(&format!(
+        "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=raw-video-event status=seen event={} side={} videoId={} leftVideoId={} rightVideoId={} depthClip=false environmentDepthClip=false importPlan=single-stream-yuv-proof",
+        event_name,
+        side,
+        video_id.0,
+        StereoEye::Left.video_id().0,
+        StereoEye::Right.video_id().0,
+    ));
+}
+
+#[derive(Clone)]
+struct MakepadCameraYuvTextures {
+    y: Texture,
+    u: Texture,
+    v: Texture,
+}
+
+impl MakepadCameraYuvTextures {
+    fn new(y: Texture, u: Texture, v: Texture) -> Self {
+        Self { y, u, v }
     }
 }
 
@@ -1582,6 +2008,190 @@ fn marker_token(value: &str) -> String {
             }
         })
         .collect()
+}
+
+#[derive(Clone, Copy)]
+struct TexturePlaneContentStats {
+    format: &'static str,
+    readable: bool,
+    data_present: bool,
+    width: usize,
+    height: usize,
+    len: usize,
+    updated: &'static str,
+    sample_count: usize,
+    min: u8,
+    max: u8,
+    mean_x1000: u32,
+    nonzero_samples: usize,
+}
+
+impl TexturePlaneContentStats {
+    fn unreadable(format: &'static str) -> Self {
+        Self {
+            format,
+            readable: false,
+            data_present: false,
+            width: 0,
+            height: 0,
+            len: 0,
+            updated: "n/a",
+            sample_count: 0,
+            min: 0,
+            max: 0,
+            mean_x1000: 0,
+            nonzero_samples: 0,
+        }
+    }
+
+    fn marker_fields(&self, prefix: &str) -> String {
+        format!(
+            "{}Format={} {}Readable={} {}DataPresent={} {}Width={} {}Height={} {}Len={} {}Updated={} {}SampleCount={} {}Min={} {}Max={} {}MeanX1000={} {}NonZeroSamples={}",
+            prefix,
+            self.format,
+            prefix,
+            self.readable,
+            prefix,
+            self.data_present,
+            prefix,
+            self.width,
+            prefix,
+            self.height,
+            prefix,
+            self.len,
+            prefix,
+            self.updated,
+            prefix,
+            self.sample_count,
+            prefix,
+            self.min,
+            prefix,
+            self.max,
+            prefix,
+            self.mean_x1000,
+            prefix,
+            self.nonzero_samples,
+        )
+    }
+}
+
+fn texture_plane_content_stats(cx: &mut Cx, texture: &Texture) -> TexturePlaneContentStats {
+    match texture.get_format(cx) {
+        TextureFormat::VecRu8 {
+            width,
+            height,
+            data,
+            updated,
+            ..
+        } => compute_u8_plane_content_stats("VecRu8", *width, *height, data.as_ref(), 1, updated),
+        TextureFormat::VecRGu8 {
+            width,
+            height,
+            data,
+            updated,
+            ..
+        } => compute_u8_plane_content_stats("VecRGu8", *width, *height, data.as_ref(), 2, updated),
+        TextureFormat::VideoYuvPlane => TexturePlaneContentStats::unreadable("VideoYuvPlane"),
+        TextureFormat::VideoExternal => TexturePlaneContentStats::unreadable("VideoExternal"),
+        TextureFormat::VideoRgbaHardwareBuffer => {
+            TexturePlaneContentStats::unreadable("VideoRgbaHardwareBuffer")
+        }
+        _ => TexturePlaneContentStats::unreadable("Other"),
+    }
+}
+
+fn compute_u8_plane_content_stats(
+    format: &'static str,
+    width: usize,
+    height: usize,
+    data: Option<&Vec<u8>>,
+    bytes_per_sample: usize,
+    updated: &TextureUpdated,
+) -> TexturePlaneContentStats {
+    let Some(data) = data else {
+        return TexturePlaneContentStats {
+            format,
+            readable: true,
+            data_present: false,
+            width,
+            height,
+            len: 0,
+            updated: texture_updated_label(updated),
+            sample_count: 0,
+            min: 0,
+            max: 0,
+            mean_x1000: 0,
+            nonzero_samples: 0,
+        };
+    };
+
+    let bytes_per_sample = bytes_per_sample.max(1);
+    let sample_len = data.len() / bytes_per_sample;
+    if sample_len == 0 {
+        return TexturePlaneContentStats {
+            format,
+            readable: true,
+            data_present: true,
+            width,
+            height,
+            len: data.len(),
+            updated: texture_updated_label(updated),
+            sample_count: 0,
+            min: 0,
+            max: 0,
+            mean_x1000: 0,
+            nonzero_samples: 0,
+        };
+    }
+
+    let step = (sample_len / 4096).max(1);
+    let mut min_value = u8::MAX;
+    let mut max_value = u8::MIN;
+    let mut sum = 0_u64;
+    let mut sample_count = 0_usize;
+    let mut nonzero_samples = 0_usize;
+
+    let mut sample_index = 0_usize;
+    while sample_index < sample_len {
+        let value = data[sample_index * bytes_per_sample];
+        min_value = min_value.min(value);
+        max_value = max_value.max(value);
+        sum += value as u64;
+        sample_count += 1;
+        if value != 0 {
+            nonzero_samples += 1;
+        }
+        sample_index = sample_index.saturating_add(step);
+    }
+
+    let mean_x1000 = if sample_count == 0 {
+        0
+    } else {
+        ((sum * 1000) / sample_count as u64) as u32
+    };
+
+    TexturePlaneContentStats {
+        format,
+        readable: true,
+        data_present: true,
+        width,
+        height,
+        len: data.len(),
+        updated: texture_updated_label(updated),
+        sample_count,
+        min: min_value,
+        max: max_value,
+        mean_x1000,
+        nonzero_samples,
+    }
+}
+
+fn texture_updated_label(updated: &TextureUpdated) -> &'static str {
+    match updated {
+        TextureUpdated::Empty => "empty",
+        TextureUpdated::Partial(_) => "partial",
+        TextureUpdated::Full => "full",
+    }
 }
 
 #[cfg(target_os = "android")]
