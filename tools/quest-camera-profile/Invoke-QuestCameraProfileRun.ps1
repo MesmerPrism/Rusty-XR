@@ -22,6 +22,8 @@ param(
     [int]$ProximityHoldDurationMs = 600000,
     [switch]$CaptureHzdbScreencap,
     [switch]$CaptureMetacam,
+    [int]$FreshnessFrames = 0,
+    [int]$FreshnessIntervalMs = 1000,
     [switch]$FailOnPowerStateDrift,
     [int]$LogcatLines = 12000,
     [string]$Validator = ""
@@ -431,6 +433,46 @@ function Capture-Artifacts {
     )
 
     Invoke-AdbBinaryCapture -Arguments @("exec-out", "screencap", "-p") -OutputPath (Join-Path $Dir "$Label-screencap.png")
+    if ($FreshnessFrames -gt 1) {
+        $freshnessDir = Join-Path $Dir "$Label-freshness-frames"
+        New-Item -ItemType Directory -Force -Path $freshnessDir | Out-Null
+        $frames = @()
+        for ($index = 0; $index -lt $FreshnessFrames; $index++) {
+            $framePath = Join-Path $freshnessDir ("frame-{0:D2}.png" -f $index)
+            Invoke-AdbBinaryCapture -Arguments @("exec-out", "screencap", "-p") -OutputPath $framePath
+            $frames += [ordered]@{
+                index = $index
+                path = $framePath
+                sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $framePath).Hash
+                bytes = (Get-Item -LiteralPath $framePath).Length
+            }
+            if ($index -lt ($FreshnessFrames - 1) -and $FreshnessIntervalMs -gt 0) {
+                Start-Sleep -Milliseconds $FreshnessIntervalMs
+            }
+        }
+        $duplicateGroups = @(
+            $frames |
+                Group-Object sha256 |
+                Where-Object { $_.Count -gt 1 } |
+                ForEach-Object {
+                    [ordered]@{
+                        sha256 = $_.Name
+                        count = $_.Count
+                        indices = @($_.Group | ForEach-Object { $_.index })
+                    }
+                }
+        )
+        $freshnessSummary = [ordered]@{
+            schemaVersion = "rusty.xr.quest-camera-screenshot-freshness.v1"
+            frameCount = $FreshnessFrames
+            intervalMs = $FreshnessIntervalMs
+            uniqueSha256Count = @($frames | Group-Object sha256).Count
+            duplicateSha256Groups = $duplicateGroups
+            byteIdenticalFreezeSuspected = $duplicateGroups.Count -gt 0
+            frames = $frames
+        }
+        $freshnessSummary | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $Dir "$Label-freshness-summary.json") -Encoding UTF8
+    }
     if ($CaptureHzdbScreencap) {
         $arguments = @("-y", $HzdbNpxPackage, "capture", "screenshot")
         if ($Serial) {
@@ -579,6 +621,8 @@ $manifest = [ordered]@{
     proximityHoldDurationMs = if ($SkipProximityHold) { 0 } else { $ProximityHoldDurationMs }
     captureHzdbScreencap = [bool]$CaptureHzdbScreencap
     captureMetacam = [bool]$CaptureMetacam
+    freshnessFrames = $FreshnessFrames
+    freshnessIntervalMs = $FreshnessIntervalMs
     failOnPowerStateDrift = [bool]$FailOnPowerStateDrift
     overrides = $Override
     values = $values

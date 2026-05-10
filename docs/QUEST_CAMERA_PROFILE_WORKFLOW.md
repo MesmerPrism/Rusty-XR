@@ -151,9 +151,27 @@ repeatable headset runs. It launches a catalog runtime profile, records the
 exact launch extras, captures power/wake/VR-power snapshots, takes screenshots,
 pulls logcat, and runs the validation helper.
 
+For visual camera/parity gates, add a short screenshot freshness sequence:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
+  -Serial <serial> `
+  -RuntimeProfile camera-stereo-gpu-composite-fast075 `
+  -CaptureHzdbScreencap `
+  -FreshnessFrames 6 `
+  -FreshnessIntervalMs 1000
+```
+
+The generated freshness summary records per-frame SHA-256 hashes and flags
+duplicate hash groups. A byte-identical sequence is a run-quality warning:
+inspect camera-frame counters and rerun before treating a screenshot as live
+camera evidence.
+
 A run should be rejected for color comparison when any of these are true:
 
 - the screenshot is missing, empty, or camera-content ROIs are black-like
+- a multi-frame screenshot freshness sequence is byte-identical when the run
+  expects live camera content
 - logcat includes a sleep, screen-off, session-exit, or automation-disable
   transition during the capture window
 - `Rusty XR final projection status` shows that the OpenXR loop kept

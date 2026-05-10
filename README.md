@@ -84,6 +84,10 @@ and reusable headset-run tools:
 The public parity workplan for moving the accepted custom stereo Camera2
 projection path from visible/correct to smooth with GPU headroom is tracked in
 [docs/CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](docs/CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).
+The first temporal reprojection plan for bounding visible projection motion,
+frame adoption, depth-aware fallback, and optional space-warp probes is tracked
+in
+[docs/CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md](docs/CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md).
 The first broker APK proof-of-concept is a separate Quest sidecar service with
 localhost status/WebSocket endpoints, optional LSL forwarding, OSC latency
 egress, runtime-configurable OSC-to-WebSocket drive events, generic published

@@ -15,7 +15,9 @@ From the Rusty XR repo root:
 powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
   -Serial <serial> `
   -RuntimeProfile camera-stereo-gpu-composite-performance-065 `
-  -CaptureHzdbScreencap
+  -CaptureHzdbScreencap `
+  -FreshnessFrames 6 `
+  -FreshnessIntervalMs 1000
 ```
 
 Useful acquisition probes:
@@ -162,8 +164,13 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
 
 Each run captures battery, power, VR power manager, activity/window state,
 logcat, a screen capture, optional `hzdb` screenshots, and a validation report.
-The harness uses a timed `hzdb` proximity hold when available; it intentionally
-does not send automation/proximity-disable broadcasts before launch.
+When `-FreshnessFrames` is greater than one, the harness also captures a short
+sequence of screenshots, writes per-frame SHA-256 hashes, and flags duplicate
+hash groups in `<runtime-profile>-freshness-summary.json`. Use that freshness
+summary for camera/parity runs so a byte-identical frozen screenshot sequence is
+not mistaken for live camera feed. The harness uses a timed `hzdb` proximity
+hold when available; it intentionally does not send automation/proximity-disable
+broadcasts before launch.
 
 ## Validate A Run
 

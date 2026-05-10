@@ -194,6 +194,9 @@ The parser extracts:
 - direct Camera2 acquire, get-buffer, pair-search, and native bridge timings
 - broker decoded-frame image wait, get-buffer, and native bridge timings
 - final projection status, active tier, shader path, and alignment state
+- temporal projection metrics when present, including camera frame age,
+  target/applied projection motion, residual lag, held frames, invalid UV
+  percentage, edge-fill percentage, and optional space-warp counters
 - optional battery, thermal, process CPU, and meminfo snapshots
 
 Use the generated `scorecard.md` in working notes and PR summaries. Keep
@@ -213,6 +216,11 @@ When adding or changing streaming paths, keep these timing windows available:
   render scale, import-cache hits/misses/evictions, and GPU import failures.
 - Runtime: `VrApi` app time, CPU+GPU time, tear/stale counts, timewarp time,
   CPU percentage, and GPU percentage.
+- Temporal projection: camera frame age, stereo pair delta, target projection
+  motion, applied projection motion, residual projection motion, visual lag,
+  held-frame count/duration, crossfade count, invalid-UV percentage, edge-fill
+  percentage, motion-vector max/clamp count, and space-warp enabled/skipped
+  frame counts.
 
 Sub-millisecond handoff timings do not prove the profile is fast; they only
 rule out that stage. Compare them against full frame time and `VrApi` rows.
@@ -243,3 +251,9 @@ reuse, command recording, and submit behavior from the already-measured
 transport, decode, image-acquire, `HardwareBuffer`, and native bridge stages.
 Keep that attribution tied to the acceptance gate in
 [CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).
+
+The temporal projection follow-up is now metrics-only in the composite-layer
+example. A no-smoothing run should report equal target and applied projection
+motion, then later pose-delta, screen-motion, frame-hold, depth-aware, and
+space-warp profiles can be compared against the same baseline. The key
+scorecard value for that work is `applied_projection_motion_px_p95`.

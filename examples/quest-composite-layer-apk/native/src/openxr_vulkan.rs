@@ -18,9 +18,10 @@ use openxr::sys::Handle as _;
 use rusty_xr_camera_model::{
     camera_basis_from_camera2_reference_pose_relative_to_center, full_view_content_uv_scale,
     head_anchored_preview_surface_corners, invert_homography, project_camera_point,
-    scale_intrinsics_to_image, screen_to_camera_uv_homography, surface_to_camera_uv_homography,
+    scale_intrinsics_to_image, screen_to_camera_uv_homography,
+    stereo_homography_projection_metrics, surface_to_camera_uv_homography,
     surface_to_eye_screen_uv_homography, CameraBasis, CameraCompositeTier, CameraPixelDomain,
-    ImageSize, Quat, TrackingBasis, Vec3,
+    ImageSize, Quat, StereoHomographyProjection, TrackingBasis, Vec3,
 };
 use rusty_xr_debug_canvas::{
     CanvasBadge, CanvasDocument, CanvasDrawList, CanvasLayout, CanvasSection, CanvasTextRun,
@@ -2313,6 +2314,7 @@ unsafe fn run_vulkan(
     let mut last_logged_prepared_stereo_frame_index: Option<u64> = None;
     let mut openxr_environment_depth_probe: Option<OpenXrEnvironmentDepthProbe> = None;
     let mut openxr_passthrough_probe: Option<OpenXrPassthroughProbe> = None;
+    let mut temporal_projection_diagnostics = TemporalProjectionDiagnostics::default();
     let mut full_field_flicker = FullFieldFlickerStats::default();
     let mut frame_pacing_window_start = Instant::now();
     let mut frame_pacing_window_frames = 0_u64;
@@ -2861,7 +2863,7 @@ unsafe fn run_vulkan(
                 ) {
                     Ok(Some(descriptor_index)) => {
                         let controls = config.stereo_projection_controls(frame_count);
-                        let projection_active = CameraProjectionPush::from_stereo_frame(
+                        let projection_homographies = CameraProjectionPush::from_stereo_frame(
                             &stereo_frame,
                             &config,
                             &controls,
@@ -2869,6 +2871,13 @@ unsafe fn run_vulkan(
                             swapchain.resolution,
                         )
                         .2;
+                        let projection_active = projection_homographies.is_some();
+                        let temporal_metrics = temporal_projection_diagnostics.update(
+                            projection_homographies.as_ref(),
+                            &stereo_frame,
+                            frame_state.predicted_display_time,
+                            swapchain.resolution,
+                        );
                         if last_logged_prepared_stereo_frame_index != Some(stereo_frame.index)
                             && (stereo_frame.index == 0 || stereo_frame.index % 120 == 0)
                         {
@@ -2973,7 +2982,7 @@ unsafe fn run_vulkan(
                                 controls.left_texture_transform.is_explicit_visual_check()
                                     && controls.right_texture_transform.is_explicit_visual_check();
                             log_info(format!(
-                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz=72 visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={}",
+                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz=72 visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode=metrics-only cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={}",
                                 stereo_frame.index,
                                 frame_count,
                                 session_focused,
@@ -3004,7 +3013,27 @@ unsafe fn run_vulkan(
                                 if config.visual_release_accepted { "accepted" } else { "required" },
                                 config.visual_release_accepted,
                                 controls.diagnostic_mode.stable_id(),
-                                controls.diagnostic_step
+                                controls.diagnostic_step,
+                                optional_ms_metric_label(temporal_metrics.camera_frame_age_ms),
+                                optional_ms_metric_label(temporal_metrics.camera_frame_age_ms),
+                                temporal_metrics.stereo_pair_delta_ms,
+                                temporal_metrics.target_projection_motion_px_avg,
+                                temporal_metrics.target_projection_motion_px_p95,
+                                temporal_metrics.applied_projection_motion_px_avg,
+                                temporal_metrics.applied_projection_motion_px_p95,
+                                temporal_metrics.projection_residual_px_avg,
+                                temporal_metrics.projection_residual_px_p95,
+                                temporal_metrics.visual_lag_ms_avg,
+                                temporal_metrics.visual_lag_ms_p95,
+                                temporal_metrics.held_frame_count,
+                                temporal_metrics.held_frame_duration_ms_max,
+                                temporal_metrics.frame_crossfade_count,
+                                temporal_metrics.invalid_uv_px_percent,
+                                temporal_metrics.edge_fill_px_percent,
+                                temporal_metrics.asw_enabled_frame_count,
+                                temporal_metrics.asw_skipped_frame_count,
+                                temporal_metrics.motion_vector_max_px,
+                                temporal_metrics.motion_vector_clamped_count
                             ));
                         }
                         prepared_stereo_camera = Some((stereo_frame, descriptor_index));
@@ -4974,8 +5003,9 @@ impl GpuCameraRenderer {
             extent: resolution,
         }];
         let controls = config.stereo_projection_controls(frame_count);
-        let (push, uniforms, projection_active) =
+        let (push, uniforms, projection_homographies) =
             CameraProjectionPush::from_stereo_frame(frame, config, &controls, views, resolution);
+        let projection_active = projection_homographies.is_some();
         let uniforms = uniforms.with_border_cycle_phase(config, frame_count);
         if config.camera_tier == CameraCompositeTier::GpuProjected && !projection_active {
             return;
@@ -5316,7 +5346,11 @@ impl CameraProjectionPush {
         controls: &crate::StereoProjectionControls,
         views: &[xr::View],
         resolution: vk::Extent2D,
-    ) -> (Self, CameraProjectionUniforms, bool) {
+    ) -> (
+        Self,
+        CameraProjectionUniforms,
+        Option<ProjectedStereoHomographies>,
+    ) {
         let content_uv_scale = full_view_content_uv_scale(
             config.camera_full_view_overlay_overscan,
             config.camera_raw_overlay_overscan,
@@ -5346,7 +5380,7 @@ impl CameraProjectionPush {
             return (
                 push,
                 CameraProjectionUniforms::identity().with_color_config(config),
-                false,
+                None,
             );
         }
 
@@ -5363,15 +5397,21 @@ impl CameraProjectionPush {
             return (
                 push,
                 CameraProjectionUniforms::from_mappings(&left, &right).with_color_config(config),
-                true,
+                Some(ProjectedStereoHomographies { left, right }),
             );
         }
         (
             push,
             CameraProjectionUniforms::identity().with_color_config(config),
-            false,
+            None,
         )
     }
+}
+
+#[derive(Clone, Copy)]
+struct ProjectedStereoHomographies {
+    left: DisplayEyeProjectionMapping,
+    right: DisplayEyeProjectionMapping,
 }
 
 #[derive(Clone, Copy)]
@@ -5379,6 +5419,118 @@ struct DisplayEyeProjectionMapping {
     screen_to_camera: [[f32; 3]; 3],
     screen_to_surface: [[f32; 3]; 3],
     surface_to_screen: [[f32; 3]; 3],
+}
+
+#[derive(Clone, Copy, Default)]
+struct TemporalProjectionMetricsFrame {
+    camera_frame_age_ms: Option<f64>,
+    stereo_pair_delta_ms: f64,
+    target_projection_motion_px_avg: f64,
+    target_projection_motion_px_p95: f64,
+    applied_projection_motion_px_avg: f64,
+    applied_projection_motion_px_p95: f64,
+    projection_residual_px_avg: f64,
+    projection_residual_px_p95: f64,
+    visual_lag_ms_avg: f64,
+    visual_lag_ms_p95: f64,
+    held_frame_count: u64,
+    held_frame_duration_ms_max: f64,
+    frame_crossfade_count: u64,
+    invalid_uv_px_percent: f64,
+    edge_fill_px_percent: f64,
+    asw_enabled_frame_count: u64,
+    asw_skipped_frame_count: u64,
+    motion_vector_max_px: f64,
+    motion_vector_clamped_count: u64,
+}
+
+#[derive(Default)]
+struct TemporalProjectionDiagnostics {
+    previous: Option<StereoHomographyProjection>,
+}
+
+impl TemporalProjectionDiagnostics {
+    fn update(
+        &mut self,
+        homographies: Option<&ProjectedStereoHomographies>,
+        frame: &StereoGpuCameraFrame,
+        predicted_display_time: xr::Time,
+        resolution: vk::Extent2D,
+    ) -> TemporalProjectionMetricsFrame {
+        let Some(homographies) = homographies else {
+            self.previous = None;
+            return TemporalProjectionMetricsFrame {
+                stereo_pair_delta_ms: ns_to_ms(frame.pair_delta_ns),
+                ..TemporalProjectionMetricsFrame::default()
+            };
+        };
+
+        let current = StereoHomographyProjection::new(
+            homographies.left.screen_to_camera,
+            homographies.right.screen_to_camera,
+        );
+        let metrics = stereo_homography_projection_metrics(
+            self.previous,
+            current,
+            ImageSize::new(resolution.width, resolution.height),
+        );
+        self.previous = Some(current);
+
+        TemporalProjectionMetricsFrame {
+            camera_frame_age_ms: plausible_camera_frame_age_ms(
+                predicted_display_time,
+                frame.midpoint_timestamp_ns,
+            ),
+            stereo_pair_delta_ms: ns_to_ms(frame.pair_delta_ns),
+            target_projection_motion_px_avg: metrics.average_motion_px as f64,
+            target_projection_motion_px_p95: metrics.p95_motion_px as f64,
+            applied_projection_motion_px_avg: metrics.average_motion_px as f64,
+            applied_projection_motion_px_p95: metrics.p95_motion_px as f64,
+            projection_residual_px_avg: 0.0,
+            projection_residual_px_p95: 0.0,
+            visual_lag_ms_avg: 0.0,
+            visual_lag_ms_p95: 0.0,
+            held_frame_count: 0,
+            held_frame_duration_ms_max: 0.0,
+            frame_crossfade_count: 0,
+            invalid_uv_px_percent: metrics.invalid_uv_percent as f64,
+            edge_fill_px_percent: 0.0,
+            asw_enabled_frame_count: 0,
+            asw_skipped_frame_count: 0,
+            motion_vector_max_px: 0.0,
+            motion_vector_clamped_count: 0,
+        }
+    }
+}
+
+fn plausible_camera_frame_age_ms(
+    predicted_display_time: xr::Time,
+    camera_midpoint_timestamp_ns: i64,
+) -> Option<f64> {
+    let age_ms = ns_to_ms_signed(
+        predicted_display_time
+            .as_nanos()
+            .saturating_sub(camera_midpoint_timestamp_ns),
+    );
+    if (-25.0..=10_000.0).contains(&age_ms) {
+        Some(age_ms.max(0.0))
+    } else {
+        None
+    }
+}
+
+fn ns_to_ms(value: u64) -> f64 {
+    value as f64 / 1_000_000.0
+}
+
+fn ns_to_ms_signed(value: i64) -> f64 {
+    value as f64 / 1_000_000.0
+}
+
+fn optional_ms_metric_label(value: Option<f64>) -> String {
+    value
+        .map(|value| format!("{value:.3}"))
+        .unwrap_or_else(|| "unavailable".to_string())
 }
 
 fn identity_homography() -> [[f32; 3]; 3] {

@@ -21,10 +21,13 @@
 use core::fmt;
 
 pub use rusty_xr_contracts::{
-    CameraCompositeTier, CameraExtrinsics, CameraFrameMetadata, CameraFrameMetadataFlags,
-    CameraGpuBufferDescriptor, CameraImageRotation, CameraIntrinsics, CameraPixelDomain,
-    CameraPixelDomainKind, CameraProjectionStatus, CameraSourceId, CameraTextureTransform,
-    ImageSize, Pose, Quat, StereoCameraFrameMetadata, StereoMediaLayout, Vec2, Vec3,
+    CameraCompositeTier, CameraExtrinsics, CameraFrameAdoptionMode, CameraFrameMetadata,
+    CameraFrameMetadataFlags, CameraFrameTiming, CameraGpuBufferDescriptor, CameraImageRotation,
+    CameraIntrinsics, CameraPixelDomain, CameraPixelDomainKind, CameraProjectionState,
+    CameraProjectionStatus, CameraSourceId, CameraTextureTransform, ImageSize, Pose,
+    ProjectionTargetState, Quat, StereoCameraFrameMetadata, StereoCameraFramePair,
+    StereoMediaLayout, TemporalProjectionEdgeMode, TemporalProjectionMetrics,
+    TemporalProjectionMode, TemporalProjectionPolicy, Vec2, Vec3, VisualProjectionState,
 };
 
 /// Crate version exposed for lightweight smoke checks.
@@ -833,6 +836,210 @@ pub fn multiply_homographies(left: [[f32; 3]; 3], right: [[f32; 3]; 3]) -> Optio
         .then_some(out)
 }
 
+/// Screen-to-camera homographies for a stereo custom camera projection.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StereoHomographyProjection {
+    pub left_screen_to_camera: [[f32; 3]; 3],
+    pub right_screen_to_camera: [[f32; 3]; 3],
+}
+
+impl StereoHomographyProjection {
+    pub const fn new(
+        left_screen_to_camera: [[f32; 3]; 3],
+        right_screen_to_camera: [[f32; 3]; 3],
+    ) -> Self {
+        Self {
+            left_screen_to_camera,
+            right_screen_to_camera,
+        }
+    }
+
+    pub fn is_valid(self) -> bool {
+        homography_rows_are_finite(self.left_screen_to_camera)
+            && homography_rows_are_finite(self.right_screen_to_camera)
+    }
+}
+
+/// Motion and coverage metrics derived from stereo projection homographies.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct StereoHomographyProjectionMetrics {
+    pub average_motion_px: f32,
+    pub p95_motion_px: f32,
+    pub sample_count: u32,
+    pub invalid_uv_sample_count: u32,
+    pub invalid_uv_percent: f32,
+}
+
+/// Default sample grid for temporal projection motion estimates.
+pub const TEMPORAL_PROJECTION_SAMPLE_GRID_5X5: [Vec2; 25] = [
+    Vec2::new(0.1, 0.1),
+    Vec2::new(0.3, 0.1),
+    Vec2::new(0.5, 0.1),
+    Vec2::new(0.7, 0.1),
+    Vec2::new(0.9, 0.1),
+    Vec2::new(0.1, 0.3),
+    Vec2::new(0.3, 0.3),
+    Vec2::new(0.5, 0.3),
+    Vec2::new(0.7, 0.3),
+    Vec2::new(0.9, 0.3),
+    Vec2::new(0.1, 0.5),
+    Vec2::new(0.3, 0.5),
+    Vec2::new(0.5, 0.5),
+    Vec2::new(0.7, 0.5),
+    Vec2::new(0.9, 0.5),
+    Vec2::new(0.1, 0.7),
+    Vec2::new(0.3, 0.7),
+    Vec2::new(0.5, 0.7),
+    Vec2::new(0.7, 0.7),
+    Vec2::new(0.9, 0.7),
+    Vec2::new(0.1, 0.9),
+    Vec2::new(0.3, 0.9),
+    Vec2::new(0.5, 0.9),
+    Vec2::new(0.7, 0.9),
+    Vec2::new(0.9, 0.9),
+];
+
+/// Apply a 3x3 UV homography to a normalized UV coordinate.
+pub fn apply_uv_homography(rows: [[f32; 3]; 3], uv: Vec2) -> Option<Vec2> {
+    if !homography_rows_are_finite(rows) || !uv.is_finite() {
+        return None;
+    }
+
+    let w = rows[2][0] * uv.x + rows[2][1] * uv.y + rows[2][2];
+    if !w.is_finite() || w.abs() < 1.0e-6 {
+        return None;
+    }
+    let projected = Vec2::new(
+        (rows[0][0] * uv.x + rows[0][1] * uv.y + rows[0][2]) / w,
+        (rows[1][0] * uv.x + rows[1][1] * uv.y + rows[1][2]) / w,
+    );
+    projected.is_finite().then_some(projected)
+}
+
+/// Estimate temporal projection motion from consecutive stereo homographies.
+///
+/// When `previous` is `None`, motion is reported as zero but invalid current
+/// UV coverage is still measured. This matches the first-frame behavior needed
+/// by metrics-only renderers.
+pub fn stereo_homography_projection_metrics(
+    previous: Option<StereoHomographyProjection>,
+    current: StereoHomographyProjection,
+    resolution: ImageSize,
+) -> StereoHomographyProjectionMetrics {
+    stereo_homography_projection_metrics_with_samples(
+        previous,
+        current,
+        resolution,
+        &TEMPORAL_PROJECTION_SAMPLE_GRID_5X5,
+    )
+}
+
+/// Estimate temporal projection motion with a caller-supplied sample grid.
+pub fn stereo_homography_projection_metrics_with_samples(
+    previous: Option<StereoHomographyProjection>,
+    current: StereoHomographyProjection,
+    resolution: ImageSize,
+    samples: &[Vec2],
+) -> StereoHomographyProjectionMetrics {
+    let sample_count = (samples.len() * 2) as u32;
+    if !current.is_valid() || !resolution.is_non_empty() || samples.is_empty() {
+        return StereoHomographyProjectionMetrics {
+            sample_count,
+            invalid_uv_sample_count: sample_count,
+            invalid_uv_percent: if sample_count == 0 { 0.0 } else { 100.0 },
+            ..StereoHomographyProjectionMetrics::default()
+        };
+    }
+
+    let invalid_uv_sample_count = count_invalid_uv_samples(current, samples);
+    let invalid_uv_percent = if sample_count == 0 {
+        0.0
+    } else {
+        invalid_uv_sample_count as f32 * 100.0 / sample_count as f32
+    };
+    let Some(previous) = previous.filter(|previous| previous.is_valid()) else {
+        return StereoHomographyProjectionMetrics {
+            sample_count,
+            invalid_uv_sample_count,
+            invalid_uv_percent,
+            ..StereoHomographyProjectionMetrics::default()
+        };
+    };
+
+    let mut deltas = Vec::with_capacity(sample_count as usize);
+    for (previous_rows, current_rows) in [
+        (
+            previous.left_screen_to_camera,
+            current.left_screen_to_camera,
+        ),
+        (
+            previous.right_screen_to_camera,
+            current.right_screen_to_camera,
+        ),
+    ] {
+        for &sample in samples {
+            let Some(previous_uv) = apply_uv_homography(previous_rows, sample) else {
+                continue;
+            };
+            let Some(current_uv) = apply_uv_homography(current_rows, sample) else {
+                continue;
+            };
+            let dx = (current_uv.x - previous_uv.x) * resolution.width as f32;
+            let dy = (current_uv.y - previous_uv.y) * resolution.height as f32;
+            let delta = (dx * dx + dy * dy).sqrt();
+            if delta.is_finite() {
+                deltas.push(delta);
+            }
+        }
+    }
+
+    StereoHomographyProjectionMetrics {
+        average_motion_px: finite_average(&deltas),
+        p95_motion_px: percentile_95(deltas),
+        sample_count,
+        invalid_uv_sample_count,
+        invalid_uv_percent,
+    }
+}
+
+fn homography_rows_are_finite(rows: [[f32; 3]; 3]) -> bool {
+    rows.iter().flatten().all(|value| value.is_finite())
+}
+
+fn count_invalid_uv_samples(projection: StereoHomographyProjection, samples: &[Vec2]) -> u32 {
+    let mut invalid = 0_u32;
+    for rows in [
+        projection.left_screen_to_camera,
+        projection.right_screen_to_camera,
+    ] {
+        for &sample in samples {
+            match apply_uv_homography(rows, sample) {
+                Some(uv) if (0.0..=1.0).contains(&uv.x) && (0.0..=1.0).contains(&uv.y) => {}
+                _ => invalid += 1,
+            }
+        }
+    }
+    invalid
+}
+
+fn finite_average(values: &[f32]) -> f32 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.iter().sum::<f32>() / values.len() as f32
+}
+
+fn percentile_95(mut values: Vec<f32>) -> f32 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.sort_by(f32::total_cmp);
+    let index = ((values.len() as f32 * 0.95).ceil() as usize).saturating_sub(1);
+    values[index.min(values.len() - 1)]
+}
+
 /// Project a camera-space point into pixel coordinates.
 pub fn project_camera_point(
     intrinsics: CameraIntrinsics,
@@ -1004,9 +1211,62 @@ mod tests {
         )
     }
 
+    fn translated_uv_homography(dx: f32, dy: f32) -> [[f32; 3]; 3] {
+        [[1.0, 0.0, dx], [0.0, 1.0, dy], [0.0, 0.0, 1.0]]
+    }
+
     #[test]
     fn exposes_workspace_version() {
         assert_eq!(VERSION, "0.1.0");
+    }
+
+    #[test]
+    fn applies_uv_homography_and_rejects_singular_rows() {
+        let translated = translated_uv_homography(0.125, -0.25);
+        let projected =
+            apply_uv_homography(translated, Vec2::new(0.5, 0.75)).expect("uv should project");
+        assert_eq!(projected, Vec2::new(0.625, 0.5));
+
+        assert_eq!(
+            apply_uv_homography(
+                [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]],
+                Vec2::ONE
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn stereo_homography_metrics_reports_motion_and_invalid_uvs() {
+        let previous = StereoHomographyProjection::new(
+            translated_uv_homography(0.0, 0.0),
+            translated_uv_homography(0.0, 0.0),
+        );
+        let current = StereoHomographyProjection::new(
+            translated_uv_homography(0.01, 0.0),
+            translated_uv_homography(0.01, 0.0),
+        );
+        let metrics = stereo_homography_projection_metrics(
+            Some(previous),
+            current,
+            ImageSize::new(1000, 500),
+        );
+
+        assert_eq!(metrics.sample_count, 50);
+        assert_eq!(metrics.invalid_uv_sample_count, 0);
+        assert!((metrics.average_motion_px - 10.0).abs() < 0.001);
+        assert!((metrics.p95_motion_px - 10.0).abs() < 0.001);
+
+        let edge_shifted = StereoHomographyProjection::new(
+            translated_uv_homography(0.2, 0.0),
+            translated_uv_homography(0.2, 0.0),
+        );
+        let first_frame_metrics =
+            stereo_homography_projection_metrics(None, edge_shifted, ImageSize::new(1000, 500));
+        assert_eq!(first_frame_metrics.average_motion_px, 0.0);
+        assert_eq!(first_frame_metrics.p95_motion_px, 0.0);
+        assert_eq!(first_frame_metrics.invalid_uv_sample_count, 10);
+        assert!((first_frame_metrics.invalid_uv_percent - 20.0).abs() < 0.001);
     }
 
     #[test]

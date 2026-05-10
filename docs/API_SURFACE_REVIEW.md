@@ -12,22 +12,22 @@ LSL-native adapters.
 
 ## Surface That Can Be Used By Examples
 
-- `rusty-xr-contracts`: math, pose, timing, camera/depth metadata, hands,
-  interaction rays, plain media layers, native passthrough style descriptors,
-  safety-gated visual strobe descriptors, render payloads, runtime counters,
-  room mesh source state, semantic room mesh snapshots, and capture lifecycle
-  state.
+- `rusty-xr-contracts`: math, pose, timing, camera/depth metadata, temporal
+  camera projection policy/state/metric contracts, hands, interaction rays,
+  plain media layers, native passthrough style descriptors, safety-gated visual
+  strobe descriptors, render payloads, runtime counters, room mesh source
+  state, semantic room mesh snapshots, and capture lifecycle state.
 - `rusty-xr-runtime-config`: generic runtime keys, values, and Android property
   naming helpers.
 - `rusty-xr-ble`, `rusty-xr-lsl`, and `rusty-xr-polar`: protocol/data models
   without native transport backends.
 - `rusty-xr-camera-model`, `rusty-xr-depth-model`, `rusty-xr-sdf`, and
-  `rusty-xr-particles`: deterministic helpers, dynamic mesh coordinate
-  sampling, same-surface and cross-surface neighborhoods, live hand-mesh
-  snapshot anchors, dynamic mesh collider surfaces with diagnostic shells,
-  dynamic mesh-to-SDF conversion, public SDF particle attraction helpers, and
-  public snapshots that can be demonstrated with synthetic data or public
-  examples.
+  `rusty-xr-particles`: deterministic camera projection and temporal
+  homography-motion helpers, dynamic mesh coordinate sampling, same-surface and
+  cross-surface neighborhoods, live hand-mesh snapshot anchors, dynamic mesh
+  collider surfaces with diagnostic shells, dynamic mesh-to-SDF conversion,
+  public SDF particle attraction helpers, and public snapshots that can be
+  demonstrated with synthetic data or public examples.
 
 ## Stabilization Notes
 
@@ -51,6 +51,8 @@ LSL-native adapters.
   allocation.
 - Presentation of intentional strobing stimuli without an explicit safety gate.
 - Native camera acquisition or platform texture import.
+- Runtime implementation of temporal camera projection smoothing, depth-aware
+  reprojection, or space-warp submission.
 - Runtime permission prompt implementations.
 - Hardware APK examples beyond the minimal smoke-test shell.
 - Downstream app integration or consumer repo rewiring.

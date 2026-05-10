@@ -42,6 +42,12 @@ scope is limited to:
 - A Makepad `Video` widget camera-permission option used by public examples
   where headset raw-camera sources are gated separately from ordinary app
   cameras.
+- A small `xr_view_id()` shader builtin that exposes Makepad's existing XR
+  multiview index to application shaders for per-eye texture selection without
+  hardcoding backend-specific symbols.
+- An Android OpenXR native-passthrough composition-layer option, currently
+  disabled by default on the maintained branch so camera-panel diagnostics can
+  distinguish app-owned projection geometry from runtime passthrough imagery.
 - Cargo workspace metadata exclusions for standalone CSG leaf crates that are
   outside Makepad's main workspace validation path.
 - Ignore rules for local generated Android-control target folders.

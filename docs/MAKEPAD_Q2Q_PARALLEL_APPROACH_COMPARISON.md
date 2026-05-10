@@ -116,13 +116,13 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 | Cost | Current custom APK lane | Makepad-first lane |
 | --- | --- | --- |
 | Required Rust target | `aarch64-linux-android`. | `aarch64-linux-android` through Makepad toolchain install. |
-| Android SDK/NDK/JDK | External or locally configured. | Downloaded and managed by `cargo-makepad` unless an SDK path is supplied. |
+| Android SDK/NDK/JDK | External or locally configured through the shared Rusty XR Android toolchain resolver; Unity `AndroidPlayerRoot` remains supported, and split SDK/NDK/JDK roots are supported when a bundled JDK is missing or broken. | Downloaded and managed by `cargo-makepad` unless an SDK path is supplied. |
 | Generated source | Limited to Java classes/dex/build outputs. | Generated manifest, Java activity sources, dex, resources, shared library packaging, and signed APK. |
 | Public dependency | Mostly Rusty XR crates and Android tools. | Adds pinned Makepad git dependency and `cargo-makepad` tool while still depending on Rusty XR core crates. |
 | XR dependency surface | Custom shell owns OpenXR/Vulkan dependencies directly. | `makepad-xr` pulls in Makepad's XR, rendering, physics/math, asset, and UI dependency graph. |
 | Output location | Example `build/` folders. | Makepad `target/android/makepad-android-apk/...` folders. |
 | Licensing | Rusty XR MIT plus Android/OpenXR inputs. | Rusty XR MIT plus Makepad MIT OR Apache-2.0 and Android/OpenXR inputs. |
-| Current blocker cost | Existing lane already has measured camera/stream diagnostics, but the scripts are less portable. | The maintained Makepad fork currently needs local Windows packaging patches plus the Android Vulkan frame-fence wait. The Makepad shell is clean for paired import/projection markers and launcher-path app/fault cadence, but S32 visual review showed native compositor passthrough plus a low app-owned rectangle rather than custom projection parity. S33 proved app-owned geometry/alignment but still showed proof colors rather than camera pixels. The active S34 cost is proving YUV camera-plane visibility before zero-copy import, per-eye mapping, or performance comparison. |
+| Current blocker cost | Existing lane already has measured camera/stream diagnostics and now has a portable SDK/NDK/JDK resolver, but its explicit scripts still exercise a different Android shell than Makepad. | The maintained Makepad fork currently needs local Windows packaging patches, the Android Vulkan frame-fence wait, the small `xr_view_id()` shader builtin needed for per-eye texture selection, the `env_cube=false` camera gate, and a native-passthrough layer switch for app-panel visibility diagnostics. The Makepad shell is clean for paired import/projection markers and launcher-path app/fault cadence when Scene Access and Headset Camera are both granted. S49-S59 proved that the app-owned Makepad panel can visibly render live camera content, but S62 showed it was still world-space anchored instead of mapped into the per-eye camera/head space. S65/S66 then showed that loading/preflight states are failed launches, and that the passthrough-off isolation branch can lose visible app output entirely. The active cost is S67: restore the known-visible panel positive control, isolate the passthrough-off regression, then return to head-locked projection and performance comparison. |
 
 ## Immediate Validation Ladder
 
@@ -168,6 +168,19 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
   before main loop in a short startup capture.
 - Makepad's XR permission flow requests `horizonos.permission.HEADSET_CAMERA`
   even though Q2Q camera transport is not wired yet.
+- S62 reached paired, fresh, per-eye Makepad camera sampling with clean
+  app-process fault counters, but the panel was still world-space. S63 and S64
+  kept the app stable while attempting head-locked placement, yet operator
+  review showed no app-owned panel in the headset view; native passthrough was
+  still visible and made screenshot interpretation ambiguous. S65 disabled the
+  maintained fork's native OpenXR passthrough layer and also showed that clean
+  installs need Scene Access grants before the Makepad permission flow enters
+  XR presenting. With permissions repaired, passthrough-off active XR emits the
+  expected marker chain, but S66 still showed black output instead of the
+  non-black clear color or bordered solid panel. That is a regression in the
+  passthrough-off isolation branch, not a denial of the earlier visible
+  world-space panel proof. S67 therefore restores the known-visible panel
+  positive control before projection math resumes.
 - Separate 90s launcher and generated-XR liveness captures against the
   maintained fork state showed no app-process GPU page-fault or fatal lines.
   Repeated small hardware-buffer warnings remain tracked separately.

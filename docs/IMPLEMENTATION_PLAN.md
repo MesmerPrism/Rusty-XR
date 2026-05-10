@@ -111,6 +111,13 @@ Reusable camera contracts and math helpers, including camera metadata,
 intrinsics, extrinsics, stereo frame descriptors, and projection-related
 utilities.
 
+The custom stereo temporal reprojection plan is tracked in
+[CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md](CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md).
+The first public slices are data-only temporal policy/state/metric contracts
+and metrics-only runtime logging in the composite-layer example. Runtime
+smoothing, shader changes, depth-aware reprojection, and optional space-warp
+submission remain adapter/example work until measured.
+
 ### Plain Stereo And Feedback Layers
 
 Reusable descriptors for app-owned projected mono/stereo media layers,
@@ -340,6 +347,11 @@ Current Quest media implementation status:
   rather than transport or handoff. The dedicated parity target map is
   documented in
   [CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).
+- Public contracts now include temporal projection policy/state/metric shapes,
+  and the composite-layer example emits metrics with no visual behavior change.
+  The next smoothing iterations are pose-delta clamp, screen-motion clamp,
+  frame-adoption smoothing, edge handling, depth-aware reprojection, and
+  optional space-warp probes as separate profiles.
 - Future native support should still stay in thin optional adapters or public
   examples rather than becoming private app-shell behavior inside core crates.
 
@@ -434,6 +446,7 @@ responsibilities.
 | Polar H10 utilities | In progress | Public Polar GATT IDs, HR/RR decoder, uncompressed ECG/ACC PMD decoders, PMD command builders, and LSL schemas added. |
 | Quest diagnostics | In progress | Generic readiness, package launch, and frame-rate status models added. |
 | Camera model | In progress | Intrinsics scaling, projection, back-projection, and timestamp matching helpers added. |
+| Camera temporal projection | In progress | Data-only temporal policy, target/visual projection state, stereo pair timing, frame-adoption, edge-mode, and scorecard metric contracts added. Composite-layer example now logs metrics-only target/applied projection motion with no smoothing behavior change; headset artifact validation is pending. |
 | Plain stereo / feedback layers | In progress | Public mono/stereo media layer descriptors, source UV layout helpers, aspect-fit content rectangles, visual feedback border segments, border tuning, composite-feedback tuning, and performance hints added. |
 | Native platform passthrough descriptors | In progress | Public Meta/OpenXR layer-purpose, placement, opacity, edge, color-map, BCS, and LUT descriptors added with contracts-only examples. |
 | Visual strobe descriptors | In progress | Public full-field and passthrough-LUT strobe profile descriptors, display-frame frequency plans, 120 Hz constraints, and safety warnings added with a no-hardware example. |

@@ -5,6 +5,9 @@
 [CmdletBinding()]
 param(
     [string]$AndroidPlayerRoot = '',
+    [string]$AndroidSdkRoot = '',
+    [string]$AndroidNdkRoot = '',
+    [string]$JdkRoot = '',
     [string]$LslAndroidLibraryPath = '',
     [switch]$RequireNativeLsl,
     [ValidateRange(29, 35)]
@@ -15,6 +18,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $exampleRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$repoRoot = (Resolve-Path (Join-Path $exampleRoot '..\..')).Path
+. (Join-Path $repoRoot 'tools\android\Resolve-AndroidToolchain.ps1')
 $buildRoot = Join-Path $exampleRoot 'build'
 $classesRoot = Join-Path $buildRoot 'classes'
 $compiledResourcesRoot = Join-Path $buildRoot 'compiled-res'
@@ -144,11 +149,12 @@ function Resolve-NdkToolchainRoot {
     throw 'Native LSL packaging requires the Android NDK from the Android player root.'
 }
 
-$androidRoot = Find-AndroidPlayerRoot -RequestedRoot $AndroidPlayerRoot
-$sdkRoot = Join-Path $androidRoot 'SDK'
-$jdkRoot = Join-Path $androidRoot 'OpenJDK'
-$buildToolsRoot = Get-LatestDirectory -Parent (Join-Path $sdkRoot 'build-tools') -Pattern '*'
-$platformRoot = Get-LatestDirectory -Parent (Join-Path $sdkRoot 'platforms') -Pattern 'android-*'
+$toolchain = Resolve-RustyXrAndroidToolchain -AndroidPlayerRoot $AndroidPlayerRoot -AndroidSdkRoot $AndroidSdkRoot -AndroidNdkRoot $AndroidNdkRoot -JdkRoot $JdkRoot
+$androidRoot = $toolchain.AndroidPlayerRoot
+$sdkRoot = $toolchain.SdkRoot
+$jdkRoot = $toolchain.JdkRoot
+$buildToolsRoot = Get-RustyXrLatestAndroidDirectory -Parent (Join-Path $sdkRoot 'build-tools') -Pattern '*'
+$platformRoot = Get-RustyXrLatestAndroidDirectory -Parent (Join-Path $sdkRoot 'platforms') -Pattern 'android-*'
 $androidJar = Join-Path $platformRoot 'android.jar'
 $javac = Join-Path $jdkRoot 'bin\javac.exe'
 $jar = Join-Path $jdkRoot 'bin\jar.exe'

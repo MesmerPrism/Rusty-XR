@@ -29,9 +29,8 @@ This split keeps the public core reusable and prevents app-specific package
 names, tuning, release metadata, or generated artifacts from leaking into the
 public repo.
 
-For a Makepad-compatible Android build path that avoids the current
-Windows/Unity-AndroidPlayer-oriented helper scripts and prepares for Makepad
-Live/hotpatch iteration, see
+For a Makepad-compatible Android build path that uses Makepad's own packager and
+prepares for Makepad Live/hotpatch iteration, see
 [MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md](MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md).
 The current Makepad-first comparison lane is tracked in
 [MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md](MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md)
@@ -51,6 +50,30 @@ Validate the manifests with:
 ```powershell
 python tools\schema\check_android_build_manifest.py examples\quest-minimal-apk\build-manifest.public.json examples\quest-composite-layer-apk\build-manifest.public.json examples\quest-broker-apk\build-manifest.public.json examples\quest-broker-shell-helper\build-manifest.public.json examples\makepad-q2q-camera-shell\build-manifest.public.json
 ```
+
+## Android Toolchain Resolution
+
+The custom Rusty XR APK PowerShell builders share
+`tools/android/Resolve-AndroidToolchain.ps1`. They still accept
+`-AndroidPlayerRoot` for a Unity Android player root, but they can also use
+split roots:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -AndroidSdkRoot <sdk-root> -AndroidNdkRoot <ndk-root> -JdkRoot <jdk-root> -OpenXrLoaderPath <path-to-libopenxr_loader.so>
+```
+
+Environment fallbacks are `RUSTY_XR_ANDROID_SDK_ROOT`,
+`RUSTY_XR_ANDROID_NDK_ROOT`, `RUSTY_XR_ANDROID_JDK_ROOT`, `ANDROID_SDK_ROOT`,
+`ANDROID_NDK_ROOT`, and `JAVA_HOME`. The resolver validates that SDK
+`build-tools` and `platforms` exist, that the NDK has an LLVM toolchain when a
+native build needs it, and that the selected JDK contains the required tools and
+can run `javac`. Use this custom-script route when testing the public custom
+OpenXR/Vulkan examples and their explicit diagnostics.
+
+The Makepad comparison example should continue using `cargo makepad android`
+with its Makepad SDK path. That route answers a different question: whether the
+Makepad packager, generated Android activities, lifecycle, and renderer surface
+match the custom Rusty XR path on Quest.
 
 ## Recommended Shell Shape
 

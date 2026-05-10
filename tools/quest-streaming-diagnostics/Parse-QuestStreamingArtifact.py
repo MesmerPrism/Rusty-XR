@@ -23,7 +23,7 @@ MAKEPAD_CADENCE_MARKER = "RUSTY_XR_MAKEPAD_CADENCE"
 MAKEPAD_STEREO_PROJECTION_MARKER = "RUSTY_XR_MAKEPAD_STEREO_PROJECTION"
 MAKEPAD_STEREO_COMPARISON_MARKER = "RUSTY_XR_MAKEPAD_STEREO_COMPARISON"
 
-KV_RE = re.compile(r"([A-Za-z0-9_%&]+)=([^,\s]+)")
+KV_RE = re.compile(r"([A-Za-z0-9_%&_]+)=([^,\s]+)")
 JSON_PAIR_RE = re.compile(
     r'"([^"\\]+)"\s*:\s*("(?:[^"\\]|\\.)*"|true|false|null|-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)'
 )
@@ -372,6 +372,25 @@ def pick_present(*values: Any) -> Any:
     return None
 
 
+def snake_to_camel(key: str) -> str:
+    parts = key.split("_")
+    return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
+
+
+def pick_metric(key: str, *sources: dict[str, Any]) -> Any:
+    camel_key = snake_to_camel(key)
+    for source in sources:
+        value = pick_present(source.get(key), source.get(camel_key))
+        if value is not None:
+            return value
+    return None
+
+
+def ns_metric_to_ms(value: Any) -> float | None:
+    number = parse_number_prefix(value)
+    return number / 1_000_000.0 if number is not None else None
+
+
 def mean_numeric(*values: Any) -> float | None:
     numbers: list[float] = []
     for value in values:
@@ -503,6 +522,198 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "stereo_live_pair_queue_drop_count": consumer.get("stereo_live_pair_queue_drop_count", stereo_summary.get("queueDrops")),
         "stereo_pair_delta_avg_ns": consumer.get("stereo_pair_delta_avg_ns", stereo_summary.get("pairDeltaAvgNs")),
         "stereo_pair_delta_max_ns": consumer.get("stereo_pair_delta_max_ns", stereo_summary.get("pairDeltaMaxNs")),
+        "camera_frame_age_ms_avg": pick_metric(
+            "camera_frame_age_ms_avg",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "camera_frame_age_ms_p95": pick_metric(
+            "camera_frame_age_ms_p95",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "depth_frame_age_ms_avg": pick_metric(
+            "depth_frame_age_ms_avg",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "stereo_pair_delta_ms_avg": pick_present(
+            pick_metric(
+                "stereo_pair_delta_ms_avg",
+                final_projection,
+                final_gpu_draw,
+                final_makepad_projection,
+                final_makepad_cadence,
+                consumer,
+                stereo_summary,
+            ),
+            ns_metric_to_ms(consumer.get("stereo_pair_delta_avg_ns", stereo_summary.get("pairDeltaAvgNs"))),
+        ),
+        "target_projection_motion_px_avg": pick_metric(
+            "target_projection_motion_px_avg",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "target_projection_motion_px_p95": pick_metric(
+            "target_projection_motion_px_p95",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "applied_projection_motion_px_avg": pick_metric(
+            "applied_projection_motion_px_avg",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "applied_projection_motion_px_p95": pick_metric(
+            "applied_projection_motion_px_p95",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "projection_residual_px_avg": pick_metric(
+            "projection_residual_px_avg",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "projection_residual_px_p95": pick_metric(
+            "projection_residual_px_p95",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "visual_lag_ms_avg": pick_metric(
+            "visual_lag_ms_avg",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "visual_lag_ms_p95": pick_metric(
+            "visual_lag_ms_p95",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "held_frame_count": pick_metric(
+            "held_frame_count",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "held_frame_duration_ms_max": pick_metric(
+            "held_frame_duration_ms_max",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "frame_crossfade_count": pick_metric(
+            "frame_crossfade_count",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "invalid_uv_px_percent": pick_metric(
+            "invalid_uv_px_percent",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "edge_fill_px_percent": pick_metric(
+            "edge_fill_px_percent",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "asw_enabled_frame_count": pick_metric(
+            "asw_enabled_frame_count",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "asw_skipped_frame_count": pick_metric(
+            "asw_skipped_frame_count",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "motion_vector_max_px": pick_metric(
+            "motion_vector_max_px",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "motion_vector_clamped_count": pick_metric(
+            "motion_vector_clamped_count",
+            final_projection,
+            final_gpu_draw,
+            final_makepad_projection,
+            final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
         "stereo_pair_native_bridge_avg_ns": consumer.get(
             "stereo_pair_native_bridge_avg_ns",
             stereo_summary.get("nativeBridgeAvgNs"),
@@ -686,6 +897,11 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("OpenXR fps min", None),
         ("OpenXR avg ms last", None),
         ("OpenXR avg ms steady", None),
+        ("target px p95", "target_projection_motion_px_p95"),
+        ("applied px p95", "applied_projection_motion_px_p95"),
+        ("residual px p95", "projection_residual_px_p95"),
+        ("lag ms p95", "visual_lag_ms_p95"),
+        ("held", "held_frame_count"),
         ("Makepad XrUpdate Hz", "makepad_xr_update_rate_hz"),
         ("Makepad NextFrame Hz", "makepad_app_frame_rate_hz"),
         ("Makepad cam Hz", "makepad_paired_texture_update_rate_hz"),

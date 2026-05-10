@@ -128,6 +128,13 @@ OpenXR renderer with stale buffers; release validation must still inspect the
 logged pair deltas, `softPairOverMax` count, and headset comfort before
 claiming the provider is good enough for a device build.
 
+Temporal smoothing is a separate layer on top of this provider. It may hold a
+previous accepted stereo pair, clamp the visible projection toward a newer
+target, or crossfade pairs for a short window, but it must not make the two
+eyes advance independently. If smoothing is enabled, the renderer should keep
+one shared stereo smoothing coefficient and report both target motion and
+applied visual motion in scorecards.
+
 The `camera-stereo-gpu-composite` profile is the public reference example for
 this path on the tested Quest Camera2 provider. It must not pass verification
 unless logs show `activeTier=gpu-projected`,

@@ -23,7 +23,7 @@ fork-patch policy are documented in
 - Uses `cargo-makepad android --variant=quest`.
 - Uses the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging`; the current documented branch head is
-  `7a47fb6e6d4a`.
+  `7ea477d0f168`.
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
@@ -62,10 +62,10 @@ fork-patch policy are documented in
   was removed.
 - The current source imports a Makepad-owned paired camera source after XR
   startup and reports paired-buffer/projection readiness when both textures
-  update. Those markers prove import and mapping readiness, not visible camera
-  projection; the current visible Makepad scene is still the synthetic stereo
-  alignment scene until the paired `VideoExternal` textures are drawn into XR
-  geometry.
+  update. The current visible Makepad scene is an app-owned direct CPU-YUV
+  camera panel. S59 proves live no-swap YUV color in that panel; S60 is the
+  open step that must choose left versus right camera textures per eye before
+  parity performance comparison resumes.
 
 ## Build
 
@@ -92,6 +92,19 @@ Run on a selected Quest device:
 ```powershell
 cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path <local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" run -p rusty-xr-makepad-q2q-camera-shell --release
 ```
+
+For unattended camera validation after install, pregrant the declared runtime
+camera permissions before the measurement window:
+
+```powershell
+adb -s <quest-serial> shell pm grant <public-example-package> android.permission.CAMERA
+adb -s <quest-serial> shell pm grant <public-example-package> horizonos.permission.HEADSET_CAMERA
+```
+
+MediaProjection is different: it still requires the headset consent flow for
+each capture session. A launcher can prepare install, launch, and ordinary
+runtime grants, but it should report a blocked MediaProjection consent state
+instead of claiming it can bypass the headset prompt.
 
 The generated APK lands under
 `target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/apk/`.
@@ -125,6 +138,44 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
 - The current lane uses synthetic status/stereo-comparison markers, a bounded
   Camera2 metadata/acquisition probe, and a paired Makepad hardware-buffer
   import/projection-mapping probe.
+- The maintained Makepad fork now exposes an explicit native OpenXR passthrough
+  toggle plus end-frame diagnostics. After a clean install, grant both Scene
+  Access and Headset Camera before classifying XR presentation; otherwise the
+  permission flow can remain on the regular/preflight activity while app markers
+  still emit. Loading/preflight is a failed launch state, not passthrough-off
+  visual success. Earlier gates already proved the app-owned panel can visibly
+  render live camera content; the remaining parity gap was world-space
+  anchoring rather than per-eye camera/head-space mapping. The current gate
+  re-enables native passthrough and restores that known-visible world-space
+  panel positive control. S67a stayed active-XR and fault-clean but did not
+  visibly recover the panel; artifact review traced the visible S62 target to
+  the plain world-space vertex path, the higher panel pose, dark clear color,
+  direct per-eye YUV sampling, and the thin pale border. S67a2 restored that
+  exact visible-panel control on the maintained fork: launcher and direct-XR
+  samples both showed the live app-owned panel, six byte-distinct screenshots,
+  clean end-frame markers, and no app-process GPU-fault/fatal/small-buffer
+  counters. S67b then disabled native passthrough while preserving that panel:
+  launcher and direct-XR samples both showed the live app-owned panel against a
+  solid black app background, with opaque OpenXR end-frame submission and
+  byte-distinct screenshots. The requested non-black clear color did not appear
+  visually, and the small 4x4 hardware-buffer warning class remains a tracked
+  counter. The active S68 gate keeps that passthrough-off visible-panel state,
+  keeps direct per-eye no-swap limited-BT.601 YUV sampling, and moves the panel
+  from the S62 world-space transform to active-eye `draw_pass.camera_inv`
+  placement. S68 is a placement/liveness gate, not final projection parity:
+  static screenshots can prove the panel is visible and fresh, while headset
+  motion is needed to classify whether it follows camera/head space instead of
+  staying fixed in world space. The first S68 static gate passed in both
+  launcher and direct generated-XR paths: the app-owned live camera panel and
+  pale border stayed visible with native passthrough disabled, six-frame
+  screenshot sequences were byte-distinct, and app/global GPU-fault and fatal
+  counters stayed at zero. The small hardware-buffer warning class and
+  environment-depth runtime logs remain tracked separately. Operator headset
+  inspection then accepted S68 as clean per-eye panel projection. The remaining
+  gaps are narrower: the camera feeds are swapped left/right between eyes, and
+  panel alignment is not yet good enough for the intended stereo effect. The
+  next gates fix source-eye mapping first, then tune alignment against the
+  custom Rusty XR target notes before performance comparison.
 - On Windows, the tested Makepad revision required local `cargo-makepad`
   packaging fixes for generated wrapper paths and dependent Rust shared-library
   bundling.
@@ -272,8 +323,47 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   texture sampling: the panel turned green with the same guide overlay. The
   S47 then visibly sampled a generated R8 texture through the panel's
   `left_tex_y` slot, proving ordinary 2D texture-slot sampling works. The
-  current gate disables that generated replacement and samples only the real
-  Makepad camera Y plane through the same direct shader path.
+  S48 disabled that generated replacement and visibly sampled the real Makepad
+  camera Y plane through the same direct shader path. S49 removed the earlier
+  gain-boost diagnostic and showed a no-gain monochrome camera image in the
+  panel. Operator visual review confirmed camera feed visibility and moved the
+  next gate to S50: rotate the direct camera-Y sample and center the app-owned
+  diagnostic panel for head-forward inspection. S50b passed orientation and
+  placement, but operator review identified a remaining left/right mirror. S51
+  keeps the centered panel and uses a vertical-only camera-Y flip; the device
+  gate retained clean counters and screenshot inspection shows the direct
+  camera-Y panel upright, centered, and horizontally corrected. S52 then tried
+  direct YUV-to-RGB color conversion in the same early-return shader path. The
+  run stayed active-XR and app-fault clean, and CPU-side probes confirmed
+  non-empty Y/U/V planes, but the headset view was strongly green/cyan. Per the
+  Rusty XR color notes, that result is now treated as sampler/decode-shape
+  evidence rather than final color calibration. The S53 gate visualizes the
+  sampled Y, U, and V texture slots as separate grayscale bands before channel
+  order, range, or matrix tuning resumes. S53 passed that slot-visibility gate:
+  the screenshot shows live Y/U/V grayscale bands and clean counters, so the
+  remaining color blocker is chroma interpretation. S54 swaps U and V in the
+  YUV-to-RGB conversion while keeping the same centered/upright panel; that
+  device gate shows real color camera feed instead of the earlier green/cyan
+  failure, with the app still active-XR and app-fault clean. S55 keeps that
+  plane-order fix and compares swapped-U/V limited/full range plus BT.601/BT.709
+  variants in one grid, but its first device screenshot sampled different source
+  regions per quadrant. S56 keeps the same formulas and remaps each quadrant to
+  the same full camera view; that device gate stayed clean and made the
+  comparison fair. The Rusty XR hardware-buffer baseline reports BT.601 narrow
+  range for the same camera format, so S57 collapsed the grid into a full-panel
+  swapped-U/V limited-BT.601 candidate. S58 removed the center/split diagnostic
+  guide and proved the shader edits were active with a border-only overlay, but
+  visual review rejected the color claim because skin tones in the panel shifted
+  blue/cyan. S59 therefore keeps the border-only panel and vertical flip, samples
+  Android YUV_420_888 planes without swapping U/V, and keeps color acceptance
+  false until per-eye projection catches up. The S59 run also adds a
+  multi-frame screenshot freshness check: future visual gates should record
+  whether expected live-camera screenshots are byte-identical before accepting a
+  still image as live feed evidence. The first S59 clean install showed why
+  launchers should pregrant `horizonos.permission.HEADSET_CAMERA` as well as
+  `android.permission.CAMERA`; after that grant, S59 emitted the no-swap marker
+  path, stayed app-fault clean, and produced a non-byte-identical screenshot
+  sequence.
 
 The current step-by-step implementation ledger is tracked in
 [../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).

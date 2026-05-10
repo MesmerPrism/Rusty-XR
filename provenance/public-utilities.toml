@@ -87,10 +87,19 @@ review_status = "foundation-pass"
 crate = "rusty-xr-camera-model"
 source_family = "public camera metadata and projection workflows"
 extraction_date = "2026-04-29"
-public_safe_rationale = "Intrinsics scaling, projection, back-projection, and timestamp matching are app-neutral camera utilities."
+public_safe_rationale = "Intrinsics scaling, projection, back-projection, timestamp matching, homography application, and stereo temporal projection-motion metrics are app-neutral camera utilities."
 license_assumptions = "Authored for this MIT repository."
 scrubbed_private_dependencies = ["native camera acquisition", "captured media", "platform texture handles"]
 review_status = "foundation-pass"
+
+[[utility]]
+crate = "rusty-xr-contracts/camera-temporal-projection"
+source_family = "public camera projection diagnostics and app-owned smoothing workflows"
+extraction_date = "2026-05-10"
+public_safe_rationale = "Temporal projection policy, target/visual state, stereo frame-pair timing, frame-adoption, edge-mode, and scorecard metrics are reusable public contracts for app-owned raw-camera projection without embedding renderer or platform behavior."
+license_assumptions = "Authored for this MIT repository from public OpenXR, Camera2-style metadata, and app-owned projection concepts. Space-warp and environment-depth APIs are treated as public platform references; adapters remain separate."
+scrubbed_private_dependencies = ["native camera acquisition", "OpenXR handle ownership", "Vulkan shader code", "generated captures", "downstream visual effect stacks", "app-specific tuning constants"]
+review_status = "first-contract-pass"
 
 [[utility]]
 crate = "rusty-xr-depth-model"

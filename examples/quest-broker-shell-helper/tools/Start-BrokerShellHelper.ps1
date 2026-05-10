@@ -5,6 +5,8 @@
 [CmdletBinding()]
 param(
     [string]$AndroidPlayerRoot = '',
+    [string]$AndroidSdkRoot = '',
+    [string]$JdkRoot = '',
     [string]$Adb = '',
     [string]$Serial = '',
     [string]$BrokerHost = '127.0.0.1',
@@ -39,6 +41,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $exampleRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$repoRoot = (Resolve-Path (Join-Path $exampleRoot '..\..')).Path
+. (Join-Path $repoRoot 'tools\android\Resolve-AndroidToolchain.ps1')
 $helperJar = Join-Path $exampleRoot 'build\outputs\rusty-xr-broker-shell-helper.jar'
 $deviceJar = '/data/local/tmp/rusty-xr-broker-shell-helper.jar'
 
@@ -83,20 +87,22 @@ function Find-AndroidPlayerRoot {
 function Resolve-Adb {
     param(
         [string]$RequestedAdb,
-        [string]$RequestedAndroidRoot
+        [string]$RequestedAndroidRoot,
+        [string]$RequestedAndroidSdkRoot,
+        [string]$RequestedJdkRoot
     )
 
     if (-not [string]::IsNullOrWhiteSpace($RequestedAdb)) {
         return (Resolve-Path $RequestedAdb).Path
     }
 
-    $androidRoot = Find-AndroidPlayerRoot -RequestedRoot $RequestedAndroidRoot
-    $candidate = Join-Path $androidRoot 'SDK\platform-tools\adb.exe'
+    $toolchain = Resolve-RustyXrAndroidToolchain -AndroidPlayerRoot $RequestedAndroidRoot -AndroidSdkRoot $RequestedAndroidSdkRoot -JdkRoot $RequestedJdkRoot
+    $candidate = Join-Path $toolchain.SdkRoot 'platform-tools\adb.exe'
     if (Test-Path $candidate) {
         return $candidate
     }
 
-    throw "Could not find adb under Android player root: $androidRoot"
+    throw "Could not find adb under Android SDK root: $($toolchain.SdkRoot)"
 }
 
 function Invoke-Adb {
@@ -114,7 +120,7 @@ function Invoke-Adb {
 }
 
 if (-not $NoBuild) {
-    & (Join-Path $PSScriptRoot 'Build-BrokerShellHelper.ps1') -AndroidPlayerRoot $AndroidPlayerRoot
+    & (Join-Path $PSScriptRoot 'Build-BrokerShellHelper.ps1') -AndroidPlayerRoot $AndroidPlayerRoot -AndroidSdkRoot $AndroidSdkRoot -JdkRoot $JdkRoot
     if ($LASTEXITCODE -ne 0) {
         throw "Build-BrokerShellHelper.ps1 failed with exit code $LASTEXITCODE"
     }
@@ -124,7 +130,7 @@ if (-not (Test-Path $helperJar)) {
     throw "Shell helper jar was not found. Build it first: $helperJar"
 }
 
-$script:adbPath = Resolve-Adb -RequestedAdb $Adb -RequestedAndroidRoot $AndroidPlayerRoot
+$script:adbPath = Resolve-Adb -RequestedAdb $Adb -RequestedAndroidRoot $AndroidPlayerRoot -RequestedAndroidSdkRoot $AndroidSdkRoot -RequestedJdkRoot $JdkRoot
 
 Invoke-Adb -Arguments @('push', $helperJar, $deviceJar)
 

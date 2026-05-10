@@ -64,6 +64,66 @@ removing the heavier soft-border shader work from the measurement. Minor
 motion artifacts during head movement are tracked as stream/reprojection
 compensation work, not as a stereo orientation failure.
 
+The Makepad comparison lane is not ready for performance comparison yet. It has
+reached paired per-eye camera sampling with a no-swap limited-BT.601 CPU-YUV
+control, but the current blocker is app-panel placement/isolation. Recent
+head-locked placement attempts produced live passthrough screenshots without a
+visible app-owned panel. The maintained Makepad fork can now disable native
+OpenXR passthrough, but a clean install must grant both Scene Access and Headset
+Camera before the Makepad permission flow enters XR presenting. With both
+permissions granted, the passthrough-off gate reaches active XR and emits the
+native-passthrough-disabled marker, but S66 still showed no non-black clear
+color, solid app panel, or black border. The active Makepad blocker is now
+projection-layer output isolation, not Camera2 acquisition or shader color
+conversion. Loading/preflight states are failed launches and must not be
+counted as passthrough-off success. This does not invalidate the earlier
+Makepad panel proof: the panel and live camera feed already rendered visibly in
+the headset, and the remaining parity issue was that the surface was anchored
+in world space instead of camera/head space. The S67a passthrough-on rerun
+confirmed active XR and clean end-frame submission but still did not show the
+panel. S62 artifact review narrowed the recovery target to the exact visible
+source traits: plain world-space vertex path, the higher S62 panel pose
+(`pos.y=0.92`), dark clear color, direct per-eye YUV sampling, and the thin
+pale border. S67a2 restored those traits on the maintained fork and passed both
+launcher-path and direct generated-XR visual gates: the app-owned live camera
+panel and thin pale border are visible again, both screenshot sequences were
+byte-distinct, end-frame markers were present, stale head-locked markers were
+absent, and GPU-fault/fatal/small-hardware-buffer counters stayed at zero. The
+next Makepad step was S67b: change only the native passthrough/background
+isolation setting and iterate until a solid app-owned background plus the same
+visible panel is present. S67b passed that ordered milestone in both launcher
+and direct generated-XR runs: native passthrough was disabled, OpenXR submitted
+an opaque projection layer, the app-owned live camera panel and pale border were
+visible against a solid black background, and both screenshot sequences were
+byte-distinct. Two follow-up watches carry forward: the requested non-black
+clear color did not appear visually despite marker presence, and the small 4x4
+hardware-buffer warning class plus environment-depth runtime logs remained
+visible without GPU faults, fatal signals, or visible depth occlusion. S68 is
+now the active Makepad gate: it keeps the S67b passthrough-off live camera
+sampling and border, but replaces the S62 world-space vertex transform with
+active-eye `draw_pass.camera_inv` placement. Passing S68 requires the panel to
+remain visible and fresh with native passthrough disabled; classifying it as
+non-world-space still requires headset-motion inspection and is not yet final
+metadata-backed projection parity. The first S68 static gate passed the
+visibility/freshness side in both launcher and direct generated-XR paths: the
+app-owned live camera panel and pale border remained visible with native
+passthrough disabled, six-frame screenshot sequences were byte-distinct,
+end-frame markers stayed successful, and app/global GPU-fault and fatal
+counters stayed at zero. The small 4x4 hardware-buffer warning class and
+environment-depth runtime logs remain tracked; no visible depth occlusion was
+seen in the captured frames. A passive eight-frame motion-review capture found
+the pale border at a stable screen-space bounding box, but frame deltas were
+small, so that sequence is not conclusive unless the headset was deliberately
+moved during capture. Follow-up operator headset inspection completed that
+classification: the panels are now cleanly projected per eye and no longer
+behave like the earlier world-space surface. The Makepad lane is still not at
+stereo projection parity because the camera feeds are swapped left/right
+between eyes and the panels need alignment tuning for a good stereo effect.
+The next ordered gates are therefore source-eye mapping correction, then stereo
+alignment using the existing custom Rusty XR target alignment notes. The
+Makepad lane should not advance to performance comparison until source-eye
+mapping and alignment have both passed.
+
 ## Sanitized Parity Target
 
 The downstream target proves the desired behavior class:
@@ -94,6 +154,9 @@ Rusty XR can absorb these public-safe lessons:
   camera-frame progression, app fatal signatures, and GPU fault signatures.
 - Normalize device-level and permission setup in run manifests so one run is
   not compared against another with hidden runtime-state differences.
+- Capture a short multi-frame screenshot freshness sequence for visual gates
+  and record whether any frames are byte-identical before treating a screenshot
+  as live camera evidence.
 - Attribute projected draw cost into shader work, border/perimeter work,
   descriptor/import reuse, command recording, frame-buffer/render-pass churn,
   and submit behavior.
@@ -172,6 +235,8 @@ Do not call the public profile parity-complete until a new Quest run shows:
 - no sustained GPU import failures or cache evictions
 - no app fatal or GPU-fault signatures
 - no final-window stale/tear behavior
+- no byte-identical multi-frame screenshot sequence when the profile is expected
+  to show live camera content
 - projected frame cadence at the target refresh rate
 - materially lower GPU load than the current accepted `0.65` baseline
 - a matching scorecard that records all normalization axes

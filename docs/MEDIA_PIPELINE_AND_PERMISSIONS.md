@@ -301,6 +301,31 @@ preferred performance path. The performant shape is:
 - Keep environment depth, environment cubes, TSDF/readback, physics workers,
   and MediaProjection disabled unless the active runtime mode consumes them.
 
+### Temporal Projection Smoothing
+
+Temporal smoothing for the opaque custom stereo camera layer belongs between
+camera/decode/import and the final per-eye projection shader. It should not
+change which source is authoritative:
+
+- raw Camera2/Passthrough Camera frames remain the visible camera source
+- MediaProjection remains final-display inspection only
+- environment depth is an optional depth witness
+- native passthrough remains compositor-owned and unsampled by the app
+
+The first public contract slice records `TemporalProjectionPolicy`,
+`ProjectionTargetState`, `VisualProjectionState`, `StereoCameraFramePair`, and
+`TemporalProjectionMetrics`. These are data contracts for adapters and
+scorecards. They do not enable smoothing by themselves.
+
+The implementation order is metrics-only first, then pose-delta clamp,
+screen-motion clamp, frame adoption smoothing, edge handling, depth-aware
+fallbacks, and optional space-warp probes. Keep all temporal profiles explicit
+and leave the current no-smoothing profile available for comparison.
+
+For a successful temporal profile, scorecards should prove that
+`applied_projection_motion_px_p95` is bounded by policy while target motion and
+residual lag remain visible in the metrics.
+
 Production adapters should use GPU-sampled camera buffers, Android
 hardware-buffer import, external-format or YCbCr-aware Vulkan sampling, and a
 small projection shader. A Tier 2 launch must not be reported as aligned unless
@@ -600,6 +625,19 @@ or install with:
 ```powershell
 adb install -g <apk>
 ```
+
+For Quest raw-camera validation, pregrant the declared camera permissions before
+the measurement window when the run is meant to be unattended:
+
+```powershell
+adb shell pm grant <package> android.permission.CAMERA
+adb shell pm grant <package> horizonos.permission.HEADSET_CAMERA
+```
+
+Some generated Quest manifests also request adjacent runtime permissions such as
+`horizonos.permission.AVATAR_CAMERA` or `android.permission.RECORD_AUDIO`. Grant
+only permissions declared by the APK and required by the profile under test, and
+record the grant set in the run manifest or artifact summary.
 
 Do not treat ADB grants as a substitute for production UX. Some OEM or
 headset-specific privacy surfaces may still require user action in the headset,

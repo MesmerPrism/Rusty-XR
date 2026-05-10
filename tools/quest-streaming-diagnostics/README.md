@@ -57,6 +57,10 @@ The parser extracts:
   markers as full headset-presentation evidence when the device is still on a
   loading screen.
 - final projection status, active tier, shader path, and alignment state.
+- temporal projection fields when log lines expose them, including target
+  projection motion, applied projection motion, residual projection motion,
+  visual lag, held frames, edge-fill/invalid-UV percentages, and optional
+  space-warp counters.
 - `VrApi` app, CPU+GPU, timewarp, tear, stale, CPU, and GPU rows when present.
 - optional pre/post battery, thermal, process CPU, and meminfo snapshots when a
   run harness captured them.

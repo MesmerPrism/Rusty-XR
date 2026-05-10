@@ -5,6 +5,9 @@
 [CmdletBinding()]
 param(
     [string]$AndroidPlayerRoot = '',
+    [string]$AndroidSdkRoot = '',
+    [string]$AndroidNdkRoot = '',
+    [string]$JdkRoot = '',
     [string]$OpenXrLoaderPath = '',
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
@@ -18,6 +21,7 @@ $ErrorActionPreference = 'Stop'
 
 $exampleRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $repoRoot = (Resolve-Path (Join-Path $exampleRoot '..\..')).Path
+. (Join-Path $repoRoot 'tools\android\Resolve-AndroidToolchain.ps1')
 $buildRoot = Join-Path $exampleRoot 'build'
 $packageRoot = Join-Path $buildRoot 'package'
 $classesRoot = Join-Path $buildRoot 'classes'
@@ -170,12 +174,13 @@ function Reset-BuildDirectory {
     New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot 'lib\arm64-v8a') | Out-Null
 }
 
-$androidRoot = Find-AndroidPlayerRoot -RequestedRoot $AndroidPlayerRoot
-$sdkRoot = Join-Path $androidRoot 'SDK'
-$ndkRoot = Join-Path $androidRoot 'NDK'
-$jdkRoot = Join-Path $androidRoot 'OpenJDK'
-$buildToolsRoot = Get-LatestDirectory -Parent (Join-Path $sdkRoot 'build-tools') -Pattern '*'
-$platformRoot = Get-LatestDirectory -Parent (Join-Path $sdkRoot 'platforms') -Pattern 'android-*'
+$toolchain = Resolve-RustyXrAndroidToolchain -AndroidPlayerRoot $AndroidPlayerRoot -AndroidSdkRoot $AndroidSdkRoot -AndroidNdkRoot $AndroidNdkRoot -JdkRoot $JdkRoot -RequireNdk
+$androidRoot = $toolchain.AndroidPlayerRoot
+$sdkRoot = $toolchain.SdkRoot
+$ndkRoot = $toolchain.NdkRoot
+$jdkRoot = $toolchain.JdkRoot
+$buildToolsRoot = Get-RustyXrLatestAndroidDirectory -Parent (Join-Path $sdkRoot 'build-tools') -Pattern '*'
+$platformRoot = Get-RustyXrLatestAndroidDirectory -Parent (Join-Path $sdkRoot 'platforms') -Pattern 'android-*'
 $androidJar = Join-Path $platformRoot 'android.jar'
 $toolchainBin = Join-Path $ndkRoot 'toolchains\llvm\prebuilt\windows-x86_64\bin'
 $linker = Join-Path $toolchainBin 'aarch64-linux-android29-clang.cmd'

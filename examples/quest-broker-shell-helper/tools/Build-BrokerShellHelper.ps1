@@ -4,13 +4,17 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$AndroidPlayerRoot = ''
+    [string]$AndroidPlayerRoot = '',
+    [string]$AndroidSdkRoot = '',
+    [string]$JdkRoot = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $exampleRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$repoRoot = (Resolve-Path (Join-Path $exampleRoot '..\..')).Path
+. (Join-Path $repoRoot 'tools\android\Resolve-AndroidToolchain.ps1')
 $buildRoot = Join-Path $exampleRoot 'build'
 $classesRoot = Join-Path $buildRoot 'classes'
 $dexRoot = Join-Path $buildRoot 'dex'
@@ -98,11 +102,12 @@ function Reset-BuildDirectory {
     New-Item -ItemType Directory -Force -Path $classesRoot, $dexRoot, $outputsRoot | Out-Null
 }
 
-$androidRoot = Find-AndroidPlayerRoot -RequestedRoot $AndroidPlayerRoot
-$sdkRoot = Join-Path $androidRoot 'SDK'
-$jdkRoot = Join-Path $androidRoot 'OpenJDK'
-$buildToolsRoot = Get-LatestDirectory -Parent (Join-Path $sdkRoot 'build-tools') -Pattern '*'
-$platformRoot = Get-LatestDirectory -Parent (Join-Path $sdkRoot 'platforms') -Pattern 'android-*'
+$toolchain = Resolve-RustyXrAndroidToolchain -AndroidPlayerRoot $AndroidPlayerRoot -AndroidSdkRoot $AndroidSdkRoot -JdkRoot $JdkRoot
+$androidRoot = $toolchain.AndroidPlayerRoot
+$sdkRoot = $toolchain.SdkRoot
+$jdkRoot = $toolchain.JdkRoot
+$buildToolsRoot = Get-RustyXrLatestAndroidDirectory -Parent (Join-Path $sdkRoot 'build-tools') -Pattern '*'
+$platformRoot = Get-RustyXrLatestAndroidDirectory -Parent (Join-Path $sdkRoot 'platforms') -Pattern 'android-*'
 $androidJar = Join-Path $platformRoot 'android.jar'
 $javac = Join-Path $jdkRoot 'bin\javac.exe'
 $jar = Join-Path $jdkRoot 'bin\jar.exe'
