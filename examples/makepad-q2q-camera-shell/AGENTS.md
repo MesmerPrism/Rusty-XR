@@ -52,5 +52,9 @@ python tools\docs\check_links.py --repo-root .
 python tools\schema\check_android_build_manifest.py examples\makepad-q2q-camera-shell\build-manifest.public.json
 ```
 
+This example is intentionally standalone rather than a root-workspace member.
+Do not run `cargo check -p rusty-xr-makepad-q2q-camera-shell` from the Rusty XR
+workspace root; it does not select this package.
+
 For Android build validation, use `cargo-makepad` from the maintained Makepad
 fork and keep the generated `target/` output uncommitted.

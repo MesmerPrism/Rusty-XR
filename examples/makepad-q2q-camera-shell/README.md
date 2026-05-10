@@ -93,11 +93,17 @@ Run on a selected Quest device:
 cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" run -p rusty-xr-makepad-q2q-camera-shell --release
 ```
 
+This example is not a root-workspace member. Use
+`cargo check --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml` from
+the repository root, or plain `cargo check` from this directory; do not use
+`cargo check -p rusty-xr-makepad-q2q-camera-shell` from the root workspace.
+
 Keep the Makepad options before `build` or `run` and use `--key=value` for
 paths and package/app values. Before treating an APK as fresh evidence, remove
-or timestamp the expected output, record the rebuilt APK hash, and extract
-`lib/arm64-v8a/libmakepad.so` for diagnostic string checks. Delete generated
-`target/` output before public pushes and public boundary scans.
+or timestamp `target/android/makepad-android-apk/`, record the rebuilt APK
+hash, and extract `lib/arm64-v8a/libmakepad.so` for diagnostic string checks.
+Delete generated `target/` output before public pushes and public boundary
+scans.
 
 For unattended camera validation after install, pregrant the declared runtime
 camera permissions before the measurement window:
@@ -124,6 +130,29 @@ because the permission flow can switch back to the paired normal activity:
 ```powershell
 adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-activity>
 ```
+
+For device gates, prefer the guarded launcher harness over one-off `monkey` or
+single `am start` commands:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+  -Serial <quest-serial> `
+  -Apk <fresh-makepad-apk> `
+  -PackageName <public-example-package> `
+  -LauncherActivity <generated-launcher-activity> `
+  -XrActivity <generated-xr-activity> `
+  -OutDir <ignored-artifact-dir>
+```
+
+The harness installs with `--no-incremental` when available, grants ordinary
+camera/scene runtime permissions, starts the normal Makepad launcher activity,
+waits for the generated XR activity plus OpenXR/end-frame or visible-panel
+markers, retries the launcher once if the first start remains in loading, and
+only then uses the direct generated-XR activity as an explicit fallback. It also
+stores freshness hashes plus app/global GPU-fault, fatal, small hardware-buffer,
+and stale-marker counters. Record whether the run was `launcher-attempt-1`,
+`launcher-attempt-2`, or `direct-xr-fallback`; do not silently merge those
+launch classes.
 
 ## Known Affordances And Gaps
 
@@ -181,7 +210,17 @@ adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-a
   gaps are narrower: the camera feeds are swapped left/right between eyes, and
   panel alignment is not yet good enough for the intended stereo effect. The
   next gates fix source-eye mapping first, then tune alignment against the
-  custom Rusty XR target notes before performance comparison.
+  custom Rusty XR target notes before performance comparison. S69 changed only
+  the display source-eye selector to `inverted_xr_view_id` /
+  `display-left-from-right-source`; acquisition-order source indices remained
+  logged separately. Operator review reported that this made the stereo eye
+  alignment coherent, but the image is still horizontally mirrored. S69b keeps
+  the source-eye mapping and adds a horizontal UV flip. The first S69b guarded
+  gate reached active XR on `launcher-attempt-1`, captured six byte-distinct
+  screenshots, kept stale S69/S68 path labels absent from the extracted native
+  library, and preserved zero GPU-fault/fatal counters. Screenshot review shows
+  the horizontal mirror patch active, but headset/operator acceptance is still
+  required before moving to alignment tuning.
 - Run-log review after S68 found one important distinction for the next fix:
   S51 already solved horizontal image mirroring with a vertical-only UV flip.
   The S68 issue is source-eye mapping, so S69 should swap the selected

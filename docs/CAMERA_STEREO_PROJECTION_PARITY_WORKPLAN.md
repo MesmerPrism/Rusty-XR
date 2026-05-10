@@ -119,10 +119,24 @@ classification: the panels are now cleanly projected per eye and no longer
 behave like the earlier world-space surface. The Makepad lane is still not at
 stereo projection parity because the camera feeds are swapped left/right
 between eyes and the panels need alignment tuning for a good stereo effect.
-The next ordered gates are therefore source-eye mapping correction, then stereo
-alignment using the existing custom Rusty XR target alignment notes. The
-Makepad lane should not advance to performance comparison until source-eye
-mapping and alignment have both passed.
+The next ordered gates are therefore source-eye mapping correction, horizontal
+mirror correction, then stereo alignment using the existing custom Rusty XR
+target alignment notes. S69 kept the S68 per-eye `camera_inv` placement, S59
+no-swap limited-BT.601 color path, and vertical-only UV orientation, but
+changed the Makepad display source-eye selector to `inverted_xr_view_id` /
+`display-left-from-right-source`. Operator review reported coherent eye
+alignment but remaining horizontal mirroring, so S69b keeps the source-eye
+mapping and adds a horizontal UV flip. The Makepad lane should not advance to
+performance comparison until source-eye mapping, mirror orientation, and
+alignment have all passed.
+
+S69b built a fresh Makepad APK from the documented standalone lane and validated
+it with the guarded device-gate harness. The harness reached active XR on the
+first launcher attempt, recorded six distinct screenshots, preserved zero
+GPU-fault/fatal counters, and found no stale S69/S68 path labels in the
+extracted native library. Screenshot review shows the horizontal mirror patch
+active, but final visual acceptance still requires headset/operator
+confirmation before moving to S70 stereo alignment.
 
 ## Sanitized Parity Target
 

@@ -57,7 +57,9 @@ passthrough/loading state:
 - Build from `examples/makepad-q2q-camera-shell`, pass Makepad Android options
   before `build`/`run`, and use `--key=value` syntax for option values.
 - Remove or timestamp the expected APK output before a build, then record the
-  fresh APK hash. A failed build can leave an older APK in place.
+  fresh APK hash. The current generated APK output root is
+  `target/android/makepad-android-apk/`; cleaning an older path is not enough.
+  A failed build can leave an older APK in place.
 - Extract `lib/arm64-v8a/libmakepad.so` when checking diagnostic strings,
   because APK compression can make direct string search unreliable.
 - After clean installs, pregrant ordinary runtime camera and scene permissions
@@ -69,6 +71,14 @@ passthrough/loading state:
 - Capture a short multi-frame screenshot sequence and record unique hashes for
   visual gates. Byte-identical frames must be annotated before using the
   capture as live-camera evidence.
+- Record Makepad launch recovery class. A first launcher attempt that remains
+  in loading/preflight must be a failed attempt, even when a second launcher
+  start succeeds. Direct generated-XR launch is a fallback/control path and
+  should not be reported as launcher success.
+- Prefer the Makepad device-gate harness in
+  `examples/makepad-q2q-camera-shell/tools/Invoke-MakepadQ2QDeviceGate.ps1`
+  so launch recovery class, screenshot freshness, stale-marker counts, and
+  fault counters are produced from one consistent path.
 - Keep proximity/awake state and CPU/GPU levels passive unless that setting is
   the variable under test. Performance comparisons are not comparable if power
   levels or proximity state change mid-run.

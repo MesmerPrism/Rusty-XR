@@ -95,6 +95,31 @@ diagnostic string checks. Direct text search against the APK can miss compressed
 native-library strings. Remove generated Makepad `target/` output before public
 pushes and public boundary scans.
 
+The current Makepad Android packager writes the generated APK below
+`examples/makepad-q2q-camera-shell/target/android/makepad-android-apk/`. Clean
+that concrete output folder before a rebuild; cleaning an older
+`target/makepad-android-apk/` path is not sufficient evidence that the next APK
+is fresh.
+
+The Makepad comparison example is standalone rather than a root-workspace
+package. Validate source with:
+
+```powershell
+cargo check --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml
+```
+
+or by running `cargo check` from the example directory. Do not use root
+`cargo check -p` for this example.
+
+For headset gates, prefer
+`examples/makepad-q2q-camera-shell/tools/Invoke-MakepadQ2QDeviceGate.ps1`.
+It records whether the app reached XR on the first launcher attempt, a second
+launcher retry, or direct generated-XR fallback, so first-launch loading
+failures are not hidden by a later successful launch. The harness also records
+freshness hashes and key fault counters alongside each launch attempt. Pass the
+generated launcher and XR activity names explicitly so the public script does
+not bake in downstream app identifiers.
+
 ## Recommended Shell Shape
 
 Use one reusable Rust Android/OpenXR app shell per product family. The shell
