@@ -101,6 +101,31 @@ HzDB `metacam` is a separate witness. In the current Quest setup it produced a
 single `1024x1024` camera view rather than a left/right stereo pair, so it can
 confirm that content is visible but should not be used as a disparity metric.
 
+A direct generated-XR activity launch with the Oculus VR category is a useful
+Makepad control because it removes the normal launcher handoff. It did not
+resolve the headset-visible HUD misalignment in the comparison shell, and the
+public target and direct Makepad launch both reported the same raw Horizon
+window class and stereo surface shape. Keep that launch mode in the matrix, but
+do not treat it as sufficient evidence that the presentation path now matches
+the public target.
+
+An upstream Makepad XR example is only a valid HUD baseline after proving that
+the generated XR activity stays foreground. In the S96 control, the upstream
+example entered the generated XR activity and then toggled back to the normal
+Android activity, producing a 2D screen rather than the original XR scene. That
+matches the known symmetric-activity-toggle failure. Apply only the minimal
+directional XR handoff guard before using upstream Makepad scene-selection or
+hand-panel UI as a third HUD alignment baseline.
+
+The S97 guarded upstream control passed that requirement. With only the
+directional handoff guard applied, the upstream scene-selection style UI stayed
+in the generated XR activity and operator review reported no Meta performance
+HUD stereo misalignment. Use this as the Makepad-side HUD baseline when
+diffing the maintained fork and the public example. Keep its scope narrow:
+upstream still logged GPU page-fault warnings, so this is evidence about
+presentation/HUD alignment, not proof that the upstream renderer is
+GPU-fault-clean on the device.
+
 When investigating HUD alignment regressions:
 
 - use ADB or HzDB full-surface screenshots to detect raw-position changes

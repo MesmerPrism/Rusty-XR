@@ -417,6 +417,25 @@ hardware-buffer, and stale-marker counters. Record whether the run was
   public Rusty XR target under the same `90Hz` / level-4 device state. Treat the
   active Makepad blocker as XR presentation/view/layer state before further
   shader-only projection tuning.
+- Current S95 direct-XR control: starting the generated XR activity directly
+  with the Oculus VR category reached the expected runtime/projection markers
+  and stayed fault-clean, but did not fix the headset-visible Meta performance
+  HUD misalignment. Raw Horizon window metadata matched the public target's
+  window class closely enough that the next split needed an upstream Makepad XR
+  example as a third baseline before more camera-shader tuning.
+- Current S96 upstream-baseline control: an upstream Makepad `dev` XR example
+  build entered the generated XR activity, then toggled back to Makepad's
+  normal Android activity and displayed a 2D screen. This is the same
+  symmetric-activity-toggle failure isolated earlier in the Makepad recovery
+  notes. The upstream scene-selection / hand-panel style UI is not a valid HUD
+  baseline until the generated XR activity stays foreground through a minimal
+  directional XR handoff guard.
+- Current S97 guarded-upstream control: the same upstream example with only the
+  directional XR handoff guard stayed in the generated XR activity, showed the
+  old Makepad scene-picker style UI, and operator review did not see the Meta
+  performance HUD stereo misalignment. Upstream GPU page-fault warning lines
+  remain visible, so this is a HUD/presentation baseline rather than a
+  GPU-fault-clean renderer baseline.
 - Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
   Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
   texture-update counters. The S14 active launcher sample reported

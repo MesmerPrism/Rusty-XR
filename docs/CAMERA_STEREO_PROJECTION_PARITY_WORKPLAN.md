@@ -442,6 +442,38 @@ launcher hop is not sufficient to explain the headset-visible HUD misalignment.
 Use these captures as raw-surface witnesses only; final HUD stereo acceptance
 still needs headset review or a true binocular through-lens capture.
 
+S95 repeated the direct generated-XR activity launch as a headset visual control.
+The run reached the XR activity, emitted S91 runtime/projection markers, stayed
+fault-clean, and still showed the Meta performance HUD misaligned to the
+operator. The public target and the direct Makepad XR launch also shared the
+same Horizon raw-window class and stereo surface shape, so the issue should not
+be reduced to a launcher hop or generic volumetric-window routing difference.
+
+S96 attempted that upstream Makepad baseline and found a launch-state blocker
+before any HUD conclusion could be drawn. A clean upstream `dev` XR example
+build using only a local Windows packaging shim entered the generated XR
+activity, then toggled back to Makepad's normal Android activity and displayed a
+2D screen. This matches the earlier Makepad recovery notes: direct generated-XR
+launches require a directional activity handoff, not the symmetric
+`switchActivity()` method, because `XrStartPresenting` called from an activity
+that is already the XR activity must stay there and create or retry the OpenXR
+session. The next baseline should therefore be upstream Makepad plus only the
+minimal Quest launch guard and local Windows build shim.
+
+S97 completed that guarded upstream baseline. With only the directional XR
+handoff added to upstream Makepad, the old upstream scene-picker / XR example
+UI stayed in the generated XR activity and operator review did not see the Meta
+performance HUD stereo misalignment. The log still carried upstream GPU
+page-fault warning lines, so this is a presentation/HUD baseline rather than a
+GPU-fault-clean renderer baseline. The HUD split is now concrete: upstream
+Makepad plus the minimal Quest handoff guard is comfortable, while the
+maintained fork example is not. Next work should diff the maintained fork and
+Rusty XR example against that guarded upstream baseline, prioritizing
+post-handoff Android/XR patches, native passthrough/environment state, OpenXR
+view-state exposure, and the example's panel/projection path. For raw Makepad
+panel lineage, use the S62/S67/S68 visible-panel states as the closest
+reference rather than the later S91 fullscreen projection experiment.
+
 ## Absorbable Public Work
 
 Rusty XR can absorb these public-safe lessons:
