@@ -130,6 +130,46 @@ function Capture-LaunchState {
         fatalCount = @($log | Select-String -Pattern "FATAL EXCEPTION|Fatal signal|signal 11|SIGSEGV|Abort message").Count
         hardwareBufferWarningCount = @($log | Select-String -Pattern "(?i)hardware.?buffer|AHardwareBuffer|GraphicBuffer\(w=4").Count
         s69bMarkerCount = @($log | Select-String -SimpleMatch "s69bHorizontalMirrorFix=true").Count
+        s70SquareAspectMarkerCount = @($log | Select-String -SimpleMatch "s70SquareAspectFix=true").Count
+        s72HeadCenteredSquareRestoredMarkerCount = @($log | Select-String -SimpleMatch "s72HeadCenteredSquareRestored=true").Count
+        s72MetadataUvBaselineCorrectionMarkerCount = @($log | Select-String -SimpleMatch "s72MetadataUvBaselineCorrection=true").Count
+        s73ScalarHomographyBindingMarkerCount = @($log | Select-String -SimpleMatch "s73ScalarHomographyBinding=true").Count
+        s74LiteralHomographyRowsMarkerCount = @($log | Select-String -SimpleMatch "s74LiteralHomographyRows=true").Count
+        s75DynamicHomographyBindingMarkerCount = @($log | Select-String -SimpleMatch "s75DynamicHomographyBinding=true").Count
+        s76DirectDrawVarsHomographyMarkerCount = @($log | Select-String -SimpleMatch "s76DirectDrawVarsHomography=true").Count
+        s77RustyXrInvalidUvFallbackMarkerCount = @($log | Select-String -SimpleMatch "s77RustyXrInvalidUvFallback=true").Count
+        s78ClipSpaceSurfaceHomographyMarkerCount = @($log | Select-String -SimpleMatch "s78ClipSpaceSurfaceHomography=true").Count
+        s79TargetSourceEyeMappingMarkerCount = @($log | Select-String -SimpleMatch "s79TargetSourceEyeMapping=true").Count
+        s80FullViewContentUvScaleMarkerCount = @($log | Select-String -SimpleMatch "s80FullViewContentUvScale=true").Count
+        s81DynamicScreenSurfaceUvMarkerCount = @($log | Select-String -SimpleMatch "s81DynamicScreenSurfaceUv=true").Count
+        s82CollapsedScreenToCameraHomographyMarkerCount = @($log | Select-String -SimpleMatch "s82CollapsedScreenToCameraHomography=true").Count
+        s83DrawPassProjectionInverseHomographyMarkerCount = @($log | Select-String -SimpleMatch "s83DrawPassProjectionInverseHomography=true").Count
+        s84ProjectionInverseNearFarFallbackMarkerCount = @($log | Select-String -SimpleMatch "s84ProjectionInverseNearFarFallback=true").Count
+        s85ForcedScreenToCameraFallbackMarkerCount = @($log | Select-String -SimpleMatch "s85ForcedScreenToCameraFallback=true").Count
+        s87RuntimeXrViewHomographyMarkerCount = @($log | Select-String -SimpleMatch "s87RuntimeXrViewHomography=true").Count
+        s88TargetFastInvalidFallbackMarkerCount = @($log | Select-String -SimpleMatch "s88TargetFastInvalidFallback=true").Count
+        s89SingleQuadTargetScreenUvMarkerCount = @($log | Select-String -SimpleMatch "s89SingleQuadTargetScreenUv=true").Count
+        s86DirectYuvFullscreenControlMarkerCount = @($log | Select-String -SimpleMatch "s86DirectYuvFullscreenControl=true").Count
+        runtimeXrViewStateReadyMarkerCount = @($log | Select-String -SimpleMatch "runtimeXrViewStateReady=true").Count
+        staleS81PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s81-dynamic-screen-surface-panel-control").Count
+        staleS82PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s82-collapsed-screen-to-camera-homography-panel-control").Count
+        staleS83PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s83-draw-pass-projection-inverse-homography-panel-control").Count
+        staleS84PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s84-projection-inverse-near-far-s82-fallback-panel-control").Count
+        staleS86PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s86-direct-yuv-fullscreen-control").Count
+        staleS85PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s85-forced-screen-to-camera-fallback-control").Count
+        staleS87PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s87-runtime-xr-view-homography").Count
+        staleS88PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s88-target-fast-invalid-fallback").Count
+        projectionHomographyReadyMarkerCount = @($log | Select-String -SimpleMatch "projectionHomographyReady=true").Count
+        s71EyeCenteredMarkerCount = @($log | Select-String -SimpleMatch "s71EyeCenteredPanel=true").Count
+        s71SharedPlaneParallaxRemovedMarkerCount = @($log | Select-String -SimpleMatch "s71SharedPlaneParallaxRemoved=true").Count
+        staleS80PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s80-target-full-view-content-scale-panel-control").Count
+        staleS79PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s79-target-source-eye-mapping-panel-control").Count
+        staleS78PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s78-clipspace-surface-homography-panel-control").Count
+        staleS77PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s77-rusty-xr-invalid-uv-fallback-panel-control").Count
+        staleS76PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s76-direct-drawvars-homography-panel-control").Count
+        staleS75PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s75-dynamic-homography-panel-control").Count
+        staleS71PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s71-eye-centered-square-panel-control").Count
+        staleS70PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s70-head-centered-aspect-panel-control").Count
         staleS69PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s69-source-eye-swap-panel-control").Count
         staleS68PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s68-active-eye-nonworld-panel-control").Count
         ready = [bool]($activeXr -and $endFrame -gt 0 -and ($visiblePanel -gt 0 -or $xrCadence -gt 0))
@@ -224,14 +264,18 @@ if ($attempts[-1].ready) {
     $frames = @()
 }
 
+$readyAttempt = $attempts |
+    Where-Object { $_.label -notlike "*-final" -and $_.ready } |
+    Select-Object -First 1
+
 $summary = [ordered]@{
     schema = "rusty.xr.makepad-q2q-device-gate.v1"
     capturedAt = (Get-Date).ToString("o")
     serial = $Serial
     packageName = $PackageName
     apk = $Apk
-    launchReady = [bool]$attempts[-1].ready
-    recoveredBy = if ($attempts[0].ready) { "launcher-attempt-1" } elseif ($attempts.Count -gt 1 -and $attempts[1].ready) { "launcher-attempt-2" } elseif ($attempts.Count -gt 2 -and $attempts[2].ready) { "direct-xr-fallback" } else { "none" }
+    launchReady = [bool]$readyAttempt
+    recoveredBy = if ($readyAttempt) { $readyAttempt.label } else { "none" }
     attempts = $attempts
     uniqueFreshnessHashes = @($frames.sha256 | Sort-Object -Unique).Count
     freshnessFrames = $frames

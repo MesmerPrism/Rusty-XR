@@ -130,13 +130,213 @@ mapping and adds a horizontal UV flip. The Makepad lane should not advance to
 performance comparison until source-eye mapping, mirror orientation, and
 alignment have all passed.
 
-S69b built a fresh Makepad APK from the documented standalone lane and validated
-it with the guarded device-gate harness. The harness reached active XR on the
-first launcher attempt, recorded six distinct screenshots, preserved zero
-GPU-fault/fatal counters, and found no stale S69/S68 path labels in the
-extracted native library. Screenshot review shows the horizontal mirror patch
-active, but final visual acceptance still requires headset/operator
-confirmation before moving to S70 stereo alignment.
+S69b built a fresh Makepad APK from the documented standalone lane and
+validated it with the guarded device-gate harness. The harness reached active
+XR on the first launcher attempt, recorded six distinct screenshots, preserved
+zero GPU-fault/fatal counters, and found no stale S69/S68 path labels in the
+extracted native library. Follow-up operator review clarified that the
+horizontal flip should be retained; the remaining issues are overlap alignment
+and horizontal stretch. S70 therefore keeps the S69/S69b source-eye and texture
+orientation path, then changes only geometry toward the Rusty XR target:
+head-centered plane, about `0.75m` depth, `60deg` preview FOV, `1.06` raw
+overscan, square `1280x1280` source aspect, and an approximate `0.92m x 0.92m`
+content surface. Operator review accepted the S70 aspect-ratio correction and
+reported that real-world geometry is no longer horizontally stretched, but the
+remaining stereo mismatch is depth dependent: strong at close range and nearly
+imperceptible around `1m`. S71 therefore keeps the S70 square surface and S69b
+mirror/source-eye mapping, but moves the panel back to active-eye placement so
+the Makepad quad does not add a shared physical convergence plane on top of the
+camera-pair disparity. The S71 automated launcher gate passed with fresh
+camera screenshots, S71 marker presence, zero stale S70/S69/S68 path labels,
+and zero app/global GPU-fault or fatal counters, but operator headset
+inspection reported that close-range stereo alignment was slightly worse than
+S70. That negative split makes further panel-placement changes a lower-value
+path. S72 returns to the S70 head-centered square visual basis and ports the
+important Rusty XR custom-path difference directly: source camera
+intrinsics/pose must affect the sampled UVs through the shared
+`rusty-xr-camera-model` projection primitive, not through another panel
+placement tweak. The Makepad pass now computes per-source
+`surface_to_camera_uv_homography` rows from Camera2 intrinsics, lens pose, the
+stereo reference center, and the same head-anchored preview surface constants.
+The shader selects the matching homography with the same source-eye selector
+used for the YUV texture pair, then applies the accepted texture flip. S72 and
+S73 were both useful negative splits rather than visual passes: device gates
+reached active XR, emitted homography-ready markers, captured byte-distinct
+frames, and kept app/global GPU-fault and fatal counters at zero, but the
+visible panel collapsed to a monocolored camera-reactive surface instead of a
+spatial camera image. CPU-side YUV probes still showed live nonzero left/right
+camera content, so the current blocker is not acquisition. S74 hard-coded the
+logged homography rows in the shader and restored the camera feed, with the
+known parallax issue still visible. That makes the dynamic Makepad field
+handoff the current blocker for the metadata-backed path. S75 then tried the
+same dynamic rows with pre-draw `set_dyn_instance` / `set_uniform` writes plus
+existing area patching. The app stayed active, fresh, and fault-clean, but the
+visible panel again lost the spatial camera image. That narrows the binding
+fault to the draw-instance root: the panel still draws through nested
+`DrawCube` draw-vars, so the shader instance slice is not guaranteed to include
+the wrapper's custom homography fields. The refreshed public direct fast target
+still reports projected stereo, `cpuUploadCount=0`, and app VrApi 72 FPS /
+no-tear / no-stale lines under the comparison device profile; global stale
+lines in that brief run came from another runtime process and are not
+app-process target evidence. S76 moved the Makepad camera panel to direct
+draw-vars ownership and restored live camera pixels through dynamic metadata
+rows. That closed the binding blocker. S77 then ported the target shader's
+invalid-projected-UV fallback so out-of-range projected samples fall back to
+oriented content UVs instead of clamping to a dark edge. S78 removed the
+remaining physical-panel convergence variable by drawing the same YUV and
+homography path as a fullscreen clip-space surface, and S79 matched the public
+target's `display-left-from-left-source` mapping. S80 was a useful negative
+split: applying the target raw-content scale directly before the Makepad
+surface-to-camera homography shifted/zoomed the surface instead of fixing
+alignment. A fresh public fast `0.75` target recheck still reports projected
+stereo, paired buffers, `cpuUploadCount=0`, app-process 72Hz no-tear/no-stale
+VrApi lines, and byte-distinct screenshots. The active S81 Makepad split now
+tests the closer target order: reconstruct display-screen UV to a head-anchored
+preview-surface UV, then apply the Camera2 homography. If S81 remains visually
+off, the next public-safe requirement is exposing exact OpenXR per-eye view/FOV
+state to the Makepad app path rather than tuning another simplified panel
+constant. S81 confirmed that this direction is active and performant, but the
+shader-side ray reconstruction still left a striped invalid/fallback region.
+S82 therefore moves the composition closer to the public target: the Camera2
+plan now carries CPU-collapsed screen-to-camera homography rows plus separate
+screen-to-surface rows for fallback fill, so the shader samples projected
+camera UV directly from display-screen UV. S82 validated as an active,
+fault-clean, byte-distinct device run with the new rows and stale path markers
+absent, but it did not close the visual gap: live camera content remained, while
+invalid/fallback striping persisted. That makes the next parity requirement
+more concrete: the Makepad path needs to expose the exact per-eye OpenXR
+view/FOV state used for the display surface, so the public target's
+`surface_to_screen` -> `screen_to_camera` chain can be reproduced instead of
+approximated from static display constants.
+
+S83 tests the first exact-display-input step without changing the Makepad fork.
+The fork already copies the active OpenXR per-eye projection and inverse-view
+matrices into Makepad draw-pass uniforms before rendering. The Makepad shader
+now reconstructs the display ray from `inverse(draw_pass.camera_projection)`
+and `draw_pass.camera_inv`, intersects it with the same head-centered preview
+surface, and applies the proven Camera2 `surface_to_camera` rows. This keeps
+the S82 CPU-collapsed rows visible in logs as comparison evidence, but the
+active sample path no longer depends on synthetic display-FOV constants. S83
+was a negative visual split: it reached active XR, stayed fault-clean, emitted
+fresh S83 markers, captured byte-distinct screenshots, and still had nonzero
+CPU YUV probes, but the projected camera surface was black/blank. That points
+to a Makepad shader projection-matrix convention or matrix-inverse issue, not
+to Camera2 acquisition. A same-session refreshed public fast `0.75` target run
+under the comparison device profile still reports projected stereo, paired GPU
+buffers, `cpuUploadCount=0`, target source-eye mapping, app-process `VrApi`
+72/72 to 73/72 with `Tear=0` and `Stale=0`, and six actually distinct frame
+hashes. Its generic ROI validator can be black-like when the headset pose puts
+the camera content low in the capture, so rely on the final projection markers
+and per-frame hashes before declaring a target run stale.
+
+The next Makepad split should preserve the recovered-feed lineage from
+S82/S76/S77 while closing the exact-display-state gap. The lower-risk path is a
+short shader diagnostic that uses near/far projection rays and an explicit
+fallback to the S82 recovered feed when projected UVs go invalid. The more
+structural path is a maintained Makepad fork exposure of the active OpenXR
+per-eye view/FOV/head-center state so the public target's
+`surface_to_screen` -> `screen_to_camera` CPU homography chain can be
+reproduced directly instead of inferred in the fragment shader.
+
+S84 implements that lower-risk split. The shader now keeps two projection
+paths live: an exact-display candidate from near/far inverse-projection rays
+through `draw_pass.camera_projection` / `camera_inv`, and an S82
+CPU-collapsed `screen_to_camera` fallback. This should keep live camera pixels
+visible even if the exact branch remains invalid, while making the next
+headset sample decisive: improvement over S82 means the shader-side convention
+can be fixed in the app; S82-like output means the maintained Makepad fork
+should expose the exact per-eye OpenXR view/FOV state to app Rust for the same
+CPU-side homography chain as the public target.
+
+S84 did not recover the feed visually. The device run still reached active XR,
+kept native passthrough disabled, emitted fresh S84 and homography-ready
+markers, captured byte-distinct frames, and retained live Camera2/YUV probe
+evidence with no app GPU-fault or fatal signatures. The headset screenshot was
+black apart from the runtime HUD. Treat this as a shader sample-selection split:
+the near/far exact branch can choose an in-range but visually black sample, and
+the fallback branch did not get decisive ownership of the rendered pixel.
+
+S85 is therefore a control build, not a parity claim. It should force the
+S82-style `screen_to_camera` rows to own sampling while logging the S84 exact
+branch as disabled/stale. Restored live feed means the fallback rows and YUV
+textures are still correct and the remaining problem is the Makepad
+draw-pass-projection convention. Continued black output means the S84 refactor
+regressed fallback row binding or shader branch wiring and that must be fixed
+before exposing exact per-eye state through the maintained Makepad fork.
+
+S85 stayed black even with the exact branch disabled. The logs still prove live
+Camera2/YUV content, bound left/right YUV textures, and the expected
+screen-to-camera rows, so the next split should not tune projection constants.
+S86 should bypass homography sampling and render direct fullscreen YUV UVs with
+the same clip-space surface. Direct-feed recovery would put the fault in the
+`screen_to_camera` UV domain or row composition. Continued black output would
+mean the current fullscreen shader route itself has diverged from the earlier
+visible camera controls and should be repaired before parity math resumes.
+
+S86 recovered real camera detail with byte-distinct frames and no app fault
+signatures, so the fullscreen Makepad shader route and CPU-YUV texture sampling
+are healthy. The remaining projection issue is the CPU-computed
+`screen_to_camera` homography produced from static Makepad display-eye
+approximations. The public target's fast shader applies `screen_to_camera` to
+display-surface UV and uses content UV mainly for fallback/border behavior, so
+the next parity step should expose the active OpenXR `XrView` pose/FOV state
+from the maintained Makepad path and compute the same CPU homography chain with
+real runtime view data.
+
+S87 implements that structural step. The maintained Makepad fork now carries
+the active per-eye OpenXR local-space pose and FOV through `XrState`, and the
+Makepad example consumes that fork revision instead of inferring display-eye
+state from fixed constants or fragment-shader matrix inverses. The app stores
+the selected Camera2 stereo sources, waits for runtime XR view state, then
+recomputes the same public target-style `surface_to_screen` ->
+`screen_to_camera` homography chain with runtime left/right eye pose and FOV.
+The pre-device source gate passes standalone `cargo fmt` and `cargo check`
+with only the known Makepad duplicate-dependency warning. The next device gate
+must prove three things separately: the new `runtimeXrViewStateReady` marker
+appears, stale S86/S85 projection paths are absent from the fresh APK and logs,
+and the visual result moves from S86 direct-YUV proof back toward projected
+camera parity without reintroducing app-process GPU-fault or fatal signatures.
+
+S87 passed that structural gate. The fresh APK contained the S87 strings and no
+stale S86/S85 strings, launcher startup reached active XR on the first attempt,
+runtime XR view state and homography-ready markers appeared, six screenshots
+were byte-distinct, and app/global GPU-fault plus fatal counters stayed at
+zero. Visual review showed a live projected camera surface in the same
+low-in-frame headset-pose class as the refreshed public fast `0.75` target.
+The next visual delta is no longer activity handoff, texture binding, or
+Makepad fork eye-state exposure; it is shader policy for invalid projected UVs.
+The public fast shader falls back to an oriented content-surface sample and
+dims it, while S87 returned black. S88 ports that fallback policy while keeping
+the S87 runtime OpenXR view/FOV rows, source-eye mapping, and device-gate
+counters unchanged.
+
+S88 passed the target-shader-policy gate. The fresh Makepad APK contained S88
+markers and no stale S87/S86/S85 path strings, reached active XR through the
+guarded launcher path, emitted runtime-view and homography-ready markers, kept
+six screenshot frames byte-distinct, and stayed app/global GPU-fault plus fatal
+clean while the small hardware-buffer warning class remained visible. Visual
+review kept live projected camera content and made invalid/edge regions follow
+the public fast shader policy more closely. This is still not a performance
+parity claim because the Makepad sample presented near 90Hz while the refreshed
+public fast target sample presented near 72Hz. The next gate is S89: compare
+the S88 runtime-view homography and sampling chain directly against the
+validated target implementation and fix the remaining close-range
+parallax/projection-geometry mismatch before any refresh-normalized performance
+comparison.
+
+S89 source prep removes one Makepad-only variable before tuning projection
+math: the visible panel shader had been flattening Makepad `CubeGeom` into a
+fullscreen surface, which can overdraw several cube faces into the same plane
+with geometry-provided UVs. The S89 patch switches to a single fullscreen
+`QuadGeom` and derives target-style screen UV directly from quad position while
+preserving the S87/S88 runtime-view homography rows, source-eye mapping, and
+invalid-UV fallback policy. Standalone formatting and compile checks pass; the
+fresh release APK also contains S89 strings and no stale S88/S87/S86 path
+strings. The device gate is pending because ADB transport was unavailable
+during the first S89 attempt; that is a workflow/transport blocker, not a
+projection result. Once the Quest is visible to ADB again, the gate must decide
+whether this deterministic screen-UV domain improves, preserves, or worsens the
+observed close-range parallax.
 
 ## Sanitized Parity Target
 

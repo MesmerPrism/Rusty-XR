@@ -1,5 +1,12 @@
 use crate::acamera_sys::*;
 use crate::emit_marker_line;
+use rusty_xr_camera_model::{
+    camera2_lens_pose_to_extrinsics, camera_basis_from_camera2_reference_pose_relative_to_center,
+    head_anchored_preview_surface_corners, invert_homography, scale_intrinsics_to_image,
+    screen_to_camera_uv_homography, surface_to_camera_uv_homography,
+    surface_to_eye_screen_uv_homography, CameraBasis, CameraIntrinsics, ImageSize, Quat,
+    TrackingBasis, Vec2, Vec3,
+};
 use std::collections::BTreeSet;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_void;
@@ -10,11 +17,72 @@ use std::time::{Duration, Instant};
 
 static CAMERA_PROBE_STARTED: AtomicBool = AtomicBool::new(false);
 static STEREO_PROJECTION_PLAN: Mutex<Option<StereoProjectionPlan>> = Mutex::new(None);
+static STEREO_PROJECTION_SOURCES: Mutex<Option<StereoProjectionSources>> = Mutex::new(None);
+static XR_VIEW_PROJECTION_MARKER_EMITTED: AtomicBool = AtomicBool::new(false);
 
 const READER_MAX_IMAGES: i32 = 3;
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 const PREFERRED_DIMENSION: u32 = 1280;
 const MAX_CAPTURE_DIMENSION: u32 = 1920;
+const PROJECTION_TARGET_DEPTH_METERS: f32 = 0.75;
+const PROJECTION_PREVIEW_FOV_Y_DEGREES: f32 = 60.0;
+const PROJECTION_RAW_OVERSCAN: f32 = 1.06;
+const PROJECTION_SOURCE_ASPECT: f32 = 1.0;
+const DISPLAY_EYE_OFFSET_METERS: f32 = 0.032;
+const DISPLAY_FOV_Y_DEGREES: f32 = 92.0;
+const DISPLAY_ASPECT: f32 = 1.0;
+
+const IDENTITY_HOMOGRAPHY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+#[derive(Clone, Copy, Debug)]
+pub struct XrDisplayEyeView {
+    pub position: [f32; 3],
+    pub orientation: [f32; 4],
+    pub angle_left: f32,
+    pub angle_right: f32,
+    pub angle_up: f32,
+    pub angle_down: f32,
+    pub valid: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct XrDisplayViews {
+    pub left: XrDisplayEyeView,
+    pub right: XrDisplayEyeView,
+}
+
+#[derive(Clone, Debug)]
+struct ProjectionHomographies {
+    left_surface_to_camera_h: [[f32; 3]; 3],
+    right_surface_to_camera_h: [[f32; 3]; 3],
+    left_screen_to_camera_h: [[f32; 3]; 3],
+    right_screen_to_camera_h: [[f32; 3]; 3],
+    left_screen_to_surface_h: [[f32; 3]; 3],
+    right_screen_to_surface_h: [[f32; 3]; 3],
+}
+
+impl ProjectionHomographies {
+    fn identity() -> Self {
+        Self {
+            left_surface_to_camera_h: IDENTITY_HOMOGRAPHY,
+            right_surface_to_camera_h: IDENTITY_HOMOGRAPHY,
+            left_screen_to_camera_h: IDENTITY_HOMOGRAPHY,
+            right_screen_to_camera_h: IDENTITY_HOMOGRAPHY,
+            left_screen_to_surface_h: IDENTITY_HOMOGRAPHY,
+            right_screen_to_surface_h: IDENTITY_HOMOGRAPHY,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct StereoProjectionSources {
+    left_source_index: usize,
+    left: CameraSource,
+    right_source_index: usize,
+    right: CameraSource,
+    width: u32,
+    height: u32,
+}
 
 #[derive(Clone, Debug)]
 pub struct StereoProjectionPlan {
@@ -29,24 +97,34 @@ pub struct StereoProjectionPlan {
     pub source_eye_mapping: &'static str,
     pub coordinate_chain: &'static str,
     pub fallback_reason: &'static str,
+    pub left_surface_to_camera_h: [[f32; 3]; 3],
+    pub right_surface_to_camera_h: [[f32; 3]; 3],
+    pub left_screen_to_camera_h: [[f32; 3]; 3],
+    pub right_screen_to_camera_h: [[f32; 3]; 3],
+    pub left_screen_to_surface_h: [[f32; 3]; 3],
+    pub right_screen_to_surface_h: [[f32; 3]; 3],
+    pub projection_homography_ready: bool,
+    pub runtime_xr_view_state_ready: bool,
 }
 
 impl StereoProjectionPlan {
-    fn from_sources(
-        left_source_index: usize,
-        left: &CameraSource,
-        right_source_index: usize,
-        right: &CameraSource,
-        width: u32,
-        height: u32,
-    ) -> Self {
+    fn from_sources(sources: &StereoProjectionSources) -> Self {
+        let left = &sources.left;
+        let right = &sources.right;
+        let width = sources.width;
+        let height = sources.height;
         let projection_metadata_ready = left.has_projection_metadata()
             && right.has_projection_metadata()
             && width > 0
             && height > 0;
+        let (homographies, projection_homography_ready) =
+            stereo_projection_homographies(left, right, width, height)
+                .map(|homographies| (homographies, true))
+                .unwrap_or_else(|| (ProjectionHomographies::identity(), false));
+
         Self {
-            left_source_index,
-            right_source_index,
+            left_source_index: sources.left_source_index,
+            right_source_index: sources.right_source_index,
             left_facing: left.lens_facing_label(),
             right_facing: right.lens_facing_label(),
             width,
@@ -64,7 +142,58 @@ impl StereoProjectionPlan {
             } else {
                 "selected stereo pair is missing intrinsics or pose metadata"
             },
+            left_surface_to_camera_h: homographies.left_surface_to_camera_h,
+            right_surface_to_camera_h: homographies.right_surface_to_camera_h,
+            left_screen_to_camera_h: homographies.left_screen_to_camera_h,
+            right_screen_to_camera_h: homographies.right_screen_to_camera_h,
+            left_screen_to_surface_h: homographies.left_screen_to_surface_h,
+            right_screen_to_surface_h: homographies.right_screen_to_surface_h,
+            projection_homography_ready,
+            runtime_xr_view_state_ready: false,
         }
+    }
+
+    fn from_sources_and_xr_views(
+        sources: &StereoProjectionSources,
+        views: XrDisplayViews,
+    ) -> Option<Self> {
+        let left = &sources.left;
+        let right = &sources.right;
+        let projection_metadata_ready = left.has_projection_metadata()
+            && right.has_projection_metadata()
+            && sources.width > 0
+            && sources.height > 0
+            && views.left.valid
+            && views.right.valid;
+        let homographies = stereo_projection_homographies_from_xr_views(
+            left,
+            right,
+            sources.width,
+            sources.height,
+            views,
+        )?;
+
+        Some(Self {
+            left_source_index: sources.left_source_index,
+            right_source_index: sources.right_source_index,
+            left_facing: left.lens_facing_label(),
+            right_facing: right.lens_facing_label(),
+            width: sources.width,
+            height: sources.height,
+            projection_metadata_ready,
+            pose_source: "platform-openxr-view",
+            source_eye_mapping: "display-left-from-left-source",
+            coordinate_chain: "camera2-sensor-reference-to-openxr-head-basis",
+            fallback_reason: "none",
+            left_surface_to_camera_h: homographies.left_surface_to_camera_h,
+            right_surface_to_camera_h: homographies.right_surface_to_camera_h,
+            left_screen_to_camera_h: homographies.left_screen_to_camera_h,
+            right_screen_to_camera_h: homographies.right_screen_to_camera_h,
+            left_screen_to_surface_h: homographies.left_screen_to_surface_h,
+            right_screen_to_surface_h: homographies.right_screen_to_surface_h,
+            projection_homography_ready: projection_metadata_ready,
+            runtime_xr_view_state_ready: true,
+        })
     }
 }
 
@@ -73,6 +202,38 @@ pub fn latest_stereo_projection_plan() -> Option<StereoProjectionPlan> {
         .lock()
         .ok()
         .and_then(|plan| plan.clone())
+}
+
+pub fn update_stereo_projection_from_xr_views(views: XrDisplayViews) -> bool {
+    let Some(sources) = STEREO_PROJECTION_SOURCES
+        .lock()
+        .ok()
+        .and_then(|sources| sources.clone())
+    else {
+        return false;
+    };
+    let Some(plan) = StereoProjectionPlan::from_sources_and_xr_views(&sources, views) else {
+        return false;
+    };
+    if let Ok(mut current) = STEREO_PROJECTION_PLAN.lock() {
+        *current = Some(plan.clone());
+    }
+    if !XR_VIEW_PROJECTION_MARKER_EMITTED.swap(true, Ordering::AcqRel) {
+        emit_stereo_projection_marker(&format!(
+            "phase=xr-view-projection status=ok runtimeXrViewStateReady=true projectionMappingReady={} alignedProjection=false poseSource={} sourceEyeMapping={} coordinateChain={} projectionHomographyReady={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=runtime_openxr_view_screen_to_camera_homography fallbackReason={}",
+            plan.projection_homography_ready,
+            plan.pose_source,
+            plan.source_eye_mapping,
+            plan.coordinate_chain,
+            plan.projection_homography_ready,
+            homography_token(plan.left_screen_to_camera_h),
+            homography_token(plan.right_screen_to_camera_h),
+            homography_token(plan.left_screen_to_surface_h),
+            homography_token(plan.right_screen_to_surface_h),
+            marker_token(plan.fallback_reason)
+        ));
+    }
+    true
 }
 
 pub fn start_camera_probe_once() {
@@ -131,7 +292,13 @@ unsafe fn run_camera_probe_with_manager(
         .filter(|source| !source.private_sizes.is_empty())
         .count();
     let selected = select_camera_source(&sources);
-    let stereo_plan = select_stereo_projection_plan(&sources);
+    let stereo_sources = select_stereo_projection_sources(&sources);
+    if let Ok(mut stored_sources) = STEREO_PROJECTION_SOURCES.lock() {
+        *stored_sources = stereo_sources.clone();
+    }
+    let stereo_plan = stereo_sources
+        .as_ref()
+        .map(StereoProjectionPlan::from_sources);
     if let Ok(mut plan) = STEREO_PROJECTION_PLAN.lock() {
         *plan = stereo_plan.clone();
     }
@@ -229,7 +396,7 @@ fn metadata_marker_line(
     let selected_source = selected.and_then(|index| sources.get(index));
     let selected_size = selected_source.and_then(select_capture_size);
     format!(
-        "phase=enumerated status=ok sourceCount={} privateSourceCount={} selected={} selectedIndex={} selectedFacing={} selectedWidth={} selectedHeight={} selectedHasIntrinsics={} selectedHasPose={} selectedLogicalMultiCamera={} selectedPhysicalCount={} selectedSensorSync={} stereoPairSelected={} stereoLeftIndex={} stereoRightIndex={} stereoProjectionMetadataReady={} acquisitionPlan=bounded-single-private import=none",
+        "phase=enumerated status=ok sourceCount={} privateSourceCount={} selected={} selectedIndex={} selectedFacing={} selectedWidth={} selectedHeight={} selectedHasIntrinsics={} selectedHasPose={} selectedLogicalMultiCamera={} selectedPhysicalCount={} selectedSensorSync={} stereoPairSelected={} stereoLeftIndex={} stereoRightIndex={} stereoProjectionMetadataReady={} stereoProjectionHomographyReady={} stereoLeftSurfaceToCameraH={} stereoRightSurfaceToCameraH={} stereoLeftScreenToCameraH={} stereoRightScreenToCameraH={} stereoLeftScreenToSurfaceH={} stereoRightScreenToSurfaceH={} acquisitionPlan=bounded-single-private import=none",
         sources.len(),
         private_source_count,
         selected.is_some(),
@@ -264,7 +431,28 @@ fn metadata_marker_line(
             .unwrap_or_else(|| "none".to_string()),
         stereo_plan
             .map(|plan| plan.projection_metadata_ready)
-            .unwrap_or(false)
+            .unwrap_or(false),
+        stereo_plan
+            .map(|plan| plan.projection_homography_ready)
+            .unwrap_or(false),
+        stereo_plan
+            .map(|plan| homography_token(plan.left_surface_to_camera_h))
+            .unwrap_or_else(|| "identity".to_string()),
+        stereo_plan
+            .map(|plan| homography_token(plan.right_surface_to_camera_h))
+            .unwrap_or_else(|| "identity".to_string()),
+        stereo_plan
+            .map(|plan| homography_token(plan.left_screen_to_camera_h))
+            .unwrap_or_else(|| "identity".to_string()),
+        stereo_plan
+            .map(|plan| homography_token(plan.right_screen_to_camera_h))
+            .unwrap_or_else(|| "identity".to_string()),
+        stereo_plan
+            .map(|plan| homography_token(plan.left_screen_to_surface_h))
+            .unwrap_or_else(|| "identity".to_string()),
+        stereo_plan
+            .map(|plan| homography_token(plan.right_screen_to_surface_h))
+            .unwrap_or_else(|| "identity".to_string())
     )
 }
 
@@ -274,7 +462,7 @@ fn stereo_projection_metadata_line(
 ) -> String {
     match stereo_plan {
         Some(plan) => format!(
-            "phase=metadata status=ok sourceCount={} leftSourceIndex={} rightSourceIndex={} leftFacing={} rightFacing={} width={} height={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} fallbackReason={}",
+            "phase=metadata status=ok sourceCount={} leftSourceIndex={} rightSourceIndex={} leftFacing={} rightFacing={} width={} height={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionHomographyReady={} leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=screen_to_camera_homography_camera2_intrinsics_pose_display_eye fallbackReason={}",
             sources.len(),
             plan.left_source_index,
             plan.right_source_index,
@@ -287,6 +475,13 @@ fn stereo_projection_metadata_line(
             plan.pose_source,
             plan.source_eye_mapping,
             plan.coordinate_chain,
+            plan.projection_homography_ready,
+            homography_token(plan.left_surface_to_camera_h),
+            homography_token(plan.right_surface_to_camera_h),
+            homography_token(plan.left_screen_to_camera_h),
+            homography_token(plan.right_screen_to_camera_h),
+            homography_token(plan.left_screen_to_surface_h),
+            homography_token(plan.right_screen_to_surface_h),
             marker_token(plan.fallback_reason)
         ),
         None => format!(
@@ -305,6 +500,7 @@ struct CameraSource {
     sensor_sync_type: Option<u8>,
     private_sizes: Vec<(u32, u32)>,
     intrinsics: Option<NativeIntrinsics>,
+    active_array_size: Option<(u32, u32)>,
     pose_translation: Option<[f32; 3]>,
     pose_rotation: Option<[f32; 4]>,
 }
@@ -809,9 +1005,235 @@ unsafe fn camera_source_from_metadata(
         sensor_sync_type: metadata_u8(metadata, ACAMERA_LOGICAL_MULTI_CAMERA_SENSOR_SYNC_TYPE),
         private_sizes: metadata_private_output_sizes(metadata),
         intrinsics: metadata_intrinsics(metadata),
+        active_array_size: metadata_active_array_size(metadata),
         pose_translation: metadata_vec3(metadata, ACAMERA_LENS_POSE_TRANSLATION),
         pose_rotation: metadata_quat(metadata, ACAMERA_LENS_POSE_ROTATION),
     })
+}
+
+fn stereo_projection_homographies(
+    left: &CameraSource,
+    right: &CameraSource,
+    delivered_width: u32,
+    delivered_height: u32,
+) -> Option<ProjectionHomographies> {
+    let left_extrinsics =
+        camera2_lens_pose_to_extrinsics(left.pose_translation?, left.pose_rotation?).ok()?;
+    let right_extrinsics =
+        camera2_lens_pose_to_extrinsics(right.pose_translation?, right.pose_rotation?).ok()?;
+    let reference_center = (left_extrinsics.world_from_camera.position
+        + right_extrinsics.world_from_camera.position)
+        * 0.5;
+    let tracking = TrackingBasis::new(Vec3::ZERO, Vec3::RIGHT, Vec3::UP, Vec3::FORWARD_NEG_Z)?;
+    let surface = head_anchored_preview_surface_corners(
+        tracking,
+        PROJECTION_PREVIEW_FOV_Y_DEGREES,
+        PROJECTION_TARGET_DEPTH_METERS,
+        PROJECTION_SOURCE_ASPECT,
+        PROJECTION_RAW_OVERSCAN,
+    )
+    .ok()?;
+    let left_intrinsics = scaled_intrinsics(left, delivered_width, delivered_height)?;
+    let right_intrinsics = scaled_intrinsics(right, delivered_width, delivered_height)?;
+    let left_basis = camera_basis_from_camera2_reference_pose_relative_to_center(
+        tracking,
+        left_extrinsics,
+        reference_center,
+    )
+    .ok()?;
+    let right_basis = camera_basis_from_camera2_reference_pose_relative_to_center(
+        tracking,
+        right_extrinsics,
+        reference_center,
+    )
+    .ok()?;
+    let left_h = surface_to_camera_uv_homography(surface, left_basis, left_intrinsics).ok()?;
+    let right_h = surface_to_camera_uv_homography(surface, right_basis, right_intrinsics).ok()?;
+    let left_eye_basis = display_eye_basis(-DISPLAY_EYE_OFFSET_METERS)?;
+    let right_eye_basis = display_eye_basis(DISPLAY_EYE_OFFSET_METERS)?;
+    let tan_y = (DISPLAY_FOV_Y_DEGREES * 0.5).to_radians().tan();
+    let tan_x = tan_y * DISPLAY_ASPECT.max(0.1);
+    let left_surface_to_screen =
+        surface_to_eye_screen_uv_homography(surface, left_eye_basis, -tan_x, tan_x, -tan_y, tan_y)
+            .ok()?;
+    let right_surface_to_screen =
+        surface_to_eye_screen_uv_homography(surface, right_eye_basis, -tan_x, tan_x, -tan_y, tan_y)
+            .ok()?;
+    let left_screen_to_surface_h = invert_homography(left_surface_to_screen)?;
+    let right_screen_to_surface_h = invert_homography(right_surface_to_screen)?;
+    let left_screen_to_camera_h =
+        screen_to_camera_uv_homography(left_surface_to_screen, left_h).ok()?;
+    let right_screen_to_camera_h =
+        screen_to_camera_uv_homography(right_surface_to_screen, right_h).ok()?;
+    Some(ProjectionHomographies {
+        left_surface_to_camera_h: left_h,
+        right_surface_to_camera_h: right_h,
+        left_screen_to_camera_h,
+        right_screen_to_camera_h,
+        left_screen_to_surface_h,
+        right_screen_to_surface_h,
+    })
+}
+
+fn stereo_projection_homographies_from_xr_views(
+    left: &CameraSource,
+    right: &CameraSource,
+    delivered_width: u32,
+    delivered_height: u32,
+    views: XrDisplayViews,
+) -> Option<ProjectionHomographies> {
+    let left_extrinsics =
+        camera2_lens_pose_to_extrinsics(left.pose_translation?, left.pose_rotation?).ok()?;
+    let right_extrinsics =
+        camera2_lens_pose_to_extrinsics(right.pose_translation?, right.pose_rotation?).ok()?;
+    let reference_center = (left_extrinsics.world_from_camera.position
+        + right_extrinsics.world_from_camera.position)
+        * 0.5;
+    let tracking = tracking_basis_from_xr_views(views)?;
+    let aspect = fov_aspect(views.left).unwrap_or(PROJECTION_SOURCE_ASPECT);
+    let surface = head_anchored_preview_surface_corners(
+        tracking,
+        PROJECTION_PREVIEW_FOV_Y_DEGREES,
+        PROJECTION_TARGET_DEPTH_METERS,
+        aspect,
+        PROJECTION_RAW_OVERSCAN,
+    )
+    .ok()?;
+    let left_intrinsics = scaled_intrinsics(left, delivered_width, delivered_height)?;
+    let right_intrinsics = scaled_intrinsics(right, delivered_width, delivered_height)?;
+    let left_basis = camera_basis_from_camera2_reference_pose_relative_to_center(
+        tracking,
+        left_extrinsics,
+        reference_center,
+    )
+    .ok()?;
+    let right_basis = camera_basis_from_camera2_reference_pose_relative_to_center(
+        tracking,
+        right_extrinsics,
+        reference_center,
+    )
+    .ok()?;
+    let left_h = surface_to_camera_uv_homography(surface, left_basis, left_intrinsics).ok()?;
+    let right_h = surface_to_camera_uv_homography(surface, right_basis, right_intrinsics).ok()?;
+    let left_eye_basis = eye_basis_from_xr_view(views.left)?;
+    let right_eye_basis = eye_basis_from_xr_view(views.right)?;
+    let left_surface_to_screen = surface_to_eye_screen_uv_homography(
+        surface,
+        left_eye_basis,
+        views.left.angle_left.tan(),
+        views.left.angle_right.tan(),
+        views.left.angle_down.tan(),
+        views.left.angle_up.tan(),
+    )
+    .ok()?;
+    let right_surface_to_screen = surface_to_eye_screen_uv_homography(
+        surface,
+        right_eye_basis,
+        views.right.angle_left.tan(),
+        views.right.angle_right.tan(),
+        views.right.angle_down.tan(),
+        views.right.angle_up.tan(),
+    )
+    .ok()?;
+    let left_screen_to_surface_h = invert_homography(left_surface_to_screen)?;
+    let right_screen_to_surface_h = invert_homography(right_surface_to_screen)?;
+    let left_screen_to_camera_h =
+        screen_to_camera_uv_homography(left_surface_to_screen, left_h).ok()?;
+    let right_screen_to_camera_h =
+        screen_to_camera_uv_homography(right_surface_to_screen, right_h).ok()?;
+    Some(ProjectionHomographies {
+        left_surface_to_camera_h: left_h,
+        right_surface_to_camera_h: right_h,
+        left_screen_to_camera_h,
+        right_screen_to_camera_h,
+        left_screen_to_surface_h,
+        right_screen_to_surface_h,
+    })
+}
+
+fn eye_basis_from_xr_view(view: XrDisplayEyeView) -> Option<CameraBasis> {
+    if !view.valid {
+        return None;
+    }
+    let orientation = Quat::new(
+        view.orientation[0],
+        view.orientation[1],
+        view.orientation[2],
+        view.orientation[3],
+    )
+    .normalized_or(Quat::IDENTITY);
+    CameraBasis::new(
+        Vec3::new(view.position[0], view.position[1], view.position[2]),
+        orientation.rotate_vec3(Vec3::RIGHT),
+        orientation.rotate_vec3(Vec3::UP),
+        orientation.rotate_vec3(Vec3::FORWARD_NEG_Z),
+    )
+}
+
+fn tracking_basis_from_xr_views(views: XrDisplayViews) -> Option<TrackingBasis> {
+    if !views.left.valid || !views.right.valid {
+        return None;
+    }
+    let position = Vec3::new(
+        (views.left.position[0] + views.right.position[0]) * 0.5,
+        (views.left.position[1] + views.right.position[1]) * 0.5,
+        (views.left.position[2] + views.right.position[2]) * 0.5,
+    );
+    let orientation = Quat::new(
+        views.left.orientation[0],
+        views.left.orientation[1],
+        views.left.orientation[2],
+        views.left.orientation[3],
+    )
+    .normalized_or(Quat::IDENTITY);
+    TrackingBasis::new(
+        position,
+        orientation.rotate_vec3(Vec3::RIGHT),
+        orientation.rotate_vec3(Vec3::UP),
+        orientation.rotate_vec3(Vec3::FORWARD_NEG_Z),
+    )
+}
+
+fn fov_aspect(view: XrDisplayEyeView) -> Option<f32> {
+    let width = view.angle_right.tan() - view.angle_left.tan();
+    let height = view.angle_up.tan() - view.angle_down.tan();
+    if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+        Some((width / height).clamp(0.25, 4.0))
+    } else {
+        None
+    }
+}
+
+fn display_eye_basis(x_offset_meters: f32) -> Option<CameraBasis> {
+    CameraBasis::new(
+        Vec3::new(x_offset_meters, 0.0, 0.0),
+        Vec3::RIGHT,
+        Vec3::UP,
+        Vec3::FORWARD_NEG_Z,
+    )
+}
+
+fn scaled_intrinsics(
+    source: &CameraSource,
+    delivered_width: u32,
+    delivered_height: u32,
+) -> Option<CameraIntrinsics> {
+    let intrinsics = source.intrinsics?;
+    let source_size = source
+        .active_array_size
+        .unwrap_or((delivered_width, delivered_height));
+    let source_intrinsics = CameraIntrinsics::new(
+        Vec2::new(intrinsics.fx, intrinsics.fy),
+        Vec2::new(intrinsics.cx, intrinsics.cy),
+        ImageSize::new(source_size.0, source_size.1),
+    )
+    .with_skew_px(intrinsics.skew);
+    scale_intrinsics_to_image(
+        source_intrinsics,
+        ImageSize::new(source_size.0, source_size.1),
+        ImageSize::new(delivered_width, delivered_height),
+    )
+    .ok()
 }
 
 fn select_camera_source(sources: &[CameraSource]) -> Option<usize> {
@@ -832,7 +1254,7 @@ fn select_camera_source(sources: &[CameraSource]) -> Option<usize> {
         .map(|(index, _)| index)
 }
 
-fn select_stereo_projection_plan(sources: &[CameraSource]) -> Option<StereoProjectionPlan> {
+fn select_stereo_projection_sources(sources: &[CameraSource]) -> Option<StereoProjectionSources> {
     let mut best: Option<(usize, usize, (u8, i64, i64, i64), (u32, u32))> = None;
 
     for left_index in 0..sources.len() {
@@ -876,14 +1298,14 @@ fn select_stereo_projection_plan(sources: &[CameraSource]) -> Option<StereoProje
     }
 
     let (left_index, right_index, _, (width, height)) = best?;
-    Some(StereoProjectionPlan::from_sources(
-        left_index,
-        &sources[left_index],
-        right_index,
-        &sources[right_index],
+    Some(StereoProjectionSources {
+        left_source_index: left_index,
+        left: sources[left_index].clone(),
+        right_source_index: right_index,
+        right: sources[right_index].clone(),
         width,
         height,
-    ))
+    })
 }
 
 fn select_stereo_capture_size(left: &CameraSource, right: &CameraSource) -> Option<(u32, u32)> {
@@ -1012,6 +1434,17 @@ unsafe fn metadata_quat(metadata: *const ACameraMetadata, tag: u32) -> Option<[f
     Some([values[0], values[1], values[2], values[3]])
 }
 
+unsafe fn metadata_active_array_size(metadata: *const ACameraMetadata) -> Option<(u32, u32)> {
+    let entry = metadata_entry(metadata, ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE)?;
+    if entry.count < 4 || entry.data.i32_.is_null() {
+        return None;
+    }
+    let values = std::slice::from_raw_parts(entry.data.i32_, entry.count as usize);
+    let width = values[2].checked_sub(values[0])?;
+    let height = values[3].checked_sub(values[1])?;
+    (width > 0 && height > 0).then_some((width as u32, height as u32))
+}
+
 unsafe fn metadata_private_output_sizes(metadata: *const ACameraMetadata) -> Vec<(u32, u32)> {
     let Some(entry) = metadata_entry(metadata, ACAMERA_SCALER_AVAILABLE_STREAM_CONFIGURATIONS)
     else {
@@ -1036,6 +1469,14 @@ unsafe fn metadata_private_output_sizes(metadata: *const ACameraMetadata) -> Vec
 
 fn index_token<T: std::fmt::Display>(value: T) -> String {
     value.to_string()
+}
+
+fn homography_token(rows: [[f32; 3]; 3]) -> String {
+    rows.iter()
+        .flat_map(|row| row.iter())
+        .map(|value| format!("{value:.6}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn marker_token(value: &str) -> String {

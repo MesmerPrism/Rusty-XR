@@ -219,8 +219,43 @@ launch classes.
   gate reached active XR on `launcher-attempt-1`, captured six byte-distinct
   screenshots, kept stale S69/S68 path labels absent from the extracted native
   library, and preserved zero GPU-fault/fatal counters. Screenshot review shows
-  the horizontal mirror patch active, but headset/operator acceptance is still
-  required before moving to alignment tuning.
+  the horizontal mirror patch active. Operator follow-up clarified that the
+  flip is still required; S70 keeps it and changes only geometry: the panel is
+  head-centered between display eyes and narrowed to the Rusty XR square camera
+  target surface, about `0.92m x 0.92m` at `0.75m` depth, to address overlap
+  alignment and horizontal stretch. Operator review accepted the S70 aspect
+  correction but found a depth-dependent stereo mismatch: close objects are
+  still misaligned while objects near `1m` are nearly coherent. S71 keeps the
+  square aspect and mirror/source-eye mapping, but returns placement to the
+  active-eye camera-inverse basis so the visible Makepad panel does not add a
+  shared physical convergence plane. The guarded S71 launcher gate reached
+  active XR on the first attempt, captured six byte-distinct screenshots,
+  retained S71 marker strings while stale S70/S69/S68 path labels were absent,
+  and preserved zero app/global GPU-fault and fatal counters. Operator headset
+  inspection decides whether the remaining close-range mismatch is panel
+  convergence or metadata/intrinsics projection. Operator inspection reported
+  S71 is slightly worse than S70 for close-range stereo alignment, so S72
+  reverts to the S70 visual basis and ports the Rusty XR projection delta into
+  UV sampling rather than continuing to move the Makepad panel. This is not a
+  scalar shift approximation: the app computes per-source
+  `surface_to_camera_uv_homography` rows from Camera2 intrinsics, lens pose,
+  stereo reference center, and the head-anchored preview surface, then the
+  shader applies the selected 3x3 mapping before the accepted texture flip.
+  S72 and S73 did not pass visually: the guarded launcher path reached active
+  XR and emitted homography markers, but the panel became a monocolored
+  camera-reactive surface while CPU YUV probes still showed live camera
+  content. S74 hard-coded the logged homography rows in the shader and
+  restored the camera feed, with the known parallax issue still visible. That
+  makes dynamic Makepad shader-field delivery the active blocker before
+  alignment work can continue. S75 kept the metadata rows dynamic but still
+  failed visually after writing through the pre-draw dynamic instance/uniform
+  path as well as the existing area patching path. S76 then moved the panel off
+  nested `DrawCube` ownership and onto direct draw-vars ownership; the guarded
+  launcher gate restored live camera pixels through dynamic metadata rows, with
+  six byte-distinct screenshots and zero app/global GPU-fault or fatal
+  counters. The remaining parity gap is projected-UV coverage: the Makepad
+  shader currently clamps invalid projected UVs, while the public Rusty XR
+  target falls back to oriented unprojected content UVs.
 - Run-log review after S68 found one important distinction for the next fix:
   S51 already solved horizontal image mirroring with a vertical-only UV flip.
   The S68 issue is source-eye mapping, so S69 should swap the selected
@@ -265,6 +300,21 @@ launch classes.
 - `cargo check`: passes for this standalone package.
 - Quest APK build: passes with the maintained Makepad fork branch, including
   dependent Rust shared-library bundling.
+- Current projection parity slice: the example is on S89. S86 restored real
+  camera detail through direct fullscreen YUV sampling, proving the current
+  Makepad fullscreen draw/YUV texture path. The maintained Makepad fork now
+  exposes runtime per-eye OpenXR pose/FOV state to app Rust, and S87 validated
+  that state with a fresh fault-clean device gate and live projected camera
+  screenshots. S88 keeps that runtime homography path and ports the public fast
+  shader's invalid-UV fallback policy so edge/invalid regions use a dimmed
+  oriented content-surface sample instead of an immediate black return. The
+  S88 device gate passed for launcher active-XR, runtime-view markers,
+  homography-ready markers, byte-distinct screenshots, and fault counters; the
+  remaining parity blocker is the close-range projection/parallax geometry
+  mismatch against the public fast target, not camera acquisition. S89 keeps
+  the S88 projection math but replaces the flattened cube panel with a single
+  fullscreen quad so the shader input UV domain matches the target fullscreen
+  pass more directly.
 - Quest launcher run: installs, starts, emits Java activity, native bootstrap,
   `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
   `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` startup markers, switches into active
