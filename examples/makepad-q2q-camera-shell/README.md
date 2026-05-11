@@ -391,6 +391,16 @@ launch classes.
   runs used CPU/GPU level `4` / `4`, scale factor `0.75`, six byte-distinct
   screenshots, and fault-clean logs. Treat this as a transport/performance
   result only; Makepad projection math still requires headset visual acceptance.
+- Current S93 refresh-normalized split: the public fast `0.75` target requested
+  and activated `90.000Hz`, held `OpenXR` about `90Hz`, consumed camera pairs at
+  `50.001Hz`, rendered projection frames at `90.007Hz`, and averaged `1.800`
+  renders per distinct camera frame. Makepad S91 also held app/`XrUpdate`/draw
+  cadence around `90Hz` with paired texture updates around `50Hz`. Operator
+  headset review found that the Meta performance HUD itself was stereo-misaligned
+  while Makepad was active, then stable/aligned after switching back to the
+  public Rusty XR target under the same `90Hz` / level-4 device state. Treat the
+  active Makepad blocker as XR presentation/view/layer state before further
+  shader-only projection tuning.
 - Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
   Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
   texture-update counters. The S14 active launcher sample reported
