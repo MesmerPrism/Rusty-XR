@@ -2981,6 +2981,102 @@ fn frame_rate_token(frame_rate: Option<f64>) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn yuv_choice(
+        source_index: usize,
+        camera_id: Option<&str>,
+        width: usize,
+        height: usize,
+    ) -> MakepadCameraChoice {
+        MakepadCameraChoice::new(
+            source_index,
+            Default::default(),
+            VideoFormat {
+                format_id: Default::default(),
+                width,
+                height,
+                frame_rate: Some(72.0),
+                pixel_format: VideoPixelFormat::YUV420,
+            },
+            "back",
+            camera_id.map(str::to_string),
+        )
+    }
+
+    fn test_plan() -> Camera2StereoPlan {
+        Camera2StereoPlan {
+            left_source_index: 0,
+            right_source_index: 1,
+            left_camera_id: "50".to_string(),
+            right_camera_id: "51".to_string(),
+            width: 1280,
+            height: 1280,
+            projection_metadata_ready: true,
+            pose_source: "platform-openxr-view".to_string(),
+            source_eye_mapping: "display-left-from-left-source".to_string(),
+            coordinate_chain: "camera2-sensor-reference-to-openxr-head-basis".to_string(),
+            fallback_reason: "none".to_string(),
+            left_surface_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            right_surface_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            left_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            right_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            left_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            right_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            projection_homography_ready: true,
+            runtime_xr_view_state_ready: true,
+        }
+    }
+
+    #[test]
+    fn parses_makepad_descriptor_camera_id_token() {
+        assert_eq!(
+            camera_id_from_makepad_desc_name("Back Camera cameraId=50").as_deref(),
+            Some("50")
+        );
+        assert_eq!(
+            camera_id_from_makepad_desc_name("External cameraId=cam_12-3.4 fps=72").as_deref(),
+            Some("cam_12-3.4")
+        );
+        assert_eq!(camera_id_from_makepad_desc_name("Back Camera"), None);
+    }
+
+    #[test]
+    fn camera_id_choice_prefers_requested_size() {
+        let choices = vec![
+            yuv_choice(0, Some("50"), 640, 640),
+            yuv_choice(1, Some("51"), 1280, 1280),
+            yuv_choice(2, Some("50"), 1280, 1280),
+        ];
+
+        let choice = best_choice_for_camera_id(&choices, "50", (1280, 1280)).unwrap();
+
+        assert_eq!(choice.source_index, 2);
+        assert_eq!(choice.camera_id.as_deref(), Some("50"));
+        assert_eq!((choice.width, choice.height), (1280, 1280));
+    }
+
+    #[test]
+    fn camera_id_pair_binding_overrides_misleading_source_index() {
+        let choices = vec![
+            yuv_choice(0, Some("51"), 1280, 1280),
+            yuv_choice(1, Some("50"), 1280, 1280),
+        ];
+        let plan = test_plan();
+
+        let pair = MakepadCameraPair::from_camera2_plan(&choices, &plan).unwrap();
+
+        assert_eq!(pair.source_binding_mode, "camera-id");
+        assert_eq!(pair.left.camera_id.as_deref(), Some("50"));
+        assert_eq!(pair.right.camera_id.as_deref(), Some("51"));
+        assert_eq!(pair.left.source_index, 1);
+        assert_eq!(pair.right.source_index, 0);
+        assert!(pair.matches_camera2_plan(&plan));
+    }
+}
+
 fn set_runtime_text(
     config: &mut RuntimeConfig,
     key: &'static str,

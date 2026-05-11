@@ -359,6 +359,9 @@ view/FOV inputs, the shared homography helper chain, projection scale, preview
 FOV, raw overscan, or `left-right` source-eye mapping. The next useful evidence
 is therefore a runtime S90 logcat gate plus operator parallax inspection, not
 another unvalidated projection tweak.
+Focused host tests now cover descriptor `cameraId=` parsing and camera-ID pair
+binding, including the case where source indices are misleading and the
+descriptor IDs must win.
 
 ## Sanitized Parity Target
 
