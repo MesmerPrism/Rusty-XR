@@ -300,7 +300,7 @@ launch classes.
 - `cargo check`: passes for this standalone package.
 - Quest APK build: passes with the maintained Makepad fork branch, including
   dependent Rust shared-library bundling.
-- Current projection parity slice: the example is on S89. S86 restored real
+- Current projection parity slice: the example is on S90. S86 restored real
   camera detail through direct fullscreen YUV sampling, proving the current
   Makepad fullscreen draw/YUV texture path. The maintained Makepad fork now
   exposes runtime per-eye OpenXR pose/FOV state to app Rust, and S87 validated
@@ -314,7 +314,12 @@ launch classes.
   mismatch against the public fast target, not camera acquisition. S89 keeps
   the S88 projection math but replaces the flattened cube panel with a single
   fullscreen quad so the shader input UV domain matches the target fullscreen
-  pass more directly.
+  pass more directly. S90 then removes a source-correlation ambiguity: the
+  fork exposes Android camera IDs in Makepad video descriptors, and this
+  example binds Makepad video streams to the Camera2 projection plan by camera
+  ID before falling back to source index. The S90 gate should show
+  `s90CameraIdSourceBinding=true` and `sourceBindingMode=camera-id` before
+  judging the remaining parallax visually.
 - Quest launcher run: installs, starts, emits Java activity, native bootstrap,
   `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
   `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` startup markers, switches into active

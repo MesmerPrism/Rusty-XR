@@ -338,6 +338,22 @@ projection result. Once the Quest is visible to ADB again, the gate must decide
 whether this deterministic screen-UV domain improves, preserves, or worsens the
 observed close-range parallax.
 
+S90 closes a source-binding delta from the validated target diff before the
+next headset run. The target path chooses the stereo pair by Camera2 pose X and
+tracks display camera IDs, but the Makepad lane previously correlated Camera2
+metadata to Makepad video streams by source index while Makepad Android named
+all back cameras identically. The maintained fork now exposes `cameraId=` in
+Android video descriptors. The Makepad example now carries Camera2 IDs through
+the stereo projection plan, orders the selected Camera2 pair by physical pose
+X, parses Makepad descriptor camera IDs, and chooses Makepad video streams by
+camera ID before falling back to index. The next device gate should require
+`s90CameraIdSourceBinding=true` and `sourceBindingMode=camera-id`; only then is
+the remaining parallax result a projection-math question rather than a possible
+metadata/texture mismatch. A fresh S90 APK build has passed the native string
+gate: S90, `cameraId=`, and pose-X source-selection strings are present, while
+stale S89/S88/S87/S86 path strings are absent. The log-only
+`sourceBindingMode=camera-id` proof remains blocked on ADB transport.
+
 ## Sanitized Parity Target
 
 The downstream target proves the desired behavior class:

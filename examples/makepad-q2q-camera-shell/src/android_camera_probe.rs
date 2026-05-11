@@ -7,6 +7,7 @@ use rusty_xr_camera_model::{
     surface_to_eye_screen_uv_homography, CameraBasis, CameraIntrinsics, ImageSize, Quat,
     TrackingBasis, Vec2, Vec3,
 };
+use std::cmp::Ordering as CmpOrdering;
 use std::collections::BTreeSet;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_void;
@@ -88,6 +89,8 @@ struct StereoProjectionSources {
 pub struct StereoProjectionPlan {
     pub left_source_index: usize,
     pub right_source_index: usize,
+    pub left_camera_id: String,
+    pub right_camera_id: String,
     pub left_facing: &'static str,
     pub right_facing: &'static str,
     pub width: u32,
@@ -125,6 +128,8 @@ impl StereoProjectionPlan {
         Self {
             left_source_index: sources.left_source_index,
             right_source_index: sources.right_source_index,
+            left_camera_id: left.camera_id_label(),
+            right_camera_id: right.camera_id_label(),
             left_facing: left.lens_facing_label(),
             right_facing: right.lens_facing_label(),
             width,
@@ -176,6 +181,8 @@ impl StereoProjectionPlan {
         Some(Self {
             left_source_index: sources.left_source_index,
             right_source_index: sources.right_source_index,
+            left_camera_id: left.camera_id_label(),
+            right_camera_id: right.camera_id_label(),
             left_facing: left.lens_facing_label(),
             right_facing: right.lens_facing_label(),
             width: sources.width,
@@ -220,11 +227,13 @@ pub fn update_stereo_projection_from_xr_views(views: XrDisplayViews) -> bool {
     }
     if !XR_VIEW_PROJECTION_MARKER_EMITTED.swap(true, Ordering::AcqRel) {
         emit_stereo_projection_marker(&format!(
-            "phase=xr-view-projection status=ok runtimeXrViewStateReady=true projectionMappingReady={} alignedProjection=false poseSource={} sourceEyeMapping={} coordinateChain={} projectionHomographyReady={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=runtime_openxr_view_screen_to_camera_homography fallbackReason={}",
+            "phase=xr-view-projection status=ok runtimeXrViewStateReady=true projectionMappingReady={} alignedProjection=false poseSource={} sourceEyeMapping={} coordinateChain={} displayLeftCameraId={} displayRightCameraId={} projectionHomographyReady={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=runtime_openxr_view_screen_to_camera_homography fallbackReason={}",
             plan.projection_homography_ready,
             plan.pose_source,
             plan.source_eye_mapping,
             plan.coordinate_chain,
+            marker_token(&plan.left_camera_id),
+            marker_token(&plan.right_camera_id),
             plan.projection_homography_ready,
             homography_token(plan.left_screen_to_camera_h),
             homography_token(plan.right_screen_to_camera_h),
@@ -462,10 +471,12 @@ fn stereo_projection_metadata_line(
 ) -> String {
     match stereo_plan {
         Some(plan) => format!(
-            "phase=metadata status=ok sourceCount={} leftSourceIndex={} rightSourceIndex={} leftFacing={} rightFacing={} width={} height={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionHomographyReady={} leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=screen_to_camera_homography_camera2_intrinsics_pose_display_eye fallbackReason={}",
+            "phase=metadata status=ok sourceCount={} leftSourceIndex={} rightSourceIndex={} leftCameraId={} rightCameraId={} leftFacing={} rightFacing={} width={} height={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionHomographyReady={} leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=screen_to_camera_homography_camera2_intrinsics_pose_display_eye sourceSelection=pose-x-ordered-camera2 fallbackReason={}",
             sources.len(),
             plan.left_source_index,
             plan.right_source_index,
+            marker_token(&plan.left_camera_id),
+            marker_token(&plan.right_camera_id),
             plan.left_facing,
             plan.right_facing,
             plan.width,
@@ -506,6 +517,10 @@ struct CameraSource {
 }
 
 impl CameraSource {
+    fn camera_id_label(&self) -> String {
+        self.camera_id_c.as_c_str().to_string_lossy().into_owned()
+    }
+
     fn lens_facing_label(&self) -> &'static str {
         match self.lens_facing {
             ACAMERA_LENS_FACING_FRONT => "front",
@@ -1255,6 +1270,53 @@ fn select_camera_source(sources: &[CameraSource]) -> Option<usize> {
 }
 
 fn select_stereo_projection_sources(sources: &[CameraSource]) -> Option<StereoProjectionSources> {
+    select_pose_ordered_stereo_projection_sources(sources)
+        .or_else(|| select_best_index_ordered_stereo_projection_sources(sources))
+}
+
+fn select_pose_ordered_stereo_projection_sources(
+    sources: &[CameraSource],
+) -> Option<StereoProjectionSources> {
+    let mut back_sources = sources
+        .iter()
+        .enumerate()
+        .filter(|(_, source)| source.lens_facing == ACAMERA_LENS_FACING_BACK)
+        .filter(|(_, source)| !source.private_sizes.is_empty())
+        .collect::<Vec<_>>();
+    if back_sources.len() < 2 {
+        return None;
+    }
+
+    back_sources.sort_by(|(_, left), (_, right)| {
+        let left_x = left.pose_translation.map(|pose| pose[0]).unwrap_or(0.0);
+        let right_x = right.pose_translation.map(|pose| pose[0]).unwrap_or(0.0);
+        left_x
+            .partial_cmp(&right_x)
+            .unwrap_or(CmpOrdering::Equal)
+            .then_with(|| left.camera_id_label().cmp(&right.camera_id_label()))
+    });
+
+    let left_index = back_sources.first()?.0;
+    let right_index = back_sources.last()?.0;
+    if left_index == right_index {
+        return None;
+    }
+    let left = &sources[left_index];
+    let right = &sources[right_index];
+    let (width, height) = select_stereo_capture_size(left, right)?;
+    Some(StereoProjectionSources {
+        left_source_index: left_index,
+        left: left.clone(),
+        right_source_index: right_index,
+        right: right.clone(),
+        width,
+        height,
+    })
+}
+
+fn select_best_index_ordered_stereo_projection_sources(
+    sources: &[CameraSource],
+) -> Option<StereoProjectionSources> {
     let mut best: Option<(usize, usize, (u8, i64, i64, i64), (u32, u32))> = None;
 
     for left_index in 0..sources.len() {

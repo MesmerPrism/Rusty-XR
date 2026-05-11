@@ -149,6 +149,8 @@ function Capture-LaunchState {
         s87RuntimeXrViewHomographyMarkerCount = @($log | Select-String -SimpleMatch "s87RuntimeXrViewHomography=true").Count
         s88TargetFastInvalidFallbackMarkerCount = @($log | Select-String -SimpleMatch "s88TargetFastInvalidFallback=true").Count
         s89SingleQuadTargetScreenUvMarkerCount = @($log | Select-String -SimpleMatch "s89SingleQuadTargetScreenUv=true").Count
+        s90CameraIdSourceBindingMarkerCount = @($log | Select-String -SimpleMatch "s90CameraIdSourceBinding=true").Count
+        cameraIdSourceBindingMarkerCount = @($log | Select-String -SimpleMatch "sourceBindingMode=camera-id").Count
         s86DirectYuvFullscreenControlMarkerCount = @($log | Select-String -SimpleMatch "s86DirectYuvFullscreenControl=true").Count
         runtimeXrViewStateReadyMarkerCount = @($log | Select-String -SimpleMatch "runtimeXrViewStateReady=true").Count
         staleS81PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s81-dynamic-screen-surface-panel-control").Count
