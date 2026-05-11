@@ -431,6 +431,17 @@ issue, or a closely related runtime configuration issue, before it is merely a
 camera shader homography issue. The `alignedProjection=true` marker is therefore
 objective transport state, not visual acceptance.
 
+The S94 screenshot follow-up narrows the evidence boundary. ADB `screencap` and
+HzDB `screencap` both exposed the full raw stereo surface and allowed automated
+green-HUD feature detection, but the measured Meta performance-HUD disparity was
+effectively identical between the public target and Makepad S91. HzDB
+`metacam` produced a single camera view in this setup rather than a stereo
+pair. A direct Makepad generated-XR activity launch with the Oculus VR category
+also reached S91 markers and kept the same raw HUD positions, so the normal
+launcher hop is not sufficient to explain the headset-visible HUD misalignment.
+Use these captures as raw-surface witnesses only; final HUD stereo acceptance
+still needs headset review or a true binocular through-lens capture.
+
 ## Absorbable Public Work
 
 Rusty XR can absorb these public-safe lessons:

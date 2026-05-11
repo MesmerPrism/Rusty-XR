@@ -65,6 +65,28 @@ function Save-AdbTextCapture {
     Invoke-Adb -Arguments $Arguments | Out-File -FilePath $OutputPath -Encoding UTF8
 }
 
+function Resolve-ProcessFileName {
+    param([string]$FileName)
+    if ([System.IO.Path]::IsPathRooted($FileName) -or (Split-Path -Path $FileName -Parent)) {
+        return $FileName
+    }
+
+    $candidates = @()
+    if ($env:OS -eq "Windows_NT" -and -not [System.IO.Path]::HasExtension($FileName)) {
+        $candidates += @("$FileName.cmd", "$FileName.exe", "$FileName.bat")
+    }
+    $candidates += $FileName
+
+    foreach ($candidate in $candidates) {
+        $command = Get-Command $candidate -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($command -and $command.Path) {
+            return $command.Path
+        }
+    }
+
+    return $FileName
+}
+
 function Invoke-ProcessCapture {
     param(
         [string]$FileName,
@@ -83,7 +105,8 @@ function Invoke-ProcessCapture {
     }
 
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $FileName
+    $resolvedFileName = Resolve-ProcessFileName -FileName $FileName
+    $startInfo.FileName = $resolvedFileName
     $startInfo.Arguments = $quotedArguments -join " "
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
@@ -108,6 +131,8 @@ function Invoke-ProcessCapture {
     $stdout = $process.StandardOutput.ReadToEnd()
     $stderr = $process.StandardError.ReadToEnd()
     @(
+        "fileName=$FileName"
+        "resolvedFileName=$resolvedFileName"
         "exitCode=$($process.ExitCode)"
         ""
         "[stdout]"
@@ -140,7 +165,7 @@ function Invoke-AdbBinaryCapture {
     }
 
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $Adb
+    $startInfo.FileName = Resolve-ProcessFileName -FileName $Adb
     $startInfo.Arguments = $quotedArguments -join " "
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true

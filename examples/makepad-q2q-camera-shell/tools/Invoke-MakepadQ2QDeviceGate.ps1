@@ -17,7 +17,8 @@ param(
     [int]$FreshnessFrames = 6,
     [int]$FreshnessIntervalSeconds = 1,
     [switch]$SkipInstall,
-    [switch]$SkipDirectXrFallback
+    [switch]$SkipDirectXrFallback,
+    [switch]$PreferDirectVrActivity
 )
 
 $ErrorActionPreference = "Stop"
@@ -192,8 +193,12 @@ function Start-ActivityAndProbe {
         [string]$Label,
         [string]$Activity,
         [switch]$ForceStopFirst,
-        [switch]$LauncherIntent
+        [switch]$LauncherIntent,
+        [switch]$VrIntent
     )
+    if ($LauncherIntent -and $VrIntent) {
+        throw "LauncherIntent and VrIntent are mutually exclusive."
+    }
     if ($ForceStopFirst) {
         Invoke-Adb -Arguments @("shell", "am", "force-stop", $PackageName) | Out-Null
     }
@@ -203,6 +208,9 @@ function Start-ActivityAndProbe {
     $launchArgs = @("shell", "am", "start", "-W")
     if ($LauncherIntent) {
         $launchArgs += @("-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER")
+    }
+    elseif ($VrIntent) {
+        $launchArgs += @("-a", "android.intent.action.MAIN", "-c", "com.oculus.intent.category.VR")
     }
     $launchArgs += @("-n", $component)
     Save-Adb -Arguments $launchArgs -Path (Join-Path $OutDir "$Label-start.txt")
@@ -253,12 +261,20 @@ Save-Adb -Arguments @("shell", "dumpsys", "power") -Path (Join-Path $OutDir "pow
 Save-Adb -Arguments @("shell", "getprop") -Path (Join-Path $OutDir "getprop-before-launch.txt")
 
 $attempts = @()
-$attempts += Start-ActivityAndProbe -Label "launcher-attempt-1" -Activity $LauncherActivity -ForceStopFirst -LauncherIntent
-if (-not $attempts[-1].ready) {
-    $attempts += Start-ActivityAndProbe -Label "launcher-attempt-2" -Activity $LauncherActivity -LauncherIntent
+if ($PreferDirectVrActivity) {
+    $attempts += Start-ActivityAndProbe -Label "direct-vr-attempt-1" -Activity $XrActivity -ForceStopFirst -VrIntent
+    if (-not $attempts[-1].ready) {
+        $attempts += Start-ActivityAndProbe -Label "launcher-fallback-1" -Activity $LauncherActivity -LauncherIntent
+    }
 }
-if (-not $attempts[-1].ready -and -not $SkipDirectXrFallback) {
-    $attempts += Start-ActivityAndProbe -Label "direct-xr-fallback" -Activity $XrActivity
+else {
+    $attempts += Start-ActivityAndProbe -Label "launcher-attempt-1" -Activity $LauncherActivity -ForceStopFirst -LauncherIntent
+    if (-not $attempts[-1].ready) {
+        $attempts += Start-ActivityAndProbe -Label "launcher-attempt-2" -Activity $LauncherActivity -LauncherIntent
+    }
+    if (-not $attempts[-1].ready -and -not $SkipDirectXrFallback) {
+        $attempts += Start-ActivityAndProbe -Label "direct-vr-fallback" -Activity $XrActivity -VrIntent
+    }
 }
 
 $finalLabel = $attempts[-1].label
@@ -281,6 +297,7 @@ $summary = [ordered]@{
     serial = $Serial
     packageName = $PackageName
     apk = $Apk
+    preferDirectVrActivity = [bool]$PreferDirectVrActivity
     launchReady = [bool]$readyAttempt
     recoveredBy = if ($readyAttempt) { $readyAttempt.label } else { "none" }
     attempts = $attempts

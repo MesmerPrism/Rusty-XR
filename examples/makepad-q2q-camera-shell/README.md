@@ -131,8 +131,8 @@ because the permission flow can switch back to the paired normal activity:
 adb -s <quest-serial> shell am start -n <public-example-package>/<generated-xr-activity>
 ```
 
-For device gates, prefer the guarded launcher harness over one-off `monkey` or
-single `am start` commands:
+For end-user startup gates, prefer the guarded launcher harness over one-off
+`monkey` or single `am start` commands:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
@@ -148,20 +148,36 @@ The harness installs with `--no-incremental` when available, grants ordinary
 camera/scene runtime permissions, starts the normal Makepad launcher activity,
 waits for the generated XR activity plus OpenXR/end-frame or visible-panel
 markers, retries the launcher once if the first start remains in loading, and
-only then uses the direct generated-XR activity as an explicit fallback. It also
-stores freshness hashes plus app/global GPU-fault, fatal, small hardware-buffer,
-and stale-marker counters. Record whether the run was `launcher-attempt-1`,
-`launcher-attempt-2`, or `direct-xr-fallback`; do not silently merge those
-launch classes.
+then uses the direct generated-XR activity with `com.oculus.intent.category.VR`
+as an explicit fallback.
+
+For presentation controls where the normal launcher hop is not the test subject,
+start the generated XR activity first:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+  -Serial <quest-serial> `
+  -Apk <fresh-makepad-apk> `
+  -PackageName <public-example-package> `
+  -LauncherActivity <generated-launcher-activity> `
+  -XrActivity <generated-xr-activity> `
+  -OutDir <ignored-artifact-dir> `
+  -PreferDirectVrActivity
+```
+
+The summary records freshness hashes plus app/global GPU-fault, fatal, small
+hardware-buffer, and stale-marker counters. Record whether the run was
+`launcher-attempt-1`, `launcher-attempt-2`, `direct-vr-fallback`, or
+`direct-vr-attempt-1`; do not silently merge those launch classes.
 
 ## Known Affordances And Gaps
 
 - Makepad owns the generated Android manifest, Java activities, OpenXR loader
   packaging, debug signing, install, and launch flow.
 - The Quest variant generates both a normal launcher activity and an XR activity.
-- The Makepad runner starts the launcher activity. Active XR validation should
-  use the launcher path; direct XR launch is now a shell/bootstrap control path
-  rather than the primary presentation path.
+- The Makepad runner starts the launcher activity. End-user startup validation
+  should use the launcher path; direct VR-category XR launch is a presentation
+  control path when comparing against direct Rusty XR launches.
 - Rusty XR runtime profiles are not yet mapped from arbitrary Android intent
   extras into Makepad Rust. This smoke pass reads environment variables for
   desktop/tooling runs and records that Android profile injection still needs an

@@ -79,6 +79,37 @@ Other app shells can keep the same document/draw-list contract while swapping
 in a framework-native XR panel, a world-space mesh, or a temporary screen-space
 debug overlay.
 
+## Screenshot Alignment Checks
+
+Quest raw-surface screenshots are useful but have a narrow interpretation.
+
+ADB `screencap` and HzDB `screencap` can return the full stereo surface, so a
+tooling pass can split the image into left and right halves and locate HUD
+features in each eye. This is good for checking whether a HUD is present,
+whether the raw left/right surface positions changed, and whether one launch
+path produced a stale or unrelated frame.
+
+These captures do not necessarily reproduce headset-visible stereo comfort. In
+the Makepad comparison work, the public target and the Makepad shell produced
+nearly identical raw Meta performance-HUD positions in ADB/HzDB stereo
+captures, even though headset inspection reported a Makepad-only HUD alignment
+problem. Treat that as a limitation of the capture path: raw stereo screenshots
+measure the submitted/composited surface, not every perceptual or optical state
+that the headset user experiences.
+
+HzDB `metacam` is a separate witness. In the current Quest setup it produced a
+single `1024x1024` camera view rather than a left/right stereo pair, so it can
+confirm that content is visible but should not be used as a disparity metric.
+
+When investigating HUD alignment regressions:
+
+- use ADB or HzDB full-surface screenshots to detect raw-position changes
+- keep the launch command and activity metadata next to the screenshot result
+- use headset inspection or a true binocular through-lens capture for final
+  stereo-alignment acceptance
+- avoid treating a near-zero raw-position delta as proof that the headset view
+  is comfortable
+
 ## Text Rendering
 
 The public Quest example uses a generated real-font atlas for headset-visible
