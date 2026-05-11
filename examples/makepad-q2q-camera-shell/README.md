@@ -300,7 +300,7 @@ launch classes.
 - `cargo check`: passes for this standalone package.
 - Quest APK build: passes with the maintained Makepad fork branch, including
   dependent Rust shared-library bundling.
-- Current projection parity slice: the example is on S90. S86 restored real
+- Current projection parity slice: the example is on S91. S86 restored real
   camera detail through direct fullscreen YUV sampling, proving the current
   Makepad fullscreen draw/YUV texture path. The maintained Makepad fork now
   exposes runtime per-eye OpenXR pose/FOV state to app Rust, and S87 validated
@@ -317,9 +317,18 @@ launch classes.
   pass more directly. S90 then removes a source-correlation ambiguity: the
   fork exposes Android camera IDs in Makepad video descriptors, and this
   example binds Makepad video streams to the Camera2 projection plan by camera
-  ID before falling back to source index. The S90 gate should show
-  `s90CameraIdSourceBinding=true` and `sourceBindingMode=camera-id` before
-  judging the remaining parallax visually.
+  ID before falling back to source index. The S90 launcher gate now shows
+  `s90CameraIdSourceBinding=true`, `sourceBindingMode=camera-id`,
+  runtime-view/homography readiness, byte-distinct screenshots, and fault-clean
+  app/global counters. Operator review rejected S90 as projection parity because
+  the visual result still had depth-dependent misalignment/parallax, an
+  apparent source-eye flip, and a roll/orientation defect. S91 keeps the S90
+  acquisition and Camera2/Makepad camera-ID binding, but separates display-eye
+  homography row selection from inverted source-eye texture selection and
+  changes the active texture UV orientation from 180-degree `flip-x-and-y` to
+  vertical-only. The fresh S91 gate reached active XR, emitted S91 markers,
+  captured six byte-distinct screenshots, and stayed fault-clean; treat S91 as
+  best-effort until the next headset review.
 - Quest launcher run: installs, starts, emits Java activity, native bootstrap,
   `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
   `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` startup markers, switches into active
@@ -374,6 +383,14 @@ launch classes.
   hardware-buffer warning class separately from GPU-fault counters, and include
   screenshot or headset-cast visual review so a marker-only pass cannot be
   mistaken for projection parity.
+- Current S92 performance comparison: the public fast target held about
+  `72.9/72Hz` with zero numeric `Tear` / `Stale`, low app-process CPU, paired
+  GPU buffers, and `cpuUploadCount=0`. Makepad S91 held about `90.5/90Hz` with
+  zero numeric `Tear` / `Stale`, app/XR/draw cadence near `90Hz`, paired camera
+  texture updates near `50Hz`, and substantially higher app-process CPU. Both
+  runs used CPU/GPU level `4` / `4`, scale factor `0.75`, six byte-distinct
+  screenshots, and fault-clean logs. Treat this as a transport/performance
+  result only; Makepad projection math still requires headset visual acceptance.
 - Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
   Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
   texture-update counters. The S14 active launcher sample reported

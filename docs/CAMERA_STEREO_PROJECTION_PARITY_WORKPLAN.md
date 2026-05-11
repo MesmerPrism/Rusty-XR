@@ -346,19 +346,34 @@ all back cameras identically. The maintained fork now exposes `cameraId=` in
 Android video descriptors. The Makepad example now carries Camera2 IDs through
 the stereo projection plan, orders the selected Camera2 pair by physical pose
 X, parses Makepad descriptor camera IDs, and chooses Makepad video streams by
-camera ID before falling back to index. The next device gate should require
-`s90CameraIdSourceBinding=true` and `sourceBindingMode=camera-id`; only then is
-the remaining parallax result a projection-math question rather than a possible
-metadata/texture mismatch. A fresh S90 APK build has passed the native string
-gate: S90, `cameraId=`, and pose-X source-selection strings are present, while
-stale S89/S88/S87/S86 path strings are absent. The log-only
-`sourceBindingMode=camera-id` proof remains blocked on ADB transport. The S90
-source state is pushed, and a static re-diff against the validated public fast
-`0.75` target found no further source-only mismatch in source ordering, runtime
-view/FOV inputs, the shared homography helper chain, projection scale, preview
-FOV, raw overscan, or `left-right` source-eye mapping. The next useful evidence
-is therefore a runtime S90 logcat gate plus operator parallax inspection, not
-another unvalidated projection tweak.
+camera ID before falling back to index. The guarded launcher device gate now
+confirms `s90CameraIdSourceBinding=true` and `sourceBindingMode=camera-id`, so
+the remaining parallax result is a projection-math question rather than a
+possible metadata/texture mismatch. A fresh S90 APK build has passed the native
+string gate: S90, `cameraId=`, and pose-X source-selection strings are present,
+while stale S89/S88/S87/S86 path strings are absent. The launcher run reached
+active XR on the first attempt, emitted runtime-view and homography-ready
+markers, captured six byte-distinct screenshots, and kept app/global GPU-fault
+plus fatal counters at zero while preserving the known small hardware-buffer
+warning counter separately. The S90 source state is pushed, and a static re-diff
+against the validated public fast `0.75` target found no further source-only
+mismatch in source ordering, runtime view/FOV inputs, the shared homography
+helper chain, projection scale, preview FOV, raw overscan, or `left-right`
+source-eye mapping. Operator parallax inspection rejected S90 as visual parity:
+the headset still showed depth-dependent stereo misalignment/parallax, an
+apparent left/right source-eye flip, and a roll/orientation defect where a
+horizontal real-world surface rotated toward vertical on screen. S91 therefore
+keeps the S90 acquisition and camera-ID binding result but changes projection
+math: display-eye homography rows stay display-indexed, source-eye texture
+selection is inverted as a visual correction candidate, and the active camera
+texture orientation returns from the 180-degree `flip-x-and-y` transform to a
+vertical-only correction. The fresh S91 device gate reached active XR, emitted
+the S91 display/source mapping markers with stale S90 path counters at zero,
+captured six byte-distinct screenshots, and stayed fault-clean while preserving
+the small hardware-buffer warning class separately. The S91 result must be
+treated as best-effort until headset review, but it is the right state for
+objective performance diagnostics because the frame transport path is already
+live and fault-clean.
 Focused host tests now cover descriptor `cameraId=` parsing and camera-ID pair
 binding, including the case where source indices are misleading and the
 descriptor IDs must win.
@@ -380,6 +395,21 @@ declaring any implementation delta. The public objective is not to clone the
 downstream shell. The objective is to make Rusty XR's reusable projection
 contracts, diagnostics, and public example path expose enough of the same
 low-cost shape.
+
+The first S92 transport comparison now gives a normalized reference point,
+even though Makepad projection math still needs headset acceptance. With both
+stacks at CPU/GPU level `4` / `4` and `VrApi` scale factor `0.75`, the public
+fast target held about `72.9/72Hz` with `Tear=0`, `Stale=0`, `App=1.73ms`,
+`CPU&GPU=1.48ms`, `GPU%=0.20`, `CPU%=0.21`, low app-process CPU in `top`,
+paired GPU buffers, and `cpuUploadCount=0`. The Makepad S91 lane held about
+`90.5/90Hz` with `Tear=0`, `Stale=0`, `App=2.06ms`, `CPU&GPU=7.56ms`,
+`GPU%=0.28`, `CPU%=0.47`, app/XR/draw cadence near `90Hz`, paired camera
+texture updates near `50Hz`, and substantially higher app-process CPU. Both
+runs produced six byte-distinct screenshots and stayed GPU-fault/fatal clean.
+This suggests the Makepad loop has useful presentation headroom, while the
+current Makepad camera path is CPU-expensive and should not become the default
+public performance host until the camera import path moves closer to the
+zero-copy public target.
 
 ## Absorbable Public Work
 
@@ -403,6 +433,14 @@ Rusty XR can absorb these public-safe lessons:
   whether camera imports use the expected external format path, sampler binding
   mode, import-cache size, descriptor-cache size, failures, misses, and
   evictions.
+- Keep projection math authoritative in the public target until Makepad headset
+  review passes source-eye mapping, close-range parallax, and roll/orientation.
+  Makepad should absorb the same contracts rather than grow an independent
+  calibration path.
+- Treat Makepad as a strong candidate for UI-heavy or app-shell experiments,
+  but move camera projection and future temporal smoothing through
+  framework-neutral contracts so the same transport/effect assumptions can be
+  compared across both stacks.
 - Preserve public source taxonomy. Platform passthrough, raw Camera2, OpenXR
   environment depth, MediaProjection, and operator casting are separate witness
   streams, not interchangeable camera sources.

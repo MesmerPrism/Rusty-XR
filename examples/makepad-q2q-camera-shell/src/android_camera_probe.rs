@@ -32,6 +32,7 @@ const PROJECTION_SOURCE_ASPECT: f32 = 1.0;
 const DISPLAY_EYE_OFFSET_METERS: f32 = 0.032;
 const DISPLAY_FOV_Y_DEGREES: f32 = 92.0;
 const DISPLAY_ASPECT: f32 = 1.0;
+const DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-right-source";
 
 const IDENTITY_HOMOGRAPHY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
@@ -140,7 +141,7 @@ impl StereoProjectionPlan {
             } else {
                 "missing"
             },
-            source_eye_mapping: "display-eye-by-camera2-index",
+            source_eye_mapping: DISPLAY_SOURCE_EYE_MAPPING,
             coordinate_chain: "camera2-sensor-reference-to-openxr-head-basis",
             fallback_reason: if projection_metadata_ready {
                 "none"
@@ -189,7 +190,7 @@ impl StereoProjectionPlan {
             height: sources.height,
             projection_metadata_ready,
             pose_source: "platform-openxr-view",
-            source_eye_mapping: "display-left-from-left-source",
+            source_eye_mapping: DISPLAY_SOURCE_EYE_MAPPING,
             coordinate_chain: "camera2-sensor-reference-to-openxr-head-basis",
             fallback_reason: "none",
             left_surface_to_camera_h: homographies.left_surface_to_camera_h,
@@ -1064,6 +1065,8 @@ fn stereo_projection_homographies(
     .ok()?;
     let left_h = surface_to_camera_uv_homography(surface, left_basis, left_intrinsics).ok()?;
     let right_h = surface_to_camera_uv_homography(surface, right_basis, right_intrinsics).ok()?;
+    let (display_left_surface_to_camera_h, display_right_surface_to_camera_h) =
+        display_mapped_surface_to_camera_homographies(left_h, right_h);
     let left_eye_basis = display_eye_basis(-DISPLAY_EYE_OFFSET_METERS)?;
     let right_eye_basis = display_eye_basis(DISPLAY_EYE_OFFSET_METERS)?;
     let tan_y = (DISPLAY_FOV_Y_DEGREES * 0.5).to_radians().tan();
@@ -1077,12 +1080,14 @@ fn stereo_projection_homographies(
     let left_screen_to_surface_h = invert_homography(left_surface_to_screen)?;
     let right_screen_to_surface_h = invert_homography(right_surface_to_screen)?;
     let left_screen_to_camera_h =
-        screen_to_camera_uv_homography(left_surface_to_screen, left_h).ok()?;
+        screen_to_camera_uv_homography(left_surface_to_screen, display_left_surface_to_camera_h)
+            .ok()?;
     let right_screen_to_camera_h =
-        screen_to_camera_uv_homography(right_surface_to_screen, right_h).ok()?;
+        screen_to_camera_uv_homography(right_surface_to_screen, display_right_surface_to_camera_h)
+            .ok()?;
     Some(ProjectionHomographies {
-        left_surface_to_camera_h: left_h,
-        right_surface_to_camera_h: right_h,
+        left_surface_to_camera_h: display_left_surface_to_camera_h,
+        right_surface_to_camera_h: display_right_surface_to_camera_h,
         left_screen_to_camera_h,
         right_screen_to_camera_h,
         left_screen_to_surface_h,
@@ -1130,6 +1135,8 @@ fn stereo_projection_homographies_from_xr_views(
     .ok()?;
     let left_h = surface_to_camera_uv_homography(surface, left_basis, left_intrinsics).ok()?;
     let right_h = surface_to_camera_uv_homography(surface, right_basis, right_intrinsics).ok()?;
+    let (display_left_surface_to_camera_h, display_right_surface_to_camera_h) =
+        display_mapped_surface_to_camera_homographies(left_h, right_h);
     let left_eye_basis = eye_basis_from_xr_view(views.left)?;
     let right_eye_basis = eye_basis_from_xr_view(views.right)?;
     let left_surface_to_screen = surface_to_eye_screen_uv_homography(
@@ -1153,17 +1160,29 @@ fn stereo_projection_homographies_from_xr_views(
     let left_screen_to_surface_h = invert_homography(left_surface_to_screen)?;
     let right_screen_to_surface_h = invert_homography(right_surface_to_screen)?;
     let left_screen_to_camera_h =
-        screen_to_camera_uv_homography(left_surface_to_screen, left_h).ok()?;
+        screen_to_camera_uv_homography(left_surface_to_screen, display_left_surface_to_camera_h)
+            .ok()?;
     let right_screen_to_camera_h =
-        screen_to_camera_uv_homography(right_surface_to_screen, right_h).ok()?;
+        screen_to_camera_uv_homography(right_surface_to_screen, display_right_surface_to_camera_h)
+            .ok()?;
     Some(ProjectionHomographies {
-        left_surface_to_camera_h: left_h,
-        right_surface_to_camera_h: right_h,
+        left_surface_to_camera_h: display_left_surface_to_camera_h,
+        right_surface_to_camera_h: display_right_surface_to_camera_h,
         left_screen_to_camera_h,
         right_screen_to_camera_h,
         left_screen_to_surface_h,
         right_screen_to_surface_h,
     })
+}
+
+fn display_mapped_surface_to_camera_homographies(
+    physical_left_h: [[f32; 3]; 3],
+    physical_right_h: [[f32; 3]; 3],
+) -> ([[f32; 3]; 3], [[f32; 3]; 3]) {
+    match DISPLAY_SOURCE_EYE_MAPPING {
+        "display-left-from-right-source" => (physical_right_h, physical_left_h),
+        _ => (physical_left_h, physical_right_h),
+    }
 }
 
 fn eye_basis_from_xr_view(view: XrDisplayEyeView) -> Option<CameraBasis> {
