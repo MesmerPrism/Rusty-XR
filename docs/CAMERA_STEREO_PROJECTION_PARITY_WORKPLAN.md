@@ -411,6 +411,38 @@ current Makepad camera path is CPU-expensive and should not become the default
 public performance host until the camera import path moves closer to the
 zero-copy public target.
 
+The S92 refresh split is not yet fully normalized. The Rusty XR composite
+example defaults to `rustyxr.xrDisplayRefreshHz=72.0` and requests that value
+through `XR_FB_display_refresh_rate` when the runtime exposes it. The S92
+Makepad lane did not request a 72 Hz display mode and ran at the device/runtime
+90 Hz mode. Camera delivery was a separate axis: the public target observed
+roughly 50 Hz stereo-pair delivery, and Makepad observed roughly 50 Hz paired
+texture updates while continuing to draw at roughly 90 Hz. This is enough to
+show that camera delivery cadence and display cadence differ, but not enough to
+prove why Makepad looked smoother during head motion.
+
+S93 should therefore add a refresh/camera-consumption matrix before drawing
+smoothness conclusions:
+
+- public fast `0.75` target at explicit 72 Hz, recording the requested and
+  active display refresh;
+- public fast `0.75` target at explicit 90 Hz using
+  `-Override 'rustyxr.xrDisplayRefreshHz=90.0'`;
+- Makepad S91 at its current/default 90 Hz mode;
+- Makepad S91 at 72 Hz only if the Makepad lane exposes a safe equivalent
+  display-refresh request; otherwise record the lack of that control as a
+  comparability caveat.
+
+Each S93 run must report display refresh, render cadence, camera delivery
+cadence, and camera-frame consumption separately. The key new question is:
+for each submitted projection frame, did the renderer consume a new camera pair
+or reuse the previous pair with a fresh head pose? The public target now logs
+`cameraProjectionRenderFrameCount`, `cameraDistinctFrameCount`,
+`cameraRepeatedRenderFrameCount`, `cameraRendersPerCameraFrameAvg`,
+`cameraConsumedFrameHz`, and `cameraProjectionRenderHz` in the final projection
+status line so the next scorecard can distinguish display smoothness from raw
+camera delivery.
+
 ## Absorbable Public Work
 
 Rusty XR can absorb these public-safe lessons:

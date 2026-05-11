@@ -181,8 +181,13 @@ def summarize_numbers(values: list[float]) -> dict[str, float | int | None]:
 
 
 def parse_vrapi(line: str) -> dict[str, Any]:
+    vrapi_index = line.find("VrApi")
+    vrapi_colon = line.find(":", vrapi_index) if vrapi_index >= 0 else -1
     marker_index = line.find("):")
-    body = line[marker_index + 2 :].strip() if marker_index >= 0 else line
+    if vrapi_colon >= 0:
+        body = line[vrapi_colon + 1 :].strip()
+    else:
+        body = line[marker_index + 2 :].strip() if marker_index >= 0 else line
     fields: dict[str, Any] = {}
     for part in body.split(","):
         if "=" not in part:
@@ -462,6 +467,7 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
     final_projection = pick_last(logcat["projection_statuses"])
     final_gpu_draw = pick_last(logcat["gpu_draws"])
     final_openxr = pick_last(logcat["openxr_frames"])
+    final_camera_config = pick_last(logcat["camera_configs"])
     final_makepad_cadence = pick_last(logcat["makepad_cadence_rows"])
     final_makepad_projection = pick_last(logcat["makepad_projection_statuses"])
     final_makepad_comparison = pick_last(logcat["makepad_comparison_markers"])
@@ -475,6 +481,7 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         openxr_avg_frame_ms_values[1:] if len(openxr_avg_frame_ms_values) > 1 else openxr_avg_frame_ms_values
     )
     vrapi_fps_values = numeric_series(vrapi_rows, "FPS_observed")
+    vrapi_target_fps_values = numeric_series(vrapi_rows, "FPS_target")
     vrapi_tear_values = numeric_series(vrapi_rows, "Tear")
     vrapi_stale_values = numeric_series(vrapi_rows, "Stale")
 
@@ -495,6 +502,12 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "logcat_path": logcat["logcat_path"],
         "runtime_profile": run_manifest.get("runtimeProfile", run_metadata.get("variant")),
         "succeeded": inferred_succeeded,
+        "xr_display_refresh_request_hz": pick_present(
+            final_camera_config.get("xrDisplayRefreshHz"),
+            final_projection.get("frameCadenceTargetHz"),
+        ),
+        "openxr_active_display_refresh_hz": final_openxr.get("activeDisplayRefreshHz"),
+        "openxr_frame_cadence_target_hz": final_openxr.get("frameCadenceTargetHz"),
         "horizon_volumetric_window_launches": logcat["launch_state"].get("horizon_volumetric_window_launches"),
         "horizon_immersive_transition_events": logcat["launch_state"].get("horizon_immersive_transition_events"),
         "horizon_immersive_focus_events": logcat["launch_state"].get("horizon_immersive_focus_events"),
@@ -714,6 +727,41 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
             consumer,
             stereo_summary,
         ),
+        "camera_projection_render_frame_count": pick_metric(
+            "camera_projection_render_frame_count",
+            final_projection,
+            final_gpu_draw,
+        ),
+        "camera_distinct_frame_count": pick_metric(
+            "camera_distinct_frame_count",
+            final_projection,
+            final_gpu_draw,
+        ),
+        "camera_repeated_render_frame_count": pick_metric(
+            "camera_repeated_render_frame_count",
+            final_projection,
+            final_gpu_draw,
+        ),
+        "camera_renders_per_camera_frame_avg": pick_metric(
+            "camera_renders_per_camera_frame_avg",
+            final_projection,
+            final_gpu_draw,
+        ),
+        "camera_max_consecutive_render_frames_per_camera_frame": pick_metric(
+            "camera_max_consecutive_render_frames_per_camera_frame",
+            final_projection,
+            final_gpu_draw,
+        ),
+        "camera_consumed_frame_hz": pick_metric(
+            "camera_consumed_frame_hz",
+            final_projection,
+            final_gpu_draw,
+        ),
+        "camera_projection_render_hz": pick_metric(
+            "camera_projection_render_hz",
+            final_projection,
+            final_gpu_draw,
+        ),
         "stereo_pair_native_bridge_avg_ns": consumer.get(
             "stereo_pair_native_bridge_avg_ns",
             stereo_summary.get("nativeBridgeAvgNs"),
@@ -811,6 +859,7 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         ),
         "vrapi_rows": len(vrapi_rows),
         "vrapi_fps": summarize_numbers(vrapi_fps_values),
+        "vrapi_target_fps": summarize_numbers(vrapi_target_fps_values),
         "vrapi_tear_sum": int(sum(vrapi_tear_values)) if vrapi_tear_values else None,
         "vrapi_stale_sum": int(sum(vrapi_stale_values)) if vrapi_stale_values else None,
         "vrapi_app_ms": summarize_numbers(numeric_series(vrapi_rows, "App_ms")),
@@ -844,6 +893,7 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "latest_projection_status": final_projection,
         "latest_gpu_draw": final_gpu_draw,
         "latest_openxr_frame": final_openxr,
+        "latest_camera_config": final_camera_config,
         "latest_makepad_cadence": final_makepad_cadence,
         "latest_makepad_projection": final_makepad_projection,
         "latest_makepad_comparison": final_makepad_comparison,
@@ -879,6 +929,8 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("load done", "horizon_loading_complete_events"),
         ("perm dlg", "horizon_permission_dialog_events"),
         ("scale", "openxr_render_scale"),
+        ("refresh req", "xr_display_refresh_request_hz"),
+        ("refresh active", "openxr_active_display_refresh_hz"),
         ("shader", "projectionShaderPath"),
         ("aligned", "alignedProjection"),
         ("live", "live_decode_path"),
@@ -895,6 +947,7 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("native ms", "stage_native_bridge_avg_ns"),
         ("OpenXR fps last", None),
         ("OpenXR fps min", None),
+        ("VrApi target", None),
         ("OpenXR avg ms last", None),
         ("OpenXR avg ms steady", None),
         ("target px p95", "target_projection_motion_px_p95"),
@@ -905,6 +958,9 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("Makepad XrUpdate Hz", "makepad_xr_update_rate_hz"),
         ("Makepad NextFrame Hz", "makepad_app_frame_rate_hz"),
         ("Makepad cam Hz", "makepad_paired_texture_update_rate_hz"),
+        ("camera consumed Hz", "camera_consumed_frame_hz"),
+        ("camera render Hz", "camera_projection_render_hz"),
+        ("renders/camera", "camera_renders_per_camera_frame_avg"),
         ("Makepad rows", "makepad_cadence_rows"),
         ("VrApi App ms", None),
         ("VrApi CPU+GPU ms", None),
@@ -932,6 +988,8 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
                     cells.append(fmt(row.get("openxr_observed_fps", {}).get("last")))
                 elif heading == "OpenXR fps min":
                     cells.append(fmt(row.get("openxr_steady_observed_fps", {}).get("min")))
+                elif heading == "VrApi target":
+                    cells.append(fmt(row.get("vrapi_target_fps", {}).get("avg")))
                 elif heading == "OpenXR avg ms last":
                     cells.append(fmt(row.get("openxr_avg_frame_ms", {}).get("last")))
                 elif heading == "OpenXR avg ms steady":

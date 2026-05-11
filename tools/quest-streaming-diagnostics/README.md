@@ -61,6 +61,10 @@ The parser extracts:
   projection motion, applied projection motion, residual projection motion,
   visual lag, held frames, edge-fill/invalid-UV percentages, and optional
   space-warp counters.
+- camera-to-display consumption fields when log lines expose them, including
+  requested/active display refresh, `VrApi` target FPS, consumed camera-frame
+  Hz, projection-render Hz, and how many projection frames reuse each camera
+  frame.
 - `VrApi` app, CPU+GPU, timewarp, tear, stale, CPU, and GPU rows when present.
 - optional pre/post battery, thermal, process CPU, and meminfo snapshots when a
   run harness captured them.
@@ -101,3 +105,10 @@ miss cadence at `0.75` and both recover at `0.65`, while synthetic compositor
 and broker receive/decode remain stable, the next target is projected draw or
 shader/render attribution rather than transport, MediaCodec, or Java
 hardware-buffer handoff.
+
+Do not infer camera smoothness from display FPS alone. For refresh-normalized
+comparisons, run the same profile at explicit display refresh requests and
+compare camera delivery/update Hz against consumed camera-frame Hz. A renderer
+can submit at 72 Hz or 90 Hz while reusing the latest roughly 50 Hz camera pair;
+the scorecard should show both the display cadence and the camera-frame reuse
+ratio.

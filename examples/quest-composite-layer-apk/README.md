@@ -412,6 +412,14 @@ is exposed, the example requests `72 Hz` and logs `activeDisplayRefreshHz` in
 the recurring `OpenXR frame` line. Use logcat lines beginning with
 `Camera2 AE FPS range` and `Camera2 delivery stats` to compare the requested
 range, applied supported range, and observed image timestamp cadence.
+Use the launch extra `rustyxr.xrDisplayRefreshHz=90.0` when a comparison must
+match a 90 Hz app shell. Use `rustyxr.cameraTargetFps` only for Camera2
+capture-rate experiments; it does not force display refresh. The final
+projection status line also reports `cameraProjectionRenderFrameCount`,
+`cameraDistinctFrameCount`, `cameraRepeatedRenderFrameCount`,
+`cameraRendersPerCameraFrameAvg`, `cameraConsumedFrameHz`, and
+`cameraProjectionRenderHz` so diagnostics can separate display-frame
+submission from new camera-frame consumption.
 Android documents
 [`CONTROL_AE_TARGET_FPS_RANGE`](https://developer.android.com/reference/android/hardware/camera2/CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE)
 as an auto-exposure target range whose actual maximum can still be capped by

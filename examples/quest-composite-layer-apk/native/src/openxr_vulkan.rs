@@ -2315,6 +2315,7 @@ unsafe fn run_vulkan(
     let mut openxr_environment_depth_probe: Option<OpenXrEnvironmentDepthProbe> = None;
     let mut openxr_passthrough_probe: Option<OpenXrPassthroughProbe> = None;
     let mut temporal_projection_diagnostics = TemporalProjectionDiagnostics::default();
+    let mut camera_render_cadence = CameraRenderCadenceStats::default();
     let mut full_field_flicker = FullFieldFlickerStats::default();
     let mut frame_pacing_window_start = Instant::now();
     let mut frame_pacing_window_frames = 0_u64;
@@ -2878,6 +2879,8 @@ unsafe fn run_vulkan(
                             frame_state.predicted_display_time,
                             swapchain.resolution,
                         );
+                        let camera_cadence_metrics =
+                            camera_render_cadence.record(stereo_frame.index);
                         if last_logged_prepared_stereo_frame_index != Some(stereo_frame.index)
                             && (stereo_frame.index == 0 || stereo_frame.index % 120 == 0)
                         {
@@ -2982,7 +2985,7 @@ unsafe fn run_vulkan(
                                 controls.left_texture_transform.is_explicit_visual_check()
                                     && controls.right_texture_transform.is_explicit_visual_check();
                             log_info(format!(
-                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz=72 visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode=metrics-only cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={}",
+                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode=metrics-only cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
                                 stereo_frame.index,
                                 frame_count,
                                 session_focused,
@@ -3010,6 +3013,7 @@ unsafe fn run_vulkan(
                                 config.camera_projection_mode.projection_surface_label(),
                                 gpu_camera_renderer.imports.len(),
                                 gpu_camera_renderer.stereo_descriptors.len(),
+                                config.xr_display_refresh_hz,
                                 if config.visual_release_accepted { "accepted" } else { "required" },
                                 config.visual_release_accepted,
                                 controls.diagnostic_mode.stable_id(),
@@ -3033,7 +3037,14 @@ unsafe fn run_vulkan(
                                 temporal_metrics.asw_enabled_frame_count,
                                 temporal_metrics.asw_skipped_frame_count,
                                 temporal_metrics.motion_vector_max_px,
-                                temporal_metrics.motion_vector_clamped_count
+                                temporal_metrics.motion_vector_clamped_count,
+                                camera_cadence_metrics.render_frame_count,
+                                camera_cadence_metrics.distinct_frame_count,
+                                camera_cadence_metrics.repeated_render_frame_count,
+                                camera_cadence_metrics.renders_per_camera_frame_avg,
+                                camera_cadence_metrics.max_consecutive_render_frames_per_camera_frame,
+                                camera_cadence_metrics.consumed_frame_hz,
+                                camera_cadence_metrics.projection_render_hz
                             ));
                         }
                         prepared_stereo_camera = Some((stereo_frame, descriptor_index));
@@ -5442,6 +5453,85 @@ struct TemporalProjectionMetricsFrame {
     asw_skipped_frame_count: u64,
     motion_vector_max_px: f64,
     motion_vector_clamped_count: u64,
+}
+
+#[derive(Clone, Copy, Default)]
+struct CameraRenderCadenceFrame {
+    render_frame_count: u64,
+    distinct_frame_count: u64,
+    repeated_render_frame_count: u64,
+    renders_per_camera_frame_avg: f64,
+    max_consecutive_render_frames_per_camera_frame: u64,
+    consumed_frame_hz: f64,
+    projection_render_hz: f64,
+}
+
+struct CameraRenderCadenceStats {
+    started: Option<Instant>,
+    render_frame_count: u64,
+    distinct_frame_count: u64,
+    repeated_render_frame_count: u64,
+    last_camera_frame_index: Option<u64>,
+    current_consecutive_render_frames: u64,
+    max_consecutive_render_frames_per_camera_frame: u64,
+}
+
+impl Default for CameraRenderCadenceStats {
+    fn default() -> Self {
+        Self {
+            started: None,
+            render_frame_count: 0,
+            distinct_frame_count: 0,
+            repeated_render_frame_count: 0,
+            last_camera_frame_index: None,
+            current_consecutive_render_frames: 0,
+            max_consecutive_render_frames_per_camera_frame: 0,
+        }
+    }
+}
+
+impl CameraRenderCadenceStats {
+    fn record(&mut self, camera_frame_index: u64) -> CameraRenderCadenceFrame {
+        let started = *self.started.get_or_insert_with(Instant::now);
+        self.render_frame_count = self.render_frame_count.saturating_add(1);
+
+        if self.last_camera_frame_index == Some(camera_frame_index) {
+            self.repeated_render_frame_count = self.repeated_render_frame_count.saturating_add(1);
+            self.current_consecutive_render_frames =
+                self.current_consecutive_render_frames.saturating_add(1);
+        } else {
+            self.distinct_frame_count = self.distinct_frame_count.saturating_add(1);
+            self.last_camera_frame_index = Some(camera_frame_index);
+            self.current_consecutive_render_frames = 1;
+        }
+
+        self.max_consecutive_render_frames_per_camera_frame = self
+            .max_consecutive_render_frames_per_camera_frame
+            .max(self.current_consecutive_render_frames);
+
+        let elapsed_seconds = started.elapsed().as_secs_f64();
+        let hz_divisor = if elapsed_seconds > 0.001 {
+            elapsed_seconds
+        } else {
+            f64::INFINITY
+        };
+        let renders_per_camera_frame_avg = if self.distinct_frame_count > 0 {
+            self.render_frame_count as f64 / self.distinct_frame_count as f64
+        } else {
+            0.0
+        };
+
+        CameraRenderCadenceFrame {
+            render_frame_count: self.render_frame_count,
+            distinct_frame_count: self.distinct_frame_count,
+            repeated_render_frame_count: self.repeated_render_frame_count,
+            renders_per_camera_frame_avg,
+            max_consecutive_render_frames_per_camera_frame: self
+                .max_consecutive_render_frames_per_camera_frame,
+            consumed_frame_hz: self.distinct_frame_count as f64 / hz_divisor,
+            projection_render_hz: self.render_frame_count as f64 / hz_divisor,
+        }
+    }
 }
 
 #[derive(Default)]

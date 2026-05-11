@@ -160,6 +160,30 @@ Camera2 projection renderer against the Q2Q fast profile. It keeps direct
 Camera2 stereo capture and projection metadata, but selects the same fast public
 raw-projection shader.
 
+For refresh-normalized comparisons, run the same profile with explicit display
+refresh requests instead of relying on runtime defaults:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
+  -Serial <serial> `
+  -RuntimeProfile camera-stereo-gpu-composite-fast075 `
+  -Override 'rustyxr.xrDisplayRefreshHz=72.0' `
+  -WarmupSeconds 35 `
+  -CaptureHzdbScreencap
+
+powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
+  -Serial <serial> `
+  -RuntimeProfile camera-stereo-gpu-composite-fast075 `
+  -Override 'rustyxr.xrDisplayRefreshHz=90.0' `
+  -WarmupSeconds 35 `
+  -CaptureHzdbScreencap
+```
+
+Keep `rustyxr.cameraTargetFps` separate from `rustyxr.xrDisplayRefreshHz`.
+The former is a Camera2 AE/capture request; the latter is an OpenXR display
+refresh request. A camera may deliver roughly 50 Hz while the app still submits
+projection frames at 72 Hz or 90 Hz using the latest available camera pair.
+
 ### Broker Live Projected Stream
 
 Use the live broker H.264 profiles to test broker-owned Camera2 capture,
@@ -234,6 +258,9 @@ The parser extracts:
 - temporal projection metrics when present, including camera frame age,
   target/applied projection motion, residual lag, held frames, invalid UV
   percentage, edge-fill percentage, and optional space-warp counters
+- camera consumption metrics when present, including distinct camera frames
+  consumed by projected render frames, repeated render frames per camera frame,
+  consumed camera-frame Hz, and projection-render Hz
 - optional battery, thermal, process CPU, and meminfo snapshots
 
 Use the generated `scorecard.md` in working notes and PR summaries. Keep
@@ -258,6 +285,9 @@ When adding or changing streaming paths, keep these timing windows available:
   held-frame count/duration, crossfade count, invalid-UV percentage, edge-fill
   percentage, motion-vector max/clamp count, and space-warp enabled/skipped
   frame counts.
+- Camera-to-display cadence: requested display refresh, active display refresh,
+  `VrApi` target FPS, camera delivery/update Hz, consumed camera-frame Hz,
+  projection-render Hz, repeated render frames, and renders per camera frame.
 
 Sub-millisecond handoff timings do not prove the profile is fast; they only
 rule out that stage. Compare them against full frame time and `VrApi` rows.
