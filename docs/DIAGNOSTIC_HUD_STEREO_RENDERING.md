@@ -164,9 +164,18 @@ S102 confirmed that live camera sampling can stay HUD-aligned when the shader
 forces full-surface identity coverage and bypasses the bounded valid-region
 mask. S103 then reintroduced camera coverage as an in-shader content window
 with matte and border while keeping the submitted layer full. The S103 launch
-reached active XR and produced live camera-window screenshots with S103 markers,
-but Quest ADB disconnected before the final liveness summary and no operator
-HUD review has accepted or rejected the result yet.
+reached active XR and produced live camera-window screenshots with S103 markers.
+A stable-link rerun and headset review accepted this architecture: the Meta
+performance HUD stayed aligned, and the prior distance-dependent camera
+alignment defect did not return. Keep that full-layer/in-shader-window shape as
+the HUD-safe baseline while the remaining camera work focuses on horizontal
+eye alignment.
+
+The S105 horizontal tuning pass reused raw stereo screenshots for a narrower
+camera-content metric: feature matching on left/right camera crops compared
+Makepad strength candidates against the public fast `0.75` target and selected
+`Strength=0.425` as the current image-derived default. Treat that metric as an
+alignment aid only; headset inspection remains the final acceptance gate.
 
 When investigating HUD alignment regressions:
 

@@ -162,6 +162,11 @@ function Capture-LaunchState {
         s102FullSurfaceLiveCameraCoverageControlMarkerCount = @($log | Select-String -SimpleMatch "s102FullSurfaceLiveCameraCoverageControl=true").Count
         forceFullSurfaceLiveCameraUvMarkerCount = @($log | Select-String -SimpleMatch "forceFullSurfaceLiveCameraUv=true").Count
         s103InSurfaceCameraWindowBorderControlMarkerCount = @($log | Select-String -SimpleMatch "s103InSurfaceCameraWindowBorderControl=true").Count
+        s104HorizontalWindowAlignmentControlMarkerCount = @($log | Select-String -SimpleMatch "s104HorizontalWindowAlignmentControl=true").Count
+        horizontalAlignmentCenterDeltaMarkerCount = @($log | Select-String -SimpleMatch "horizontalAlignmentSource=surface_to_camera_center_delta").Count
+        s105HotloadHorizontalAlignmentControlMarkerCount = @($log | Select-String -SimpleMatch "s105HotloadHorizontalAlignmentControl=true").Count
+        horizontalAlignmentScreenCenterDeltaMarkerCount = @($log | Select-String -SimpleMatch "horizontalAlignmentSource=screen_to_camera_center_delta").Count
+        manualHorizontalOffsetHotloadMarkerCount = @($log | Select-String -SimpleMatch "manualHorizontalOffsetHotload=true").Count
         forceInSurfaceCameraWindowMarkerCount = @($log | Select-String -SimpleMatch "forceInSurfaceCameraWindow=true").Count
         fullSurfaceLayerActiveMarkerCount = @($log | Select-String -SimpleMatch "fullSurfaceLayerActive=true").Count
         cameraCoverageInShaderMarkerCount = @($log | Select-String -SimpleMatch "cameraCoverageInShader=true").Count

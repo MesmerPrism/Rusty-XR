@@ -534,9 +534,38 @@ inside a shader-owned content window, with dark matte outside and a black border
 around the camera-covered region. The window size is derived from the public
 target's full-view/content overscan ratio rather than by resizing the layer.
 The fresh APK reached active XR and emitted the S103/full-layer/in-shader
-coverage markers with zero GPU-fault or fatal counters in the ready sample, but
-the Quest ADB transport dropped before the final 90-second liveness summary.
-Rerun S103 for headset HUD/stereo review before treating it as accepted.
+coverage markers with zero GPU-fault or fatal counters in the ready sample. A
+stable-link rerun then produced six byte-distinct freshness hashes and operator
+headset review accepted S103 as the new render-stack baseline: the Meta
+performance HUD stayed aligned, the earlier distance-dependent parallax issue
+was gone, and rotation/aspect were correct. The remaining Makepad visual
+defect is now only horizontal alignment between the two eye images. S104 should
+preserve S103's full submitted surface, in-shader camera window, matte, border,
+rotation, and aspect behavior, and tune only the horizontal sample offset
+against the public target's stereo projection rows.
+
+S104 was the first horizontal-only pass on top of that accepted baseline. It
+kept the S103 layer/window architecture and evaluated the display-mapped
+`surface_to_camera` homography at the camera-window center, then applied only
+the X center delta to the live camera sample. Objective device validation
+passed with the S104 marker, six distinct frame hashes, low `0.75` image-rect
+markers, and zero GPU-fault/fatal counters, but operator review still saw a
+large horizontal offset. The useful diff pointer is that the public target's
+projected shader path samples via `screen_to_camera(v_surface_uv)` for the full
+submitted surface.
+
+S105 applies that pointer and adds a tuning workflow. The automatic X
+correction now uses the `screen_to_camera` center delta, and additive manual
+left/right UV offsets are read from `debug.rustyxr` Android properties while
+the Makepad app is running. This allows ADB/MCP-driven fine tuning without a
+new APK for every offset. The first screenshot-driven sweep compared the
+Makepad `Strength=0` baseline and a running strength sweep against the public
+fast `0.75` target. `Strength=0` removed the visible edge-striping class but
+left the eye images too far apart, while larger strengths moved the eye images
+together and eventually reintroduced side artifacts. Feature matching on the
+left/right camera-content crops put `Strength=0.425` closest to the public
+target's normalized horizontal disparity, so the Makepad example now uses
+`0.425` as the default candidate while keeping hotload controls available.
 
 ## Absorbable Public Work
 

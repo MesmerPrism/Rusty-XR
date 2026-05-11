@@ -180,8 +180,11 @@ hardware-buffer, and stale-marker counters. Record whether the run was
   control path when comparing against direct Rusty XR launches.
 - Rusty XR runtime profiles are not yet mapped from arbitrary Android intent
   extras into Makepad Rust. This smoke pass reads environment variables for
-  desktop/tooling runs and records that Android profile injection still needs an
-  adapter.
+  desktop/tooling runs. The camera-alignment lane also has a narrow Android
+  property hotload adapter for live headset tuning:
+  `tools/Send-MakepadQ2QHorizontalOffset.ps1` writes `debug.rustyxr` properties
+  for horizontal alignment strength and additive left/right UV offsets, and the
+  running app polls those values.
 - The first shared-core bridge is deliberately small: resolved profile values
   pass through `rusty-xr-runtime-config` before logging. Camera metadata,
   stream framing, and scorecard models should be added the same way, through
@@ -470,9 +473,20 @@ hardware-buffer, and stale-marker counters. Record whether the run was
   making the camera feed intentionally full-screen. S103 keeps that full
   submitted surface active and moves coverage into the shader: camera pixels are
   drawn inside a content window with matte and border instead of resizing the
-  OpenXR layer. S103 reached active XR and emitted the expected markers, but the
-  Quest ADB transport dropped before a complete 90-second liveness summary and
-  headset HUD review is still pending.
+  OpenXR layer. A stable-link S103 rerun reached active XR, produced six
+  byte-distinct freshness hashes, and passed operator headset review for HUD
+  alignment plus the prior distance-dependent parallax defect. Keep S103 as the
+  render-stack baseline; the remaining visual task is horizontal eye alignment
+  inside the camera window.
+- Current S104/S105 horizontal split: S104's `surface_to_camera` center-delta
+  correction was objective-clean but still visibly offset. S105 follows the
+  public target's projected shader path more closely by using the
+  `screen_to_camera` center delta, then layers hotloadable manual UV offsets on
+  top for headset-side fine tuning without rebuilds. The first screenshot
+  derived tuning pass selected `Strength=0.425` as the default candidate
+  because it best matched the public target's normalized left/right
+  camera-content disparity while staying below the higher-strength range where
+  edge striping became visible.
 - Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
   Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
   texture-update counters. The S14 active launcher sample reported

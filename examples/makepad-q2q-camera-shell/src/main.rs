@@ -14,6 +14,8 @@ use makepad_widgets::makepad_platform::{
 };
 use makepad_widgets::*;
 use makepad_xr::scene::{xr_widget_world_transform, XrNode};
+#[cfg(target_os = "android")]
+use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -31,11 +33,11 @@ static TEXTURE_UPDATE_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
 static TEXTURE_CONTENT_PROBE_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
 
 const DEFAULT_PROFILE: &str = "makepad-stereo-projection-pair-probe";
-const DEFAULT_TRANSPORT: &str = "makepad-s103-in-surface-camera-window-border-control";
+const DEFAULT_TRANSPORT: &str = "makepad-s105-hotload-horizontal-alignment-control";
 const DEFAULT_CAMERA_TIER: &str = "native-camera2-makepad-stereo-vulkan-import-probe";
 const DEFAULT_CAMERA_PROJECTION_MODE: &str = "display-screen-homography";
 const DEFAULT_COMPARISON_BASELINE: &str = "custom-apk-camera-stereo-gpu-composite";
-const DEFAULT_SYNTHETIC_SCENE: &str = "camera-panel-s103-in-surface-camera-window-border-control";
+const DEFAULT_SYNTHETIC_SCENE: &str = "camera-panel-s105-hotload-horizontal-alignment-control";
 const DEFAULT_ACQUISITION_PROFILE: &str =
     "bounded-camera2-private-plus-makepad-paired-import-probe";
 const DEFAULT_PROJECTION_SCALE: f64 = 0.75;
@@ -43,6 +45,9 @@ const DEFAULT_XR_RENDER_SCALE: f64 = 0.75;
 const SUPPRESS_LIVE_CAMERA_SAMPLING: bool = false;
 const FORCE_FULL_SURFACE_LIVE_CAMERA_UV: bool = false;
 const FORCE_IN_SURFACE_CAMERA_WINDOW: bool = true;
+const TARGET_HORIZONTAL_ALIGNMENT_STRENGTH: f32 = 0.425;
+const TARGET_MANUAL_HORIZONTAL_OFFSET_LEFT_UV: f32 = 0.0;
+const TARGET_MANUAL_HORIZONTAL_OFFSET_RIGHT_UV: f32 = 0.0;
 const TARGET_FULL_VIEW_CONTENT_UV_SCALE: f32 = 2.10 / 1.06;
 const TARGET_DISPLAY_EYE_OFFSET_METERS: f32 = 0.032;
 const TARGET_DISPLAY_FOV_Y_DEGREES: f32 = 92.0;
@@ -83,6 +88,10 @@ const KEY_ANDROID_PACKAGER: &str = "android_packager";
 const KEY_MAKEPAD_REVISION: &str = "makepad_revision";
 const KEY_MAKEPAD_BRANCH: &str = "makepad_branch";
 const KEY_STUDIO_HOST: &str = "studio_host";
+const KEY_MAKEPAD_HORIZONTAL_ALIGNMENT_STRENGTH: &str = "makepad_horizontal_alignment_strength";
+const KEY_MAKEPAD_HORIZONTAL_OFFSET_UV: &str = "makepad_horizontal_offset_uv";
+const KEY_MAKEPAD_HORIZONTAL_OFFSET_LEFT_UV: &str = "makepad_horizontal_offset_left_uv";
+const KEY_MAKEPAD_HORIZONTAL_OFFSET_RIGHT_UV: &str = "makepad_horizontal_offset_right_uv";
 
 script_mod! {
     use mod.pod.*
@@ -507,7 +516,20 @@ script_mod! {
                     max(self.content_uv_scale, 1.0) +
                     vec2(0.5, 0.5);
                 let window_inside = self.uv_valid(window_uv);
-                let clamped_window_uv = clamp(window_uv, vec2(0.0, 0.0), vec2(1.0, 1.0));
+                let camera_center_uv =
+                    self.source_screen_camera_uv(vec2(0.5, 0.5), display_eye_selector);
+                let horizontal_center_delta =
+                    (camera_center_uv.x - 0.5) *
+                    self.horizontal_alignment_strength;
+                let manual_horizontal_offset =
+                    mix(
+                        self.manual_horizontal_offset_left_uv,
+                        self.manual_horizontal_offset_right_uv,
+                        display_eye_selector
+                    );
+                let aligned_window_uv =
+                    vec2(window_uv.x + horizontal_center_delta + manual_horizontal_offset, window_uv.y);
+                let clamped_window_uv = clamp(aligned_window_uv, vec2(0.0, 0.0), vec2(1.0, 1.0));
                 let window_sample_uv = vec2(clamped_window_uv.x, 1.0 - clamped_window_uv.y);
                 let left_y = self.left_tex_y.sample(window_sample_uv).x;
                 let left_u = self.left_tex_u.sample(window_sample_uv).x;
@@ -733,6 +755,14 @@ pub struct App {
     #[rust]
     synthetic_scene_hidden_for_camera: bool,
     #[rust]
+    horizontal_alignment_tuning_ready: bool,
+    #[rust]
+    horizontal_alignment_strength: f32,
+    #[rust]
+    manual_horizontal_offset_left_uv: f32,
+    #[rust]
+    manual_horizontal_offset_right_uv: f32,
+    #[rust]
     cadence_next_frame: Option<NextFrame>,
     #[rust]
     cadence_started: bool,
@@ -819,6 +849,12 @@ pub struct DrawMakepadStereoCameraPanel {
     pub force_full_surface_live_camera_uv: f32,
     #[live(1.0_f32)]
     pub force_in_surface_camera_window: f32,
+    #[live(1.0_f32)]
+    pub horizontal_alignment_strength: f32,
+    #[live(0.0_f32)]
+    pub manual_horizontal_offset_left_uv: f32,
+    #[live(0.0_f32)]
+    pub manual_horizontal_offset_right_uv: f32,
     #[live(1.0_f32)]
     pub left_projection_h00: f32,
     #[live(0.0_f32)]
@@ -1007,6 +1043,23 @@ pub struct MakepadStereoCameraPanel {
     synthetic_luma_probe_texture: Option<Texture>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct HorizontalAlignmentTuning {
+    strength: f32,
+    left_offset_uv: f32,
+    right_offset_uv: f32,
+}
+
+impl Default for HorizontalAlignmentTuning {
+    fn default() -> Self {
+        Self {
+            strength: TARGET_HORIZONTAL_ALIGNMENT_STRENGTH,
+            left_offset_uv: TARGET_MANUAL_HORIZONTAL_OFFSET_LEFT_UV,
+            right_offset_uv: TARGET_MANUAL_HORIZONTAL_OFFSET_RIGHT_UV,
+        }
+    }
+}
+
 impl MakepadStereoCameraPanel {
     fn synthetic_luma_probe_texture(&mut self, cx: &mut Cx) -> Texture {
         if let Some(texture) = &self.synthetic_luma_probe_texture {
@@ -1146,6 +1199,7 @@ impl MakepadStereoCameraPanel {
         } else {
             0.0
         };
+        self.set_horizontal_alignment_tuning(cx, HorizontalAlignmentTuning::default());
         self.draw_panel.camera_ready = 1.0;
         self.draw_panel.texture_probe_mode = 2.0;
         self.draw_panel.draw_vars.redraw(cx);
@@ -1495,6 +1549,33 @@ impl MakepadStereoCameraPanel {
         self.camera_ready = true;
         self.node.redraw(cx);
     }
+
+    fn set_horizontal_alignment_tuning(&mut self, cx: &mut Cx, tuning: HorizontalAlignmentTuning) {
+        self.draw_panel.horizontal_alignment_strength = tuning.strength;
+        self.draw_panel.manual_horizontal_offset_left_uv = tuning.left_offset_uv;
+        self.draw_panel.manual_horizontal_offset_right_uv = tuning.right_offset_uv;
+        for (id, value) in [
+            (live_id!(horizontal_alignment_strength), tuning.strength),
+            (
+                live_id!(manual_horizontal_offset_left_uv),
+                tuning.left_offset_uv,
+            ),
+            (
+                live_id!(manual_horizontal_offset_right_uv),
+                tuning.right_offset_uv,
+            ),
+        ] {
+            self.draw_panel.draw_vars.set_dyn_instance(cx, id, &[value]);
+            self.draw_panel.draw_vars.set_uniform(cx, id, &[value]);
+            self.draw_panel
+                .draw_vars
+                .set_instance_on_area(cx, id, &[value]);
+            self.draw_panel
+                .draw_vars
+                .set_uniform_on_area(cx, id, &[value]);
+        }
+        self.draw_panel.draw_vars.redraw(cx);
+    }
 }
 
 impl ScriptHook for MakepadStereoCameraPanel {
@@ -1563,9 +1644,10 @@ impl App {
 
     fn emit_stereo_comparison_marker(phase: &str) {
         let config = Self::runtime_config();
+        let tuning = Self::horizontal_alignment_tuning();
 
         emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=synthetic-left rightEyeSource=synthetic-right sourceEyeMapping=display-eye projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=false alignedProjection=false renderPath=makepad-xr makepadForkBranch={} makepadForkCommit={} nativePassthrough=true s98NativePassthroughHudSplit=true s102FullSurfaceLiveCameraCoverageControl=false s103InSurfaceCameraWindowBorderControl=true liveCameraSamplingSuppressed=false forceFullSurfaceLiveCameraUv=false forceInSurfaceCameraWindow=true fullSurfaceLayerActive=true cameraCoverageInShader=true layerNotResized=true projectionValidMaskDisabled=true visualIsolation=s103_in_surface_camera_window_border_control",
+            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=synthetic-left rightEyeSource=synthetic-right sourceEyeMapping=display-eye projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=false alignedProjection=false renderPath=makepad-xr makepadForkBranch={} makepadForkCommit={} nativePassthrough=true s98NativePassthroughHudSplit=true s102FullSurfaceLiveCameraCoverageControl=false s103InSurfaceCameraWindowBorderControl=true s104HorizontalWindowAlignmentControl=false s105HotloadHorizontalAlignmentControl=true horizontalAlignmentSource=screen_to_camera_center_delta manualHorizontalOffsetHotload=true horizontalAlignmentStrength={:.3} manualLeftUv={:.4} manualRightUv={:.4} liveCameraSamplingSuppressed=false forceFullSurfaceLiveCameraUv=false forceInSurfaceCameraWindow=true fullSurfaceLayerActive=true cameraCoverageInShader=true layerNotResized=true projectionValidMaskDisabled=true visualIsolation=s105_hotload_horizontal_alignment_control",
             phase,
             runtime_text(&config, KEY_RUNTIME_PROFILE),
             runtime_text(&config, KEY_COMPARISON_BASELINE),
@@ -1577,7 +1659,10 @@ impl App {
             runtime_float(&config, KEY_PROJECTION_SCALE),
             runtime_float(&config, KEY_XR_RENDER_SCALE),
             runtime_text(&config, KEY_MAKEPAD_BRANCH),
-            runtime_text(&config, KEY_MAKEPAD_REVISION)
+            runtime_text(&config, KEY_MAKEPAD_REVISION),
+            tuning.strength,
+            tuning.left_offset_uv,
+            tuning.right_offset_uv
         ));
     }
 
@@ -1788,7 +1873,89 @@ impl App {
         pair.runtime_xr_view_state_ready = plan.runtime_xr_view_state_ready;
     }
 
+    fn horizontal_alignment_tuning() -> HorizontalAlignmentTuning {
+        let strength = hotload_f32(
+            KEY_MAKEPAD_HORIZONTAL_ALIGNMENT_STRENGTH,
+            TARGET_HORIZONTAL_ALIGNMENT_STRENGTH,
+            -4.0,
+            4.0,
+        );
+        let global_offset = hotload_f32(KEY_MAKEPAD_HORIZONTAL_OFFSET_UV, 0.0, -0.5, 0.5);
+        let left_offset = global_offset
+            + hotload_f32(
+                KEY_MAKEPAD_HORIZONTAL_OFFSET_LEFT_UV,
+                TARGET_MANUAL_HORIZONTAL_OFFSET_LEFT_UV,
+                -0.5,
+                0.5,
+            );
+        let right_offset = global_offset
+            + hotload_f32(
+                KEY_MAKEPAD_HORIZONTAL_OFFSET_RIGHT_UV,
+                TARGET_MANUAL_HORIZONTAL_OFFSET_RIGHT_UV,
+                -0.5,
+                0.5,
+            );
+        HorizontalAlignmentTuning {
+            strength,
+            left_offset_uv: left_offset.clamp(-0.5, 0.5),
+            right_offset_uv: right_offset.clamp(-0.5, 0.5),
+        }
+    }
+
+    fn current_horizontal_alignment_tuning(&self) -> HorizontalAlignmentTuning {
+        if self.horizontal_alignment_tuning_ready {
+            HorizontalAlignmentTuning {
+                strength: self.horizontal_alignment_strength,
+                left_offset_uv: self.manual_horizontal_offset_left_uv,
+                right_offset_uv: self.manual_horizontal_offset_right_uv,
+            }
+        } else {
+            HorizontalAlignmentTuning::default()
+        }
+    }
+
+    fn refresh_horizontal_alignment_tuning(&mut self, cx: &mut Cx) {
+        let tuning = Self::horizontal_alignment_tuning();
+        let changed = !self.horizontal_alignment_tuning_ready
+            || (self.horizontal_alignment_strength - tuning.strength).abs() > 0.0001
+            || (self.manual_horizontal_offset_left_uv - tuning.left_offset_uv).abs() > 0.0001
+            || (self.manual_horizontal_offset_right_uv - tuning.right_offset_uv).abs() > 0.0001;
+        if !changed {
+            return;
+        }
+
+        self.horizontal_alignment_tuning_ready = true;
+        self.horizontal_alignment_strength = tuning.strength;
+        self.manual_horizontal_offset_left_uv = tuning.left_offset_uv;
+        self.manual_horizontal_offset_right_uv = tuning.right_offset_uv;
+        let panel_bound = self.apply_horizontal_alignment_tuning_to_panel(cx, tuning);
+        Self::emit_stereo_projection_marker(&format!(
+            "phase=horizontal-alignment-hotload status=applied s105HotloadHorizontalAlignmentControl=true horizontalAlignmentSource=screen_to_camera_center_delta manualHorizontalOffsetHotload=true propertyPrefix=debug.rustyxr horizontalAlignmentStrength={:.4} manualLeftUv={:.4} manualRightUv={:.4} panelBound={} visualInspection=required",
+            tuning.strength,
+            tuning.left_offset_uv,
+            tuning.right_offset_uv,
+            panel_bound,
+        ));
+    }
+
+    fn apply_horizontal_alignment_tuning_to_panel(
+        &mut self,
+        cx: &mut Cx,
+        tuning: HorizontalAlignmentTuning,
+    ) -> bool {
+        let panel_ref = self.ui.widget(cx, ids!(camera_projection_panel));
+        let Some(mut panel) = panel_ref.borrow_mut::<MakepadStereoCameraPanel>() else {
+            return false;
+        };
+        panel.set_horizontal_alignment_tuning(cx, tuning);
+        true
+    }
+
     fn handle_cadence_event(&mut self, cx: &mut Cx, event: &Event) {
+        if matches!(event, Event::Startup | Event::XrUpdate(_)) {
+            self.refresh_horizontal_alignment_tuning(cx);
+        }
+
         if matches!(event, Event::Startup) && self.cadence_next_frame.is_none() {
             self.arm_cadence_probe(cx);
             return;
@@ -2465,6 +2632,7 @@ impl App {
             pair.left_screen_to_surface_h,
             pair.right_screen_to_surface_h,
         );
+        panel.set_horizontal_alignment_tuning(cx, self.current_horizontal_alignment_tuning());
         self.camera_projection_textures_bound = true;
         self.camera_projection_paired_textures_bound = !single_stream_visual_proof;
         Self::emit_stereo_projection_marker(&format!(
@@ -3235,6 +3403,61 @@ fn env_f64(key: &str, default: f64) -> f64 {
         .and_then(|value| value.parse::<f64>().ok())
         .filter(|value| value.is_finite() && *value > 0.0)
         .unwrap_or(default)
+}
+
+fn hotload_f32(key: &'static str, default: f32, min: f32, max: f32) -> f32 {
+    runtime_property_value(key)
+        .or_else(|| std::env::var(runtime_env_key(key)).ok())
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(min, max))
+        .unwrap_or(default)
+}
+
+fn runtime_env_key(key: &str) -> String {
+    format!(
+        "RUSTY_XR_{}",
+        key.replace(['-', '.'], "_").to_ascii_uppercase()
+    )
+}
+
+#[cfg(target_os = "android")]
+fn runtime_property_name(key: &'static str) -> String {
+    RuntimeKey::new(key)
+        .expect("runtime config key should be valid")
+        .android_property(&AndroidPropertyPrefix::default())
+}
+
+#[cfg(target_os = "android")]
+fn runtime_property_value(key: &'static str) -> Option<String> {
+    use std::ffi::{CStr, CString};
+    use std::os::raw::{c_char, c_int};
+
+    #[link(name = "c")]
+    unsafe extern "C" {
+        fn __system_property_get(name: *const c_char, value: *mut c_char) -> c_int;
+    }
+
+    let name = CString::new(runtime_property_name(key)).ok()?;
+    let mut value = [0 as c_char; 128];
+    let len = unsafe { __system_property_get(name.as_ptr(), value.as_mut_ptr()) };
+    if len <= 0 {
+        return None;
+    }
+    let value = unsafe { CStr::from_ptr(value.as_ptr()) }
+        .to_string_lossy()
+        .trim()
+        .to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn runtime_property_value(_key: &'static str) -> Option<String> {
+    None
 }
 
 fn marker_token(value: &str) -> String {
