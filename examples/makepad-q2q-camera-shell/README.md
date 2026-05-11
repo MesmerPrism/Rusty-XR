@@ -442,8 +442,37 @@ hardware-buffer, and stale-marker counters. Record whether the run was
   reached active XR, emitted `s98NativePassthroughHudSplit=true`, submitted
   `nativePassthrough=true`, `projectionBlendSourceAlpha=true`, `layerCount=2`,
   captured six byte-distinct frames, and stayed GPU-fault/fatal clean while
-  preserving the small hardware-buffer warning class. Headset-visible HUD
-  alignment is still a manual acceptance item.
+  preserving the small hardware-buffer warning class. Operator headset review
+  still saw Meta performance-HUD stereo misalignment, so this split did not
+  fix the maintained camera path's HUD presentation defect.
+- Current S99 maintained-fork scene-picker control: the original Makepad XR
+  scene picker built from the same maintained fork stayed in the generated XR
+  activity, submitted the same native-passthrough/two-layer OpenXR frame shape,
+  and operator review reported that the Meta performance HUD was not
+  stereo-misaligned. The remaining HUD defect is therefore specific to this
+  camera example path. The smallest next split is render-scale: S99 used the
+  fork's high default XR target size, while this camera example currently
+  forces `0.75`.
+- Current S100 render-scale control: raising this camera example to the
+  scene-picker/default Makepad XR scale preserved HUD alignment only during
+  launch and the green camera-arming placeholder. The HUD misalignment appeared
+  when live camera content replaced the placeholder, and the high scale
+  regressed stale frames, 90 FPS stability, and CPU load. Continue camera-path
+  isolation at `0.75`.
+- Current S101 camera-feed-suppressed control: camera acquisition/import stayed
+  active at `0.75`, but the shader rendered a controlled diagnostic surface
+  instead of sampling live YUV after arming. Operator review reported good HUD
+  alignment. The remaining trigger is live camera projection/content, with a
+  new coverage suspect: the diagnostic surface appeared to cover more area than
+  the normal camera projection.
+- Current S102/S103 coverage split: S102 kept live YUV sampling active but
+  forced full-surface identity coverage, which kept the HUD aligned while
+  making the camera feed intentionally full-screen. S103 keeps that full
+  submitted surface active and moves coverage into the shader: camera pixels are
+  drawn inside a content window with matte and border instead of resizing the
+  OpenXR layer. S103 reached active XR and emitted the expected markers, but the
+  Quest ADB transport dropped before a complete 90-second liveness summary and
+  headset HUD review is still pending.
 - Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
   Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
   texture-update counters. The S14 active launcher sample reported

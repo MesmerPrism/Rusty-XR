@@ -156,6 +156,19 @@ function Capture-LaunchState {
         s91DisplayIndexedHomographyRowsMarkerCount = @($log | Select-String -SimpleMatch "s91DisplayIndexedHomographyRows=true").Count
         s91VerticalOnlyTextureUvMarkerCount = @($log | Select-String -SimpleMatch "s91VerticalOnlyTextureUv=true").Count
         s98NativePassthroughHudSplitMarkerCount = @($log | Select-String -SimpleMatch "s98NativePassthroughHudSplit=true").Count
+        s100DefaultRenderScaleHudControlMarkerCount = @($log | Select-String -SimpleMatch "s100DefaultRenderScaleHudControl=true").Count
+        s101CameraFeedSuppressedHudControlMarkerCount = @($log | Select-String -SimpleMatch "s101CameraFeedSuppressedHudControl=true").Count
+        liveCameraSamplingSuppressedMarkerCount = @($log | Select-String -SimpleMatch "liveCameraSamplingSuppressed=true").Count
+        s102FullSurfaceLiveCameraCoverageControlMarkerCount = @($log | Select-String -SimpleMatch "s102FullSurfaceLiveCameraCoverageControl=true").Count
+        forceFullSurfaceLiveCameraUvMarkerCount = @($log | Select-String -SimpleMatch "forceFullSurfaceLiveCameraUv=true").Count
+        s103InSurfaceCameraWindowBorderControlMarkerCount = @($log | Select-String -SimpleMatch "s103InSurfaceCameraWindowBorderControl=true").Count
+        forceInSurfaceCameraWindowMarkerCount = @($log | Select-String -SimpleMatch "forceInSurfaceCameraWindow=true").Count
+        fullSurfaceLayerActiveMarkerCount = @($log | Select-String -SimpleMatch "fullSurfaceLayerActive=true").Count
+        cameraCoverageInShaderMarkerCount = @($log | Select-String -SimpleMatch "cameraCoverageInShader=true").Count
+        layerNotResizedMarkerCount = @($log | Select-String -SimpleMatch "layerNotResized=true").Count
+        projectionValidMaskDisabledMarkerCount = @($log | Select-String -SimpleMatch "projectionValidMaskDisabled=true").Count
+        highDefaultImageRectMarkerCount = @($log | Select-String -SimpleMatch "imageRectWidth=2352 imageRectHeight=2464").Count
+        low075ImageRectMarkerCount = @($log | Select-String -SimpleMatch "imageRectWidth=1260 imageRectHeight=1320").Count
         cameraIdSourceBindingMarkerCount = @($log | Select-String -SimpleMatch "sourceBindingMode=camera-id").Count
         s86DirectYuvFullscreenControlMarkerCount = @($log | Select-String -SimpleMatch "s86DirectYuvFullscreenControl=true").Count
         runtimeXrViewStateReadyMarkerCount = @($log | Select-String -SimpleMatch "runtimeXrViewStateReady=true").Count

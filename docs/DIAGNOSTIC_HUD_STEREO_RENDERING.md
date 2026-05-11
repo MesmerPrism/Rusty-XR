@@ -131,11 +131,42 @@ the same camera/projection shader path. Its objective gate proves the maintained
 camera example can submit the guarded-upstream-style two-layer frame again:
 `nativePassthrough=true`, `projectionBlendSourceAlpha=true`, and `layerCount=2`
 with live camera content, distinct screenshots, and no fatal or GPU-fault
-counters. Treat its raw screenshots as a content/freshness witness only. The
-accepted HUD result still needs headset review. If headset review passes, the
-Makepad HUD regression should be investigated in the passthrough-off one-layer
-projection path; if it fails, test the original Makepad scene picker on the
-maintained fork before changing camera projection math again.
+counters. Treat its raw screenshots as a content/freshness witness only. Live
+headset review reported that S98 still misaligned the Meta performance HUD, so
+the defect is not explained by the camera example's passthrough-off one-layer
+submission alone. Test the original Makepad scene picker on the maintained fork
+before changing camera projection math again.
+
+S99 tested that original scene-picker path on the maintained fork. Operator
+review reported that the Makepad canvas was present and the Meta performance
+HUD was not stereo-misaligned. This rules out the maintained fork, manifest,
+direct VR-category launch, native passthrough, and two-layer OpenXR submission
+as broad causes. The next suspect is camera-example-specific presentation
+state: S99 used the fork's high default XR render target, while S98 used the
+camera example's explicit `0.75` Makepad XR render scale.
+
+S100 tested that render-scale suspect directly. The high/default render-scale
+camera example kept the HUD aligned through launch and the green camera-arming
+placeholder, but the HUD misalignment appeared when live camera content began.
+It also regressed CPU load, stale frames, and 90 FPS stability. For HUD work,
+the important split is now camera content versus acquisition/import; for
+performance work, further camera-example tests should return to `0.75`.
+
+S101 suppressed live camera sampling after arming while leaving acquisition and
+texture updates active at `0.75`. Operator review reported that HUD alignment
+was good, so acquisition/import alone is not the trigger. The remaining suspect
+is the live camera projection surface itself: coverage, valid-region masking,
+per-eye sampling bounds, or the way the live camera pixels occupy the app-owned
+surface. The next HUD test should keep live sampling active but force a
+full-surface coverage path.
+
+S102 confirmed that live camera sampling can stay HUD-aligned when the shader
+forces full-surface identity coverage and bypasses the bounded valid-region
+mask. S103 then reintroduced camera coverage as an in-shader content window
+with matte and border while keeping the submitted layer full. The S103 launch
+reached active XR and produced live camera-window screenshots with S103 markers,
+but Quest ADB disconnected before the final liveness summary and no operator
+HUD review has accepted or rejected the result yet.
 
 When investigating HUD alignment regressions:
 

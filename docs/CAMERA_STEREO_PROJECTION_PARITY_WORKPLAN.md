@@ -465,14 +465,18 @@ handoff added to upstream Makepad, the old upstream scene-picker / XR example
 UI stayed in the generated XR activity and operator review did not see the Meta
 performance HUD stereo misalignment. The log still carried upstream GPU
 page-fault warning lines, so this is a presentation/HUD baseline rather than a
-GPU-fault-clean renderer baseline. The HUD split is now concrete: upstream
-Makepad plus the minimal Quest handoff guard is comfortable, while the
-maintained fork example is not. Next work should diff the maintained fork and
-Rusty XR example against that guarded upstream baseline, prioritizing
-post-handoff Android/XR patches, native passthrough/environment state, OpenXR
-view-state exposure, and the example's panel/projection path. For raw Makepad
-panel lineage, use the S62/S67/S68 visible-panel states as the closest
-reference rather than the later S91 fullscreen projection experiment.
+GPU-fault-clean renderer baseline. S99 then repeated the scene-picker control
+from the maintained fork itself. That maintained-fork scene picker also stayed
+in the generated XR activity, submitted native passthrough plus a two-layer
+OpenXR frame, and operator review reported no Meta performance-HUD stereo
+misalignment. The HUD split is now narrower: upstream Makepad and the
+maintained fork's original scene content are comfortable, while the Rusty XR
+camera example is not. Next work should diff the Rusty XR example against the
+scene-picker baseline, prioritizing explicit render-scale changes, the
+fullscreen clip-space camera surface, runtime-view homography state, and the
+example's panel/projection path. For raw Makepad panel lineage, use the
+S62/S67/S68 visible-panel states as the closest reference rather than the later
+S91 fullscreen projection experiment.
 
 S98 made the first maintained-example split against that baseline by restoring
 native passthrough in the camera example while leaving the S91 camera/projection
@@ -481,12 +485,58 @@ XR on the first attempt, emitted S98 markers, submitted a two-layer OpenXR frame
 with `nativePassthrough=true`, `projectionBlendSourceAlpha=true`, and
 `layerCount=2`, captured six byte-distinct frames, and stayed GPU-fault/fatal
 clean while preserving the small hardware-buffer warning class. Raw screenshots
-showed live camera content and the runtime HUD. Headset-visible HUD alignment is
-still pending operator review, because previous raw stereo screenshots did not
-capture the binocular HUD defect reliably. If S98 aligns the HUD, the next
-target is the passthrough-off one-layer projection path and its layer flags. If
-S98 still misaligns, build the original Makepad scene picker from the maintained
-fork to isolate fork/manifest/OpenXR changes from the Rusty XR camera example.
+showed live camera content and the runtime HUD. Operator headset review then
+reported that the Meta performance HUD was still stereo-misaligned in S98. That
+rules out the simple passthrough-off / missing-source-alpha explanation: the
+maintained camera example can submit the guarded-upstream-style two-layer frame
+and still reproduce the binocular HUD defect. The next split is therefore the
+original Makepad scene picker built from the maintained fork itself, to isolate
+fork/manifest/OpenXR state from the Rusty XR camera example path. S99 completed
+that split and was headset-aligned. Its end-frame markers also exposed a new
+smallest suspect: the aligned scene picker used the fork's high default XR
+target size (`2352x2464` for `1680x1760` recommended), while the misaligned
+camera example used the explicit `0.75` target size (`1260x1320`). The next
+camera-example split should therefore restore the scene-picker/default Makepad
+XR scale before changing projection math again.
+
+S100 performed that render-scale split. The camera example at the scene-picker
+default scale reached active XR and used the high/default image rect, but
+operator review reported that the HUD stayed aligned only during launch and
+the green camera-arming placeholder. The misalignment appeared when live camera
+content replaced the placeholder. The high/default scale also regressed the
+performance target: stale frames returned, 90 FPS was not sustained, and CPU
+load was visibly red. Treat render scale as a ruled-out primary cause for the
+HUD trigger and return to `0.75` for further camera-path isolation. The next
+split should leave Camera2/Makepad acquisition running while suppressing live
+camera sampling in the shader after arming.
+
+S101 completed that camera-feed-suppressed control at the performant `0.75`
+scale. Camera acquisition/import stayed active and the low image rect returned,
+but the shader rendered a controlled diagnostic surface instead of sampling
+live YUV once the streams armed. Operator review reported that HUD alignment
+was good. This rules out acquisition/import and low render scale as the direct
+HUD trigger. The active suspect is now live camera pixel/projection rendering.
+The operator also observed that the diagnostic surface appeared to cover a
+larger area than the normal camera projection, so the next split should keep
+live camera sampling enabled while forcing a full-surface valid/coverage path.
+
+S102 made that split decisive. Live YUV sampling at `0.75` stayed HUD-aligned
+when the shader forced full-surface identity coverage and disabled the
+projection-valid dim/mask branch. The camera feed was intentionally full-screen
+and therefore not yet geometrically correct, but the architecture direction is
+now clear: keep the submitted OpenXR surface full and perform camera coverage,
+matte, crop, and border inside the shader. Do not resize or shrink the layer or
+the app-owned surface to make the projection window.
+
+S103 implements the first version of that architecture. The Makepad example now
+keeps the full submitted surface active while rendering live camera pixels only
+inside a shader-owned content window, with dark matte outside and a black border
+around the camera-covered region. The window size is derived from the public
+target's full-view/content overscan ratio rather than by resizing the layer.
+The fresh APK reached active XR and emitted the S103/full-layer/in-shader
+coverage markers with zero GPU-fault or fatal counters in the ready sample, but
+the Quest ADB transport dropped before the final 90-second liveness summary.
+Rerun S103 for headset HUD/stereo review before treating it as accepted.
 
 ## Absorbable Public Work
 

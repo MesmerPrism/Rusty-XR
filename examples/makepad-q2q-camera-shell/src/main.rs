@@ -31,15 +31,18 @@ static TEXTURE_UPDATE_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
 static TEXTURE_CONTENT_PROBE_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
 
 const DEFAULT_PROFILE: &str = "makepad-stereo-projection-pair-probe";
-const DEFAULT_TRANSPORT: &str = "makepad-s98-native-passthrough-hud-split";
+const DEFAULT_TRANSPORT: &str = "makepad-s103-in-surface-camera-window-border-control";
 const DEFAULT_CAMERA_TIER: &str = "native-camera2-makepad-stereo-vulkan-import-probe";
 const DEFAULT_CAMERA_PROJECTION_MODE: &str = "display-screen-homography";
 const DEFAULT_COMPARISON_BASELINE: &str = "custom-apk-camera-stereo-gpu-composite";
-const DEFAULT_SYNTHETIC_SCENE: &str = "camera-panel-s98-native-passthrough-hud-split";
+const DEFAULT_SYNTHETIC_SCENE: &str = "camera-panel-s103-in-surface-camera-window-border-control";
 const DEFAULT_ACQUISITION_PROFILE: &str =
     "bounded-camera2-private-plus-makepad-paired-import-probe";
 const DEFAULT_PROJECTION_SCALE: f64 = 0.75;
 const DEFAULT_XR_RENDER_SCALE: f64 = 0.75;
+const SUPPRESS_LIVE_CAMERA_SAMPLING: bool = false;
+const FORCE_FULL_SURFACE_LIVE_CAMERA_UV: bool = false;
+const FORCE_IN_SURFACE_CAMERA_WINDOW: bool = true;
 const TARGET_FULL_VIEW_CONTENT_UV_SCALE: f32 = 2.10 / 1.06;
 const TARGET_DISPLAY_EYE_OFFSET_METERS: f32 = 0.032;
 const TARGET_DISPLAY_FOV_Y_DEGREES: f32 = 92.0;
@@ -171,6 +174,9 @@ script_mod! {
         projection_depth_meters: 0.75
         projection_preview_fov_y_degrees: 60.0
         projection_raw_overscan: 1.06
+        suppress_live_camera_sampling: 1.0
+        force_full_surface_live_camera_uv: 1.0
+        force_in_surface_camera_window: 1.0
         v_uv: varying(vec2f)
 
         cube_size: vec3(1.0, 1.0, 1.0)
@@ -482,23 +488,59 @@ script_mod! {
             let projected_sample_uv = vec2(projected_uv.x, 1.0 - projected_uv.y);
             let fallback_sample_uv = vec2(fallback_seed_uv.x, 1.0 - fallback_seed_uv.y);
             let sample_uv = mix(fallback_sample_uv, projected_sample_uv, projection_valid);
+            let full_surface_sample_uv = vec2(full_view_uv.x, 1.0 - full_view_uv.y);
+            let live_sample_uv = mix(sample_uv, full_surface_sample_uv, self.force_full_surface_live_camera_uv);
+            let live_projection_valid = mix(projection_valid, 1.0, self.force_full_surface_live_camera_uv);
             if self.camera_ready <= 0.5 {
                 let waiting = vec3(0.015, 0.020, 0.024);
                 let guided_waiting = mix(waiting, vec3(1.0, 0.98, 0.84), proof_guide);
                 return vec4(guided_waiting.x, guided_waiting.y, guided_waiting.z, 1.0);
             }
-            let left_y = self.left_tex_y.sample(sample_uv).x;
-            let left_u = self.left_tex_u.sample(sample_uv).x;
-            let left_v = self.left_tex_v.sample(sample_uv).x;
-            let right_y = self.right_tex_y.sample(sample_uv).x;
-            let right_u = self.right_tex_u.sample(sample_uv).x;
-            let right_v = self.right_tex_v.sample(sample_uv).x;
+            if self.suppress_live_camera_sampling > 0.5 {
+                let armed = vec3(0.015, 0.18, 0.08);
+                let guided_armed = mix(armed, vec3(1.0, 0.98, 0.84), proof_guide);
+                return vec4(guided_armed.x, guided_armed.y, guided_armed.z, 1.0);
+            }
+            if self.force_in_surface_camera_window > 0.5 {
+                let window_uv =
+                    (full_view_uv - vec2(0.5, 0.5)) *
+                    max(self.content_uv_scale, 1.0) +
+                    vec2(0.5, 0.5);
+                let window_inside = self.uv_valid(window_uv);
+                let clamped_window_uv = clamp(window_uv, vec2(0.0, 0.0), vec2(1.0, 1.0));
+                let window_sample_uv = vec2(clamped_window_uv.x, 1.0 - clamped_window_uv.y);
+                let left_y = self.left_tex_y.sample(window_sample_uv).x;
+                let left_u = self.left_tex_u.sample(window_sample_uv).x;
+                let left_v = self.left_tex_v.sample(window_sample_uv).x;
+                let right_y = self.right_tex_y.sample(window_sample_uv).x;
+                let right_u = self.right_tex_u.sample(window_sample_uv).x;
+                let right_v = self.right_tex_v.sample(window_sample_uv).x;
+                let y_val = mix(left_y, right_y, eye_selector);
+                let u_val = mix(left_u, right_u, eye_selector);
+                let v_val = mix(left_v, right_v, eye_selector);
+                let camera_rgb = self.yuv_to_rgb_limited_601(y_val, u_val, v_val);
+                let edge_x = min(window_uv.x, 1.0 - window_uv.x);
+                let edge_y = min(window_uv.y, 1.0 - window_uv.y);
+                let edge = min(edge_x, edge_y);
+                let inner_border = window_inside * (1.0 - step(0.020, edge));
+                let matte = vec3(0.035, 0.039, 0.043);
+                let window_rgb = mix(matte, camera_rgb, window_inside);
+                let bordered_rgb = mix(window_rgb, vec3(0.0, 0.0, 0.0), inner_border);
+                let guided_window = mix(bordered_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
+                return vec4(guided_window.x, guided_window.y, guided_window.z, 1.0);
+            }
+            let left_y = self.left_tex_y.sample(live_sample_uv).x;
+            let left_u = self.left_tex_u.sample(live_sample_uv).x;
+            let left_v = self.left_tex_v.sample(live_sample_uv).x;
+            let right_y = self.right_tex_y.sample(live_sample_uv).x;
+            let right_u = self.right_tex_u.sample(live_sample_uv).x;
+            let right_v = self.right_tex_v.sample(live_sample_uv).x;
             let y_val = mix(left_y, right_y, eye_selector);
             let u_val = mix(left_u, right_u, eye_selector);
             let v_val = mix(left_v, right_v, eye_selector);
             let direct_rgb =
                 self.yuv_to_rgb_limited_601(y_val, u_val, v_val) *
-                mix(0.12, 1.0, projection_valid);
+                mix(0.12, 1.0, live_projection_valid);
             let guided_direct = mix(direct_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
             return vec4(guided_direct.x, guided_direct.y, guided_direct.z, 1.0);
 
@@ -771,6 +813,12 @@ pub struct DrawMakepadStereoCameraPanel {
     pub projection_preview_fov_y_degrees: f32,
     #[live(1.06_f32)]
     pub projection_raw_overscan: f32,
+    #[live(1.0_f32)]
+    pub suppress_live_camera_sampling: f32,
+    #[live(1.0_f32)]
+    pub force_full_surface_live_camera_uv: f32,
+    #[live(1.0_f32)]
+    pub force_in_surface_camera_window: f32,
     #[live(1.0_f32)]
     pub left_projection_h00: f32,
     #[live(0.0_f32)]
@@ -1083,6 +1131,21 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.projection_depth_meters = TARGET_PROJECTION_DEPTH_METERS;
         self.draw_panel.projection_preview_fov_y_degrees = TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES;
         self.draw_panel.projection_raw_overscan = TARGET_PROJECTION_RAW_OVERSCAN;
+        self.draw_panel.suppress_live_camera_sampling = if SUPPRESS_LIVE_CAMERA_SAMPLING {
+            1.0
+        } else {
+            0.0
+        };
+        self.draw_panel.force_full_surface_live_camera_uv = if FORCE_FULL_SURFACE_LIVE_CAMERA_UV {
+            1.0
+        } else {
+            0.0
+        };
+        self.draw_panel.force_in_surface_camera_window = if FORCE_IN_SURFACE_CAMERA_WINDOW {
+            1.0
+        } else {
+            0.0
+        };
         self.draw_panel.camera_ready = 1.0;
         self.draw_panel.texture_probe_mode = 2.0;
         self.draw_panel.draw_vars.redraw(cx);
@@ -1110,6 +1173,51 @@ impl MakepadStereoCameraPanel {
         self.draw_panel
             .draw_vars
             .set_uniform_on_area(cx, live_id!(texture_probe_mode), &[2.0]);
+        let suppress_live_camera_sampling = if SUPPRESS_LIVE_CAMERA_SAMPLING {
+            1.0
+        } else {
+            0.0
+        };
+        self.draw_panel.draw_vars.set_instance_on_area(
+            cx,
+            live_id!(suppress_live_camera_sampling),
+            &[suppress_live_camera_sampling],
+        );
+        self.draw_panel.draw_vars.set_uniform_on_area(
+            cx,
+            live_id!(suppress_live_camera_sampling),
+            &[suppress_live_camera_sampling],
+        );
+        let force_full_surface_live_camera_uv = if FORCE_FULL_SURFACE_LIVE_CAMERA_UV {
+            1.0
+        } else {
+            0.0
+        };
+        self.draw_panel.draw_vars.set_instance_on_area(
+            cx,
+            live_id!(force_full_surface_live_camera_uv),
+            &[force_full_surface_live_camera_uv],
+        );
+        self.draw_panel.draw_vars.set_uniform_on_area(
+            cx,
+            live_id!(force_full_surface_live_camera_uv),
+            &[force_full_surface_live_camera_uv],
+        );
+        let force_in_surface_camera_window = if FORCE_IN_SURFACE_CAMERA_WINDOW {
+            1.0
+        } else {
+            0.0
+        };
+        self.draw_panel.draw_vars.set_instance_on_area(
+            cx,
+            live_id!(force_in_surface_camera_window),
+            &[force_in_surface_camera_window],
+        );
+        self.draw_panel.draw_vars.set_uniform_on_area(
+            cx,
+            live_id!(force_in_surface_camera_window),
+            &[force_in_surface_camera_window],
+        );
         for (id, value) in [
             (
                 live_id!(content_uv_scale),
@@ -1457,7 +1565,7 @@ impl App {
         let config = Self::runtime_config();
 
         emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=synthetic-left rightEyeSource=synthetic-right sourceEyeMapping=display-eye projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=false alignedProjection=false renderPath=makepad-xr makepadForkBranch={} makepadForkCommit={}",
+            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=synthetic-left rightEyeSource=synthetic-right sourceEyeMapping=display-eye projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=false alignedProjection=false renderPath=makepad-xr makepadForkBranch={} makepadForkCommit={} nativePassthrough=true s98NativePassthroughHudSplit=true s102FullSurfaceLiveCameraCoverageControl=false s103InSurfaceCameraWindowBorderControl=true liveCameraSamplingSuppressed=false forceFullSurfaceLiveCameraUv=false forceInSurfaceCameraWindow=true fullSurfaceLayerActive=true cameraCoverageInShader=true layerNotResized=true projectionValidMaskDisabled=true visualIsolation=s103_in_surface_camera_window_border_control",
             phase,
             runtime_text(&config, KEY_RUNTIME_PROFILE),
             runtime_text(&config, KEY_COMPARISON_BASELINE),
