@@ -352,7 +352,13 @@ the remaining parallax result a projection-math question rather than a possible
 metadata/texture mismatch. A fresh S90 APK build has passed the native string
 gate: S90, `cameraId=`, and pose-X source-selection strings are present, while
 stale S89/S88/S87/S86 path strings are absent. The log-only
-`sourceBindingMode=camera-id` proof remains blocked on ADB transport.
+`sourceBindingMode=camera-id` proof remains blocked on ADB transport. The S90
+source state is pushed, and a static re-diff against the validated public fast
+`0.75` target found no further source-only mismatch in source ordering, runtime
+view/FOV inputs, the shared homography helper chain, projection scale, preview
+FOV, raw overscan, or `left-right` source-eye mapping. The next useful evidence
+is therefore a runtime S90 logcat gate plus operator parallax inspection, not
+another unvalidated projection tweak.
 
 ## Sanitized Parity Target
 
