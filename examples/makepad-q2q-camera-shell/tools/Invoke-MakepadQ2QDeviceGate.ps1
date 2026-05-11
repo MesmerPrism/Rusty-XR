@@ -155,6 +155,7 @@ function Capture-LaunchState {
         s91InvertedSourceEyeSelectorMarkerCount = @($log | Select-String -SimpleMatch "s91InvertedSourceEyeSelector=true").Count
         s91DisplayIndexedHomographyRowsMarkerCount = @($log | Select-String -SimpleMatch "s91DisplayIndexedHomographyRows=true").Count
         s91VerticalOnlyTextureUvMarkerCount = @($log | Select-String -SimpleMatch "s91VerticalOnlyTextureUv=true").Count
+        s98NativePassthroughHudSplitMarkerCount = @($log | Select-String -SimpleMatch "s98NativePassthroughHudSplit=true").Count
         cameraIdSourceBindingMarkerCount = @($log | Select-String -SimpleMatch "sourceBindingMode=camera-id").Count
         s86DirectYuvFullscreenControlMarkerCount = @($log | Select-String -SimpleMatch "s86DirectYuvFullscreenControl=true").Count
         runtimeXrViewStateReadyMarkerCount = @($log | Select-String -SimpleMatch "runtimeXrViewStateReady=true").Count

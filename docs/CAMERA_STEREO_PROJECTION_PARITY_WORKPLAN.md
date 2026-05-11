@@ -474,6 +474,20 @@ view-state exposure, and the example's panel/projection path. For raw Makepad
 panel lineage, use the S62/S67/S68 visible-panel states as the closest
 reference rather than the later S91 fullscreen projection experiment.
 
+S98 made the first maintained-example split against that baseline by restoring
+native passthrough in the camera example while leaving the S91 camera/projection
+shader path otherwise intact. The direct generated-XR activity reached active
+XR on the first attempt, emitted S98 markers, submitted a two-layer OpenXR frame
+with `nativePassthrough=true`, `projectionBlendSourceAlpha=true`, and
+`layerCount=2`, captured six byte-distinct frames, and stayed GPU-fault/fatal
+clean while preserving the small hardware-buffer warning class. Raw screenshots
+showed live camera content and the runtime HUD. Headset-visible HUD alignment is
+still pending operator review, because previous raw stereo screenshots did not
+capture the binocular HUD defect reliably. If S98 aligns the HUD, the next
+target is the passthrough-off one-layer projection path and its layer flags. If
+S98 still misaligns, build the original Makepad scene picker from the maintained
+fork to isolate fork/manifest/OpenXR changes from the Rusty XR camera example.
+
 ## Absorbable Public Work
 
 Rusty XR can absorb these public-safe lessons:

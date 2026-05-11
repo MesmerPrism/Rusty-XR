@@ -436,6 +436,14 @@ hardware-buffer, and stale-marker counters. Record whether the run was
   performance HUD stereo misalignment. Upstream GPU page-fault warning lines
   remain visible, so this is a HUD/presentation baseline rather than a
   GPU-fault-clean renderer baseline.
+- Current S98 maintained-example control: this example now has a native
+  passthrough-on HUD split that keeps the S91 camera/projection shader path but
+  restores the two-layer OpenXR submission shape. The direct generated-XR gate
+  reached active XR, emitted `s98NativePassthroughHudSplit=true`, submitted
+  `nativePassthrough=true`, `projectionBlendSourceAlpha=true`, `layerCount=2`,
+  captured six byte-distinct frames, and stayed GPU-fault/fatal clean while
+  preserving the small hardware-buffer warning class. Headset-visible HUD
+  alignment is still a manual acceptance item.
 - Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
   Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
   texture-update counters. The S14 active launcher sample reported

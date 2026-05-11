@@ -126,6 +126,17 @@ upstream still logged GPU page-fault warnings, so this is evidence about
 presentation/HUD alignment, not proof that the upstream renderer is
 GPU-fault-clean on the device.
 
+The S98 maintained-example control restores native passthrough while keeping
+the same camera/projection shader path. Its objective gate proves the maintained
+camera example can submit the guarded-upstream-style two-layer frame again:
+`nativePassthrough=true`, `projectionBlendSourceAlpha=true`, and `layerCount=2`
+with live camera content, distinct screenshots, and no fatal or GPU-fault
+counters. Treat its raw screenshots as a content/freshness witness only. The
+accepted HUD result still needs headset review. If headset review passes, the
+Makepad HUD regression should be investigated in the passthrough-off one-layer
+projection path; if it fails, test the original Makepad scene picker on the
+maintained fork before changing camera projection math again.
+
 When investigating HUD alignment regressions:
 
 - use ADB or HzDB full-surface screenshots to detect raw-position changes
