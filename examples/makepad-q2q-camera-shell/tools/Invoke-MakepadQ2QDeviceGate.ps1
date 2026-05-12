@@ -165,8 +165,14 @@ function Capture-LaunchState {
         s104HorizontalWindowAlignmentControlMarkerCount = @($log | Select-String -SimpleMatch "s104HorizontalWindowAlignmentControl=true").Count
         horizontalAlignmentCenterDeltaMarkerCount = @($log | Select-String -SimpleMatch "horizontalAlignmentSource=surface_to_camera_center_delta").Count
         s105HotloadHorizontalAlignmentControlMarkerCount = @($log | Select-String -SimpleMatch "s105HotloadHorizontalAlignmentControl=true").Count
+        s106SafeHorizontalWindowSamplingMarkerCount = @($log | Select-String -SimpleMatch "s106SafeHorizontalWindowSampling=true").Count
+        s107WindowScaleHotloadMarkerCount = @($log | Select-String -SimpleMatch "s107WindowScaleHotload=true").Count
+        s108BorderlessWindowScaleMarkerCount = @($log | Select-String -SimpleMatch "s108BorderlessWindowScale=true").Count
         horizontalAlignmentScreenCenterDeltaMarkerCount = @($log | Select-String -SimpleMatch "horizontalAlignmentSource=screen_to_camera_center_delta").Count
+        horizontalAlignmentSafeWindowMarkerCount = @($log | Select-String -SimpleMatch "horizontalAlignmentSource=screen_to_camera_center_delta_safe_window_invalid_matte").Count
         manualHorizontalOffsetHotloadMarkerCount = @($log | Select-String -SimpleMatch "manualHorizontalOffsetHotload=true").Count
+        contentUvScaleHotloadMarkerCount = @($log | Select-String -SimpleMatch "contentUvScaleHotload=true").Count
+        borderlessWindowMaskMarkerCount = @($log | Select-String -SimpleMatch "borderlessWindowMask=true").Count
         forceInSurfaceCameraWindowMarkerCount = @($log | Select-String -SimpleMatch "forceInSurfaceCameraWindow=true").Count
         fullSurfaceLayerActiveMarkerCount = @($log | Select-String -SimpleMatch "fullSurfaceLayerActive=true").Count
         cameraCoverageInShaderMarkerCount = @($log | Select-String -SimpleMatch "cameraCoverageInShader=true").Count

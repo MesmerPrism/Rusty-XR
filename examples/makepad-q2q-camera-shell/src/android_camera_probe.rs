@@ -32,7 +32,7 @@ const PROJECTION_SOURCE_ASPECT: f32 = 1.0;
 const DISPLAY_EYE_OFFSET_METERS: f32 = 0.032;
 const DISPLAY_FOV_Y_DEGREES: f32 = 92.0;
 const DISPLAY_ASPECT: f32 = 1.0;
-const DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-right-source";
+const DEFAULT_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-right-source";
 
 const IDENTITY_HOMOGRAPHY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
@@ -141,7 +141,7 @@ impl StereoProjectionPlan {
             } else {
                 "missing"
             },
-            source_eye_mapping: DISPLAY_SOURCE_EYE_MAPPING,
+            source_eye_mapping: display_source_eye_mapping(),
             coordinate_chain: "camera2-sensor-reference-to-openxr-head-basis",
             fallback_reason: if projection_metadata_ready {
                 "none"
@@ -190,7 +190,7 @@ impl StereoProjectionPlan {
             height: sources.height,
             projection_metadata_ready,
             pose_source: "platform-openxr-view",
-            source_eye_mapping: DISPLAY_SOURCE_EYE_MAPPING,
+            source_eye_mapping: display_source_eye_mapping(),
             coordinate_chain: "camera2-sensor-reference-to-openxr-head-basis",
             fallback_reason: "none",
             left_surface_to_camera_h: homographies.left_surface_to_camera_h,
@@ -1179,9 +1179,17 @@ fn display_mapped_surface_to_camera_homographies(
     physical_left_h: [[f32; 3]; 3],
     physical_right_h: [[f32; 3]; 3],
 ) -> ([[f32; 3]; 3], [[f32; 3]; 3]) {
-    match DISPLAY_SOURCE_EYE_MAPPING {
+    match display_source_eye_mapping() {
         "display-left-from-right-source" => (physical_right_h, physical_left_h),
         _ => (physical_left_h, physical_right_h),
+    }
+}
+
+fn display_source_eye_mapping() -> &'static str {
+    match option_env!("RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING") {
+        Some("display-left-from-left-source") => "display-left-from-left-source",
+        Some("display-left-from-right-source") => "display-left-from-right-source",
+        _ => DEFAULT_DISPLAY_SOURCE_EYE_MAPPING,
     }
 }
 

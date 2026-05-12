@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -36,6 +37,7 @@ final class BrokerState {
     final AtomicLong videoLabEncodedSampleMetadata = new AtomicLong();
     private final CameraProjectionProviderState cameraProjectionProvider = new CameraProjectionProviderState();
     private final ShellHelperState shellHelper = new ShellHelperState();
+    private final ExperimentControlState experimentControl = new ExperimentControlState();
     private final VideoLabState videoLab = new VideoLabState();
     private final TransportSessionRegistry transportSessions = new TransportSessionRegistry();
     private final BreathAssessmentState breathAssessment = new BreathAssessmentState();
@@ -58,6 +60,7 @@ final class BrokerState {
         status.put("cameraProvider", cameraProjectionProvider.toStatusJson());
         status.put("projectionProfile", cameraProjectionProvider.projectionProfileJson());
         status.put("shellHelper", shellHelper.toStatusJson());
+        status.put("experimentControl", experimentControl.toStatusJson());
         status.put("polarPmd", polarPmdStatusJson());
         status.put("breathAssessment", breathAssessment.toStatusJson());
         status.put("videoLab", videoLabStatusJson());
@@ -99,6 +102,9 @@ final class BrokerState {
         supportedCommands.put("camera_provider.record_visual_acceptance");
         supportedCommands.put("shell_helper.get_status");
         supportedCommands.put("shell_helper.report_status");
+        supportedCommands.put("experiment.get_control");
+        supportedCommands.put("experiment.configure");
+        supportedCommands.put("experiment.report_status");
         supportedCommands.put("transport.describe_capabilities");
         supportedCommands.put("transport.create_session");
         supportedCommands.put("transport.get_session");
@@ -167,6 +173,9 @@ final class BrokerState {
         capabilities.put("broker.console.close_command");
         capabilities.put("broker.launcher.local_lists.v1");
         capabilities.put("broker.launcher.package_manager_launch.v1");
+        capabilities.put("broker.experiment_control.v1");
+        capabilities.put("broker.experiment_control.makepad_tuning.v1");
+        capabilities.put("broker.experiment_control.focus_guardian.v1");
         capabilities.put("camera_projection.metadata.v1");
         capabilities.put("camera_projection.profile.v1");
         capabilities.put("camera_projection.visual_acceptance.v1");
@@ -219,6 +228,7 @@ final class BrokerState {
         streams.put(streamJson("camera_provider.projection_profile", "camera", "Projection profile changes for XR clients that render their own layers.", true));
         streams.put(streamJson("camera_provider.visual_acceptance", "camera", "Operator visual-acceptance markers for projection profiles.", true));
         streams.put(streamJson("shell_helper.status", "shell_helper", "ADB-launched shell-helper status when a helper is connected.", shellHelper.isConnected()));
+        streams.put(streamJson("experiment.control", "control", "Experiment target, tuning, and focus-guardian control state.", true));
         streams.put(streamJson("transport.session_created", "transport", "Transport session creation events.", transportSessions.createdCount() > 0));
         streams.put(streamJson("transport.session_closed", "transport", "Transport session close events.", transportSessions.closedCount() > 0));
         streams.put(streamJson("transport.session_failed", "transport", "Transport session failure events.", transportSessions.failedCount() > 0));
@@ -288,6 +298,18 @@ final class BrokerState {
         JSONObject status = shellHelper.reportStatus(params);
         cameraProjectionProvider.applyShellHelperDiagnostics(shellHelper.diagnosticsJson());
         return status;
+    }
+
+    JSONObject experimentControlJson() throws Exception {
+        return experimentControl.toStatusJson();
+    }
+
+    JSONObject configureExperimentControl(JSONObject params) throws Exception {
+        return experimentControl.configure(params);
+    }
+
+    JSONObject reportExperimentStatus(JSONObject params) throws Exception {
+        return experimentControl.reportHelperStatus(params);
     }
 
     JSONObject videoLabStatusJson() throws Exception {
@@ -1033,6 +1055,237 @@ final class BrokerState {
             lastError = params != null ? params.optString("last_error", "") : "";
             lastHeartbeatUnixMs = System.currentTimeMillis();
             return toStatusJson();
+        }
+    }
+
+    private static final class ExperimentControlState {
+        private static final String BROKER_PACKAGE = "com.example.rustyxr.broker";
+        private static final String BROKER_ACTIVITY = "com.example.rustyxr.broker.MainActivity";
+        private static final String PROP_STRENGTH =
+            "debug.rustyxr.makepad.horizontal.alignment.strength";
+        private static final String PROP_GLOBAL_UV =
+            "debug.rustyxr.makepad.horizontal.offset.uv";
+        private static final String PROP_LEFT_UV =
+            "debug.rustyxr.makepad.horizontal.offset.left.uv";
+        private static final String PROP_RIGHT_UV =
+            "debug.rustyxr.makepad.horizontal.offset.right.uv";
+        private static final String PROP_VERTICAL_UV =
+            "debug.rustyxr.makepad.vertical.offset.uv";
+        private static final String PROP_CONTENT_SCALE =
+            "debug.rustyxr.makepad.content.uv.scale";
+
+        private long revision;
+        private long lastUpdatedUnixMs;
+        private boolean enabled;
+        private String mode = "off";
+        private String desiredFocus = "broker";
+        private String targetPackage = "";
+        private String targetActivity = "";
+        private double strength = 0.0d;
+        private double globalUv = 0.0d;
+        private double leftUv = 0.0d;
+        private double rightUv = 0.0d;
+        private double verticalUv = 0.0d;
+        private double contentScale = 1.60d;
+        private int launchGuardTimeoutMs = 20_000;
+        private boolean launchGuardPreviewTimeoutEnabled = false;
+        private JSONObject helperStatus = new JSONObject();
+
+        synchronized JSONObject toStatusJson() throws Exception {
+            JSONObject status = new JSONObject();
+            status.put("schema", "rusty.xr.broker.experiment_control.v1");
+            status.put("revision", revision);
+            status.put("last_updated_unix_ms", lastUpdatedUnixMs);
+            status.put("enabled", enabled);
+            status.put("mode", mode);
+            status.put("desired_focus", desiredFocus);
+            status.put("target_package", targetPackage);
+            status.put("target_activity", targetActivity);
+            status.put("target_component", componentName(targetPackage, targetActivity));
+            status.put("broker_package", BROKER_PACKAGE);
+            status.put("broker_activity", BROKER_ACTIVITY);
+            status.put("broker_component", componentName(BROKER_PACKAGE, BROKER_ACTIVITY));
+            status.put("launch_guard_timeout_ms", launchGuardTimeoutMs);
+            status.put("launch_guard_preview_timeout_enabled", launchGuardPreviewTimeoutEnabled);
+            status.put("makepad_tuning", makepadTuningJson());
+            status.put("property_writes", makepadPropertyWritesJson());
+            status.put("helper_status", new JSONObject(helperStatus.toString()));
+            JSONArray limitations = new JSONArray();
+            limitations.put("reactive_focus_recovery_not_preemptive_home_intercept");
+            limitations.put("requires_adb_shell_helper_for_setprop_and_focus_recovery");
+            limitations.put("does_not_override_guardian_permissions_or_safety_ui");
+            status.put("limitations", limitations);
+            return status;
+        }
+
+        synchronized JSONObject configure(JSONObject params) throws Exception {
+            if (params == null) {
+                params = new JSONObject();
+            }
+
+            if (params.has("enabled")) {
+                enabled = params.optBoolean("enabled", enabled);
+            }
+            if (params.has("mode")) {
+                mode = normalizeMode(params.optString("mode", mode));
+                enabled = !"off".equals(mode);
+            }
+            if (params.has("desired_focus")) {
+                desiredFocus = normalizeFocus(params.optString("desired_focus", desiredFocus));
+            }
+            if (params.has("target_package")) {
+                targetPackage = clean(params.optString("target_package", targetPackage));
+            }
+            if (params.has("target_activity")) {
+                targetActivity = clean(params.optString("target_activity", targetActivity));
+            }
+            if (params.has("launch_guard_timeout_ms")) {
+                launchGuardTimeoutMs = clampInt(
+                    params.optInt("launch_guard_timeout_ms", launchGuardTimeoutMs),
+                    5_000,
+                    120_000);
+            }
+            if (params.has("launch_guard_preview_timeout_enabled")) {
+                launchGuardPreviewTimeoutEnabled =
+                    params.optBoolean("launch_guard_preview_timeout_enabled", launchGuardPreviewTimeoutEnabled);
+            }
+
+            boolean reset = params.optBoolean("reset_makepad_tuning", false);
+            if (reset) {
+                strength = 0.0d;
+                globalUv = 0.0d;
+                leftUv = 0.0d;
+                rightUv = 0.0d;
+                verticalUv = 0.0d;
+                contentScale = 1.60d;
+            }
+
+            if (params.has("strength")) {
+                strength = clamp(params.optDouble("strength", strength), -4.0d, 4.0d);
+            }
+            if (params.has("global_uv")) {
+                globalUv = clamp(params.optDouble("global_uv", globalUv), -0.5d, 0.5d);
+            }
+            if (params.has("left_uv")) {
+                leftUv = clamp(params.optDouble("left_uv", leftUv), -0.5d, 0.5d);
+            }
+            if (params.has("right_uv")) {
+                rightUv = clamp(params.optDouble("right_uv", rightUv), -0.5d, 0.5d);
+            }
+            if (params.has("vertical_uv")) {
+                verticalUv = clamp(params.optDouble("vertical_uv", verticalUv), -0.5d, 0.5d);
+            }
+            if (params.has("symmetric_uv")) {
+                double symmetric = clamp(params.optDouble("symmetric_uv", 0.0d), -0.5d, 0.5d);
+                leftUv = symmetric;
+                rightUv = -symmetric;
+            }
+            if (params.has("content_scale")) {
+                contentScale = clamp(params.optDouble("content_scale", contentScale), 1.0d, 2.4d);
+            }
+
+            revision++;
+            lastUpdatedUnixMs = System.currentTimeMillis();
+            return toStatusJson();
+        }
+
+        synchronized JSONObject reportHelperStatus(JSONObject params) throws Exception {
+            helperStatus = params != null ? new JSONObject(params.toString()) : new JSONObject();
+            helperStatus.put("last_report_unix_ms", System.currentTimeMillis());
+            return toStatusJson();
+        }
+
+        private JSONObject makepadTuningJson() throws Exception {
+            JSONObject tuning = new JSONObject();
+            tuning.put("schema", "rusty.xr.broker.makepad_tuning.v1");
+            tuning.put("strength", strength);
+            tuning.put("global_uv", globalUv);
+            tuning.put("left_uv", leftUv);
+            tuning.put("right_uv", rightUv);
+            tuning.put("vertical_uv", verticalUv);
+            tuning.put("content_scale", contentScale);
+            tuning.put("reset_strength", 0.0d);
+            tuning.put("reset_global_uv", 0.0d);
+            tuning.put("reset_left_uv", 0.0d);
+            tuning.put("reset_right_uv", 0.0d);
+            tuning.put("reset_vertical_uv", 0.0d);
+            tuning.put("reset_content_scale", 1.60d);
+            return tuning;
+        }
+
+        private JSONArray makepadPropertyWritesJson() throws Exception {
+            JSONArray writes = new JSONArray();
+            putPropertyWrite(writes, PROP_STRENGTH, strength);
+            putPropertyWrite(writes, PROP_GLOBAL_UV, globalUv);
+            putPropertyWrite(writes, PROP_LEFT_UV, leftUv);
+            putPropertyWrite(writes, PROP_RIGHT_UV, rightUv);
+            putPropertyWrite(writes, PROP_VERTICAL_UV, verticalUv);
+            putPropertyWrite(writes, PROP_CONTENT_SCALE, contentScale);
+            return writes;
+        }
+
+        private static void putPropertyWrite(JSONArray writes, String name, double value) throws Exception {
+            JSONObject write = new JSONObject();
+            write.put("name", name);
+            write.put("value", formatDouble(value));
+            writes.put(write);
+        }
+
+        private static String normalizeMode(String value) {
+            String normalized = clean(value).toLowerCase(Locale.ROOT);
+            if ("observe".equals(normalized) ||
+                "recover_target".equals(normalized) ||
+                "recover_broker".equals(normalized) ||
+                "toggle_broker_target".equals(normalized) ||
+                "launch_target_guard".equals(normalized) ||
+                "strict".equals(normalized)) {
+                return normalized;
+            }
+            return "off";
+        }
+
+        private static String normalizeFocus(String value) {
+            String normalized = clean(value).toLowerCase(Locale.ROOT);
+            if ("target".equals(normalized) || "broker".equals(normalized)) {
+                return normalized;
+            }
+            return "broker";
+        }
+
+        private static String componentName(String packageName, String activityName) {
+            if (clean(packageName).length() == 0) {
+                return "";
+            }
+            if (clean(activityName).length() == 0) {
+                return packageName;
+            }
+            return packageName + "/" + activityName;
+        }
+
+        private static String clean(String value) {
+            return value != null ? value.trim() : "";
+        }
+
+        private static double clamp(double value, double min, double max) {
+            if (Double.isNaN(value) || Double.isInfinite(value)) {
+                return min;
+            }
+            return Math.max(min, Math.min(max, value));
+        }
+
+        private static int clampInt(int value, int min, int max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        private static String formatDouble(double value) {
+            String formatted = String.format(Locale.ROOT, "%.6f", value);
+            while (formatted.indexOf('.') >= 0 && formatted.endsWith("0")) {
+                formatted = formatted.substring(0, formatted.length() - 1);
+            }
+            if (formatted.endsWith(".")) {
+                formatted = formatted.substring(0, formatted.length() - 1);
+            }
+            return formatted;
         }
     }
 

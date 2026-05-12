@@ -66,6 +66,7 @@ const int CAMERA_FLAG_RAW_PROJECTION_STRONG_BORDER = 524288;
 const int CAMERA_FLAG_RAW_PROJECTION_DYNAMIC_BORDER = 1048576;
 const int CAMERA_FLAG_RAW_PROJECTION_WARM_BORDER = 2097152;
 const int CAMERA_FLAG_RAW_PROJECTION_CYCLING_BORDER = 4194304;
+const int CAMERA_FLAG_PROJECTION_AREA_DIAGNOSTIC = 8388608;
 
 vec3 clamp01(vec3 color) {
     return clamp(color, vec3(0.0), vec3(1.0));
@@ -883,6 +884,62 @@ vec3 resolve_raw_projection_soft_border(
     return mix(center_color, fill_color, mix_amount);
 }
 
+float diagnostic_domain_edge_mask(vec2 uv, float width, float pad) {
+    float near_domain =
+        step(-pad, uv.x) *
+        step(uv.x, 1.0 + pad) *
+        step(-pad, uv.y) *
+        step(uv.y, 1.0 + pad);
+    vec2 edge_distance = min(abs(uv), abs(vec2(1.0) - uv));
+    return (1.0 - step(width, min(edge_distance.x, edge_distance.y))) * near_domain;
+}
+
+float diagnostic_axis_mask(vec2 uv, float axis, float width) {
+    return max(
+        1.0 - step(width, abs(uv.x - axis)),
+        1.0 - step(width, abs(uv.y - axis))
+    );
+}
+
+vec3 resolve_projection_area_diagnostic(
+    vec2 content_uv,
+    vec2 raw_projected_uv,
+    bool projection_valid,
+    bool content_surface_valid,
+    int display_eye
+) {
+    vec2 diagnostic_uv = clamp(raw_projected_uv, vec2(0.0), vec2(1.0));
+    float valid = projection_valid && content_surface_valid ? 1.0 : 0.0;
+    float border = diagnostic_domain_edge_mask(raw_projected_uv, 0.018, 0.060);
+    float major_axes = diagnostic_axis_mask(diagnostic_uv, 0.5, 0.010);
+    float quarter_axes = max(
+        diagnostic_axis_mask(diagnostic_uv, 0.25, 0.006),
+        diagnostic_axis_mask(diagnostic_uv, 0.75, 0.006)
+    );
+    float diagonal =
+        1.0 - step(0.010, abs((diagnostic_uv.x - diagnostic_uv.y))) +
+        1.0 - step(0.010, abs((diagnostic_uv.x + diagnostic_uv.y) - 1.0));
+    diagonal = clamp(diagonal, 0.0, 1.0);
+
+    vec3 left_color = vec3(0.02, 0.25, 0.98);
+    vec3 right_color = vec3(0.95, 0.08, 0.58);
+    vec3 base = mix(left_color, right_color, float(display_eye));
+    vec3 ramp = vec3(
+        0.18 + diagnostic_uv.x * 0.62,
+        0.12 + diagnostic_uv.y * 0.76,
+        0.90 - diagnostic_uv.x * 0.22
+    );
+    vec3 color = mix(base, ramp, 0.42);
+    color = mix(color, vec3(1.0), clamp(major_axes * 0.82, 0.0, 1.0));
+    color = mix(color, vec3(0.05, 1.0, 0.72), clamp(quarter_axes * 0.52, 0.0, 1.0));
+    color = mix(color, vec3(1.0, 0.86, 0.04), clamp(diagonal * 0.44, 0.0, 1.0));
+    color = mix(vec3(0.0), color, valid);
+    color = mix(color, vec3(0.0, 1.0, 1.0), clamp(border, 0.0, 1.0));
+    float surface_edge = diagnostic_domain_edge_mask(content_uv, 0.010, 0.035);
+    color = mix(color, vec3(1.0, 1.0, 1.0), clamp(surface_edge * valid * 0.70, 0.0, 1.0));
+    return clamp01(color);
+}
+
 void main() {
     int eye = clamp(v_eye_index, 0, 1);
     int packed_flags = int(floor(pc.params.w + 0.5));
@@ -917,6 +974,17 @@ void main() {
     );
     projection_valid = projection_valid && content_surface_valid;
     float coverage = projection_coverage(raw_projected_uv, projection_valid, max(edge_fade, 0.012));
+
+    if ((packed_flags & CAMERA_FLAG_PROJECTION_AREA_DIAGNOSTIC) != 0) {
+        out_color = vec4(resolve_projection_area_diagnostic(
+            sample_content_uv,
+            raw_projected_uv,
+            projection_valid,
+            content_surface_valid,
+            eye
+        ), 1.0);
+        return;
+    }
 
     vec3 raw_center_color = projection_valid
         ? sample_source_eye_raw(source_eye, raw_projected_uv).rgb

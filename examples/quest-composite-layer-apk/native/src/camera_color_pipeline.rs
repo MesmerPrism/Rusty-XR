@@ -11,6 +11,7 @@ pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_STRONG_BORDER: u32 = 1 << 19;
 pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_DYNAMIC_BORDER: u32 = 1 << 20;
 pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_WARM_BORDER: u32 = 1 << 21;
 pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_CYCLING_BORDER: u32 = 1 << 22;
+pub(crate) const CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC: u32 = 1 << 23;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum CameraFeedPipelineMode {
@@ -58,6 +59,7 @@ pub(crate) enum CameraProjectionEffectMode {
     RawProjectionWarmBorder,
     RawProjectionCyclingBorder,
     RawProjectionUnderlay,
+    ProjectionAreaDiagnostic,
 }
 
 impl CameraProjectionEffectMode {
@@ -105,6 +107,10 @@ impl CameraProjectionEffectMode {
             | "raw-projection-alpha-underlay"
             | "direct-raw-projection-underlay"
             | "fast-raw-underlay" => Some(Self::RawProjectionUnderlay),
+            "projection-area-diagnostic"
+            | "camera-projection-area-diagnostic"
+            | "raw-projection-area-diagnostic"
+            | "fast-projection-area-diagnostic" => Some(Self::ProjectionAreaDiagnostic),
             _ => None,
         }
     }
@@ -121,6 +127,7 @@ impl CameraProjectionEffectMode {
             Self::RawProjectionWarmBorder => "raw-projection-warm-border",
             Self::RawProjectionCyclingBorder => "raw-projection-cycling-border",
             Self::RawProjectionUnderlay => "raw-projection-underlay",
+            Self::ProjectionAreaDiagnostic => "projection-area-diagnostic",
         }
     }
 
@@ -160,12 +167,16 @@ impl CameraProjectionEffectMode {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
                     | CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA
             }
+            Self::ProjectionAreaDiagnostic => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
+            }
         }
     }
 
     pub(crate) const fn uses_fast_projection_pipeline(self) -> bool {
         match self {
-            Self::RawProjectionFast => true,
+            Self::RawProjectionFast | Self::ProjectionAreaDiagnostic => true,
             _ => false,
         }
     }

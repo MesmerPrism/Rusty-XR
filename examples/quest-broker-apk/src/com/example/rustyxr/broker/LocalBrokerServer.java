@@ -481,6 +481,21 @@ final class LocalBrokerServer implements Closeable {
             return reportShellHelperStatus(requestId, command, message.optJSONObject("params"));
         }
 
+        if ("experiment.get_control".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("control", state.experimentControlJson());
+            return commandAck(requestId, command, true, "experiment_control_status", result);
+        }
+
+        if ("experiment.configure".equals(command)) {
+            return configureExperimentControl(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("experiment.report_status".equals(command)) {
+            return reportExperimentStatus(requestId, command, message.optJSONObject("params"));
+        }
+
         if ("transport.describe_capabilities".equals(command)) {
             return describeTransportCapabilities(requestId, command);
         }
@@ -1119,6 +1134,36 @@ final class LocalBrokerServer implements Closeable {
         result.put("status", status);
         result.put("broadcasts", broadcasts);
         return commandAck(requestId, command, true, "shell_helper_status_reported", result);
+    }
+
+    private JSONObject configureExperimentControl(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject status = state.configureExperimentControl(params);
+        long now = unixNowNs();
+        int broadcasts = broadcastStreamEvent("experiment.control", now, now, status);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("control", status);
+        result.put("broadcasts", broadcasts);
+        return commandAck(requestId, command, true, "experiment_control_configured", result);
+    }
+
+    private JSONObject reportExperimentStatus(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject status = state.reportExperimentStatus(params);
+        long now = unixNowNs();
+        int broadcasts = broadcastStreamEvent("experiment.control", now, now, status);
+        state.acceptedCommands.incrementAndGet();
+
+        JSONObject result = new JSONObject();
+        result.put("control", status);
+        result.put("broadcasts", broadcasts);
+        return commandAck(requestId, command, true, "experiment_status_reported", result);
     }
 
     private JSONObject recordVideoLabMetricSample(

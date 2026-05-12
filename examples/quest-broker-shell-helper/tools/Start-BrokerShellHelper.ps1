@@ -34,7 +34,18 @@ param(
     [switch]$StopProximityWatchdog,
     [int]$ProximityWatchdogDurationMs = 28800000,
     [int]$ProximityWatchdogHoldDurationMs = 28800000,
-    [int]$ProximityWatchdogIntervalMs = 5000
+    [int]$ProximityWatchdogIntervalMs = 5000,
+    [switch]$FocusGuardian,
+    [switch]$StopFocusGuardian,
+    [string]$FocusGuardianMode = 'observe',
+    [string]$FocusGuardianDesiredFocus = 'broker',
+    [string]$FocusTargetPackage = '',
+    [string]$FocusTargetActivity = '',
+    [string]$FocusBrokerPackage = 'com.example.rustyxr.broker',
+    [string]$FocusBrokerActivity = 'com.example.rustyxr.broker.MainActivity',
+    [int]$FocusGuardianDurationMs = 28800000,
+    [int]$FocusGuardianIntervalMs = 1000,
+    [int]$FocusGuardianCooldownMs = 1500
 )
 
 Set-StrictMode -Version Latest
@@ -204,10 +215,42 @@ if ($ProximityWatchdog) {
 if ($StopProximityWatchdog) {
     $helperArgs += '--stop-proximity-watchdog'
 }
+if ($FocusGuardian) {
+    $helperArgs += @(
+        '--focus-guardian',
+        '--focus-guardian-mode', $FocusGuardianMode,
+        '--focus-guardian-desired-focus', $FocusGuardianDesiredFocus,
+        '--focus-guardian-duration-ms', $FocusGuardianDurationMs.ToString(),
+        '--focus-guardian-interval-ms', $FocusGuardianIntervalMs.ToString(),
+        '--focus-guardian-cooldown-ms', $FocusGuardianCooldownMs.ToString()
+    )
+    if (-not [string]::IsNullOrWhiteSpace($FocusTargetPackage)) {
+        $helperArgs += @('--focus-target-package', $FocusTargetPackage)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($FocusTargetActivity)) {
+        $helperArgs += @('--focus-target-activity', $FocusTargetActivity)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($FocusBrokerPackage)) {
+        $helperArgs += @('--focus-broker-package', $FocusBrokerPackage)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($FocusBrokerActivity)) {
+        $helperArgs += @('--focus-broker-activity', $FocusBrokerActivity)
+    }
+}
+if ($StopFocusGuardian) {
+    $helperArgs += '--stop-focus-guardian'
+}
 
-if ($ProximityWatchdog -and -not $StopProximityWatchdog) {
-    $deviceCommand = (($helperArgs | Select-Object -Skip 1) -join ' ') + ' > /data/local/tmp/rusty-xr-proximity-watchdog.log 2>&1 &'
-    Invoke-Adb -Arguments @('shell', 'sh', '-c', $deviceCommand)
+if (($ProximityWatchdog -or $FocusGuardian) -and -not $StopProximityWatchdog -and -not $StopFocusGuardian) {
+    $logFile = if ($FocusGuardian) { '/data/local/tmp/rusty-xr-focus-guardian.log' } else { '/data/local/tmp/rusty-xr-proximity-watchdog.log' }
+    $deviceCommand = (($helperArgs | Select-Object -Skip 1) -join ' ') + " > $logFile 2>&1 &"
+    $singleQuote = [char]39
+    $doubleQuote = [char]34
+    $escapedDeviceCommand = $deviceCommand.Replace(
+        "$singleQuote",
+        "$singleQuote$doubleQuote$singleQuote$doubleQuote$singleQuote")
+    $quotedDeviceCommand = "$singleQuote$escapedDeviceCommand$singleQuote"
+    Invoke-Adb -Arguments @('shell', "sh -c $quotedDeviceCommand")
 } else {
     Invoke-Adb -Arguments $helperArgs
 }

@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rusty XR Quest Visual Stimulus</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --fg: #f7f7f7;
+      --bg: #050505;
+      --mid: #2c2c2c;
+      --accent: #00e5ff;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    #stage {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+      background: #000;
+    }
+    .cell {
+      box-sizing: border-box;
+      border: 1px solid #111;
+      background: #000;
+    }
+    .white { background: #fff; }
+    .black { background: #000; }
+    .gray { background: #777; }
+    #pulse {
+      position: fixed;
+      left: 32%;
+      top: 22%;
+      width: 36%;
+      height: 56%;
+      box-sizing: border-box;
+      border: 2.4vmin solid #000;
+      background: #fff;
+      mix-blend-mode: normal;
+    }
+    #edgeTop, #edgeBottom {
+      position: fixed;
+      left: 0;
+      width: 100%;
+      height: 3.5vmin;
+      background: repeating-linear-gradient(90deg, #fff 0 5vmin, #000 5vmin 10vmin);
+    }
+    #edgeTop { top: 0; }
+    #edgeBottom { bottom: 0; transform: translateZ(0) scaleX(-1); }
+    #edgeLeft, #edgeRight {
+      position: fixed;
+      top: 0;
+      width: 3.5vmin;
+      height: 100%;
+      background: repeating-linear-gradient(180deg, #fff 0 5vmin, #000 5vmin 10vmin);
+    }
+    #edgeLeft { left: 0; }
+    #edgeRight { right: 0; transform: translateZ(0) scaleY(-1); }
+    .corner {
+      position: fixed;
+      width: 11vmin;
+      height: 11vmin;
+      box-sizing: border-box;
+      background: #fff;
+      border: 2vmin solid #000;
+      outline: 1.4vmin solid #fff;
+    }
+    #c1 { left: 6vmin; top: 6vmin; }
+    #c2 { right: 6vmin; top: 6vmin; }
+    #c3 { left: 6vmin; bottom: 6vmin; }
+    #c4 { right: 6vmin; bottom: 6vmin; }
+    #status {
+      position: fixed;
+      left: 50%;
+      bottom: 4.5vmin;
+      transform: translateX(-50%);
+      min-width: 36vmin;
+      padding: 1.2vmin 1.8vmin;
+      background: rgba(0, 0, 0, 0.72);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      font-size: clamp(14px, 1.8vmin, 28px);
+      text-align: center;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+    #preflight {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: #050505;
+      color: #fff;
+      z-index: 10;
+    }
+    #preflightInner {
+      width: min(78vw, 920px);
+      display: grid;
+      gap: 18px;
+      text-align: center;
+    }
+    #preflight h1 {
+      margin: 0;
+      font-size: clamp(28px, 5vw, 76px);
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    #preflight p {
+      margin: 0;
+      font-size: clamp(16px, 2vw, 28px);
+      line-height: 1.35;
+      color: #d8d8d8;
+    }
+    #startButton {
+      justify-self: center;
+      border: 2px solid #fff;
+      background: #fff;
+      color: #000;
+      font-size: clamp(18px, 2.2vw, 32px);
+      font-weight: 700;
+      padding: 14px 24px;
+      cursor: pointer;
+    }
+    #startButton:disabled {
+      background: #333;
+      color: #aaa;
+      border-color: #777;
+      cursor: default;
+    }
+    .server #startButton { display: none; }
+    .running #preflight { display: none; }
+  </style>
+</head>
+<body>
+  <main id="stage" aria-label="Quest camera/composite timing stimulus"></main>
+  <div id="pulse"></div>
+  <div id="edgeTop"></div>
+  <div id="edgeBottom"></div>
+  <div id="edgeLeft"></div>
+  <div id="edgeRight"></div>
+  <div id="c1" class="corner"></div>
+  <div id="c2" class="corner"></div>
+  <div id="c3" class="corner"></div>
+  <div id="c4" class="corner"></div>
+  <div id="status">ARMED</div>
+  <section id="preflight">
+    <div id="preflightInner">
+      <h1>SYNC TARGET</h1>
+      <p id="preflightText">Put this laptop screen in the Quest camera view. Press Start, Space, or let the capture watcher start it.</p>
+      <button id="startButton" type="button">Start Stimulus</button>
+    </div>
+  </section>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const sessionId = params.get("session_id") || `stimulus-${Date.now()}`;
+    const hz = Math.max(0.25, Number(params.get("hz") || "2"));
+    const durationSeconds = Math.max(1, Number(params.get("duration") || "90"));
+    const serverControl = params.get("control") === "server";
+    const logEveryCycle = params.get("log_cycles") !== "0";
+    const stage = document.getElementById("stage");
+    const pulse = document.getElementById("pulse");
+    const status = document.getElementById("status");
+    const preflight = document.getElementById("preflight");
+    const preflightText = document.getElementById("preflightText");
+    const startButton = document.getElementById("startButton");
+    const cells = [];
+    let running = false;
+    let stopped = false;
+    let startPerfMs = 0;
+    let startDateMs = 0;
+    let lastCycle = -1;
+    let statePoll = null;
+
+    if (serverControl) {
+      document.body.classList.add("server");
+      preflightText.textContent = "Armed. Click once or press F11 to fullscreen the browser; the capture watcher starts the pattern after the target capture reports its first frame.";
+    }
+
+    for (let i = 0; i < 64; i += 1) {
+      const cell = document.createElement("div");
+      cell.className = "cell black";
+      stage.appendChild(cell);
+      cells.push(cell);
+    }
+
+    function grayCode(value) {
+      return value ^ (value >> 1);
+    }
+
+    function bit(value, index) {
+      return (value >> index) & 1;
+    }
+
+    function setCell(index, on) {
+      cells[index].className = `cell ${on ? "white" : "black"}`;
+    }
+
+    async function postEvent(event) {
+      const payload = {
+        session_id: sessionId,
+        client_event: event,
+        client_date_now_ms: Date.now(),
+        client_perf_now_ms: performance.now(),
+        client_time_origin_ms: performance.timeOrigin,
+        user_agent: navigator.userAgent
+      };
+      try {
+        await fetch("/event", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }).then((response) => {
+          if (response.status === 409) {
+            stopped = true;
+            running = false;
+            status.textContent = `STALE ${sessionId}`;
+          }
+        });
+      } catch (_) {
+      }
+    }
+
+    function renderPattern(cycle) {
+      const code = grayCode(cycle >>> 0);
+      const seconds = Math.floor(cycle / hz);
+      for (let i = 0; i < 64; i += 1) {
+        const row = Math.floor(i / 8);
+        const col = i % 8;
+        let on;
+        if (row === 0) {
+          on = bit(code, col) === 1;
+        } else if (row === 1) {
+          on = bit(code, col + 8) === 1;
+        } else if (row === 6) {
+          on = bit(seconds, col) === 1;
+        } else if (row === 7) {
+          on = ((cycle + col) % 2) === 0;
+        } else {
+          on = (((cycle * 1103515245 + i * 12345) >>> (i % 16)) & 1) === 1;
+        }
+        setCell(i, on);
+      }
+      const pulseOn = (cycle % 2) === 0;
+      pulse.style.background = pulseOn ? "#fff" : "#000";
+      pulse.style.borderColor = pulseOn ? "#000" : "#fff";
+      document.body.style.background = pulseOn ? "#050505" : "#f7f7f7";
+      status.textContent = `RUN ${sessionId}  CYCLE ${cycle}`;
+    }
+
+    function animationLoop() {
+      if (!running || stopped) {
+        requestAnimationFrame(animationLoop);
+        return;
+      }
+      const elapsedMs = performance.now() - startPerfMs;
+      const elapsedSeconds = elapsedMs / 1000;
+      if (elapsedSeconds >= durationSeconds) {
+        stopped = true;
+        running = false;
+        status.textContent = `STOP ${sessionId}`;
+        postEvent({
+          type: "visual_stop",
+          elapsed_ms: elapsedMs,
+          duration_seconds: durationSeconds,
+          last_cycle: lastCycle
+        });
+        fetch("/control/stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, source: "browser_visual_stop" })
+        }).catch(() => {});
+        requestAnimationFrame(animationLoop);
+        return;
+      }
+      const cycle = Math.floor(elapsedSeconds * hz);
+      if (cycle !== lastCycle) {
+        lastCycle = cycle;
+        renderPattern(cycle);
+        if (logEveryCycle) {
+          postEvent({
+            type: "cycle",
+            cycle,
+            elapsed_ms: elapsedMs,
+            hz,
+            value: cycle % 2
+          });
+        }
+      }
+      requestAnimationFrame(animationLoop);
+    }
+
+    async function enterFullscreen() {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (_) {
+      }
+    }
+
+    async function startStimulus(source, serverState) {
+      if (running || stopped) return;
+      await enterFullscreen();
+      startPerfMs = performance.now();
+      startDateMs = Date.now();
+      running = true;
+      document.body.classList.add("running");
+      await postEvent({
+        type: "visual_start",
+        source,
+        hz,
+        duration_seconds: durationSeconds,
+        start_date_ms: startDateMs,
+        start_perf_ms: startPerfMs,
+        server_state: serverState || null
+      });
+    }
+
+    startButton.addEventListener("click", () => {
+      startStimulus("manual_button", null);
+    });
+
+    preflight.addEventListener("click", () => {
+      if (serverControl && !running && !stopped) {
+        enterFullscreen();
+      }
+    });
+
+    window.addEventListener("keydown", (event) => {
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (serverControl) {
+          enterFullscreen();
+        } else {
+          startStimulus("manual_space", null);
+        }
+      }
+    });
+
+    window.addEventListener("beforeunload", () => {
+      navigator.sendBeacon && navigator.sendBeacon("/event", JSON.stringify({
+        session_id: sessionId,
+        client_event: { type: "page_unload", last_cycle: lastCycle },
+        client_date_now_ms: Date.now(),
+        client_perf_now_ms: performance.now(),
+        client_time_origin_ms: performance.timeOrigin,
+        user_agent: navigator.userAgent
+      }));
+    });
+
+    async function pollServerState() {
+      if (!serverControl || running || stopped) return;
+      try {
+        const response = await fetch("/state", { cache: "no-store" });
+        const state = await response.json();
+        if (state.session_id !== sessionId) {
+          stopped = true;
+          status.textContent = `STALE ${sessionId}`;
+          clearInterval(statePoll);
+          return;
+        }
+        if (state.running) {
+          await startStimulus("server_control", state);
+          clearInterval(statePoll);
+        }
+      } catch (_) {
+      }
+    }
+
+    postEvent({
+      type: "page_loaded",
+      control: serverControl ? "server" : "manual",
+      hz,
+      duration_seconds: durationSeconds,
+      viewport: [window.innerWidth, window.innerHeight]
+    });
+    renderPattern(0);
+    if (serverControl) {
+      statePoll = setInterval(pollServerState, 100);
+      pollServerState();
+    }
+    requestAnimationFrame(animationLoop);
+  </script>
+</body>
+</html>

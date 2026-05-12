@@ -408,6 +408,7 @@ pub(crate) enum CameraPipelinePreset {
     RawProjectionWarmBorderUnorm,
     RawProjectionCyclingBorderUnorm,
     RawProjectionUnderlayUnorm,
+    ProjectionAreaDiagnosticUnorm,
 }
 
 impl CameraPipelinePreset {
@@ -465,6 +466,10 @@ impl CameraPipelinePreset {
             | "raw-projection-alpha-underlay-unorm"
             | "direct-raw-projection-underlay-unorm"
             | "fast-raw-underlay-unorm" => Some(Self::RawProjectionUnderlayUnorm),
+            "projection-area-diagnostic-unorm"
+            | "camera-projection-area-diagnostic-unorm"
+            | "raw-projection-area-diagnostic-unorm"
+            | "fast-projection-area-diagnostic-unorm" => Some(Self::ProjectionAreaDiagnosticUnorm),
             _ => None,
         }
     }
@@ -487,6 +492,7 @@ impl CameraPipelinePreset {
             Self::RawProjectionWarmBorderUnorm => "raw-projection-warm-border-unorm",
             Self::RawProjectionCyclingBorderUnorm => "raw-projection-cycling-border-unorm",
             Self::RawProjectionUnderlayUnorm => "raw-projection-underlay-unorm",
+            Self::ProjectionAreaDiagnosticUnorm => "projection-area-diagnostic-unorm",
         }
     }
 }
@@ -2151,6 +2157,15 @@ fn apply_camera_pipeline_preset(config: &mut RuntimeConfig) {
             OpenXrColorFormatMode::Rgba8Unorm,
             OpenXrPassthroughProbeMode::Underlay,
         ),
+        CameraPipelinePreset::ProjectionAreaDiagnosticUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::ProjectionAreaDiagnostic,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
     };
     config.camera_feed_pipeline_mode = feed_mode;
     config.camera_color_mode = color_mode;
@@ -3760,6 +3775,46 @@ mod tests {
         assert_eq!(
             config.camera_projection_effect_mode,
             CameraProjectionEffectMode::RawProjectionFast
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.camera_sampler_binding_mode,
+            CameraSamplerBindingMode::CombinedImmutableSampler
+        );
+        assert_eq!(
+            config.camera_import_image_layout_mode,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition
+        );
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+    }
+
+    #[test]
+    fn runtime_config_projection_area_diagnostic_preset_keeps_raw_geometry() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("projection-area-diagnostic-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            camera_feed_pipeline_mode: Some("projected-feed".to_string()),
+            camera_color_mode: Some("debug-red-only".to_string()),
+            camera_sampler_binding_mode: Some("separate-image-sampler".to_string()),
+            camera_import_image_layout_mode: Some("general-no-transition".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::ProjectionAreaDiagnosticUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::ProjectionAreaDiagnostic
         );
         assert_eq!(
             config.camera_feed_pipeline_mode,

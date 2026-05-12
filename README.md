@@ -240,6 +240,12 @@ fork branch is documented in
 [docs/MAKEPAD_FORK_RELATIONSHIP.md](docs/MAKEPAD_FORK_RELATIONSHIP.md).
 The active Makepad stereo-comparison implementation ledger is tracked in
 [docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).
+The dedicated Quest stereo alignment workflow, including screenshot analysis
+and optional MediaProjection witness handling, is documented in
+[docs/QUEST_STEREO_ALIGNMENT_WORKFLOW.md](docs/QUEST_STEREO_ALIGNMENT_WORKFLOW.md).
+Browser-based physical-screen stimulus tooling for camera and final-display
+capture alignment runs lives in
+[tools/quest-visual-stimulus/README.md](tools/quest-visual-stimulus/README.md).
 The first implementation slices add source-only `build-manifest.public.json`
 files beside the public Android examples, the standalone Makepad smoke shell,
 and `tools/schema/check_android_build_manifest.py` to validate them.

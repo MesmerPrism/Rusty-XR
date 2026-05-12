@@ -278,14 +278,38 @@ codec diagnostics, shell-visible camera metadata, and Camera2 open/capture
 feasibility through `shell_helper.report_status`. The source-only helper
 example lives in `examples/quest-broker-shell-helper`.
 
-The same helper can optionally run a shell-side proximity watchdog for long
-off-face development sessions. It reads `dumpsys vrpowermanager` and only
-re-applies `com.oculus.vrpowermanager.prox_close` when the virtual proximity
-state is not already `CLOSE`. This is intended to be idempotent with an
-external companion watchdog: both preserve the same close state, and neither
-helper restores normal proximity while a hold is being preserved. Stop the
-shell helper before intentionally returning the headset to normal wear-sensor
-behavior.
+The same helper can optionally run long-lived shell-side watchdogs. The
+proximity watchdog reads `dumpsys vrpowermanager` and only re-applies
+`com.oculus.vrpowermanager.prox_close` when the virtual proximity state is not
+already `CLOSE`. The focus guardian reads foreground-window state, polls the
+broker's experiment-control state, applies whitelisted `debug.rustyxr.*`
+runtime properties, and reactively relaunches either the broker console or a
+target app after Meta shell takes focus. This is recovery after focus loss, not
+a pre-emptive Home-button intercept, and it should not be used to dismiss
+Guardian, permission, package-installer, or safety UI.
+
+For target launches that might strand the headset while projection tuning is
+still unstable, use the `launch_target_guard` mode. In that mode the shell
+helper applies the current whitelisted runtime properties, launches the target,
+and observes foreground state. Package-only target launches prefer a
+`MAIN` intent with `com.oculus.intent.category.VR`, then fall back to the
+normal launcher path for non-XR targets. Foreground focus is not treated as
+full target health: the same bounded guard window also acts as a preview window
+after the target reaches foreground. If the target never reaches foreground, or
+if the preview window expires without a return transition, the helper
+force-stops the target and rolls back to broker. If Meta Home/menu takes focus
+while the target is active, the helper foregrounds the broker console. The
+helper turns experiment mode back to `off` only after broker focus is
+confirmed.
+
+For XR projection tuning, treat foreground focus and successful `am start`
+output as launch-routing evidence only. A target-visible witness still needs a
+real headset or captured-display visual check. Loading environments, shell
+overlays, and unmarked full-screen camera imagery can look plausible while the
+app is not actually presenting the custom projection. Validation targets should
+render an unmistakable app-owned marker, such as a red projection border, and
+should keep native passthrough disabled when testing whether camera pixels come
+from the target app.
 
 `video_lab.register_encoded_stream_manifest` and
 `video_lab.record_encoded_sample_metadata` define the control-plane shape for a
@@ -301,11 +325,28 @@ verifies platform decoder consumption with byte-buffer output only.
 Decode-to-texture and XR layer submission remain separate client/provider work.
 
 XR clients can bring the 2D broker console to the foreground by sending the
-`open_ui` broker command. The console has Dashboard, Polar, Launcher, Streams,
-Commands, and Diagnostics pages plus a `Return to XR App` button. The button
-and the `close_ui` broker command both finish only the broker console Activity
-while leaving the broker foreground service running; they do not start or
-relaunch a target app.
+`open_ui` broker command. The console has Dashboard, Experiment, Polar,
+Launcher, Streams, Commands, and Diagnostics pages plus a `Return to XR App`
+button. The button and the `close_ui` broker command both finish only the
+broker console Activity while leaving the broker foreground service running;
+they do not start or relaunch a target app.
+
+The `Experiment` page is a headset-local manual tuning surface. It stores a
+target package/activity, a focus-guardian mode, and the public Makepad Q2Q
+hotload knobs for horizontal strength, global/left/right/symmetric/vertical UV
+offsets, and content scale. The broker APK itself does not have permission to
+write Android system properties, so knob changes become active when an
+authorized ADB-launched shell helper is running with `--focus-guardian`. In
+`toggle_broker_target` mode, the helper treats a Meta shell/Home transition
+from the target as a request to foreground the broker, and a Meta shell/Home
+transition from the broker as a request to foreground the target.
+`Apply + Target` and `Launch Target` use `launch_target_guard` instead of a
+direct broker-side launch, so the shell helper must be connected before those
+buttons can switch into the target app. While that guarded launch is active, a
+Meta Home/menu transition from the target is treated as the return path to the
+broker rather than a request to reopen the target; if the target appears
+foregrounded but remains unusable, the bounded preview window returns to broker
+without requiring headset input.
 
 The `Polar` page is the headset-local control path for the direct Android BLE
 Polar PMD source. It can request the broker APK's Bluetooth runtime permission,

@@ -2981,15 +2981,22 @@ unsafe fn run_vulkan(
                                     controls.source_eye_mapping,
                                 );
                             let aligned_projection = projection_active;
+                            let projection_homography_fields = projection_homographies
+                                .as_ref()
+                                .map(projected_homography_marker_fields)
+                                .unwrap_or_else(|| {
+                                    "projectionHomographyReady=false projectionAreaTransformStage=none projectionAreaWarpParity=reference_unwarped_screen_uv".to_string()
+                                });
                             let orientation_accepted =
                                 controls.left_texture_transform.is_explicit_visual_check()
                                     && controls.right_texture_transform.is_explicit_visual_check();
                             log_info(format!(
-                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode=metrics-only cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
+                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode=metrics-only cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
                                 stereo_frame.index,
                                 frame_count,
                                 session_focused,
                                 aligned_projection,
+                                projection_homography_fields,
                                 pose_source,
                                 pose_reference,
                                 pose_convention,
@@ -5427,6 +5434,7 @@ struct ProjectedStereoHomographies {
 
 #[derive(Clone, Copy)]
 struct DisplayEyeProjectionMapping {
+    surface_to_camera: [[f32; 3]; 3],
     screen_to_camera: [[f32; 3]; 3],
     screen_to_surface: [[f32; 3]; 3],
     surface_to_screen: [[f32; 3]; 3],
@@ -5631,6 +5639,28 @@ fn pack_homography_row(row: [f32; 3]) -> [f32; 4] {
     [row[0], row[1], row[2], 0.0]
 }
 
+fn homography_token(rows: [[f32; 3]; 3]) -> String {
+    rows.iter()
+        .flat_map(|row| row.iter())
+        .map(|value| format!("{value:.6}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn projected_homography_marker_fields(homographies: &ProjectedStereoHomographies) -> String {
+    format!(
+        "projectionHomographyReady=true projectionAreaTransformStage=none projectionAreaWarpParity=reference_unwarped_screen_uv leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={}",
+        homography_token(homographies.left.surface_to_camera),
+        homography_token(homographies.right.surface_to_camera),
+        homography_token(homographies.left.screen_to_camera),
+        homography_token(homographies.right.screen_to_camera),
+        homography_token(homographies.left.screen_to_surface),
+        homography_token(homographies.right.screen_to_surface),
+        homography_token(homographies.left.surface_to_screen),
+        homography_token(homographies.right.surface_to_screen),
+    )
+}
+
 fn projected_stereo_homographies(
     frame: &StereoGpuCameraFrame,
     config: &crate::RuntimeConfig,
@@ -5749,6 +5779,7 @@ fn projected_display_eye_homography(
     let screen_to_camera =
         screen_to_camera_uv_homography(surface_to_screen, surface_to_camera).ok()?;
     Some(DisplayEyeProjectionMapping {
+        surface_to_camera,
         screen_to_camera,
         screen_to_surface,
         surface_to_screen,

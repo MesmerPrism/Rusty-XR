@@ -87,6 +87,54 @@ Build the Quest APK from this example directory:
 cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" build -p rusty-xr-makepad-q2q-camera-shell --release
 ```
 
+For projection-footprint alignment work, build a distinct alignment APK rather
+than reusing the Q2Q package identity:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
+  -SdkPath <local-makepad-android-sdk>
+```
+
+Enable the synthetic footprint target before the alignment launch when the goal
+is to compare the Makepad `screen_to_camera` footprint against the Rusty XR
+diagnostic profile without live camera pixels:
+
+```powershell
+adb shell setprop debug.rustyxr.makepad.projection.area.diagnostic 1
+```
+
+Set the diagnostic to `2` for footprint-only comparison. This keeps the
+camera-domain projection target and colored border but suppresses the
+screen-to-surface white guide, which can move when projection-area offsets are
+being tuned and is not part of stage-1 footprint alignment.
+
+When the diagnostic footprint itself needs tuning, use the same hotload helper
+with the projection-area offsets, scales, X keystone, and midpoint bow. These
+controls adjust the screen-space UVs before the Makepad `screen_to_camera` and
+`screen_to_surface` homographies are evaluated, so they affect the footprint
+target rather than the camera-content window. Treat them as diagnostic probes:
+the reset/default state keeps keystone and bow neutral because the Rusty XR
+reference path does not apply an equivalent pre-homography screen-domain warp.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Send-MakepadQ2QHorizontalOffset.ps1 `
+  -ProjectionAreaDiagnostic 2 `
+  -ProjectionAreaLeftUv <left-eye-uv-offset> `
+  -ProjectionAreaRightUv <right-eye-uv-offset> `
+  -ProjectionAreaVerticalUv <vertical-uv-offset> `
+  -ProjectionAreaScaleX <horizontal-scale> `
+  -ProjectionAreaScaleY <vertical-scale> `
+  -ProjectionAreaKeystoneX <x-keystone> `
+  -ProjectionAreaBowX <midpoint-x-bow>
+```
+
+For live-camera review, the app-owned red border is a projection-footprint
+witness only when logs also identify `liveCameraWindowDomain=projected_camera_uv`
+and `s118ProjectedFootprintLiveWindow=true`. Earlier red-border slices could
+draw the marker around a centered in-surface camera window, which made the
+marked images appear farther apart than the Rusty XR projected footprint even
+when the homography matrices were nearly identical.
+
 Run on a selected Quest device:
 
 ```powershell
@@ -183,8 +231,11 @@ hardware-buffer, and stale-marker counters. Record whether the run was
   desktop/tooling runs. The camera-alignment lane also has a narrow Android
   property hotload adapter for live headset tuning:
   `tools/Send-MakepadQ2QHorizontalOffset.ps1` writes `debug.rustyxr` properties
-  for horizontal alignment strength and additive left/right UV offsets, and the
-  running app polls those values.
+  for horizontal alignment strength, additive left/right/vertical UV offsets,
+  projection-footprint offsets/scales/X-keystone/midpoint bow, the synthetic
+  projection-area diagnostic toggle, and camera-window content scale; the
+  running app polls those values. The projection-footprint keystone and bow
+  controls are pre-homography diagnostics and reset to neutral.
 - The first shared-core bridge is deliberately small: resolved profile values
   pass through `rusty-xr-runtime-config` before logging. Camera metadata,
   stream framing, and scorecard models should be added the same way, through
@@ -487,6 +538,17 @@ hardware-buffer, and stale-marker counters. Record whether the run was
   because it best matched the public target's normalized left/right
   camera-content disparity while staying below the higher-strength range where
   edge striping became visible.
+- Current S109 validation slice: camera-looking output is not sufficient visual
+  proof when native passthrough may be active or the projection is full-screen.
+  This slice disables native passthrough for the example and draws an
+  unmistakable red border around the app-owned camera projection window. Treat
+  screenshots without that marker as launch/presentation evidence only, not
+  alignment evidence.
+- Current S110 tuning slice: the camera-window sampler has a vertical UV
+  hotload knob in the same `debug.rustyxr` property lane as the horizontal
+  offsets and content scale. Keep per-device values in run notes or broker
+  state; do not bake headset-specific alignment constants into reusable source
+  without a separate public validation pass.
 - Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
   Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
   texture-update counters. The S14 active launcher sample reported

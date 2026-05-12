@@ -36,6 +36,12 @@ watchdog that reads `dumpsys vrpowermanager` and re-broadcasts
 `com.oculus.vrpowermanager.prox_close` only when the virtual proximity state is
 not already `CLOSE`. The helper never broadcasts `automation_disable`; stop the
 watchdog first when intentionally returning to normal wear-sensor behavior.
+With `--focus-guardian`, it runs a bounded focus-recovery loop. The helper polls
+the broker's `experiment.get_control` command, applies only whitelisted
+`debug.rustyxr.*` runtime properties from that control state, samples
+`dumpsys window windows`, and can reactively launch a target app or the broker
+console after Meta shell takes foreground. This mode is a recovery mechanism
+after focus loss, not a protected system-button interceptor.
 
 The camera open/capture path is diagnostic only. It does not keep a camera
 session alive or provide frame transport to clients yet. Future helper slices
@@ -70,7 +76,9 @@ powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\to
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -EmitMediaCodecSyntheticVideo -EncodedVideoFrames 4 -EncodedVideoWidth 320 -EncodedVideoHeight 180
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -EmitScreenrecordVideo -EncodedVideoWidth 320 -EncodedVideoHeight 180 -EncodedVideoBitrate 500000 -ScreenrecordTimeLimit 1 -BinaryVideoPackets 30 -BinaryVideoPacketBytes 16384
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -ProximityWatchdog
-powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -Disconnect -StopProximityWatchdog
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -FocusGuardian -FocusGuardianMode toggle_broker_target
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -FocusGuardian -FocusGuardianMode launch_target_guard
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -Disconnect -StopProximityWatchdog -StopFocusGuardian
 ```
 
 From the sibling Rusty XR Companion Apps source checkout, the same lifecycle can
@@ -86,6 +94,8 @@ dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- bro
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper binary-probe --serial <serial> --rusty-xr-root . --mediacodec-synthetic --encoded-video-frames 4 --encoded-video-width 320 --encoded-video-height 180 --json
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper binary-probe --serial <serial> --rusty-xr-root . --screenrecord-source --encoded-video-width 320 --encoded-video-height 180 --encoded-video-bitrate 500000 --screenrecord-time-limit 1 --json
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root . --proximity-watchdog --json
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root . --focus-guardian --focus-guardian-mode toggle_broker_target --json
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root . --focus-guardian --focus-guardian-mode launch_target_guard --json
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper status --serial <serial> --json
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper stop --serial <serial> --rusty-xr-root . --no-build --json
 ```
@@ -118,6 +128,32 @@ Expected result:
 - when MediaCodec synthetic video is enabled, broker receives one
   `video_lab.record_metric_sample` for helper encode/write timing and
   drop/stale/queue counters
+- when focus guardian is enabled, broker status includes
+  `experimentControl.helper_status` and
+  `shellHelper.diagnostics.focus_guardian`; the broker `Experiment` page can
+  update target package/activity, recovery mode, and tuning properties without
+  restarting the helper. Broker-side recovery asks the broker service to run
+  `open_ui` first, then falls back to shell launcher commands; target-side
+  recovery prefers an Oculus VR-category `MAIN` launch when no explicit
+  activity is set, then falls back to the normal package launcher path.
+  `toggle_broker_target` treats `desired_focus` as a requested side, not as
+  proof of the foreground side; the helper updates `active_side` only after
+  foreground readback observes the target or broker package. The toggle path
+  also ignores non-target/non-broker foreground states during a short launch
+  transition grace window, so normal shell launch transitions do not look like
+  deliberate Home/menu interruptions.
+  `launch_target_guard` is the bounded safe-launch mode for unstable target
+  apps: it applies properties, launches the target from shell, and treats the
+  configured guard window as a foreground preview window. If the target never
+  reaches foreground, or if the preview window expires while the target is still
+  foregrounded, the helper force-stops the target and rolls back to broker. If
+  Meta Home/menu takes focus while the target is the active side, the helper
+  foregrounds the broker console and only disables the experiment mode after
+  broker focus is confirmed. Foreground focus is not visual success; projection
+  tuning runs should pair these signals with a captured-display or operator
+  witness, and custom camera projection targets should render an app-owned
+  marker such as a red projection border when native passthrough could make
+  camera-looking output ambiguous.
 - when screenrecord video is enabled, the host receives bounded H.264 chunks
   captured from the display by the Android shell `screenrecord` command over
   the same binary framing

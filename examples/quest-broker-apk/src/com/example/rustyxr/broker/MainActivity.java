@@ -54,7 +54,12 @@ public final class MainActivity extends Activity {
     private static final long DEFAULT_POLAR_UI_SCAN_TIMEOUT_MS = 60_000L;
     private static final long DEFAULT_STATUS_REFRESH_MS = 2_000L;
     private static final long POLAR_STATUS_REFRESH_MS = 500L;
-    private static final String[] PAGES = { "Dashboard", "Polar", "Launcher", "Streams", "Commands", "Diagnostics" };
+    private static final long EXPERIMENT_STATUS_REFRESH_MS = 1_000L;
+    private static final String DEFAULT_EXPERIMENT_TARGET_PACKAGE = "io.github.mesmerprism.rustyxr.makepad.q2q";
+    private static final String DEFAULT_EXPERIMENT_TARGET_ACTIVITY = "";
+    private static final int DEFAULT_EXPERIMENT_LAUNCH_GUARD_TIMEOUT_MS = 20_000;
+    private static final boolean DEFAULT_EXPERIMENT_LAUNCH_GUARD_PREVIEW_TIMEOUT_ENABLED = false;
+    private static final String[] PAGES = { "Dashboard", "Experiment", "Polar", "Launcher", "Streams", "Commands", "Diagnostics" };
     private static volatile WeakReference<MainActivity> activeActivity = new WeakReference<>(null);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -96,6 +101,17 @@ public final class MainActivity extends Activity {
     private String polarBreathVolumeDelta = "";
     private String polarBreathAccBaseMode = "";
     private String polarBreathInvertVolume = "";
+    private boolean experimentDraftLoaded;
+    private String experimentTargetPackage = DEFAULT_EXPERIMENT_TARGET_PACKAGE;
+    private String experimentTargetActivity = DEFAULT_EXPERIMENT_TARGET_ACTIVITY;
+    private String experimentMode = "observe";
+    private String experimentStrength = "0";
+    private String experimentGlobalUv = "0";
+    private String experimentLeftUv = "0";
+    private String experimentRightUv = "0";
+    private String experimentVerticalUv = "0";
+    private String experimentSymmetricUv = "";
+    private String experimentContentScale = "1.60";
     private boolean statusRefreshInFlight;
 
     @Override
@@ -488,6 +504,8 @@ public final class MainActivity extends Activity {
             showTextPage(buildCommands(status));
         } else if ("Polar".equals(currentPage)) {
             renderPolarPage(status);
+        } else if ("Experiment".equals(currentPage)) {
+            renderExperimentPage(status);
         } else if ("Diagnostics".equals(currentPage)) {
             showTextPage(buildDiagnostics(status));
         } else {
@@ -694,6 +712,421 @@ public final class MainActivity extends Activity {
             });
             resultRow.addView(launchButton, wrapParams(10, 0, 0, 0));
             pagePanel.addView(resultRow, matchWrapParams(0, 0, 0, 8));
+        }
+    }
+
+    private void renderExperimentPage(final JSONObject status) {
+        final int previousScrollY = pageScroll != null ? pageScroll.getScrollY() : 0;
+        pagePanel.removeAllViews();
+        if (!experimentDraftLoaded) {
+            loadExperimentDraftFromStatus(status);
+        }
+
+        addSectionTitle("EXPERIMENT CONTROL");
+        addBodyText("Configure a target app, apply hotload properties, and let the ADB shell helper reactively recover focus when Meta shell takes foreground.");
+
+        TextView statusText = textView(14, false, TEXT);
+        statusText.setTypeface(Typeface.MONOSPACE);
+        statusText.setLineSpacing(0f, 1.08f);
+        statusText.setText(buildExperimentConsoleStatus(status));
+        pagePanel.addView(statusText, matchWrapParams(0, 0, 0, 14));
+
+        addSectionTitle("TARGET");
+        final EditText targetPackageEdit = draftEditText("Target package", experimentTargetPackage, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                experimentTargetPackage = value;
+            }
+        });
+        pagePanel.addView(targetPackageEdit, matchWrapParams(0, 0, 0, 8));
+
+        final EditText targetActivityEdit = draftEditText("Target activity (optional)", experimentTargetActivity, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                experimentTargetActivity = value;
+            }
+        });
+        pagePanel.addView(targetActivityEdit, matchWrapParams(0, 0, 0, 8));
+
+        final EditText modeEdit = draftEditText("Mode: off, observe, recover_target, recover_broker, toggle_broker_target, launch_target_guard, strict", experimentMode, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                experimentMode = value;
+            }
+        });
+        pagePanel.addView(modeEdit, matchWrapParams(0, 0, 0, 12));
+
+        LinearLayout modeRow = row();
+        Button observeButton = actionButton("Observe");
+        observeButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                experimentMode = "observe";
+                applyExperimentControl("broker", experimentMode, false, false);
+            }
+        });
+        modeRow.addView(observeButton);
+
+        Button toggleButton = actionButton("Toggle Kiosk");
+        toggleButton.setTextColor(Color.rgb(7, 24, 18));
+        toggleButton.setBackground(panelBackground(ACCENT_STRONG, 12, ACCENT_STRONG));
+        toggleButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                experimentMode = "toggle_broker_target";
+                applyExperimentControl("broker", experimentMode, false, false);
+            }
+        });
+        modeRow.addView(toggleButton, wrapParams(10, 0, 0, 0));
+
+        Button offButton = actionButton("Off");
+        offButton.setTextColor(WARN);
+        offButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                experimentMode = "off";
+                applyExperimentControl("broker", experimentMode, false, false);
+            }
+        });
+        modeRow.addView(offButton, wrapParams(10, 0, 0, 0));
+        pagePanel.addView(modeRow, matchWrapParams(0, 0, 0, 14));
+
+        addSectionTitle("MAKEPAD HOTLOAD");
+        final EditText strengthEdit = draftEditText("strength", experimentStrength, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                experimentStrength = value;
+            }
+        });
+        setDecimalInput(strengthEdit);
+        addExperimentTuningRow("Strength", strengthEdit);
+
+        final EditText globalUvEdit = draftEditText("globalUv", experimentGlobalUv, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                experimentGlobalUv = value;
+            }
+        });
+        setDecimalInput(globalUvEdit);
+        addExperimentTuningRow("Global UV", globalUvEdit);
+
+        final EditText leftUvEdit = draftEditText("leftUv", experimentLeftUv, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                experimentLeftUv = value;
+            }
+        });
+        setDecimalInput(leftUvEdit);
+        addExperimentTuningRow("Left UV", leftUvEdit);
+
+        final EditText rightUvEdit = draftEditText("rightUv", experimentRightUv, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                experimentRightUv = value;
+            }
+        });
+        setDecimalInput(rightUvEdit);
+        addExperimentTuningRow("Right UV", rightUvEdit);
+
+        final EditText verticalUvEdit = draftEditText("verticalUv", experimentVerticalUv, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                experimentVerticalUv = value;
+            }
+        });
+        setDecimalInput(verticalUvEdit);
+        addExperimentTuningRow("Vertical UV", verticalUvEdit);
+
+        final EditText symmetricUvEdit = draftEditText("symmetricUv optional", experimentSymmetricUv, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                experimentSymmetricUv = value;
+            }
+        });
+        setDecimalInput(symmetricUvEdit);
+        addExperimentTuningRow("Symmetric UV", symmetricUvEdit);
+
+        final EditText contentScaleEdit = draftEditText("contentScale", experimentContentScale, new DraftUpdater() {
+            @Override
+            public void update(String value) {
+                experimentContentScale = value;
+            }
+        });
+        setDecimalInput(contentScaleEdit);
+        addExperimentTuningRow("Content scale", contentScaleEdit);
+
+        LinearLayout tuningRow = row();
+        Button applyButton = actionButton("Apply Knobs");
+        applyButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                applyExperimentControl(null, null, false, false);
+            }
+        });
+        tuningRow.addView(applyButton);
+
+        Button resetButton = actionButton("S108 Reset");
+        resetButton.setTextColor(WARN);
+        resetButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                loadExperimentS108Defaults();
+                applyExperimentControl(null, null, true, false);
+            }
+        });
+        tuningRow.addView(resetButton, wrapParams(10, 0, 0, 0));
+
+        Button applyTargetButton = actionButton("Apply + Target");
+        applyTargetButton.setTextColor(Color.rgb(7, 24, 18));
+        applyTargetButton.setBackground(panelBackground(ACCENT_STRONG, 12, ACCENT_STRONG));
+        applyTargetButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                experimentMode = "launch_target_guard";
+                if (!isShellHelperConnected(status)) {
+                    showLaunchToast("Shell helper required for guarded target launch");
+                }
+                applyExperimentControl("target", experimentMode, false, false);
+            }
+        });
+        tuningRow.addView(applyTargetButton, wrapParams(10, 0, 0, 0));
+        pagePanel.addView(tuningRow, matchWrapParams(0, 4, 0, 10));
+
+        LinearLayout focusRow = row();
+        Button launchButton = actionButton("Launch Target");
+        launchButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                experimentMode = "launch_target_guard";
+                if (!isShellHelperConnected(status)) {
+                    showLaunchToast("Shell helper required for guarded target launch");
+                }
+                applyExperimentControl("target", experimentMode, false, false);
+            }
+        });
+        focusRow.addView(launchButton);
+
+        Button brokerButton = actionButton("Broker Focus");
+        brokerButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                applyExperimentControl("broker", null, false, false);
+            }
+        });
+        focusRow.addView(brokerButton, wrapParams(10, 0, 0, 0));
+
+        Button loadButton = actionButton("Load Current");
+        loadButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                loadExperimentDraftFromStatus(status);
+                renderCurrentPage();
+            }
+        });
+        focusRow.addView(loadButton, wrapParams(10, 0, 0, 0));
+        pagePanel.addView(focusRow, matchWrapParams(0, 0, 0, 14));
+
+        if (pageScroll != null && previousScrollY > 0) {
+            pageScroll.post(new Runnable() {
+                @Override
+                public void run() {
+                    pageScroll.scrollTo(0, previousScrollY);
+                }
+            });
+        }
+    }
+
+    private void loadExperimentDraftFromStatus(JSONObject status) {
+        JSONObject control = experimentControlStatus(status);
+        if (control != null) {
+            String targetPackage = control.optString("target_package", "");
+            String targetActivity = control.optString("target_activity", "");
+            if (!TextUtils.isEmpty(targetPackage)) {
+                experimentTargetPackage = targetPackage;
+            }
+            experimentTargetActivity = targetActivity != null ? targetActivity : "";
+            experimentMode = control.optString("mode", experimentMode);
+
+            JSONObject tuning = control.optJSONObject("makepad_tuning");
+            if (tuning != null) {
+                experimentStrength = formatConfigNumber(tuning.optDouble("strength", 0.0d));
+                experimentGlobalUv = formatConfigNumber(tuning.optDouble("global_uv", 0.0d));
+                experimentLeftUv = formatConfigNumber(tuning.optDouble("left_uv", 0.0d));
+                experimentRightUv = formatConfigNumber(tuning.optDouble("right_uv", 0.0d));
+                experimentVerticalUv = formatConfigNumber(tuning.optDouble("vertical_uv", 0.0d));
+                experimentContentScale = formatConfigNumber(tuning.optDouble("content_scale", 1.60d));
+            }
+        }
+        if (TextUtils.isEmpty(experimentTargetPackage)) {
+            experimentTargetPackage = DEFAULT_EXPERIMENT_TARGET_PACKAGE;
+        }
+        experimentDraftLoaded = true;
+    }
+
+    private void loadExperimentS108Defaults() {
+        experimentStrength = "0";
+        experimentGlobalUv = "0";
+        experimentLeftUv = "0";
+        experimentRightUv = "0";
+        experimentVerticalUv = "0";
+        experimentSymmetricUv = "";
+        experimentContentScale = "1.60";
+        experimentDraftLoaded = true;
+    }
+
+    private JSONObject experimentControlStatus(JSONObject status) {
+        return status != null ? status.optJSONObject("experimentControl") : null;
+    }
+
+    private boolean isShellHelperConnected(JSONObject status) {
+        JSONObject shellHelper = status != null ? status.optJSONObject("shellHelper") : null;
+        return shellHelper != null && shellHelper.optBoolean("connected", false);
+    }
+
+    private String buildExperimentConsoleStatus(JSONObject status) {
+        StringBuilder builder = new StringBuilder(900);
+        JSONObject control = experimentControlStatus(status);
+        JSONObject shellHelper = status != null ? status.optJSONObject("shellHelper") : null;
+        if (control == null) {
+            builder.append("Experiment control status is not reported yet.\n");
+        } else {
+            builder.append("enabled       ").append(control.optBoolean("enabled")).append('\n');
+            builder.append("mode          ").append(control.optString("mode", "")).append('\n');
+            builder.append("desired focus ").append(control.optString("desired_focus", "")).append('\n');
+            builder.append("revision      ").append(control.optLong("revision", 0L)).append('\n');
+            builder.append("target pkg    ").append(control.optString("target_package", "")).append('\n');
+            builder.append("target act    ").append(control.optString("target_activity", "")).append('\n');
+            builder.append("guard ms      ").append(control.optInt("launch_guard_timeout_ms", 0)).append('\n');
+            builder.append("preview timer ")
+                .append(control.optBoolean("launch_guard_preview_timeout_enabled", false) ? "on" : "off")
+                .append('\n');
+            JSONObject tuning = control.optJSONObject("makepad_tuning");
+            if (tuning != null) {
+                builder.append("strength      ").append(formatConfigNumber(tuning.optDouble("strength", 0.0d))).append('\n');
+                builder.append("global uv     ").append(formatConfigNumber(tuning.optDouble("global_uv", 0.0d))).append('\n');
+                builder.append("left uv       ").append(formatConfigNumber(tuning.optDouble("left_uv", 0.0d))).append('\n');
+                builder.append("right uv      ").append(formatConfigNumber(tuning.optDouble("right_uv", 0.0d))).append('\n');
+                builder.append("vertical uv   ").append(formatConfigNumber(tuning.optDouble("vertical_uv", 0.0d))).append('\n');
+                builder.append("content scale ").append(formatConfigNumber(tuning.optDouble("content_scale", 1.60d))).append('\n');
+            }
+
+            JSONObject helperStatus = control.optJSONObject("helper_status");
+            if (helperStatus != null && helperStatus.length() > 0) {
+                builder.append('\n');
+                builder.append("guardian      ").append(helperStatus.optString("mode", "")).append('\n');
+                builder.append("active side   ").append(helperStatus.optString("active_side", "")).append('\n');
+                builder.append("foreground    ").append(helperStatus.optString("foreground_package", "")).append('\n');
+                builder.append("last action   ").append(helperStatus.optString("last_action", "")).append('\n');
+                builder.append("applied rev   ").append(helperStatus.optLong("applied_revision", 0L)).append('\n');
+                String lastError = helperStatus.optString("last_error", "");
+                if (lastError.length() > 0) {
+                    builder.append("last error    ").append(lastError).append('\n');
+                }
+            }
+        }
+
+        builder.append('\n');
+        builder.append("shell helper  ")
+            .append(shellHelper != null && shellHelper.optBoolean("connected") ? "connected" : "disconnected")
+            .append('\n');
+        if (shellHelper != null) {
+            builder.append("helper uid    ").append(shellHelper.optString("uid", "")).append('\n');
+        }
+        builder.append("setprop path  ADB shell-helper required");
+        return builder.toString();
+    }
+
+    private void addExperimentTuningRow(String label, EditText editText) {
+        LinearLayout row = row();
+        TextView labelView = textView(13, false, MUTED);
+        labelView.setText(label);
+        row.addView(labelView, weightedParams(0.42f, 0, 0, 10, 0));
+        row.addView(editText, weightedParams(0.58f, 0, 0, 0, 0));
+        pagePanel.addView(row, matchWrapParams(0, 0, 0, 7));
+    }
+
+    private void applyExperimentControl(
+        final String desiredFocusOverride,
+        final String modeOverride,
+        final boolean resetMakepadTuning,
+        final boolean launchTargetAfterApply) {
+        startBrokerService(getIntent());
+        runBrokerConsoleAction("Applying experiment control", new BrokerConsoleAction() {
+            @Override
+            public JSONObject run() throws Exception {
+                return BrokerService.configureExperimentControlFromConsole(
+                    buildExperimentParams(desiredFocusOverride, modeOverride, resetMakepadTuning));
+            }
+        });
+
+        if (launchTargetAfterApply) {
+            handler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    launchExperimentTarget();
+                }
+            }, 250L);
+        }
+    }
+
+    private JSONObject buildExperimentParams(
+        String desiredFocusOverride,
+        String modeOverride,
+        boolean resetMakepadTuning) throws Exception {
+        JSONObject params = new JSONObject();
+        params.put("target_package", experimentTargetPackage != null ? experimentTargetPackage.trim() : "");
+        params.put("target_activity", experimentTargetActivity != null ? experimentTargetActivity.trim() : "");
+        params.put("mode", !TextUtils.isEmpty(modeOverride) ? modeOverride : experimentMode);
+        params.put("launch_guard_timeout_ms", DEFAULT_EXPERIMENT_LAUNCH_GUARD_TIMEOUT_MS);
+        params.put(
+            "launch_guard_preview_timeout_enabled",
+            DEFAULT_EXPERIMENT_LAUNCH_GUARD_PREVIEW_TIMEOUT_ENABLED);
+        if (!TextUtils.isEmpty(desiredFocusOverride)) {
+            params.put("desired_focus", desiredFocusOverride);
+        }
+        params.put("reset_makepad_tuning", resetMakepadTuning);
+        if (!resetMakepadTuning) {
+            putDoubleParam(params, "strength", experimentStrength);
+            putDoubleParam(params, "global_uv", experimentGlobalUv);
+            putDoubleParam(params, "left_uv", experimentLeftUv);
+            putDoubleParam(params, "right_uv", experimentRightUv);
+            putDoubleParam(params, "vertical_uv", experimentVerticalUv);
+            putDoubleParam(params, "symmetric_uv", experimentSymmetricUv);
+            putDoubleParam(params, "content_scale", experimentContentScale);
+        }
+        return params;
+    }
+
+    private void launchExperimentTarget() {
+        String packageName = experimentTargetPackage != null ? experimentTargetPackage.trim() : "";
+        String activityName = experimentTargetActivity != null ? experimentTargetActivity.trim() : "";
+        if (TextUtils.isEmpty(packageName)) {
+            showLaunchToast("Target package is required");
+            return;
+        }
+
+        Intent intent = null;
+        if (!TextUtils.isEmpty(activityName)) {
+            intent = new Intent(Intent.ACTION_MAIN);
+            intent.addCategory(Intent.CATEGORY_LAUNCHER);
+            String className = activityName.startsWith(".") ? packageName + activityName : activityName;
+            intent.setClassName(packageName, className);
+        } else {
+            intent = getPackageManager().getLaunchIntentForPackage(packageName);
+        }
+
+        if (intent == null) {
+            showLaunchToast("No launch intent for " + packageName);
+            return;
+        }
+
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        try {
+            startActivity(intent);
+            Log.i(BrokerService.TAG, "Experiment target launched " + packageName + "/" + activityName);
+        } catch (ActivityNotFoundException | SecurityException ex) {
+            showLaunchToast("Target launch failed: " + ex.getMessage());
+            Log.w(BrokerService.TAG, "Experiment target launch failed: " + ex.getMessage());
         }
     }
 
@@ -1295,6 +1728,9 @@ public final class MainActivity extends Activity {
     private long statusRefreshDelayMs() {
         if ("Polar".equals(currentPage) && !isEditingText()) {
             return POLAR_STATUS_REFRESH_MS;
+        }
+        if ("Experiment".equals(currentPage) && !isEditingText()) {
+            return EXPERIMENT_STATUS_REFRESH_MS;
         }
         return DEFAULT_STATUS_REFRESH_MS;
     }

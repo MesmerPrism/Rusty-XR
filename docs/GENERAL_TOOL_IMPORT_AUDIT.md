@@ -30,6 +30,25 @@ The broader machine-wide follow-up audit is tracked separately in
 
 ## Already Started
 
+### Quest Visual Stimulus Tool
+
+Public extraction added:
+
+- `tools/quest-visual-stimulus/run-sync-stimulus.py`
+- `tools/quest-visual-stimulus/sync-stimulus.html`
+- `tools/quest-visual-stimulus/README.md`
+
+This utility serves a high-contrast browser target and records browser-side
+event logs for physical-screen Quest camera, screenshot, and final-display
+capture alignment runs. It is intentionally a stimulus/logger only; headset
+capture, app launch, screenshot processing, and binocular acceptance remain in
+the owning workflow tools.
+
+Next likely public step:
+
+- Promote a sanitized static screen-target fixture or capture-alignment
+  manifest schema after the active projection-area workflow stabilizes.
+
 ### XR Canvas And Ray Interaction
 
 Public extraction added:

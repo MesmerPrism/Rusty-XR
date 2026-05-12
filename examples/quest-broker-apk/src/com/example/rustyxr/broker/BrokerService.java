@@ -181,6 +181,24 @@ public final class BrokerService extends Service {
         return service.resetPolarBreathCalibrationFromConsoleInternal();
     }
 
+    static JSONObject getExperimentControlFromConsole() throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("experiment.get_control", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.getExperimentControlFromConsoleInternal();
+    }
+
+    static JSONObject configureExperimentControlFromConsole(JSONObject params) throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("experiment.configure", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.configureExperimentControlFromConsoleInternal(params);
+    }
+
     private JSONObject getPolarPmdStatusFromConsoleInternal() throws Exception {
         JSONObject status;
         PolarPmdBrokerSource source = polarPmdSource;
@@ -262,6 +280,26 @@ public final class BrokerService extends Service {
         JSONObject status = state.resetPolarBreathCalibration(null);
         state.acceptedCommands.incrementAndGet();
         return consoleAck("polar_breath_calibrate_reset", true, "polar_breath_calibration_reset", status);
+    }
+
+    private JSONObject getExperimentControlFromConsoleInternal() throws Exception {
+        if (state == null) {
+            return consoleError("experiment.get_control", "broker_state_unavailable", "Broker state is not initialized yet.");
+        }
+
+        JSONObject status = state.experimentControlJson();
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("experiment.get_control", true, "experiment_control_status", status);
+    }
+
+    private JSONObject configureExperimentControlFromConsoleInternal(JSONObject params) throws Exception {
+        if (state == null) {
+            return consoleError("experiment.configure", "broker_state_unavailable", "Broker state is not initialized yet.");
+        }
+
+        JSONObject status = state.configureExperimentControl(params);
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("experiment.configure", true, "experiment_control_configured", status);
     }
 
     private void publishConsoleReadyService() {

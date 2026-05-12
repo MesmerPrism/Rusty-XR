@@ -6,6 +6,7 @@ license = "MIT"
 publish = false
 description = "Makepad-first Quest shell for comparing Rusty XR Q2Q camera workflow affordances."
 repository = "https://github.com/MesmerPrism/Rusty-XR"
+build = "build.rs"
 
 [dependencies]
 makepad-xr = { git = "https://github.com/MesmerPrism/makepad.git", branch = "rusty-xr/android-libstd-packaging", version = "1.0.0" }

@@ -554,18 +554,46 @@ large horizontal offset. The useful diff pointer is that the public target's
 projected shader path samples via `screen_to_camera(v_surface_uv)` for the full
 submitted surface.
 
-S105 applies that pointer and adds a tuning workflow. The automatic X
-correction now uses the `screen_to_camera` center delta, and additive manual
-left/right UV offsets are read from `debug.rustyxr` Android properties while
-the Makepad app is running. This allows ADB/MCP-driven fine tuning without a
-new APK for every offset. The first screenshot-driven sweep compared the
+S105 applied that pointer and added a tuning workflow. The automatic X
+correction used the `screen_to_camera` center delta, and additive manual
+left/right UV offsets were read from `debug.rustyxr` Android properties while
+the Makepad app was running. The first screenshot-driven sweep compared the
 Makepad `Strength=0` baseline and a running strength sweep against the public
 fast `0.75` target. `Strength=0` removed the visible edge-striping class but
 left the eye images too far apart, while larger strengths moved the eye images
 together and eventually reintroduced side artifacts. Feature matching on the
 left/right camera-content crops put `Strength=0.425` closest to the public
-target's normalized horizontal disparity, so the Makepad example now uses
-`0.425` as the default candidate while keeping hotload controls available.
+target's normalized horizontal disparity, but operator headset review rejected
+that result as still not close to the Rusty XR target.
+
+S106 keeps the S103 full submitted surface and shader-owned camera window, but
+changes the shifted-sample policy before further tuning. The default strength
+returns to `0.0`, and shifted `aligned_window_uv` samples are validity-tested
+separately so out-of-range corrections show matte instead of repeating clamped
+camera-edge pixels as linear side stripes. New alignment tooling under
+`tools/quest-stereo-alignment/` scores black-target disparity and edge-stripe
+regression separately, so a future scalar or manual offset cannot be accepted
+only because it matches one raw screenshot disparity number.
+
+S106 device evidence falsified strength-only tuning: safe invalid matte removed
+the clamped edge-repeat failure mode, but camera framing still did not match
+the Rusty XR target. S107 therefore added a hotloadable camera-window content
+scale and showed that the previous framing was too small, while also exposing
+that the diagnostic guide and inner window border were contaminating visual
+review. S108 removes those border/guide artifacts, uses black invalid matte,
+and resets the review baseline to `contentUvScale=1.60`, `Strength=0`, and
+zero manual offsets. Symmetric per-eye offsets remain available for evidence,
+but the first sweep showed that larger offsets trade horizontal convergence for
+a central black invalid wedge. Do not bake those offsets until headset review
+accepts the tradeoff.
+
+The current dedicated alignment workflow is
+`docs/QUEST_STEREO_ALIGNMENT_WORKFLOW.md`. Iterations should keep one ignored
+artifact packet with the Rusty XR target, Makepad candidate, optional
+MediaProjection/final-display witness, analyzer reports, and operator
+classification. MediaProjection can witness the final display when consent is
+already active, but it is still not direct access to Meta's protected
+passthrough compositor buffer.
 
 ## Absorbable Public Work
 
@@ -604,6 +632,34 @@ Rusty XR can absorb these public-safe lessons:
   adapter contracts into public crates. Keep downstream effect behavior and
   exact tuning downstream.
 
+## Broker-Guided Manual Alignment Loop
+
+Use the broker experiment page plus the ADB-launched shell helper for headset
+side tuning when screenshot-derived matching and headset visual judgment
+disagree.
+
+Recommended loop:
+
+1. Start the broker shell helper with `--focus-guardian` so it can apply
+   whitelisted `debug.rustyxr.*` tuning properties and report foreground state.
+2. Keep the broker console foreground while editing one tuning variable at a
+   time.
+3. Use `launch_target_guard` for unstable target builds. The helper launches
+   the target, gives the operator a bounded visual window, then returns to the
+   broker and disables the experiment mode if the guard expires.
+4. Record one broker revision per headset judgment: tuning values, guard mode,
+   foreground package/activity, recovery count, screenshot freshness hashes,
+   and operator verdict.
+5. Treat ADB/HzDB screenshots as submitted-surface witnesses. Use
+   MediaProjection only as a consented final-display witness, and do not label
+   either path as direct access to native runtime passthrough compositor pixels.
+6. Compare against the native-runtime passthrough reference as a separate
+   witness stream, not as an interchangeable camera source.
+
+This loop is meant to keep manual target inspection recoverable while
+projection math is still moving. It is not a kiosk guarantee and it does not
+preempt system Home, Guardian, permission, or safety UI.
+
 ## Depth And Alignment Impact
 
 Depth work changes how stereo alignment should be validated, but it should not
@@ -631,6 +687,25 @@ The activation ladder for depth-informed alignment should stay diagnostic:
 
 The main parity profile remains depth-off until a depth-assisted correction has
 been shown to reduce reprojection error without adding frame-budget risk.
+
+## Projection-Area Diagnostic Gate
+
+Before tuning camera-content sampling, compare both stacks with synthetic
+projection-area diagnostics. The Rusty XR reference diagnostic must reuse the
+same projection geometry as the accepted camera profile while replacing camera
+pixels with a high-contrast target and opaque border. The Makepad diagnostic
+must run in a dedicated alignment APK and feed the same synthetic target through
+its screen-to-camera footprint.
+
+Acceptance for this gate is geometric, not photographic:
+
+- the diagnostic target is visible in the headset without native passthrough or
+  broker UI ambiguity
+- the visible border footprint aligns with the Rusty XR reference per eye
+- area offsets and screen-domain scale values are recorded as run evidence, not
+  baked into public defaults
+- camera-content defects inside the accepted area, such as edge gaps or UV crop
+  errors, stay deferred until the footprint is accepted
 
 ## Implementation Order
 

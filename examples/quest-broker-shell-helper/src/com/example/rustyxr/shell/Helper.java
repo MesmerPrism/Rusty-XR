@@ -93,6 +93,10 @@ public final class Helper {
         "/data/local/tmp/rusty-xr-proximity-watchdog.stop";
     private static final String PROXIMITY_WATCHDOG_LOG_FILE =
         "/data/local/tmp/rusty-xr-proximity-watchdog.log";
+    private static final String FOCUS_GUARDIAN_STOP_FILE =
+        "/data/local/tmp/rusty-xr-focus-guardian.stop";
+    private static final String FOCUS_GUARDIAN_LOG_FILE =
+        "/data/local/tmp/rusty-xr-focus-guardian.log";
     private static final String VR_POWER_MANAGER_PROX_CLOSE_ACTION =
         "com.oculus.vrpowermanager.prox_close";
     private static final int VR_POWER_MANAGER_DUMPSYS_MAX_BYTES = 128 * 1024;
@@ -102,10 +106,37 @@ public final class Helper {
     private static final int PROXIMITY_WATCHDOG_DEFAULT_INTERVAL_MS = 5_000;
     private static final int PROXIMITY_WATCHDOG_MIN_INTERVAL_MS = 1_000;
     private static final int PROXIMITY_WATCHDOG_MAX_INTERVAL_MS = 60_000;
+    private static final int FOCUS_GUARDIAN_DEFAULT_DURATION_MS = 28_800_000;
+    private static final int FOCUS_GUARDIAN_DEFAULT_INTERVAL_MS = 1_000;
+    private static final int FOCUS_GUARDIAN_MIN_INTERVAL_MS = 250;
+    private static final int FOCUS_GUARDIAN_MAX_INTERVAL_MS = 10_000;
+    private static final int FOCUS_GUARDIAN_DEFAULT_COOLDOWN_MS = 1_500;
+    private static final int FOCUS_DUMPSYS_MAX_BYTES = 192 * 1024;
+    private static final int FOCUS_DUMPSYS_TIMEOUT_SECONDS = 3;
+    private static final int FOCUS_GUARDIAN_PENDING_RECOVERY_MS = 20_000;
+    private static final int FOCUS_GUARDIAN_PENDING_RECOVERY_HOLD_MS = 2_000;
+    private static final int FOCUS_GUARDIAN_MAX_PENDING_RECOVERY_ATTEMPTS = 12;
+    private static final int FOCUS_GUARDIAN_DEFAULT_LAUNCH_GUARD_TIMEOUT_MS = 20_000;
+    private static final int FOCUS_GUARDIAN_MIN_LAUNCH_GUARD_TIMEOUT_MS = 5_000;
+    private static final int FOCUS_GUARDIAN_MAX_LAUNCH_GUARD_TIMEOUT_MS = 120_000;
+    private static final int FOCUS_GUARDIAN_TOGGLE_TRANSITION_GRACE_MS = 5_000;
+    private static final String DEFAULT_BROKER_PACKAGE = "com.example.rustyxr.broker";
+    private static final String DEFAULT_BROKER_ACTIVITY = "com.example.rustyxr.broker.MainActivity";
+    private static final String ANDROID_MAIN_ACTION = "android.intent.action.MAIN";
+    private static final String ANDROID_LAUNCHER_CATEGORY = "android.intent.category.LAUNCHER";
+    private static final String OCULUS_VR_CATEGORY = "com.oculus.intent.category.VR";
     private static final Pattern VR_POWER_MANAGER_VIRTUAL_STATE_PATTERN =
         Pattern.compile("Virtual proximity state:\\s*(\\S+)");
     private static final Pattern VR_POWER_MANAGER_HEADSET_STATE_PATTERN =
         Pattern.compile("^\\s*State:\\s*(.+)$", Pattern.MULTILINE);
+    private static final Pattern CURRENT_FOCUS_COMPONENT_PATTERN =
+        Pattern.compile("mCurrentFocus=.*?\\s([A-Za-z0-9_.$]+)/(\\S+)");
+    private static final Pattern FOCUSED_APP_COMPONENT_PATTERN =
+        Pattern.compile("mFocusedApp=.*?\\s([A-Za-z0-9_.$]+)/(\\S+)");
+    private static final Pattern WINDOW_HEADER_COMPONENT_PATTERN =
+        Pattern.compile("\\bu\\d+\\s+([A-Za-z0-9_.$]+)/(\\S+?)\\}:");
+    private static final Pattern PACKAGE_COMPONENT_PATTERN =
+        Pattern.compile("^([A-Za-z0-9_.$]+)/(\\S+)$");
 
     private Helper() {
     }
@@ -134,8 +165,28 @@ public final class Helper {
         if (options.stopProximityWatchdog) {
             requestProximityWatchdogStop();
         }
-        if (options.connected && options.proximityWatchdog) {
+        if (options.stopFocusGuardian) {
+            requestFocusGuardianStop();
+        }
+        if (options.connected && options.proximityWatchdog && options.focusGuardian) {
+            final Options threadOptions = options;
+            final String threadUidLabel = uidLabel;
+            Thread proximityThread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        runProximityWatchdog(threadOptions, threadUidLabel);
+                    } catch (Exception ex) {
+                        System.out.println("Proximity watchdog failed: " + exceptionSummary(ex));
+                    }
+                }
+            }, "RustyXrProximityWatchdog");
+            proximityThread.start();
+            runFocusGuardian(options, uidLabel);
+        } else if (options.connected && options.proximityWatchdog) {
             runProximityWatchdog(options, uidLabel);
+        } else if (options.connected && options.focusGuardian) {
+            runFocusGuardian(options, uidLabel);
         }
     }
 
@@ -174,6 +225,12 @@ public final class Helper {
             capabilities.put("shell.proximity_watchdog.v1");
             capabilities.put("shell.proximity_watchdog.stop_file");
         }
+        if (options.focusGuardian || options.stopFocusGuardian) {
+            capabilities.put("shell.focus_guardian.v1");
+            capabilities.put("shell.focus_guardian.stop_file");
+            capabilities.put("shell.focus_guardian.setprop_whitelist.debug_rustyxr");
+            capabilities.put("shell.focus_guardian.launch_target_guard.v1");
+        }
         report.put("capabilities", capabilities);
         JSONArray activeStreams = new JSONArray();
         if (options.connected && (
@@ -193,13 +250,18 @@ public final class Helper {
         if (options.connected && options.proximityWatchdog) {
             activeStreams.put("shell_helper.status");
         }
+        if (options.connected && options.focusGuardian) {
+            activeStreams.put("shell_helper.status");
+        }
         report.put("active_streams", activeStreams);
         report.put("last_error", "");
         if (options.probeCodecs ||
                 options.probeCameras ||
                 options.probeCameraOpen ||
                 options.proximityWatchdog ||
-                options.stopProximityWatchdog) {
+                options.stopProximityWatchdog ||
+                options.focusGuardian ||
+                options.stopFocusGuardian) {
             JSONObject diagnostics = new JSONObject();
             if (options.probeCodecs) {
                 diagnostics.put("codec_probe", buildCodecProbe());
@@ -223,6 +285,26 @@ public final class Helper {
                         0,
                         0,
                         0,
+                        ""));
+            }
+            if (options.focusGuardian || options.stopFocusGuardian) {
+                diagnostics.put(
+                    "focus_guardian",
+                    buildFocusGuardianStatus(
+                        options,
+                        options.connected && options.focusGuardian,
+                        options.focusGuardianMode,
+                        "",
+                        "",
+                        "",
+                        "initial_report",
+                        0,
+                        0,
+                        0L,
+                        options.focusTargetPackage,
+                        options.focusTargetActivity,
+                        false,
+                        Math.max(0L, options.focusGuardianDurationMs),
                         ""));
             }
             report.put("diagnostics", diagnostics);
@@ -1486,6 +1568,924 @@ public final class Helper {
         return status;
     }
 
+    private static void requestFocusGuardianStop() throws Exception {
+        File stopFile = new File(FOCUS_GUARDIAN_STOP_FILE);
+        File parent = stopFile.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+        stopFile.createNewFile();
+        System.out.println("Requested focus guardian stop via " + FOCUS_GUARDIAN_STOP_FILE);
+    }
+
+    private static void runFocusGuardian(Options options, String uidLabel) throws Exception {
+        File stopFile = new File(FOCUS_GUARDIAN_STOP_FILE);
+        if (stopFile.exists() && !stopFile.delete()) {
+            System.out.println("Could not clear stale focus guardian stop file: " + FOCUS_GUARDIAN_STOP_FILE);
+        }
+
+        long startedElapsedMs = SystemClock.elapsedRealtime();
+        long deadlineElapsedMs = startedElapsedMs + options.focusGuardianDurationMs;
+        long lastLaunchElapsedMs = 0L;
+        long appliedRevision = -1L;
+        int recoveryCount = 0;
+        int propertyApplyCount = 0;
+        String desiredSide = options.focusGuardianDesiredFocus;
+        String activeSide = "";
+        String mode = options.focusGuardianMode;
+        String targetPackage = options.focusTargetPackage;
+        String targetActivity = options.focusTargetActivity;
+        String brokerPackage = options.focusBrokerPackage;
+        String brokerActivity = options.focusBrokerActivity;
+        String foregroundPackage = "";
+        String foregroundActivity = "";
+        String lastAction = "started";
+        String lastError = "";
+        String pendingRecoverySide = "";
+        long pendingRecoveryDeadlineMs = 0L;
+        long pendingRecoveryObservedSinceMs = 0L;
+        long lastControlChangeElapsedMs = startedElapsedMs;
+        long lastObservedSideElapsedMs = 0L;
+        int pendingRecoveryAttempts = 0;
+        long launchGuardRevision = -1L;
+        long launchGuardStartedMs = 0L;
+        boolean launchGuardLaunched = false;
+        boolean launchGuardRecovered = false;
+        boolean launchGuardTargetReady = false;
+        long launchGuardTargetReadyMs = 0L;
+        int launchGuardTimeoutMs = FOCUS_GUARDIAN_DEFAULT_LAUNCH_GUARD_TIMEOUT_MS;
+        boolean launchGuardPreviewTimeoutEnabled = false;
+
+        sendFocusGuardianHeartbeat(
+            options,
+            targetPackage,
+            targetActivity,
+            launchGuardPreviewTimeoutEnabled,
+            uidLabel,
+            true,
+            mode,
+            activeSide,
+            foregroundPackage,
+            foregroundActivity,
+            lastAction,
+            recoveryCount,
+            propertyApplyCount,
+            appliedRevision,
+            Math.max(0L, deadlineElapsedMs - SystemClock.elapsedRealtime()),
+            lastError);
+
+        while (SystemClock.elapsedRealtime() < deadlineElapsedMs) {
+            if (stopFile.exists()) {
+                lastAction = "stopped";
+                break;
+            }
+
+            JSONObject control = null;
+            try {
+                control = fetchExperimentControl(options);
+            } catch (Exception ex) {
+                lastError = "control poll failed: " + exceptionSummary(ex);
+            }
+
+            if (control != null) {
+                String nextMode = control.optString("mode", mode);
+                boolean enabled = control.optBoolean("enabled", !"off".equals(nextMode));
+                if (!enabled) {
+                    nextMode = "off";
+                }
+                String nextDesiredSide = control.optString("desired_focus", desiredSide);
+                String nextTargetPackage = control.optString("target_package", targetPackage);
+                String nextTargetActivity = control.optString("target_activity", targetActivity);
+                String nextBrokerPackage = control.optString("broker_package", brokerPackage);
+                String nextBrokerActivity = control.optString("broker_activity", brokerActivity);
+
+                long revision = control.optLong("revision", appliedRevision);
+                boolean identityChanged = !nextTargetPackage.equals(targetPackage) ||
+                    !nextTargetActivity.equals(targetActivity) ||
+                    !nextBrokerPackage.equals(brokerPackage) ||
+                    !nextBrokerActivity.equals(brokerActivity);
+                boolean nextLaunchGuardPreviewTimeoutEnabled =
+                    control.optBoolean("launch_guard_preview_timeout_enabled", launchGuardPreviewTimeoutEnabled);
+                boolean controlChanged = revision != appliedRevision ||
+                    !nextMode.equals(mode) ||
+                    !nextDesiredSide.equals(desiredSide) ||
+                    identityChanged ||
+                    nextLaunchGuardPreviewTimeoutEnabled != launchGuardPreviewTimeoutEnabled;
+                mode = nextMode;
+                desiredSide = nextDesiredSide;
+                targetPackage = nextTargetPackage;
+                targetActivity = nextTargetActivity;
+                brokerPackage = nextBrokerPackage;
+                brokerActivity = nextBrokerActivity;
+                launchGuardPreviewTimeoutEnabled = nextLaunchGuardPreviewTimeoutEnabled;
+                if (controlChanged) {
+                    lastControlChangeElapsedMs = SystemClock.elapsedRealtime();
+                    pendingRecoverySide = "";
+                    pendingRecoveryAttempts = 0;
+                    pendingRecoveryDeadlineMs = 0L;
+                    pendingRecoveryObservedSinceMs = 0L;
+                    if (identityChanged) {
+                        activeSide = "";
+                        lastObservedSideElapsedMs = 0L;
+                    }
+                }
+                launchGuardTimeoutMs = clampInt(
+                    control.optInt("launch_guard_timeout_ms", FOCUS_GUARDIAN_DEFAULT_LAUNCH_GUARD_TIMEOUT_MS),
+                    FOCUS_GUARDIAN_MIN_LAUNCH_GUARD_TIMEOUT_MS,
+                    FOCUS_GUARDIAN_MAX_LAUNCH_GUARD_TIMEOUT_MS);
+                if ("launch_target_guard".equals(mode)) {
+                    if (revision != launchGuardRevision) {
+                        launchGuardRevision = revision;
+                        launchGuardStartedMs = SystemClock.elapsedRealtime();
+                        launchGuardLaunched = false;
+                        launchGuardRecovered = false;
+                        launchGuardTargetReady = false;
+                        launchGuardTargetReadyMs = 0L;
+                        pendingRecoverySide = "";
+                        pendingRecoveryAttempts = 0;
+                        pendingRecoveryDeadlineMs = 0L;
+                        pendingRecoveryObservedSinceMs = 0L;
+                        lastAction = "launch_guard_armed";
+                    }
+                } else {
+                    launchGuardRevision = -1L;
+                    launchGuardStartedMs = 0L;
+                    launchGuardLaunched = false;
+                    launchGuardRecovered = false;
+                    launchGuardTargetReady = false;
+                    launchGuardTargetReadyMs = 0L;
+                }
+                if (revision != appliedRevision) {
+                    try {
+                        int applied = applyExperimentPropertyWrites(control);
+                        propertyApplyCount += applied;
+                        appliedRevision = revision;
+                        lastAction = "applied_control";
+                        lastError = "";
+                    } catch (Exception ex) {
+                        lastAction = "apply_control_failed";
+                        lastError = exceptionSummary(ex);
+                    }
+                }
+            }
+
+            ForegroundReadback foreground = readForegroundState();
+            long nowElapsedMs = SystemClock.elapsedRealtime();
+            foregroundPackage = foreground.packageName;
+            foregroundActivity = foreground.activityName;
+            boolean targetFocused = foreground.available && isSamePackage(foreground.packageName, targetPackage);
+            boolean brokerFocused = foreground.available && isSamePackage(foreground.packageName, brokerPackage);
+            if (!foreground.available) {
+                lastError = foreground.error;
+            } else if (targetFocused) {
+                activeSide = "target";
+                lastObservedSideElapsedMs = nowElapsedMs;
+                if ("launch_target_guard".equals(mode) && launchGuardLaunched) {
+                    launchGuardTargetReady = true;
+                    if (launchGuardTargetReadyMs == 0L) {
+                        launchGuardTargetReadyMs = nowElapsedMs;
+                    }
+                }
+                lastAction = "observed_target";
+                lastError = "";
+            } else if (brokerFocused) {
+                activeSide = "broker";
+                lastObservedSideElapsedMs = nowElapsedMs;
+                lastAction = "observed_broker";
+                lastError = "";
+            }
+
+            String launchSide = "";
+            if (pendingRecoverySide.length() > 0) {
+                boolean pendingSatisfied = ("target".equals(pendingRecoverySide) && targetFocused) ||
+                    ("broker".equals(pendingRecoverySide) && brokerFocused);
+                if (pendingSatisfied) {
+                    if (pendingRecoveryObservedSinceMs == 0L) {
+                        pendingRecoveryObservedSinceMs = nowElapsedMs;
+                    }
+                } else {
+                    pendingRecoveryObservedSinceMs = 0L;
+                }
+                if ((pendingSatisfied &&
+                        nowElapsedMs - pendingRecoveryObservedSinceMs >= FOCUS_GUARDIAN_PENDING_RECOVERY_HOLD_MS) ||
+                    nowElapsedMs > pendingRecoveryDeadlineMs ||
+                    pendingRecoveryAttempts >= FOCUS_GUARDIAN_MAX_PENDING_RECOVERY_ATTEMPTS) {
+                    pendingRecoverySide = "";
+                    pendingRecoveryAttempts = 0;
+                    pendingRecoveryDeadlineMs = 0L;
+                    pendingRecoveryObservedSinceMs = 0L;
+                }
+            }
+
+            boolean launchGuardMode = "launch_target_guard".equals(mode);
+            if (launchGuardMode && foreground.available && !foreground.protectedSystemFlow) {
+                if (launchGuardRecovered) {
+                    if (brokerFocused) {
+                        try {
+                            configureExperimentMode(options, "off", "broker");
+                            lastAction = "launch_guard_recovered_broker_confirmed";
+                            lastError = "";
+                        } catch (Exception ex) {
+                            lastAction = "launch_guard_disable_failed";
+                            lastError = exceptionSummary(ex);
+                        }
+                    } else {
+                        launchSide = "broker";
+                        lastAction = "launch_guard_retrying_broker";
+                    }
+                } else if (launchGuardPreviewTimeoutEnabled &&
+                        launchGuardLaunched &&
+                        launchGuardTargetReady &&
+                        launchGuardTargetReadyMs > 0L &&
+                        nowElapsedMs - launchGuardTargetReadyMs >= launchGuardTimeoutMs) {
+                    CommandCapture stop = forceStopPackage(targetPackage);
+                    CommandCapture launch = launchBrokerConsole(options, brokerPackage, brokerActivity);
+                    lastLaunchElapsedMs = nowElapsedMs;
+                    launchGuardRecovered = true;
+                    pendingRecoverySide = "broker";
+                    pendingRecoveryAttempts++;
+                    pendingRecoveryDeadlineMs = nowElapsedMs + FOCUS_GUARDIAN_PENDING_RECOVERY_MS;
+                    pendingRecoveryObservedSinceMs = 0L;
+                    recoveryCount++;
+                    if (launch.exitCode == 0 && !launch.timedOut) {
+                        lastAction = stop.exitCode == 0 && !stop.timedOut
+                            ? "launch_guard_preview_returned_broker"
+                            : "launch_guard_preview_returned_broker_stop_failed";
+                        if (lastError.length() == 0 && (stop.exitCode != 0 || stop.timedOut)) {
+                            lastError = stop.timedOut
+                                ? "target force-stop timed out"
+                                : "target force-stop exit=" + stop.exitCode + " " + stop.output.trim();
+                        }
+                    } else {
+                        lastAction = "launch_guard_preview_return_broker_failed";
+                        lastError = launch.timedOut
+                            ? "broker launch timed out"
+                            : "broker launch exit=" + launch.exitCode + " " + launch.output.trim();
+                    }
+                } else if (launchGuardLaunched &&
+                        launchGuardTargetReady &&
+                        "target".equals(activeSide) &&
+                        !targetFocused &&
+                        !brokerFocused &&
+                        (foreground.metaHome || foreground.visibleMetaMenuOverlay)) {
+                    CommandCapture launch = launchBrokerConsole(options, brokerPackage, brokerActivity);
+                    lastLaunchElapsedMs = nowElapsedMs;
+                    launchGuardRecovered = true;
+                    pendingRecoverySide = "broker";
+                    pendingRecoveryAttempts++;
+                    pendingRecoveryDeadlineMs = nowElapsedMs + FOCUS_GUARDIAN_PENDING_RECOVERY_MS;
+                    pendingRecoveryObservedSinceMs = 0L;
+                    recoveryCount++;
+                    if (launch.exitCode == 0 && !launch.timedOut) {
+                        lastAction = "launch_guard_menu_recovered_broker";
+                    } else {
+                        lastAction = "launch_guard_menu_recover_broker_failed";
+                        lastError = launch.timedOut
+                            ? "broker launch timed out"
+                            : "broker launch exit=" + launch.exitCode + " " + launch.output.trim();
+                    }
+                } else if (!launchGuardRecovered &&
+                        !launchGuardTargetReady &&
+                        launchGuardStartedMs > 0L &&
+                        nowElapsedMs - launchGuardStartedMs >= launchGuardTimeoutMs) {
+                    CommandCapture stop = forceStopPackage(targetPackage);
+                    CommandCapture launch = launchBrokerConsole(options, brokerPackage, brokerActivity);
+                    lastLaunchElapsedMs = nowElapsedMs;
+                    launchGuardRecovered = true;
+                    pendingRecoverySide = "broker";
+                    pendingRecoveryAttempts++;
+                    pendingRecoveryDeadlineMs = nowElapsedMs + FOCUS_GUARDIAN_PENDING_RECOVERY_MS;
+                    pendingRecoveryObservedSinceMs = 0L;
+                    recoveryCount++;
+                    if (launch.exitCode == 0 && !launch.timedOut) {
+                        lastAction = stop.exitCode == 0 && !stop.timedOut
+                            ? "launch_guard_recovered_broker"
+                            : "launch_guard_recovered_broker_stop_failed";
+                        if (lastError.length() == 0 && (stop.exitCode != 0 || stop.timedOut)) {
+                            lastError = stop.timedOut
+                                ? "target force-stop timed out"
+                                : "target force-stop exit=" + stop.exitCode + " " + stop.output.trim();
+                        }
+                    } else {
+                        lastAction = "launch_guard_recover_broker_failed";
+                        lastError = launch.timedOut
+                            ? "broker launch timed out"
+                            : "broker launch exit=" + launch.exitCode + " " + launch.output.trim();
+                    }
+                } else if (!launchGuardLaunched) {
+                    launchSide = "target";
+                    lastAction = "launch_guard_launching_target";
+                } else if (launchGuardLaunched && targetFocused) {
+                    launchGuardTargetReady = true;
+                    if (launchGuardTargetReadyMs == 0L) {
+                        launchGuardTargetReadyMs = nowElapsedMs;
+                    }
+                    lastAction = "launch_guard_observed_target";
+                }
+            } else if (!"off".equals(mode) && !"observe".equals(mode) && foreground.available && !foreground.protectedSystemFlow) {
+                boolean otherForeground = !targetFocused && !brokerFocused;
+                boolean menuInterrupted = otherForeground &&
+                    (foreground.metaHome || foreground.visibleMetaMenuOverlay);
+                boolean launchTransition = otherForeground &&
+                    (pendingRecoverySide.length() > 0 ||
+                    nowElapsedMs - lastLaunchElapsedMs < FOCUS_GUARDIAN_TOGGLE_TRANSITION_GRACE_MS ||
+                    nowElapsedMs - lastControlChangeElapsedMs < FOCUS_GUARDIAN_TOGGLE_TRANSITION_GRACE_MS);
+                if (pendingRecoverySide.length() > 0) {
+                    launchSide = pendingRecoverySide;
+                } else if ("recover_target".equals(mode) || "strict".equals(mode)) {
+                    if (!targetFocused) {
+                        launchSide = "target";
+                    }
+                } else if ("recover_broker".equals(mode)) {
+                    if (!brokerFocused) {
+                        launchSide = "broker";
+                    }
+                } else if ("toggle_broker_target".equals(mode) && menuInterrupted) {
+                    if (activeSide.length() > 0 && lastObservedSideElapsedMs > 0L && !launchTransition) {
+                        launchSide = "broker".equals(activeSide) ? "target" : "broker";
+                    } else {
+                        lastAction = "ignored_toggle_transition";
+                        lastError = "";
+                    }
+                } else if ("toggle_broker_target".equals(mode) && otherForeground) {
+                    lastAction = "observed_other_foreground";
+                    lastError = "";
+                }
+            }
+
+            int cooldownMs = "strict".equals(mode)
+                ? Math.max(250, options.focusGuardianCooldownMs / 2)
+                : options.focusGuardianCooldownMs;
+            if (launchSide.length() > 0 && nowElapsedMs - lastLaunchElapsedMs >= cooldownMs) {
+                CommandCapture preLaunchStop = null;
+                if (launchGuardMode && "target".equals(launchSide)) {
+                    preLaunchStop = forceStopPackage(targetPackage);
+                    Thread.sleep(250L);
+                }
+                CommandCapture launch = "broker".equals(launchSide)
+                    ? launchBrokerConsole(options, brokerPackage, brokerActivity)
+                    : launchComponent(targetPackage, targetActivity);
+                lastLaunchElapsedMs = nowElapsedMs;
+                if (launch.exitCode == 0 && !launch.timedOut) {
+                    pendingRecoverySide = launchSide;
+                    pendingRecoveryAttempts++;
+                    pendingRecoveryDeadlineMs = nowElapsedMs + FOCUS_GUARDIAN_PENDING_RECOVERY_MS;
+                    pendingRecoveryObservedSinceMs = 0L;
+                    recoveryCount++;
+                    if (launchGuardMode && "target".equals(launchSide)) {
+                        launchGuardLaunched = true;
+                        launchGuardStartedMs = nowElapsedMs;
+                        launchGuardTargetReady = false;
+                        launchGuardTargetReadyMs = 0L;
+                        lastAction = "launch_guard_launched_target";
+                    } else {
+                        lastAction = "launched_" + launchSide;
+                    }
+                    if (preLaunchStop != null && (preLaunchStop.exitCode != 0 || preLaunchStop.timedOut)) {
+                        lastError = preLaunchStop.timedOut
+                            ? "target pre-launch force-stop timed out"
+                            : "target pre-launch force-stop exit=" + preLaunchStop.exitCode + " " +
+                                preLaunchStop.output.trim();
+                    } else {
+                        lastError = "";
+                    }
+                } else {
+                    lastAction = "launch_failed_" + launchSide;
+                    lastError = launch.timedOut
+                        ? "am start timed out"
+                        : "am start exit=" + launch.exitCode + " " + launch.output.trim();
+                }
+            } else if (foreground.protectedSystemFlow) {
+                lastAction = "observed_protected_system_flow";
+            }
+
+            sendFocusGuardianHeartbeat(
+                options,
+                targetPackage,
+                targetActivity,
+                launchGuardPreviewTimeoutEnabled,
+                uidLabel,
+                true,
+                mode,
+                activeSide,
+                foregroundPackage,
+                foregroundActivity,
+                lastAction,
+                recoveryCount,
+                propertyApplyCount,
+                appliedRevision,
+                Math.max(0L, deadlineElapsedMs - SystemClock.elapsedRealtime()),
+                lastError);
+
+            long remainingMs = deadlineElapsedMs - SystemClock.elapsedRealtime();
+            if (remainingMs <= 0L) {
+                break;
+            }
+            Thread.sleep(Math.min(options.focusGuardianIntervalMs, remainingMs));
+        }
+
+        sendFocusGuardianHeartbeat(
+            options,
+            targetPackage,
+            targetActivity,
+            launchGuardPreviewTimeoutEnabled,
+            uidLabel,
+            false,
+            mode,
+            activeSide,
+            foregroundPackage,
+            foregroundActivity,
+            lastAction,
+            recoveryCount,
+            propertyApplyCount,
+            appliedRevision,
+            0L,
+            lastError);
+    }
+
+    private static JSONObject fetchExperimentControl(Options options) throws Exception {
+        JSONObject ack = sendBrokerCommand(options.host, options.port, "experiment.get_control", new JSONObject());
+        JSONObject result = ack.optJSONObject("result");
+        return result != null ? result.optJSONObject("control") : null;
+    }
+
+    private static int applyExperimentPropertyWrites(JSONObject control) throws Exception {
+        JSONArray writes = control.optJSONArray("property_writes");
+        if (writes == null) {
+            return 0;
+        }
+
+        int applied = 0;
+        for (int i = 0; i < writes.length(); i++) {
+            JSONObject write = writes.optJSONObject(i);
+            if (write == null) {
+                continue;
+            }
+            String name = write.optString("name", "");
+            String value = write.optString("value", "");
+            if (!isAllowedRuntimeProperty(name) || value.length() == 0) {
+                continue;
+            }
+            CommandCapture capture = runBoundedCommand(
+                new String[] { "setprop", name, value },
+                4096,
+                3);
+            if (capture.exitCode != 0 || capture.timedOut) {
+                throw new IllegalStateException("setprop failed for " + name + ": " + capture.output.trim());
+            }
+            applied++;
+        }
+        return applied;
+    }
+
+    private static boolean isAllowedRuntimeProperty(String name) {
+        return name != null && name.startsWith("debug.rustyxr.") && name.length() <= 92;
+    }
+
+    private static void sendFocusGuardianHeartbeat(
+            Options options,
+            String targetPackage,
+            String targetActivity,
+            boolean launchGuardPreviewTimeoutEnabled,
+            String uidLabel,
+            boolean active,
+            String mode,
+            String activeSide,
+            String foregroundPackage,
+            String foregroundActivity,
+            String lastAction,
+            int recoveryCount,
+            int propertyApplyCount,
+            long appliedRevision,
+            long remainingMs,
+            String lastError) throws Exception {
+        JSONObject report = new JSONObject();
+        report.put("connected", active);
+        report.put("helper_version", VERSION);
+        report.put("uid", uidLabel);
+        JSONArray capabilities = new JSONArray();
+        capabilities.put("shell.uid.report");
+        capabilities.put("shell.focus_guardian.v1");
+        capabilities.put("shell.focus_guardian.stop_file");
+        capabilities.put("shell.focus_guardian.setprop_whitelist.debug_rustyxr");
+        capabilities.put("shell.focus_guardian.launch_target_guard.v1");
+        report.put("capabilities", capabilities);
+        JSONArray activeStreams = new JSONArray();
+        if (active) {
+            activeStreams.put("shell_helper.status");
+        }
+        report.put("active_streams", activeStreams);
+        JSONObject status = buildFocusGuardianStatus(
+            options,
+            active,
+            mode,
+            activeSide,
+            foregroundPackage,
+            foregroundActivity,
+            lastAction,
+            recoveryCount,
+            propertyApplyCount,
+            appliedRevision,
+            targetPackage,
+            targetActivity,
+            launchGuardPreviewTimeoutEnabled,
+            remainingMs,
+            lastError);
+        JSONObject diagnostics = new JSONObject();
+        diagnostics.put("focus_guardian", status);
+        report.put("diagnostics", diagnostics);
+        report.put("last_error", lastError != null ? lastError : "");
+        try {
+            sendBrokerCommand(options.host, options.port, "shell_helper.report_status", report);
+            sendBrokerCommand(options.host, options.port, "experiment.report_status", status);
+        } catch (Exception ex) {
+            System.out.println("Focus guardian heartbeat report failed: " + exceptionSummary(ex));
+        }
+    }
+
+    private static JSONObject buildFocusGuardianStatus(
+            Options options,
+            boolean active,
+            String mode,
+            String activeSide,
+            String foregroundPackage,
+            String foregroundActivity,
+            String lastAction,
+            int recoveryCount,
+            int propertyApplyCount,
+            long appliedRevision,
+            String targetPackage,
+            String targetActivity,
+            boolean launchGuardPreviewTimeoutEnabled,
+            long remainingMs,
+            String lastError) throws Exception {
+        JSONObject status = new JSONObject();
+        status.put("schema", "rusty.xr.shell_helper.focus_guardian.v1");
+        status.put("enabled", options.focusGuardian);
+        status.put("active", active);
+        status.put("mode", mode != null ? mode : "");
+        status.put("active_side", activeSide != null ? activeSide : "");
+        status.put("foreground_package", foregroundPackage != null ? foregroundPackage : "");
+        status.put("foreground_activity", foregroundActivity != null ? foregroundActivity : "");
+        status.put("last_action", lastAction != null ? lastAction : "");
+        status.put("recovery_count", recoveryCount);
+        status.put("property_apply_count", propertyApplyCount);
+        status.put("applied_revision", appliedRevision);
+        status.put("duration_ms", options.focusGuardianDurationMs);
+        status.put("interval_ms", options.focusGuardianIntervalMs);
+        status.put("cooldown_ms", options.focusGuardianCooldownMs);
+        status.put("remaining_ms", Math.max(0L, remainingMs));
+        status.put("target_package", targetPackage != null ? targetPackage : "");
+        status.put("target_activity", targetActivity != null ? targetActivity : "");
+        status.put("launch_guard_preview_timeout_enabled", launchGuardPreviewTimeoutEnabled);
+        status.put("broker_package", options.focusBrokerPackage);
+        status.put("broker_activity", options.focusBrokerActivity);
+        status.put("stop_file", FOCUS_GUARDIAN_STOP_FILE);
+        status.put("log_file", FOCUS_GUARDIAN_LOG_FILE);
+        status.put("toggle_transition_grace_ms", FOCUS_GUARDIAN_TOGGLE_TRANSITION_GRACE_MS);
+        status.put("non_interference_rule", "actual_foreground_side_only_skip_protected_flows_and_launch_transitions");
+        status.put("last_error", lastError != null ? lastError : "");
+        return status;
+    }
+
+    private static ForegroundReadback readForegroundState() {
+        try {
+            CommandCapture capture = runBoundedCommand(
+                new String[] { "dumpsys", "window", "windows" },
+                FOCUS_DUMPSYS_MAX_BYTES,
+                FOCUS_DUMPSYS_TIMEOUT_SECONDS);
+            if (capture.exitCode != 0 || capture.timedOut) {
+                String error = capture.timedOut
+                    ? "dumpsys window timed out"
+                    : "dumpsys window exit=" + capture.exitCode + " " + capture.output.trim();
+                return new ForegroundReadback(false, "", "", false, false, false, error);
+            }
+
+            String output = capture.output != null ? capture.output : "";
+            String packageName = "";
+            String activityName = "";
+            Matcher current = CURRENT_FOCUS_COMPONENT_PATTERN.matcher(output);
+            if (current.find()) {
+                packageName = current.group(1);
+                activityName = cleanActivityName(current.group(2));
+            } else {
+                Matcher focused = FOCUSED_APP_COMPONENT_PATTERN.matcher(output);
+                if (focused.find()) {
+                    packageName = focused.group(1);
+                    activityName = cleanActivityName(focused.group(2));
+                } else {
+                    String[] visibleComponent = findVisibleWindowComponent(output);
+                    packageName = visibleComponent[0];
+                    activityName = visibleComponent[1];
+                }
+            }
+
+            String foregroundToken = (packageName + "/" + activityName).toLowerCase(Locale.ROOT);
+            boolean metaHome = foregroundToken.contains("com.oculus.vrshell") ||
+                foregroundToken.contains("com.oculus.panelapp") ||
+                foregroundToken.contains("homeactivity") ||
+                foregroundToken.contains("quickactions");
+            boolean visibleMetaMenuOverlay = hasVisibleMetaMenuOverlay(output);
+            boolean protectedFlow = foregroundToken.contains("permissioncontroller") ||
+                foregroundToken.contains("packageinstaller") ||
+                foregroundToken.contains("com.oculus.guardian");
+            return new ForegroundReadback(true, packageName, activityName, metaHome, visibleMetaMenuOverlay, protectedFlow, "");
+        } catch (Exception ex) {
+            return new ForegroundReadback(false, "", "", false, false, false, exceptionSummary(ex));
+        }
+    }
+
+    private static boolean hasVisibleMetaMenuOverlay(String output) {
+        if (output == null || output.length() == 0) {
+            return false;
+        }
+        String[] blocks = output.split("(?m)^\\s*Window #");
+        for (String block : blocks) {
+            String lower = block.toLowerCase(Locale.ROOT);
+            if (!lower.contains("isvisible=true") ||
+                    !lower.contains("surface: shown=true") ||
+                    !lower.contains("com.oculus")) {
+                continue;
+            }
+            if (lower.contains("system_bar_wayfinder_menu") ||
+                    lower.contains("quickactions")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String[] findVisibleWindowComponent(String output) {
+        if (output == null || output.length() == 0) {
+            return new String[] { "", "" };
+        }
+        String[] blocks = output.split("(?m)^\\s*Window #");
+        for (String block : blocks) {
+            if (!block.contains("isVisible=true")) {
+                continue;
+            }
+            int lineEnd = block.indexOf('\n');
+            String header = lineEnd >= 0 ? block.substring(0, lineEnd) : block;
+            Matcher matcher = WINDOW_HEADER_COMPONENT_PATTERN.matcher(header);
+            if (matcher.find()) {
+                return new String[] {
+                    matcher.group(1),
+                    cleanActivityName(matcher.group(2))
+                };
+            }
+        }
+        return new String[] { "", "" };
+    }
+
+    private static CommandCapture launchComponent(String packageName, String activityName) {
+        try {
+            packageName = packageName != null ? packageName.trim() : "";
+            activityName = activityName != null ? activityName.trim() : "";
+            if (packageName.length() == 0) {
+                return new CommandCapture("", 0, false, false, 2, "missing package");
+            }
+            if (activityName.length() == 0) {
+                CommandCapture vrLaunch = launchResolvedPackageWithCategory(packageName, OCULUS_VR_CATEGORY);
+                if (isSuccessfulLaunch(vrLaunch)) {
+                    return vrLaunch;
+                }
+                CommandCapture vrPackageLaunch = launchPackageWithCategory(packageName, OCULUS_VR_CATEGORY);
+                if (isSuccessfulLaunch(vrPackageLaunch)) {
+                    return vrPackageLaunch;
+                }
+                return launchLauncherPackage(packageName);
+            }
+
+            if (isVrLikeActivity(activityName)) {
+                CommandCapture vrLaunch = launchExplicitWithCategory(packageName, activityName, OCULUS_VR_CATEGORY);
+                if (isSuccessfulLaunch(vrLaunch)) {
+                    return vrLaunch;
+                }
+            }
+            return launchExplicitWithCategory(packageName, activityName, ANDROID_LAUNCHER_CATEGORY);
+        } catch (Exception ex) {
+            return new CommandCapture("", 0, false, false, 1, exceptionSummary(ex));
+        }
+    }
+
+    private static CommandCapture launchResolvedPackageWithCategory(
+            String packageName,
+            String category) throws Exception {
+        CommandCapture resolve = runBoundedCommand(
+            new String[] {
+                "cmd",
+                "package",
+                "resolve-activity",
+                "--brief",
+                "-a",
+                ANDROID_MAIN_ACTION,
+                "-c",
+                category,
+                "-p",
+                packageName
+            },
+            16 * 1024,
+            5);
+        if (!isSuccessfulLaunch(resolve)) {
+            return resolve;
+        }
+        String componentName = resolvedComponentName(resolve.output, packageName);
+        if (componentName.length() == 0) {
+            return new CommandCapture(
+                resolve.output,
+                resolve.outputBytes,
+                resolve.truncated,
+                resolve.timedOut,
+                3,
+                "resolve-activity did not return a launch component");
+        }
+        return launchComponentNameWithCategory(componentName, category);
+    }
+
+    private static CommandCapture launchPackageWithCategory(String packageName, String category) throws Exception {
+        return runBoundedCommand(
+            new String[] {
+                "am",
+                "start",
+                "-W",
+                "-a",
+                ANDROID_MAIN_ACTION,
+                "-c",
+                category,
+                "-p",
+                packageName
+            },
+            16 * 1024,
+            6);
+    }
+
+    private static CommandCapture launchComponentNameWithCategory(String componentName, String category) throws Exception {
+        return runBoundedCommand(
+            new String[] {
+                "am",
+                "start",
+                "-W",
+                "-a",
+                ANDROID_MAIN_ACTION,
+                "-c",
+                category,
+                "-n",
+                componentName
+            },
+            16 * 1024,
+            6);
+    }
+
+    private static CommandCapture launchExplicitWithCategory(
+            String packageName,
+            String activityName,
+            String category) throws Exception {
+        String className = activityName.startsWith(".") ? packageName + activityName : activityName;
+        return runBoundedCommand(
+            new String[] {
+                "am",
+                "start",
+                "-W",
+                "-a",
+                ANDROID_MAIN_ACTION,
+                "-c",
+                category,
+                "-n",
+                packageName + "/" + className
+            },
+            16 * 1024,
+            6);
+    }
+
+    private static CommandCapture launchLauncherPackage(String packageName) throws Exception {
+        return runBoundedCommand(
+            new String[] {
+                "monkey",
+                "-p",
+                packageName,
+                "-c",
+                ANDROID_LAUNCHER_CATEGORY,
+                "1"
+            },
+            16 * 1024,
+            6);
+    }
+
+    private static boolean isSuccessfulLaunch(CommandCapture launch) {
+        if (launch == null || launch.exitCode != 0 || launch.timedOut) {
+            return false;
+        }
+        String output = launch.output != null ? launch.output.toLowerCase(Locale.ROOT) : "";
+        return !output.contains("error:") && !output.contains("unable to resolve");
+    }
+
+    private static boolean isVrLikeActivity(String activityName) {
+        if (activityName == null) {
+            return false;
+        }
+        String normalized = activityName.toLowerCase(Locale.ROOT);
+        return normalized.contains("xr") || normalized.contains("vr");
+    }
+
+    private static String resolvedComponentName(String output, String expectedPackageName) {
+        if (output == null || output.length() == 0) {
+            return "";
+        }
+        String[] lines = output.split("\\r?\\n");
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i] != null ? lines[i].trim() : "";
+            if (line.length() == 0 || line.indexOf('/') < 0) {
+                continue;
+            }
+            Matcher matcher = PACKAGE_COMPONENT_PATTERN.matcher(line);
+            if (!matcher.matches()) {
+                continue;
+            }
+            String packageName = matcher.group(1);
+            String className = matcher.group(2);
+            if (!packageName.equals(expectedPackageName) || className.length() == 0) {
+                continue;
+            }
+            return packageName + "/" + className;
+        }
+        return "";
+    }
+
+    private static CommandCapture launchLauncherPackageOrComponent(String packageName, String fallbackActivityName) {
+        CommandCapture launch = launchComponent(packageName, "");
+        if (launch.exitCode == 0 && !launch.timedOut) {
+            return launch;
+        }
+        if (fallbackActivityName == null || fallbackActivityName.trim().length() == 0) {
+            return launch;
+        }
+        return launchComponent(packageName, fallbackActivityName);
+    }
+
+    private static CommandCapture launchBrokerConsole(
+            Options options,
+            String brokerPackage,
+            String fallbackActivityName) {
+        try {
+            JSONObject ack = sendBrokerCommand(options.host, options.port, "open_ui", new JSONObject());
+            String output = ack != null ? ack.toString() : "";
+            if (ack != null && ack.optBoolean("accepted", false)) {
+                return new CommandCapture(output, output.length(), false, false, 0, "");
+            }
+        } catch (Exception ignored) {
+            // Fall through to the shell-side launcher path.
+        }
+        return launchLauncherPackageOrComponent(brokerPackage, fallbackActivityName);
+    }
+
+    private static CommandCapture forceStopPackage(String packageName) {
+        try {
+            packageName = packageName != null ? packageName.trim() : "";
+            if (packageName.length() == 0) {
+                return new CommandCapture("", 0, false, false, 2, "missing package");
+            }
+            return runBoundedCommand(
+                new String[] { "am", "force-stop", packageName },
+                8 * 1024,
+                4);
+        } catch (Exception ex) {
+            return new CommandCapture("", 0, false, false, 1, exceptionSummary(ex));
+        }
+    }
+
+    private static void configureExperimentMode(Options options, String mode, String desiredFocus) throws Exception {
+        JSONObject params = new JSONObject();
+        params.put("mode", mode != null ? mode : "off");
+        if (desiredFocus != null && desiredFocus.length() > 0) {
+            params.put("desired_focus", desiredFocus);
+        }
+        sendBrokerCommand(options.host, options.port, "experiment.configure", params);
+    }
+
+    private static boolean isSamePackage(String left, String right) {
+        return left != null && right != null && left.trim().length() > 0 && left.trim().equals(right.trim());
+    }
+
+    private static int clampInt(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static String cleanActivityName(String value) {
+        if (value == null) {
+            return "";
+        }
+        String cleaned = value.trim();
+        int end = cleaned.length();
+        for (int i = 0; i < cleaned.length(); i++) {
+            char ch = cleaned.charAt(i);
+            if (Character.isWhitespace(ch) || ch == '}') {
+                end = i;
+                break;
+            }
+        }
+        return cleaned.substring(0, end);
+    }
+
     private static ProximityReadback readProximityState() {
         try {
             CommandCapture capture = runBoundedCommand(
@@ -2175,6 +3175,33 @@ public final class Helper {
         }
     }
 
+    private static final class ForegroundReadback {
+        final boolean available;
+        final String packageName;
+        final String activityName;
+        final boolean metaHome;
+        final boolean visibleMetaMenuOverlay;
+        final boolean protectedSystemFlow;
+        final String error;
+
+        ForegroundReadback(
+                boolean available,
+                String packageName,
+                String activityName,
+                boolean metaHome,
+                boolean visibleMetaMenuOverlay,
+                boolean protectedSystemFlow,
+                String error) {
+            this.available = available;
+            this.packageName = packageName != null ? packageName : "";
+            this.activityName = activityName != null ? activityName : "";
+            this.metaHome = metaHome;
+            this.visibleMetaMenuOverlay = visibleMetaMenuOverlay;
+            this.protectedSystemFlow = protectedSystemFlow;
+            this.error = error != null ? error : "";
+        }
+    }
+
     private static final class Options {
         final String host;
         final int port;
@@ -2200,6 +3227,17 @@ public final class Helper {
         final int proximityWatchdogDurationMs;
         final int proximityWatchdogHoldDurationMs;
         final int proximityWatchdogIntervalMs;
+        final boolean focusGuardian;
+        final boolean stopFocusGuardian;
+        final String focusGuardianMode;
+        final String focusGuardianDesiredFocus;
+        final String focusTargetPackage;
+        final String focusTargetActivity;
+        final String focusBrokerPackage;
+        final String focusBrokerActivity;
+        final int focusGuardianDurationMs;
+        final int focusGuardianIntervalMs;
+        final int focusGuardianCooldownMs;
 
         Options(
                 String host,
@@ -2225,7 +3263,18 @@ public final class Helper {
                 boolean stopProximityWatchdog,
                 int proximityWatchdogDurationMs,
                 int proximityWatchdogHoldDurationMs,
-                int proximityWatchdogIntervalMs) {
+                int proximityWatchdogIntervalMs,
+                boolean focusGuardian,
+                boolean stopFocusGuardian,
+                String focusGuardianMode,
+                String focusGuardianDesiredFocus,
+                String focusTargetPackage,
+                String focusTargetActivity,
+                String focusBrokerPackage,
+                String focusBrokerActivity,
+                int focusGuardianDurationMs,
+                int focusGuardianIntervalMs,
+                int focusGuardianCooldownMs) {
             this.host = host;
             this.port = port;
             this.connected = connected;
@@ -2250,6 +3299,21 @@ public final class Helper {
             this.proximityWatchdogDurationMs = proximityWatchdogDurationMs;
             this.proximityWatchdogHoldDurationMs = proximityWatchdogHoldDurationMs;
             this.proximityWatchdogIntervalMs = proximityWatchdogIntervalMs;
+            this.focusGuardian = focusGuardian;
+            this.stopFocusGuardian = stopFocusGuardian;
+            this.focusGuardianMode = focusGuardianMode != null ? focusGuardianMode : "observe";
+            this.focusGuardianDesiredFocus = focusGuardianDesiredFocus != null ? focusGuardianDesiredFocus : "broker";
+            this.focusTargetPackage = focusTargetPackage != null ? focusTargetPackage : "";
+            this.focusTargetActivity = focusTargetActivity != null ? focusTargetActivity : "";
+            this.focusBrokerPackage = focusBrokerPackage != null && focusBrokerPackage.length() > 0
+                ? focusBrokerPackage
+                : DEFAULT_BROKER_PACKAGE;
+            this.focusBrokerActivity = focusBrokerActivity != null && focusBrokerActivity.length() > 0
+                ? focusBrokerActivity
+                : DEFAULT_BROKER_ACTIVITY;
+            this.focusGuardianDurationMs = focusGuardianDurationMs;
+            this.focusGuardianIntervalMs = focusGuardianIntervalMs;
+            this.focusGuardianCooldownMs = focusGuardianCooldownMs;
         }
 
         static Options parse(String[] args) {
@@ -2277,6 +3341,17 @@ public final class Helper {
             int proximityWatchdogDurationMs = PROXIMITY_WATCHDOG_DEFAULT_DURATION_MS;
             int proximityWatchdogHoldDurationMs = PROXIMITY_WATCHDOG_DEFAULT_HOLD_MS;
             int proximityWatchdogIntervalMs = PROXIMITY_WATCHDOG_DEFAULT_INTERVAL_MS;
+            boolean focusGuardian = false;
+            boolean stopFocusGuardian = false;
+            String focusGuardianMode = "observe";
+            String focusGuardianDesiredFocus = "broker";
+            String focusTargetPackage = "";
+            String focusTargetActivity = "";
+            String focusBrokerPackage = DEFAULT_BROKER_PACKAGE;
+            String focusBrokerActivity = DEFAULT_BROKER_ACTIVITY;
+            int focusGuardianDurationMs = FOCUS_GUARDIAN_DEFAULT_DURATION_MS;
+            int focusGuardianIntervalMs = FOCUS_GUARDIAN_DEFAULT_INTERVAL_MS;
+            int focusGuardianCooldownMs = FOCUS_GUARDIAN_DEFAULT_COOLDOWN_MS;
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
                 if ("--broker-host".equals(arg) && i + 1 < args.length) {
@@ -2345,6 +3420,40 @@ public final class Helper {
                         args[++i],
                         PROXIMITY_WATCHDOG_MIN_INTERVAL_MS,
                         PROXIMITY_WATCHDOG_MAX_INTERVAL_MS);
+                } else if ("--focus-guardian".equals(arg)) {
+                    focusGuardian = true;
+                } else if ("--stop-focus-guardian".equals(arg)) {
+                    stopFocusGuardian = true;
+                } else if ("--focus-guardian-mode".equals(arg) && i + 1 < args.length) {
+                    focusGuardianMode = normalizeFocusGuardianMode(args[++i]);
+                } else if ("--focus-guardian-desired-focus".equals(arg) && i + 1 < args.length) {
+                    focusGuardianDesiredFocus = normalizeFocusSide(args[++i]);
+                } else if ("--focus-target-package".equals(arg) && i + 1 < args.length) {
+                    focusTargetPackage = args[++i];
+                } else if ("--focus-target-activity".equals(arg) && i + 1 < args.length) {
+                    focusTargetActivity = args[++i];
+                } else if ("--focus-broker-package".equals(arg) && i + 1 < args.length) {
+                    focusBrokerPackage = args[++i];
+                } else if ("--focus-broker-activity".equals(arg) && i + 1 < args.length) {
+                    focusBrokerActivity = args[++i];
+                } else if ("--focus-guardian-duration-ms".equals(arg) && i + 1 < args.length) {
+                    focusGuardianDurationMs = parsePositiveBounded(
+                        "--focus-guardian-duration-ms",
+                        args[++i],
+                        FOCUS_GUARDIAN_MIN_INTERVAL_MS,
+                        Integer.MAX_VALUE);
+                } else if ("--focus-guardian-interval-ms".equals(arg) && i + 1 < args.length) {
+                    focusGuardianIntervalMs = parsePositiveBounded(
+                        "--focus-guardian-interval-ms",
+                        args[++i],
+                        FOCUS_GUARDIAN_MIN_INTERVAL_MS,
+                        FOCUS_GUARDIAN_MAX_INTERVAL_MS);
+                } else if ("--focus-guardian-cooldown-ms".equals(arg) && i + 1 < args.length) {
+                    focusGuardianCooldownMs = parsePositiveBounded(
+                        "--focus-guardian-cooldown-ms",
+                        args[++i],
+                        FOCUS_GUARDIAN_MIN_INTERVAL_MS,
+                        FOCUS_GUARDIAN_MAX_INTERVAL_MS);
                 } else if ("--help".equals(arg) || "-h".equals(arg)) {
                     printHelpAndExit();
                 } else {
@@ -2381,7 +3490,18 @@ public final class Helper {
                 stopProximityWatchdog,
                 proximityWatchdogDurationMs,
                 proximityWatchdogHoldDurationMs,
-                proximityWatchdogIntervalMs);
+                proximityWatchdogIntervalMs,
+                focusGuardian,
+                stopFocusGuardian,
+                focusGuardianMode,
+                focusGuardianDesiredFocus,
+                focusTargetPackage,
+                focusTargetActivity,
+                focusBrokerPackage,
+                focusBrokerActivity,
+                focusGuardianDurationMs,
+                focusGuardianIntervalMs,
+                focusGuardianCooldownMs);
         }
 
         private static int parseSyntheticSampleCount(String value) {
@@ -2444,6 +3564,28 @@ public final class Helper {
             return parsed;
         }
 
+        private static String normalizeFocusGuardianMode(String value) {
+            String normalized = value != null ? value.trim().toLowerCase(Locale.ROOT) : "";
+            if ("off".equals(normalized) ||
+                "observe".equals(normalized) ||
+                "recover_target".equals(normalized) ||
+                "recover_broker".equals(normalized) ||
+                "toggle_broker_target".equals(normalized) ||
+                "launch_target_guard".equals(normalized) ||
+                "strict".equals(normalized)) {
+                return normalized;
+            }
+            throw new IllegalArgumentException("--focus-guardian-mode is invalid: " + value);
+        }
+
+        private static String normalizeFocusSide(String value) {
+            String normalized = value != null ? value.trim().toLowerCase(Locale.ROOT) : "";
+            if ("target".equals(normalized) || "broker".equals(normalized)) {
+                return normalized;
+            }
+            throw new IllegalArgumentException("--focus-guardian-desired-focus must be target or broker");
+        }
+
         private static void printHelpAndExit() {
             System.out.println("Rusty XR broker shell helper");
             System.out.println("  --broker-host <host>  default 127.0.0.1");
@@ -2489,6 +3631,28 @@ public final class Helper {
             System.out.println("                        prox_close hold duration when reapplying; default 28800000");
             System.out.println("  --proximity-watchdog-interval-ms <ms>");
             System.out.println("                        readback interval; 1000-60000, default 5000");
+            System.out.println("  --focus-guardian");
+            System.out.println("                        run reactive focus recovery and tuning-property apply loop");
+            System.out.println("  --stop-focus-guardian");
+            System.out.println("                        request any active focus guardian to stop");
+            System.out.println("  --focus-guardian-mode <mode>");
+            System.out.println("                        off, observe, recover_target, recover_broker, toggle_broker_target, launch_target_guard, strict");
+            System.out.println("  --focus-guardian-desired-focus <target|broker>");
+            System.out.println("                        fallback side when no active side has been observed");
+            System.out.println("  --focus-target-package <package>");
+            System.out.println("                        optional initial target package; broker UI can update it");
+            System.out.println("  --focus-target-activity <activity>");
+            System.out.println("                        optional initial target activity");
+            System.out.println("  --focus-broker-package <package>");
+            System.out.println("                        broker package; default com.example.rustyxr.broker");
+            System.out.println("  --focus-broker-activity <activity>");
+            System.out.println("                        broker activity; default com.example.rustyxr.broker.MainActivity");
+            System.out.println("  --focus-guardian-duration-ms <ms>");
+            System.out.println("                        focus guardian process lifetime; default 28800000");
+            System.out.println("  --focus-guardian-interval-ms <ms>");
+            System.out.println("                        foreground poll interval; 250-10000, default 1000");
+            System.out.println("  --focus-guardian-cooldown-ms <ms>");
+            System.out.println("                        minimum relaunch spacing; 250-10000, default 1500");
             System.exit(0);
         }
     }
