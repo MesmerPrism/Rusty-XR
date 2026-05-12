@@ -682,6 +682,10 @@ public final class CompositeLayerActivity extends NativeActivity {
             }
         }
 
+        boolean brokerLiveStream = booleanExtra("rustyxr.brokerH264LiveStream", false);
+        int brokerH264CaptureMs = intExtra("rustyxr.brokerH264CaptureMs", DEFAULT_BROKER_H264_CAPTURE_MS);
+        int brokerH264MaxPackets = intExtra("rustyxr.brokerH264MaxPackets", DEFAULT_BROKER_H264_MAX_PACKETS);
+
         BrokerH264ConsumerProbe.Config config = new BrokerH264ConsumerProbe.Config(
             stringExtra("rustyxr.brokerHost", DEFAULT_BROKER_HOST),
             Math.max(1, intExtra("rustyxr.brokerPort", DEFAULT_BROKER_PORT)),
@@ -692,15 +696,15 @@ public final class CompositeLayerActivity extends NativeActivity {
             brokerRightCameraId,
             Math.max(16, intExtra("rustyxr.brokerH264Width", DEFAULT_BROKER_H264_WIDTH)),
             Math.max(16, intExtra("rustyxr.brokerH264Height", DEFAULT_BROKER_H264_HEIGHT)),
-            Math.max(100, intExtra("rustyxr.brokerH264CaptureMs", DEFAULT_BROKER_H264_CAPTURE_MS)),
-            Math.max(1, intExtra("rustyxr.brokerH264MaxPackets", DEFAULT_BROKER_H264_MAX_PACKETS)),
+            brokerLiveStream ? Math.max(0, brokerH264CaptureMs) : Math.max(100, brokerH264CaptureMs),
+            brokerLiveStream ? Math.max(0, brokerH264MaxPackets) : Math.max(1, brokerH264MaxPackets),
             Math.max(100000, intExtra("rustyxr.brokerH264BitrateBps", DEFAULT_BROKER_H264_BITRATE_BPS)),
             Math.max(1000, intExtra("rustyxr.brokerH264CommandTimeoutMs", DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS)),
             Math.max(1000, intExtra("rustyxr.brokerH264StreamTimeoutMs", DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS)),
             Math.max(1000, intExtra("rustyxr.brokerH264DecodeTimeoutMs", DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS)),
             stringExtra("rustyxr.brokerH264DecodeOutputMode", DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE),
             brokerStereo,
-            booleanExtra("rustyxr.brokerH264LiveStream", false),
+            brokerLiveStream,
             stringExtra("rustyxr.brokerH264SourceMode", DEFAULT_BROKER_H264_SOURCE_MODE),
             booleanExtra("rustyxr.brokerH264LiveDecode", DEFAULT_BROKER_H264_LIVE_DECODE),
             booleanExtra("rustyxr.brokerH264ByteIdentityProbe", DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE),

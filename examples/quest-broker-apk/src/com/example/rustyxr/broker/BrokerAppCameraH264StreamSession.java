@@ -90,14 +90,20 @@ final class BrokerAppCameraH264StreamSession {
         final int preferredWidth = clamp(params != null ? params.optInt("preferred_width", DEFAULT_WIDTH) : DEFAULT_WIDTH, 16, 4096);
         final int preferredHeight = clamp(params != null ? params.optInt("preferred_height", DEFAULT_HEIGHT) : DEFAULT_HEIGHT, 16, 4096);
         final boolean liveStream = params != null && params.optBoolean("live_stream", false);
-        final int captureMs = clamp(
-            params != null ? params.optInt("capture_ms", DEFAULT_CAPTURE_MS) : DEFAULT_CAPTURE_MS,
-            100,
-            liveStream ? MAX_LIVE_CAPTURE_MS : MAX_CAPTURE_MS);
-        final int maxPackets = clamp(
-            params != null ? params.optInt("max_packets", DEFAULT_MAX_PACKETS) : DEFAULT_MAX_PACKETS,
-            1,
-            liveStream ? MAX_LIVE_PACKETS : MAX_PACKETS);
+        final int requestedCaptureMs = params != null ? params.optInt("capture_ms", DEFAULT_CAPTURE_MS) : DEFAULT_CAPTURE_MS;
+        final int requestedMaxPackets = params != null ? params.optInt("max_packets", DEFAULT_MAX_PACKETS) : DEFAULT_MAX_PACKETS;
+        final int captureMs = liveStream && requestedCaptureMs <= 0
+            ? 0
+            : clamp(
+                requestedCaptureMs,
+                100,
+                liveStream ? MAX_LIVE_CAPTURE_MS : MAX_CAPTURE_MS);
+        final int maxPackets = liveStream && requestedMaxPackets <= 0
+            ? 0
+            : clamp(
+                requestedMaxPackets,
+                1,
+                liveStream ? MAX_LIVE_PACKETS : MAX_PACKETS);
         final int writerQueueDepth = clamp(
             params != null ? params.optInt("writer_queue_depth", DEFAULT_LIVE_WRITER_QUEUE_DEPTH) : DEFAULT_LIVE_WRITER_QUEUE_DEPTH,
             1,
@@ -140,7 +146,7 @@ final class BrokerAppCameraH264StreamSession {
         start.put("writer_queue_depth", writerQueueDepth);
         start.put("bitrate_bps", bitrateBps);
         start.put("live_stream", liveStream);
-        start.put("stream_mode", liveStream ? "live_bounded" : "bounded_capture_then_write");
+        start.put("stream_mode", streamMode(liveStream, captureMs, maxPackets));
         start.put("binary_endpoint", endpoint);
         try {
             if (appContext != null &&
@@ -318,6 +324,8 @@ final class BrokerAppCameraH264StreamSession {
                     encodeStartElapsedNs,
                     encodeEndElapsedNs,
                     writeStats,
+                    captureMs,
+                    maxPackets,
                     liveStream,
                     encoderMetadata,
                     lastError);
@@ -455,10 +463,12 @@ final class BrokerAppCameraH264StreamSession {
             builder.addTarget(encoderSurface);
             sessionRef[0].setRepeatingRequest(builder.build(), captureTiming, handler);
 
-            long deadlineElapsedNs = SystemClock.elapsedRealtimeNanos() + captureMs * 1_000_000L;
+            long deadlineElapsedNs = captureMs > 0
+                ? SystemClock.elapsedRealtimeNanos() + captureMs * 1_000_000L
+                : Long.MAX_VALUE;
             while (SystemClock.elapsedRealtimeNanos() < deadlineElapsedNs &&
-                    packetQueue.acceptedPacketCount() < maxPackets &&
-                    writer.writtenPacketCount() < maxPackets &&
+                    (maxPackets <= 0 || packetQueue.acceptedPacketCount() < maxPackets) &&
+                    (maxPackets <= 0 || writer.writtenPacketCount() < maxPackets) &&
                     !writer.hasError()) {
                 drainEncoderToQueue(
                     encoder,
@@ -950,7 +960,7 @@ final class BrokerAppCameraH264StreamSession {
         EncoderMetadata encoderMetadata) throws Exception {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         int emptyPolls = 0;
-        while (packetQueue.acceptedPacketCount() < maxPackets) {
+        while (maxPackets <= 0 || packetQueue.acceptedPacketCount() < maxPackets) {
             int status = encoder.dequeueOutputBuffer(info, ENCODER_DRAIN_TIMEOUT_US);
             if (status == MediaCodec.INFO_TRY_AGAIN_LATER) {
                 if (!endOfStream || emptyPolls++ > 50) {
@@ -1374,7 +1384,7 @@ final class BrokerAppCameraH264StreamSession {
         manifest.put("capture_ms", captureMs);
         manifest.put("max_packets", maxPackets);
         manifest.put("live_stream", liveStream);
-        manifest.put("stream_mode", liveStream ? "live_bounded" : "bounded_capture_then_write");
+        manifest.put("stream_mode", streamMode(liveStream, captureMs, maxPackets));
         manifest.put("writer_backpressure_isolated", liveStream);
         manifest.put("writer_queue_depth", liveStream && endpoint != null ? endpoint.optInt("writer_queue_depth", 0) : 0);
         manifest.put("binary_schema_version", SCHEMA_VERSION);
@@ -1414,8 +1424,24 @@ final class BrokerAppCameraH264StreamSession {
         sample.put("source_time_elapsed_ns", packet.encoderOutputElapsedNs);
         sample.put("encoder_output_unix_ns", packet.encoderOutputUnixNs);
         sample.put("encoder_output_elapsed_ns", packet.encoderOutputElapsedNs);
-        sample.put("stream_mode", liveStream ? "live_bounded" : "bounded_capture_then_write");
+        sample.put("stream_mode", liveStream ? "live_stream" : "bounded_capture_then_write");
         sink.recordSample(sample);
+    }
+
+    private static String streamMode(boolean liveStream, int captureMs, int maxPackets) {
+        if (!liveStream) {
+            return "bounded_capture_then_write";
+        }
+        if (captureMs <= 0 && maxPackets <= 0) {
+            return "live_unbounded";
+        }
+        if (captureMs <= 0) {
+            return "live_until_packet_count";
+        }
+        if (maxPackets <= 0) {
+            return "live_until_capture_timeout";
+        }
+        return "live_bounded";
     }
 
     private static void recordMetric(
@@ -1427,6 +1453,8 @@ final class BrokerAppCameraH264StreamSession {
         long encodeStartElapsedNs,
         long encodeEndElapsedNs,
         StreamWriteStats writeStats,
+        int captureMs,
+        int maxPackets,
         boolean liveStream,
         EncoderMetadata encoderMetadata,
         String lastError) throws Exception {
@@ -1450,7 +1478,7 @@ final class BrokerAppCameraH264StreamSession {
         metric.put("camera_encode_end_elapsed_ns", encodeEndElapsedNs);
         metric.put("camera_encode_duration_ns", Math.max(0L, encodeEndElapsedNs - encodeStartElapsedNs));
         metric.put("live_stream", liveStream);
-        metric.put("stream_mode", liveStream ? "live_bounded" : "bounded_capture_then_write");
+        metric.put("stream_mode", streamMode(liveStream, captureMs, maxPackets));
         metric.put("binary_listen_start_elapsed_ns", writeStats.listenStartElapsedNs);
         metric.put("binary_accept_elapsed_ns", writeStats.acceptElapsedNs);
         metric.put("binary_write_start_elapsed_ns", writeStats.writeStartElapsedNs);
@@ -2147,7 +2175,7 @@ final class BrokerAppCameraH264StreamSession {
                 writeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
                 writeStreamHeader(output, size, maxPackets);
                 output.flush();
-                while (writtenPacketCount < maxPackets) {
+                while (maxPackets <= 0 || writtenPacketCount < maxPackets) {
                     EncodedPacket packet = queue.poll(WRITER_QUEUE_POLL_MS);
                     if (packet == null) {
                         if (queue.isClosed()) {

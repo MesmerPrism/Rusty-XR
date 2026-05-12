@@ -305,8 +305,16 @@ final class BrokerH264TcpProxySession {
             localOutput.write(header.raw);
 
             byte[] buffer = new byte[32 * 1024];
-            for (int index = 0; index < header.packetCount; index++) {
-                PacketHeader packet = readPacketHeader(remoteInput, header.schemaVersion);
+            for (int index = 0; header.packetCount == 0 || index < header.packetCount; index++) {
+                PacketHeader packet;
+                try {
+                    packet = readPacketHeader(remoteInput, header.schemaVersion);
+                } catch (EOFException eof) {
+                    if (header.packetCount == 0) {
+                        break;
+                    }
+                    throw eof;
+                }
                 if (header.declaredPacketBytes > 0 && packet.sizeBytes != header.declaredPacketBytes) {
                     throw new IllegalStateException("Remote packet size did not match declared packet bytes.");
                 }
@@ -429,7 +437,7 @@ final class BrokerH264TcpProxySession {
         if (width <= 0 || height <= 0) {
             throw new IllegalStateException("Invalid remote stream dimensions: " + width + "x" + height);
         }
-        if (packetCount <= 0 || packetCount > MAX_PACKET_COUNT) {
+        if (packetCount < 0 || packetCount > MAX_PACKET_COUNT) {
             throw new IllegalStateException("Invalid remote stream packet count: " + packetCount);
         }
         if (declaredPacketBytes < 0 || declaredPacketBytes > MAX_PACKET_BYTES) {

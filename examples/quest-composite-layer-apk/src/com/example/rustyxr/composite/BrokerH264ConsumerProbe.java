@@ -1563,10 +1563,11 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 throw new IllegalStateException("Broker stream packet count is out of range: " + result.declaredPacketCount);
             }
 
+            boolean unboundedStream = result.declaredPacketCount == 0;
             result.receiveStartElapsedNs = SystemClock.elapsedRealtimeNanos();
             List<Packet> pendingPackets = new ArrayList<Packet>();
             while (running &&
-                pendingPackets.size() < result.declaredPacketCount &&
+                (unboundedStream || pendingPackets.size() < result.declaredPacketCount) &&
                 pendingPackets.size() < 8) {
                 Packet packet;
                 try {
@@ -1613,8 +1614,10 @@ final class BrokerH264ConsumerProbe implements Runnable {
 
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             int nextPending = 0;
-            long deadlineNs = SystemClock.elapsedRealtimeNanos() +
-                ((long) config.streamTimeoutMs + config.decodeTimeoutMs + config.captureMs) * 1_000_000L;
+            long deadlineNs = unboundedStream || config.captureMs <= 0
+                ? Long.MAX_VALUE
+                : SystemClock.elapsedRealtimeNanos() +
+                    ((long) config.streamTimeoutMs + config.decodeTimeoutMs + config.captureMs) * 1_000_000L;
             while (running && !result.outputEosSeen && SystemClock.elapsedRealtimeNanos() < deadlineNs) {
                 if (!result.inputEosQueued) {
                     int inputIndex = decoder.dequeueInputBuffer(DEQUEUE_TIMEOUT_US);
@@ -1622,7 +1625,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                         if (nextPending < pendingPackets.size()) {
                             Packet packet = pendingPackets.get(nextPending++);
                             queueLivePacket(decoder, inputIndex, packet, result);
-                        } else if (!result.streamEndedByEof && result.packetCount < result.declaredPacketCount) {
+                        } else if (!result.streamEndedByEof && (unboundedStream || result.packetCount < result.declaredPacketCount)) {
                             Packet packet;
                             try {
                                 packet = readPacket(input, result.schemaVersion);
@@ -1738,7 +1741,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
 
     private static void markLiveStreamEndedByEof(LiveDecodeResult result) {
         result.streamEndedByEof = true;
-        result.streamMissingDeclaredPacketCount = Math.max(0, result.declaredPacketCount - result.packetCount);
+        result.streamMissingDeclaredPacketCount = result.declaredPacketCount > 0
+            ? Math.max(0, result.declaredPacketCount - result.packetCount)
+            : 0;
     }
 
     private static void recordLivePacket(LiveDecodeResult result, Packet packet) {
