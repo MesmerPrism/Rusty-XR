@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -78,16 +79,55 @@ def luma(rgb: np.ndarray) -> np.ndarray:
     return rgb[..., 0] * 0.2126 + rgb[..., 1] * 0.7152 + rgb[..., 2] * 0.0722
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def summarize_whole_frame(img: np.ndarray) -> dict:
+    sample_luma = luma(img)
+    mean_luma = float(sample_luma.mean())
+    p95_luma = float(np.percentile(sample_luma, 95))
+    std_luma = float(sample_luma.std())
+    non_black_pixel_ratio = float((sample_luma > 0.03).mean())
+    substantial_content = mean_luma >= 0.02 or p95_luma >= 0.08 or non_black_pixel_ratio >= 0.02
+    visible_content = (
+        mean_luma >= 0.02
+        or p95_luma >= 0.08
+        or non_black_pixel_ratio >= 0.01
+    )
+    return {
+        "meanLuma": mean_luma,
+        "p95Luma": p95_luma,
+        "stdLuma": std_luma,
+        "nonBlackPixelRatio": non_black_pixel_ratio,
+        "substantialContent": substantial_content,
+        "visibleContent": visible_content,
+    }
+
+
 def summarize_image(path: Path) -> dict:
     if not path.exists() or path.stat().st_size == 0:
         return {
             "status": "invalid",
             "reason": "missing-or-empty-image",
             "path": str(path),
+            "wholeFrame": {
+                "meanLuma": 0.0,
+                "p95Luma": 0.0,
+                "stdLuma": 0.0,
+                "nonBlackPixelRatio": 0.0,
+                "substantialContent": False,
+                "visibleContent": False,
+            },
             "rois": {},
         }
 
     img = load_rgb(path)
+    whole_frame = summarize_whole_frame(img)
     rois = {}
     black_like = []
     for name, roi in CAMERA_CONTENT_ROIS.items():
@@ -136,7 +176,102 @@ def summarize_image(path: Path) -> dict:
         "reason": reason,
         "path": str(path),
         "imageShape": list(img.shape),
+        "wholeFrame": whole_frame,
         "rois": rois,
+    }
+
+
+def summarize_image_sequence(sequence_dir: Path, pattern: str) -> dict:
+    if not sequence_dir.exists():
+        return {
+            "status": "invalid",
+            "reason": "missing-sequence-dir",
+            "path": str(sequence_dir),
+            "frameCount": 0,
+            "visibleFrameCount": 0,
+            "uniqueSha256Count": 0,
+            "allFramesByteIdentical": False,
+            "frames": [],
+        }
+
+    frame_paths = sorted(path for path in sequence_dir.glob(pattern) if path.is_file())
+    frames = []
+    for index, path in enumerate(frame_paths):
+        image = summarize_image(path)
+        frames.append(
+            {
+                "index": index,
+                "path": str(path),
+                "sha256": sha256_file(path),
+                "bytes": path.stat().st_size,
+                "status": image["status"],
+                "reason": image["reason"],
+                "wholeFrame": image["wholeFrame"],
+            }
+        )
+
+    if not frames:
+        return {
+            "status": "invalid",
+            "reason": "no-sequence-frames",
+            "path": str(sequence_dir),
+            "pattern": pattern,
+            "frameCount": 0,
+            "visibleFrameCount": 0,
+            "uniqueSha256Count": 0,
+            "allFramesByteIdentical": False,
+            "frames": [],
+        }
+
+    hashes = [frame["sha256"] for frame in frames]
+    unique_hashes = sorted(set(hashes))
+    visible_count = sum(1 for frame in frames if frame["wholeFrame"]["visibleContent"])
+    substantial_count = sum(1 for frame in frames if frame["wholeFrame"]["substantialContent"])
+    required_substantial_count = max(1, (len(frames) // 2) + 1)
+    duplicate_groups = [
+        {
+            "sha256": sha256,
+            "count": hashes.count(sha256),
+            "indices": [
+                frame["index"]
+                for frame in frames
+                if frame["sha256"] == sha256
+            ],
+        }
+        for sha256 in unique_hashes
+        if hashes.count(sha256) > 1
+    ]
+    all_identical = len(unique_hashes) == 1 and len(frames) > 1
+
+    if visible_count == 0:
+        status = "invalid"
+        reason = "sequence-frames-black-like"
+    elif substantial_count < required_substantial_count:
+        status = "invalid"
+        reason = "sequence-frames-lack-substantial-app-content"
+    elif all_identical:
+        status = "warning"
+        reason = "sequence-frames-byte-identical"
+    elif visible_count < len(frames):
+        status = "warning"
+        reason = "some-sequence-frames-black-like"
+    else:
+        status = "ok"
+        reason = "sequence-frames-visible-and-changing"
+
+    return {
+        "status": status,
+        "reason": reason,
+        "path": str(sequence_dir),
+        "pattern": pattern,
+        "frameCount": len(frames),
+        "visibleFrameCount": visible_count,
+        "substantialFrameCount": substantial_count,
+        "requiredSubstantialFrameCount": required_substantial_count,
+        "uniqueSha256Count": len(unique_hashes),
+        "duplicateSha256Groups": duplicate_groups,
+        "allFramesByteIdentical": all_identical,
+        "frames": frames,
     }
 
 
@@ -311,10 +446,10 @@ def summarize_log(path: Path) -> dict:
     }
 
 
-def combine_status(image_status: str, log_status: str) -> str:
-    if image_status == "invalid" or log_status == "invalid":
+def combine_status(*statuses: str) -> str:
+    if any(status == "invalid" for status in statuses):
         return "invalid"
-    if image_status == "warning" or log_status == "warning":
+    if any(status == "warning" for status in statuses):
         return "warning"
     return "ok"
 
@@ -325,17 +460,29 @@ def main() -> int:
     parser.add_argument("--logcat", required=True, type=Path)
     parser.add_argument("--label", required=True)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--sequence-dir", type=Path)
+    parser.add_argument("--sequence-glob", default="frame-*.png")
     args = parser.parse_args()
 
     image = summarize_image(args.image)
     logcat = summarize_log(args.logcat)
+    sequence = (
+        summarize_image_sequence(args.sequence_dir, args.sequence_glob)
+        if args.sequence_dir
+        else None
+    )
+    statuses = [image["status"], logcat["status"]]
+    if sequence:
+        statuses.append(sequence["status"])
     report = {
         "schemaVersion": "rusty.xr.quest-camera-run-validation.v1",
         "label": args.label,
-        "status": combine_status(image["status"], logcat["status"]),
+        "status": combine_status(*statuses),
         "image": image,
         "logcat": logcat,
     }
+    if sequence:
+        report["sequence"] = sequence
     args.out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
     return 0

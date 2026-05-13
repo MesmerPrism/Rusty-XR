@@ -165,12 +165,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
 Each run captures battery, power, VR power manager, activity/window state,
 logcat, a screen capture, optional `hzdb` screenshots, and a validation report.
 When `-FreshnessFrames` is greater than one, the harness also captures a short
-sequence of screenshots, writes per-frame SHA-256 hashes, and flags duplicate
-hash groups in `<runtime-profile>-freshness-summary.json`. Use that freshness
-summary for camera/parity runs so a byte-identical frozen screenshot sequence is
-not mistaken for live camera feed. The harness uses a timed `hzdb` proximity
-hold when available; it intentionally does not send automation/proximity-disable
-broadcasts before launch.
+sequence of screenshots, writes per-frame SHA-256 hashes, flags duplicate hash
+groups in `<runtime-profile>-freshness-summary.json`, and passes the sequence to
+the validator. The validation report records how many captured frames had
+visible non-black screen content and whether the sequence was byte-identical.
+Use that freshness summary for camera/parity runs so a frozen or black
+screenshot sequence is not mistaken for live camera feed. The harness uses a
+timed `hzdb` proximity hold when available; it intentionally does not send
+automation/proximity-disable broadcasts before launch.
 
 ## Validate A Run
 
@@ -182,6 +184,7 @@ python .\tools\quest-camera-profile\Validate-QuestCameraRun.py `
   --image .\artifacts\quest-camera-profile-runs\<run>\<label>-hzdb-screencap.png `
   --logcat .\artifacts\quest-camera-profile-runs\<run>\<label>-logcat-tail.txt `
   --label <label> `
+  --sequence-dir .\artifacts\quest-camera-profile-runs\<run>\<label>-freshness-frames `
   --out .\artifacts\quest-camera-profile-runs\<run>\<label>-validation.json
 ```
 

@@ -711,7 +711,13 @@ public final class CompositeLayerActivity extends NativeActivity {
             stringExtra("rustyxr.brokerH264StereoPairingMode", DEFAULT_BROKER_H264_STEREO_PAIRING_MODE),
             Math.max(2, intExtra(
                 "rustyxr.brokerH264LivePairQueueLimit",
-                DEFAULT_BROKER_H264_LIVE_PAIR_QUEUE_LIMIT)));
+                DEFAULT_BROKER_H264_LIVE_PAIR_QUEUE_LIMIT)),
+            stringExtra("rustyxr.brokerH264ProjectionMetadataJson", ""),
+            stringExtra("rustyxr.brokerH264LeftProjectionMetadataJson", ""),
+            stringExtra("rustyxr.brokerH264RightProjectionMetadataJson", ""),
+            stringExtra("rustyxr.brokerH264ProjectionMetadataBase64", ""),
+            stringExtra("rustyxr.brokerH264LeftProjectionMetadataBase64", ""),
+            stringExtra("rustyxr.brokerH264RightProjectionMetadataBase64", ""));
         Log.i(TAG, "Starting broker H.264 consumer probe");
         sendNativeEvent("brokerH264ConsumerStarting");
         brokerH264ConsumerProbe = BrokerH264ConsumerProbe.start(

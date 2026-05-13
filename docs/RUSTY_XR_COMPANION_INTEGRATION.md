@@ -37,6 +37,10 @@ APIs. A shell helper can provide stronger package and launch diagnostics only
 when an external authorized ADB host starts it. The normal headset APK cannot
 self-promote to Android `shell`. See
 [Quest App Launching And ADB Shell Helpers](QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).
+The same split applies to tracking: fused HMD/controller pose belongs in the
+foreground OpenXR app, while Companion and shell helpers can launch, forward,
+log, and collect diagnostics. See
+[Quest Tracking Access Boundary](QUEST_TRACKING_ACCESS_BOUNDARY.md).
 
 ## Shared Catalog Shape
 

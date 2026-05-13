@@ -438,9 +438,20 @@ function Invoke-RunValidation {
     }
     $logcatPath = Join-Path $Dir "$Label-logcat-tail.txt"
     $validationPath = Join-Path $Dir "$Label-validation.json"
+    $sequenceDir = Join-Path $Dir "$Label-freshness-frames"
 
     try {
-        python $Validator --image $imagePath --logcat $logcatPath --label $Label --out $validationPath | Out-File -FilePath (Join-Path $Dir "$Label-validation-stdout.txt") -Encoding UTF8
+        $validatorArgs = @(
+            $Validator,
+            "--image", $imagePath,
+            "--logcat", $logcatPath,
+            "--label", $Label,
+            "--out", $validationPath
+        )
+        if (Test-Path -LiteralPath $sequenceDir) {
+            $validatorArgs += @("--sequence-dir", $sequenceDir)
+        }
+        & python @validatorArgs | Out-File -FilePath (Join-Path $Dir "$Label-validation-stdout.txt") -Encoding UTF8
     }
     catch {
         @(
@@ -465,7 +476,7 @@ function Capture-Artifacts {
         for ($index = 0; $index -lt $FreshnessFrames; $index++) {
             $framePath = Join-Path $freshnessDir ("frame-{0:D2}.png" -f $index)
             Invoke-AdbBinaryCapture -Arguments @("exec-out", "screencap", "-p") -OutputPath $framePath
-            $frames += [ordered]@{
+            $frames += [pscustomobject][ordered]@{
                 index = $index
                 path = $framePath
                 sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $framePath).Hash
@@ -475,9 +486,9 @@ function Capture-Artifacts {
                 Start-Sleep -Milliseconds $FreshnessIntervalMs
             }
         }
+        $hashGroups = @($frames | Group-Object -Property sha256)
         $duplicateGroups = @(
-            $frames |
-                Group-Object sha256 |
+            $hashGroups |
                 Where-Object { $_.Count -gt 1 } |
                 ForEach-Object {
                     [ordered]@{
@@ -491,7 +502,7 @@ function Capture-Artifacts {
             schemaVersion = "rusty.xr.quest-camera-screenshot-freshness.v1"
             frameCount = $FreshnessFrames
             intervalMs = $FreshnessIntervalMs
-            uniqueSha256Count = @($frames | Group-Object sha256).Count
+            uniqueSha256Count = $hashGroups.Count
             duplicateSha256Groups = $duplicateGroups
             byteIdenticalFreezeSuspected = $duplicateGroups.Count -gt 0
             frames = $frames

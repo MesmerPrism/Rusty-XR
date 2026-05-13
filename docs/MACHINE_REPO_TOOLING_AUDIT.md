@@ -66,23 +66,25 @@ Keep out of Rusty XR:
 
 1. Quest USB/Wi-Fi ADB diagnostics schemas, failure classes, and an analyzer
    CLI with synthetic fixtures.
-2. Quest wake, visual-readiness, foreground-activity, proximity, and blocker
+2. Quest tracking access boundary docs that keep foreground OpenXR pose
+   sampling, Android sensors, and ADB/shell-helper diagnostics separate.
+3. Quest wake, visual-readiness, foreground-activity, proximity, and blocker
    state models.
-3. Selector-aware `hzdb`/ADB command contracts and documented fallback ladders
+4. Selector-aware `hzdb`/ADB command contracts and documented fallback ladders
    for screenshots, perf traces, wake, proximity, and file transfer.
-4. Room mesh, semantic fallback, processed scan, and environment-depth
+5. Room mesh, semantic fallback, processed scan, and environment-depth
    diagnostic contracts.
-5. PCA/Camera2/MediaProjection capture lifecycle models, frame manifests, and
+6. PCA/Camera2/MediaProjection capture lifecycle models, frame manifests, and
    permission request taxonomy.
-6. Quest cast/session manifests and visual-test artifact schemas for public
+7. Quest cast/session manifests and visual-test artifact schemas for public
    examples and regression evidence.
-7. Runtime config, hotload profile, device profile, and session manifest
+8. Runtime config, hotload profile, device profile, and session manifest
    schemas usable by Rust shells, Unity shells, and Windows operators.
-8. BLE/LSL/Polar/biofeedback stream contracts plus Android multicast and
+9. BLE/LSL/Polar/biofeedback stream contracts plus Android multicast and
    Bluetooth permission guidance.
-9. GPU buffer-layout, pass-graph, ping-pong, and readback-budget guidance for
+10. GPU buffer-layout, pass-graph, ping-pong, and readback-budget guidance for
    particles, depth, and future Vulkan/Makepad adapters.
-10. Clean-room import safety tooling: provenance notes, license checks, and
+11. Clean-room import safety tooling: provenance notes, license checks, and
     public/private boundary scanners.
 
 ## Candidate Matrix
@@ -90,6 +92,7 @@ Keep out of Rusty XR:
 | Area | Source Category | Public Rusty XR Shape | Why Useful | Boundary / Defer |
 | --- | --- | --- | --- | --- |
 | Quest USB/Wi-Fi ADB diagnostics | Local Android phone Quest companion tooling | Diagnostic stage enum, failure enum, endpoint/subnet parser, analyzer CLI, synthetic bundle fixtures | Makes phone-side and Windows-side Quest debugging reproducible | No app package IDs, certs, APK payloads, or private traces |
+| Quest tracking access boundary | Local Quest/OpenXR and shell-helper workflows | Public note for foreground OpenXR pose/velocity sampling, Android sensor limits, and ADB/shell-helper non-ownership of fused tracking | Prevents utilities from treating `adb shell` or a background service as a system-wide tracking source | Native OpenXR sampler remains app-owned; no private tracking internals |
 | USB-host ADB bootstrap | Local Android phone Quest companion tooling | USB interface descriptor for ADB class/subclass/protocol `255/66/1`, permission-flow docs, TCP handoff model | Documents how a phone can bootstrap Quest Wi-Fi ADB without a PC | Android implementation stays adapter/example-only |
 | Quest wake and visual readiness | Local Windows Quest operator tooling | `QuestWakeReadiness`, `QuestPowerStatus`, `ForegroundSnapshot`, visual blocker enum, proximity status | Captures the recurring issue that awake/mounted is not the same as visually ready | No project-specific recovery scripts or headset serials |
 | `hzdb` and ADB wrapper contracts | Local Windows Quest operator tooling, bureau notes | Selector-aware command request/result schema, screenshot/perf/wake/proximity fallback guide | Standardizes official Meta tooling use without hiding failures | Do not vendor `hzdb`; paths remain user-configured |
@@ -134,6 +137,10 @@ Keep out of Rusty XR:
   target surface: `hzdb`/metacam and `/sdcard/Oculus/Screenshots` for shell or
   immersive evidence, with `adb screencap` treated as unreliable in some VR
   contexts.
+- Quest tracking guidance should prefer a foreground OpenXR app for fused
+  headset/controller pose and velocity. ADB, `dumpsys`, and shell helpers are
+  diagnostics routes, not a supported public fused tracking stream. See
+  [QUEST_TRACKING_ACCESS_BOUNDARY.md](QUEST_TRACKING_ACCESS_BOUNDARY.md).
 - Depth diagnostics should keep PCA, environment depth, direct occlusion
   readback, and native OVR/OpenXR probes separate. Native probe failure can be
   informational while environment depth is still working.
@@ -166,6 +173,8 @@ Keep out of Rusty XR:
 - BLE, LSL, and Polar H10 public models and data-pipeline docs.
 - Media pipeline, Windows frame receiver, and APK permission guidance.
 - Android/Quest APK shell responsibility split.
+- Quest tracking access boundary for OpenXR, Android sensors, and ADB/shell
+  diagnostics.
 - Camera/depth/SDF contracts.
 - Plain stereo layer, visual feedback border, border tuning, and approved
   performance hints.

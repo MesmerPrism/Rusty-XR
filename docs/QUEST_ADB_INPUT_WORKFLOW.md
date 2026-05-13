@@ -19,6 +19,11 @@ fallback for an XR command. The `gamepad` and `joystick` forms are useful smoke
 tests for Android key dispatch, but they should not be treated as a complete
 Meta Touch controller emulation.
 
+This workflow is about input-routing evidence only. It is not a way to sample
+fused headset or controller tracking. The supported public tracking path is a
+foreground OpenXR app; ADB can launch, inspect, and forward diagnostics around
+that app. See [Quest Tracking Access Boundary](QUEST_TRACKING_ACCESS_BOUNDARY.md).
+
 ## What The Results Mean
 
 - If a keyboard fallback fires, the target app is focused enough to receive

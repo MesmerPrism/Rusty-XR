@@ -27,7 +27,7 @@ A representative validation pass on the public composite-layer example showed:
 | Synthetic compositor only | `0.75` and `0.65` | Held display cadence with low app and CPU+GPU time. |
 | Direct in-app projected Camera2 | `0.75` | Missed display cadence and accumulated high app/CPU+GPU time. |
 | Direct in-app projected Camera2 | `0.65` | Recovered display cadence with lower app/CPU+GPU time. |
-| Broker existing-stream receive/decode | `0.75` and `0.65` | Stayed stable as a receiver/decode isolation lane, but remained `flat-probe` without projection metadata. |
+| Broker existing-stream receive/decode | `0.75` and `0.65` | Stable as a receiver/decode isolation lane. When sender projection metadata is supplied to the receiver, this lane can exercise the same projected stereo path used by live broker-camera profiles. |
 | Broker live projected stereo | `0.75` | Matched the direct projected path's cadence problem. |
 | Broker live projected stereo | `0.65` | Recovered similarly to the direct projected path. |
 
@@ -233,8 +233,39 @@ For longer timing windows, override capture and packet limits in the launch:
 Use existing-stream mode to isolate receiver-side costs when another provider
 has already exposed `RXYRVID1` H.264 streams. This lane validates incoming
 stream receive, MediaCodec decode, hardware-buffer handoff, import, and draw.
-It is not a true projected-path comparison unless the incoming stream carries
-projection metadata equivalent to the live broker-camera profile.
+It is not a true projected-path comparison unless the receiver has projection
+metadata equivalent to the live broker-camera profile.
+
+Existing-stream receiver profiles can accept projection metadata as launch
+extras:
+
+- `rustyxr.brokerH264ProjectionMetadataJson`
+- `rustyxr.brokerH264LeftProjectionMetadataJson`
+- `rustyxr.brokerH264RightProjectionMetadataJson`
+- `rustyxr.brokerH264ProjectionMetadataBase64`
+- `rustyxr.brokerH264LeftProjectionMetadataBase64`
+- `rustyxr.brokerH264RightProjectionMetadataBase64`
+
+For a laptop relay or Quest-to-Quest receiver run, pair those metadata extras
+with:
+
+```text
+rustyxr.camera=false
+rustyxr.brokerH264Consumer=true
+rustyxr.brokerH264Stereo=true
+rustyxr.brokerH264SourceMode=existing-stream
+rustyxr.brokerH264DecodeOutputMode=hardware-buffer
+rustyxr.brokerH264StereoPairingMode=frame-order
+```
+
+The current renderer-parity target is the `camera-stereo-gpu-composite-fast075`
+profile with those existing-stream overrides. It keeps the direct profile's
+projection configuration and fast raw-projection shader, while replacing direct
+Camera2 capture with the broker/relay/decoder receiver path.
+
+The public online roadmap for extending this into mediated and direct
+Quest-to-Quest sessions is
+[QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md](QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md).
 
 ## Scorecard Tooling
 

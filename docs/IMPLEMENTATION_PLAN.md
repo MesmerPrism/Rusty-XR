@@ -65,6 +65,8 @@ The research-XR bridge split is documented in
 
 The clean-room low-latency transport direction is documented in
 [LOW_LATENCY_TRANSPORT_ARCHITECTURE.md](LOW_LATENCY_TRANSPORT_ARCHITECTURE.md).
+The Quest-to-Quest online streaming roadmap is documented in
+[QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md](QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md).
 Rusty XR may model session negotiation, stream descriptors, timing metrics,
 network-quality samples, security policy, and optional external-sidecar
 comparison lanes, but public core must not copy vendor SDK source, packet
@@ -245,9 +247,12 @@ calls, and downstream app behavior stay in adapters or downstream app shells.
 
 A broader sanitized machine-wide audit is tracked in
 [MACHINE_REPO_TOOLING_AUDIT.md](MACHINE_REPO_TOOLING_AUDIT.md). It covers
-additional Quest ADB/`hzdb`, Windows streaming, room mesh/depth, PCA/capture,
-runtime profile, GPU layout, BLE/LSL/biofeedback, and clean-room import tooling
-candidates from local sibling repositories.
+additional Quest ADB/`hzdb`, tracking-access boundaries, Windows streaming,
+room mesh/depth, PCA/capture, runtime profile, GPU layout,
+BLE/LSL/biofeedback, and clean-room import tooling candidates from local
+sibling repositories. The foreground-OpenXR-versus-ADB tracking boundary is
+documented in
+[QUEST_TRACKING_ACCESS_BOUNDARY.md](QUEST_TRACKING_ACCESS_BOUNDARY.md).
 
 ### Android / Quest APK Shells
 

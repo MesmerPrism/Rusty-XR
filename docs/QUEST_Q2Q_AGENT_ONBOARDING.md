@@ -59,6 +59,9 @@ Read these first:
 - `README.md`: high-level project shape and examples.
 - `docs/QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md`: the current streaming cost
   matrix and scorecard interpretation rules.
+- `docs/QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md`: the public phased plan
+  from the current laptop-loop gate to LAN, mediated online, and WebRTC-based
+  two-way Quest-to-Quest streaming.
 - `docs/MEDIA_PIPELINE_AND_PERMISSIONS.md`: source taxonomy, Camera2,
   MediaCodec, broker, MediaProjection, and permissions boundaries.
 - `examples/quest-composite-layer-apk/README.md`: composite-layer APK,
@@ -228,6 +231,7 @@ agent should add or configure:
 - explicit stream-session start/stop lifetime
 - timeout and reconnect behavior
 - projection metadata transport from sender to receiver
+- optional mediated relay behavior for phone hotspot or routed-network tests
 - timestamp-based pair/drop policy under network jitter
 - run manifests that identify roles as `sender` and `receiver` without
   committing serial numbers
@@ -235,6 +239,11 @@ agent should add or configure:
 Keep the binary media path separate from JSON/WebSocket status. High-rate H.264
 payloads should remain on the `RXYRVID1` binary stream, while manifests,
 metrics, capabilities, and operator status can use JSON.
+
+For online sessions beyond one LAN, prefer a staged path: first mediated
+WebSocket/TLS relay using the current Rusty XR diagnostic framing, then a
+native WebRTC adapter with signaling, STUN/TURN configuration, and a data
+channel for projection metadata and health telemetry.
 
 ## Diagnostic Matrix To Run
 

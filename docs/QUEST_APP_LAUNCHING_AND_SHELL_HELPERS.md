@@ -17,6 +17,13 @@ external authorized ADB host starts it, commonly by pushing a dex jar or APK to
 cannot promote itself to Android `shell` and cannot start that helper by
 itself.
 
+The helper boundary is also a tracking boundary. ADB shell identity can improve
+package, launch, log, `dumpsys`, and port-forward diagnostics, but it does not
+give a helper a supported public stream of fused headset or controller pose.
+Fused HMD/controller pose should be sampled by the foreground OpenXR app and
+exported over an app-owned channel when another process needs it. See
+[Quest Tracking Access Boundary](QUEST_TRACKING_ACCESS_BOUNDARY.md).
+
 The practical product shape is therefore:
 
 ```text
@@ -127,7 +134,7 @@ Use a two-tier boundary in public examples and downstream apps:
 | --- | --- | --- |
 | Headset 2D launcher app | app library, normal package launch, user-facing organization, safe launch profiles | shell identity, ADB bootstrap, silent install/update |
 | Companion or phone operator | ADB pairing, helper push/start/stop, APK install/update, diagnostics export | headset-local app organization UX |
-| ADB shell helper | shell-backed package operations and diagnostics for the active session | permanent privileges, store-style app permissions, OpenXR session ownership |
+| ADB shell helper | shell-backed package operations and diagnostics for the active session | permanent privileges, store-style app permissions, OpenXR session ownership, fused tracking ownership |
 | Rusty XR core | public contracts, catalog shapes, launch/status diagnostics | private package IDs, signing, app-specific launch scripts |
 
 Design the normal launcher to be useful without enhanced mode. Treat the shell

@@ -16,6 +16,11 @@ existing broker diagnostics:
 - optional LAN experiments with explicit pairing/security policy
 - operator scorecards in companion tools
 
+The concrete Quest-to-Quest online streaming plan is tracked in
+[QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md](QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md).
+This architecture note stays transport-neutral; that roadmap applies the same
+contracts to the current public Quest broker/composite examples.
+
 The public core owns contracts, validation, schemas, docs, and synthetic tests.
 Quest broker APKs, OpenXR clients, Windows tools, browser experiments, and
 vendor SDKs remain adapters, sidecars, or downstream shells.
@@ -204,8 +209,10 @@ Recommended order:
 2. Rusty XR-owned v2 diagnostic packet format.
 3. Companion inspection and scorecards.
 4. Secure non-loopback pairing policy.
-5. Optional QUIC/WebTransport/WebRTC experiments after dependency review.
-6. Optional external sidecar comparison lanes after license review.
+5. Mediated WebSocket/TLS relay experiments using the existing diagnostic
+   framing.
+6. Optional QUIC/WebTransport/WebRTC experiments after dependency review.
+7. Optional external sidecar comparison lanes after license review.
 
 The current Rusty XR-owned diagnostic video format is the bounded `RXYRVID1`
 v2 stream framing used by the public broker example. Its stream header is

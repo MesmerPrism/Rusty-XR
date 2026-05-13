@@ -1,6 +1,7 @@
 package com.example.rustyxr.broker;
 
 import android.os.SystemClock;
+import android.util.Log;
 
 import org.json.JSONObject;
 
@@ -18,6 +19,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 final class BrokerH264TcpProxySession {
+    private static final String TAG = "RustyXrBroker";
     private static final String STREAM_SCHEMA = "rusty.xr.video_lab.binary_stream.v1";
     private static final String MAGIC = "RXYRVID1";
     private static final int CODEC_H264 = 1;
@@ -27,7 +29,7 @@ final class BrokerH264TcpProxySession {
     private static final int DEFAULT_CONNECT_TIMEOUT_MS = 15000;
     private static final int DEFAULT_ACCEPT_TIMEOUT_MS = 30000;
     private static final int MAX_TIMEOUT_MS = 120000;
-    private static final int MAX_PACKET_COUNT = 720;
+    private static final int MAX_PACKET_COUNT = 2400;
     private static final int MAX_PACKET_BYTES = 1024 * 1024;
     private static final int FLAG_KEY_FRAME = 1;
     private static final int FLAG_CODEC_CONFIG = 2;
@@ -96,6 +98,11 @@ final class BrokerH264TcpProxySession {
         start.put("local_endpoint", localEndpoint);
         start.put("connect_timeout_ms", connectTimeoutMs);
         start.put("accept_timeout_ms", acceptTimeoutMs);
+        Log.i(TAG, "H264 TCP proxy start requested session=" + sessionId +
+            " local=" + localBindHost + ":" + localPort +
+            " remote=" + remoteHost + ":" + remotePort +
+            " connectTimeoutMs=" + connectTimeoutMs +
+            " acceptTimeoutMs=" + acceptTimeoutMs);
 
         Thread thread = new Thread(new Runnable() {
             @Override
@@ -286,21 +293,39 @@ final class BrokerH264TcpProxySession {
             stats.localListenStartElapsedNs = SystemClock.elapsedRealtimeNanos();
             localServer = new ServerSocket(localPort, 1, InetAddress.getByName(localBindHost));
             localServer.setSoTimeout(acceptTimeoutMs);
-
-            remoteSocket = new Socket();
-            remoteSocket.setTcpNoDelay(true);
-            remoteSocket.connect(new InetSocketAddress(remoteHost, remotePort), connectTimeoutMs);
-            stats.remoteConnectElapsedNs = SystemClock.elapsedRealtimeNanos();
-
-            BufferedInputStream remoteInput = new BufferedInputStream(remoteSocket.getInputStream());
-            header = readHeader(remoteInput);
-            stats.wireBytes += header.raw.length;
-            registerManifest(sink, sessionId, remoteEndpoint, localEndpoint, header);
+            Log.i(TAG, "H264 TCP proxy listening session=" + sessionId +
+                " local=" + localBindHost + ":" + localPort +
+                " remote=" + remoteHost + ":" + remotePort);
 
             localSocket = localServer.accept();
             stats.localAcceptElapsedNs = SystemClock.elapsedRealtimeNanos();
             localSocket.setTcpNoDelay(true);
+            Log.i(TAG, "H264 TCP proxy accepted local consumer session=" + sessionId +
+                " localRemote=" + localSocket.getRemoteSocketAddress() +
+                " remote=" + remoteHost + ":" + remotePort);
             OutputStream localOutput = localSocket.getOutputStream();
+
+            // Attach the local consumer before opening the live remote source so
+            // the sender does not start flowing into an unconsumed proxy socket.
+            remoteSocket = new Socket();
+            remoteSocket.setTcpNoDelay(true);
+            Log.i(TAG, "H264 TCP proxy connecting remote session=" + sessionId +
+                " remote=" + remoteHost + ":" + remotePort);
+            remoteSocket.connect(new InetSocketAddress(remoteHost, remotePort), connectTimeoutMs);
+            stats.remoteConnectElapsedNs = SystemClock.elapsedRealtimeNanos();
+            Log.i(TAG, "H264 TCP proxy connected remote session=" + sessionId +
+                " remoteLocal=" + remoteSocket.getLocalSocketAddress() +
+                " remotePeer=" + remoteSocket.getRemoteSocketAddress());
+
+            BufferedInputStream remoteInput = new BufferedInputStream(remoteSocket.getInputStream());
+            header = readHeader(remoteInput);
+            stats.wireBytes += header.raw.length;
+            Log.i(TAG, "H264 TCP proxy header session=" + sessionId +
+                " schema=" + header.schemaVersion +
+                " codec=" + header.codecId +
+                " size=" + header.width + "x" + header.height +
+                " packetCount=" + header.packetCount);
+            registerManifest(sink, sessionId, remoteEndpoint, localEndpoint, header);
             stats.forwardStartElapsedNs = SystemClock.elapsedRealtimeNanos();
             localOutput.write(header.raw);
 
@@ -327,9 +352,17 @@ final class BrokerH264TcpProxySession {
                 localOutput.flush();
             }
             stats.forwardEndElapsedNs = SystemClock.elapsedRealtimeNanos();
+            Log.i(TAG, "H264 TCP proxy completed session=" + sessionId +
+                " packets=" + stats.packetCount +
+                " payloadBytes=" + stats.payloadBytes +
+                " wireBytes=" + stats.wireBytes);
         } catch (Exception ex) {
             stats.forwardEndElapsedNs = SystemClock.elapsedRealtimeNanos();
             lastError = ex.getClass().getSimpleName() + ": " + safeMessage(ex);
+            Log.w(TAG, "H264 TCP proxy failed session=" + sessionId +
+                " local=" + localBindHost + ":" + localPort +
+                " remote=" + remoteHost + ":" + remotePort +
+                " error=" + lastError, ex);
         } finally {
             closeQuietly(localSocket);
             closeQuietly(remoteSocket);
@@ -338,6 +371,11 @@ final class BrokerH264TcpProxySession {
                 recordMetric(sink, sessionId, remoteEndpoint, localEndpoint, header, stats, lastError);
             } catch (Exception ignored) {
             }
+            Log.i(TAG, "H264 TCP proxy final session=" + sessionId +
+                " packets=" + stats.packetCount +
+                " payloadBytes=" + stats.payloadBytes +
+                " wireBytes=" + stats.wireBytes +
+                " lastError=" + lastError);
         }
     }
 

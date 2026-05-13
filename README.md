@@ -84,6 +84,9 @@ and reusable headset-run tools:
 The public parity workplan for moving the accepted custom stereo Camera2
 projection path from visible/correct to smooth with GPU headroom is tracked in
 [docs/CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](docs/CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).
+The public roadmap from the current broker/composite diagnostics toward online
+two-way Quest-to-Quest stereo streaming is tracked in
+[docs/QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md](docs/QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md).
 The first temporal reprojection plan for bounding visible projection motion,
 frame adoption, depth-aware fallback, and optional space-warp probes is tracked
 in
@@ -179,6 +182,9 @@ Quest ADB input smoke-test limits are documented in
 Headset-local app launching and the boundary between normal PackageManager
 launches and ADB-launched shell helpers is documented in
 [docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md](docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).
+The public boundary for headset/controller tracking, Android sensors, and ADB
+diagnostics is documented in
+[docs/QUEST_TRACKING_ACCESS_BOUNDARY.md](docs/QUEST_TRACKING_ACCESS_BOUNDARY.md).
 
 The contracts examples and minimal APK can be run without headset hardware or
 downstream app code:
@@ -304,6 +310,8 @@ General-purpose XR tool import candidates are tracked in
 [docs/GENERAL_TOOL_IMPORT_AUDIT.md](docs/GENERAL_TOOL_IMPORT_AUDIT.md).
 The broader sanitized machine-wide repository/tooling audit is tracked in
 [docs/MACHINE_REPO_TOOLING_AUDIT.md](docs/MACHINE_REPO_TOOLING_AUDIT.md).
+Quest tracking access boundaries for public utilities are tracked in
+[docs/QUEST_TRACKING_ACCESS_BOUNDARY.md](docs/QUEST_TRACKING_ACCESS_BOUNDARY.md).
 Serialization/schema policy, adapter policy, and provenance rules are tracked in
 [docs/SERIALIZATION_AND_SCHEMA_POLICY.md](docs/SERIALIZATION_AND_SCHEMA_POLICY.md),
 [docs/FEATURE_AND_ADAPTER_POLICY.md](docs/FEATURE_AND_ADAPTER_POLICY.md), and

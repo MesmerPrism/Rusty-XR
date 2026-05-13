@@ -40,6 +40,13 @@ The broker control socket binds to loopback by default. For LAN control
 experiments, start the broker with `rustyxr.brokerLanEnabled=true`; optionally
 set `rustyxr.brokerBindHost` to override the default `0.0.0.0` LAN bind.
 
+`xr:controller_pose` is an input stream for samples published by the active
+XR app or a plugin/module loaded by that app. It does not mean the broker owns
+an OpenXR session or reads controller tracking while another immersive app is
+foregrounded. The foreground XR client should sample OpenXR pose/velocity in
+its own frame loop and submit the resulting public payloads to the broker. See
+[Quest Tracking Access Boundary](../../docs/QUEST_TRACKING_ACCESS_BOUNDARY.md).
+
 The headset console is a normal Horizon OS 2D Android app. Its launch activity
 declares a default panel size in the manifest so system panel controls such as
 resize, reposition, and focused/theater presentation have explicit starting
@@ -141,9 +148,9 @@ the Polar PMD ACC `payload_base64` frame or simpler JSON `samples_mg`,
 `schema=rusty.xr.bio.breath.v1`, `source=polar_acc`, `volume01`, `state`,
 `state01`, `tracking01`, calibration flags, quality, and broker timing fields.
 The same output stream is used for controller motion. Thin XR adapters can
-either publish controller samples on `xr:controller_pose` through
-`publish_stream_event`, or use `breath_assessment.submit_controller_pose` for a
-request/ack latency path:
+run inside the active XR app and either publish controller samples on
+`xr:controller_pose` through `publish_stream_event`, or use
+`breath_assessment.submit_controller_pose` for a request/ack latency path:
 
 ```json
 {

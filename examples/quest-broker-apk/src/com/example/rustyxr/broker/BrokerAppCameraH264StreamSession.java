@@ -60,6 +60,8 @@ final class BrokerAppCameraH264StreamSession {
     private static final int FRAME_RATE_HZ = 30;
     private static final int OPEN_TIMEOUT_MS = 4000;
     private static final int SESSION_TIMEOUT_MS = 4000;
+    private static final int DEFAULT_STREAM_ACCEPT_TIMEOUT_MS = 15000;
+    private static final int MAX_STREAM_ACCEPT_TIMEOUT_MS = 120000;
     private static final int ENCODER_DRAIN_TIMEOUT_US = 10000;
     private static final int BINARY_STREAM_MAX_PACKET_BYTES = 1024 * 1024;
     private static final int MAX_CODEC_CONFIG_PACKETS = 8;
@@ -108,6 +110,10 @@ final class BrokerAppCameraH264StreamSession {
             params != null ? params.optInt("writer_queue_depth", DEFAULT_LIVE_WRITER_QUEUE_DEPTH) : DEFAULT_LIVE_WRITER_QUEUE_DEPTH,
             1,
             MAX_LIVE_WRITER_QUEUE_DEPTH);
+        final int acceptTimeoutMs = clamp(
+            params != null ? params.optInt("accept_timeout_ms", DEFAULT_STREAM_ACCEPT_TIMEOUT_MS) : DEFAULT_STREAM_ACCEPT_TIMEOUT_MS,
+            100,
+            MAX_STREAM_ACCEPT_TIMEOUT_MS);
         final int bitrateBps = clamp(params != null ? params.optInt("bitrate_bps", DEFAULT_BITRATE_BPS) : DEFAULT_BITRATE_BPS, 100_000, 20_000_000);
         final String requestedCameraId = params != null ? params.optString("camera_id", "").trim() : "";
         final boolean lanStreamEnabled = params != null && params.optBoolean("lan_stream_enabled", false);
@@ -131,6 +137,7 @@ final class BrokerAppCameraH264StreamSession {
         endpoint.put("schema_version", SCHEMA_VERSION);
         endpoint.put("packet_header", "pts_us,flags,size,source_time_elapsed_ns,source_time_unix_ns");
         endpoint.put("writer_queue_depth", writerQueueDepth);
+        endpoint.put("accept_timeout_ms", acceptTimeoutMs);
 
         JSONObject start = new JSONObject();
         start.put("schema", "rusty.xr.camera_provider.app_camera_h264_stream_start.v1");
@@ -144,6 +151,7 @@ final class BrokerAppCameraH264StreamSession {
         start.put("capture_ms", captureMs);
         start.put("max_packets", maxPackets);
         start.put("writer_queue_depth", writerQueueDepth);
+        start.put("accept_timeout_ms", acceptTimeoutMs);
         start.put("bitrate_bps", bitrateBps);
         start.put("live_stream", liveStream);
         start.put("stream_mode", streamMode(liveStream, captureMs, maxPackets));
@@ -181,6 +189,7 @@ final class BrokerAppCameraH264StreamSession {
                     captureMs,
                     maxPackets,
                     writerQueueDepth,
+                    acceptTimeoutMs,
                     bitrateBps,
                     liveStream);
             }
@@ -254,6 +263,7 @@ final class BrokerAppCameraH264StreamSession {
         int captureMs,
         int maxPackets,
         int writerQueueDepth,
+        int acceptTimeoutMs,
         int bitrateBps,
         boolean liveStream) {
         long encodeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
@@ -291,6 +301,7 @@ final class BrokerAppCameraH264StreamSession {
                     captureMs,
                     maxPackets,
                     writerQueueDepth,
+                    acceptTimeoutMs,
                     bitrateBps,
                     devicePort,
                     bindHost,
@@ -403,6 +414,7 @@ final class BrokerAppCameraH264StreamSession {
         final int captureMs,
         final int maxPackets,
         final int writerQueueDepth,
+        final int acceptTimeoutMs,
         final int bitrateBps,
         final int devicePort,
         final String bindHost,
@@ -432,7 +444,7 @@ final class BrokerAppCameraH264StreamSession {
         Thread writerThread = null;
         try {
             server = new ServerSocket(devicePort, 1, InetAddress.getByName(bindHost));
-            server.setSoTimeout(15000);
+            server.setSoTimeout(acceptTimeoutMs);
             client = server.accept();
             acceptElapsedNs = SystemClock.elapsedRealtimeNanos();
             client.setTcpNoDelay(true);

@@ -98,6 +98,12 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final boolean byteIdentityProbe;
         final String stereoPairingMode;
         final int liveStereoPendingQueueLimit;
+        final String projectionMetadataJson;
+        final String leftProjectionMetadataJson;
+        final String rightProjectionMetadataJson;
+        final String projectionMetadataBase64;
+        final String leftProjectionMetadataBase64;
+        final String rightProjectionMetadataBase64;
 
         Config(
             String brokerHost,
@@ -122,7 +128,13 @@ final class BrokerH264ConsumerProbe implements Runnable {
             boolean liveDecode,
             boolean byteIdentityProbe,
             String stereoPairingMode,
-            int liveStereoPendingQueueLimit) {
+            int liveStereoPendingQueueLimit,
+            String projectionMetadataJson,
+            String leftProjectionMetadataJson,
+            String rightProjectionMetadataJson,
+            String projectionMetadataBase64,
+            String leftProjectionMetadataBase64,
+            String rightProjectionMetadataBase64) {
             this.brokerHost = brokerHost;
             this.brokerPort = brokerPort;
             this.streamPort = streamPort;
@@ -151,6 +163,14 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 liveStereoPendingQueueLimit,
                 2,
                 MAX_LIVE_STEREO_PENDING_QUEUE_LIMIT);
+            this.projectionMetadataJson = projectionMetadataJson != null ? projectionMetadataJson : "";
+            this.leftProjectionMetadataJson = leftProjectionMetadataJson != null ? leftProjectionMetadataJson : "";
+            this.rightProjectionMetadataJson = rightProjectionMetadataJson != null ? rightProjectionMetadataJson : "";
+            this.projectionMetadataBase64 = projectionMetadataBase64 != null ? projectionMetadataBase64 : "";
+            this.leftProjectionMetadataBase64 =
+                leftProjectionMetadataBase64 != null ? leftProjectionMetadataBase64 : "";
+            this.rightProjectionMetadataBase64 =
+                rightProjectionMetadataBase64 != null ? rightProjectionMetadataBase64 : "";
         }
     }
 
@@ -230,6 +250,30 @@ final class BrokerH264ConsumerProbe implements Runnable {
         long startedElapsedNs = SystemClock.elapsedRealtimeNanos();
         JSONObject report = new JSONObject();
         try {
+            Log.i(TAG, String.format(
+                Locale.US,
+                "Rusty XR broker H.264 consumer config: host=%s brokerPort=%d leftStreamPort=%d rightStreamPort=%d stereo=%s liveStream=%s liveDecode=%s sourceMode=%s startBroker=%s captureMs=%d maxPackets=%d streamTimeoutMs=%d decodeTimeoutMs=%d leftCameraId=%s rightCameraId=%s metadataChars=%d leftMetadataChars=%d rightMetadataChars=%d metadataBase64Chars=%d leftMetadataBase64Chars=%d rightMetadataBase64Chars=%d",
+                config.brokerHost,
+                config.brokerPort,
+                config.streamPort,
+                config.rightStreamPort,
+                config.stereo,
+                config.liveStream,
+                config.liveDecode,
+                config.sourceMode,
+                config.startBrokerCameraStream,
+                config.captureMs,
+                config.maxPackets,
+                config.streamTimeoutMs,
+                config.decodeTimeoutMs,
+                config.leftCameraId,
+                config.rightCameraId,
+                config.projectionMetadataJson.length(),
+                config.leftProjectionMetadataJson.length(),
+                config.rightProjectionMetadataJson.length(),
+                config.projectionMetadataBase64.length(),
+                config.leftProjectionMetadataBase64.length(),
+                config.rightProjectionMetadataBase64.length()));
             report.put("schema", "rusty.xr.composite.broker_h264_consumer_probe.v1");
             report.put("source", "composite_app_broker_h264_consumer");
             report.put("broker_host", config.brokerHost);
@@ -512,6 +556,15 @@ final class BrokerH264ConsumerProbe implements Runnable {
             config.rightCameraId,
             rightStart.streamProjectionMetadata,
             pairer);
+        Log.i(TAG, String.format(
+            Locale.US,
+            "Rusty XR broker H.264 live stereo starting decode tasks: leftPort=%d rightPort=%d leftMetadataReady=%s rightMetadataReady=%s",
+            config.streamPort,
+            config.rightStreamPort,
+            leftStart.streamProjectionMetadata != null &&
+                leftStart.streamProjectionMetadata.optBoolean("projectionMetadataReady", false),
+            rightStart.streamProjectionMetadata != null &&
+                rightStart.streamProjectionMetadata.optBoolean("projectionMetadataReady", false)));
         leftDecode.start();
         rightDecode.start();
         LiveDecodeResult leftResult = null;
@@ -594,13 +647,25 @@ final class BrokerH264ConsumerProbe implements Runnable {
     }
 
     private StartCommandResult startOrUseExistingStream(String label, String cameraId, int streamPort) throws Exception {
+        Log.i(TAG, String.format(
+            Locale.US,
+            "Rusty XR broker H.264 stream setup: label=%s cameraId=%s streamPort=%d startBroker=%s sourceMode=%s",
+            label,
+            cameraId,
+            streamPort,
+            config.startBrokerCameraStream,
+            config.sourceMode));
         if (config.startBrokerCameraStream) {
             return sendStartCommand(label, cameraId, streamPort);
         }
 
-        JSONObject brokerStatus = fetchBrokerStatusOrNull();
+        JSONObject streamProjectionMetadata = configuredExistingStreamProjectionMetadata(label, cameraId);
+        JSONObject brokerStatus = null;
+        if (streamProjectionMetadata == null) {
+            brokerStatus = fetchBrokerStatusOrNull();
+            streamProjectionMetadata = buildExistingStreamProjectionMetadata(brokerStatus, cameraId);
+        }
         JSONObject projectionProfile = brokerStatus != null ? brokerStatus.optJSONObject("projectionProfile") : null;
-        JSONObject streamProjectionMetadata = buildExistingStreamProjectionMetadata(brokerStatus, cameraId);
         JSONObject ack = new JSONObject();
         ack.put("type", "command_ack");
         ack.put("schema", "rusty.xr.broker.command_ack.v1");
@@ -620,7 +685,76 @@ final class BrokerH264ConsumerProbe implements Runnable {
             result.put("projection_profile", projectionProfile);
         }
         ack.put("result", result);
+        Log.i(TAG, String.format(
+            Locale.US,
+            "Rusty XR broker H.264 using existing stream: label=%s streamPort=%d metadataAttached=%s metadataReady=%s metadataCameraId=%s projectionProfileAttached=%s",
+            label,
+            streamPort,
+            streamProjectionMetadata != null,
+            streamProjectionMetadata != null &&
+                streamProjectionMetadata.optBoolean("projectionMetadataReady", false),
+            streamProjectionMetadata != null ? streamProjectionMetadata.optString("cameraId", "") : "",
+            projectionProfile != null));
         return new StartCommandResult(ack, streamProjectionMetadata, projectionProfile);
+    }
+
+    private JSONObject configuredExistingStreamProjectionMetadata(String label, String cameraId) {
+        String json = "";
+        String encoded = "";
+        if ("left".equals(label)) {
+            json = config.leftProjectionMetadataJson;
+            encoded = config.leftProjectionMetadataBase64;
+        } else if ("right".equals(label)) {
+            json = config.rightProjectionMetadataJson;
+            encoded = config.rightProjectionMetadataBase64;
+        }
+        if (json == null || json.length() == 0) {
+            json = config.projectionMetadataJson;
+        }
+        if (encoded == null || encoded.length() == 0) {
+            encoded = config.projectionMetadataBase64;
+        }
+        if (json == null || json.trim().length() == 0) {
+            json = decodeProjectionMetadataBase64(encoded, label);
+        }
+        if (json == null || json.trim().length() == 0) {
+            return null;
+        }
+        try {
+            JSONObject metadata = new JSONObject(json);
+            if (cameraId != null && cameraId.length() > 0 && !metadata.has("cameraId")) {
+                metadata.put("cameraId", cameraId);
+            }
+            metadata.put("source", metadata.optString("source", "broker_existing_h264_stream_launch_extra"));
+            Log.i(TAG, String.format(
+                Locale.US,
+                "Rusty XR broker H.264 parsed existing projection metadata: label=%s cameraId=%s ready=%s hasIntrinsics=%s hasExtrinsics=%s jsonChars=%d",
+                label,
+                metadata.optString("cameraId", ""),
+                metadata.optBoolean("projectionMetadataReady", false),
+                metadata.has("intrinsics"),
+                metadata.has("extrinsics"),
+                json.length()));
+            return metadata;
+        } catch (Exception ex) {
+            Log.w(TAG, "Could not parse existing H.264 stream projection metadata launch extra for " +
+                label + ": " + safeMessage(ex));
+            return null;
+        }
+    }
+
+    private String decodeProjectionMetadataBase64(String encoded, String label) {
+        if (encoded == null || encoded.trim().length() == 0) {
+            return "";
+        }
+        try {
+            byte[] bytes = Base64.decode(encoded.trim(), Base64.DEFAULT);
+            return new String(bytes, StandardCharsets.UTF_8);
+        } catch (Exception ex) {
+            Log.w(TAG, "Could not decode existing H.264 stream projection metadata launch extra for " +
+                label + ": " + safeMessage(ex));
+            return "";
+        }
     }
 
     private JSONObject fetchBrokerStatusOrNull() {
@@ -1494,15 +1628,33 @@ final class BrokerH264ConsumerProbe implements Runnable {
         }
 
         void start() {
+            Log.i(TAG, "Rusty XR broker H.264 live decode thread start requested: " + label);
             thread.start();
         }
 
         @Override
         public void run() {
             try {
+                Log.i(TAG, String.format(
+                    Locale.US,
+                    "Rusty XR broker H.264 live decode thread running: label=%s target=%s:%d cameraId=%s metadataReady=%s",
+                    label,
+                    config.brokerHost,
+                    streamPort,
+                    cameraId,
+                    streamProjectionMetadata != null &&
+                        streamProjectionMetadata.optBoolean("projectionMetadataReady", false)));
                 result = decodeLiveStream(label, streamPort, cameraId, streamProjectionMetadata, pairer);
+                Log.i(TAG, String.format(
+                    Locale.US,
+                    "Rusty XR broker H.264 live decode thread completed: label=%s packets=%d decodedFrames=%d nativeAcceptedPending=%d",
+                    label,
+                    result.packetCount,
+                    result.decodedFrameCount,
+                    pairer.snapshot().nativeAcceptedCount));
             } catch (Exception ex) {
                 error = ex;
+                Log.w(TAG, "Rusty XR broker H.264 live decode thread failed: " + label + ": " + safeMessage(ex), ex);
             }
         }
 
@@ -1528,7 +1680,16 @@ final class BrokerH264ConsumerProbe implements Runnable {
         String cameraId,
         JSONObject streamProjectionMetadata,
         LiveStereoPairer pairer) throws Exception {
+        Log.i(TAG, String.format(
+            Locale.US,
+            "Rusty XR broker H.264 live decode connecting: label=%s target=%s:%d cameraId=%s",
+            label,
+            config.brokerHost,
+            streamPort,
+            cameraId));
         Socket socket = connectWithRetry(config.brokerHost, streamPort, config.streamTimeoutMs, label);
+        Log.i(TAG, "Rusty XR broker H.264 live decode connected: " + label + " target=" +
+            config.brokerHost + ":" + streamPort);
         if ("right".equals(label)) {
             rightStreamSocket = socket;
         } else {
@@ -1562,6 +1723,15 @@ final class BrokerH264ConsumerProbe implements Runnable {
             if (result.declaredPacketCount < 0 || result.declaredPacketCount > MAX_STREAM_PACKETS) {
                 throw new IllegalStateException("Broker stream packet count is out of range: " + result.declaredPacketCount);
             }
+            Log.i(TAG, String.format(
+                Locale.US,
+                "Rusty XR broker H.264 live stream header: label=%s schema=%d codec=%d width=%d height=%d declaredPackets=%d",
+                label,
+                result.schemaVersion,
+                result.codecId,
+                result.width,
+                result.height,
+                result.declaredPacketCount));
 
             boolean unboundedStream = result.declaredPacketCount == 0;
             result.receiveStartElapsedNs = SystemClock.elapsedRealtimeNanos();
@@ -1585,6 +1755,14 @@ final class BrokerH264ConsumerProbe implements Runnable {
             if (pendingPackets.isEmpty()) {
                 throw new IllegalStateException("Broker H.264 " + label + " live stream ended before any packets were received.");
             }
+            Log.i(TAG, String.format(
+                Locale.US,
+                "Rusty XR broker H.264 live stream primed: label=%s pendingPackets=%d packetCount=%d sps=%s pps=%s",
+                label,
+                pendingPackets.size(),
+                result.packetCount,
+                findNalUnit(pendingPackets, 7) != null,
+                findNalUnit(pendingPackets, 8) != null));
 
             NalUnit sps = findNalUnit(pendingPackets, 7);
             NalUnit pps = findNalUnit(pendingPackets, 8);
@@ -1611,6 +1789,13 @@ final class BrokerH264ConsumerProbe implements Runnable {
             decoder.start();
             result.lowLatencyParameterSucceeded = requestDecoderLowLatency(decoder);
             result.decodeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
+            Log.i(TAG, String.format(
+                Locale.US,
+                "Rusty XR broker H.264 live decoder started: label=%s decoder=%s lowLatencySupported=%s lowLatencyRequested=%s",
+                label,
+                result.decoderName,
+                result.lowLatencyFeatureSupported,
+                result.lowLatencyParameterSucceeded));
 
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             int nextPending = 0;
@@ -2907,11 +3092,27 @@ final class BrokerH264ConsumerProbe implements Runnable {
     private Socket connectWithRetry(String host, int port, int timeoutMs, String label) throws Exception {
         long deadline = SystemClock.elapsedRealtimeNanos() + timeoutMs * 1_000_000L;
         Exception lastError = null;
+        int attempts = 0;
+        Log.i(TAG, String.format(
+            Locale.US,
+            "Rusty XR broker H.264 connect retry begin: label=%s target=%s:%d timeoutMs=%d",
+            label,
+            host,
+            port,
+            timeoutMs));
         while (running && SystemClock.elapsedRealtimeNanos() < deadline) {
             Socket socket = new Socket();
             try {
+                attempts++;
                 socket.connect(new InetSocketAddress(host, port), 500);
                 socket.setTcpNoDelay(true);
+                Log.i(TAG, String.format(
+                    Locale.US,
+                    "Rusty XR broker H.264 connect retry succeeded: label=%s target=%s:%d attempts=%d",
+                    label,
+                    host,
+                    port,
+                    attempts));
                 return socket;
             } catch (Exception ex) {
                 lastError = ex;
@@ -2920,6 +3121,14 @@ final class BrokerH264ConsumerProbe implements Runnable {
             }
         }
 
+        Log.w(TAG, String.format(
+            Locale.US,
+            "Rusty XR broker H.264 connect retry exhausted: label=%s target=%s:%d attempts=%d lastError=%s",
+            label,
+            host,
+            port,
+            attempts,
+            lastError != null ? safeMessage(lastError) : ""));
         throw new IllegalStateException(
             "Timed out connecting to broker H.264 " + label + " stream on port " + port + ": " +
                 (lastError != null ? safeMessage(lastError) : ""));

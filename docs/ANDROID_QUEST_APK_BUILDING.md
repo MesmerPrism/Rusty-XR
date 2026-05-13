@@ -139,6 +139,13 @@ eye views, camera metadata, hand meshes, SDF grids, runtime config, commands,
 and frame timing. They should return render payloads, counters, and app-neutral
 diagnostics.
 
+The same rule applies to broker integration. A broker, 2D console, companion,
+or ADB shell helper can receive, store, analyze, forward, and visualize pose
+samples, but the OpenXR sampling itself belongs in the active XR app or in a
+plugin/module loaded by that app. Do not design a background broker service as
+the owner of headset/controller OpenXR tracking while another immersive app is
+running. See [QUEST_TRACKING_ACCESS_BOUNDARY.md](QUEST_TRACKING_ACCESS_BOUNDARY.md).
+
 ## Build Routes
 
 There are two practical public build routes for downstream apps.
