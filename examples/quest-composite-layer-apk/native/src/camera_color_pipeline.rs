@@ -175,10 +175,7 @@ impl CameraProjectionEffectMode {
     }
 
     pub(crate) const fn uses_fast_projection_pipeline(self) -> bool {
-        match self {
-            Self::RawProjectionFast | Self::ProjectionAreaDiagnostic => true,
-            _ => false,
-        }
+        matches!(self, Self::RawProjectionFast | Self::ProjectionAreaDiagnostic)
     }
 }
 
