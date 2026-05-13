@@ -87,6 +87,11 @@ projection path from visible/correct to smooth with GPU headroom is tracked in
 The public roadmap from the current broker/composite diagnostics toward online
 two-way Quest-to-Quest stereo streaming is tracked in
 [docs/QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md](docs/QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md).
+The current Q2Q plan keeps the Android MediaCodec/`RXYRVID1` diagnostic path
+through laptop-loop, LAN, and first relay milestones while adding
+camera/source capability manifests, timestamp domains, H.264 invariants,
+runtime media controls, temporal smoothing, and session-native projection
+metadata before WebRTC or WebTransport adapters.
 The first temporal reprojection plan for bounding visible projection motion,
 frame adoption, depth-aware fallback, and optional space-warp probes is tracked
 in

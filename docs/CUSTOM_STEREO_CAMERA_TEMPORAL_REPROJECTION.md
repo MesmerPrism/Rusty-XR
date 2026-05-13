@@ -81,6 +81,56 @@ The governor separates:
 User-visible camera sampling should use the visual projection when temporal
 smoothing is enabled.
 
+## Cross-Stack Role
+
+Temporal smoothing is shared projection behavior, not a transport feature. The
+same policy and scorecard fields should apply to:
+
+- the Rusty XR composite-layer Camera2 projection path
+- the Rusty XR broker H.264 existing-stream projection path
+- the standalone Makepad stereo projection comparison lane
+
+Meta native passthrough remains a compositor-owned reference/witness stream.
+It can be used for headset comparison, environment context, and alignment
+checks, but it is not the source texture for the app-owned projection governor
+and must not be treated as directly sampleable camera input.
+
+The first useful comparison is:
+
+```text
+Rusty XR no-smoothing direct projection
+Rusty XR no-smoothing broker/existing-stream projection
+Rusty XR screen-motion clamp projection
+Makepad no-smoothing projection with the same metadata contract
+Makepad screen-motion clamp projection with the same metadata contract
+native passthrough as a separate visual witness
+```
+
+Every run should record whether it is using raw camera frames, decoded H.264
+hardware buffers, native compositor passthrough, or final-display capture. Do
+not compare these as interchangeable camera sources.
+
+## Immediate Runtime Plan
+
+Use the following order before Q2Q online transport becomes the main moving
+part:
+
+1. Re-run direct and broker-live fast profiles with smoothing off and confirm
+   `target_projection_motion_px_p95 == applied_projection_motion_px_p95`,
+   residual is zero, held-frame count is zero, and ASW counters are zero.
+2. Add `camera-stereo-temporal-pose-clamp-fast075` to prove left/right
+   lockstep smoothing state and nonzero residual metrics.
+3. Add `camera-stereo-temporal-screen-clamp-fast075` as the main comfort
+   profile.
+4. Add frame-adoption smoothing with bounded hold time.
+5. Add shader-owned edge handling and invalid-UV metrics.
+6. Add depth-aware and space-warp probes only after the planar governor is
+   measurable.
+
+This keeps the visible renderer problem explicit. More network layers should
+not be used to mask projection jumps that also appear in direct local camera
+projection.
+
 ## Implementation Iterations
 
 ### Iteration 1: Contracts And Documentation
@@ -138,7 +188,10 @@ Acceptance:
 
 Scope:
 
-- add `cameraTemporalMode=pose-delta-clamp`
+- add runtime profile `camera-stereo-temporal-pose-clamp-fast075`
+- add `rustyxr.cameraTemporalProjectionEnabled=true`
+- add `rustyxr.cameraTemporalMode=pose-delta-clamp`
+- add `rustyxr.cameraTemporalStereoLockstep=true`
 - clamp angular and linear changes in pose/view space
 - keep left and right eyes lockstep-smoothed with one shared coefficient
 
@@ -152,7 +205,11 @@ Acceptance:
 
 Scope:
 
-- add `cameraTemporalMode=screen-motion-clamp`
+- add runtime profile `camera-stereo-temporal-screen-clamp-fast075`
+- add `rustyxr.cameraTemporalMode=screen-motion-clamp`
+- start with `rustyxr.cameraTemporalMaxPixelsPerFrame=18`
+- start with `rustyxr.cameraTemporalCatchupHalfLifeMs=50`
+- start with `rustyxr.cameraTemporalMaxVisualLagMs=120`
 - sample a small grid per eye to estimate target-vs-visual screen motion
 - cap applied motion in pixels per display frame
 
@@ -170,6 +227,9 @@ Scope:
 
 - add `hold-until-smooth`, `short-crossfade`, and `velocity-aware` adoption
   modes
+- start with `rustyxr.cameraFrameAdoptionMode=hold-until-smooth`
+- start with `rustyxr.cameraFrameAdoptionMaxJumpPx=24`
+- start with `rustyxr.cameraFrameAdoptionMaxHoldMs=80`
 - report held frame count, max hold duration, and crossfade count
 
 Acceptance:
@@ -182,7 +242,7 @@ Acceptance:
 
 Scope:
 
-- add temporal edge modes such as `clamp-soft`
+- add temporal edge modes such as `clamp`, `clamp-soft`, and `fade-invalid`
 - report invalid-UV and edge-fill percentages
 - add residual and camera-age debug overlays in the example renderer
 

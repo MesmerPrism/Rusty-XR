@@ -595,6 +595,53 @@ classification. MediaProjection can witness the final display when consent is
 already active, but it is still not direct access to Meta's protected
 passthrough compositor buffer.
 
+## Cross-Stack Alignment Update
+
+The next parity work should treat Rusty XR direct projection, Rusty XR
+broker/existing-stream projection, Makepad projection, and Meta native
+passthrough as separate evidence lanes with a shared metadata vocabulary.
+
+Rusty XR direct projection remains the authoritative public target for:
+
+- Camera2 source capability logging
+- source-eye mapping
+- texture transform
+- intrinsics/extrinsics use
+- screen-to-camera projection rows
+- temporal target/applied/residual metrics
+- projected shader path and render-scale scorecards
+
+The broker/existing-stream path should be considered equivalent only when it
+receives session-native projection metadata instead of relying on manual launch
+extras. Its scorecard must prove that decoded hardware buffers, source-eye
+mapping, texture transforms, and projection metadata reached the same projected
+shader path as direct Camera2.
+
+The Makepad lane should consume the same public contracts rather than growing a
+separate calibration model. Its useful comparison state is:
+
+- full submitted surface kept stable for XR presentation comfort
+- camera coverage, matte, crop, and border owned inside the shader
+- same source-eye mapping vocabulary as the Rusty XR target
+- same projection metadata fields and timestamp domains
+- same temporal policy values and scorecard fields once smoothing is enabled
+
+Meta native passthrough is a reference for user-visible comfort, room context,
+and visual alignment, not a raw camera texture. Use it as a separate witness:
+
+- compare native passthrough against custom projection with fixed pose and a
+  known physical-screen stimulus when available
+- record whether the run used native passthrough underlay/overlay, app-owned
+  raw camera projection, broker-decoded projection, or MediaProjection witness
+- do not infer raw camera freshness from native passthrough visibility
+- do not make native passthrough a dependency for custom projection smoothness
+
+Temporal smoothing should be introduced only after the no-smoothing target and
+candidate are both measured. The first acceptance split is not whether the
+camera looks "more native"; it is whether `applied_projection_motion_px_p95`
+is bounded while target motion, residual lag, stereo lockstep state, and
+invalid-UV/edge-fill costs remain visible in the scorecard.
+
 ## Absorbable Public Work
 
 Rusty XR can absorb these public-safe lessons:
@@ -719,14 +766,21 @@ Acceptance for this gate is geometric, not photographic:
    import, command recording, render-pass/frame-buffer, and submit categories.
 4. Add a depth-alignment witness profile that records depth/camera/display
    timing without changing the default direct Camera2 performance profile.
-5. Promote only stable, framework-neutral findings into public contracts:
+5. Add camera/source capability and timestamp-domain manifests before
+   accepting fixed-source or timestamp-nearest conclusions across devices.
+6. Promote session-native projection metadata so broker/existing-stream and
+   Makepad candidates can use the same projection evidence as direct Camera2.
+7. Add temporal no-smoothing, pose-clamp, screen-motion-clamp, frame-adoption,
+   and edge-mode scorecard gates before Q2Q online transport hides renderer
+   smoothness issues.
+8. Promote only stable, framework-neutral findings into public contracts:
    projection metadata, timestamp pairing, scorecard schema, calibration
    descriptors, and optional adapter hooks.
-6. Re-run the direct Camera2 matrix at `0.75` and `0.65` after each render-path
+9. Re-run the direct Camera2 matrix at `0.75` and `0.65` after each render-path
    slice, and keep the release gate on visible stereo, zero CPU uploads, no
    import churn, no app fatal/GPU-fault signatures, no final stale/tear, and
    clear GPU headroom.
-7. Keep the fast raw-projection profiles in the catalog as the stable parity
+10. Keep the fast raw-projection profiles in the catalog as the stable parity
    reference while future work reintroduces public border/feedback styling or
    adds stream-latency compensation.
 

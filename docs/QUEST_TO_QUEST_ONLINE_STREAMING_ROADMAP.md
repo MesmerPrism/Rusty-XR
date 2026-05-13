@@ -42,6 +42,35 @@ show projected shader use, aligned projection, nonzero decoded frames, nonzero
 accepted stereo pairs, zero native rejects, zero queue drops, zero GPU import
 failures, and non-byte-identical visible screenshots.
 
+## 2026-05-13 Planning Update
+
+The next Q2Q slice should keep the current `RXYRVID1` H.264 diagnostic stream
+and Android platform MediaCodec path. The missing production shape is not a new
+codec stack first; it is stronger session metadata, camera/source capability
+manifests, bounded queues, runtime media controls, temporal smoothing, and
+projection metadata that can travel with the session.
+
+Updated priority:
+
+1. Re-validate current `main` with no-smoothing temporal metrics.
+2. Add camera/source capability and timestamp-domain manifests.
+3. Promote H.264 stream invariants into scorecard gates.
+4. Add runtime media controls for keyframes and bitrate.
+5. Implement temporal projection smoothing before hiding render issues behind
+   more network work.
+6. Make projection metadata session-native.
+7. Add one-way LAN Q2Q profiles.
+8. Add mediated LAN relay with hard backpressure.
+9. Add reduced-quality two-way LAN.
+10. Add online TLS relay.
+11. Add ASW, WebRTC, and WebTransport only as measured adapter lanes.
+
+This order is deliberate. The current diagnostics already show that direct
+Camera2 projection and broker-live projection share the projected draw/render
+bottleneck, while encode/decode/handoff are not the dominant measured cost.
+Online Q2Q should therefore improve and measure the renderer path before
+adding a more opaque transport layer.
+
 ## Target Shape
 
 The online target should remain native Quest-to-Quest streaming. Browser and
@@ -76,7 +105,7 @@ Repeat the same path in reverse for two-way sessions.
 
 ## Recommended Phases
 
-### Phase 0: Keep The Laptop Loop As The Gate
+### Phase 0: Baseline And Scorecard Hardening
 
 Before every network change, keep a short local loopback gate working with the
 same receiver profile:
@@ -94,7 +123,128 @@ preferably as session metadata rather than manual launch-only state. The
 diagnostic harness should capture multiple screenshots during the live window,
 then parse logcat and relay/proxy counters into one scorecard.
 
-### Phase 1: One-Way LAN Quest-To-Quest
+The baseline manifest should include:
+
+- commit SHA
+- role and direction
+- session id, peer id, track id, and stream id
+- runtime profile
+- render scale
+- projection shader path
+- temporal mode and temporal policy values
+- target/applied/residual temporal metrics
+- camera, encoder, decoder, import, relay, and OpenXR cadence fields
+
+While temporal smoothing is off, the no-smoothing gate should prove:
+
+- `target_projection_motion_px_p95` is present
+- `applied_projection_motion_px_p95` is present
+- target and applied projection motion are equal
+- residual, held-frame, crossfade, edge-fill, and ASW counters are zero
+- camera frame age is reported or explicitly unavailable due to timestamp
+  domain mismatch
+
+### Phase 1: Capability And Stream Invariants
+
+Add a public camera/source capability manifest before relying on fixed source
+IDs or fixed stream timing. A first contract can be named
+`CameraSourceCapabilities` and should describe:
+
+- source family and API path
+- OS/runtime version observed by the app
+- camera permission and headset camera permission state
+- selected logical camera id and physical camera ids when exposed
+- vendor camera-position/source tags when available
+- supported `PRIVATE` and YUV sizes
+- supported and selected frame-rate ranges
+- selected stream size, stream minimum frame duration, and selected reason
+- timestamp source and timestamp domain
+
+Add a stream manifest gate for each H.264 eye stream:
+
+- session id, role, direction, peer id, track id, stream id, and eye
+- codec `h264` with Annex-B bitstream semantics
+- encoder and decoder names
+- bitrate, bitrate mode, I-frame interval, requested/applied latency modes
+- SPS/PPS presence and codec-config packet counts before first frame
+- keyframe/sync-frame count and recovery state
+- decoder output mode, including hardware-buffer import state
+- close reason for every stream lane
+
+Reject Q2Q runs where SPS/PPS are missing, the first decoded frame appears
+before config/IDR recovery is known, decoder low-latency state is unknown, or
+encoder/decoder names are absent.
+
+Runtime media controls should start as local broker commands:
+
+- `media.request_keyframe`
+- `media.set_video_bitrate`
+- `media.set_quality_profile`
+
+### Phase 2: Temporal Projection Smoothing
+
+Finish the runtime smoothing lane before making two-headset transport the only
+moving part. The first public profiles should be:
+
+- `camera-stereo-temporal-pose-clamp-fast075`
+- `camera-stereo-temporal-screen-clamp-fast075`
+
+The screen-motion clamp is the important user-facing smoother. Start with:
+
+```text
+rustyxr.cameraTemporalProjectionEnabled=true
+rustyxr.cameraTemporalMode=screen-motion-clamp
+rustyxr.cameraTemporalMaxPixelsPerFrame=18
+rustyxr.cameraTemporalCatchupHalfLifeMs=50
+rustyxr.cameraTemporalMaxVisualLagMs=120
+rustyxr.cameraTemporalStereoLockstep=true
+```
+
+Acceptance should require `applied_projection_motion_px_p95` to stay under the
+configured cap except on explicit reset frames, while
+`target_projection_motion_px_p95` and residual lag remain visible. Frame
+adoption smoothing and shader-owned edge handling follow the clamp:
+
+- `rustyxr.cameraFrameAdoptionMode=hold-until-smooth`
+- `rustyxr.cameraFrameAdoptionMaxJumpPx=24`
+- `rustyxr.cameraFrameAdoptionMaxHoldMs=80`
+- `rustyxr.cameraTemporalEdgeMode=clamp-soft`
+
+ASW and depth-aware variants remain probes after the planar governor works.
+
+### Phase 3: Session-Native Projection Metadata
+
+Move receiver projection metadata out of manual launch-only state. Add a
+session envelope such as:
+
+```rust
+ProjectionMetadataEnvelope {
+    schema,
+    session_id,
+    sender_id,
+    track_id,
+    eye,
+    camera_id,
+    source_eye_mapping,
+    texture_transform,
+    delivered_size,
+    intrinsics,
+    intrinsics_domain,
+    extrinsics,
+    pose_source,
+    timestamp_domain,
+    capability_hash,
+}
+```
+
+The receiver should prefer projection metadata in this order:
+
+1. active session metadata
+2. broker status or projection profile
+3. explicit launch extra
+4. diagnostic fallback or flat-probe downgrade
+
+### Phase 4: One-Way LAN Quest-To-Quest
 
 Split the current one-device flow across two headsets on the same LAN:
 
@@ -118,7 +268,14 @@ Required additions:
 Acceptance should require the same scorecard fields as the laptop-loop gate,
 plus sender and receiver role logs.
 
-### Phase 2: One-Way Mediated LAN
+The receiver should not launch projection until a readiness check confirms:
+
+- left and right sender endpoints are listening
+- projection metadata is available
+- receiver proxy or direct receiver is connected
+- first headers are validated
+
+### Phase 5: One-Way Mediated LAN
 
 Add a computer or phone relay between the two devices, but keep the media format
 unchanged. This proves the session can survive a separate relay process before
@@ -138,7 +295,16 @@ The relay must report:
 - close reason
 - packet/header validation failures
 
-### Phase 3: Two-Way LAN
+The relay must never use unbounded media buffers. Record:
+
+- relay buffered bytes and packets
+- max buffered bytes
+- drop count and drop reason
+- slow-peer close count
+- sender write-stall timing
+- receiver read-gap timing
+
+### Phase 6: Two-Way LAN
 
 Run two one-way sessions at once:
 
@@ -163,7 +329,11 @@ Track per direction:
 - OpenXR frame rate
 - screenshot freshness
 
-### Phase 4: Online Relay MVP
+The first two-way target should be conservative: `720x720` or `960x960`, 15 to
+30 fps, lower bitrate per eye, and `fast065` before `fast075`. Enable temporal
+screen clamp only after the baseline two-way run renders in both directions.
+
+### Phase 7: Online Relay MVP
 
 For a first internet-capable version, keep the current H.264 framing and add an
 authenticated relay that both Quests connect to with outbound TLS connections.
@@ -183,7 +353,18 @@ This is not the final media architecture, but it is the fastest way to test
 online user flow, authorization, relay bandwidth, and diagnostics with the
 stream format already used by the Quest examples.
 
-### Phase 5: WebRTC Adapter
+Add an explicit privacy tier to the contracts:
+
+- `LocalLanDiagnostic`
+- `TrustedRelayTransportEncrypted`
+- `UntrustedRelayEndToEndEncryptedCandidate`
+
+Debug builds may opt into LAN cleartext for development. Release/online builds
+should require TLS, avoid manifest-wide cleartext, keep raw media out of relay
+logs by default, expose visible streaming state, and provide an immediate stop
+action.
+
+### Phase 8: WebRTC Adapter
 
 WebRTC is the preferred long-term online media transport because it provides
 ICE negotiation, congestion control, jitter handling, NAT traversal, and TURN
@@ -203,7 +384,31 @@ Avoid CPU frame copies. The production adapter should prove a decoder path that
 can feed the existing native texture-import/projection path before it is
 treated as a replacement for the current diagnostic transport.
 
-### Phase 6: Adaptive Quality And Comfort
+Do not tunnel opaque `RXYRVID1` packets into a WebRTC video track. The migration
+rule is:
+
+```text
+RXYRVID1 diagnostic H.264
+  -> parse stream headers and packets
+  -> extract H.264 access units / NAL units
+  -> packetize as RTP/H.264 in the WebRTC adapter
+  -> send projection and timing metadata over a data channel
+```
+
+Collect WebRTC stats for ICE state, selected candidate pair, RTT, available
+bitrate, packets sent/received/lost, jitter, encoded/decoded frames, decoded
+keyframes, dropped frames, freezes, decode time, and data-channel buffered
+amount.
+
+### Phase 9: WebTransport Investigation
+
+WebTransport over HTTP/3 is an investigation lane after the TLS relay MVP. It
+can be useful for multiplexed control, metadata, bidirectional streams, and
+datagram experiments, but it should not block the first online Q2Q session.
+Keep it only if headset and hotspot tests show better bounded latency,
+buffering, or multiplexing than the WebSocket/TLS relay.
+
+### Phase 10: Adaptive Quality And Comfort
 
 After two-way online connectivity works, add adaptation:
 
@@ -222,7 +427,21 @@ After two-way online connectivity works, add adaptation:
 | LAN TCP with `RXYRVID1` | Current diagnostics and LAN validation | Simple and debuggable, but not internet/NAT-ready. |
 | Mediated WebSocket/TLS | Fast online MVP using current framing | Easy pairing and firewall behavior, but media quality control is custom. |
 | WebRTC | Long-term online Quest-to-Quest media | More integration work, but best fit for low-latency interactive video. |
+| WebTransport | Experimental post-relay lane | Promising multiplexing/datagram shape, but not the first MVP dependency. |
 | TURN relay | Reliable fallback for remote networks | Adds bandwidth cost and latency, but is required for real-world reliability. |
+
+## FFmpeg And External Runtime Boundary
+
+FFmpeg remains a desktop or companion-side inspection sidecar, not the default
+Quest streaming runtime. It is useful for saved H.264 inspection, remuxing,
+preview decode, thumbnails, and reference transcode checks on a PC. Quest-side
+sender and receiver examples should continue to use Android platform
+MediaCodec, ImageReader/HardwareBuffer, AHardwareBuffer import, Vulkan sampling,
+and OpenXR projection.
+
+Do not add FFmpeg, libx264, libx265, GStreamer, WebRTC, NDI, or similar native
+payloads to Rusty XR core or default Quest APKs without a separate dependency
+and release audit.
 
 ## Bandwidth Starting Point
 
@@ -265,6 +484,7 @@ should name the source, destination, and active direction.
 Core Rusty XR should add framework-neutral models before adopting a native
 online media stack:
 
+- `CameraSourceCapabilities`
 - `StreamDirection`: incoming, outgoing, bidirectional
 - `MediaTrackKind`: video, audio, metadata, control
 - `VideoCodecPreference`: H.264 first, others optional
@@ -274,6 +494,7 @@ online media stack:
 - `NetworkQualitySample`
 - `RemoteStreamHealth`
 - `ProjectionMetadataEnvelope`
+- `PrivacyTier`
 - `PairingPolicy` and `RemoteSessionSecurityPolicy`
 
 Adapters then map those contracts onto TCP diagnostics, WebSocket relay, or
@@ -284,6 +505,8 @@ WebRTC without moving native SDKs or generated media artifacts into core.
 Do not promote a network session unless all of these are captured:
 
 - sender stream start acknowledgements
+- camera/source capability manifest
+- timestamp-domain manifest
 - receiver stream headers for both eyes
 - SPS/PPS priming for both eyes
 - decoder names and output mode
@@ -297,6 +520,20 @@ Do not promote a network session unless all of these are captured:
 - multiple visible non-identical screenshots
 - relay or WebRTC connection stats
 - close reason for every stream
+
+## Do Not Do Yet
+
+Do not make these the next implementation step:
+
+- full WebRTC replacement of the current diagnostic path
+- WebTransport as a required dependency
+- ASW default-on for camera projection
+- native passthrough as a dependency for custom projection smoothness
+- FFmpeg-on-Quest
+- opaque `RXYRVID1` packets shoved into RTP/WebRTC video tracks
+- online release profiles that rely on cleartext base network config
+- timestamp-nearest pairing without timestamp-domain manifests
+- two-way `1280x1280` before one-way `720`/`960` is stable
 
 The run can be visually promising and still fail the gate if it only proves
 that pixels changed. The scorecard must show that the pixels came through the

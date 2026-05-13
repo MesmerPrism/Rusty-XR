@@ -283,6 +283,12 @@ The parser extracts:
 - `VrApi` app, CPU+GPU, timewarp, tear, stale, CPU, and GPU fields
 - broker source packet, wire packet, decode, pair, queue-drop, and native
   accepted counts
+- camera/source capability and timestamp-domain fields when present
+- H.264 stream invariants when present, including codec config, SPS/PPS,
+  keyframe/sync-frame state, encoder/decoder names, bitrate mode, and
+  low-latency request/applied state
+- session role, direction, peer id, track id, stream id, and close reasons when
+  present
 - direct Camera2 acquire, get-buffer, pair-search, and native bridge timings
 - broker decoded-frame image wait, get-buffer, and native bridge timings
 - final projection status, active tier, shader path, and alignment state
@@ -309,6 +315,12 @@ When adding or changing streaming paths, keep these timing windows available:
   pair native bridge.
 - OpenXR: record CPU time, submit CPU time, observed FPS, average frame time,
   render scale, import-cache hits/misses/evictions, and GPU import failures.
+- Media stream: record session id, role, direction, track/stream id, eye,
+  encoder/decoder names, SPS/PPS/config packet presence, keyframe recovery,
+  requested/applied bitrate and latency modes, and close reason.
+- Camera/source: record selected source, selected size/fps reason, timestamp
+  domain, observed camera timestamp cadence, and selected stream minimum frame
+  duration when available.
 - Runtime: `VrApi` app time, CPU+GPU time, tear/stale counts, timewarp time,
   CPU percentage, and GPU percentage.
 - Temporal projection: camera frame age, stereo pair delta, target projection
@@ -333,6 +345,10 @@ Reject a run before interpreting the matrix when:
   zero in a broker stereo lane
 - direct Camera2 falls back to CPU uploads during a GPU-projected run
 - GPU import failures or cache evictions continue after warm-up
+- SPS/PPS or codec-config state is missing for a projected H.264 receiver run
+- encoder or decoder names are absent from a stream run promoted beyond a
+  quick smoke test
+- timestamp-nearest pairing is used without explicit timestamp-domain evidence
 - the headset entered sleep, an interstitial, or a consent panel during the
   measured window
 - existing-stream mode is compared as a projected run without projection
@@ -343,15 +359,21 @@ correctly but lacks projection metadata or final `gpu-projected` status.
 
 ## Current Next Target
 
-The next public implementation slice is deeper projected draw attribution:
-separate projection shader cost, border/perimeter work, descriptor/import
-reuse, command recording, and submit behavior from the already-measured
-transport, decode, image-acquire, `HardwareBuffer`, and native bridge stages.
-Keep that attribution tied to the acceptance gate in
-[CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).
+The next public implementation slice is scorecard hardening plus temporal
+smoothing, not a new transport. Harden the current laptop-loop and direct
+projection gates with camera/source manifests, timestamp domains, H.264 stream
+invariants, and session role/direction fields, then implement the temporal
+projection profiles from
+[CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md](CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md).
 
-The temporal projection follow-up is now metrics-only in the composite-layer
-example. A no-smoothing run should report equal target and applied projection
-motion, then later pose-delta, screen-motion, frame-hold, depth-aware, and
-space-warp profiles can be compared against the same baseline. The key
-scorecard value for that work is `applied_projection_motion_px_p95`.
+The no-smoothing run should report equal target and applied projection motion.
+After that, pose-delta, screen-motion, frame-hold, depth-aware, and space-warp
+profiles can be compared against the same baseline. The key scorecard value for
+that work is `applied_projection_motion_px_p95`.
+
+Projected draw attribution still matters: separate projection shader cost,
+border/perimeter work, descriptor/import reuse, command recording, and submit
+behavior from the already-measured transport, decode, image-acquire,
+`HardwareBuffer`, and native bridge stages. Keep that attribution tied to the
+acceptance gate in
+[CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).

@@ -245,6 +245,30 @@ WebSocket/TLS relay using the current Rusty XR diagnostic framing, then a
 native WebRTC adapter with signaling, STUN/TURN configuration, and a data
 channel for projection metadata and health telemetry.
 
+## Current Next Implementation Order
+
+Do not jump straight from the laptop-loop proof to full internet Q2Q. The next
+implementation sequence is:
+
+1. Harden the current single-headset laptop-loop gate with camera/source
+   capability manifests, timestamp domains, H.264 stream invariants, decoder
+   output state, and multiple screenshots.
+2. Validate temporal metrics with smoothing off, then implement pose-delta
+   clamp and screen-motion clamp in the projected renderer.
+3. Move projection metadata into the stream/session envelope so direct Camera2,
+   broker existing-stream, and future Q2Q receiver runs use the same source-eye
+   mapping, intrinsics/extrinsics, delivered-size, and texture-transform data.
+4. Add one-way LAN sender/receiver profiles and readiness waits.
+5. Add a mediated LAN relay with bounded buffers and slow-peer close reasons.
+6. Add reduced-quality two-way LAN.
+7. Add online TLS relay, then WebRTC/WebTransport adapters only after the
+   current MediaCodec/hardware-buffer/projected-render path is preserved.
+
+The Makepad stereo lane should consume the same projection metadata and
+temporal policy contracts. Meta native passthrough is a separate visual
+witness, not a raw camera source and not a dependency for custom projection
+smoothness.
+
 ## Diagnostic Matrix To Run
 
 Once the two APKs work, run the matrix from

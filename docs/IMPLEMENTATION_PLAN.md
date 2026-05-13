@@ -71,6 +71,11 @@ Rusty XR may model session negotiation, stream descriptors, timing metrics,
 network-quality samples, security policy, and optional external-sidecar
 comparison lanes, but public core must not copy vendor SDK source, packet
 layouts, SDK headers, binaries, or proprietary wire details.
+The next broker-model slice should strengthen the existing H.264 diagnostic
+path before adding new transports: camera/source capability manifests,
+timestamp-domain fields, H.264 stream invariants, bounded relay metrics,
+runtime keyframe/bitrate commands, session-native projection metadata, and
+privacy/security policy for LAN and online relays.
 
 ### Eye Model
 
@@ -118,7 +123,11 @@ The custom stereo temporal reprojection plan is tracked in
 The first public slices are data-only temporal policy/state/metric contracts
 and metrics-only runtime logging in the composite-layer example. Runtime
 smoothing, shader changes, depth-aware reprojection, and optional space-warp
-submission remain adapter/example work until measured.
+submission remain adapter/example work until measured. The near-term runtime
+order is no-smoothing validation, pose-delta clamp, screen-motion clamp, frame
+adoption, edge handling, then depth-aware and space-warp probes. The same
+temporal contracts should apply across Rusty XR direct projection, Rusty XR
+broker/existing-stream projection, and the Makepad stereo comparison lane.
 
 ### Plain Stereo And Feedback Layers
 

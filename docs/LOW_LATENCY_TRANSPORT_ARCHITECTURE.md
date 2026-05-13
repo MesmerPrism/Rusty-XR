@@ -66,6 +66,25 @@ separately licensed, and launched or probed as an external sidecar. Companion
 tools may record version/license/path metadata and compare scorecards, but the
 MIT core must not link or redistribute that SDK.
 
+## Clean-Room Low-Latency Style
+
+The useful architecture lesson from low-latency media systems is the style, not
+the vendor protocol. Rusty XR should keep:
+
+- small typed messages for session, stream, capability, timing, and security
+  state
+- explicit separation of control, media, telemetry, and XR-input planes
+- bounded queues with visible drop reasons
+- clock and timestamp domains named in manifests
+- codec configuration and keyframe recovery represented as first-class state
+- adapters that can be swapped without changing app-owned rendering
+- scorecards that attribute source, encode, transport, decode, import,
+  projected render, and OpenXR submit costs separately
+
+That is the Kyber-inspired clean-room boundary for this repo: independent
+contracts and metrics, no Kyber compatibility claim, no copied packet layout,
+and no linked or redistributed external low-latency SDK payload.
+
 ## Relationship To The Broker
 
 The existing broker model is the first contract home. It already contains
@@ -162,6 +181,12 @@ Use independent optional timestamps rather than one opaque "latency" number:
 - XR submit
 - present estimate
 
+Every timestamp should carry a domain such as elapsed realtime, camera sensor,
+media PTS, Unix, OpenXR predicted display time, relay receive time, or unknown.
+Timestamp-nearest stereo pairing across processes or devices should not become
+an acceptance path until the sender and receiver manifest their domains and the
+run records a clock-sync estimate or declares pairing as frame-order only.
+
 Scorecards should separate transport, decode, texture import, projected render,
 and OpenXR submit costs so renderer bottlenecks are not hidden by network
 averages.
@@ -211,8 +236,11 @@ Recommended order:
 4. Secure non-loopback pairing policy.
 5. Mediated WebSocket/TLS relay experiments using the existing diagnostic
    framing.
-6. Optional QUIC/WebTransport/WebRTC experiments after dependency review.
-7. Optional external sidecar comparison lanes after license review.
+6. Runtime H.264 media controls such as keyframe request and bitrate changes.
+7. Optional WebRTC adapter after the current H.264 access units, projection
+   metadata, and hardware-buffer decode path can be preserved.
+8. Optional QUIC/WebTransport experiments after relay MVP measurements.
+9. Optional external sidecar comparison lanes after license review.
 
 The current Rusty XR-owned diagnostic video format is the bounded `RXYRVID1`
 v2 stream framing used by the public broker example. Its stream header is
@@ -241,6 +269,52 @@ the next transport-grade mode once capture timestamps are stable across a
 remote sender/receiver session. Future Rusty XR packet formats should make
 codec-config packets first-class rather than relying on consumers to infer
 SPS/PPS from ordinary video samples.
+
+## Quest-To-Quest Online Adapter Rules
+
+The current online Q2Q path should keep `RXYRVID1` as the diagnostic H.264
+format for LAN, laptop-loop, and relay milestones. Add typed manifests around
+it before replacing it:
+
+- session id, role, direction, peer id, track id, stream id, and eye
+- camera/source capability manifest
+- timestamp-domain manifest
+- encoder and decoder capability/state
+- SPS/PPS and codec-config packet presence
+- sync-frame request/recovery counters
+- relay buffering and slow-peer close counters
+- projection metadata envelope and source-eye mapping
+
+A WebSocket/TLS relay is acceptable for the first online MVP only with hard
+backpressure: max buffered bytes/packets, drop reasons, close reasons, and
+write-stall timing must be visible in the scorecard. Do not use unbounded
+message queues for media.
+
+WebRTC should be an adapter, not a rewrite of the renderer. A valid WebRTC
+lane must preserve Android MediaCodec decode, HardwareBuffer/AHardwareBuffer
+handoff, Vulkan/OpenXR projected stereo draw, projection metadata delivery, and
+scorecard visibility. The migration should parse `RXYRVID1`, extract H.264
+access units/NAL units, packetize them for the WebRTC video track, and send
+projection/timing metadata over a data channel. Do not put opaque `RXYRVID1`
+packets directly into a WebRTC video track.
+
+WebTransport is an investigation lane after the TLS relay MVP. Keep it only if
+real headset and hotspot tests show lower buffering, bounded latency, or
+cleaner multiplexing than the simpler relay.
+
+## FFmpeg Boundary
+
+FFmpeg may be useful as a user-supplied desktop sidecar for inspection,
+preview decode, remuxing, thumbnails, saved stream analysis, or PC bridge
+experiments. It should not become the Quest runtime path for the current Q2Q
+work. Quest sender and receiver examples should continue to prefer Android
+platform MediaCodec and hardware buffers before any bundled native codec stack
+is considered.
+
+Rusty XR core must not bundle or link FFmpeg, libx264, libx265, GStreamer,
+WebRTC, NDI, or comparable native media payloads. If a companion or adapter
+uses an external executable, it should record path, version, license class, and
+hash/provenance metadata in its own release workflow.
 
 ## Validation Matrix
 

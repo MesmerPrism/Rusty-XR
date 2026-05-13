@@ -326,6 +326,12 @@ For a successful temporal profile, scorecards should prove that
 `applied_projection_motion_px_p95` is bounded by policy while target motion and
 residual lag remain visible in the metrics.
 
+The same temporal policy should apply to direct Camera2 projection,
+broker-decoded existing-stream projection, and Makepad stereo projection. Meta
+native passthrough may be used as a compositor-owned visual reference, but it
+is not the source texture and should not be treated as a shortcut around
+app-owned projection smoothing.
+
 Production adapters should use GPU-sampled camera buffers, Android
 hardware-buffer import, external-format or YCbCr-aware Vulkan sampling, and a
 small projection shader. A Tier 2 launch must not be reported as aligned unless
@@ -471,6 +477,14 @@ External low-latency SDKs should be treated as optional sidecars or comparison
 lanes. Public Rusty XR may record their version/license/path metadata and
 compare measurements, but must not bundle, link, or copy their SDK code,
 headers, binaries, or packet formats into the MIT core.
+
+For the Q2Q streaming path, keep the current Android MediaCodec and
+`RXYRVID1` H.264 diagnostic format through laptop-loop, LAN, and first relay
+milestones. Add session ids, roles, timestamp domains, camera/source
+capabilities, H.264 config/keyframe invariants, bounded relay counters, and
+session-native projection metadata before replacing the transport. WebRTC and
+WebTransport should be adapter lanes after that evidence exists, not the first
+implementation dependency.
 
 ## Windows Streaming Shape
 
