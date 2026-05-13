@@ -368,12 +368,14 @@ Current public Quest profile findings:
   transport/decode/pairing from projected render cost.
 - The direct-versus-broker streaming cost matrix narrows the current
   bottleneck: synthetic compositor-only profiles are stable, broker
-  existing-stream receive/decode is stable as a `flat-probe` receiver lane, and
-  both direct Camera2 projected stereo and broker live projected stereo show
-  the same render-scale-sensitive behavior. Stage timing puts Java
-  acquire/wait, `HardwareBuffer` extraction, and native bridge calls below
-  roughly sub-millisecond scale, so the next optimization target is the shared
-  metadata-backed projected draw/render path.
+  existing-stream receive/decode is stable as a receiver/decode isolation lane,
+  and both direct Camera2 projected stereo and broker live projected stereo show
+  the same render-scale-sensitive behavior. When sender projection metadata is
+  supplied, existing-stream can exercise the same metadata-backed projected
+  path; without that metadata, treat it as transport/decode evidence only.
+  Stage timing puts Java acquire/wait, `HardwareBuffer` extraction, and native
+  bridge calls below roughly sub-millisecond scale, so the next optimization
+  target is the shared metadata-backed projected draw/render path.
 - A mono `PRIVATE` GPU-buffer probe at `1280x960` continued to deliver live
   frames, so the next useful comparison is Java Camera2 concurrent stereo
   against a lower-level/native hardware-buffer reader module.
