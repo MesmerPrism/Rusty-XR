@@ -105,6 +105,7 @@ const KEY_MAKEPAD_HORIZONTAL_OFFSET_LEFT_UV: &str = "makepad_horizontal_offset_l
 const KEY_MAKEPAD_HORIZONTAL_OFFSET_RIGHT_UV: &str = "makepad_horizontal_offset_right_uv";
 const KEY_MAKEPAD_VERTICAL_OFFSET_UV: &str = "makepad_vertical_offset_uv";
 const KEY_MAKEPAD_CONTENT_UV_SCALE: &str = "makepad_content_uv_scale";
+const KEY_MAKEPAD_PROJECTION_BORDER_STRENGTH: &str = "makepad_projection_border_strength";
 const KEY_MAKEPAD_PROJECTION_AREA_DIAGNOSTIC: &str = "makepad_projection_area_diagnostic";
 const KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV: &str = "makepad_projection_area_offset_left_uv";
 const KEY_MAKEPAD_PROJECTION_AREA_OFFSET_RIGHT_UV: &str = "makepad_projection_area_offset_right_uv";
@@ -886,6 +887,8 @@ pub struct App {
     #[rust]
     content_uv_scale: f32,
     #[rust]
+    projection_border_strength: f32,
+    #[rust]
     projection_area_diagnostic: f32,
     #[rust]
     projection_area_offset_left_uv: f32,
@@ -1211,6 +1214,7 @@ struct HorizontalAlignmentTuning {
     right_offset_uv: f32,
     vertical_offset_uv: f32,
     content_uv_scale: f32,
+    projection_border_strength: f32,
     projection_area_diagnostic: f32,
     projection_area_offset_left_uv: f32,
     projection_area_offset_right_uv: f32,
@@ -1229,6 +1233,7 @@ impl Default for HorizontalAlignmentTuning {
             right_offset_uv: TARGET_MANUAL_HORIZONTAL_OFFSET_RIGHT_UV,
             vertical_offset_uv: TARGET_MANUAL_VERTICAL_OFFSET_UV,
             content_uv_scale: TARGET_FULL_VIEW_CONTENT_UV_SCALE,
+            projection_border_strength: TARGET_PROJECTION_BORDER_STRENGTH,
             projection_area_diagnostic: TARGET_PROJECTION_AREA_DIAGNOSTIC,
             projection_area_offset_left_uv: TARGET_PROJECTION_AREA_OFFSET_LEFT_UV,
             projection_area_offset_right_uv: TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV,
@@ -1808,6 +1813,7 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.manual_horizontal_offset_right_uv = tuning.right_offset_uv;
         self.draw_panel.manual_vertical_offset_uv = tuning.vertical_offset_uv;
         self.draw_panel.content_uv_scale = tuning.content_uv_scale;
+        self.draw_panel.projection_border_strength = tuning.projection_border_strength;
         self.draw_panel.projection_area_diagnostic = tuning.projection_area_diagnostic;
         self.draw_panel.projection_area_offset_left_uv = tuning.projection_area_offset_left_uv;
         self.draw_panel.projection_area_offset_right_uv = tuning.projection_area_offset_right_uv;
@@ -1832,6 +1838,10 @@ impl MakepadStereoCameraPanel {
                 tuning.vertical_offset_uv,
             ),
             (live_id!(content_uv_scale), tuning.content_uv_scale),
+            (
+                live_id!(projection_border_strength),
+                tuning.projection_border_strength,
+            ),
             (
                 live_id!(projection_area_diagnostic),
                 tuning.projection_area_diagnostic,
@@ -2209,6 +2219,12 @@ impl App {
             1.0,
             2.4,
         );
+        let projection_border_strength = hotload_f32(
+            KEY_MAKEPAD_PROJECTION_BORDER_STRENGTH,
+            TARGET_PROJECTION_BORDER_STRENGTH,
+            0.0,
+            1.0,
+        );
         let projection_area_diagnostic = hotload_f32(
             KEY_MAKEPAD_PROJECTION_AREA_DIAGNOSTIC,
             TARGET_PROJECTION_AREA_DIAGNOSTIC,
@@ -2263,6 +2279,7 @@ impl App {
             right_offset_uv: right_offset.clamp(-0.5, 0.5),
             vertical_offset_uv: vertical_offset,
             content_uv_scale,
+            projection_border_strength,
             projection_area_diagnostic,
             projection_area_offset_left_uv,
             projection_area_offset_right_uv,
@@ -2282,6 +2299,7 @@ impl App {
                 right_offset_uv: self.manual_horizontal_offset_right_uv,
                 vertical_offset_uv: self.manual_vertical_offset_uv,
                 content_uv_scale: self.content_uv_scale,
+                projection_border_strength: self.projection_border_strength,
                 projection_area_diagnostic: self.projection_area_diagnostic,
                 projection_area_offset_left_uv: self.projection_area_offset_left_uv,
                 projection_area_offset_right_uv: self.projection_area_offset_right_uv,
@@ -2304,6 +2322,7 @@ impl App {
             || (self.manual_horizontal_offset_right_uv - tuning.right_offset_uv).abs() > 0.0001
             || (self.manual_vertical_offset_uv - tuning.vertical_offset_uv).abs() > 0.0001
             || (self.content_uv_scale - tuning.content_uv_scale).abs() > 0.0001
+            || (self.projection_border_strength - tuning.projection_border_strength).abs() > 0.0001
             || (self.projection_area_diagnostic - tuning.projection_area_diagnostic).abs() > 0.0001
             || (self.projection_area_offset_left_uv - tuning.projection_area_offset_left_uv).abs()
                 > 0.0001
@@ -2328,6 +2347,7 @@ impl App {
         self.manual_horizontal_offset_right_uv = tuning.right_offset_uv;
         self.manual_vertical_offset_uv = tuning.vertical_offset_uv;
         self.content_uv_scale = tuning.content_uv_scale;
+        self.projection_border_strength = tuning.projection_border_strength;
         self.projection_area_diagnostic = tuning.projection_area_diagnostic;
         self.projection_area_offset_left_uv = tuning.projection_area_offset_left_uv;
         self.projection_area_offset_right_uv = tuning.projection_area_offset_right_uv;
@@ -2338,12 +2358,14 @@ impl App {
         self.projection_area_bow_x = tuning.projection_area_bow_x;
         let panel_bound = self.apply_horizontal_alignment_tuning_to_panel(cx, tuning);
         Self::emit_stereo_projection_marker(&format!(
-            "phase=horizontal-alignment-hotload status=applied s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109RedProjectionBorder=true s110VerticalWindowOffsetHotload=true s111ProjectionAreaDiagnostic=true s112ProjectionAreaScreenOffset=true s113ProjectionAreaScreenScale=true s114ProjectionAreaFootprintOnlyDiagnostic=true s115ProjectionAreaKeystone=true s116ProjectionAreaMidpointBow=true s117PreHomographyDiagnosticOnly=true s118ProjectedFootprintLiveWindow=true horizontalAlignmentSource=screen_to_camera_center_delta_safe_window_invalid_matte manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true projectionAreaDiagnosticHotload=true projectionAreaScreenOffsetHotload=true projectionAreaScreenScaleHotload=true projectionAreaKeystoneHotload=true projectionAreaBowHotload=true projectionAreaTransformStage=pre_homography_screen_uv borderlessWindowMask=false redProjectionBorder=true propertyPrefix=debug.rustyxr projectionAreaDiagnosticMode=0_off_1_full_2_footprint_only horizontalAlignmentStrength={:.4} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} projectionAreaDiagnostic={:.1} projectionAreaLeftUv={:.4} projectionAreaRightUv={:.4} projectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaKeystoneX={:.4} projectionAreaBowX={:.4} panelBound={} visualInspection=required",
+            "phase=horizontal-alignment-hotload status=applied s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109RedProjectionBorder=true s110VerticalWindowOffsetHotload=true s111ProjectionAreaDiagnostic=true s112ProjectionAreaScreenOffset=true s113ProjectionAreaScreenScale=true s114ProjectionAreaFootprintOnlyDiagnostic=true s115ProjectionAreaKeystone=true s116ProjectionAreaMidpointBow=true s117PreHomographyDiagnosticOnly=true s118ProjectedFootprintLiveWindow=true horizontalAlignmentSource=screen_to_camera_center_delta_safe_window_invalid_matte manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true projectionBorderStrengthHotload=true projectionAreaDiagnosticHotload=true projectionAreaScreenOffsetHotload=true projectionAreaScreenScaleHotload=true projectionAreaKeystoneHotload=true projectionAreaBowHotload=true projectionAreaTransformStage=pre_homography_screen_uv borderlessWindowMask=false redProjectionBorder={} propertyPrefix=debug.rustyxr projectionAreaDiagnosticMode=0_off_1_full_2_footprint_only horizontalAlignmentStrength={:.4} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} projectionBorderStrength={:.4} projectionAreaDiagnostic={:.1} projectionAreaLeftUv={:.4} projectionAreaRightUv={:.4} projectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaKeystoneX={:.4} projectionAreaBowX={:.4} panelBound={} visualInspection=required",
+            tuning.projection_border_strength > 0.0001,
             tuning.strength,
             tuning.left_offset_uv,
             tuning.right_offset_uv,
             tuning.vertical_offset_uv,
             tuning.content_uv_scale,
+            tuning.projection_border_strength,
             tuning.projection_area_diagnostic,
             tuning.projection_area_offset_left_uv,
             tuning.projection_area_offset_right_uv,

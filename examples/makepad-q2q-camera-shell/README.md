@@ -135,6 +135,14 @@ draw the marker around a centered in-surface camera window, which made the
 marked images appear farther apart than the Rusty XR projected footprint even
 when the homography matrices were nearly identical.
 
+For final screenshot comparison, disable the red border after reset so visual
+analyzers compare camera content instead of the diagnostic outline:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Send-MakepadQ2QHorizontalOffset.ps1 `
+  -ProjectionBorderStrength 0
+```
+
 Run on a selected Quest device:
 
 ```powershell
@@ -233,9 +241,10 @@ hardware-buffer, and stale-marker counters. Record whether the run was
   `tools/Send-MakepadQ2QHorizontalOffset.ps1` writes `debug.rustyxr` properties
   for horizontal alignment strength, additive left/right/vertical UV offsets,
   projection-footprint offsets/scales/X-keystone/midpoint bow, the synthetic
-  projection-area diagnostic toggle, and camera-window content scale; the
-  running app polls those values. The projection-footprint keystone and bow
-  controls are pre-homography diagnostics and reset to neutral.
+  projection-area diagnostic toggle, camera-window content scale, and
+  projection-border strength; the running app polls those values. The
+  projection-footprint keystone and bow controls are pre-homography diagnostics
+  and reset to neutral.
 - The first shared-core bridge is deliberately small: resolved profile values
   pass through `rusty-xr-runtime-config` before logging. Camera metadata,
   stream framing, and scorecard models should be added the same way, through

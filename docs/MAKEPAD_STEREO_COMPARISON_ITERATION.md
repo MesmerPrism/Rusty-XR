@@ -133,6 +133,16 @@ is a best-effort correction pending the next headset review; it is not yet a
 visual acceptance claim, but it is suitable for objective transport/performance
 diagnostics.
 
+Follow-up S118/S119 controlled-screen captures separated coordinate parity
+from diagnostic styling. With the laptop stimulus kept fixed and the headset
+unmoved, dense-grid homography comparison between the Rusty XR reference target
+and the Makepad live-camera lane stayed within roughly `0.004 px` worst-case
+delta. The Makepad red projection-footprint overlay was then made hotloadable
+through `debug.rustyxr.makepad.projection.border.strength`; setting it to `0`
+removed analyzer edge-stripe signal without changing the screen-to-camera
+coordinate path. Treat the red border as an operator witness layer, not as part
+of projection parity.
+
 Historical context: S67 was a known-visible app-panel positive control for the
 paired per-eye Makepad camera panel. S59 remains the color control: Android
 YUV_420_888 plane order is sampled without swapping U/V, converted as limited
