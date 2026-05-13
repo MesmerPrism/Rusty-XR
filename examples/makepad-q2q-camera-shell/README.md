@@ -22,8 +22,8 @@ fork-patch policy are documented in
 
 - Uses `cargo-makepad android --variant=quest`.
 - Uses the maintained Makepad fork branch
-  `rusty-xr/android-libstd-packaging`; the current documented branch head is
-  `7ea477d0f168`.
+  `rusty-xr/android-libstd-packaging`. The exact Makepad revision for this
+  example is pinned in `Cargo.lock`.
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
