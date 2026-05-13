@@ -450,6 +450,18 @@ final class LocalBrokerServer implements Closeable {
             return runCameraProviderAppCameraH264DecodeProbe(requestId, command, message.optJSONObject("params"));
         }
 
+        if ("media.request_keyframe".equals(command)) {
+            return requestMediaKeyframe(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("media.set_video_bitrate".equals(command)) {
+            return setMediaVideoBitrate(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("media.set_quality_profile".equals(command)) {
+            return setMediaQualityProfile(requestId, command, message.optJSONObject("params"));
+        }
+
         if ("media.start_h264_tcp_proxy".equals(command)) {
             return startMediaH264TcpProxy(requestId, command, message.optJSONObject("params"));
         }
@@ -840,6 +852,54 @@ final class LocalBrokerServer implements Closeable {
         return commandAck(requestId, command, true, "camera_provider_app_camera_h264_stream_started", result);
     }
 
+    private JSONObject requestMediaKeyframe(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject control = BrokerAppCameraH264StreamSession.requestKeyframe(params);
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("control", control);
+        return commandAck(
+            requestId,
+            command,
+            true,
+            control.optBoolean("applied", false) ? "media_keyframe_requested" : "media_keyframe_not_applied",
+            result);
+    }
+
+    private JSONObject setMediaVideoBitrate(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject control = BrokerAppCameraH264StreamSession.setVideoBitrate(params);
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("control", control);
+        return commandAck(
+            requestId,
+            command,
+            true,
+            control.optBoolean("applied", false) ? "media_video_bitrate_applied" : "media_video_bitrate_not_applied",
+            result);
+    }
+
+    private JSONObject setMediaQualityProfile(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject control = BrokerAppCameraH264StreamSession.setQualityProfile(params);
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("control", control);
+        return commandAck(
+            requestId,
+            command,
+            true,
+            control.optBoolean("applied", false) ? "media_quality_profile_applied" : "media_quality_profile_not_applied",
+            result);
+    }
+
     private JSONObject startMediaH264TcpProxy(
         String requestId,
         String command,
@@ -972,9 +1032,19 @@ final class LocalBrokerServer implements Closeable {
         manifest.put("bitrate_bps", probe.optInt("bitrate_bps", 0));
         manifest.put("source_kind", "broker_app_camera2_mediacodec_decode_probe");
         manifest.put("camera_id", probe.optString("camera_id", ""));
+        manifest.put("camera_source_id", "camera2:" + probe.optString("camera_id", ""));
+        manifest.put("source_api_path", "AndroidCamera2");
+        manifest.put("camera_permission_state", "Granted");
+        manifest.put("headset_camera_permission_state", "Granted");
+        manifest.put("selected_camera_id", probe.optString("camera_id", ""));
+        manifest.put("selected_width", probe.optInt("width", 0));
+        manifest.put("selected_height", probe.optInt("height", 0));
+        manifest.put("selected_reason", "decode_probe_capture_selection");
+        manifest.put("timestamp_domain", "REALTIME".equals(probe.optString("sensor_timestamp_source", "")) ? "ElapsedRealtime" : "Unknown");
         manifest.put("capture_ms", probe.optInt("capture_ms", 0));
         manifest.put("max_packets", probe.optInt("max_packets", 0));
         manifest.put("decoder_api", probe.optString("decoder_api", "android.media.MediaCodec"));
+        manifest.put("decoder_name", probe.optString("decoder_name", ""));
         manifest.put("decoder_output_mode", probe.optString("decoder_output_mode", "byte_buffer"));
         manifest.put("decoder_low_latency_feature_supported", probe.optBoolean("decoder_low_latency_feature_supported", false));
         manifest.put("decoder_low_latency_config_requested", probe.optBoolean("decoder_low_latency_config_requested", false));
@@ -1002,6 +1072,9 @@ final class LocalBrokerServer implements Closeable {
         manifest.put("csd_source", probe.optString("csd_source", ""));
         manifest.put("csd_sps_bytes", probe.optInt("csd_sps_bytes", 0));
         manifest.put("csd_pps_bytes", probe.optInt("csd_pps_bytes", 0));
+        manifest.put("sps_present", probe.optBoolean("csd_sps_found", false));
+        manifest.put("pps_present", probe.optBoolean("csd_pps_found", false));
+        manifest.put("keyframe_count", probe.optInt("keyframe_count", 0));
         manifest.put("csd_sps_base64", probe.optString("csd_sps_base64", ""));
         manifest.put("csd_pps_base64", probe.optString("csd_pps_base64", ""));
         manifest.put("sensor_timestamp_source", probe.optString("sensor_timestamp_source", ""));
@@ -1026,6 +1099,15 @@ final class LocalBrokerServer implements Closeable {
         metric.put("codec", "h264");
         metric.put("session_id", probe.optString("session_id", "broker-app-camera-h264-decode-" + System.currentTimeMillis()));
         metric.put("camera_id", probe.optString("camera_id", ""));
+        metric.put("camera_source_id", "camera2:" + probe.optString("camera_id", ""));
+        metric.put("source_api_path", "AndroidCamera2");
+        metric.put("camera_permission_state", "Granted");
+        metric.put("headset_camera_permission_state", "Granted");
+        metric.put("selected_camera_id", probe.optString("camera_id", ""));
+        metric.put("selected_width", probe.optInt("width", 0));
+        metric.put("selected_height", probe.optInt("height", 0));
+        metric.put("selected_reason", "decode_probe_capture_selection");
+        metric.put("timestamp_domain", "REALTIME".equals(probe.optString("sensor_timestamp_source", "")) ? "ElapsedRealtime" : "Unknown");
         metric.put("sequence_id", System.currentTimeMillis() * 1000L);
         metric.put("source_time_unix_ns", now);
         metric.put("source_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
@@ -1038,12 +1120,14 @@ final class LocalBrokerServer implements Closeable {
         metric.put("packet_count", probe.optInt("encoded_packet_count", 0));
         metric.put("video_packet_count", probe.optInt("encoded_video_packet_count", 0));
         metric.put("codec_config_packet_count", probe.optInt("codec_config_packet_count", 0));
+        metric.put("keyframe_count", probe.optInt("keyframe_count", 0));
         metric.put("payload_size_bytes", probe.optLong("encoded_payload_bytes", 0L));
         metric.put("decoder_input_buffers", probe.optInt("input_buffer_count", 0));
         metric.put("decoder_input_bytes", probe.optLong("input_bytes", 0L));
         metric.put("decoder_output_buffers", probe.optInt("output_buffer_count", 0));
         metric.put("decoded_frame_count", probe.optInt("decoded_frame_count", 0));
         metric.put("decoder_output_bytes", probe.optLong("decoder_output_bytes", 0L));
+        metric.put("decoder_name", probe.optString("decoder_name", ""));
         metric.put("decoder_output_mode", probe.optString("decoder_output_mode", "byte_buffer"));
         metric.put("decoder_low_latency_feature_supported", probe.optBoolean("decoder_low_latency_feature_supported", false));
         metric.put("decoder_low_latency_config_requested", probe.optBoolean("decoder_low_latency_config_requested", false));
@@ -1077,6 +1161,8 @@ final class LocalBrokerServer implements Closeable {
         metric.put("csd_source", probe.optString("csd_source", ""));
         metric.put("csd_sps_bytes", probe.optInt("csd_sps_bytes", 0));
         metric.put("csd_pps_bytes", probe.optInt("csd_pps_bytes", 0));
+        metric.put("sps_present", probe.optBoolean("csd_sps_found", false));
+        metric.put("pps_present", probe.optBoolean("csd_pps_found", false));
         metric.put("sensor_timestamp_source", probe.optString("sensor_timestamp_source", ""));
         metric.put("camera_capture_started_count", probe.optInt("camera_capture_started_count", 0));
         metric.put("camera_first_capture_started_ns", probe.optLong("camera_first_capture_started_ns", 0L));

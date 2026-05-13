@@ -31,6 +31,7 @@ final class BrokerH264TcpProxySession {
     private static final int MAX_TIMEOUT_MS = 120000;
     private static final int MAX_PACKET_COUNT = 2400;
     private static final int MAX_PACKET_BYTES = 1024 * 1024;
+    private static final int MAX_STREAM_HEADER_METADATA_BYTES = 256 * 1024;
     private static final int FLAG_KEY_FRAME = 1;
     private static final int FLAG_CODEC_CONFIG = 2;
 
@@ -76,6 +77,7 @@ final class BrokerH264TcpProxySession {
         remoteEndpoint.put("magic", MAGIC);
         remoteEndpoint.put("codec_id", CODEC_H264);
         remoteEndpoint.put("codec", "h264");
+        remoteEndpoint.put("header_metadata", "projection_metadata_json_utf8");
 
         JSONObject localEndpoint = new JSONObject();
         localEndpoint.put("host", localBindHost);
@@ -87,6 +89,7 @@ final class BrokerH264TcpProxySession {
         localEndpoint.put("codec_id", CODEC_H264);
         localEndpoint.put("codec", "h264");
         localEndpoint.put("packet_header", "pts_us,flags,size,source_time_elapsed_ns,source_time_unix_ns");
+        localEndpoint.put("header_metadata", "projection_metadata_json_utf8");
 
         JSONObject start = new JSONObject();
         start.put("schema", "rusty.xr.broker.h264_tcp_proxy_start.v1");
@@ -324,7 +327,8 @@ final class BrokerH264TcpProxySession {
                 " schema=" + header.schemaVersion +
                 " codec=" + header.codecId +
                 " size=" + header.width + "x" + header.height +
-                " packetCount=" + header.packetCount);
+                " packetCount=" + header.packetCount +
+                " headerMetadataBytes=" + header.headerMetadataBytes);
             registerManifest(sink, sessionId, remoteEndpoint, localEndpoint, header);
             stats.forwardStartElapsedNs = SystemClock.elapsedRealtimeNanos();
             localOutput.write(header.raw);
@@ -454,19 +458,21 @@ final class BrokerH264TcpProxySession {
     }
 
     private static Header readHeader(InputStream input) throws Exception {
-        byte[] raw = readExact(input, 32);
-        String magic = new String(raw, 0, 8, StandardCharsets.US_ASCII);
+        byte[] headerRaw = readExact(input, 32);
+        String magic = new String(headerRaw, 0, 8, StandardCharsets.US_ASCII);
         if (!MAGIC.equals(magic)) {
             throw new IllegalStateException("Remote H.264 stream returned unexpected magic: " + magic);
         }
 
-        int schemaVersion = readI32(raw, 8);
-        int codecId = readI32(raw, 12);
-        int width = readI32(raw, 16);
-        int height = readI32(raw, 20);
-        int packetCount = readI32(raw, 24);
-        int declaredPacketBytes = readI32(raw, 28);
-        if (schemaVersion < 1 || schemaVersion > 2) {
+        int schemaVersion = readI32(headerRaw, 8);
+        int codecId = readI32(headerRaw, 12);
+        int width = readI32(headerRaw, 16);
+        int height = readI32(headerRaw, 20);
+        int packetCount = readI32(headerRaw, 24);
+        int declaredPacketBytes = readI32(headerRaw, 28);
+        int headerMetadataBytes = 0;
+        byte[] raw = headerRaw;
+        if (schemaVersion < 1 || schemaVersion > 3) {
             throw new IllegalStateException("Unsupported RXYRVID1 schema version: " + schemaVersion);
         }
         if (codecId != CODEC_H264) {
@@ -478,7 +484,17 @@ final class BrokerH264TcpProxySession {
         if (packetCount < 0 || packetCount > MAX_PACKET_COUNT) {
             throw new IllegalStateException("Invalid remote stream packet count: " + packetCount);
         }
-        if (declaredPacketBytes < 0 || declaredPacketBytes > MAX_PACKET_BYTES) {
+        if (schemaVersion >= 3) {
+            headerMetadataBytes = declaredPacketBytes;
+            if (headerMetadataBytes < 0 || headerMetadataBytes > MAX_STREAM_HEADER_METADATA_BYTES) {
+                throw new IllegalStateException("Invalid remote stream header metadata bytes: " + headerMetadataBytes);
+            }
+            byte[] metadataRaw = readExact(input, headerMetadataBytes);
+            raw = new byte[headerRaw.length + metadataRaw.length];
+            System.arraycopy(headerRaw, 0, raw, 0, headerRaw.length);
+            System.arraycopy(metadataRaw, 0, raw, headerRaw.length, metadataRaw.length);
+            declaredPacketBytes = 0;
+        } else if (declaredPacketBytes < 0 || declaredPacketBytes > MAX_PACKET_BYTES) {
             throw new IllegalStateException("Invalid remote declared packet bytes: " + declaredPacketBytes);
         }
 
@@ -490,6 +506,7 @@ final class BrokerH264TcpProxySession {
         header.height = height;
         header.packetCount = packetCount;
         header.declaredPacketBytes = declaredPacketBytes;
+        header.headerMetadataBytes = headerMetadataBytes;
         return header;
     }
 
@@ -570,6 +587,7 @@ final class BrokerH264TcpProxySession {
         manifest.put("height", header.height);
         manifest.put("packet_count", header.packetCount);
         manifest.put("binary_schema_version", header.schemaVersion);
+        manifest.put("stream_header_metadata_bytes", header.headerMetadataBytes);
         manifest.put("remote_endpoint", new JSONObject(remoteEndpoint.toString()));
         manifest.put("local_endpoint", new JSONObject(localEndpoint.toString()));
         sink.registerManifest(manifest);
@@ -638,6 +656,7 @@ final class BrokerH264TcpProxySession {
         metric.put("width", header.width);
         metric.put("height", header.height);
         metric.put("binary_schema_version", header.schemaVersion);
+        metric.put("stream_header_metadata_bytes", header.headerMetadataBytes);
         metric.put("remote_endpoint", new JSONObject(remoteEndpoint.toString()));
         metric.put("local_endpoint", new JSONObject(localEndpoint.toString()));
         metric.put("dropped_frames", 0);
@@ -797,6 +816,7 @@ final class BrokerH264TcpProxySession {
         int height;
         int packetCount;
         int declaredPacketBytes;
+        int headerMetadataBytes;
     }
 
     private static final class PacketHeader {

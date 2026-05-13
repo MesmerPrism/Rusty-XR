@@ -30,7 +30,8 @@ The current public example path supports:
 - Android platform H.264 encode/decode
 - `RXYRVID1` binary stream headers and packet timing
 - existing-stream receiver mode
-- launch-provided projection metadata for existing streams
+- schema-3 stream-header projection metadata for existing streams, with launch
+  metadata as a fallback
 - hardware-buffer decode into the existing GPU-import path
 - metadata-backed projected stereo rendering
 - multi-screenshot visual freshness checks
@@ -70,6 +71,12 @@ Camera2 projection and broker-live projection share the projected draw/render
 bottleneck, while encode/decode/handoff are not the dominant measured cost.
 Online Q2Q should therefore improve and measure the renderer path before
 adding a more opaque transport layer.
+
+As of the current diagnostic implementation, items 1-6 are implemented for the
+single-headset laptop-loop proof, and receiver-side frame-adoption/edge metrics
+are visible in the projected path. The next public milestone is one-way LAN Q2Q
+using the same stream-header metadata path, with additional motion stress tests
+used to tune the adoption thresholds.
 
 ## Target Shape
 
@@ -141,6 +148,9 @@ While temporal smoothing is off, the no-smoothing gate should prove:
 - `applied_projection_motion_px_p95` is present
 - target and applied projection motion are equal
 - residual, held-frame, crossfade, edge-fill, and ASW counters are zero
+- frame-adoption mode, held/adopted decision state, candidate motion p95, max
+  hold duration, invalid-UV percentage, and edge-fill percentage are visible
+  before treating smoothing as a valid online-streaming improvement
 - camera frame age is reported or explicitly unavailable due to timestamp
   domain mismatch
 
@@ -200,6 +210,15 @@ rustyxr.cameraTemporalMaxVisualLagMs=120
 rustyxr.cameraTemporalStereoLockstep=true
 ```
 
+The pose-delta profile uses the same projected path but proves that a single
+angular/linear smoothing coefficient can be shared across both eyes:
+
+```text
+rustyxr.cameraTemporalMode=pose-delta-clamp
+rustyxr.cameraTemporalMaxAngularDegreesPerFrame=1.25
+rustyxr.cameraTemporalMaxLinearMetersPerFrame=0.012
+```
+
 Acceptance should require `applied_projection_motion_px_p95` to stay under the
 configured cap except on explicit reset frames, while
 `target_projection_motion_px_p95` and residual lag remain visible. Frame
@@ -239,10 +258,16 @@ ProjectionMetadataEnvelope {
 
 The receiver should prefer projection metadata in this order:
 
-1. active session metadata
+1. active session metadata, including `RXYRVID1` schema-3 stream-header
+   projection metadata
 2. broker status or projection profile
 3. explicit launch extra
 4. diagnostic fallback or flat-probe downgrade
+
+The public broker/composite diagnostic path now uses the first item for
+existing-stream H.264 stereo: the sender writes per-eye projection metadata into
+the stream header, TCP proxy hops forward it unchanged, and the receiver logs
+the selected session metadata source before projected draw.
 
 ### Phase 4: One-Way LAN Quest-To-Quest
 

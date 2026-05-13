@@ -19,6 +19,8 @@ CAMERA_CONFIG_MARKER = "Rusty XR camera path config "
 LIVE_STEREO_SUMMARY_MARKER = "Rusty XR broker H.264 live stereo summary:"
 STEREO_SUMMARY_MARKER = "Rusty XR broker H.264 stereo summary:"
 DIRECT_STEREO_PAIR_MARKER = "Stereo headset camera pair "
+STREAM_HEADER_PROJECTION_METADATA_MARKER = "Rusty XR broker H.264 stream header projection metadata:"
+LIVE_PROJECTION_METADATA_SOURCE_MARKER = "Rusty XR broker H.264 live projection metadata source:"
 MAKEPAD_CADENCE_MARKER = "RUSTY_XR_MAKEPAD_CADENCE"
 MAKEPAD_STEREO_PROJECTION_MARKER = "RUSTY_XR_MAKEPAD_STEREO_PROJECTION"
 MAKEPAD_STEREO_COMPARISON_MARKER = "RUSTY_XR_MAKEPAD_STEREO_COMPARISON"
@@ -239,6 +241,8 @@ def parse_logcat(path: Path) -> dict[str, Any]:
     vrapi_rows: list[dict[str, Any]] = []
     stereo_summaries: list[dict[str, Any]] = []
     direct_stereo_pairs: list[dict[str, Any]] = []
+    stream_header_projection_metadata: list[dict[str, Any]] = []
+    session_projection_metadata_sources: list[dict[str, Any]] = []
     makepad_cadence_rows: list[dict[str, Any]] = []
     makepad_projection_statuses: list[dict[str, Any]] = []
     makepad_comparison_markers: list[dict[str, Any]] = []
@@ -286,6 +290,14 @@ def parse_logcat(path: Path) -> dict[str, Any]:
                 body = line.split(DIRECT_STEREO_PAIR_MARKER, 1)[1]
                 if "acquireAvgNs=" in body:
                     direct_stereo_pairs.append(parse_key_values(body))
+            elif STREAM_HEADER_PROJECTION_METADATA_MARKER in line:
+                stream_header_projection_metadata.append(
+                    parse_key_values(line.split(STREAM_HEADER_PROJECTION_METADATA_MARKER, 1)[1])
+                )
+            elif LIVE_PROJECTION_METADATA_SOURCE_MARKER in line:
+                session_projection_metadata_sources.append(
+                    parse_key_values(line.split(LIVE_PROJECTION_METADATA_SOURCE_MARKER, 1)[1])
+                )
             elif MAKEPAD_CADENCE_MARKER in line:
                 makepad_cadence_rows.append(
                     parse_key_values(line.split(MAKEPAD_CADENCE_MARKER, 1)[1])
@@ -311,6 +323,8 @@ def parse_logcat(path: Path) -> dict[str, Any]:
         "vrapi_rows": vrapi_rows,
         "stereo_summaries": stereo_summaries,
         "direct_stereo_pairs": direct_stereo_pairs,
+        "stream_header_projection_metadata": stream_header_projection_metadata,
+        "session_projection_metadata_sources": session_projection_metadata_sources,
         "makepad_cadence_rows": makepad_cadence_rows,
         "makepad_projection_statuses": makepad_projection_statuses,
         "makepad_comparison_markers": makepad_comparison_markers,
@@ -377,6 +391,15 @@ def pick_present(*values: Any) -> Any:
     return None
 
 
+def latest_by_label(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    labels: dict[str, dict[str, Any]] = {}
+    for item in items:
+        label = str(item.get("label", "")).strip().lower()
+        if label:
+            labels[label] = item
+    return labels
+
+
 def snake_to_camel(key: str) -> str:
     parts = key.split("_")
     return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
@@ -389,6 +412,64 @@ def pick_metric(key: str, *sources: dict[str, Any]) -> Any:
         if value is not None:
             return value
     return None
+
+
+def pick_nonempty_metric(key: str, *sources: dict[str, Any]) -> Any:
+    camel_key = snake_to_camel(key)
+    for source in sources:
+        value = pick_present(source.get(key), source.get(camel_key))
+        if isinstance(value, str) and not value.strip():
+            continue
+        if value is not None:
+            return value
+    return None
+
+
+def pick_prefixed_metric(base_key: str, source: dict[str, Any], prefixes: tuple[str, ...] = ("", "left", "right")) -> Any:
+    for prefix in prefixes:
+        key = f"{prefix}_{base_key}" if prefix else base_key
+        value = source.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def prefixed_pair_string(base_key: str, source: dict[str, Any]) -> str | None:
+    left = source.get(f"left_{base_key}")
+    right = source.get(f"right_{base_key}")
+    if left is None and right is None:
+        return None
+    return f"{fmt(left)}/{fmt(right)}"
+
+
+def prefixed_size_string(source: dict[str, Any]) -> str | None:
+    left_width = source.get("left_selected_width")
+    left_height = source.get("left_selected_height")
+    right_width = source.get("right_selected_width")
+    right_height = source.get("right_selected_height")
+    if all(value is None for value in (left_width, left_height, right_width, right_height)):
+        return None
+    return f"{fmt(left_width)}x{fmt(left_height)}/{fmt(right_width)}x{fmt(right_height)}"
+
+
+def prefixed_fps_range_string(source: dict[str, Any]) -> str | None:
+    left_min = source.get("left_selected_fps_min_hz")
+    left_max = source.get("left_selected_fps_max_hz")
+    right_min = source.get("right_selected_fps_min_hz")
+    right_max = source.get("right_selected_fps_max_hz")
+    if all(value is None for value in (left_min, left_max, right_min, right_max)):
+        return None
+    return f"{fmt(left_min)}-{fmt(left_max)}/{fmt(right_min)}-{fmt(right_max)}"
+
+
+def unwrap_scorecard(payload: dict[str, Any]) -> dict[str, Any]:
+    scorecard = payload.get("scorecard")
+    if isinstance(scorecard, dict):
+        return scorecard
+    result = payload.get("result")
+    if isinstance(result, dict) and isinstance(result.get("scorecard"), dict):
+        return result["scorecard"]
+    return payload
 
 
 def ns_metric_to_ms(value: Any) -> float | None:
@@ -445,6 +526,8 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "vrapi_rows": [],
         "stereo_summaries": [],
         "direct_stereo_pairs": [],
+        "stream_header_projection_metadata": [],
+        "session_projection_metadata_sources": [],
         "makepad_cadence_rows": [],
         "makepad_projection_statuses": [],
         "makepad_comparison_markers": [],
@@ -460,6 +543,14 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
     pre_mem_composite = parse_meminfo(choose_existing(artifact_dir, ["pre-mem-composite.txt"]))
     post_mem_composite = parse_meminfo(choose_existing(artifact_dir, ["post-mem-composite.txt"]))
     post_top = parse_top_processes(choose_existing(artifact_dir, ["post-top.txt"]))
+    broker_video_lab_scorecard = unwrap_scorecard(read_json(choose_existing(
+        artifact_dir,
+        [
+            "video-lab-scorecard.json",
+            "video_lab_scorecard.json",
+            "broker-video-lab-scorecard.json",
+        ],
+    )))
 
     consumer = pick_last(logcat["consumer_reports"])
     stereo_summary = pick_last(logcat["stereo_summaries"])
@@ -468,6 +559,12 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
     final_gpu_draw = pick_last(logcat["gpu_draws"])
     final_openxr = pick_last(logcat["openxr_frames"])
     final_camera_config = pick_last(logcat["camera_configs"])
+    stream_header_by_label = latest_by_label(logcat["stream_header_projection_metadata"])
+    session_metadata_by_label = latest_by_label(logcat["session_projection_metadata_sources"])
+    left_stream_header = stream_header_by_label.get("left", {})
+    right_stream_header = stream_header_by_label.get("right", {})
+    left_session_metadata = session_metadata_by_label.get("left", {})
+    right_session_metadata = session_metadata_by_label.get("right", {})
     final_makepad_cadence = pick_last(logcat["makepad_cadence_rows"])
     final_makepad_projection = pick_last(logcat["makepad_projection_statuses"])
     final_makepad_comparison = pick_last(logcat["makepad_comparison_markers"])
@@ -518,6 +615,123 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "live_decode_path": consumer.get("live_decode_path"),
         "live_stream_requested": consumer.get("live_stream_requested", stereo_summary.get("liveStream")),
         "decode_output_mode": consumer.get("decode_output_mode"),
+        "camera_source_id": pick_nonempty_metric(
+            "camera_source_id",
+            broker_video_lab_scorecard,
+            consumer,
+        ),
+        "left_camera_source_id": consumer.get("left_camera_source_id"),
+        "right_camera_source_id": consumer.get("right_camera_source_id"),
+        "source_api_path": pick_nonempty_metric(
+            "source_api_path",
+            broker_video_lab_scorecard,
+            consumer,
+        ),
+        "camera_permission_state": pick_nonempty_metric(
+            "camera_permission_state",
+            broker_video_lab_scorecard,
+            consumer,
+        ),
+        "headset_camera_permission_state": pick_nonempty_metric(
+            "headset_camera_permission_state",
+            broker_video_lab_scorecard,
+            consumer,
+        ),
+        "selected_camera_id": pick_nonempty_metric(
+            "selected_camera_id",
+            broker_video_lab_scorecard,
+            consumer,
+        ),
+        "left_selected_camera_id": consumer.get("left_selected_camera_id"),
+        "right_selected_camera_id": consumer.get("right_selected_camera_id"),
+        "selected_camera_ids": pick_present(
+            prefixed_pair_string("selected_camera_id", consumer),
+            pick_nonempty_metric("selected_camera_id", broker_video_lab_scorecard, consumer),
+        ),
+        "selected_width": pick_metric("selected_width", broker_video_lab_scorecard, consumer),
+        "selected_height": pick_metric("selected_height", broker_video_lab_scorecard, consumer),
+        "selected_size": pick_present(
+            prefixed_size_string(consumer),
+            (
+                f"{pick_metric('selected_width', broker_video_lab_scorecard, consumer)}x"
+                f"{pick_metric('selected_height', broker_video_lab_scorecard, consumer)}"
+                if pick_metric("selected_width", broker_video_lab_scorecard, consumer)
+                and pick_metric("selected_height", broker_video_lab_scorecard, consumer)
+                else None
+            ),
+        ),
+        "selected_fps_min_hz": pick_metric("selected_fps_min_hz", broker_video_lab_scorecard, consumer),
+        "selected_fps_max_hz": pick_metric("selected_fps_max_hz", broker_video_lab_scorecard, consumer),
+        "selected_fps_range_hz": pick_present(
+            prefixed_fps_range_string(consumer),
+            (
+                f"{pick_metric('selected_fps_min_hz', broker_video_lab_scorecard, consumer)}-"
+                f"{pick_metric('selected_fps_max_hz', broker_video_lab_scorecard, consumer)}"
+                if pick_metric("selected_fps_min_hz", broker_video_lab_scorecard, consumer)
+                and pick_metric("selected_fps_max_hz", broker_video_lab_scorecard, consumer)
+                else None
+            ),
+        ),
+        "selected_reason": pick_nonempty_metric("selected_reason", broker_video_lab_scorecard, consumer),
+        "stream_min_frame_duration_ns": pick_metric(
+            "stream_min_frame_duration_ns",
+            broker_video_lab_scorecard,
+            consumer,
+        ),
+        "timestamp_domain": pick_present(
+            prefixed_pair_string("timestamp_domain", consumer),
+            pick_nonempty_metric("timestamp_domain", broker_video_lab_scorecard, consumer),
+        ),
+        "sensor_timestamp_source": pick_nonempty_metric(
+            "sensor_timestamp_source",
+            broker_video_lab_scorecard,
+            consumer,
+        ),
+        "h264_encoder_name": pick_nonempty_metric("encoder_name", broker_video_lab_scorecard, consumer),
+        "h264_decoder_name": pick_present(
+            pick_nonempty_metric("decoder_name", broker_video_lab_scorecard, consumer),
+            prefixed_pair_string("decoder_name", consumer),
+        ),
+        "left_h264_decoder_name": consumer.get("left_decoder_name"),
+        "right_h264_decoder_name": consumer.get("right_decoder_name"),
+        "h264_codec_config_packet_count": pick_present(
+            pick_metric("codec_config_packet_count", broker_video_lab_scorecard),
+            pick_prefixed_metric("stream_codec_config_packet_count", consumer),
+        ),
+        "h264_sps_present": pick_present(
+            pick_metric("sps_present", broker_video_lab_scorecard),
+            pick_prefixed_metric("csd_sps_found", consumer),
+        ),
+        "h264_pps_present": pick_present(
+            pick_metric("pps_present", broker_video_lab_scorecard),
+            pick_prefixed_metric("csd_pps_found", consumer),
+        ),
+        "h264_keyframe_count": pick_present(
+            pick_metric("keyframe_count", broker_video_lab_scorecard),
+            pick_prefixed_metric("stream_keyframe_count", consumer),
+        ),
+        "h264_sync_frame_request_count": pick_metric("sync_frame_request_count", broker_video_lab_scorecard),
+        "h264_sync_frame_request_on_start_succeeded": pick_metric(
+            "sync_frame_request_on_start_succeeded",
+            broker_video_lab_scorecard,
+        ),
+        "h264_bitrate_mode_requested": pick_nonempty_metric(
+            "bitrate_mode_requested",
+            broker_video_lab_scorecard,
+        ),
+        "h264_bitrate_mode_applied": pick_nonempty_metric(
+            "bitrate_mode_applied",
+            broker_video_lab_scorecard,
+        ),
+        "h264_decoder_low_latency_config_requested": pick_present(
+            pick_metric("decoder_low_latency_config_requested", broker_video_lab_scorecard),
+            pick_prefixed_metric("decoder_low_latency_config_requested", consumer),
+        ),
+        "h264_decoder_low_latency_parameter_succeeded": pick_present(
+            pick_metric("decoder_low_latency_parameter_succeeded", broker_video_lab_scorecard),
+            pick_prefixed_metric("decoder_low_latency_parameter_succeeded", consumer),
+        ),
+        "h264_close_reason": pick_nonempty_metric("close_reason", broker_video_lab_scorecard, consumer),
         "stereo_pairing_mode": consumer.get("stereo_pairing_mode"),
         "left_stream_packet_count": consumer.get("left_stream_packet_count", stereo_summary.get("leftPackets")),
         "right_stream_packet_count": consumer.get("right_stream_packet_count", stereo_summary.get("rightPackets")),
@@ -573,6 +787,22 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
                 stereo_summary,
             ),
             ns_metric_to_ms(consumer.get("stereo_pair_delta_avg_ns", stereo_summary.get("pairDeltaAvgNs"))),
+        ),
+        "temporal_projection_mode": pick_nonempty_metric(
+            "temporal_projection_mode",
+            final_projection,
+            final_camera_config,
+            final_gpu_draw,
+            consumer,
+            stereo_summary,
+        ),
+        "temporal_projection_max_angular_degrees_per_frame": pick_metric(
+            "temporal_projection_max_angular_degrees_per_frame",
+            final_camera_config,
+        ),
+        "temporal_projection_max_linear_meters_per_frame": pick_metric(
+            "temporal_projection_max_linear_meters_per_frame",
+            final_camera_config,
         ),
         "target_projection_motion_px_avg": pick_metric(
             "target_projection_motion_px_avg",
@@ -643,6 +873,27 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
             final_gpu_draw,
             final_makepad_projection,
             final_makepad_cadence,
+            consumer,
+            stereo_summary,
+        ),
+        "frame_adoption_mode": pick_nonempty_metric(
+            "frame_adoption_mode",
+            final_projection,
+            final_gpu_draw,
+            consumer,
+            stereo_summary,
+        ),
+        "frame_adoption_held": pick_metric(
+            "frame_adoption_held",
+            final_projection,
+            final_gpu_draw,
+            consumer,
+            stereo_summary,
+        ),
+        "frame_adoption_candidate_motion_px_p95": pick_metric(
+            "frame_adoption_candidate_motion_px_p95",
+            final_projection,
+            final_gpu_draw,
             consumer,
             stereo_summary,
         ),
@@ -802,6 +1053,32 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         ),
         "left_projection_metadata_ready": consumer.get("left_broker_projection_metadata_ready", stereo_summary.get("metadataReadyLeft")),
         "right_projection_metadata_ready": consumer.get("right_broker_projection_metadata_ready", stereo_summary.get("metadataReadyRight")),
+        "left_stream_header_projection_metadata_attached": pick_present(
+            consumer.get("left_stream_header_projection_metadata_attached"),
+            True if left_stream_header else None,
+        ),
+        "right_stream_header_projection_metadata_attached": pick_present(
+            consumer.get("right_stream_header_projection_metadata_attached"),
+            True if right_stream_header else None,
+        ),
+        "left_stream_header_projection_metadata_ready": pick_present(
+            consumer.get("left_stream_header_projection_metadata_ready"),
+            left_stream_header.get("ready"),
+            left_session_metadata.get("ready"),
+        ),
+        "right_stream_header_projection_metadata_ready": pick_present(
+            consumer.get("right_stream_header_projection_metadata_ready"),
+            right_stream_header.get("ready"),
+            right_session_metadata.get("ready"),
+        ),
+        "left_session_projection_metadata_source": pick_present(
+            consumer.get("left_session_projection_metadata_source"),
+            left_session_metadata.get("source"),
+        ),
+        "right_session_projection_metadata_source": pick_present(
+            consumer.get("right_session_projection_metadata_source"),
+            right_session_metadata.get("source"),
+        ),
         "activeTier": pick_present(final_projection.get("activeTier"), final_gpu_draw.get("activeTier")),
         "alignedProjection": pick_present(
             final_projection.get("alignedProjection"),
@@ -894,6 +1171,7 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "latest_gpu_draw": final_gpu_draw,
         "latest_openxr_frame": final_openxr,
         "latest_camera_config": final_camera_config,
+        "broker_video_lab_scorecard": broker_video_lab_scorecard,
         "latest_makepad_cadence": final_makepad_cadence,
         "latest_makepad_projection": final_makepad_projection,
         "latest_makepad_comparison": final_makepad_comparison,
@@ -934,6 +1212,15 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("shader", "projectionShaderPath"),
         ("aligned", "alignedProjection"),
         ("live", "live_decode_path"),
+        ("cam", "selected_camera_ids"),
+        ("size", "selected_size"),
+        ("fps", "selected_fps_range_hz"),
+        ("ts", "timestamp_domain"),
+        ("enc", "h264_encoder_name"),
+        ("dec", "h264_decoder_name"),
+        ("cfg", "h264_codec_config_packet_count"),
+        ("sps/pps", None),
+        ("key", "h264_keyframe_count"),
         ("L/R pkts", None),
         ("L/R decoded", None),
         ("pairs", "stereo_pair_count"),
@@ -984,6 +1271,8 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
                     cells.append(f"{fmt(row.get('left_stream_packet_count'))}/{fmt(row.get('right_stream_packet_count'))}")
                 elif heading == "L/R decoded":
                     cells.append(f"{fmt(row.get('left_decoded_frame_count'))}/{fmt(row.get('right_decoded_frame_count'))}")
+                elif heading == "sps/pps":
+                    cells.append(f"{fmt(row.get('h264_sps_present'))}/{fmt(row.get('h264_pps_present'))}")
                 elif heading == "OpenXR fps last":
                     cells.append(fmt(row.get("openxr_observed_fps", {}).get("last")))
                 elif heading == "OpenXR fps min":

@@ -545,15 +545,18 @@ The catalog keeps camera path experiments as separate runtime profiles:
 - `broker-h264-stereo-live-openxr-projection-probe`: the same broker-decoded
   stereo OpenXR path with the live-bounded H.264 provider enabled. The broker
   accepts the binary stream sockets before Camera2 capture starts, drains
-  MediaCodec output directly to the stream, and writes schema-2 packet source
-  timestamps. The composite app receives, decodes, pairs, and submits
-  left/right hardware-buffer frames as packets arrive instead of waiting for
-  the whole declared packet count. Logs include source packet cadence, wire
+  MediaCodec output directly to the stream, and writes schema-3 stream headers
+  with session projection metadata plus packet source timestamps. The composite
+  app receives, decodes, pairs, and submits left/right hardware-buffer frames
+  as packets arrive instead of waiting for the whole declared packet count.
+  Existing-stream receivers prefer stream-header projection metadata over
+  launch extras when both are present. Logs include source packet cadence, wire
   receive cadence, decode cadence, per-eye resolution, live pair queue drops,
-  and native stereo-pair acceptance. This profile is a correctness milestone
-  for Quest-to-Quest-style live streaming, not a performance target: current
-  runs still need frame-cadence and render-time optimization before the path can
-  be treated as production quality.
+  stream-header metadata readiness, and native stereo-pair acceptance. This
+  profile is a correctness milestone for Quest-to-Quest-style live streaming,
+  not a performance target: current runs still need frame-cadence and
+  render-time optimization before the path can be treated as production
+  quality.
 - `broker-h264-stereo-live-openxr-projection-scale065-probe`: the same
   live-bounded broker stereo path with `rustyxr.xrRenderScale=0.65`. Use it as
   the current performance comparison profile when the `0.75` visual-quality
@@ -573,9 +576,22 @@ The catalog keeps camera path experiments as separate runtime profiles:
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264
   stream on the configured port. This skips the broker Camera2 start command
   and isolates incoming-stream receive, MediaCodec decode, hardware-buffer
-  handoff, and OpenXR draw. It is the preferred one-device simulation path for
-  a remote sender because it exercises the receiver side without needing a
+  handoff, and OpenXR draw. For schema-3 streams, the receiver reads projection
+  metadata from the stream header and uses it before launch extras or fallback
+  profiles. Existing-stream mode is the preferred one-device simulation path
+  for a remote sender because it exercises the receiver side without needing a
   second headset.
+- Temporal projected profiles expose receiver-side smoothing and adoption
+  controls through `rustyxr.cameraTemporalProjection*` and
+  `rustyxr.cameraFrameAdoption*` launch values. The current frame-adoption mode
+  is `hold-until-smooth`: when enabled, the projected path can keep the last
+  accepted stereo frame/projection for a bounded hold window instead of
+  adopting a candidate whose projected screen-space motion exceeds the
+  configured jump budget. Final projection status rows report the adoption
+  mode, whether the current frame was held, candidate motion p95, held-frame
+  count/duration, crossfade count, invalid-UV percentage, and edge-fill
+  percentage so automated scorecards can distinguish stable smoothing from a
+  stale or black render path.
 - `camera-stereo-gpu-composite`: aligned Vulkan hardware-buffer baseline. It
   keeps fixed foveation off and uses `external-rgb`, so it is the profile to
   use when validating projection, border behavior, CPU-upload avoidance, import
@@ -588,6 +604,12 @@ The catalog keeps camera path experiments as separate runtime profiles:
   projection at `rustyxr.xrRenderScale=0.75`, but selects the fast public
   raw-projection shader path. Use it for direct renderer parity checks against
   the Q2Q fast profile.
+- `camera-stereo-temporal-pose-clamp-fast075`: direct in-app Camera2 stereo
+  projection with the fast public shader and `pose-delta-clamp` temporal mode.
+  It uses one shared angular/linear pose-delta coefficient for both eyes and
+  reports the resulting target/applied/residual screen-motion metrics, making
+  it the deterministic lockstep proof before visually tuning the screen-motion
+  clamp.
 - `camera-stereo-gpu-composite-fast065`: same direct fast raw-projection path
   at `rustyxr.xrRenderScale=0.65` for fragment-load headroom checks.
 - `camera-stereo-gpu-composite-ycbcr-diagnostic`: same projection and border,

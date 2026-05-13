@@ -2,9 +2,9 @@
 //!
 //! This crate contains pure data models for broker control envelopes, stream
 //! manifests, sample headers, timing stamps, drop counters, diagnostic binary
-//! video headers, and negotiated transport lanes. It does not open sockets,
-//! depend on Android, or implement a Unity, Makepad, OpenXR, LSL, OSC, or video
-//! backend.
+//! video headers, camera/source capabilities, H.264 stream invariants, and
+//! negotiated transport lanes. It does not open sockets, depend on Android, or
+//! implement a Unity, Makepad, OpenXR, LSL, OSC, or video backend.
 //!
 //! Enable the `serde` feature when these public contracts need to cross
 //! process boundaries.
@@ -77,6 +77,13 @@ pub const BROKER_NETWORK_QUALITY_SAMPLE_SCHEMA: &str = "rusty.xr.broker.network_
 /// Versioned JSON schema id for Rusty XR diagnostic packet descriptors.
 pub const BROKER_PACKET_DESCRIPTOR_SCHEMA: &str = "rusty.xr.broker.packet_descriptor.v1";
 
+/// Versioned JSON schema id for camera/source capability manifests.
+pub const BROKER_CAMERA_SOURCE_CAPABILITIES_SCHEMA: &str =
+    "rusty.xr.broker.camera_source_capabilities.v1";
+
+/// Versioned JSON schema id for H.264 stream invariant summaries.
+pub const BROKER_H264_STREAM_INVARIANTS_SCHEMA: &str = "rusty.xr.broker.h264_stream_invariants.v1";
+
 /// Public schema id for the Rusty XR-owned diagnostic binary video stream.
 pub const BROKER_DIAGNOSTIC_VIDEO_STREAM_SCHEMA: &str = "rusty.xr.video_lab.binary_stream.v1";
 
@@ -84,12 +91,12 @@ pub const BROKER_DIAGNOSTIC_VIDEO_STREAM_SCHEMA: &str = "rusty.xr.video_lab.bina
 pub const BROKER_DIAGNOSTIC_VIDEO_MAGIC: &[u8; 8] = b"RXYRVID1";
 
 /// Current Rusty XR-owned diagnostic binary video stream format version.
-pub const BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION: u32 = 2;
+pub const BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION: u32 = 3;
 
 /// Fixed byte length of the diagnostic video stream header.
 pub const BROKER_DIAGNOSTIC_VIDEO_HEADER_BYTES: usize = 32;
 
-/// Fixed byte length of each v2 diagnostic video packet header.
+/// Fixed byte length of each v2/v3 diagnostic video packet header.
 pub const BROKER_DIAGNOSTIC_VIDEO_PACKET_HEADER_BYTES: usize = 32;
 
 /// Wire codec id for H.264 inside the diagnostic video stream framing.
@@ -100,6 +107,9 @@ pub const BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_COUNT: u32 = 720;
 
 /// Maximum payload size accepted for one diagnostic video packet.
 pub const BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_BYTES: u32 = 1024 * 1024;
+
+/// Maximum stream-header metadata payload for schema-3 diagnostic video streams.
+pub const BROKER_DIAGNOSTIC_VIDEO_MAX_HEADER_METADATA_BYTES: u32 = 256 * 1024;
 
 /// Diagnostic video packet flag for key frames.
 pub const BROKER_DIAGNOSTIC_VIDEO_PACKET_FLAG_KEY_FRAME: u32 = 1;
@@ -245,6 +255,42 @@ pub enum BrokerPacketDropReason {
     XrFrameBudgetExceeded,
     QueueOverflow,
     ClientShutdown,
+    Unknown,
+}
+
+/// Timebase used by media timestamps in a camera or transport stream.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerTimestampDomain {
+    ElapsedRealtime,
+    CameraSensor,
+    MediaPts,
+    Unix,
+    OpenXrPredictedDisplay,
+    RelayReceive,
+    Unknown,
+}
+
+/// API path that produced a camera source capability report.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerCameraApiPath {
+    AndroidCamera2,
+    AndroidNdkCamera2,
+    MetaPassthroughCameraApi,
+    OpenXrPassthrough,
+    Synthetic,
+    Unknown,
+}
+
+/// Permission state observed for camera or headset-camera access.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerCameraPermissionState {
+    Granted,
+    Denied,
+    Unavailable,
+    NotRequired,
     Unknown,
 }
 
@@ -867,6 +913,409 @@ impl BrokerPacketDescriptor {
     }
 }
 
+/// Width/height tuple used by camera-source and H.264 stream contracts.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BrokerVideoSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl BrokerVideoSize {
+    pub const fn new(width: u32, height: u32) -> Self {
+        Self { width, height }
+    }
+
+    pub const fn is_valid(&self) -> bool {
+        self.width > 0 && self.height > 0
+    }
+}
+
+/// Inclusive frame-rate range advertised or selected for a camera stream.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BrokerFpsRange {
+    pub min_hz: u32,
+    pub max_hz: u32,
+}
+
+impl BrokerFpsRange {
+    pub const fn new(min_hz: u32, max_hz: u32) -> Self {
+        Self { min_hz, max_hz }
+    }
+
+    pub const fn is_valid(&self) -> bool {
+        self.min_hz > 0 && self.max_hz >= self.min_hz
+    }
+}
+
+/// Public camera/source capability manifest used before stream interpretation.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerCameraSourceCapabilities {
+    pub schema: String,
+    pub source_id: String,
+    pub source_api_path: BrokerCameraApiPath,
+    pub horizon_os_version_observed: Option<String>,
+    pub camera_permission_state: BrokerCameraPermissionState,
+    pub headset_camera_permission_state: BrokerCameraPermissionState,
+    pub camera_id: Option<String>,
+    pub physical_camera_ids: Vec<String>,
+    pub meta_vendor_camera_source: Option<String>,
+    pub meta_vendor_position: Option<String>,
+    pub supported_private_sizes: Vec<BrokerVideoSize>,
+    pub supported_yuv_sizes: Vec<BrokerVideoSize>,
+    pub supported_fps_ranges: Vec<BrokerFpsRange>,
+    pub selected_size: Option<BrokerVideoSize>,
+    pub selected_fps_range: Option<BrokerFpsRange>,
+    pub stream_min_frame_duration_ns: Option<u64>,
+    pub timestamp_domain: BrokerTimestampDomain,
+    pub selected_reason: Option<String>,
+}
+
+impl BrokerCameraSourceCapabilities {
+    pub fn new(source_id: impl Into<String>, source_api_path: BrokerCameraApiPath) -> Self {
+        Self {
+            schema: BROKER_CAMERA_SOURCE_CAPABILITIES_SCHEMA.to_string(),
+            source_id: source_id.into(),
+            source_api_path,
+            horizon_os_version_observed: None,
+            camera_permission_state: BrokerCameraPermissionState::Unknown,
+            headset_camera_permission_state: BrokerCameraPermissionState::Unknown,
+            camera_id: None,
+            physical_camera_ids: Vec::new(),
+            meta_vendor_camera_source: None,
+            meta_vendor_position: None,
+            supported_private_sizes: Vec::new(),
+            supported_yuv_sizes: Vec::new(),
+            supported_fps_ranges: Vec::new(),
+            selected_size: None,
+            selected_fps_range: None,
+            stream_min_frame_duration_ns: None,
+            timestamp_domain: BrokerTimestampDomain::Unknown,
+            selected_reason: None,
+        }
+    }
+
+    pub const fn with_camera_permission_state(
+        mut self,
+        state: BrokerCameraPermissionState,
+    ) -> Self {
+        self.camera_permission_state = state;
+        self
+    }
+
+    pub const fn with_headset_camera_permission_state(
+        mut self,
+        state: BrokerCameraPermissionState,
+    ) -> Self {
+        self.headset_camera_permission_state = state;
+        self
+    }
+
+    pub fn with_camera_id(mut self, camera_id: impl Into<String>) -> Self {
+        self.camera_id = Some(camera_id.into());
+        self
+    }
+
+    pub const fn with_timestamp_domain(mut self, domain: BrokerTimestampDomain) -> Self {
+        self.timestamp_domain = domain;
+        self
+    }
+
+    pub fn with_selected_size(
+        mut self,
+        selected_size: BrokerVideoSize,
+        selected_reason: impl Into<String>,
+    ) -> Self {
+        self.selected_size = Some(selected_size);
+        self.selected_reason = Some(selected_reason.into());
+        self
+    }
+
+    pub const fn with_selected_fps_range(mut self, selected_fps_range: BrokerFpsRange) -> Self {
+        self.selected_fps_range = Some(selected_fps_range);
+        self
+    }
+
+    pub const fn with_stream_min_frame_duration_ns(
+        mut self,
+        stream_min_frame_duration_ns: u64,
+    ) -> Self {
+        self.stream_min_frame_duration_ns = Some(stream_min_frame_duration_ns);
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == BROKER_CAMERA_SOURCE_CAPABILITIES_SCHEMA
+            && !self.source_id.trim().is_empty()
+            && self
+                .horizon_os_version_observed
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .camera_id
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .physical_camera_ids
+                .iter()
+                .all(|id| non_empty_string(id))
+            && self
+                .meta_vendor_camera_source
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .meta_vendor_position
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .supported_private_sizes
+                .iter()
+                .all(BrokerVideoSize::is_valid)
+            && self
+                .supported_yuv_sizes
+                .iter()
+                .all(BrokerVideoSize::is_valid)
+            && self
+                .supported_fps_ranges
+                .iter()
+                .all(BrokerFpsRange::is_valid)
+            && self
+                .selected_size
+                .as_ref()
+                .map(BrokerVideoSize::is_valid)
+                .unwrap_or(true)
+            && self
+                .selected_fps_range
+                .as_ref()
+                .map(BrokerFpsRange::is_valid)
+                .unwrap_or(true)
+            && self
+                .stream_min_frame_duration_ns
+                .map(|duration| duration > 0)
+                .unwrap_or(true)
+            && self
+                .selected_reason
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(self.selected_size.is_none())
+    }
+}
+
+/// Public H.264 stream invariant summary used by stream-health gates.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerH264StreamInvariants {
+    pub schema: String,
+    pub session_id: String,
+    pub stream_id: String,
+    pub role: String,
+    pub direction: BrokerStreamDirection,
+    pub peer_id: Option<String>,
+    pub track_id: Option<String>,
+    pub eye: Option<String>,
+    pub bitstream_format: String,
+    pub encoder_name: Option<String>,
+    pub decoder_name: Option<String>,
+    pub width: u32,
+    pub height: u32,
+    pub bitrate_bps: Option<u32>,
+    pub bitrate_mode_requested: Option<String>,
+    pub bitrate_mode_applied: Option<String>,
+    pub i_frame_interval_seconds: Option<u32>,
+    pub encoder_latency_requested_frames: Option<u32>,
+    pub encoder_latency_applied_frames: Option<u32>,
+    pub decoder_low_latency_config_requested: Option<bool>,
+    pub decoder_low_latency_parameter_succeeded: Option<bool>,
+    pub codec_config_packet_count: u64,
+    pub sps_present: bool,
+    pub pps_present: bool,
+    pub keyframe_count: u64,
+    pub sync_frame_request_count: u64,
+    pub sync_frame_request_on_start_succeeded: Option<bool>,
+    pub decoder_output_mode: Option<String>,
+    pub hardware_buffer_import_succeeded: Option<bool>,
+    pub close_reason: Option<String>,
+}
+
+impl BrokerH264StreamInvariants {
+    pub fn new(
+        session_id: impl Into<String>,
+        stream_id: impl Into<String>,
+        role: impl Into<String>,
+        direction: BrokerStreamDirection,
+        size: BrokerVideoSize,
+    ) -> Self {
+        Self {
+            schema: BROKER_H264_STREAM_INVARIANTS_SCHEMA.to_string(),
+            session_id: session_id.into(),
+            stream_id: stream_id.into(),
+            role: role.into(),
+            direction,
+            peer_id: None,
+            track_id: None,
+            eye: None,
+            bitstream_format: "AnnexB".to_string(),
+            encoder_name: None,
+            decoder_name: None,
+            width: size.width,
+            height: size.height,
+            bitrate_bps: None,
+            bitrate_mode_requested: None,
+            bitrate_mode_applied: None,
+            i_frame_interval_seconds: None,
+            encoder_latency_requested_frames: None,
+            encoder_latency_applied_frames: None,
+            decoder_low_latency_config_requested: None,
+            decoder_low_latency_parameter_succeeded: None,
+            codec_config_packet_count: 0,
+            sps_present: false,
+            pps_present: false,
+            keyframe_count: 0,
+            sync_frame_request_count: 0,
+            sync_frame_request_on_start_succeeded: None,
+            decoder_output_mode: None,
+            hardware_buffer_import_succeeded: None,
+            close_reason: None,
+        }
+    }
+
+    pub fn with_peer_id(mut self, peer_id: impl Into<String>) -> Self {
+        self.peer_id = Some(peer_id.into());
+        self
+    }
+
+    pub fn with_track_id(mut self, track_id: impl Into<String>) -> Self {
+        self.track_id = Some(track_id.into());
+        self
+    }
+
+    pub fn with_eye(mut self, eye: impl Into<String>) -> Self {
+        self.eye = Some(eye.into());
+        self
+    }
+
+    pub fn with_encoder_name(mut self, encoder_name: impl Into<String>) -> Self {
+        self.encoder_name = Some(encoder_name.into());
+        self
+    }
+
+    pub fn with_decoder_name(mut self, decoder_name: impl Into<String>) -> Self {
+        self.decoder_name = Some(decoder_name.into());
+        self
+    }
+
+    pub const fn with_bitrate_bps(mut self, bitrate_bps: u32) -> Self {
+        self.bitrate_bps = Some(bitrate_bps);
+        self
+    }
+
+    pub fn with_bitrate_modes(
+        mut self,
+        requested: impl Into<String>,
+        applied: impl Into<String>,
+    ) -> Self {
+        self.bitrate_mode_requested = Some(requested.into());
+        self.bitrate_mode_applied = Some(applied.into());
+        self
+    }
+
+    pub const fn with_h264_start_config(
+        mut self,
+        codec_config_packet_count: u64,
+        sps_present: bool,
+        pps_present: bool,
+        keyframe_count: u64,
+    ) -> Self {
+        self.codec_config_packet_count = codec_config_packet_count;
+        self.sps_present = sps_present;
+        self.pps_present = pps_present;
+        self.keyframe_count = keyframe_count;
+        self
+    }
+
+    pub const fn with_sync_frame_request_on_start_succeeded(mut self, succeeded: bool) -> Self {
+        self.sync_frame_request_count = 1;
+        self.sync_frame_request_on_start_succeeded = Some(succeeded);
+        self
+    }
+
+    pub fn has_h264_start_config(&self) -> bool {
+        self.codec_config_packet_count > 0
+            && self.sps_present
+            && self.pps_present
+            && self.keyframe_count > 0
+    }
+
+    pub fn has_named_codec_components(&self) -> bool {
+        self.encoder_name
+            .as_deref()
+            .map(non_empty_string)
+            .unwrap_or(false)
+            && self
+                .decoder_name
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(false)
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == BROKER_H264_STREAM_INVARIANTS_SCHEMA
+            && !self.session_id.trim().is_empty()
+            && !self.stream_id.trim().is_empty()
+            && !self.role.trim().is_empty()
+            && !self.bitstream_format.trim().is_empty()
+            && BrokerVideoSize::new(self.width, self.height).is_valid()
+            && self.bitrate_bps.map(|bitrate| bitrate > 0).unwrap_or(true)
+            && self
+                .peer_id
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .track_id
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self.eye.as_deref().map(non_empty_string).unwrap_or(true)
+            && self
+                .encoder_name
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .decoder_name
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .bitrate_mode_requested
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .bitrate_mode_applied
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .decoder_output_mode
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .close_reason
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+    }
+}
+
 /// Parse or write failure for Rusty XR diagnostic binary video framing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BrokerDiagnosticVideoFormatError {
@@ -878,6 +1327,7 @@ pub enum BrokerDiagnosticVideoFormatError {
     InvalidDimensions { width: i64, height: i64 },
     InvalidPacketCount(i64),
     InvalidDeclaredPacketBytes(i64),
+    InvalidHeaderMetadataBytes(i64),
     InvalidPayloadByteLen(i64),
     InvalidFlags(u64),
     InvalidTimestamp { field: &'static str, value: i128 },
@@ -898,6 +1348,7 @@ pub struct BrokerDiagnosticVideoStreamHeader {
     pub height: u32,
     pub packet_count: u32,
     pub declared_packet_bytes: Option<u32>,
+    pub header_metadata_bytes: u32,
 }
 
 impl BrokerDiagnosticVideoStreamHeader {
@@ -910,7 +1361,13 @@ impl BrokerDiagnosticVideoStreamHeader {
             height,
             packet_count,
             declared_packet_bytes: None,
+            header_metadata_bytes: 0,
         }
+    }
+
+    pub const fn with_schema_version(mut self, schema_version: u32) -> Self {
+        self.schema_version = schema_version;
+        self
     }
 
     pub const fn with_declared_packet_bytes(mut self, declared_packet_bytes: u32) -> Self {
@@ -918,19 +1375,13 @@ impl BrokerDiagnosticVideoStreamHeader {
         self
     }
 
+    pub const fn with_header_metadata_bytes(mut self, header_metadata_bytes: u32) -> Self {
+        self.header_metadata_bytes = header_metadata_bytes;
+        self
+    }
+
     pub fn is_valid(&self) -> bool {
-        self.schema == BROKER_DIAGNOSTIC_VIDEO_STREAM_SCHEMA
-            && self.schema_version == BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION
-            && diagnostic_video_codec_wire_id(self.codec).is_some()
-            && self.width > 0
-            && self.width <= i32::MAX as u32
-            && self.height > 0
-            && self.height <= i32::MAX as u32
-            && (1..=BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_COUNT).contains(&self.packet_count)
-            && self
-                .declared_packet_bytes
-                .map(valid_diagnostic_packet_bytes)
-                .unwrap_or(true)
+        self.schema == BROKER_DIAGNOSTIC_VIDEO_STREAM_SCHEMA && self.validate_for_encode().is_ok()
     }
 
     pub fn encode(
@@ -940,11 +1391,7 @@ impl BrokerDiagnosticVideoStreamHeader {
 
         let mut bytes = [0u8; BROKER_DIAGNOSTIC_VIDEO_HEADER_BYTES];
         bytes[..BROKER_DIAGNOSTIC_VIDEO_MAGIC.len()].copy_from_slice(BROKER_DIAGNOSTIC_VIDEO_MAGIC);
-        write_i32_be(
-            &mut bytes,
-            8,
-            BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION as i32,
-        );
+        write_i32_be(&mut bytes, 8, self.schema_version as i32);
         write_i32_be(
             &mut bytes,
             12,
@@ -956,7 +1403,11 @@ impl BrokerDiagnosticVideoStreamHeader {
         write_i32_be(
             &mut bytes,
             28,
-            self.declared_packet_bytes.unwrap_or_default() as i32,
+            if self.schema_version >= 3 {
+                self.header_metadata_bytes as i32
+            } else {
+                self.declared_packet_bytes.unwrap_or_default() as i32
+            },
         );
         Ok(bytes)
     }
@@ -976,7 +1427,9 @@ impl BrokerDiagnosticVideoStreamHeader {
         }
 
         let schema_version = read_i32_be(bytes, 8) as i64;
-        if schema_version != BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION as i64 {
+        if schema_version < 1
+            || schema_version > BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION as i64
+        {
             return Err(BrokerDiagnosticVideoFormatError::UnsupportedSchemaVersion(
                 schema_version,
             ));
@@ -997,14 +1450,23 @@ impl BrokerDiagnosticVideoStreamHeader {
             ));
         }
 
-        let declared_packet_bytes = read_i32_be(bytes, 28) as i64;
-        if declared_packet_bytes < 0
-            || declared_packet_bytes > BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_BYTES as i64
-        {
-            return Err(
-                BrokerDiagnosticVideoFormatError::InvalidDeclaredPacketBytes(declared_packet_bytes),
-            );
-        }
+        let tail_word = read_i32_be(bytes, 28) as i64;
+        let (declared_packet_bytes, header_metadata_bytes) = if schema_version >= 3 {
+            if tail_word < 0 || tail_word > BROKER_DIAGNOSTIC_VIDEO_MAX_HEADER_METADATA_BYTES as i64
+            {
+                return Err(
+                    BrokerDiagnosticVideoFormatError::InvalidHeaderMetadataBytes(tail_word),
+                );
+            }
+            (None, tail_word as u32)
+        } else {
+            if tail_word < 0 || tail_word > BROKER_DIAGNOSTIC_VIDEO_MAX_PACKET_BYTES as i64 {
+                return Err(
+                    BrokerDiagnosticVideoFormatError::InvalidDeclaredPacketBytes(tail_word),
+                );
+            }
+            ((tail_word > 0).then_some(tail_word as u32), 0)
+        };
 
         Ok(Self {
             schema: BROKER_DIAGNOSTIC_VIDEO_STREAM_SCHEMA.to_string(),
@@ -1013,13 +1475,15 @@ impl BrokerDiagnosticVideoStreamHeader {
             width: width as u32,
             height: height as u32,
             packet_count: packet_count as u32,
-            declared_packet_bytes: (declared_packet_bytes > 0)
-                .then_some(declared_packet_bytes as u32),
+            declared_packet_bytes,
+            header_metadata_bytes,
         })
     }
 
     fn validate_for_encode(&self) -> Result<(), BrokerDiagnosticVideoFormatError> {
-        if self.schema_version != BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION {
+        if self.schema_version < 1
+            || self.schema_version > BROKER_DIAGNOSTIC_VIDEO_BINARY_SCHEMA_VERSION
+        {
             return Err(BrokerDiagnosticVideoFormatError::UnsupportedSchemaVersion(
                 self.schema_version as i64,
             ));
@@ -1043,6 +1507,30 @@ impl BrokerDiagnosticVideoStreamHeader {
             return Err(BrokerDiagnosticVideoFormatError::InvalidPacketCount(
                 self.packet_count as i64,
             ));
+        }
+        if self.schema_version >= 3 {
+            if self.declared_packet_bytes.is_some() {
+                return Err(
+                    BrokerDiagnosticVideoFormatError::InvalidDeclaredPacketBytes(
+                        self.declared_packet_bytes.unwrap_or_default() as i64,
+                    ),
+                );
+            }
+            if self.header_metadata_bytes > BROKER_DIAGNOSTIC_VIDEO_MAX_HEADER_METADATA_BYTES {
+                return Err(
+                    BrokerDiagnosticVideoFormatError::InvalidHeaderMetadataBytes(
+                        self.header_metadata_bytes as i64,
+                    ),
+                );
+            }
+        } else {
+            if self.header_metadata_bytes != 0 {
+                return Err(
+                    BrokerDiagnosticVideoFormatError::InvalidHeaderMetadataBytes(
+                        self.header_metadata_bytes as i64,
+                    ),
+                );
+            }
         }
         if let Some(declared_packet_bytes) = self.declared_packet_bytes {
             if !valid_diagnostic_packet_bytes(declared_packet_bytes) {
@@ -2117,6 +2605,10 @@ fn valid_unit_interval(value: f32) -> bool {
     value.is_finite() && (0.0..=1.0).contains(&value)
 }
 
+fn non_empty_string(value: &str) -> bool {
+    !value.trim().is_empty()
+}
+
 fn ordered_optional_pair(earlier: Option<u64>, later: Option<u64>) -> bool {
     later
         .zip(earlier)
@@ -2411,12 +2903,118 @@ mod tests {
     }
 
     #[test]
-    fn diagnostic_video_v2_headers_round_trip() {
-        let stream = BrokerDiagnosticVideoStreamHeader::h264(64, 64, 4);
+    fn camera_source_capabilities_report_selected_source_and_timing_domain() {
+        let mut capabilities =
+            BrokerCameraSourceCapabilities::new("camera2:0", BrokerCameraApiPath::AndroidCamera2)
+                .with_camera_permission_state(BrokerCameraPermissionState::Granted)
+                .with_headset_camera_permission_state(BrokerCameraPermissionState::Granted)
+                .with_camera_id("0")
+                .with_timestamp_domain(BrokerTimestampDomain::ElapsedRealtime)
+                .with_selected_size(
+                    BrokerVideoSize::new(720, 480),
+                    "closest_preferred_private_size",
+                )
+                .with_selected_fps_range(BrokerFpsRange::new(30, 30))
+                .with_stream_min_frame_duration_ns(33_333_333);
+        capabilities
+            .supported_private_sizes
+            .push(BrokerVideoSize::new(720, 480));
+        capabilities
+            .supported_yuv_sizes
+            .push(BrokerVideoSize::new(640, 480));
+        capabilities
+            .supported_fps_ranges
+            .push(BrokerFpsRange::new(30, 30));
+
+        assert!(capabilities.is_valid());
+        assert_eq!(
+            capabilities.schema,
+            BROKER_CAMERA_SOURCE_CAPABILITIES_SCHEMA
+        );
+        assert_eq!(
+            capabilities.timestamp_domain,
+            BrokerTimestampDomain::ElapsedRealtime
+        );
+    }
+
+    #[test]
+    fn camera_source_capabilities_reject_invalid_selected_values() {
+        let invalid_size =
+            BrokerCameraSourceCapabilities::new("camera2:0", BrokerCameraApiPath::AndroidCamera2)
+                .with_selected_size(BrokerVideoSize::new(0, 480), "closest");
+        let invalid_fps =
+            BrokerCameraSourceCapabilities::new("camera2:0", BrokerCameraApiPath::AndroidCamera2)
+                .with_selected_fps_range(BrokerFpsRange::new(60, 30));
+        let missing_reason = BrokerCameraSourceCapabilities {
+            selected_size: Some(BrokerVideoSize::new(720, 480)),
+            selected_reason: Some("".to_string()),
+            ..BrokerCameraSourceCapabilities::new("camera2:0", BrokerCameraApiPath::AndroidCamera2)
+        };
+
+        assert!(!invalid_size.is_valid());
+        assert!(!invalid_fps.is_valid());
+        assert!(!missing_reason.is_valid());
+        assert!(!BrokerCameraSourceCapabilities::new("", BrokerCameraApiPath::Unknown).is_valid());
+    }
+
+    #[test]
+    fn h264_stream_invariants_gate_codec_config_and_keyframes() {
+        let invariants = BrokerH264StreamInvariants::new(
+            "session-001",
+            "camera.left.h264",
+            "receiver",
+            BrokerStreamDirection::ProducerToConsumer,
+            BrokerVideoSize::new(720, 480),
+        )
+        .with_peer_id("quest-a")
+        .with_track_id("left")
+        .with_eye("left")
+        .with_encoder_name("c2.qti.avc.encoder")
+        .with_decoder_name("c2.qti.avc.decoder")
+        .with_bitrate_bps(1_000_000)
+        .with_bitrate_modes("CBR", "CBR")
+        .with_h264_start_config(2, true, true, 1)
+        .with_sync_frame_request_on_start_succeeded(true);
+
+        assert!(invariants.is_valid());
+        assert!(invariants.has_h264_start_config());
+        assert!(invariants.has_named_codec_components());
+        assert_eq!(invariants.schema, BROKER_H264_STREAM_INVARIANTS_SCHEMA);
+    }
+
+    #[test]
+    fn h264_stream_invariants_reject_structural_gaps() {
+        let invalid = BrokerH264StreamInvariants::new(
+            "",
+            "camera.left.h264",
+            "receiver",
+            BrokerStreamDirection::ProducerToConsumer,
+            BrokerVideoSize::new(720, 480),
+        );
+        let missing_config = BrokerH264StreamInvariants::new(
+            "session-001",
+            "camera.left.h264",
+            "receiver",
+            BrokerStreamDirection::ProducerToConsumer,
+            BrokerVideoSize::new(720, 480),
+        )
+        .with_h264_start_config(0, false, true, 0);
+
+        assert!(!invalid.is_valid());
+        assert!(missing_config.is_valid());
+        assert!(!missing_config.has_h264_start_config());
+    }
+
+    #[test]
+    fn diagnostic_video_v3_headers_round_trip() {
+        let stream =
+            BrokerDiagnosticVideoStreamHeader::h264(64, 64, 4).with_header_metadata_bytes(1024);
         let stream_bytes = stream.encode().expect("stream header should encode");
 
         assert_eq!(&stream_bytes[..8], BROKER_DIAGNOSTIC_VIDEO_MAGIC);
         assert_eq!(stream_bytes.len(), BROKER_DIAGNOSTIC_VIDEO_HEADER_BYTES);
+        assert_eq!(read_i32_be(&stream_bytes, 8), 3);
+        assert_eq!(read_i32_be(&stream_bytes, 28), 1024);
 
         let parsed_stream = BrokerDiagnosticVideoStreamHeader::parse(&stream_bytes)
             .expect("stream header should parse");
@@ -2448,7 +3046,7 @@ mod tests {
     }
 
     #[test]
-    fn diagnostic_video_v2_rejects_malformed_headers() {
+    fn diagnostic_video_headers_reject_malformed_inputs() {
         let mut stream_bytes = BrokerDiagnosticVideoStreamHeader::h264(64, 64, 4)
             .encode()
             .expect("stream header should encode");
@@ -2461,16 +3059,17 @@ mod tests {
         let mut unsupported_version = BrokerDiagnosticVideoStreamHeader::h264(64, 64, 4)
             .encode()
             .expect("stream header should encode");
-        write_i32_be(&mut unsupported_version, 8, 3);
+        write_i32_be(&mut unsupported_version, 8, 4);
         assert_eq!(
             BrokerDiagnosticVideoStreamHeader::parse(&unsupported_version),
             Err(BrokerDiagnosticVideoFormatError::UnsupportedSchemaVersion(
-                3
+                4
             ))
         );
 
-        let fixed_size_stream =
-            BrokerDiagnosticVideoStreamHeader::h264(64, 64, 4).with_declared_packet_bytes(128);
+        let fixed_size_stream = BrokerDiagnosticVideoStreamHeader::h264(64, 64, 4)
+            .with_schema_version(2)
+            .with_declared_packet_bytes(128);
         let mismatch = BrokerDiagnosticVideoPacketHeader::new(0, 96)
             .encode()
             .expect("packet header should encode");

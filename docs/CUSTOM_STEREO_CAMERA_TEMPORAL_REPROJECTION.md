@@ -191,14 +191,27 @@ Scope:
 - add runtime profile `camera-stereo-temporal-pose-clamp-fast075`
 - add `rustyxr.cameraTemporalProjectionEnabled=true`
 - add `rustyxr.cameraTemporalMode=pose-delta-clamp`
+- add `rustyxr.cameraTemporalMaxAngularDegreesPerFrame`
+- add `rustyxr.cameraTemporalMaxLinearMetersPerFrame`
 - add `rustyxr.cameraTemporalStereoLockstep=true`
 - clamp angular and linear changes in pose/view space
 - keep left and right eyes lockstep-smoothed with one shared coefficient
 
+Implementation notes:
+
+- the app-neutral helper in `rusty-xr-camera-model` computes one shared
+  pose-delta alpha from angular and linear limits, then applies that same
+  coefficient to both eye homographies
+- scorecards still report target, applied, and residual projection motion in
+  pixels so the pose clamp can be compared with the screen-motion clamp
+- stationary headset runs should report the mode and limits but may correctly
+  show zero residual; the host unit test provides the deterministic nonzero
+  motion proof
+
 Acceptance:
 
 - stereo eyes never advance with different smoothing coefficients
-- residual lag is visible in metrics
+- residual lag is visible in metrics under a deterministic motion test
 - `off` and baseline profiles remain available
 
 ### Iteration 4: Screen-Motion Clamp

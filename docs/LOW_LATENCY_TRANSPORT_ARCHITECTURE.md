@@ -243,9 +243,11 @@ Recommended order:
 9. Optional external sidecar comparison lanes after license review.
 
 The current Rusty XR-owned diagnostic video format is the bounded `RXYRVID1`
-v2 stream framing used by the public broker example. Its stream header is
-fixed-width and big-endian: magic, binary schema version, codec id, width,
-height, packet count, and an optional declared packet byte size. Each v2 packet
+schema-3 stream framing used by the public broker example. Its fixed-width
+big-endian header contains magic, binary schema version, codec id, width,
+height, packet count, and a stream-header metadata byte count. Schema-3 streams
+then write bounded UTF-8 JSON metadata before packet headers; live Quest stereo
+streams use that metadata for per-eye projection bootstrap. Each v2/v3 packet
 header carries presentation time, flags, payload size, source elapsed time, and
 source Unix time before the encoded payload. This format is only a public
 diagnostic contract for Rusty XR examples; it is not a vendor packet format or

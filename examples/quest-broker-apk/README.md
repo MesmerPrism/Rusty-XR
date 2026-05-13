@@ -229,11 +229,12 @@ MediaCodec H.264 input surface, then writes encoded packets through the same
 capture-then-write probe for regression stability. When clients pass
 `live_stream=true`, the broker accepts the binary stream socket before Camera2
 capture starts, drains encoder output directly to the stream, and writes
-schema-2 packets with per-packet source timestamps. That proves
-Camera2-to-encoder payload transport without bundling a codec library. XR
-clients can consume this mode with packet-arrival decode so the receiver no
-longer has to wait for the whole declared packet count before submitting
-decoded frames.
+schema-3 headers with session projection metadata followed by per-packet source
+timestamps. That proves Camera2-to-encoder payload transport without bundling a
+codec library and lets receivers bootstrap projected rendering from stream
+metadata instead of launch-time projection extras. XR clients can consume this
+mode with packet-arrival decode so the receiver no longer has to wait for the
+whole declared packet count before submitting decoded frames.
 For LAN experiments, non-loopback H.264 payload binds are opt-in. Passing
 `lan_stream_enabled=true` allows `camera_provider.start_app_camera_h264_stream`
 to use a non-loopback `bind_host` such as `0.0.0.0`; `advertised_host` can
@@ -241,9 +242,11 @@ report the peer-reachable device address in the returned binary endpoint. A
 receiving broker can then run `media.start_h264_tcp_proxy` with `remote_host`,
 `remote_port`, and `local_port` to subscribe to that remote `RXYRVID1` H.264
 TCP stream and republish it on local loopback for the existing XR-side
-MediaCodec consumer. This is a broker-to-broker payload proof, not yet
-discovery, pairing/authentication, RTP jitter buffering, or an indefinite
-production stream. The `media.run_h264_tcp_proxy_probe` command validates the
+MediaCodec consumer. The TCP proxy accepts schema-1/2 streams and forwards
+schema-3 stream-header projection metadata unchanged for projected receiver
+paths. This is a broker-to-broker payload proof, not yet discovery,
+pairing/authentication, RTP jitter buffering, or an indefinite production
+stream. The `media.run_h264_tcp_proxy_probe` command validates the
 same TCP proxy plumbing with an in-process synthetic `RXYRVID1` source and
 consumer, so the broker-to-broker relay can be smoke-tested without camera
 permission, OpenXR, or a second headset. The follow-up

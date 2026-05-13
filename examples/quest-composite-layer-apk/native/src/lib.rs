@@ -21,7 +21,8 @@ use rusty_xr_contracts::{
     CaptureLifecycleState, CapturePermissionState, CaptureSourceKind, CaptureSourceState,
     ColorRgba, EnvironmentDepthState, ImageSize, PlainStereoLayer, Pose, Quat, Rect2,
     StereoLayerCameraPath, StereoLayerContentMode, StereoLayerPerformanceHints, StereoMediaLayout,
-    Vec2, Vec3, VisualFeedbackBorder, VisualFeedbackBorderLayout,
+    TemporalProjectionEdgeMode, TemporalProjectionMode, Vec2, Vec3, VisualFeedbackBorder,
+    VisualFeedbackBorderLayout,
 };
 use rusty_xr_debug_canvas::{
     DiagnosticHudCommand, DiagnosticHudInputSource, DiagnosticHudState, DiagnosticHudUpdate,
@@ -561,6 +562,39 @@ impl StereoProjectionControls {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CameraFrameAdoptionMode {
+    Off,
+    HoldUntilSmooth,
+}
+
+impl Default for CameraFrameAdoptionMode {
+    fn default() -> Self {
+        Self::Off
+    }
+}
+
+impl CameraFrameAdoptionMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "off" | "none" | "disabled" => Some(Self::Off),
+            "hold-until-smooth" | "hold_until_smooth" | "hold" => Some(Self::HoldUntilSmooth),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::HoldUntilSmooth => "hold-until-smooth",
+        }
+    }
+
+    pub(crate) const fn is_active(self) -> bool {
+        matches!(self, Self::HoldUntilSmooth)
+    }
+}
+
 #[derive(Clone, Debug)]
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) struct RuntimeConfig {
@@ -595,6 +629,18 @@ pub(crate) struct RuntimeConfig {
     pub(crate) camera_color_brightness: f32,
     pub(crate) camera_color_saturation: f32,
     pub(crate) camera_border_cycle_rate_hz: f32,
+    pub(crate) camera_temporal_projection_enabled: bool,
+    pub(crate) camera_temporal_mode: TemporalProjectionMode,
+    pub(crate) camera_temporal_max_pixels_per_frame: f32,
+    pub(crate) camera_temporal_max_angular_degrees_per_frame: f32,
+    pub(crate) camera_temporal_max_linear_meters_per_frame: f32,
+    pub(crate) camera_temporal_catchup_half_life_ms: f32,
+    pub(crate) camera_temporal_max_visual_lag_ms: f32,
+    pub(crate) camera_temporal_stereo_lockstep: bool,
+    pub(crate) camera_temporal_edge_mode: TemporalProjectionEdgeMode,
+    pub(crate) camera_frame_adoption_mode: CameraFrameAdoptionMode,
+    pub(crate) camera_frame_adoption_max_jump_px: f32,
+    pub(crate) camera_frame_adoption_max_hold_ms: f32,
     pub(crate) orientation_diagnostic_mode: CameraOrientationDiagnosticMode,
     pub(crate) visual_release_accepted: bool,
     pub(crate) xr_render_scale: f32,
@@ -659,6 +705,18 @@ impl Default for RuntimeConfig {
             camera_color_brightness: 0.0,
             camera_color_saturation: 1.0,
             camera_border_cycle_rate_hz: 0.18,
+            camera_temporal_projection_enabled: false,
+            camera_temporal_mode: TemporalProjectionMode::Off,
+            camera_temporal_max_pixels_per_frame: 18.0,
+            camera_temporal_max_angular_degrees_per_frame: 1.25,
+            camera_temporal_max_linear_meters_per_frame: 0.012,
+            camera_temporal_catchup_half_life_ms: 50.0,
+            camera_temporal_max_visual_lag_ms: 120.0,
+            camera_temporal_stereo_lockstep: true,
+            camera_temporal_edge_mode: TemporalProjectionEdgeMode::None,
+            camera_frame_adoption_mode: CameraFrameAdoptionMode::Off,
+            camera_frame_adoption_max_jump_px: 24.0,
+            camera_frame_adoption_max_hold_ms: 80.0,
             orientation_diagnostic_mode: CameraOrientationDiagnosticMode::Off,
             visual_release_accepted: false,
             xr_render_scale: 0.75,
@@ -1119,7 +1177,7 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} projectionScale={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -1142,6 +1200,18 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_color_brightness,
         config.camera_color_saturation,
         config.camera_border_cycle_rate_hz,
+        config.camera_temporal_projection_enabled,
+        config.camera_temporal_mode.stable_id(),
+        config.camera_temporal_max_pixels_per_frame,
+        config.camera_temporal_max_angular_degrees_per_frame,
+        config.camera_temporal_max_linear_meters_per_frame,
+        config.camera_temporal_catchup_half_life_ms,
+        config.camera_temporal_max_visual_lag_ms,
+        config.camera_temporal_stereo_lockstep,
+        config.camera_temporal_edge_mode.stable_id(),
+        config.camera_frame_adoption_mode.stable_id(),
+        config.camera_frame_adoption_max_jump_px,
+        config.camera_frame_adoption_max_hold_ms,
         config.camera_projection_fov_y_degrees,
         config.camera_preview_fov_y_degrees,
         config.camera_projection_scale,
@@ -1686,6 +1756,18 @@ struct JavaRuntimeConfig {
     camera_color_saturation: Option<f32>,
     #[serde(rename = "cameraBorderCycleHz", alias = "cameraBorderCycleRateHz")]
     camera_border_cycle_rate_hz: Option<f32>,
+    camera_temporal_projection_enabled: Option<bool>,
+    camera_temporal_mode: Option<String>,
+    camera_temporal_max_pixels_per_frame: Option<f32>,
+    camera_temporal_max_angular_degrees_per_frame: Option<f32>,
+    camera_temporal_max_linear_meters_per_frame: Option<f32>,
+    camera_temporal_catchup_half_life_ms: Option<f32>,
+    camera_temporal_max_visual_lag_ms: Option<f32>,
+    camera_temporal_stereo_lockstep: Option<bool>,
+    camera_temporal_edge_mode: Option<String>,
+    camera_frame_adoption_mode: Option<String>,
+    camera_frame_adoption_max_jump_px: Option<f32>,
+    camera_frame_adoption_max_hold_ms: Option<f32>,
     left_camera_texture_rotation: Option<String>,
     left_camera_texture_flip_x: Option<bool>,
     left_camera_texture_flip_y: Option<bool>,
@@ -1862,6 +1944,62 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             defaults.camera_border_cycle_rate_hz,
         )
         .clamp(0.0, 2.0),
+        camera_temporal_projection_enabled: bridge
+            .camera_temporal_projection_enabled
+            .unwrap_or(defaults.camera_temporal_projection_enabled),
+        camera_temporal_mode: bridge
+            .camera_temporal_mode
+            .as_deref()
+            .and_then(TemporalProjectionMode::parse)
+            .unwrap_or(defaults.camera_temporal_mode),
+        camera_temporal_max_pixels_per_frame: finite_positive_or(
+            bridge.camera_temporal_max_pixels_per_frame,
+            defaults.camera_temporal_max_pixels_per_frame,
+        )
+        .clamp(1.0, 512.0),
+        camera_temporal_max_angular_degrees_per_frame: finite_positive_or(
+            bridge.camera_temporal_max_angular_degrees_per_frame,
+            defaults.camera_temporal_max_angular_degrees_per_frame,
+        )
+        .clamp(0.01, 90.0),
+        camera_temporal_max_linear_meters_per_frame: finite_positive_or(
+            bridge.camera_temporal_max_linear_meters_per_frame,
+            defaults.camera_temporal_max_linear_meters_per_frame,
+        )
+        .clamp(0.001, 2.0),
+        camera_temporal_catchup_half_life_ms: finite_positive_or(
+            bridge.camera_temporal_catchup_half_life_ms,
+            defaults.camera_temporal_catchup_half_life_ms,
+        )
+        .clamp(1.0, 1000.0),
+        camera_temporal_max_visual_lag_ms: finite_positive_or(
+            bridge.camera_temporal_max_visual_lag_ms,
+            defaults.camera_temporal_max_visual_lag_ms,
+        )
+        .clamp(0.0, 1000.0),
+        camera_temporal_stereo_lockstep: bridge
+            .camera_temporal_stereo_lockstep
+            .unwrap_or(defaults.camera_temporal_stereo_lockstep),
+        camera_temporal_edge_mode: bridge
+            .camera_temporal_edge_mode
+            .as_deref()
+            .and_then(TemporalProjectionEdgeMode::parse)
+            .unwrap_or(defaults.camera_temporal_edge_mode),
+        camera_frame_adoption_mode: bridge
+            .camera_frame_adoption_mode
+            .as_deref()
+            .and_then(CameraFrameAdoptionMode::parse)
+            .unwrap_or(defaults.camera_frame_adoption_mode),
+        camera_frame_adoption_max_jump_px: finite_positive_or(
+            bridge.camera_frame_adoption_max_jump_px,
+            defaults.camera_frame_adoption_max_jump_px,
+        )
+        .clamp(1.0, 512.0),
+        camera_frame_adoption_max_hold_ms: finite_positive_or(
+            bridge.camera_frame_adoption_max_hold_ms,
+            defaults.camera_frame_adoption_max_hold_ms,
+        )
+        .clamp(0.0, 1000.0),
         orientation_diagnostic_mode: bridge
             .camera_orientation_diagnostic_mode
             .as_deref()
@@ -3314,15 +3452,17 @@ fn keep_activity_alive_after_error(app: android_activity::AndroidApp) {
 mod tests {
     use super::{
         contract_json, parse_diagnostic_hud_command, public_camera_metadata, public_runtime_config,
-        CameraColorMode, CameraFeedPipelineMode, CameraImportImageLayoutMode,
-        CameraOrientationDiagnosticMode, CameraPipelinePreset, CameraProjectionEffectMode,
-        CameraProjectionMode, CameraSamplerBindingMode, EnvironmentDepthMode, HandParticleMode,
-        JavaCameraExtrinsics, JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain,
-        JavaPixelDomainKind, JavaRuntimeConfig, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
-        OpenXrPassthroughStyleMode, StereoSourceEyeMapping,
+        CameraColorMode, CameraFeedPipelineMode, CameraFrameAdoptionMode,
+        CameraImportImageLayoutMode, CameraOrientationDiagnosticMode, CameraPipelinePreset,
+        CameraProjectionEffectMode, CameraProjectionMode, CameraSamplerBindingMode,
+        EnvironmentDepthMode, HandParticleMode, JavaCameraExtrinsics, JavaCameraFrameMetadata,
+        JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind, JavaRuntimeConfig,
+        OpenXrColorFormatMode, OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode,
+        StereoSourceEyeMapping,
     };
     use rusty_xr_contracts::{
         CameraCompositeTier, CameraImageRotation, CameraPixelDomainKind, ImageSize,
+        TemporalProjectionEdgeMode, TemporalProjectionMode,
     };
     use rusty_xr_debug_canvas::DiagnosticHudCommand;
 
@@ -3501,6 +3641,18 @@ mod tests {
             camera_color_brightness: Some(0.04),
             camera_color_saturation: Some(1.0),
             camera_border_cycle_rate_hz: Some(0.25),
+            camera_temporal_projection_enabled: Some(true),
+            camera_temporal_mode: Some("screen-motion-clamp".to_string()),
+            camera_temporal_max_pixels_per_frame: Some(18.0),
+            camera_temporal_max_angular_degrees_per_frame: Some(1.25),
+            camera_temporal_max_linear_meters_per_frame: Some(0.012),
+            camera_temporal_catchup_half_life_ms: Some(50.0),
+            camera_temporal_max_visual_lag_ms: Some(120.0),
+            camera_temporal_stereo_lockstep: Some(true),
+            camera_temporal_edge_mode: Some("clamp-soft".to_string()),
+            camera_frame_adoption_mode: Some("hold-until-smooth".to_string()),
+            camera_frame_adoption_max_jump_px: Some(24.0),
+            camera_frame_adoption_max_hold_ms: Some(80.0),
             left_camera_texture_rotation: Some("rotate180".to_string()),
             left_camera_texture_flip_x: Some(true),
             left_camera_texture_flip_y: Some(false),
@@ -3614,6 +3766,27 @@ mod tests {
         assert_eq!(config.camera_color_brightness, 0.04);
         assert_eq!(config.camera_color_saturation, 1.0);
         assert_eq!(config.camera_border_cycle_rate_hz, 0.25);
+        assert!(config.camera_temporal_projection_enabled);
+        assert_eq!(
+            config.camera_temporal_mode,
+            TemporalProjectionMode::ScreenMotionClamp
+        );
+        assert_eq!(config.camera_temporal_max_pixels_per_frame, 18.0);
+        assert_eq!(config.camera_temporal_max_angular_degrees_per_frame, 1.25);
+        assert_eq!(config.camera_temporal_max_linear_meters_per_frame, 0.012);
+        assert_eq!(config.camera_temporal_catchup_half_life_ms, 50.0);
+        assert_eq!(config.camera_temporal_max_visual_lag_ms, 120.0);
+        assert!(config.camera_temporal_stereo_lockstep);
+        assert_eq!(
+            config.camera_temporal_edge_mode,
+            TemporalProjectionEdgeMode::ClampSoft
+        );
+        assert_eq!(
+            config.camera_frame_adoption_mode,
+            CameraFrameAdoptionMode::HoldUntilSmooth
+        );
+        assert_eq!(config.camera_frame_adoption_max_jump_px, 24.0);
+        assert_eq!(config.camera_frame_adoption_max_hold_ms, 80.0);
         assert_eq!(
             config.orientation_diagnostic_mode,
             CameraOrientationDiagnosticMode::CycleSourceEyeMapping

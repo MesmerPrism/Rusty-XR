@@ -95,6 +95,9 @@ final class BrokerState {
         supportedCommands.put("camera_provider.start_app_camera_luma_stream");
         supportedCommands.put("camera_provider.start_app_camera_h264_stream");
         supportedCommands.put("camera_provider.run_app_camera_h264_decode_probe");
+        supportedCommands.put("media.request_keyframe");
+        supportedCommands.put("media.set_video_bitrate");
+        supportedCommands.put("media.set_quality_profile");
         supportedCommands.put("media.start_h264_tcp_proxy");
         supportedCommands.put("media.run_h264_tcp_proxy_probe");
         supportedCommands.put("camera_provider.set_source_eye_mapping");
@@ -183,6 +186,9 @@ final class BrokerState {
         capabilities.put("camera_projection.app_camera_luma_stream.v1");
         capabilities.put("camera_projection.app_camera_h264_stream.v1");
         capabilities.put("camera_projection.app_camera_h264_decode_probe.v1");
+        capabilities.put("media.h264_runtime_keyframe.v1");
+        capabilities.put("media.h264_runtime_bitrate.v1");
+        capabilities.put("media.h264_quality_profile.v1");
         capabilities.put("broker.h264_tcp_proxy.v1");
         capabilities.put("broker.h264_tcp_proxy_probe.v1");
         capabilities.put("broker.lan_control.opt_in.v1");
@@ -1446,6 +1452,42 @@ final class BrokerState {
             scorecard.put("height", latestMetricSample.optInt(
                 "height",
                 latestEncodedStreamManifest.optInt("height", 0)));
+            scorecard.put("camera_source_id", latestMetricSample.optString(
+                "camera_source_id",
+                latestEncodedStreamManifest.optString("camera_source_id", "")));
+            scorecard.put("source_api_path", latestMetricSample.optString(
+                "source_api_path",
+                latestEncodedStreamManifest.optString("source_api_path", "")));
+            scorecard.put("camera_permission_state", latestMetricSample.optString(
+                "camera_permission_state",
+                latestEncodedStreamManifest.optString("camera_permission_state", "")));
+            scorecard.put("headset_camera_permission_state", latestMetricSample.optString(
+                "headset_camera_permission_state",
+                latestEncodedStreamManifest.optString("headset_camera_permission_state", "")));
+            scorecard.put("selected_camera_id", latestMetricSample.optString(
+                "selected_camera_id",
+                latestEncodedStreamManifest.optString("selected_camera_id", latestEncodedStreamManifest.optString("camera_id", ""))));
+            scorecard.put("selected_width", latestMetricSample.optInt(
+                "selected_width",
+                latestEncodedStreamManifest.optInt("selected_width", latestEncodedStreamManifest.optInt("width", 0))));
+            scorecard.put("selected_height", latestMetricSample.optInt(
+                "selected_height",
+                latestEncodedStreamManifest.optInt("selected_height", latestEncodedStreamManifest.optInt("height", 0))));
+            scorecard.put("selected_fps_min_hz", latestMetricSample.optInt(
+                "selected_fps_min_hz",
+                latestEncodedStreamManifest.optInt("selected_fps_min_hz", 0)));
+            scorecard.put("selected_fps_max_hz", latestMetricSample.optInt(
+                "selected_fps_max_hz",
+                latestEncodedStreamManifest.optInt("selected_fps_max_hz", 0)));
+            scorecard.put("selected_reason", latestMetricSample.optString(
+                "selected_reason",
+                latestEncodedStreamManifest.optString("selected_reason", "")));
+            scorecard.put("stream_min_frame_duration_ns", latestMetricSample.optLong(
+                "stream_min_frame_duration_ns",
+                latestEncodedStreamManifest.optLong("stream_min_frame_duration_ns", 0L)));
+            scorecard.put("timestamp_domain", latestMetricSample.optString(
+                "timestamp_domain",
+                latestEncodedStreamManifest.optString("timestamp_domain", "")));
             scorecard.put("accepted_metric_samples", acceptedMetricSamples);
             scorecard.put("accepted_encoded_stream_manifests", acceptedEncodedStreamManifests);
             scorecard.put("accepted_encoded_sample_metadata", acceptedEncodedSampleMetadata);
@@ -1478,6 +1520,9 @@ final class BrokerState {
             scorecard.put("decoder_low_latency_feature_supported", latestMetricSample.optBoolean(
                 "decoder_low_latency_feature_supported",
                 latestEncodedStreamManifest.optBoolean("decoder_low_latency_feature_supported", false)));
+            scorecard.put("decoder_low_latency_config_requested", latestMetricSample.optBoolean(
+                "decoder_low_latency_config_requested",
+                latestEncodedStreamManifest.optBoolean("decoder_low_latency_config_requested", false)));
             scorecard.put("decoder_low_latency_parameter_succeeded", latestMetricSample.optBoolean(
                 "decoder_low_latency_parameter_succeeded",
                 latestEncodedStreamManifest.optBoolean("decoder_low_latency_parameter_succeeded", false)));
@@ -1485,6 +1530,9 @@ final class BrokerState {
             scorecard.put("encoder_name", latestMetricSample.optString(
                 "encoder_name",
                 latestEncodedStreamManifest.optString("encoder_name", "")));
+            scorecard.put("decoder_name", latestMetricSample.optString(
+                "decoder_name",
+                latestEncodedStreamManifest.optString("decoder_name", "")));
             scorecard.put("encoder_hardware_accelerated", latestMetricSample.optBoolean(
                 "encoder_hardware_accelerated",
                 latestEncodedStreamManifest.optBoolean("encoder_hardware_accelerated", false)));
@@ -1500,6 +1548,16 @@ final class BrokerState {
             scorecard.put("csd_pps_bytes", latestMetricSample.optLong(
                 "csd_pps_bytes",
                 latestEncodedStreamManifest.optLong("csd_pps_bytes", 0L)));
+            scorecard.put("sps_present", latestMetricSample.optBoolean(
+                "sps_present",
+                latestEncodedStreamManifest.optLong("csd_sps_bytes", 0L) > 0L));
+            scorecard.put("pps_present", latestMetricSample.optBoolean(
+                "pps_present",
+                latestEncodedStreamManifest.optLong("csd_pps_bytes", 0L) > 0L));
+            scorecard.put("keyframe_count", latestMetricSample.optLong("keyframe_count", 0L));
+            scorecard.put("sync_frame_request_count", latestMetricSample.optBoolean(
+                "sync_frame_request_on_start_succeeded",
+                latestEncodedStreamManifest.optBoolean("sync_frame_request_on_start_succeeded", false)) ? 1L : 0L);
             scorecard.put("sync_frame_request_on_start_succeeded", latestMetricSample.optBoolean(
                 "sync_frame_request_on_start_succeeded",
                 latestEncodedStreamManifest.optBoolean("sync_frame_request_on_start_succeeded", false)));

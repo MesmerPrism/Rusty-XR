@@ -235,6 +235,33 @@ def schemas() -> dict[str, dict]:
             "Unknown",
         ],
     )
+    broker_timestamp_domain = enum(
+        "BrokerTimestampDomain",
+        [
+            "ElapsedRealtime",
+            "CameraSensor",
+            "MediaPts",
+            "Unix",
+            "OpenXrPredictedDisplay",
+            "RelayReceive",
+            "Unknown",
+        ],
+    )
+    broker_camera_api_path = enum(
+        "BrokerCameraApiPath",
+        [
+            "AndroidCamera2",
+            "AndroidNdkCamera2",
+            "MetaPassthroughCameraApi",
+            "OpenXrPassthrough",
+            "Synthetic",
+            "Unknown",
+        ],
+    )
+    broker_camera_permission_state = enum(
+        "BrokerCameraPermissionState",
+        ["Granted", "Denied", "Unavailable", "NotRequired", "Unknown"],
+    )
     broker_drop_counters = obj(
         "BrokerDropCounters",
         {
@@ -357,6 +384,78 @@ def schemas() -> dict[str, dict]:
             "payload_byte_len": integer(1),
             "key_frame": boolean(),
             "drop_reason": {"oneOf": [broker_packet_drop_reason, {"type": "null"}]},
+        },
+    )
+    broker_video_size = obj(
+        "BrokerVideoSize",
+        {
+            "width": integer(1),
+            "height": integer(1),
+        },
+    )
+    broker_fps_range = obj(
+        "BrokerFpsRange",
+        {
+            "min_hz": integer(1),
+            "max_hz": integer(1),
+        },
+    )
+    broker_camera_source_capabilities = obj(
+        "BrokerCameraSourceCapabilities",
+        {
+            "schema": {"const": "rusty.xr.broker.camera_source_capabilities.v1"},
+            "source_id": string(),
+            "source_api_path": broker_camera_api_path,
+            "horizon_os_version_observed": nullable_string(),
+            "camera_permission_state": broker_camera_permission_state,
+            "headset_camera_permission_state": broker_camera_permission_state,
+            "camera_id": nullable_string(),
+            "physical_camera_ids": array(string()),
+            "meta_vendor_camera_source": nullable_string(),
+            "meta_vendor_position": nullable_string(),
+            "supported_private_sizes": array(broker_video_size),
+            "supported_yuv_sizes": array(broker_video_size),
+            "supported_fps_ranges": array(broker_fps_range),
+            "selected_size": {"oneOf": [broker_video_size, {"type": "null"}]},
+            "selected_fps_range": {"oneOf": [broker_fps_range, {"type": "null"}]},
+            "stream_min_frame_duration_ns": {"type": ["integer", "null"], "minimum": 1},
+            "timestamp_domain": broker_timestamp_domain,
+            "selected_reason": nullable_string(),
+        },
+    )
+    broker_h264_stream_invariants = obj(
+        "BrokerH264StreamInvariants",
+        {
+            "schema": {"const": "rusty.xr.broker.h264_stream_invariants.v1"},
+            "session_id": string(),
+            "stream_id": string(),
+            "role": string(),
+            "direction": broker_stream_direction,
+            "peer_id": nullable_string(),
+            "track_id": nullable_string(),
+            "eye": nullable_string(),
+            "bitstream_format": string(),
+            "encoder_name": nullable_string(),
+            "decoder_name": nullable_string(),
+            "width": integer(1),
+            "height": integer(1),
+            "bitrate_bps": {"type": ["integer", "null"], "minimum": 1},
+            "bitrate_mode_requested": nullable_string(),
+            "bitrate_mode_applied": nullable_string(),
+            "i_frame_interval_seconds": {"type": ["integer", "null"], "minimum": 0},
+            "encoder_latency_requested_frames": {"type": ["integer", "null"], "minimum": 0},
+            "encoder_latency_applied_frames": {"type": ["integer", "null"], "minimum": 0},
+            "decoder_low_latency_config_requested": {"type": ["boolean", "null"]},
+            "decoder_low_latency_parameter_succeeded": {"type": ["boolean", "null"]},
+            "codec_config_packet_count": integer(0),
+            "sps_present": boolean(),
+            "pps_present": boolean(),
+            "keyframe_count": integer(0),
+            "sync_frame_request_count": integer(0),
+            "sync_frame_request_on_start_succeeded": {"type": ["boolean", "null"]},
+            "decoder_output_mode": nullable_string(),
+            "hardware_buffer_import_succeeded": {"type": ["boolean", "null"]},
+            "close_reason": nullable_string(),
         },
     )
     broker_heartbeat = obj(
@@ -729,6 +828,8 @@ def schemas() -> dict[str, dict]:
         "broker-media-sample-timing.schema.json": broker_media_sample_timing,
         "broker-network-quality-sample.schema.json": broker_network_quality_sample,
         "broker-packet-descriptor.schema.json": broker_packet_descriptor,
+        "broker-camera-source-capabilities.schema.json": broker_camera_source_capabilities,
+        "broker-h264-stream-invariants.schema.json": broker_h264_stream_invariants,
         "broker-session-manifest.schema.json": obj(
             "BrokerSessionManifest",
             {

@@ -54,6 +54,7 @@ final class BrokerAppCameraH264DecodeProbe {
             probe.put("encoded_packet_count", capture.packets.size());
             probe.put("encoded_video_packet_count", videoPacketCount(capture.packets));
             probe.put("codec_config_packet_count", codecConfigPacketCount(capture.packets));
+            probe.put("keyframe_count", keyFrameCount(capture.packets));
             probe.put("encoded_payload_bytes", encodedPayloadBytes(capture.packets));
             probe.put("camera_encode_start_elapsed_ns", capture.encodeStartElapsedNs);
             probe.put("camera_encode_end_elapsed_ns", capture.encodeEndElapsedNs);
@@ -385,6 +386,16 @@ final class BrokerAppCameraH264DecodeProbe {
         int count = 0;
         for (int i = 0; i < packets.size(); i++) {
             if (packets.get(i).isCodecConfig()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static int keyFrameCount(List<BrokerAppCameraH264StreamSession.EncodedPacket> packets) {
+        int count = 0;
+        for (int i = 0; i < packets.size(); i++) {
+            if (packets.get(i).isKeyFrame()) {
                 count++;
             }
         }

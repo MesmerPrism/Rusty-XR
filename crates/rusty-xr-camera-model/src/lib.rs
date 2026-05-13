@@ -872,6 +872,35 @@ pub struct StereoHomographyProjectionMetrics {
     pub invalid_uv_percent: f32,
 }
 
+/// Result of clamping a target stereo homography toward a previous visible
+/// homography by screen-space p95 motion.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScreenMotionClampResult {
+    pub projection: StereoHomographyProjection,
+    pub alpha: f32,
+    pub clamped: bool,
+    pub target_motion: StereoHomographyProjectionMetrics,
+    pub applied_motion: StereoHomographyProjectionMetrics,
+    pub residual_motion: StereoHomographyProjectionMetrics,
+}
+
+/// Result of clamping a target stereo homography using a shared pose-delta
+/// coefficient before measuring the resulting screen-space motion.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PoseDeltaClampResult {
+    pub projection: StereoHomographyProjection,
+    pub visual_pose: Pose,
+    pub alpha: f32,
+    pub clamped: bool,
+    pub angular_delta_deg: f32,
+    pub linear_delta_m: f32,
+    pub target_motion: StereoHomographyProjectionMetrics,
+    pub applied_motion: StereoHomographyProjectionMetrics,
+    pub residual_motion: StereoHomographyProjectionMetrics,
+}
+
 /// Default sample grid for temporal projection motion estimates.
 pub const TEMPORAL_PROJECTION_SAMPLE_GRID_5X5: [Vec2; 25] = [
     Vec2::new(0.1, 0.1),
@@ -934,6 +963,185 @@ pub fn stereo_homography_projection_metrics(
         resolution,
         &TEMPORAL_PROJECTION_SAMPLE_GRID_5X5,
     )
+}
+
+/// Clamp target stereo homography motion to a p95 pixel budget.
+///
+/// The blend factor is shared between eyes so stereo lockstep is preserved.
+/// Invalid previous projections fall back to the target projection, matching
+/// first-frame behavior where there is nothing to smooth against.
+pub fn clamp_stereo_homography_screen_motion(
+    previous_visible: Option<StereoHomographyProjection>,
+    target: StereoHomographyProjection,
+    resolution: ImageSize,
+    max_motion_px_per_frame: f32,
+) -> ScreenMotionClampResult {
+    let visual_start = previous_visible
+        .filter(|projection| projection.is_valid())
+        .unwrap_or(target);
+    let target_motion =
+        stereo_homography_projection_metrics(Some(visual_start), target, resolution);
+    let max_motion_px = if max_motion_px_per_frame.is_finite() {
+        max_motion_px_per_frame.max(1.0)
+    } else {
+        1.0
+    };
+    let target_motion_px = target_motion.p95_motion_px.max(0.0);
+    let alpha = if target_motion_px > max_motion_px {
+        (max_motion_px / target_motion_px).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let projection = blend_stereo_homography_projection(visual_start, target, alpha);
+    let applied_motion =
+        stereo_homography_projection_metrics(Some(visual_start), projection, resolution);
+    let residual_motion =
+        stereo_homography_projection_metrics(Some(projection), target, resolution);
+
+    ScreenMotionClampResult {
+        projection,
+        alpha,
+        clamped: alpha < 0.999,
+        target_motion,
+        applied_motion,
+        residual_motion,
+    }
+}
+
+/// Clamp target stereo homography advancement according to angular and linear
+/// pose deltas.
+///
+/// The pose-derived blend factor is shared between eyes. Screen-space motion
+/// metrics are still reported so scorecards can prove residual projection lag
+/// without needing renderer-private pose state.
+pub fn clamp_stereo_homography_pose_delta(
+    previous_visible: Option<StereoHomographyProjection>,
+    target: StereoHomographyProjection,
+    previous_visual_pose: Option<Pose>,
+    target_pose: Pose,
+    resolution: ImageSize,
+    max_angular_deg_per_frame: f32,
+    max_linear_m_per_frame: f32,
+) -> PoseDeltaClampResult {
+    let visual_start = previous_visible
+        .filter(|projection| projection.is_valid())
+        .unwrap_or(target);
+    let pose_start = previous_visual_pose
+        .filter(|pose| pose.is_finite())
+        .unwrap_or(target_pose);
+
+    let angular_delta_deg = pose_angular_delta_degrees(pose_start, target_pose);
+    let linear_delta_m = pose_linear_delta_meters(pose_start, target_pose);
+    let angular_alpha =
+        clamp_alpha_for_delta(angular_delta_deg, max_angular_deg_per_frame.max(0.0));
+    let linear_alpha = clamp_alpha_for_delta(linear_delta_m, max_linear_m_per_frame.max(0.0));
+    let alpha = angular_alpha.min(linear_alpha).clamp(0.0, 1.0);
+
+    let projection = blend_stereo_homography_projection(visual_start, target, alpha);
+    let visual_pose = blend_pose(pose_start, target_pose, alpha);
+    let target_motion =
+        stereo_homography_projection_metrics(Some(visual_start), target, resolution);
+    let applied_motion =
+        stereo_homography_projection_metrics(Some(visual_start), projection, resolution);
+    let residual_motion =
+        stereo_homography_projection_metrics(Some(projection), target, resolution);
+
+    PoseDeltaClampResult {
+        projection,
+        visual_pose,
+        alpha,
+        clamped: alpha < 0.999,
+        angular_delta_deg,
+        linear_delta_m,
+        target_motion,
+        applied_motion,
+        residual_motion,
+    }
+}
+
+/// Linearly blend screen-to-camera homography rows, preserving the target when
+/// interpolation produces non-finite rows.
+pub fn blend_stereo_homography_projection(
+    from: StereoHomographyProjection,
+    to: StereoHomographyProjection,
+    alpha: f32,
+) -> StereoHomographyProjection {
+    let alpha = alpha.clamp(0.0, 1.0);
+    StereoHomographyProjection::new(
+        blend_homography_rows(from.left_screen_to_camera, to.left_screen_to_camera, alpha),
+        blend_homography_rows(
+            from.right_screen_to_camera,
+            to.right_screen_to_camera,
+            alpha,
+        ),
+    )
+}
+
+fn clamp_alpha_for_delta(delta: f32, max_delta: f32) -> f32 {
+    if !delta.is_finite() || delta <= 0.0 || !max_delta.is_finite() || max_delta <= 0.0 {
+        return 1.0;
+    }
+    if delta > max_delta {
+        (max_delta / delta).clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
+}
+
+fn blend_pose(from: Pose, to: Pose, alpha: f32) -> Pose {
+    let alpha = alpha.clamp(0.0, 1.0);
+    Pose::new(
+        from.position + ((to.position - from.position) * alpha),
+        blend_quaternion(from.orientation, to.orientation, alpha),
+    )
+}
+
+fn blend_quaternion(from: Quat, to: Quat, alpha: f32) -> Quat {
+    let from = from.normalized_or(Quat::IDENTITY);
+    let mut to = to.normalized_or(Quat::IDENTITY);
+    if quat_dot(from, to) < 0.0 {
+        to = Quat::new(-to.x, -to.y, -to.z, -to.w);
+    }
+    Quat::new(
+        from.x + ((to.x - from.x) * alpha),
+        from.y + ((to.y - from.y) * alpha),
+        from.z + ((to.z - from.z) * alpha),
+        from.w + ((to.w - from.w) * alpha),
+    )
+    .normalized_or(Quat::IDENTITY)
+}
+
+fn pose_angular_delta_degrees(from: Pose, to: Pose) -> f32 {
+    let dot = quat_dot(
+        from.orientation.normalized_or(Quat::IDENTITY),
+        to.orientation.normalized_or(Quat::IDENTITY),
+    )
+    .abs()
+    .clamp(0.0, 1.0);
+    (2.0 * dot.acos()).to_degrees()
+}
+
+fn pose_linear_delta_meters(from: Pose, to: Pose) -> f32 {
+    let delta = to.position - from.position;
+    ((delta.x * delta.x) + (delta.y * delta.y) + (delta.z * delta.z)).sqrt()
+}
+
+fn quat_dot(left: Quat, right: Quat) -> f32 {
+    (left.x * right.x) + (left.y * right.y) + (left.z * right.z) + (left.w * right.w)
+}
+
+fn blend_homography_rows(from: [[f32; 3]; 3], to: [[f32; 3]; 3], alpha: f32) -> [[f32; 3]; 3] {
+    let mut out = [[0.0; 3]; 3];
+    for row in 0..3 {
+        for column in 0..3 {
+            out[row][column] = from[row][column] + (to[row][column] - from[row][column]) * alpha;
+        }
+    }
+    if homography_rows_are_finite(out) {
+        out
+    } else {
+        to
+    }
 }
 
 /// Estimate temporal projection motion with a caller-supplied sample grid.
@@ -1267,6 +1475,91 @@ mod tests {
         assert_eq!(first_frame_metrics.p95_motion_px, 0.0);
         assert_eq!(first_frame_metrics.invalid_uv_sample_count, 10);
         assert!((first_frame_metrics.invalid_uv_percent - 20.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn screen_motion_clamp_limits_applied_projection_motion() {
+        let previous = StereoHomographyProjection::new(
+            translated_uv_homography(0.0, 0.0),
+            translated_uv_homography(0.0, 0.0),
+        );
+        let target = StereoHomographyProjection::new(
+            translated_uv_homography(0.20, 0.0),
+            translated_uv_homography(0.20, 0.0),
+        );
+
+        let clamped = clamp_stereo_homography_screen_motion(
+            Some(previous),
+            target,
+            ImageSize::new(1000, 500),
+            25.0,
+        );
+
+        assert!(clamped.clamped);
+        assert!((clamped.target_motion.p95_motion_px - 200.0).abs() < 0.001);
+        assert!(clamped.applied_motion.p95_motion_px <= 25.001);
+        assert!((clamped.projection.left_screen_to_camera[0][2] - 0.025).abs() < 0.001);
+        assert!((clamped.projection.right_screen_to_camera[0][2] - 0.025).abs() < 0.001);
+        assert!(clamped.residual_motion.p95_motion_px > 170.0);
+
+        let unclamped = clamp_stereo_homography_screen_motion(
+            Some(previous),
+            target,
+            ImageSize::new(1000, 500),
+            250.0,
+        );
+
+        assert!(!unclamped.clamped);
+        assert_eq!(unclamped.projection, target);
+        assert_eq!(unclamped.residual_motion.p95_motion_px, 0.0);
+    }
+
+    #[test]
+    fn pose_delta_clamp_uses_shared_stereo_coefficient() {
+        let previous = StereoHomographyProjection::new(
+            translated_uv_homography(0.0, 0.0),
+            translated_uv_homography(0.0, 0.0),
+        );
+        let target = StereoHomographyProjection::new(
+            translated_uv_homography(0.20, 0.0),
+            translated_uv_homography(0.10, 0.0),
+        );
+        let previous_pose = Pose::IDENTITY;
+        let target_pose = Pose::new(
+            Vec3::new(0.0, 0.0, 0.20),
+            Quat::from_axis_angle(Vec3::UP, 10.0_f32.to_radians()),
+        );
+
+        let clamped = clamp_stereo_homography_pose_delta(
+            Some(previous),
+            target,
+            Some(previous_pose),
+            target_pose,
+            ImageSize::new(1000, 500),
+            2.5,
+            0.20,
+        );
+
+        assert!(clamped.clamped);
+        assert!((clamped.alpha - 0.25).abs() < 0.001);
+        assert!((clamped.angular_delta_deg - 10.0).abs() < 0.001);
+        assert!((clamped.projection.left_screen_to_camera[0][2] - 0.05).abs() < 0.001);
+        assert!((clamped.projection.right_screen_to_camera[0][2] - 0.025).abs() < 0.001);
+        assert!(clamped.residual_motion.p95_motion_px > 70.0);
+
+        let unclamped = clamp_stereo_homography_pose_delta(
+            Some(previous),
+            target,
+            Some(previous_pose),
+            target_pose,
+            ImageSize::new(1000, 500),
+            12.0,
+            0.30,
+        );
+
+        assert!(!unclamped.clamped);
+        assert_eq!(unclamped.projection, target);
+        assert_eq!(unclamped.residual_motion.p95_motion_px, 0.0);
     }
 
     #[test]

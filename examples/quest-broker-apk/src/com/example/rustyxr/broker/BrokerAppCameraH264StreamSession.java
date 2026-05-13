@@ -26,6 +26,7 @@ import android.util.Range;
 import android.util.Size;
 import android.view.Surface;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.OutputStream;
@@ -44,7 +45,7 @@ import java.util.concurrent.TimeUnit;
 final class BrokerAppCameraH264StreamSession {
     private static final String STREAM_SCHEMA = "rusty.xr.video_lab.binary_stream.v1";
     private static final String MAGIC = "RXYRVID1";
-    private static final int SCHEMA_VERSION = 2;
+    private static final int SCHEMA_VERSION = 3;
     private static final int CODEC_H264 = 1;
     private static final int DEFAULT_PORT = 8879;
     private static final int DEFAULT_HOST_PORT = 18879;
@@ -57,6 +58,8 @@ final class BrokerAppCameraH264StreamSession {
     private static final int MAX_PACKETS = 30;
     private static final int MAX_LIVE_PACKETS = 2400;
     private static final int DEFAULT_BITRATE_BPS = 1_000_000;
+    private static final int MIN_RUNTIME_BITRATE_BPS = 100_000;
+    private static final int MAX_RUNTIME_BITRATE_BPS = 20_000_000;
     private static final int FRAME_RATE_HZ = 30;
     private static final int OPEN_TIMEOUT_MS = 4000;
     private static final int SESSION_TIMEOUT_MS = 4000;
@@ -64,12 +67,15 @@ final class BrokerAppCameraH264StreamSession {
     private static final int MAX_STREAM_ACCEPT_TIMEOUT_MS = 120000;
     private static final int ENCODER_DRAIN_TIMEOUT_US = 10000;
     private static final int BINARY_STREAM_MAX_PACKET_BYTES = 1024 * 1024;
+    private static final int MAX_STREAM_HEADER_METADATA_BYTES = 256 * 1024;
     private static final int MAX_CODEC_CONFIG_PACKETS = 8;
     private static final int DEFAULT_LIVE_WRITER_QUEUE_DEPTH = 48;
     private static final int MAX_LIVE_WRITER_QUEUE_DEPTH = 512;
     private static final int WRITER_QUEUE_POLL_MS = 100;
     private static final int WRITER_JOIN_TIMEOUT_MS = 5000;
     private static final String MIME_H264 = "video/avc";
+    private static final Object ACTIVE_ENCODER_LOCK = new Object();
+    private static ActiveEncoderControl activeEncoderControl = null;
 
     interface Sink {
         void registerManifest(JSONObject manifest) throws Exception;
@@ -136,14 +142,20 @@ final class BrokerAppCameraH264StreamSession {
         endpoint.put("codec", "h264");
         endpoint.put("schema_version", SCHEMA_VERSION);
         endpoint.put("packet_header", "pts_us,flags,size,source_time_elapsed_ns,source_time_unix_ns");
+        endpoint.put("header_metadata", "projection_metadata_json_utf8");
         endpoint.put("writer_queue_depth", writerQueueDepth);
         endpoint.put("accept_timeout_ms", acceptTimeoutMs);
 
+        final String cameraPermissionState = cameraPermissionState(appContext);
         JSONObject start = new JSONObject();
         start.put("schema", "rusty.xr.camera_provider.app_camera_h264_stream_start.v1");
         start.put("session_id", sessionId);
         start.put("stream_id", "broker_app.camera_h264");
         start.put("source", "broker_app_camera2_mediacodec_surface");
+        start.put("source_api_path", "AndroidCamera2");
+        start.put("camera_source_id", requestedCameraId.length() > 0 ? "camera2:" + requestedCameraId : "camera2:auto");
+        start.put("camera_permission_state", cameraPermissionState);
+        start.put("headset_camera_permission_state", cameraPermissionState);
         start.put("state", "starting");
         start.put("camera_id", requestedCameraId);
         start.put("preferred_width", preferredWidth);
@@ -166,6 +178,8 @@ final class BrokerAppCameraH264StreamSession {
                     start.put("selected_width", selection.size.getWidth());
                     start.put("selected_height", selection.size.getHeight());
                     start.put("selection_score", selection.score);
+                    putCameraSourceSelectionFields(start, selection, cameraPermissionState);
+                    start.put("camera_source_capabilities", buildCameraSourceCapabilities(selection, cameraPermissionState));
                     start.put("projection_metadata", buildProjectionMetadata(selection));
                 }
             }
@@ -196,6 +210,58 @@ final class BrokerAppCameraH264StreamSession {
         }, "RustyXrAppCameraH264Stream");
         thread.start();
         return start;
+    }
+
+    static JSONObject requestKeyframe(JSONObject params) throws Exception {
+        ActiveEncoderControl control = activeControlFor(params);
+        JSONObject result = mediaControlResult("media.request_keyframe", params, control);
+        if (control == null) {
+            result.put("applied", false);
+            result.put("reason", "no_active_live_h264_stream");
+            return result;
+        }
+
+        synchronized (control) {
+            Bundle bundle = new Bundle();
+            bundle.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0);
+            control.encoder.setParameters(bundle);
+            control.keyframeRequestCount++;
+            control.lastControlElapsedNs = SystemClock.elapsedRealtimeNanos();
+            result.put("applied", true);
+            result.put("keyframe_request_count", control.keyframeRequestCount);
+            result.put("applied_elapsed_ns", control.lastControlElapsedNs);
+            return result;
+        }
+    }
+
+    static JSONObject setVideoBitrate(JSONObject params) throws Exception {
+        int requestedBitrateBps = clamp(
+            params != null ? params.optInt("bitrate_bps", DEFAULT_BITRATE_BPS) : DEFAULT_BITRATE_BPS,
+            MIN_RUNTIME_BITRATE_BPS,
+            MAX_RUNTIME_BITRATE_BPS);
+        return applyVideoBitrate(params, requestedBitrateBps, "media.set_video_bitrate", "");
+    }
+
+    static JSONObject setQualityProfile(JSONObject params) throws Exception {
+        String profile = params != null ? params.optString("quality_profile", "") : "";
+        if (profile.trim().length() == 0 && params != null) {
+            profile = params.optString("profile", "");
+        }
+        profile = profile.trim().toLowerCase();
+        if (profile.length() == 0) {
+            profile = "balanced";
+        }
+        int bitrateBps = qualityProfileBitrateBps(profile);
+        JSONObject result = applyVideoBitrate(params, bitrateBps, "media.set_quality_profile", profile);
+        if (result.optBoolean("applied", false) && (params == null || params.optBoolean("request_keyframe", true))) {
+            try {
+                JSONObject keyframe = requestKeyframe(params);
+                result.put("keyframe_request", keyframe);
+            } catch (Exception ex) {
+                result.put("keyframe_request_error", ex.getClass().getSimpleName() + ": " + safeMessage(ex));
+            }
+        }
+        return result;
     }
 
     static CaptureResult capturePacketsForProbe(Context context, JSONObject params) throws Exception {
@@ -250,6 +316,111 @@ final class BrokerAppCameraH264StreamSession {
             encoderMetadata);
     }
 
+    private static JSONObject applyVideoBitrate(
+        JSONObject params,
+        int bitrateBps,
+        String command,
+        String qualityProfile) throws Exception {
+        ActiveEncoderControl control = activeControlFor(params);
+        JSONObject result = mediaControlResult(command, params, control);
+        result.put("requested_bitrate_bps", bitrateBps);
+        if (qualityProfile != null && qualityProfile.length() > 0) {
+            result.put("quality_profile", qualityProfile);
+        }
+        if (control == null) {
+            result.put("applied", false);
+            result.put("reason", "no_active_live_h264_stream");
+            return result;
+        }
+
+        synchronized (control) {
+            Bundle bundle = new Bundle();
+            bundle.putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitrateBps);
+            control.encoder.setParameters(bundle);
+            control.currentBitrateBps = bitrateBps;
+            if (qualityProfile != null && qualityProfile.length() > 0) {
+                control.qualityProfile = qualityProfile;
+            }
+            control.bitrateChangeCount++;
+            control.lastControlElapsedNs = SystemClock.elapsedRealtimeNanos();
+            result.put("applied", true);
+            result.put("applied_bitrate_bps", control.currentBitrateBps);
+            result.put("bitrate_change_count", control.bitrateChangeCount);
+            result.put("applied_elapsed_ns", control.lastControlElapsedNs);
+            return result;
+        }
+    }
+
+    private static JSONObject mediaControlResult(
+        String command,
+        JSONObject params,
+        ActiveEncoderControl control) throws Exception {
+        JSONObject result = new JSONObject();
+        result.put("schema", "rusty.xr.media_control.result.v1");
+        result.put("command", command);
+        result.put("requested_session_id", params != null ? params.optString("session_id", "") : "");
+        result.put("requested_stream_id", params != null ? params.optString("stream_id", "") : "");
+        result.put("active", control != null);
+        if (control != null) {
+            synchronized (control) {
+                result.put("session_id", control.sessionId);
+                result.put("stream_id", control.streamId);
+                result.put("camera_id", control.cameraId);
+                result.put("current_bitrate_bps", control.currentBitrateBps);
+                result.put("quality_profile", control.qualityProfile);
+                result.put("keyframe_request_count", control.keyframeRequestCount);
+                result.put("bitrate_change_count", control.bitrateChangeCount);
+                result.put("active_since_elapsed_ns", control.activeSinceElapsedNs);
+                result.put("last_control_elapsed_ns", control.lastControlElapsedNs);
+            }
+        }
+        return result;
+    }
+
+    private static ActiveEncoderControl activeControlFor(JSONObject params) {
+        synchronized (ACTIVE_ENCODER_LOCK) {
+            if (activeEncoderControl == null) {
+                return null;
+            }
+            String requestedSessionId = params != null ? params.optString("session_id", "").trim() : "";
+            if (requestedSessionId.length() > 0 && !requestedSessionId.equals(activeEncoderControl.sessionId)) {
+                return null;
+            }
+            String requestedStreamId = params != null ? params.optString("stream_id", "").trim() : "";
+            if (requestedStreamId.length() > 0 && !requestedStreamId.equals(activeEncoderControl.streamId)) {
+                return null;
+            }
+            return activeEncoderControl;
+        }
+    }
+
+    private static void registerActiveEncoder(ActiveEncoderControl control) {
+        synchronized (ACTIVE_ENCODER_LOCK) {
+            activeEncoderControl = control;
+        }
+    }
+
+    private static void unregisterActiveEncoder(ActiveEncoderControl control) {
+        synchronized (ACTIVE_ENCODER_LOCK) {
+            if (activeEncoderControl == control) {
+                activeEncoderControl = null;
+            }
+        }
+    }
+
+    private static int qualityProfileBitrateBps(String profile) {
+        if ("low".equals(profile)) {
+            return 600_000;
+        }
+        if ("high".equals(profile)) {
+            return 2_000_000;
+        }
+        if ("ultra".equals(profile)) {
+            return 4_000_000;
+        }
+        return DEFAULT_BITRATE_BPS;
+    }
+
     private static void runSession(
         Context context,
         Sink sink,
@@ -273,6 +444,7 @@ final class BrokerAppCameraH264StreamSession {
         EncoderMetadata encoderMetadata = new EncoderMetadata();
         String cameraId = requestedCameraId;
         Size size = null;
+        CameraSelection selection = null;
         String lastError = "";
         try {
             if (context == null) {
@@ -286,12 +458,13 @@ final class BrokerAppCameraH264StreamSession {
             if (manager == null) {
                 throw new IllegalStateException("CameraManager is unavailable.");
             }
-            CameraSelection selection = chooseCamera(manager, requestedCameraId, preferredWidth, preferredHeight);
+            selection = chooseCamera(manager, requestedCameraId, preferredWidth, preferredHeight);
             cameraId = selection.cameraId;
             size = selection.size;
+            JSONObject streamProjectionMetadata = buildProjectionMetadata(selection);
             encoderMetadata.sensorTimestampSource = sensorTimestampSourceLabel(
                 selection.characteristics.get(CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE));
-            registerManifest(sink, sessionId, cameraId, size, captureMs, maxPackets, bitrateBps, liveStream, endpoint, encoderMetadata);
+            registerManifest(sink, sessionId, cameraId, size, captureMs, maxPackets, bitrateBps, liveStream, endpoint, selection, encoderMetadata);
             encodeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
             if (liveStream) {
                 LiveStreamResult liveResult = streamCameraPacketsLive(
@@ -308,6 +481,8 @@ final class BrokerAppCameraH264StreamSession {
                     sink,
                     sessionId,
                     endpoint,
+                    selection,
+                    streamProjectionMetadata,
                     encoderMetadata);
                 packets = liveResult.packets;
                 writeStats = liveResult.writeStats;
@@ -315,11 +490,11 @@ final class BrokerAppCameraH264StreamSession {
             } else {
                 packets = encodeCameraPackets(manager, cameraId, size, captureMs, maxPackets, bitrateBps, encoderMetadata);
                 encodeEndElapsedNs = SystemClock.elapsedRealtimeNanos();
-                registerManifest(sink, sessionId, cameraId, size, captureMs, maxPackets, bitrateBps, liveStream, endpoint, encoderMetadata);
+                registerManifest(sink, sessionId, cameraId, size, captureMs, maxPackets, bitrateBps, liveStream, endpoint, selection, encoderMetadata);
                 for (int i = 0; i < packets.size(); i++) {
                     recordSample(sink, sessionId, cameraId, size, i, packets.get(i), false);
                 }
-                writeStats = writePackets(devicePort, bindHost, size, packets);
+                writeStats = writePackets(devicePort, bindHost, size, packets, streamProjectionMetadata);
             }
         } catch (Exception ex) {
             encodeEndElapsedNs = SystemClock.elapsedRealtimeNanos();
@@ -338,6 +513,7 @@ final class BrokerAppCameraH264StreamSession {
                     captureMs,
                     maxPackets,
                     liveStream,
+                    selection,
                     encoderMetadata,
                     lastError);
             } catch (Exception ignored) {
@@ -374,6 +550,14 @@ final class BrokerAppCameraH264StreamSession {
             sessionRef[0] = configureSession(deviceRef[0], encoderSurface, handler);
             CaptureRequest.Builder builder = createRecordRequest(deviceRef[0]);
             builder.addTarget(encoderSurface);
+            applyCaptureRequestSelection(builder, new CameraSelection(
+                cameraId,
+                size,
+                0L,
+                manager.getCameraCharacteristics(cameraId),
+                chooseFpsRange(manager.getCameraCharacteristics(cameraId)),
+                streamMinFrameDurationNs(manager.getCameraCharacteristics(cameraId), size),
+                "capture_probe_selection"));
             sessionRef[0].setRepeatingRequest(builder.build(), captureTiming, handler);
 
             long deadlineElapsedNs = SystemClock.elapsedRealtimeNanos() + captureMs * 1_000_000L;
@@ -421,6 +605,8 @@ final class BrokerAppCameraH264StreamSession {
         final Sink sink,
         final String sessionId,
         final JSONObject endpoint,
+        final CameraSelection selection,
+        final JSONObject streamProjectionMetadata,
         final EncoderMetadata encoderMetadata) throws Exception {
         final List<EncodedPacket> packets = new ArrayList<EncodedPacket>();
         HandlerThread thread = new HandlerThread("RustyXrAppCameraH264LiveCapture");
@@ -442,6 +628,7 @@ final class BrokerAppCameraH264StreamSession {
         final LivePacketQueue packetQueue = new LivePacketQueue(writerQueueDepth);
         final LiveStreamWriter[] writerRef = new LiveStreamWriter[1];
         Thread writerThread = null;
+        ActiveEncoderControl activeControl = null;
         try {
             server = new ServerSocket(devicePort, 1, InetAddress.getByName(bindHost));
             server.setSoTimeout(acceptTimeoutMs);
@@ -458,6 +645,7 @@ final class BrokerAppCameraH264StreamSession {
                 sink,
                 sessionId,
                 cameraId,
+                streamProjectionMetadata,
                 true);
             writerRef[0] = writer;
             writerThread = new Thread(writer, "RustyXrAppCameraH264Writer");
@@ -468,11 +656,20 @@ final class BrokerAppCameraH264StreamSession {
             encoderSurface = encoder.createInputSurface();
             encoder.start();
             requestSyncFrameOnStart(encoder, encoderMetadata);
+            activeControl = new ActiveEncoderControl(
+                sessionId,
+                "broker_app.camera_h264",
+                cameraId,
+                encoder,
+                bitrateBps,
+                "balanced");
+            registerActiveEncoder(activeControl);
 
             deviceRef[0] = openCamera(manager, cameraId, handler);
             sessionRef[0] = configureSession(deviceRef[0], encoderSurface, handler);
             CaptureRequest.Builder builder = createRecordRequest(deviceRef[0]);
             builder.addTarget(encoderSurface);
+            applyCaptureRequestSelection(builder, selection);
             sessionRef[0].setRepeatingRequest(builder.build(), captureTiming, handler);
 
             long deadlineElapsedNs = captureMs > 0
@@ -494,6 +691,7 @@ final class BrokerAppCameraH264StreamSession {
                     captureMs,
                     bitrateBps,
                     endpoint,
+                    selection,
                     encoderMetadata);
                 Thread.sleep(5);
             }
@@ -514,6 +712,7 @@ final class BrokerAppCameraH264StreamSession {
                 captureMs,
                 bitrateBps,
                 endpoint,
+                selection,
                 encoderMetadata);
             encoderMetadata.copyCaptureTiming(captureTiming);
             packetQueue.close();
@@ -538,6 +737,9 @@ final class BrokerAppCameraH264StreamSession {
                     writer),
                 encodeEndElapsedNs);
         } finally {
+            if (activeControl != null) {
+                unregisterActiveEncoder(activeControl);
+            }
             packetQueue.close();
             if (writerThread != null && writerThread.isAlive()) {
                 closeQuietly(client);
@@ -639,6 +841,18 @@ final class BrokerAppCameraH264StreamSession {
             return device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
         } catch (IllegalArgumentException ex) {
             return device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+        }
+    }
+
+    private static void applyCaptureRequestSelection(
+        CaptureRequest.Builder builder,
+        CameraSelection selection) {
+        if (builder == null || selection == null || selection.fpsRange == null) {
+            return;
+        }
+        try {
+            builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, selection.fpsRange);
+        } catch (Exception ignored) {
         }
     }
 
@@ -969,6 +1183,7 @@ final class BrokerAppCameraH264StreamSession {
         int captureMs,
         int bitrateBps,
         JSONObject endpoint,
+        CameraSelection selection,
         EncoderMetadata encoderMetadata) throws Exception {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         int emptyPolls = 0;
@@ -992,6 +1207,7 @@ final class BrokerAppCameraH264StreamSession {
                     bitrateBps,
                     true,
                     endpoint,
+                    selection,
                     encoderMetadata);
                 continue;
             }
@@ -1049,7 +1265,19 @@ final class BrokerAppCameraH264StreamSession {
             double translationX = translation != null && translation.length > 0 ? translation[0] : 0.0;
             long score = scoreCamera(back, translationX, size, preferredWidth, preferredHeight);
             if (best == null || score > best.score) {
-                best = new CameraSelection(id, size, score, characteristics);
+                Range<Integer> fpsRange = chooseFpsRange(characteristics);
+                long streamMinFrameDurationNs = streamMinFrameDurationNs(characteristics, size);
+                String selectionReason = requestedCameraId != null && requestedCameraId.length() > 0
+                    ? "requested_camera_id_closest_preferred_private_size"
+                    : "best_score_lens_pose_and_preferred_size";
+                best = new CameraSelection(
+                    id,
+                    size,
+                    score,
+                    characteristics,
+                    fpsRange,
+                    streamMinFrameDurationNs,
+                    selectionReason);
             }
         }
         if (best == null) {
@@ -1101,6 +1329,164 @@ final class BrokerAppCameraH264StreamSession {
         score -= Math.abs((long) size.getWidth() - preferredWidth) * 1000L;
         score -= Math.abs((long) size.getHeight() - preferredHeight) * 1000L;
         return score;
+    }
+
+    private static Range<Integer> chooseFpsRange(CameraCharacteristics characteristics) {
+        Range<Integer>[] ranges = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
+        if (ranges == null || ranges.length == 0) {
+            return null;
+        }
+        Range<Integer> best = null;
+        long bestScore = Long.MAX_VALUE;
+        for (int i = 0; i < ranges.length; i++) {
+            Range<Integer> range = ranges[i];
+            if (range == null || range.getLower() == null || range.getUpper() == null) {
+                continue;
+            }
+            int lower = range.getLower().intValue();
+            int upper = range.getUpper().intValue();
+            long containsPenalty = lower <= FRAME_RATE_HZ && upper >= FRAME_RATE_HZ ? 0L : 1_000_000L;
+            long spanPenalty = Math.max(0, upper - lower);
+            long targetPenalty = Math.abs(upper - FRAME_RATE_HZ) * 1000L + Math.abs(lower - FRAME_RATE_HZ);
+            long score = containsPenalty + targetPenalty + spanPenalty;
+            if (best == null || score < bestScore) {
+                best = range;
+                bestScore = score;
+            }
+        }
+        return best;
+    }
+
+    private static long streamMinFrameDurationNs(CameraCharacteristics characteristics, Size size) {
+        StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        if (map == null || size == null) {
+            return 0L;
+        }
+        try {
+            long duration = map.getOutputMinFrameDuration(ImageFormat.PRIVATE, size);
+            if (duration > 0L) {
+                return duration;
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            return map.getOutputMinFrameDuration(Surface.class, size);
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
+
+    private static void putCameraSourceSelectionFields(
+        JSONObject target,
+        CameraSelection selection,
+        String cameraPermissionState) throws Exception {
+        target.put("source_api_path", "AndroidCamera2");
+        target.put("camera_permission_state", cameraPermissionState);
+        target.put("headset_camera_permission_state", cameraPermissionState);
+        target.put("timestamp_domain", timestampDomainLabel(selection != null
+            ? sensorTimestampSourceLabel(selection.characteristics.get(CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE))
+            : ""));
+        if (selection == null) {
+            return;
+        }
+        target.put("camera_source_id", "camera2:" + selection.cameraId);
+        target.put("selected_camera_id", selection.cameraId);
+        target.put("selected_width", selection.size.getWidth());
+        target.put("selected_height", selection.size.getHeight());
+        target.put("selected_reason", selection.selectionReason);
+        target.put("selection_score", selection.score);
+        if (selection.fpsRange != null) {
+            target.put("selected_fps_min_hz", selection.fpsRange.getLower().intValue());
+            target.put("selected_fps_max_hz", selection.fpsRange.getUpper().intValue());
+        }
+        target.put("stream_min_frame_duration_ns", selection.streamMinFrameDurationNs);
+    }
+
+    private static JSONObject buildCameraSourceCapabilities(
+        CameraSelection selection,
+        String cameraPermissionState) throws Exception {
+        JSONObject capabilities = new JSONObject();
+        capabilities.put("schema", "rusty.xr.broker.camera_source_capabilities.v1");
+        capabilities.put("source_id", "camera2:" + selection.cameraId);
+        capabilities.put("source_api_path", "AndroidCamera2");
+        capabilities.put("horizon_os_version_observed", JSONObject.NULL);
+        capabilities.put("camera_permission_state", cameraPermissionState);
+        capabilities.put("headset_camera_permission_state", cameraPermissionState);
+        capabilities.put("camera_id", selection.cameraId);
+        capabilities.put("physical_camera_ids", new JSONArray());
+        capabilities.put("meta_vendor_camera_source", JSONObject.NULL);
+        capabilities.put("meta_vendor_position", JSONObject.NULL);
+        capabilities.put("supported_private_sizes", outputSizesJson(selection.characteristics, ImageFormat.PRIVATE));
+        capabilities.put("supported_yuv_sizes", outputSizesJson(selection.characteristics, ImageFormat.YUV_420_888));
+        capabilities.put("supported_fps_ranges", fpsRangesJson(selection.characteristics));
+        capabilities.put("selected_size", sizeJson(selection.size));
+        capabilities.put("selected_fps_range", selection.fpsRange != null ? fpsRangeJson(selection.fpsRange) : JSONObject.NULL);
+        capabilities.put(
+            "stream_min_frame_duration_ns",
+            selection.streamMinFrameDurationNs > 0L ? selection.streamMinFrameDurationNs : JSONObject.NULL);
+        capabilities.put(
+            "timestamp_domain",
+            timestampDomainLabel(sensorTimestampSourceLabel(
+                selection.characteristics.get(CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE))));
+        capabilities.put("selected_reason", selection.selectionReason);
+        return capabilities;
+    }
+
+    private static JSONArray outputSizesJson(CameraCharacteristics characteristics, int imageFormat) throws Exception {
+        JSONArray array = new JSONArray();
+        StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        if (map == null) {
+            return array;
+        }
+        Size[] sizes = map.getOutputSizes(imageFormat);
+        if (sizes == null) {
+            return array;
+        }
+        for (int i = 0; i < sizes.length; i++) {
+            array.put(sizeJson(sizes[i]));
+        }
+        return array;
+    }
+
+    private static JSONArray fpsRangesJson(CameraCharacteristics characteristics) throws Exception {
+        JSONArray array = new JSONArray();
+        Range<Integer>[] ranges = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
+        if (ranges == null) {
+            return array;
+        }
+        for (int i = 0; i < ranges.length; i++) {
+            if (ranges[i] != null) {
+                array.put(fpsRangeJson(ranges[i]));
+            }
+        }
+        return array;
+    }
+
+    private static JSONObject sizeJson(Size size) throws Exception {
+        JSONObject json = new JSONObject();
+        json.put("width", size != null ? size.getWidth() : 0);
+        json.put("height", size != null ? size.getHeight() : 0);
+        return json;
+    }
+
+    private static JSONObject fpsRangeJson(Range<Integer> range) throws Exception {
+        JSONObject json = new JSONObject();
+        json.put("min_hz", range.getLower().intValue());
+        json.put("max_hz", range.getUpper().intValue());
+        return json;
+    }
+
+    private static String cameraPermissionState(Context context) {
+        if (context == null) {
+            return "Unavailable";
+        }
+        return context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            ? "Granted"
+            : "Denied";
+    }
+
+    private static String timestampDomainLabel(String sensorTimestampSource) {
+        return "REALTIME".equals(sensorTimestampSource) ? "ElapsedRealtime" : "Unknown";
     }
 
     private static JSONObject buildProjectionMetadata(CameraSelection selection) throws Exception {
@@ -1293,7 +1679,12 @@ final class BrokerAppCameraH264StreamSession {
         };
     }
 
-    private static StreamWriteStats writePackets(int devicePort, String bindHost, Size size, List<EncodedPacket> packets) throws Exception {
+    private static StreamWriteStats writePackets(
+        int devicePort,
+        String bindHost,
+        Size size,
+        List<EncodedPacket> packets,
+        JSONObject streamProjectionMetadata) throws Exception {
         if (packets.size() == 0) {
             throw new IllegalStateException("No H.264 packets were available to stream.");
         }
@@ -1310,7 +1701,7 @@ final class BrokerAppCameraH264StreamSession {
                 client.setTcpNoDelay(true);
                 OutputStream output = client.getOutputStream();
                 writeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
-                writeEncodedPacketStream(output, size, packets);
+                writeEncodedPacketStream(output, size, packets, streamProjectionMetadata);
                 output.flush();
                 writeEndElapsedNs = SystemClock.elapsedRealtimeNanos();
             } finally {
@@ -1322,21 +1713,38 @@ final class BrokerAppCameraH264StreamSession {
         return new StreamWriteStats(listenStartElapsedNs, acceptElapsedNs, writeStartElapsedNs, writeEndElapsedNs);
     }
 
-    private static void writeEncodedPacketStream(OutputStream output, Size size, List<EncodedPacket> packets) throws Exception {
-        writeStreamHeader(output, size, packets.size());
+    private static void writeEncodedPacketStream(
+        OutputStream output,
+        Size size,
+        List<EncodedPacket> packets,
+        JSONObject streamProjectionMetadata) throws Exception {
+        writeStreamHeader(output, size, packets.size(), streamProjectionMetadata);
         for (int i = 0; i < packets.size(); i++) {
             writeEncodedPacket(output, packets.get(i));
         }
     }
 
-    private static void writeStreamHeader(OutputStream output, Size size, int packetCount) throws Exception {
+    private static void writeStreamHeader(
+        OutputStream output,
+        Size size,
+        int packetCount,
+        JSONObject streamProjectionMetadata) throws Exception {
+        byte[] metadataBytes = streamProjectionMetadata != null
+            ? streamProjectionMetadata.toString().getBytes(StandardCharsets.UTF_8)
+            : new byte[0];
+        if (metadataBytes.length > MAX_STREAM_HEADER_METADATA_BYTES) {
+            throw new IllegalStateException("Projection metadata header is too large: " + metadataBytes.length);
+        }
         output.write(MAGIC.getBytes(StandardCharsets.US_ASCII));
         writeU32(output, SCHEMA_VERSION);
         writeU32(output, CODEC_H264);
         writeU32(output, size.getWidth());
         writeU32(output, size.getHeight());
         writeU32(output, packetCount);
-        writeU32(output, 0);
+        writeU32(output, metadataBytes.length);
+        if (metadataBytes.length > 0) {
+            output.write(metadataBytes);
+        }
     }
 
     private static void writeEncodedPacket(OutputStream output, EncodedPacket packet) throws Exception {
@@ -1376,6 +1784,7 @@ final class BrokerAppCameraH264StreamSession {
         int bitrateBps,
         boolean liveStream,
         JSONObject endpoint,
+        CameraSelection selection,
         EncoderMetadata encoderMetadata) throws Exception {
         JSONObject manifest = new JSONObject();
         manifest.put("schema", "rusty.xr.video_lab.encoded_stream_manifest.v1");
@@ -1401,6 +1810,10 @@ final class BrokerAppCameraH264StreamSession {
         manifest.put("writer_queue_depth", liveStream && endpoint != null ? endpoint.optInt("writer_queue_depth", 0) : 0);
         manifest.put("binary_schema_version", SCHEMA_VERSION);
         manifest.put("binary_endpoint", endpoint);
+        putCameraSourceSelectionFields(manifest, selection, "Granted");
+        if (selection != null) {
+            manifest.put("camera_source_capabilities", buildCameraSourceCapabilities(selection, "Granted"));
+        }
         putEncoderMetadata(manifest, encoderMetadata);
         sink.registerManifest(manifest);
     }
@@ -1468,6 +1881,7 @@ final class BrokerAppCameraH264StreamSession {
         int captureMs,
         int maxPackets,
         boolean liveStream,
+        CameraSelection selection,
         EncoderMetadata encoderMetadata,
         String lastError) throws Exception {
         long payloadBytes = 0L;
@@ -1499,6 +1913,9 @@ final class BrokerAppCameraH264StreamSession {
         metric.put("packet_count", packets.size());
         metric.put("video_packet_count", videoPacketCount(packets));
         metric.put("codec_config_packet_count", codecConfigPacketCount(packets));
+        metric.put("keyframe_count", keyFrameCount(packets));
+        metric.put("sps_present", byteLength(encoderMetadata != null ? encoderMetadata.csdSps : null) > 0);
+        metric.put("pps_present", byteLength(encoderMetadata != null ? encoderMetadata.csdPps : null) > 0);
         metric.put("payload_size_bytes", payloadBytes);
         metric.put("dropped_frames", writeStats.writerQueueDroppedVideoPackets);
         metric.put("stale_frames", 0);
@@ -1520,6 +1937,7 @@ final class BrokerAppCameraH264StreamSession {
         }
         metric.put("width", size != null ? size.getWidth() : 0);
         metric.put("height", size != null ? size.getHeight() : 0);
+        putCameraSourceSelectionFields(metric, selection, "Granted");
         if (lastError != null && lastError.length() > 0) {
             metric.put("last_error", lastError);
         }
@@ -1626,6 +2044,16 @@ final class BrokerAppCameraH264StreamSession {
         int count = 0;
         for (int i = 0; i < packets.size(); i++) {
             if (packets.get(i).isCodecConfig()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static int keyFrameCount(List<EncodedPacket> packets) {
+        int count = 0;
+        for (int i = 0; i < packets.size(); i++) {
+            if (packets.get(i).isKeyFrame()) {
                 count++;
             }
         }
@@ -1784,12 +2212,25 @@ final class BrokerAppCameraH264StreamSession {
         final Size size;
         final long score;
         final CameraCharacteristics characteristics;
+        final Range<Integer> fpsRange;
+        final long streamMinFrameDurationNs;
+        final String selectionReason;
 
-        CameraSelection(String cameraId, Size size, long score, CameraCharacteristics characteristics) {
+        CameraSelection(
+            String cameraId,
+            Size size,
+            long score,
+            CameraCharacteristics characteristics,
+            Range<Integer> fpsRange,
+            long streamMinFrameDurationNs,
+            String selectionReason) {
             this.cameraId = cameraId;
             this.size = size;
             this.score = score;
             this.characteristics = characteristics;
+            this.fpsRange = fpsRange;
+            this.streamMinFrameDurationNs = streamMinFrameDurationNs;
+            this.selectionReason = selectionReason != null ? selectionReason : "";
         }
     }
 
@@ -2154,6 +2595,7 @@ final class BrokerAppCameraH264StreamSession {
         private final Sink sink;
         private final String sessionId;
         private final String cameraId;
+        private final JSONObject streamProjectionMetadata;
         private final boolean liveStream;
         private volatile int writtenPacketCount;
         private volatile long writeStartElapsedNs;
@@ -2169,6 +2611,7 @@ final class BrokerAppCameraH264StreamSession {
             Sink sink,
             String sessionId,
             String cameraId,
+            JSONObject streamProjectionMetadata,
             boolean liveStream) {
             this.output = output;
             this.size = size;
@@ -2178,6 +2621,7 @@ final class BrokerAppCameraH264StreamSession {
             this.sink = sink;
             this.sessionId = sessionId;
             this.cameraId = cameraId;
+            this.streamProjectionMetadata = streamProjectionMetadata;
             this.liveStream = liveStream;
         }
 
@@ -2185,7 +2629,7 @@ final class BrokerAppCameraH264StreamSession {
         public void run() {
             try {
                 writeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
-                writeStreamHeader(output, size, maxPackets);
+                writeStreamHeader(output, size, maxPackets, streamProjectionMetadata);
                 output.flush();
                 while (maxPackets <= 0 || writtenPacketCount < maxPackets) {
                     EncodedPacket packet = queue.poll(WRITER_QUEUE_POLL_MS);
@@ -2247,6 +2691,36 @@ final class BrokerAppCameraH264StreamSession {
             this.packets = packets;
             this.writeStats = writeStats;
             this.encodeEndElapsedNs = encodeEndElapsedNs;
+        }
+    }
+
+    private static final class ActiveEncoderControl {
+        final String sessionId;
+        final String streamId;
+        final String cameraId;
+        final MediaCodec encoder;
+        final long activeSinceElapsedNs;
+        int currentBitrateBps;
+        int keyframeRequestCount;
+        int bitrateChangeCount;
+        long lastControlElapsedNs;
+        String qualityProfile;
+
+        ActiveEncoderControl(
+            String sessionId,
+            String streamId,
+            String cameraId,
+            MediaCodec encoder,
+            int currentBitrateBps,
+            String qualityProfile) {
+            this.sessionId = sessionId != null ? sessionId : "";
+            this.streamId = streamId != null ? streamId : "";
+            this.cameraId = cameraId != null ? cameraId : "";
+            this.encoder = encoder;
+            this.currentBitrateBps = currentBitrateBps;
+            this.qualityProfile = qualityProfile != null ? qualityProfile : "";
+            this.activeSinceElapsedNs = SystemClock.elapsedRealtimeNanos();
+            this.lastControlElapsedNs = 0L;
         }
     }
 

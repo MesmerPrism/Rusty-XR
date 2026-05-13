@@ -63,6 +63,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
     private static final int DEFAULT_LIVE_STEREO_PENDING_QUEUE_LIMIT = 8;
     private static final int MAX_LIVE_STEREO_PENDING_QUEUE_LIMIT = 16;
     private static final int MAX_PACKET_BYTES = 1024 * 1024;
+    private static final int MAX_STREAM_HEADER_METADATA_BYTES = 256 * 1024;
     private static final int MAX_STREAM_PACKETS = 2400;
     private static final int DEQUEUE_TIMEOUT_US = 10000;
     private static final int SURFACE_FRAME_WAIT_MS = 250;
@@ -337,7 +338,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             stream,
             config.decodeTimeoutMs,
             config.decodeOutputMode,
-            startCommand.streamProjectionMetadata,
+            preferredStreamProjectionMetadata(stream, startCommand.streamProjectionMetadata),
             config.cameraId,
             "",
             false);
@@ -387,7 +388,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 leftStream,
                 config.decodeTimeoutMs,
                 config.decodeOutputMode,
-                leftStart.streamProjectionMetadata,
+                preferredStreamProjectionMetadata(leftStream, leftStart.streamProjectionMetadata),
                 config.leftCameraId,
                 "left",
                 true);
@@ -395,7 +396,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 rightStream,
                 config.decodeTimeoutMs,
                 config.decodeOutputMode,
-                rightStart.streamProjectionMetadata,
+                preferredStreamProjectionMetadata(rightStream, rightStart.streamProjectionMetadata),
                 config.rightCameraId,
                 "right",
                 true);
@@ -427,7 +428,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                         leftStream,
                         config.decodeTimeoutMs,
                         DECODE_OUTPUT_BYTE_BUFFER,
-                        leftStart.streamProjectionMetadata,
+                        preferredStreamProjectionMetadata(leftStream, leftStart.streamProjectionMetadata),
                         config.leftCameraId,
                         "left",
                         false);
@@ -435,7 +436,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                         rightStream,
                         config.decodeTimeoutMs,
                         DECODE_OUTPUT_BYTE_BUFFER,
-                        rightStart.streamProjectionMetadata,
+                        preferredStreamProjectionMetadata(rightStream, rightStart.streamProjectionMetadata),
                         config.rightCameraId,
                         "right",
                         false);
@@ -1045,8 +1046,43 @@ final class BrokerH264ConsumerProbe implements Runnable {
         String prefix,
         StartCommandResult startCommand) throws Exception {
         JSONObject ack = startCommand.ack;
+        JSONObject result = ack != null ? ack.optJSONObject("result") : null;
+        JSONObject streamStart = result != null ? result.optJSONObject("stream_start") : null;
         report.put(reportKey(prefix, "broker_command_accepted"), ack.optBoolean("accepted", false));
         report.put(reportKey(prefix, "broker_command_message"), ack.optString("message", ""));
+        if (streamStart != null) {
+            report.put(reportKey(prefix, "camera_source_id"), streamStart.optString("camera_source_id", ""));
+            report.put(reportKey(prefix, "source_api_path"), streamStart.optString("source_api_path", ""));
+            report.put(reportKey(prefix, "camera_permission_state"), streamStart.optString("camera_permission_state", ""));
+            report.put(reportKey(prefix, "headset_camera_permission_state"), streamStart.optString("headset_camera_permission_state", ""));
+            report.put(reportKey(prefix, "selected_camera_id"), streamStart.optString("selected_camera_id", ""));
+            report.put(reportKey(prefix, "selected_width"), streamStart.optInt("selected_width", 0));
+            report.put(reportKey(prefix, "selected_height"), streamStart.optInt("selected_height", 0));
+            report.put(reportKey(prefix, "selected_fps_min_hz"), streamStart.optInt("selected_fps_min_hz", 0));
+            report.put(reportKey(prefix, "selected_fps_max_hz"), streamStart.optInt("selected_fps_max_hz", 0));
+            report.put(reportKey(prefix, "selected_reason"), streamStart.optString("selected_reason", ""));
+            report.put(reportKey(prefix, "stream_min_frame_duration_ns"), streamStart.optLong("stream_min_frame_duration_ns", 0L));
+            report.put(reportKey(prefix, "timestamp_domain"), streamStart.optString("timestamp_domain", ""));
+            JSONObject capabilities = streamStart.optJSONObject("camera_source_capabilities");
+            report.put(reportKey(prefix, "camera_source_capabilities_attached"), capabilities != null);
+            if (capabilities != null) {
+                report.put(
+                    reportKey(prefix, "supported_private_size_count"),
+                    capabilities.optJSONArray("supported_private_sizes") != null
+                        ? capabilities.optJSONArray("supported_private_sizes").length()
+                        : 0);
+                report.put(
+                    reportKey(prefix, "supported_yuv_size_count"),
+                    capabilities.optJSONArray("supported_yuv_sizes") != null
+                        ? capabilities.optJSONArray("supported_yuv_sizes").length()
+                        : 0);
+                report.put(
+                    reportKey(prefix, "supported_fps_range_count"),
+                    capabilities.optJSONArray("supported_fps_ranges") != null
+                        ? capabilities.optJSONArray("supported_fps_ranges").length()
+                        : 0);
+            }
+        }
         report.put(
             reportKey(prefix, "broker_projection_metadata_attached"),
             startCommand.streamProjectionMetadata != null);
@@ -1087,7 +1123,21 @@ final class BrokerH264ConsumerProbe implements Runnable {
         report.put(reportKey(prefix, "stream_width"), stream.width);
         report.put(reportKey(prefix, "stream_height"), stream.height);
         report.put(reportKey(prefix, "stream_declared_packet_count"), stream.declaredPacketCount);
+        report.put(reportKey(prefix, "stream_header_metadata_bytes"), stream.headerMetadataBytes);
+        report.put(
+            reportKey(prefix, "stream_header_projection_metadata_attached"),
+            stream.headerProjectionMetadata != null);
+        if (stream.headerProjectionMetadata != null) {
+            report.put(
+                reportKey(prefix, "stream_header_projection_metadata_camera_id"),
+                stream.headerProjectionMetadata.optString("cameraId", ""));
+            report.put(
+                reportKey(prefix, "stream_header_projection_metadata_ready"),
+                stream.headerProjectionMetadata.optBoolean("projectionMetadataReady", false));
+        }
         report.put(reportKey(prefix, "stream_packet_count"), stream.packets.size());
+        report.put(reportKey(prefix, "stream_codec_config_packet_count"), codecConfigPacketCount(stream.packets));
+        report.put(reportKey(prefix, "stream_keyframe_count"), keyFrameCount(stream.packets));
         report.put(reportKey(prefix, "stream_payload_bytes"), stream.payloadBytes);
         report.put(reportKey(prefix, "encoded_packet_rate_hz"), rateHz(stream.packets.size(), decode.captureWindowMs));
         report.put(reportKey(prefix, "stream_payload_bitrate_bps"), bitrateBps(stream.payloadBytes, decode.captureWindowMs));
@@ -1156,6 +1206,19 @@ final class BrokerH264ConsumerProbe implements Runnable {
         report.put(reportKey(prefix, "stream_width"), result.width);
         report.put(reportKey(prefix, "stream_height"), result.height);
         report.put(reportKey(prefix, "stream_declared_packet_count"), result.declaredPacketCount);
+        report.put(reportKey(prefix, "stream_header_metadata_bytes"), result.headerMetadataBytes);
+        report.put(
+            reportKey(prefix, "stream_header_projection_metadata_attached"),
+            result.headerProjectionMetadata != null);
+        if (result.headerProjectionMetadata != null) {
+            report.put(
+                reportKey(prefix, "stream_header_projection_metadata_camera_id"),
+                result.headerProjectionMetadata.optString("cameraId", ""));
+            report.put(
+                reportKey(prefix, "stream_header_projection_metadata_ready"),
+                result.headerProjectionMetadata.optBoolean("projectionMetadataReady", false));
+        }
+        report.put(reportKey(prefix, "session_projection_metadata_source"), result.sessionProjectionMetadataSource);
         report.put(reportKey(prefix, "stream_packet_count"), result.packetCount);
         report.put(reportKey(prefix, "stream_ended_by_eof"), result.streamEndedByEof);
         report.put(reportKey(prefix, "stream_missing_declared_packet_count"), result.streamMissingDeclaredPacketCount);
@@ -1242,6 +1305,15 @@ final class BrokerH264ConsumerProbe implements Runnable {
 
     private static boolean outputFramesAllIdentical(DecodeResult decode) {
         return decode.outputFrameHashCount > 1 && decode.outputFrameHashUniqueCount == 1;
+    }
+
+    private static JSONObject preferredStreamProjectionMetadata(
+        StreamResult stream,
+        JSONObject startCommandProjectionMetadata) {
+        if (stream != null && stream.headerProjectionMetadata != null) {
+            return stream.headerProjectionMetadata;
+        }
+        return startCommandProjectionMetadata;
     }
 
     private boolean shouldUseLiveStereoDecode() {
@@ -1354,6 +1426,26 @@ final class BrokerH264ConsumerProbe implements Runnable {
             frames.get(i).close();
         }
         frames.clear();
+    }
+
+    private static int codecConfigPacketCount(List<Packet> packets) {
+        int count = 0;
+        for (int i = 0; i < packets.size(); i++) {
+            if ((packets.get(i).flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static int keyFrameCount(List<Packet> packets) {
+        int count = 0;
+        for (int i = 0; i < packets.size(); i++) {
+            if ((packets.get(i).flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static String reportKey(String prefix, String key) {
@@ -1713,10 +1805,15 @@ final class BrokerH264ConsumerProbe implements Runnable {
             result.width = input.readInt();
             result.height = input.readInt();
             result.declaredPacketCount = input.readInt();
-            input.readInt();
-            if (result.schemaVersion < 1 || result.schemaVersion > 2) {
+            result.headerMetadataBytes = input.readInt();
+            if (result.schemaVersion < 1 || result.schemaVersion > 3) {
                 throw new IllegalStateException("Unsupported broker stream schema version: " + result.schemaVersion);
             }
+            result.headerProjectionMetadata = readStreamHeaderProjectionMetadata(
+                input,
+                result.schemaVersion,
+                result.headerMetadataBytes,
+                label);
             if (result.codecId != CODEC_H264) {
                 throw new IllegalStateException("Broker stream codec is not H.264: " + result.codecId);
             }
@@ -1732,6 +1829,23 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 result.width,
                 result.height,
                 result.declaredPacketCount));
+            JSONObject effectiveStreamProjectionMetadata = result.headerProjectionMetadata != null
+                ? result.headerProjectionMetadata
+                : streamProjectionMetadata;
+            result.sessionProjectionMetadataSource = result.headerProjectionMetadata != null
+                ? "stream-header"
+                : (streamProjectionMetadata != null ? "start-command" : "none");
+            Log.i(TAG, String.format(
+                Locale.US,
+                "Rusty XR broker H.264 live projection metadata source: label=%s source=%s headerAttached=%s ready=%s cameraId=%s",
+                label,
+                result.sessionProjectionMetadataSource,
+                result.headerProjectionMetadata != null,
+                effectiveStreamProjectionMetadata != null &&
+                    effectiveStreamProjectionMetadata.optBoolean("projectionMetadataReady", false),
+                effectiveStreamProjectionMetadata != null
+                    ? effectiveStreamProjectionMetadata.optString("cameraId", "")
+                    : ""));
 
             boolean unboundedStream = result.declaredPacketCount == 0;
             result.receiveStartElapsedNs = SystemClock.elapsedRealtimeNanos();
@@ -1853,7 +1967,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                         label,
                         info.presentationTimeUs,
                         sourceElapsedNsForLivePts(result, info.presentationTimeUs),
-                        streamProjectionMetadata,
+                        effectiveStreamProjectionMetadata,
                         frame);
                     recordHardwareBufferTiming(result, deliver);
                     result.hardwareBufferImageCount = hardwareBufferTarget.imageCount();
@@ -1979,6 +2093,32 @@ final class BrokerH264ConsumerProbe implements Runnable {
             payload);
     }
 
+    private JSONObject readStreamHeaderProjectionMetadata(
+        DataInputStream input,
+        int schemaVersion,
+        int metadataBytes,
+        String label) throws Exception {
+        if (schemaVersion < 3 || metadataBytes <= 0) {
+            return null;
+        }
+        if (metadataBytes > MAX_STREAM_HEADER_METADATA_BYTES) {
+            throw new IllegalStateException("Broker stream header metadata is too large: " + metadataBytes);
+        }
+        byte[] payload = new byte[metadataBytes];
+        input.readFully(payload);
+        String json = new String(payload, StandardCharsets.UTF_8);
+        JSONObject metadata = new JSONObject(json);
+        Log.i(TAG, String.format(
+            Locale.US,
+            "Rusty XR broker H.264 stream header projection metadata: label=%s bytes=%d cameraId=%s ready=%s source=%s",
+            label,
+            metadataBytes,
+            metadata.optString("cameraId", ""),
+            metadata.optBoolean("projectionMetadataReady", false),
+            metadata.optString("source", "")));
+        return metadata;
+    }
+
     private StreamResult receiveStream(String label, int streamPort) throws Exception {
         Socket socket = connectWithRetry(config.brokerHost, streamPort, config.streamTimeoutMs, label);
         if ("right".equals(label)) {
@@ -2000,10 +2140,15 @@ final class BrokerH264ConsumerProbe implements Runnable {
         int width = input.readInt();
         int height = input.readInt();
         int packetCount = input.readInt();
-        input.readInt();
-        if (schemaVersion < 1 || schemaVersion > 2) {
+        int headerMetadataBytes = input.readInt();
+        if (schemaVersion < 1 || schemaVersion > 3) {
             throw new IllegalStateException("Unsupported broker stream schema version: " + schemaVersion);
         }
+        JSONObject headerProjectionMetadata = readStreamHeaderProjectionMetadata(
+            input,
+            schemaVersion,
+            headerMetadataBytes,
+            label);
         if (codecId != CODEC_H264) {
             throw new IllegalStateException("Broker stream codec is not H.264: " + codecId);
         }
@@ -2049,6 +2194,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
             width,
             height,
             packetCount,
+            headerMetadataBytes,
+            headerProjectionMetadata,
             packets,
             payloadBytes,
             receiveStartElapsedNs,
@@ -3418,6 +3565,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final int width;
         final int height;
         final int declaredPacketCount;
+        final int headerMetadataBytes;
+        final JSONObject headerProjectionMetadata;
         final List<Packet> packets;
         final long payloadBytes;
         final long receiveStartElapsedNs;
@@ -3433,6 +3582,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
             int width,
             int height,
             int declaredPacketCount,
+            int headerMetadataBytes,
+            JSONObject headerProjectionMetadata,
             List<Packet> packets,
             long payloadBytes,
             long receiveStartElapsedNs,
@@ -3446,6 +3597,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
             this.width = width;
             this.height = height;
             this.declaredPacketCount = declaredPacketCount;
+            this.headerMetadataBytes = headerMetadataBytes;
+            this.headerProjectionMetadata = headerProjectionMetadata;
             this.packets = packets;
             this.payloadBytes = payloadBytes;
             this.receiveStartElapsedNs = receiveStartElapsedNs;
@@ -3528,6 +3681,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
         int width;
         int height;
         int declaredPacketCount;
+        int headerMetadataBytes;
+        JSONObject headerProjectionMetadata;
+        String sessionProjectionMetadataSource = "none";
         int packetCount;
         boolean streamEndedByEof;
         int streamMissingDeclaredPacketCount;

@@ -236,8 +236,9 @@ stream receive, MediaCodec decode, hardware-buffer handoff, import, and draw.
 It is not a true projected-path comparison unless the receiver has projection
 metadata equivalent to the live broker-camera profile.
 
-Existing-stream receiver profiles can accept projection metadata as launch
-extras:
+Existing-stream receiver profiles prefer schema-3 stream-header projection
+metadata when the incoming `RXYRVID1` H.264 source provides it. Launch extras
+remain as an explicit fallback for older sources and synthetic streams:
 
 - `rustyxr.brokerH264ProjectionMetadataJson`
 - `rustyxr.brokerH264LeftProjectionMetadataJson`
@@ -292,9 +293,11 @@ The parser extracts:
 - direct Camera2 acquire, get-buffer, pair-search, and native bridge timings
 - broker decoded-frame image wait, get-buffer, and native bridge timings
 - final projection status, active tier, shader path, and alignment state
-- temporal projection metrics when present, including camera frame age,
-  target/applied projection motion, residual lag, held frames, invalid UV
-  percentage, edge-fill percentage, and optional space-warp counters
+- temporal projection and frame-adoption metrics when present, including camera
+  frame age, target/applied projection motion, residual lag, adoption mode,
+  pose-clamp angular/linear limits, held/adopted decision state, candidate
+  motion p95, held-frame count/duration, invalid UV percentage, edge-fill
+  percentage, and optional space-warp counters
 - camera consumption metrics when present, including distinct camera frames
   consumed by projected render frames, repeated render frames per camera frame,
   consumed camera-frame Hz, and projection-render Hz
@@ -325,9 +328,10 @@ When adding or changing streaming paths, keep these timing windows available:
   CPU percentage, and GPU percentage.
 - Temporal projection: camera frame age, stereo pair delta, target projection
   motion, applied projection motion, residual projection motion, visual lag,
-  held-frame count/duration, crossfade count, invalid-UV percentage, edge-fill
-  percentage, motion-vector max/clamp count, and space-warp enabled/skipped
-  frame counts.
+  pose-clamp angular/linear limits, frame-adoption mode, held/adopted decision
+  state, candidate motion p95, held-frame count/duration, crossfade count,
+  invalid-UV percentage, edge-fill percentage, motion-vector max/clamp count,
+  and space-warp enabled/skipped frame counts.
 - Camera-to-display cadence: requested display refresh, active display refresh,
   `VrApi` target FPS, camera delivery/update Hz, consumed camera-frame Hz,
   projection-render Hz, repeated render frames, and renders per camera frame.

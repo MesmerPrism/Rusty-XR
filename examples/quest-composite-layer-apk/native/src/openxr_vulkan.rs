@@ -16,13 +16,16 @@ use ash::vk::{self, Handle};
 use openxr as xr;
 use openxr::sys::Handle as _;
 use rusty_xr_camera_model::{
-    camera_basis_from_camera2_reference_pose_relative_to_center, full_view_content_uv_scale,
-    head_anchored_preview_surface_corners, invert_homography, project_camera_point,
-    scale_intrinsics_to_image, screen_to_camera_uv_homography,
+    camera_basis_from_camera2_reference_pose_relative_to_center,
+    clamp_stereo_homography_pose_delta, clamp_stereo_homography_screen_motion,
+    full_view_content_uv_scale, head_anchored_preview_surface_corners, invert_homography,
+    project_camera_point, scale_intrinsics_to_image, screen_to_camera_uv_homography,
     stereo_homography_projection_metrics, surface_to_camera_uv_homography,
     surface_to_eye_screen_uv_homography, CameraBasis, CameraCompositeTier, CameraPixelDomain,
-    ImageSize, Quat, StereoHomographyProjection, TrackingBasis, Vec3,
+    ImageSize, Pose, Quat, StereoHomographyProjection, StereoHomographyProjectionMetrics,
+    TrackingBasis, Vec3,
 };
+use rusty_xr_contracts::{TemporalProjectionEdgeMode, TemporalProjectionMode};
 use rusty_xr_debug_canvas::{
     CanvasBadge, CanvasDocument, CanvasDrawList, CanvasLayout, CanvasSection, CanvasTextRun,
     CanvasTheme, CanvasTone, DiagnosticHudUpdate,
@@ -2315,6 +2318,7 @@ unsafe fn run_vulkan(
     let mut openxr_environment_depth_probe: Option<OpenXrEnvironmentDepthProbe> = None;
     let mut openxr_passthrough_probe: Option<OpenXrPassthroughProbe> = None;
     let mut temporal_projection_diagnostics = TemporalProjectionDiagnostics::default();
+    let mut frame_adoption_state = FrameAdoptionState::default();
     let mut camera_render_cadence = CameraRenderCadenceStats::default();
     let mut full_field_flicker = FullFieldFlickerStats::default();
     let mut frame_pacing_window_start = Instant::now();
@@ -2851,9 +2855,30 @@ unsafe fn run_vulkan(
             .map_err(|error| format!("begin Vulkan command buffer: {error}"))?;
 
         let mut prepared_gpu_camera: Option<(HeadsetCameraGpuFrame, usize)> = None;
-        let mut prepared_stereo_camera: Option<(StereoGpuCameraFrame, usize)> = None;
+        let mut prepared_stereo_camera: Option<(
+            StereoGpuCameraFrame,
+            usize,
+            Option<ProjectedStereoHomographies>,
+        )> = None;
         if config.camera_tier == CameraCompositeTier::GpuProjected {
-            if let Some(stereo_frame) = latest_headset_stereo_camera_gpu_frame() {
+            if let Some(candidate_stereo_frame) = latest_headset_stereo_camera_gpu_frame() {
+                let controls = config.stereo_projection_controls(frame_count);
+                let candidate_projection_homographies = CameraProjectionPush::from_stereo_frame(
+                    &candidate_stereo_frame,
+                    &config,
+                    &controls,
+                    &views,
+                    swapchain.resolution,
+                )
+                .2;
+                let adoption_selection = frame_adoption_state.select(
+                    candidate_stereo_frame,
+                    candidate_projection_homographies,
+                    swapchain.resolution,
+                    &config,
+                );
+                let stereo_frame = adoption_selection.frame;
+                let projection_homographies = adoption_selection.projection_homographies;
                 match gpu_camera_renderer.prepare_stereo_frame(
                     &vk_device,
                     cmd,
@@ -2863,22 +2888,19 @@ unsafe fn run_vulkan(
                     config.camera_import_cache_limit,
                 ) {
                     Ok(Some(descriptor_index)) => {
-                        let controls = config.stereo_projection_controls(frame_count);
-                        let projection_homographies = CameraProjectionPush::from_stereo_frame(
-                            &stereo_frame,
-                            &config,
-                            &controls,
-                            &views,
-                            swapchain.resolution,
-                        )
-                        .2;
                         let projection_active = projection_homographies.is_some();
-                        let temporal_metrics = temporal_projection_diagnostics.update(
-                            projection_homographies.as_ref(),
-                            &stereo_frame,
-                            frame_state.predicted_display_time,
-                            swapchain.resolution,
-                        );
+                        let (temporal_metrics, applied_projection_homographies) =
+                            temporal_projection_diagnostics.update(
+                                projection_homographies.as_ref(),
+                                &stereo_frame,
+                                head_pose_from_views(&views).map(|(position, orientation)| {
+                                    Pose::new(position, orientation)
+                                }),
+                                frame_state.predicted_display_time,
+                                swapchain.resolution,
+                                &config,
+                                adoption_selection.metrics,
+                            );
                         let camera_cadence_metrics =
                             camera_render_cadence.record(stereo_frame.index);
                         if last_logged_prepared_stereo_frame_index != Some(stereo_frame.index)
@@ -2981,8 +3003,10 @@ unsafe fn run_vulkan(
                                     controls.source_eye_mapping,
                                 );
                             let aligned_projection = projection_active;
-                            let projection_homography_fields = projection_homographies
+                            let displayed_projection_homographies = applied_projection_homographies
                                 .as_ref()
+                                .or(projection_homographies.as_ref());
+                            let projection_homography_fields = displayed_projection_homographies
                                 .map(projected_homography_marker_fields)
                                 .unwrap_or_else(|| {
                                     "projectionHomographyReady=false projectionAreaTransformStage=none projectionAreaWarpParity=reference_unwarped_screen_uv".to_string()
@@ -2991,7 +3015,7 @@ unsafe fn run_vulkan(
                                 controls.left_texture_transform.is_explicit_visual_check()
                                     && controls.right_texture_transform.is_explicit_visual_check();
                             log_info(format!(
-                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode=metrics-only cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
+                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
                                 stereo_frame.index,
                                 frame_count,
                                 session_focused,
@@ -3025,6 +3049,10 @@ unsafe fn run_vulkan(
                                 config.visual_release_accepted,
                                 controls.diagnostic_mode.stable_id(),
                                 controls.diagnostic_step,
+                                temporal_projection_mode_label(&config),
+                                config.camera_frame_adoption_mode.stable_id(),
+                                temporal_metrics.frame_adoption_held,
+                                temporal_metrics.frame_adoption_candidate_motion_px_p95,
                                 optional_ms_metric_label(temporal_metrics.camera_frame_age_ms),
                                 optional_ms_metric_label(temporal_metrics.camera_frame_age_ms),
                                 temporal_metrics.stereo_pair_delta_ms,
@@ -3054,7 +3082,11 @@ unsafe fn run_vulkan(
                                 camera_cadence_metrics.projection_render_hz
                             ));
                         }
-                        prepared_stereo_camera = Some((stereo_frame, descriptor_index));
+                        prepared_stereo_camera = Some((
+                            stereo_frame,
+                            descriptor_index,
+                            applied_projection_homographies,
+                        ));
                     }
                     Ok(None) => {
                         if frame_count == 0 || frame_count % 120 == 0 {
@@ -3238,7 +3270,9 @@ unsafe fn run_vulkan(
                 .clear_values(clear_values),
             vk::SubpassContents::INLINE,
         );
-        if let Some((ref stereo_frame, descriptor_index)) = prepared_stereo_camera {
+        if let Some((ref stereo_frame, descriptor_index, applied_projection_homographies)) =
+            prepared_stereo_camera
+        {
             gpu_camera_renderer.record_draw_stereo(
                 &vk_device,
                 cmd,
@@ -3248,6 +3282,7 @@ unsafe fn run_vulkan(
                 &config,
                 &views,
                 frame_count,
+                applied_projection_homographies,
             );
         }
         if let Some((ref gpu_frame, import_index)) = prepared_gpu_camera {
@@ -5000,6 +5035,7 @@ impl GpuCameraRenderer {
         config: &crate::RuntimeConfig,
         views: &[xr::View],
         frame_count: u64,
+        applied_projection_homographies: Option<ProjectedStereoHomographies>,
     ) {
         let Some(resources) = self.resources.as_ref() else {
             return;
@@ -5022,7 +5058,16 @@ impl GpuCameraRenderer {
         }];
         let controls = config.stereo_projection_controls(frame_count);
         let (push, uniforms, projection_homographies) =
-            CameraProjectionPush::from_stereo_frame(frame, config, &controls, views, resolution);
+            if let Some(homographies) = applied_projection_homographies {
+                let (push, uniforms) = CameraProjectionPush::from_projected_stereo_homographies(
+                    config,
+                    &controls,
+                    &homographies,
+                );
+                (push, uniforms, Some(homographies))
+            } else {
+                CameraProjectionPush::from_stereo_frame(frame, config, &controls, views, resolution)
+            };
         let projection_active = projection_homographies.is_some();
         let uniforms = uniforms.with_border_cycle_phase(config, frame_count);
         if config.camera_tier == CameraCompositeTier::GpuProjected && !projection_active {
@@ -5374,7 +5419,7 @@ impl CameraProjectionPush {
             config.camera_raw_overlay_overscan,
         )
         .unwrap_or(1.0);
-        let mut push = Self {
+        let push = Self {
             params: [
                 config.camera_raw_overlay_overscan.max(1.0),
                 config.camera_edge_fade.clamp(0.0, 0.5),
@@ -5405,23 +5450,56 @@ impl CameraProjectionPush {
         if let Some((left, right)) =
             projected_stereo_homographies(frame, config, controls, views, resolution)
         {
-            push.params[0] = -config.camera_raw_overlay_overscan.max(1.0);
-            push.left_h0 = pack_homography_row(left.screen_to_camera[0]);
-            push.left_h1 = pack_homography_row(left.screen_to_camera[1]);
-            push.left_h2 = pack_homography_row(left.screen_to_camera[2]);
-            push.right_h0 = pack_homography_row(right.screen_to_camera[0]);
-            push.right_h1 = pack_homography_row(right.screen_to_camera[1]);
-            push.right_h2 = pack_homography_row(right.screen_to_camera[2]);
-            return (
-                push,
-                CameraProjectionUniforms::from_mappings(&left, &right).with_color_config(config),
-                Some(ProjectedStereoHomographies { left, right }),
-            );
+            let homographies = ProjectedStereoHomographies { left, right };
+            let (push, uniforms) =
+                Self::from_projected_stereo_homographies(config, controls, &homographies);
+            return (push, uniforms, Some(homographies));
         }
         (
             push,
             CameraProjectionUniforms::identity().with_color_config(config),
             None,
+        )
+    }
+
+    fn from_projected_stereo_homographies(
+        config: &crate::RuntimeConfig,
+        controls: &crate::StereoProjectionControls,
+        homographies: &ProjectedStereoHomographies,
+    ) -> (Self, CameraProjectionUniforms) {
+        let content_uv_scale = full_view_content_uv_scale(
+            config.camera_full_view_overlay_overscan,
+            config.camera_raw_overlay_overscan,
+        )
+        .unwrap_or(1.0);
+        let mut push = Self {
+            params: [
+                -config.camera_raw_overlay_overscan.max(1.0),
+                config.camera_edge_fade.clamp(0.0, 0.5),
+                content_uv_scale,
+                (controls.packed_shader_flags()
+                    | config.camera_color_mode.shader_bit()
+                    | config.camera_feed_pipeline_mode.shader_bit()
+                    | config.camera_projection_effect_mode.shader_bit()) as f32,
+            ],
+            color_adjust: config.camera_color_adjust_push(),
+            left_h0: [1.0, 0.0, 0.0, 0.0],
+            left_h1: [0.0, 1.0, 0.0, 0.0],
+            left_h2: [0.0, 0.0, 1.0, 0.0],
+            right_h0: [1.0, 0.0, 0.0, 0.0],
+            right_h1: [0.0, 1.0, 0.0, 0.0],
+            right_h2: [0.0, 0.0, 1.0, 0.0],
+        };
+        push.left_h0 = pack_homography_row(homographies.left.screen_to_camera[0]);
+        push.left_h1 = pack_homography_row(homographies.left.screen_to_camera[1]);
+        push.left_h2 = pack_homography_row(homographies.left.screen_to_camera[2]);
+        push.right_h0 = pack_homography_row(homographies.right.screen_to_camera[0]);
+        push.right_h1 = pack_homography_row(homographies.right.screen_to_camera[1]);
+        push.right_h2 = pack_homography_row(homographies.right.screen_to_camera[2]);
+        (
+            push,
+            CameraProjectionUniforms::from_mappings(&homographies.left, &homographies.right)
+                .with_color_config(config),
         )
     }
 }
@@ -5452,6 +5530,8 @@ struct TemporalProjectionMetricsFrame {
     projection_residual_px_p95: f64,
     visual_lag_ms_avg: f64,
     visual_lag_ms_p95: f64,
+    frame_adoption_held: bool,
+    frame_adoption_candidate_motion_px_p95: f64,
     held_frame_count: u64,
     held_frame_duration_ms_max: f64,
     frame_crossfade_count: u64,
@@ -5542,9 +5622,133 @@ impl CameraRenderCadenceStats {
     }
 }
 
+#[derive(Clone)]
+struct AdoptedStereoFrame {
+    frame: StereoGpuCameraFrame,
+    projection_homographies: Option<ProjectedStereoHomographies>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct FrameAdoptionMetrics {
+    held: bool,
+    held_frame_count: u64,
+    held_frame_duration_ms_max: f64,
+    candidate_motion_px_p95: f64,
+}
+
+struct FrameAdoptionSelection {
+    frame: StereoGpuCameraFrame,
+    projection_homographies: Option<ProjectedStereoHomographies>,
+    metrics: FrameAdoptionMetrics,
+}
+
+#[derive(Default)]
+struct FrameAdoptionState {
+    current: Option<AdoptedStereoFrame>,
+    hold_started: Option<Instant>,
+    held_frame_count: u64,
+    held_frame_duration_ms_max: f64,
+}
+
+impl FrameAdoptionState {
+    fn select(
+        &mut self,
+        candidate_frame: StereoGpuCameraFrame,
+        candidate_projection_homographies: Option<ProjectedStereoHomographies>,
+        resolution: vk::Extent2D,
+        config: &crate::RuntimeConfig,
+    ) -> FrameAdoptionSelection {
+        let candidate = AdoptedStereoFrame {
+            frame: candidate_frame,
+            projection_homographies: candidate_projection_homographies,
+        };
+
+        if !frame_adoption_active(config) {
+            self.accept(candidate.clone());
+            return FrameAdoptionSelection {
+                frame: candidate.frame,
+                projection_homographies: candidate.projection_homographies,
+                metrics: FrameAdoptionMetrics::default(),
+            };
+        }
+
+        let now = Instant::now();
+        let mut candidate_motion_px_p95 = 0.0;
+        if let (Some(current), Some(current_homographies), Some(candidate_homographies)) = (
+            self.current.as_ref(),
+            self.current
+                .as_ref()
+                .and_then(|current| current.projection_homographies),
+            candidate.projection_homographies,
+        ) {
+            if current.frame.index != candidate.frame.index {
+                let current_projection = StereoHomographyProjection::new(
+                    current_homographies.left.screen_to_camera,
+                    current_homographies.right.screen_to_camera,
+                );
+                let candidate_projection = StereoHomographyProjection::new(
+                    candidate_homographies.left.screen_to_camera,
+                    candidate_homographies.right.screen_to_camera,
+                );
+                let motion = stereo_homography_projection_metrics(
+                    Some(current_projection),
+                    candidate_projection,
+                    ImageSize::new(resolution.width, resolution.height),
+                );
+                candidate_motion_px_p95 = motion.p95_motion_px as f64;
+                let max_jump = config.camera_frame_adoption_max_jump_px.max(1.0) as f64;
+                let hold_elapsed_ms = self
+                    .hold_started
+                    .map(|started| started.elapsed().as_secs_f64() * 1000.0)
+                    .unwrap_or(0.0);
+                if candidate_motion_px_p95 > max_jump
+                    && hold_elapsed_ms < config.camera_frame_adoption_max_hold_ms as f64
+                {
+                    let hold_started = *self.hold_started.get_or_insert(now);
+                    let hold_duration_ms = hold_started.elapsed().as_secs_f64() * 1000.0;
+                    self.held_frame_count = self.held_frame_count.saturating_add(1);
+                    self.held_frame_duration_ms_max =
+                        self.held_frame_duration_ms_max.max(hold_duration_ms);
+                    let held = current.clone();
+                    return FrameAdoptionSelection {
+                        frame: held.frame,
+                        projection_homographies: held.projection_homographies,
+                        metrics: FrameAdoptionMetrics {
+                            held: true,
+                            held_frame_count: self.held_frame_count,
+                            held_frame_duration_ms_max: self.held_frame_duration_ms_max,
+                            candidate_motion_px_p95,
+                        },
+                    };
+                }
+            }
+        }
+
+        self.accept(candidate.clone());
+        FrameAdoptionSelection {
+            frame: candidate.frame,
+            projection_homographies: candidate.projection_homographies,
+            metrics: FrameAdoptionMetrics {
+                held: false,
+                held_frame_count: self.held_frame_count,
+                held_frame_duration_ms_max: self.held_frame_duration_ms_max,
+                candidate_motion_px_p95,
+            },
+        }
+    }
+
+    fn accept(&mut self, frame: AdoptedStereoFrame) {
+        self.current = Some(frame);
+        self.hold_started = None;
+    }
+}
+
 #[derive(Default)]
 struct TemporalProjectionDiagnostics {
-    previous: Option<StereoHomographyProjection>,
+    previous_target: Option<StereoHomographyProjection>,
+    visual: Option<StereoHomographyProjection>,
+    visual_pose: Option<Pose>,
+    visual_lag_ms: f64,
 }
 
 impl TemporalProjectionDiagnostics {
@@ -5552,52 +5756,231 @@ impl TemporalProjectionDiagnostics {
         &mut self,
         homographies: Option<&ProjectedStereoHomographies>,
         frame: &StereoGpuCameraFrame,
+        current_head_pose: Option<Pose>,
         predicted_display_time: xr::Time,
         resolution: vk::Extent2D,
-    ) -> TemporalProjectionMetricsFrame {
+        config: &crate::RuntimeConfig,
+        adoption_metrics: FrameAdoptionMetrics,
+    ) -> (
+        TemporalProjectionMetricsFrame,
+        Option<ProjectedStereoHomographies>,
+    ) {
         let Some(homographies) = homographies else {
-            self.previous = None;
-            return TemporalProjectionMetricsFrame {
-                stereo_pair_delta_ms: ns_to_ms(frame.pair_delta_ns),
-                ..TemporalProjectionMetricsFrame::default()
-            };
+            self.previous_target = None;
+            self.visual = None;
+            self.visual_pose = None;
+            self.visual_lag_ms = 0.0;
+            return (
+                TemporalProjectionMetricsFrame {
+                    stereo_pair_delta_ms: ns_to_ms(frame.pair_delta_ns),
+                    frame_adoption_held: adoption_metrics.held,
+                    frame_adoption_candidate_motion_px_p95: adoption_metrics
+                        .candidate_motion_px_p95,
+                    held_frame_count: adoption_metrics.held_frame_count,
+                    held_frame_duration_ms_max: adoption_metrics.held_frame_duration_ms_max,
+                    ..TemporalProjectionMetricsFrame::default()
+                },
+                None,
+            );
         };
 
-        let current = StereoHomographyProjection::new(
+        let target = StereoHomographyProjection::new(
             homographies.left.screen_to_camera,
             homographies.right.screen_to_camera,
         );
-        let metrics = stereo_homography_projection_metrics(
-            self.previous,
-            current,
+        let target_metrics = stereo_homography_projection_metrics(
+            self.previous_target,
+            target,
             ImageSize::new(resolution.width, resolution.height),
         );
-        self.previous = Some(current);
+        let temporal_active = temporal_projection_smoothing_active(config);
+        let mut applied = target;
+        let mut applied_motion_metrics = target_metrics;
+        let mut residual_metrics = StereoHomographyProjectionMetrics::default();
+        let mut motion_vector_max_px = 0.0;
+        let mut motion_vector_clamped_count = 0_u64;
+        let mut next_visual_pose = current_head_pose;
 
-        TemporalProjectionMetricsFrame {
-            camera_frame_age_ms: plausible_camera_frame_age_ms(
-                predicted_display_time,
-                frame.midpoint_timestamp_ns,
-            ),
-            stereo_pair_delta_ms: ns_to_ms(frame.pair_delta_ns),
-            target_projection_motion_px_avg: metrics.average_motion_px as f64,
-            target_projection_motion_px_p95: metrics.p95_motion_px as f64,
-            applied_projection_motion_px_avg: metrics.average_motion_px as f64,
-            applied_projection_motion_px_p95: metrics.p95_motion_px as f64,
-            projection_residual_px_avg: 0.0,
-            projection_residual_px_p95: 0.0,
-            visual_lag_ms_avg: 0.0,
-            visual_lag_ms_p95: 0.0,
-            held_frame_count: 0,
-            held_frame_duration_ms_max: 0.0,
-            frame_crossfade_count: 0,
-            invalid_uv_px_percent: metrics.invalid_uv_percent as f64,
-            edge_fill_px_percent: 0.0,
-            asw_enabled_frame_count: 0,
-            asw_skipped_frame_count: 0,
-            motion_vector_max_px: 0.0,
-            motion_vector_clamped_count: 0,
+        if temporal_active {
+            let previous_visual = self.visual.filter(|visual| visual.is_valid());
+            let visual_start = previous_visual.unwrap_or(target);
+            let target_from_visual_metrics = stereo_homography_projection_metrics(
+                Some(visual_start),
+                target,
+                ImageSize::new(resolution.width, resolution.height),
+            );
+            let image_size = ImageSize::new(resolution.width, resolution.height);
+            let max_motion_px = config.camera_temporal_max_pixels_per_frame.max(1.0);
+
+            let (
+                candidate_applied,
+                candidate_applied_metrics,
+                candidate_residual_metrics,
+                clamped,
+                visual_pose_after_clamp,
+            ) = if matches!(
+                config.camera_temporal_mode,
+                TemporalProjectionMode::PoseDeltaClamp
+            ) {
+                if let Some(target_pose) = current_head_pose {
+                    let clamp_result = clamp_stereo_homography_pose_delta(
+                        Some(visual_start),
+                        target,
+                        self.visual_pose,
+                        target_pose,
+                        image_size,
+                        config.camera_temporal_max_angular_degrees_per_frame,
+                        config.camera_temporal_max_linear_meters_per_frame,
+                    );
+                    (
+                        clamp_result.projection,
+                        clamp_result.applied_motion,
+                        clamp_result.residual_motion,
+                        clamp_result.clamped,
+                        Some(clamp_result.visual_pose),
+                    )
+                } else {
+                    let clamp_result = clamp_stereo_homography_screen_motion(
+                        Some(visual_start),
+                        target,
+                        image_size,
+                        max_motion_px,
+                    );
+                    (
+                        clamp_result.projection,
+                        clamp_result.applied_motion,
+                        clamp_result.residual_motion,
+                        clamp_result.clamped,
+                        current_head_pose,
+                    )
+                }
+            } else {
+                let clamp_result = clamp_stereo_homography_screen_motion(
+                    Some(visual_start),
+                    target,
+                    image_size,
+                    max_motion_px,
+                );
+                (
+                    clamp_result.projection,
+                    clamp_result.applied_motion,
+                    clamp_result.residual_motion,
+                    clamp_result.clamped,
+                    current_head_pose,
+                )
+            };
+
+            if clamped {
+                motion_vector_clamped_count = 1;
+                motion_vector_max_px = max_motion_px as f64;
+                self.visual_lag_ms += 1000.0 / f64::from(config.xr_display_refresh_hz.max(1.0));
+            } else {
+                self.visual_lag_ms = 0.0;
+            }
+
+            if self.visual_lag_ms > config.camera_temporal_max_visual_lag_ms as f64 {
+                applied = target;
+                self.visual_lag_ms = 0.0;
+                applied_motion_metrics = target_from_visual_metrics;
+                next_visual_pose = current_head_pose;
+            } else {
+                applied = candidate_applied;
+                applied_motion_metrics = candidate_applied_metrics;
+                residual_metrics = candidate_residual_metrics;
+                next_visual_pose = visual_pose_after_clamp;
+            }
+        } else {
+            self.visual_lag_ms = 0.0;
         }
+
+        let applied_coverage_metrics = stereo_homography_projection_metrics(
+            None,
+            applied,
+            ImageSize::new(resolution.width, resolution.height),
+        );
+        let edge_fill_px_percent = if matches!(
+            config.camera_temporal_edge_mode,
+            TemporalProjectionEdgeMode::ClampSoft
+        ) {
+            applied_coverage_metrics.invalid_uv_percent as f64
+        } else {
+            0.0
+        };
+
+        self.previous_target = Some(target);
+        self.visual = Some(applied);
+        self.visual_pose = next_visual_pose;
+
+        (
+            TemporalProjectionMetricsFrame {
+                camera_frame_age_ms: plausible_camera_frame_age_ms(
+                    predicted_display_time,
+                    frame.midpoint_timestamp_ns,
+                ),
+                stereo_pair_delta_ms: ns_to_ms(frame.pair_delta_ns),
+                target_projection_motion_px_avg: target_metrics.average_motion_px as f64,
+                target_projection_motion_px_p95: target_metrics.p95_motion_px as f64,
+                applied_projection_motion_px_avg: applied_motion_metrics.average_motion_px as f64,
+                applied_projection_motion_px_p95: applied_motion_metrics.p95_motion_px as f64,
+                projection_residual_px_avg: residual_metrics.average_motion_px as f64,
+                projection_residual_px_p95: residual_metrics.p95_motion_px as f64,
+                visual_lag_ms_avg: self.visual_lag_ms,
+                visual_lag_ms_p95: self.visual_lag_ms,
+                frame_adoption_held: adoption_metrics.held,
+                frame_adoption_candidate_motion_px_p95: adoption_metrics.candidate_motion_px_p95,
+                held_frame_count: adoption_metrics.held_frame_count,
+                held_frame_duration_ms_max: adoption_metrics.held_frame_duration_ms_max,
+                frame_crossfade_count: 0,
+                invalid_uv_px_percent: applied_coverage_metrics.invalid_uv_percent as f64,
+                edge_fill_px_percent,
+                asw_enabled_frame_count: 0,
+                asw_skipped_frame_count: 0,
+                motion_vector_max_px,
+                motion_vector_clamped_count,
+            },
+            Some(projected_homographies_with_screen_to_camera(
+                homographies,
+                applied,
+            )),
+        )
+    }
+}
+
+fn temporal_projection_smoothing_active(config: &crate::RuntimeConfig) -> bool {
+    config.camera_temporal_projection_enabled
+        && matches!(
+            config.camera_temporal_mode,
+            TemporalProjectionMode::PoseDeltaClamp
+                | TemporalProjectionMode::ScreenMotionClamp
+                | TemporalProjectionMode::DepthAwareClamp
+        )
+}
+
+fn frame_adoption_active(config: &crate::RuntimeConfig) -> bool {
+    config.camera_frame_adoption_mode.is_active() && config.camera_frame_adoption_max_hold_ms > 0.0
+}
+
+fn temporal_projection_mode_label(config: &crate::RuntimeConfig) -> &'static str {
+    if temporal_projection_smoothing_active(config) {
+        config.camera_temporal_mode.stable_id()
+    } else {
+        "metrics-only"
+    }
+}
+
+fn projected_homographies_with_screen_to_camera(
+    homographies: &ProjectedStereoHomographies,
+    applied: StereoHomographyProjection,
+) -> ProjectedStereoHomographies {
+    ProjectedStereoHomographies {
+        left: DisplayEyeProjectionMapping {
+            screen_to_camera: applied.left_screen_to_camera,
+            ..homographies.left
+        },
+        right: DisplayEyeProjectionMapping {
+            screen_to_camera: applied.right_screen_to_camera,
+            ..homographies.right
+        },
     }
 }
 

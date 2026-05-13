@@ -460,7 +460,7 @@ responsibilities.
 | Polar H10 utilities | In progress | Public Polar GATT IDs, HR/RR decoder, uncompressed ECG/ACC PMD decoders, PMD command builders, and LSL schemas added. |
 | Quest diagnostics | In progress | Generic readiness, package launch, and frame-rate status models added. |
 | Camera model | In progress | Intrinsics scaling, projection, back-projection, and timestamp matching helpers added. |
-| Camera temporal projection | In progress | Data-only temporal policy, target/visual projection state, stereo pair timing, frame-adoption, edge-mode, and scorecard metric contracts added. Composite-layer example now logs metrics-only target/applied projection motion with no smoothing behavior change; headset artifact validation is pending. |
+| Camera temporal projection | In progress | Temporal policy contracts, target/visual projection state, stereo pair timing, pose-delta lockstep clamp, screen-motion clamp, frame-adoption, edge-mode, and scorecard metric fields added. Composite-layer example validates direct and laptop-relay projected paths; physical motion stress tuning remains open. |
 | Plain stereo / feedback layers | In progress | Public mono/stereo media layer descriptors, source UV layout helpers, aspect-fit content rectangles, visual feedback border segments, border tuning, composite-feedback tuning, and performance hints added. |
 | Native platform passthrough descriptors | In progress | Public Meta/OpenXR layer-purpose, placement, opacity, edge, color-map, BCS, and LUT descriptors added with contracts-only examples. |
 | Visual strobe descriptors | In progress | Public full-field and passthrough-LUT strobe profile descriptors, display-frame frequency plans, 120 Hz constraints, and safety warnings added with a no-hardware example. |

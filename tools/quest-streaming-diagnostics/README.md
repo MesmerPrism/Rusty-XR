@@ -57,10 +57,15 @@ The parser extracts:
   markers as full headset-presentation evidence when the device is still on a
   loading screen.
 - final projection status, active tier, shader path, and alignment state.
-- temporal projection fields when log lines expose them, including target
-  projection motion, applied projection motion, residual projection motion,
-  visual lag, held frames, edge-fill/invalid-UV percentages, and optional
-  space-warp counters.
+- temporal projection and frame-adoption fields when log lines expose them,
+  including target projection motion, applied projection motion, residual
+  projection motion, visual lag, pose-clamp angular/linear limits when present,
+  adoption mode, held/adopted decision state, candidate motion p95, held-frame
+  count/duration, crossfade count, edge-fill/invalid-UV percentages, and
+  optional space-warp counters.
+- schema-3 stream-header projection metadata readiness and the session metadata
+  source chosen by the receiver. This remains visible even when the long
+  consumer JSON report is truncated by logcat.
 - camera-to-display consumption fields when log lines expose them, including
   requested/active display refresh, `VrApi` target FPS, consumed camera-frame
   Hz, projection-render Hz, and how many projection frames reuse each camera
