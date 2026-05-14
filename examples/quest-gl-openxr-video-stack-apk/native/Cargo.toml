@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 rusty-xr-contracts = { path = "../../../crates/rusty-xr-contracts", features = ["serde"] }
+rusty-xr-camera-model = { path = "../../../crates/rusty-xr-camera-model" }
 rusty-xr-quest-diagnostics = { path = "../../../crates/rusty-xr-quest-diagnostics", features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

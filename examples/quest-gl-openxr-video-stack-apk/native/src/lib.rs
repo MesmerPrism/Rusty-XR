@@ -28,6 +28,11 @@ mod android {
     };
     use openxr as xr;
     use openxr::sys::Handle as _;
+    use rusty_xr_camera_model::{
+        head_anchored_preview_surface_corners, invert_homography, screen_to_camera_uv_homography,
+        surface_to_camera_uv_homography, surface_to_eye_screen_uv_homography, CameraBasis,
+        CameraIntrinsics, ImageSize, Quat, TrackingBasis, Vec2, Vec3,
+    };
     use rusty_xr_contracts::{
         Eye, InvalidProjectionFillPolicy, ProjectionFootprintRowSpan, ProjectionFootprintSummary,
         ProjectionGuideDomain, ProjectionStageKind, ProjectionStageTokenRow,
@@ -101,6 +106,12 @@ mod android {
     const DEFAULT_OES_SURFACE_WIDTH: i32 = 1280;
     const DEFAULT_OES_SURFACE_HEIGHT: i32 = 1280;
     const OES_COPY_RENDER_PATH: &str = "broker-h264-oes-full-surface-copy";
+    const OES_PROJECTED_RENDER_PATH: &str = "broker-h264-oes-projected-camera-uv";
+    const PROJECTION_TARGET_DEPTH_METERS: f32 = 0.75;
+    const PROJECTION_PREVIEW_FOV_Y_DEGREES: f32 = 60.0;
+    const PROJECTION_RAW_OVERSCAN: f32 = 1.06;
+    const PROJECTION_SOURCE_ASPECT: f32 = 1.0;
+    const PROJECTION_FOOTPRINT_GRID: usize = 64;
 
     static OES_DECODE_CALLBACKS: OnceLock<OesDecodeCallbackState> = OnceLock::new();
 
@@ -110,6 +121,7 @@ mod android {
         latest_queued_pts_us: [AtomicI64; VIEW_COUNT],
         report_sequence: AtomicU64,
         latest_report: Mutex<Option<String>>,
+        projection_metadata_reports: Mutex<[Option<String>; VIEW_COUNT]>,
     }
 
     impl OesDecodeCallbackState {
@@ -120,6 +132,7 @@ mod android {
                 latest_queued_pts_us: [AtomicI64::new(-1), AtomicI64::new(-1)],
                 report_sequence: AtomicU64::new(0),
                 latest_report: Mutex::new(None),
+                projection_metadata_reports: Mutex::new([None, None]),
             }
         }
 
@@ -132,6 +145,9 @@ mod android {
             self.report_sequence.store(0, Ordering::Relaxed);
             if let Ok(mut latest_report) = self.latest_report.lock() {
                 *latest_report = None;
+            }
+            if let Ok(mut reports) = self.projection_metadata_reports.lock() {
+                *reports = [None, None];
             }
         }
 
@@ -153,6 +169,11 @@ mod android {
         }
 
         fn record_report(&self, report: String) {
+            if let Some(view_index) = projection_metadata_report_view_index(&report) {
+                if let Ok(mut reports) = self.projection_metadata_reports.lock() {
+                    reports[view_index] = Some(report.clone());
+                }
+            }
             if let Ok(mut latest_report) = self.latest_report.lock() {
                 *latest_report = Some(report);
                 self.report_sequence.fetch_add(1, Ordering::Relaxed);
@@ -170,6 +191,27 @@ mod android {
                 .ok()
                 .and_then(|report| report.clone())
         }
+
+        fn projection_metadata_report_snapshot(&self) -> [Option<String>; VIEW_COUNT] {
+            self.projection_metadata_reports
+                .lock()
+                .map(|reports| [reports[0].clone(), reports[1].clone()])
+                .unwrap_or([None, None])
+        }
+    }
+
+    fn projection_metadata_report_view_index(report: &str) -> Option<usize> {
+        let report = serde_json::from_str::<serde_json::Value>(report).ok()?;
+        report.get("header_projection_metadata")?;
+        report_view_index(&report)
+    }
+
+    fn report_view_index(report: &serde_json::Value) -> Option<usize> {
+        report
+            .get("view_index")
+            .and_then(|value| value.as_u64())
+            .and_then(|value| usize::try_from(value).ok())
+            .filter(|value| *value < VIEW_COUNT)
     }
 
     fn oes_decode_callbacks() -> &'static OesDecodeCallbackState {
@@ -305,6 +347,7 @@ mod android {
         fn glUseProgram(program: u32);
         fn glGetUniformLocation(program: u32, name: *const c_char) -> c_int;
         fn glUniform1i(location: c_int, v0: c_int);
+        fn glUniform3f(location: c_int, v0: f32, v1: f32, v2: f32);
         fn glGenBuffers(n: c_int, buffers: *mut u32);
         fn glDeleteBuffers(n: c_int, buffers: *const u32);
         fn glBindBuffer(target: u32, buffer: u32);
@@ -537,6 +580,9 @@ mod android {
                 if let Some(probe) = surface_texture_oes_probe.as_mut() {
                     probe.update_textures(&egl, frame_count);
                 }
+                let projection_plan = surface_texture_oes_probe
+                    .as_ref()
+                    .and_then(|probe| probe.projection_plan_from_xr_views(&views));
                 render_eye_swapchains(
                     &egl,
                     &mut fbo,
@@ -544,6 +590,7 @@ mod android {
                     frame_count,
                     &mut status,
                     surface_texture_oes_probe.as_ref(),
+                    projection_plan.as_ref(),
                     &mut oes_copy_renderer,
                 )?;
 
@@ -850,6 +897,7 @@ mod android {
         frame_count: u64,
         status: &mut OpenXrGlesFeasibilityStatus,
         surface_texture_oes_probe: Option<&SurfaceTextureOesProbe>,
+        projection_plan: Option<&OesProjectionPlan>,
         oes_copy_renderer: &mut Option<OesCopyRenderer>,
     ) -> Result<(), String> {
         egl.make_current()?;
@@ -877,15 +925,21 @@ mod android {
                 (surface_texture_oes_probe, oes_copy_renderer.as_mut())
             {
                 if let Some(source) = probe.updated_eye_texture(eye.view_index) {
+                    let eye_projection = projection_plan.and_then(|plan| plan.eye(eye.view_index));
                     match fbo.render_external_oes(
                         texture,
                         source.texture,
                         eye.width,
                         eye.height,
                         renderer,
+                        eye_projection,
                     ) {
                         Ok(fbo_status) => {
-                            render_path = OES_COPY_RENDER_PATH;
+                            render_path = if eye_projection.is_some() {
+                                OES_PROJECTED_RENDER_PATH
+                            } else {
+                                OES_COPY_RENDER_PATH
+                            };
                             rendered_source_sequence = Some(source.source_sequence);
                             if frame_count == 0 || frame_count.is_multiple_of(120) {
                                 let frame_age_at_submit_ms = source
@@ -896,11 +950,13 @@ mod android {
                                     frame_count,
                                     &source,
                                     frame_age_at_submit_ms,
+                                    render_path,
                                 );
                                 log_projection_diagnostics(
                                     eye.view_index,
                                     frame_count,
                                     source.source_sequence,
+                                    eye_projection,
                                 );
                             }
                             fbo_status
@@ -971,6 +1027,9 @@ mod android {
         program: u32,
         vertex_buffer: u32,
         sampler_location: c_int,
+        screen_to_camera_h0_location: c_int,
+        screen_to_camera_h1_location: c_int,
+        screen_to_camera_h2_location: c_int,
     }
 
     impl OesCopyRenderer {
@@ -992,10 +1051,28 @@ void main() {
 #extension GL_OES_EGL_image_external_essl3 : require
 precision mediump float;
 uniform samplerExternalOES u_source;
+uniform vec3 u_screen_to_camera_h0;
+uniform vec3 u_screen_to_camera_h1;
+uniform vec3 u_screen_to_camera_h2;
 in vec2 v_uv;
 out vec4 out_color;
 void main() {
-    out_color = texture(u_source, v_uv);
+    vec3 input_uv = vec3(v_uv, 1.0);
+    vec3 camera_uv_h = vec3(
+        dot(u_screen_to_camera_h0, input_uv),
+        dot(u_screen_to_camera_h1, input_uv),
+        dot(u_screen_to_camera_h2, input_uv)
+    );
+    if (abs(camera_uv_h.z) < 0.00001) {
+        out_color = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+    vec2 camera_uv = camera_uv_h.xy / camera_uv_h.z;
+    if (camera_uv.x < 0.0 || camera_uv.x > 1.0 || camera_uv.y < 0.0 || camera_uv.y > 1.0) {
+        out_color = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+    out_color = texture(u_source, camera_uv);
 }"#,
             ) {
                 Ok(shader) => shader,
@@ -1015,15 +1092,28 @@ void main() {
             delete_shader(vertex_shader);
             delete_shader(fragment_shader);
 
-            let sampler_name =
-                CString::new("u_source").map_err(|error| format!("sampler CString: {error}"))?;
-            let sampler_location = unsafe { glGetUniformLocation(program, sampler_name.as_ptr()) };
-            if sampler_location < 0 {
-                unsafe {
-                    glDeleteProgram(program);
+            let uniform_locations = (|| {
+                Ok((
+                    uniform_location(program, "u_source")?,
+                    uniform_location(program, "u_screen_to_camera_h0")?,
+                    uniform_location(program, "u_screen_to_camera_h1")?,
+                    uniform_location(program, "u_screen_to_camera_h2")?,
+                ))
+            })();
+            let (
+                sampler_location,
+                screen_to_camera_h0_location,
+                screen_to_camera_h1_location,
+                screen_to_camera_h2_location,
+            ) = match uniform_locations {
+                Ok(locations) => locations,
+                Err(error) => {
+                    unsafe {
+                        glDeleteProgram(program);
+                    }
+                    return Err(error);
                 }
-                return Err("OES copy shader did not expose u_source uniform".to_string());
-            }
+            };
 
             let vertices: [f32; 16] = [
                 -1.0, -1.0, 0.0, 0.0, //
@@ -1052,15 +1142,40 @@ void main() {
                 program,
                 vertex_buffer,
                 sampler_location,
+                screen_to_camera_h0_location,
+                screen_to_camera_h1_location,
+                screen_to_camera_h2_location,
             })
         }
 
-        fn render(&mut self, source_oes_texture: u32) -> Result<(), String> {
+        fn render(
+            &mut self,
+            source_oes_texture: u32,
+            screen_to_camera_h: [[f32; 3]; 3],
+        ) -> Result<(), String> {
             unsafe {
                 glUseProgram(self.program);
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_EXTERNAL_OES, source_oes_texture);
                 glUniform1i(self.sampler_location, 0);
+                glUniform3f(
+                    self.screen_to_camera_h0_location,
+                    screen_to_camera_h[0][0],
+                    screen_to_camera_h[0][1],
+                    screen_to_camera_h[0][2],
+                );
+                glUniform3f(
+                    self.screen_to_camera_h1_location,
+                    screen_to_camera_h[1][0],
+                    screen_to_camera_h[1][1],
+                    screen_to_camera_h[1][2],
+                );
+                glUniform3f(
+                    self.screen_to_camera_h2_location,
+                    screen_to_camera_h[2][0],
+                    screen_to_camera_h[2][1],
+                    screen_to_camera_h[2][2],
+                );
                 glBindBuffer(GL_ARRAY_BUFFER, self.vertex_buffer);
                 let stride = (4 * mem::size_of::<f32>()) as c_int;
                 glEnableVertexAttribArray(0);
@@ -1339,6 +1454,7 @@ void main() {
             width: u32,
             height: u32,
             renderer: &mut OesCopyRenderer,
+            projection: Option<&OesEyeProjection>,
         ) -> Result<GlFramebufferCompleteness, String> {
             unsafe {
                 glBindFramebuffer(GL_FRAMEBUFFER, self.id);
@@ -1359,7 +1475,12 @@ void main() {
                 glViewport(0, 0, width as c_int, height as c_int);
                 glClearColor(0.0, 0.0, 0.0, 1.0);
                 glClear(GL_COLOR_BUFFER_BIT);
-                renderer.render(source_oes_texture)?;
+                renderer.render(
+                    source_oes_texture,
+                    projection
+                        .map(|projection| projection.screen_to_camera_h)
+                        .unwrap_or_else(identity_homography),
+                )?;
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 Ok(fbo_status)
             }
@@ -1409,6 +1530,7 @@ void main() {
         consumed_frame_available_counts: [u64; VIEW_COUNT],
         update_rate_start: Instant,
         last_report_sequence: u64,
+        projection_metadata: [Option<OesProjectionMetadata>; VIEW_COUNT],
     }
 
     struct OesEyeTextureSample {
@@ -1418,6 +1540,103 @@ void main() {
         surface_timestamp_ns: Option<i64>,
         transform_hash: Option<String>,
         update_tex_image_count: u64,
+    }
+
+    #[derive(Clone, Debug)]
+    struct OesProjectionMetadata {
+        camera_id: String,
+        source: String,
+        pose_source: String,
+        pose_coordinate_convention: String,
+        synthetic_pattern: String,
+        projection_metadata_ready: bool,
+        delivered_width: u32,
+        delivered_height: u32,
+    }
+
+    impl OesProjectionMetadata {
+        fn parse(value: &serde_json::Value) -> Result<Self, String> {
+            let object = value
+                .as_object()
+                .ok_or_else(|| "metadata_root_not_object".to_string())?;
+            let camera_id = object
+                .get("cameraId")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("broker-h264")
+                .to_string();
+            let source = object
+                .get("source")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown")
+                .to_string();
+            let pose_source = object
+                .get("poseSource")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("missing")
+                .to_string();
+            let pose_coordinate_convention = object
+                .get("poseCoordinateConvention")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown")
+                .to_string();
+            let synthetic_pattern = object
+                .get("syntheticPattern")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown")
+                .to_string();
+            let projection_metadata_ready = object
+                .get("projectionMetadataReady")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let delivered_width = json_u32(object.get("deliveredWidth")).unwrap_or(0);
+            let delivered_height = json_u32(object.get("deliveredHeight")).unwrap_or(0);
+            Ok(Self {
+                camera_id,
+                source,
+                pose_source,
+                pose_coordinate_convention,
+                synthetic_pattern,
+                projection_metadata_ready,
+                delivered_width,
+                delivered_height,
+            })
+        }
+
+        fn is_synthetic(&self) -> bool {
+            self.source == "broker_app.synthetic_h264_stream"
+        }
+    }
+
+    fn json_u32(value: Option<&serde_json::Value>) -> Option<u32> {
+        value
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+    }
+
+    #[derive(Clone, Debug)]
+    struct OesProjectionPlan {
+        left: OesEyeProjection,
+        right: OesEyeProjection,
+    }
+
+    impl OesProjectionPlan {
+        fn eye(&self, view_index: usize) -> Option<&OesEyeProjection> {
+            match view_index {
+                0 => Some(&self.left),
+                1 => Some(&self.right),
+                _ => None,
+            }
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct OesEyeProjection {
+        eye: Eye,
+        screen_to_surface_h: [[f32; 3]; 3],
+        surface_to_camera_h: [[f32; 3]; 3],
+        screen_to_camera_h: [[f32; 3]; 3],
+        source_label: String,
+        source_eye: String,
     }
 
     impl SurfaceTextureOesProbe {
@@ -1566,6 +1785,7 @@ void main() {
                 consumed_frame_available_counts: [0; VIEW_COUNT],
                 update_rate_start: Instant::now(),
                 last_report_sequence: 0,
+                projection_metadata: std::array::from_fn(|_| None),
             })
         }
 
@@ -1690,6 +1910,23 @@ void main() {
             Some(age_ns as f32 / 1_000_000.0)
         }
 
+        fn projection_plan_from_xr_views(&self, views: &[xr::View]) -> Option<OesProjectionPlan> {
+            let left = self.projection_metadata[0].as_ref()?;
+            let right = self.projection_metadata[1].as_ref()?;
+            let width = left.delivered_width.max(right.delivered_width);
+            let height = left.delivered_height.max(right.delivered_height);
+            if !left.projection_metadata_ready
+                || !right.projection_metadata_ready
+                || width == 0
+                || height == 0
+                || !left.is_synthetic()
+                || !right.is_synthetic()
+            {
+                return None;
+            }
+            broker_synthetic_projection_plan_from_xr_views(left, right, width, height, views)
+        }
+
         fn refresh_texture_update_rate(&mut self) {
             let elapsed = self.update_rate_start.elapsed().as_secs_f32();
             if elapsed <= 0.0 {
@@ -1725,20 +1962,20 @@ void main() {
                     self.status.codec_name = Some(decoder_name.to_string());
                 }
             }
-            if let Some(event) = report.get("event").and_then(|value| value.as_str()) {
-                if event == "frame_available"
-                    && self.status.state == SurfaceTextureOesIngestState::DecoderStarted
-                {
-                    self.status.state = SurfaceTextureOesIngestState::FrameAvailable;
-                }
+            let event_name = report
+                .get("event")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            if event_name == "frame_available"
+                && self.status.state == SurfaceTextureOesIngestState::DecoderStarted
+            {
+                self.status.state = SurfaceTextureOesIngestState::FrameAvailable;
             }
-            let Some(view_index) = report
-                .get("view_index")
-                .and_then(|value| value.as_u64())
-                .and_then(|value| usize::try_from(value).ok())
-            else {
+            let Some(view_index) = report_view_index(&report) else {
                 return;
             };
+            self.apply_projection_metadata_report(view_index, &report);
+            self.apply_cached_projection_metadata_reports();
             let Some(eye) = self.status.eyes.get_mut(view_index) else {
                 return;
             };
@@ -1764,6 +2001,216 @@ void main() {
             } else if let Some(error) = report.get("last_error").and_then(|value| value.as_str()) {
                 eye.latest_decoder_error = Some(error.to_string());
             }
+        }
+
+        fn apply_cached_projection_metadata_reports(&mut self) {
+            for report_json in oes_decode_callbacks()
+                .projection_metadata_report_snapshot()
+                .into_iter()
+                .flatten()
+            {
+                let Ok(report) = serde_json::from_str::<serde_json::Value>(&report_json) else {
+                    continue;
+                };
+                let Some(view_index) = report_view_index(&report) else {
+                    continue;
+                };
+                self.apply_projection_metadata_report(view_index, &report);
+            }
+        }
+
+        fn apply_projection_metadata_report(
+            &mut self,
+            view_index: usize,
+            report: &serde_json::Value,
+        ) {
+            if self
+                .projection_metadata
+                .get(view_index)
+                .and_then(|value| value.as_ref())
+                .is_some()
+            {
+                return;
+            }
+            let Some(metadata) = report
+                .get("header_projection_metadata")
+                .and_then(|metadata| OesProjectionMetadata::parse(metadata).ok())
+            else {
+                return;
+            };
+            log_info(format!(
+                "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={}",
+                view_index,
+                metadata.source,
+                metadata.camera_id,
+                metadata.projection_metadata_ready,
+                metadata.delivered_width,
+                metadata.delivered_height,
+                metadata.synthetic_pattern,
+            ));
+            if let Some(slot) = self.projection_metadata.get_mut(view_index) {
+                *slot = Some(metadata);
+            }
+        }
+    }
+
+    fn broker_synthetic_projection_plan_from_xr_views(
+        left_metadata: &OesProjectionMetadata,
+        right_metadata: &OesProjectionMetadata,
+        width: u32,
+        height: u32,
+        views: &[xr::View],
+    ) -> Option<OesProjectionPlan> {
+        let left_view = views.first()?;
+        let right_view = views.get(1)?;
+        let tracking = tracking_basis_from_xr_views(left_view, right_view)?;
+        let aspect = fov_aspect(left_view).unwrap_or(PROJECTION_SOURCE_ASPECT);
+        let surface = head_anchored_preview_surface_corners(
+            tracking,
+            PROJECTION_PREVIEW_FOV_Y_DEGREES,
+            PROJECTION_TARGET_DEPTH_METERS,
+            aspect,
+            PROJECTION_RAW_OVERSCAN,
+        )
+        .ok()?;
+        let intrinsics = synthetic_broker_intrinsics(width, height)?;
+        let camera_basis = CameraBasis::new(
+            tracking.origin,
+            tracking.right,
+            tracking.up,
+            tracking.forward,
+        )?;
+        let surface_to_camera =
+            surface_to_camera_uv_homography(surface, camera_basis, intrinsics).ok()?;
+        let left_eye_basis = eye_basis_from_xr_view(left_view)?;
+        let right_eye_basis = eye_basis_from_xr_view(right_view)?;
+        let left_surface_to_screen = surface_to_eye_screen_uv_homography(
+            surface,
+            left_eye_basis,
+            left_view.fov.angle_left.tan(),
+            left_view.fov.angle_right.tan(),
+            left_view.fov.angle_down.tan(),
+            left_view.fov.angle_up.tan(),
+        )
+        .ok()?;
+        let right_surface_to_screen = surface_to_eye_screen_uv_homography(
+            surface,
+            right_eye_basis,
+            right_view.fov.angle_left.tan(),
+            right_view.fov.angle_right.tan(),
+            right_view.fov.angle_down.tan(),
+            right_view.fov.angle_up.tan(),
+        )
+        .ok()?;
+        let left_screen_to_surface_h = invert_homography(left_surface_to_screen)?;
+        let right_screen_to_surface_h = invert_homography(right_surface_to_screen)?;
+        let left_screen_to_camera_h =
+            screen_to_camera_uv_homography(left_surface_to_screen, surface_to_camera).ok()?;
+        let right_screen_to_camera_h =
+            screen_to_camera_uv_homography(right_surface_to_screen, surface_to_camera).ok()?;
+        let left_source_label = projection_source_label(left_metadata, width, height);
+        let right_source_label = projection_source_label(right_metadata, width, height);
+
+        Some(OesProjectionPlan {
+            left: OesEyeProjection {
+                eye: Eye::Left,
+                screen_to_surface_h: left_screen_to_surface_h,
+                surface_to_camera_h: surface_to_camera,
+                screen_to_camera_h: left_screen_to_camera_h,
+                source_label: left_source_label,
+                source_eye: "left".to_string(),
+            },
+            right: OesEyeProjection {
+                eye: Eye::Right,
+                screen_to_surface_h: right_screen_to_surface_h,
+                surface_to_camera_h: surface_to_camera,
+                screen_to_camera_h: right_screen_to_camera_h,
+                source_label: right_source_label,
+                source_eye: "right".to_string(),
+            },
+        })
+    }
+
+    fn projection_source_label(
+        metadata: &OesProjectionMetadata,
+        width: u32,
+        height: u32,
+    ) -> String {
+        format!(
+            "{OES_PROJECTED_RENDER_PATH}:metadata=broker_stream_header:source={}:camera_id={}:pose_source={}:coordinate_convention={}:pattern={}:size={}x{}",
+            metadata.source,
+            metadata.camera_id,
+            metadata.pose_source,
+            metadata.pose_coordinate_convention,
+            metadata.synthetic_pattern,
+            width,
+            height
+        )
+    }
+
+    fn synthetic_broker_intrinsics(width: u32, height: u32) -> Option<CameraIntrinsics> {
+        let width_f = width as f32;
+        let height_f = height as f32;
+        if width_f <= 0.0 || height_f <= 0.0 {
+            return None;
+        }
+        let focal = height_f / (2.0 * (PROJECTION_PREVIEW_FOV_Y_DEGREES.to_radians() * 0.5).tan());
+        let intrinsics = CameraIntrinsics::new(
+            Vec2::new(focal, focal),
+            Vec2::new(width_f * 0.5, height_f * 0.5),
+            ImageSize::new(width, height),
+        );
+        intrinsics.is_valid().then_some(intrinsics)
+    }
+
+    fn eye_basis_from_xr_view(view: &xr::View) -> Option<CameraBasis> {
+        let orientation = Quat::new(
+            view.pose.orientation.x,
+            view.pose.orientation.y,
+            view.pose.orientation.z,
+            view.pose.orientation.w,
+        )
+        .normalized_or(Quat::IDENTITY);
+        CameraBasis::new(
+            Vec3::new(
+                view.pose.position.x,
+                view.pose.position.y,
+                view.pose.position.z,
+            ),
+            orientation.rotate_vec3(Vec3::RIGHT),
+            orientation.rotate_vec3(Vec3::UP),
+            orientation.rotate_vec3(Vec3::FORWARD_NEG_Z),
+        )
+    }
+
+    fn tracking_basis_from_xr_views(left: &xr::View, right: &xr::View) -> Option<TrackingBasis> {
+        let position = Vec3::new(
+            (left.pose.position.x + right.pose.position.x) * 0.5,
+            (left.pose.position.y + right.pose.position.y) * 0.5,
+            (left.pose.position.z + right.pose.position.z) * 0.5,
+        );
+        let orientation = Quat::new(
+            left.pose.orientation.x,
+            left.pose.orientation.y,
+            left.pose.orientation.z,
+            left.pose.orientation.w,
+        )
+        .normalized_or(Quat::IDENTITY);
+        TrackingBasis::new(
+            position,
+            orientation.rotate_vec3(Vec3::RIGHT),
+            orientation.rotate_vec3(Vec3::UP),
+            orientation.rotate_vec3(Vec3::FORWARD_NEG_Z),
+        )
+    }
+
+    fn fov_aspect(view: &xr::View) -> Option<f32> {
+        let width = view.fov.angle_right.tan() - view.fov.angle_left.tan();
+        let height = view.fov.angle_up.tan() - view.fov.angle_down.tan();
+        if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+            Some((width / height).clamp(0.25, 4.0))
+        } else {
+            None
         }
     }
 
@@ -1833,6 +2280,7 @@ void main() {
         frame_count: u64,
         source: &OesEyeTextureSample,
         frame_age_at_submit_ms: Option<f32>,
+        render_path: &str,
     ) {
         let payload = serde_json::json!({
             "schema": "rusty.xr.quest.openxr_gles_oes_submit.v1",
@@ -1844,7 +2292,7 @@ void main() {
             "transform_matrix_hash": source.transform_hash,
             "update_tex_image_count": source.update_tex_image_count,
             "frame_age_at_submit_ms": frame_age_at_submit_ms,
-            "render_path": OES_COPY_RENDER_PATH,
+            "render_path": render_path,
         });
         log_info(format!(
             "Rusty XR OpenXR GLES OES submit diagnostic {payload}"
@@ -2072,6 +2520,17 @@ void main() {
         }
     }
 
+    fn uniform_location(program: u32, name: &str) -> Result<c_int, String> {
+        let name_cstring =
+            CString::new(name).map_err(|error| format!("uniform name CString: {error}"))?;
+        let location = unsafe { glGetUniformLocation(program, name_cstring.as_ptr()) };
+        if location < 0 {
+            Err(format!("shader did not expose uniform {name}"))
+        } else {
+            Ok(location)
+        }
+    }
+
     fn shader_info_log(shader: u32) -> String {
         unsafe {
             let mut length = 0;
@@ -2120,21 +2579,54 @@ void main() {
         }
     }
 
-    fn log_projection_diagnostics(view_index: usize, frame_count: u64, source_sequence: u64) {
+    fn log_projection_diagnostics(
+        view_index: usize,
+        frame_count: u64,
+        source_sequence: u64,
+        projection: Option<&OesEyeProjection>,
+    ) {
         let Some(eye) = eye_from_view_index(view_index) else {
             return;
         };
         let identity = identity_homography();
-        for stage in [
-            ProjectionStageKind::ScreenToSurface,
-            ProjectionStageKind::SurfaceToCamera,
-            ProjectionStageKind::ScreenToCamera,
-        ] {
-            let row = ProjectionStageTokenRow::new("rusty_xr_gl_oes", eye, stage)
-                .with_rows(identity)
-                .with_source(format!(
+        let stage_rows = projection
+            .map(|projection| {
+                [
+                    (
+                        ProjectionStageKind::ScreenToSurface,
+                        projection.screen_to_surface_h,
+                    ),
+                    (
+                        ProjectionStageKind::SurfaceToCamera,
+                        projection.surface_to_camera_h,
+                    ),
+                    (
+                        ProjectionStageKind::ScreenToCamera,
+                        projection.screen_to_camera_h,
+                    ),
+                ]
+            })
+            .unwrap_or([
+                (ProjectionStageKind::ScreenToSurface, identity),
+                (ProjectionStageKind::SurfaceToCamera, identity),
+                (ProjectionStageKind::ScreenToCamera, identity),
+            ]);
+        let source_label = projection
+            .map(|projection| {
+                format!(
+                    "{}:source_eye={}:frame={frame_count}:source_sequence={source_sequence}",
+                    projection.source_label, projection.source_eye
+                )
+            })
+            .unwrap_or_else(|| {
+                format!(
                     "{OES_COPY_RENDER_PATH}:frame={frame_count}:source_sequence={source_sequence}"
-                ));
+                )
+            });
+        for (stage, rows) in stage_rows {
+            let row = ProjectionStageTokenRow::new("rusty_xr_gl_oes", eye, stage)
+                .with_rows(rows)
+                .with_source(source_label.clone());
             match serde_json::to_string(&row) {
                 Ok(json) => log_info(format!("Rusty XR OpenXR GLES projection stage row {json}")),
                 Err(error) => log_error(format!(
@@ -2143,7 +2635,9 @@ void main() {
             }
         }
 
-        let footprint =
+        let footprint = projection
+            .map(|projection| projected_footprint_summary(projection, frame_count, source_sequence))
+            .unwrap_or_else(|| {
             ProjectionFootprintSummary::new("rusty_xr_gl_oes", "public_raw_oes_full_surface")
                 .with_active_fraction(1.0)
                 .with_bbox_fraction([0.0, 0.0, 1.0, 1.0])
@@ -2155,7 +2649,8 @@ void main() {
                 .with_explicit_valid_mask(true)
                 .with_note(format!(
                     "Full-surface public raw OES copy into the OpenXR GLES swapchain at frame {frame_count}."
-                ));
+                ))
+            });
         match serde_json::to_string(&footprint) {
             Ok(json) => log_info(format!("Rusty XR OpenXR GLES projection footprint {json}")),
             Err(error) => log_error(format!(
@@ -2164,11 +2659,116 @@ void main() {
         }
     }
 
+    fn projected_footprint_summary(
+        projection: &OesEyeProjection,
+        frame_count: u64,
+        source_sequence: u64,
+    ) -> ProjectionFootprintSummary {
+        let (active_fraction, bbox_fraction) =
+            projection_valid_footprint(projection.screen_to_camera_h);
+        let mut footprint = ProjectionFootprintSummary::new(
+            "rusty_xr_gl_oes",
+            format!("public_projected_camera_uv_{}", eye_label(projection.eye)),
+        )
+        .with_active_fraction(active_fraction)
+        .with_bbox_fraction(bbox_fraction)
+        .with_invalid_fill_policy(InvalidProjectionFillPolicy::Black)
+        .with_guide_domain(ProjectionGuideDomain::ScreenCamera)
+        .with_explicit_valid_mask(false)
+        .with_note(format!(
+            "Metadata-derived camera-UV valid footprint from broker stream-header and OpenXR view state at frame {frame_count}, source sequence {source_sequence}."
+        ));
+
+        for row in [0.0_f32, 0.5, 1.0] {
+            footprint = if let Some((x0, x1)) =
+                row_span_for_valid_camera_uv(projection.screen_to_camera_h, row)
+            {
+                footprint.with_row_span(
+                    ProjectionFootprintRowSpan::new(row, (x1 - x0).max(0.0)).with_span(x0, x1),
+                )
+            } else {
+                footprint.with_row_span(ProjectionFootprintRowSpan::new(row, 0.0))
+            };
+        }
+        footprint
+    }
+
+    fn projection_valid_footprint(rows: [[f32; 3]; 3]) -> (f32, [f32; 4]) {
+        let mut valid_count = 0_usize;
+        let mut min_x = 1.0_f32;
+        let mut min_y = 1.0_f32;
+        let mut max_x = 0.0_f32;
+        let mut max_y = 0.0_f32;
+        let step = 1.0 / PROJECTION_FOOTPRINT_GRID as f32;
+        for iy in 0..PROJECTION_FOOTPRINT_GRID {
+            for ix in 0..PROJECTION_FOOTPRINT_GRID {
+                let x = (ix as f32 + 0.5) * step;
+                let y = (iy as f32 + 0.5) * step;
+                if screen_uv_maps_to_camera_uv(rows, x, y) {
+                    valid_count += 1;
+                    min_x = min_x.min((x - step * 0.5).clamp(0.0, 1.0));
+                    min_y = min_y.min((y - step * 0.5).clamp(0.0, 1.0));
+                    max_x = max_x.max((x + step * 0.5).clamp(0.0, 1.0));
+                    max_y = max_y.max((y + step * 0.5).clamp(0.0, 1.0));
+                }
+            }
+        }
+        let total = PROJECTION_FOOTPRINT_GRID * PROJECTION_FOOTPRINT_GRID;
+        if valid_count == 0 {
+            (0.0, [0.0, 0.0, 0.0, 0.0])
+        } else {
+            (
+                valid_count as f32 / total as f32,
+                [min_x, min_y, max_x, max_y],
+            )
+        }
+    }
+
+    fn row_span_for_valid_camera_uv(rows: [[f32; 3]; 3], row: f32) -> Option<(f32, f32)> {
+        const SAMPLE_COUNT: usize = 256;
+        let mut min_x = 1.0_f32;
+        let mut max_x = 0.0_f32;
+        let mut valid = false;
+        for index in 0..SAMPLE_COUNT {
+            let x = index as f32 / (SAMPLE_COUNT - 1) as f32;
+            if screen_uv_maps_to_camera_uv(rows, x, row) {
+                valid = true;
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+            }
+        }
+        valid.then_some((min_x, max_x))
+    }
+
+    fn screen_uv_maps_to_camera_uv(rows: [[f32; 3]; 3], x: f32, y: f32) -> bool {
+        apply_homography(rows, x, y)
+            .map(|(u, v)| (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v))
+            .unwrap_or(false)
+    }
+
+    fn apply_homography(rows: [[f32; 3]; 3], x: f32, y: f32) -> Option<(f32, f32)> {
+        let w = rows[2][0] * x + rows[2][1] * y + rows[2][2];
+        if !w.is_finite() || w.abs() <= 1.0e-6 {
+            return None;
+        }
+        let u = (rows[0][0] * x + rows[0][1] * y + rows[0][2]) / w;
+        let v = (rows[1][0] * x + rows[1][1] * y + rows[1][2]) / w;
+        (u.is_finite() && v.is_finite()).then_some((u, v))
+    }
+
     fn eye_from_view_index(view_index: usize) -> Option<Eye> {
         match view_index {
             0 => Some(Eye::Left),
             1 => Some(Eye::Right),
             _ => None,
+        }
+    }
+
+    fn eye_label(eye: Eye) -> &'static str {
+        match eye {
+            Eye::Left => "left",
+            Eye::Right => "right",
+            Eye::Mono => "mono",
         }
     }
 

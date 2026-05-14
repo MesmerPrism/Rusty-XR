@@ -384,6 +384,7 @@ public final class BrokerH264OesDecodeProbe {
             stats.declaredPacketCount = header.declaredPacketCount;
             stats.headerMetadataBytes = header.headerMetadataBytes;
             stats.headerProjectionMetadataAttached = header.headerProjectionMetadata != null;
+            stats.headerProjectionMetadata = header.headerProjectionMetadata;
             report("stream_header", stats, null);
 
             List<Packet> pendingPackets = new ArrayList<Packet>();
@@ -1017,6 +1018,7 @@ public final class BrokerH264OesDecodeProbe {
         int declaredPacketCount;
         int headerMetadataBytes;
         boolean headerProjectionMetadataAttached;
+        JSONObject headerProjectionMetadata;
         int packetCount;
         int codecConfigPacketCount;
         int keyFramePacketCount;
@@ -1069,6 +1071,21 @@ public final class BrokerH264OesDecodeProbe {
             report.put("declared_packet_count", declaredPacketCount);
             report.put("header_metadata_bytes", headerMetadataBytes);
             report.put("header_projection_metadata_attached", headerProjectionMetadataAttached);
+            if (headerProjectionMetadata != null) {
+                report.put(
+                    "header_projection_metadata_ready",
+                    headerProjectionMetadata.optBoolean("projectionMetadataReady", false));
+                report.put(
+                    "header_projection_metadata_source",
+                    headerProjectionMetadata.optString("source", ""));
+                report.put(
+                    "header_projection_metadata_camera_id",
+                    headerProjectionMetadata.optString("cameraId", ""));
+                report.put(
+                    "header_projection_metadata_synthetic_pattern",
+                    headerProjectionMetadata.optString("syntheticPattern", ""));
+                report.put("header_projection_metadata", headerProjectionMetadata);
+            }
             report.put("packet_count", packetCount);
             report.put("codec_config_packet_count", codecConfigPacketCount);
             report.put("key_frame_packet_count", keyFramePacketCount);
