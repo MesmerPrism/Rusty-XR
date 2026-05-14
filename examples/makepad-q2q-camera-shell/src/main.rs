@@ -6,7 +6,10 @@ mod acamera_sys;
 mod android_camera_probe;
 
 use makepad_widgets::makepad_platform::{
-    event::video_playback::{CameraPreviewMode, VideoSource, VideoYuvMetadata},
+    event::video_playback::{
+        BrokerH264VideoSource, CameraPreviewMode, TextureHandleReadyEvent, VideoSource,
+        VideoYuvMetadata,
+    },
     permission::Permission,
     thread::SignalToUI,
     video::{VideoFormat, VideoInputsEvent, VideoPixelFormat},
@@ -17,6 +20,7 @@ use makepad_xr::scene::{xr_widget_world_transform, XrNode};
 #[cfg(target_os = "android")]
 use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
+use serde_json::Value as JsonValue;
 use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     thread,
@@ -43,6 +47,22 @@ const DEFAULT_ACQUISITION_PROFILE: &str =
     "bounded-camera2-private-plus-makepad-paired-import-probe";
 const DEFAULT_PROJECTION_SCALE: f64 = 0.75;
 const DEFAULT_XR_RENDER_SCALE: f64 = 0.75;
+const DEFAULT_BROKER_H264_ENABLED: bool = false;
+const DEFAULT_BROKER_H264_HOST: &str = "127.0.0.1";
+const DEFAULT_BROKER_H264_BROKER_PORT: u16 = 8765;
+const DEFAULT_BROKER_H264_STREAM_PORT: u16 = 8879;
+const DEFAULT_BROKER_H264_RIGHT_STREAM_PORT: u16 = 8880;
+const DEFAULT_BROKER_H264_SOURCE_MODE: &str = "broker-synthetic";
+const DEFAULT_BROKER_H264_SYNTHETIC_PATTERN: &str = "diagnostic-grid";
+const DEFAULT_BROKER_H264_WIDTH: u32 = 1280;
+const DEFAULT_BROKER_H264_HEIGHT: u32 = 1280;
+const DEFAULT_BROKER_H264_CAPTURE_MS: u32 = 45_000;
+const DEFAULT_BROKER_H264_MAX_PACKETS: u32 = 0;
+const DEFAULT_BROKER_H264_BITRATE_BPS: u32 = 6_000_000;
+const DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS: u32 = 10_000;
+const DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS: u32 = 30_000;
+const DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS: u32 = 20_000;
+const DEFAULT_BROKER_H264_LIVE_STREAM: bool = true;
 const SUPPRESS_LIVE_CAMERA_SAMPLING: bool = false;
 const FORCE_FULL_SURFACE_LIVE_CAMERA_UV: bool = false;
 const FORCE_IN_SURFACE_CAMERA_WINDOW: bool = true;
@@ -69,7 +89,7 @@ const TARGET_PROJECTION_RAW_OVERSCAN: f32 = 1.06;
 const IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY: [[f32; 3]; 3] =
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
-const MAKEPAD_REV: &str = "cba9eece";
+const MAKEPAD_REV: &str = "99a7e643";
 const DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-right-source";
 const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
@@ -115,6 +135,22 @@ const KEY_MAKEPAD_PROJECTION_AREA_SCALE_X: &str = "makepad_projection_area_scale
 const KEY_MAKEPAD_PROJECTION_AREA_SCALE_Y: &str = "makepad_projection_area_scale_y";
 const KEY_MAKEPAD_PROJECTION_AREA_KEYSTONE_X: &str = "makepad_projection_area_keystone_x";
 const KEY_MAKEPAD_PROJECTION_AREA_BOW_X: &str = "makepad_projection_area_bow_x";
+const KEY_MAKEPAD_BROKER_H264_ENABLED: &str = "makepad_broker_h264_enabled";
+const KEY_MAKEPAD_BROKER_H264_HOST: &str = "makepad_broker_h264_host";
+const KEY_MAKEPAD_BROKER_H264_BROKER_PORT: &str = "makepad_broker_h264_broker_port";
+const KEY_MAKEPAD_BROKER_H264_STREAM_PORT: &str = "makepad_broker_h264_stream_port";
+const KEY_MAKEPAD_BROKER_H264_RIGHT_STREAM_PORT: &str = "makepad_broker_h264_right_stream_port";
+const KEY_MAKEPAD_BROKER_H264_SOURCE_MODE: &str = "makepad_broker_h264_source_mode";
+const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN: &str = "makepad_broker_h264_synthetic_pattern";
+const KEY_MAKEPAD_BROKER_H264_WIDTH: &str = "makepad_broker_h264_width";
+const KEY_MAKEPAD_BROKER_H264_HEIGHT: &str = "makepad_broker_h264_height";
+const KEY_MAKEPAD_BROKER_H264_CAPTURE_MS: &str = "makepad_broker_h264_capture_ms";
+const KEY_MAKEPAD_BROKER_H264_MAX_PACKETS: &str = "makepad_broker_h264_max_packets";
+const KEY_MAKEPAD_BROKER_H264_BITRATE_BPS: &str = "makepad_broker_h264_bitrate_bps";
+const KEY_MAKEPAD_BROKER_H264_COMMAND_TIMEOUT_MS: &str = "makepad_broker_h264_command_timeout_ms";
+const KEY_MAKEPAD_BROKER_H264_STREAM_TIMEOUT_MS: &str = "makepad_broker_h264_stream_timeout_ms";
+const KEY_MAKEPAD_BROKER_H264_DECODE_TIMEOUT_MS: &str = "makepad_broker_h264_decode_timeout_ms";
+const KEY_MAKEPAD_BROKER_H264_LIVE_STREAM: &str = "makepad_broker_h264_live_stream";
 
 script_mod! {
     use mod.pod.*
@@ -660,7 +696,11 @@ script_mod! {
                 let y_val = mix(left_y, right_y, eye_selector);
                 let u_val = mix(left_u, right_u, eye_selector);
                 let v_val = mix(left_v, right_v, eye_selector);
-                let camera_rgb = self.yuv_to_rgb_limited_601(y_val, u_val, v_val);
+                let yuv_rgb = self.yuv_to_rgb_limited_601(y_val, u_val, v_val);
+                let left_external_rgb = self.left_camera_texture.sample_video(window_sample_uv).xyz;
+                let right_external_rgb = self.right_camera_texture.sample_video(window_sample_uv).xyz;
+                let external_rgb = mix(left_external_rgb, right_external_rgb, eye_selector);
+                let camera_rgb = mix(external_rgb, yuv_rgb, self.yuv_mode);
                 let matte = vec3(0.0, 0.0, 0.0);
                 let camera_window_valid = projection_valid;
                 let window_rgb = mix(matte, camera_rgb, camera_window_valid);
@@ -680,9 +720,12 @@ script_mod! {
             let y_val = mix(left_y, right_y, eye_selector);
             let u_val = mix(left_u, right_u, eye_selector);
             let v_val = mix(left_v, right_v, eye_selector);
+            let yuv_rgb = self.yuv_to_rgb_limited_601(y_val, u_val, v_val);
+            let left_external_rgb = self.left_camera_texture.sample_video(live_sample_uv).xyz;
+            let right_external_rgb = self.right_camera_texture.sample_video(live_sample_uv).xyz;
+            let external_rgb = mix(left_external_rgb, right_external_rgb, eye_selector);
             let direct_rgb =
-                self.yuv_to_rgb_limited_601(y_val, u_val, v_val) *
-                mix(0.12, 1.0, live_projection_valid);
+                mix(external_rgb, yuv_rgb, self.yuv_mode) * mix(0.12, 1.0, live_projection_valid);
             let guided_direct = mix(direct_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
             return vec4(guided_direct.x, guided_direct.y, guided_direct.z, 1.0);
 
@@ -834,6 +877,17 @@ pub struct App {
     paired_import_selection_logged: bool,
     #[rust]
     paired_import_started: bool,
+    #[rust]
+    broker_h264_left_playback_requested: bool,
+    #[rust]
+    broker_h264_right_playback_requested: bool,
+    #[rust]
+    broker_h264_left_projection_metadata: Option<BrokerH264ProjectionMetadata>,
+    #[rust]
+    broker_h264_right_projection_metadata: Option<BrokerH264ProjectionMetadata>,
+    #[rust]
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    broker_h264_projection_plan_logged: bool,
     #[rust]
     native_video_widget_started: bool,
     #[rust]
@@ -1410,12 +1464,16 @@ impl MakepadStereoCameraPanel {
         self.draw_panel
             .draw_vars
             .set_uniform_on_area(cx, live_id!(camera_ready), &[1.0]);
-        self.draw_panel
-            .draw_vars
-            .set_instance_on_area(cx, live_id!(yuv_mode), &[1.0]);
-        self.draw_panel
-            .draw_vars
-            .set_uniform_on_area(cx, live_id!(yuv_mode), &[1.0]);
+        self.draw_panel.draw_vars.set_instance_on_area(
+            cx,
+            live_id!(yuv_mode),
+            &[self.draw_panel.yuv_mode],
+        );
+        self.draw_panel.draw_vars.set_uniform_on_area(
+            cx,
+            live_id!(yuv_mode),
+            &[self.draw_panel.yuv_mode],
+        );
         self.draw_panel
             .draw_vars
             .set_instance_on_area(cx, live_id!(proof_tint_strength), &[0.0]);
@@ -2074,6 +2132,110 @@ impl App {
         config
     }
 
+    fn broker_h264_enabled() -> bool {
+        let transport_requests_broker = std::env::var("RUSTY_XR_TRANSPORT_PROFILE")
+            .map(|value| value.to_ascii_lowercase().contains("broker-h264"))
+            .unwrap_or(false);
+        hotload_bool(
+            KEY_MAKEPAD_BROKER_H264_ENABLED,
+            DEFAULT_BROKER_H264_ENABLED || transport_requests_broker,
+        )
+    }
+
+    fn broker_h264_stream_port(eye: StereoEye) -> u16 {
+        match eye {
+            StereoEye::Left => hotload_u16(
+                KEY_MAKEPAD_BROKER_H264_STREAM_PORT,
+                DEFAULT_BROKER_H264_STREAM_PORT,
+                1,
+                u16::MAX,
+            ),
+            StereoEye::Right => hotload_u16(
+                KEY_MAKEPAD_BROKER_H264_RIGHT_STREAM_PORT,
+                DEFAULT_BROKER_H264_RIGHT_STREAM_PORT,
+                1,
+                u16::MAX,
+            ),
+        }
+    }
+
+    fn broker_h264_source_for_eye(eye: StereoEye) -> BrokerH264VideoSource {
+        BrokerH264VideoSource {
+            broker_host: hotload_text(KEY_MAKEPAD_BROKER_H264_HOST, DEFAULT_BROKER_H264_HOST),
+            broker_port: hotload_u16(
+                KEY_MAKEPAD_BROKER_H264_BROKER_PORT,
+                DEFAULT_BROKER_H264_BROKER_PORT,
+                1,
+                u16::MAX,
+            ),
+            stream_port: Self::broker_h264_stream_port(eye),
+            source_mode: hotload_text(
+                KEY_MAKEPAD_BROKER_H264_SOURCE_MODE,
+                DEFAULT_BROKER_H264_SOURCE_MODE,
+            ),
+            synthetic_pattern: hotload_text(
+                KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN,
+                DEFAULT_BROKER_H264_SYNTHETIC_PATTERN,
+            ),
+            preferred_width: hotload_u32(
+                KEY_MAKEPAD_BROKER_H264_WIDTH,
+                DEFAULT_BROKER_H264_WIDTH,
+                16,
+                4096,
+            ),
+            preferred_height: hotload_u32(
+                KEY_MAKEPAD_BROKER_H264_HEIGHT,
+                DEFAULT_BROKER_H264_HEIGHT,
+                16,
+                4096,
+            ),
+            capture_ms: hotload_u32(
+                KEY_MAKEPAD_BROKER_H264_CAPTURE_MS,
+                DEFAULT_BROKER_H264_CAPTURE_MS,
+                0,
+                120_000,
+            ),
+            max_packets: hotload_u32(
+                KEY_MAKEPAD_BROKER_H264_MAX_PACKETS,
+                DEFAULT_BROKER_H264_MAX_PACKETS,
+                0,
+                2400,
+            ),
+            bitrate_bps: hotload_u32(
+                KEY_MAKEPAD_BROKER_H264_BITRATE_BPS,
+                DEFAULT_BROKER_H264_BITRATE_BPS,
+                100_000,
+                20_000_000,
+            ),
+            command_timeout_ms: hotload_u32(
+                KEY_MAKEPAD_BROKER_H264_COMMAND_TIMEOUT_MS,
+                DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS,
+                500,
+                60_000,
+            ),
+            stream_timeout_ms: hotload_u32(
+                KEY_MAKEPAD_BROKER_H264_STREAM_TIMEOUT_MS,
+                DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS,
+                500,
+                120_000,
+            ),
+            decode_timeout_ms: hotload_u32(
+                KEY_MAKEPAD_BROKER_H264_DECODE_TIMEOUT_MS,
+                DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS,
+                500,
+                60_000,
+            ),
+            live_stream: hotload_bool(
+                KEY_MAKEPAD_BROKER_H264_LIVE_STREAM,
+                DEFAULT_BROKER_H264_LIVE_STREAM,
+            ),
+        }
+    }
+
+    fn broker_h264_source() -> BrokerH264VideoSource {
+        Self::broker_h264_source_for_eye(StereoEye::Left)
+    }
+
     fn emit_hardware_buffer_import_marker(body: &str) {
         emit_marker_line(&format!(
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 {}",
@@ -2108,49 +2270,136 @@ impl App {
         let state = update.state.as_ref();
         let left = state.left_eye_view;
         let right = state.right_eye_view;
-        let updated = android_camera_probe::update_stereo_projection_from_xr_views(
-            android_camera_probe::XrDisplayViews {
-                left: android_camera_probe::XrDisplayEyeView {
-                    position: [
-                        left.pose.position.x,
-                        left.pose.position.y,
-                        left.pose.position.z,
-                    ],
-                    orientation: [
-                        left.pose.orientation.x,
-                        left.pose.orientation.y,
-                        left.pose.orientation.z,
-                        left.pose.orientation.w,
-                    ],
-                    angle_left: left.fov.angle_left,
-                    angle_right: left.fov.angle_right,
-                    angle_up: left.fov.angle_up,
-                    angle_down: left.fov.angle_down,
-                    valid: left.valid,
-                },
-                right: android_camera_probe::XrDisplayEyeView {
-                    position: [
-                        right.pose.position.x,
-                        right.pose.position.y,
-                        right.pose.position.z,
-                    ],
-                    orientation: [
-                        right.pose.orientation.x,
-                        right.pose.orientation.y,
-                        right.pose.orientation.z,
-                        right.pose.orientation.w,
-                    ],
-                    angle_left: right.fov.angle_left,
-                    angle_right: right.fov.angle_right,
-                    angle_up: right.fov.angle_up,
-                    angle_down: right.fov.angle_down,
-                    valid: right.valid,
-                },
+        let views = android_camera_probe::XrDisplayViews {
+            left: android_camera_probe::XrDisplayEyeView {
+                position: [
+                    left.pose.position.x,
+                    left.pose.position.y,
+                    left.pose.position.z,
+                ],
+                orientation: [
+                    left.pose.orientation.x,
+                    left.pose.orientation.y,
+                    left.pose.orientation.z,
+                    left.pose.orientation.w,
+                ],
+                angle_left: left.fov.angle_left,
+                angle_right: left.fov.angle_right,
+                angle_up: left.fov.angle_up,
+                angle_down: left.fov.angle_down,
+                valid: left.valid,
             },
-        );
+            right: android_camera_probe::XrDisplayEyeView {
+                position: [
+                    right.pose.position.x,
+                    right.pose.position.y,
+                    right.pose.position.z,
+                ],
+                orientation: [
+                    right.pose.orientation.x,
+                    right.pose.orientation.y,
+                    right.pose.orientation.z,
+                    right.pose.orientation.w,
+                ],
+                angle_left: right.fov.angle_left,
+                angle_right: right.fov.angle_right,
+                angle_up: right.fov.angle_up,
+                angle_down: right.fov.angle_down,
+                valid: right.valid,
+            },
+        };
+        let updated = if Self::broker_h264_enabled() {
+            self.refresh_broker_h264_projection_plan(views)
+        } else {
+            android_camera_probe::update_stereo_projection_from_xr_views(views)
+        };
         if updated {
             self.refresh_paired_import_projection_plan();
         }
+    }
+
+    #[cfg(target_os = "android")]
+    fn refresh_broker_h264_projection_plan(
+        &mut self,
+        views: android_camera_probe::XrDisplayViews,
+    ) -> bool {
+        let (Some(left_metadata), Some(right_metadata)) = (
+            self.broker_h264_left_projection_metadata.as_ref(),
+            self.broker_h264_right_projection_metadata.as_ref(),
+        ) else {
+            return false;
+        };
+        let Some(pair) = self.paired_import_choice.as_mut() else {
+            return false;
+        };
+        let Some((left_width, left_height)) =
+            left_metadata.ready_size(pair.left.width, pair.left.height)
+        else {
+            return false;
+        };
+        let Some((right_width, right_height)) =
+            right_metadata.ready_size(pair.right.width, pair.right.height)
+        else {
+            return false;
+        };
+        if left_width != right_width || left_height != right_height {
+            return false;
+        }
+        let Some(plan) = android_camera_probe::broker_synthetic_projection_plan_from_xr_views(
+            &left_metadata.camera_id,
+            &right_metadata.camera_id,
+            left_width,
+            left_height,
+            views,
+        ) else {
+            return false;
+        };
+
+        pair.left.camera_id = Some(plan.left_camera_id.clone());
+        pair.right.camera_id = Some(plan.right_camera_id.clone());
+        pair.left.width = plan.width as usize;
+        pair.left.height = plan.height as usize;
+        pair.right.width = plan.width as usize;
+        pair.right.height = plan.height as usize;
+        pair.projection_metadata_ready =
+            left_metadata.projection_metadata_ready && right_metadata.projection_metadata_ready;
+        pair.pose_source = broker_pair_pose_source(left_metadata, right_metadata);
+        pair.source_eye_mapping = plan.source_eye_mapping.to_string();
+        pair.source_binding_mode = "broker-h264-stream-header".to_string();
+        pair.coordinate_chain = plan.coordinate_chain.to_string();
+        pair.fallback_reason = plan.fallback_reason.to_string();
+        pair.left_surface_to_camera_h = plan.left_surface_to_camera_h;
+        pair.right_surface_to_camera_h = plan.right_surface_to_camera_h;
+        pair.left_screen_to_camera_h = plan.left_screen_to_camera_h;
+        pair.right_screen_to_camera_h = plan.right_screen_to_camera_h;
+        pair.left_screen_to_surface_h = plan.left_screen_to_surface_h;
+        pair.right_screen_to_surface_h = plan.right_screen_to_surface_h;
+        pair.projection_homography_ready = plan.projection_homography_ready;
+        pair.runtime_xr_view_state_ready = plan.runtime_xr_view_state_ready;
+        if !self.broker_h264_projection_plan_logged {
+            self.broker_h264_projection_plan_logged = true;
+            Self::emit_stereo_projection_marker(&format!(
+                "phase=broker-h264-projection-plan status=ok projectionMetadataReady={} runtimeXrViewStateReady={} poseSource={} poseCoordinateConvention={} sourceEyeMapping={} coordinateChain={} leftCameraId={} rightCameraId={} width={} height={} leftMetadataBytes={} rightMetadataBytes={} leftMetadataSource={} rightMetadataSource={} leftSyntheticPattern={} rightSyntheticPattern={} {}",
+                pair.projection_metadata_ready,
+                pair.runtime_xr_view_state_ready,
+                marker_token(&pair.pose_source),
+                marker_token(&left_metadata.pose_coordinate_convention),
+                marker_token(&pair.source_eye_mapping),
+                marker_token(&pair.coordinate_chain),
+                marker_token(&plan.left_camera_id),
+                marker_token(&plan.right_camera_id),
+                plan.width,
+                plan.height,
+                left_metadata.metadata_bytes,
+                right_metadata.metadata_bytes,
+                marker_token(&left_metadata.source),
+                marker_token(&right_metadata.source),
+                marker_token(&left_metadata.synthetic_pattern),
+                marker_token(&right_metadata.synthetic_pattern),
+                projection_homography_marker_fields(pair),
+            ));
+        }
+        true
     }
 
     #[cfg(target_os = "android")]
@@ -2545,14 +2794,127 @@ impl App {
         ));
     }
 
+    fn handle_broker_h264_projection_metadata(&mut self, video_id: LiveId, metadata_json: &str) {
+        emit_raw_video_event_marker("metadata", video_id);
+        if !Self::broker_h264_enabled() {
+            return;
+        }
+        let Some(side) = StereoEye::from_video_id(video_id) else {
+            Self::emit_hardware_buffer_import_marker(&format!(
+                "phase=stream-header-metadata status=ignored side=unknown videoId={} reason=unexpected_video_id importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+                video_id.0,
+            ));
+            return;
+        };
+        match BrokerH264ProjectionMetadata::parse(metadata_json) {
+            Ok(metadata) => {
+                match side {
+                    StereoEye::Left => {
+                        self.broker_h264_left_projection_metadata = Some(metadata.clone())
+                    }
+                    StereoEye::Right => {
+                        self.broker_h264_right_projection_metadata = Some(metadata.clone())
+                    }
+                }
+                if let Some(pair) = self.paired_import_choice.as_mut() {
+                    match side {
+                        StereoEye::Left => {
+                            pair.left.camera_id = Some(metadata.camera_id.clone());
+                            if metadata.delivered_width > 0 {
+                                pair.left.width = metadata.delivered_width as usize;
+                            }
+                            if metadata.delivered_height > 0 {
+                                pair.left.height = metadata.delivered_height as usize;
+                            }
+                        }
+                        StereoEye::Right => {
+                            pair.right.camera_id = Some(metadata.camera_id.clone());
+                            if metadata.delivered_width > 0 {
+                                pair.right.width = metadata.delivered_width as usize;
+                            }
+                            if metadata.delivered_height > 0 {
+                                pair.right.height = metadata.delivered_height as usize;
+                            }
+                        }
+                    }
+                    pair.projection_metadata_ready = self
+                        .broker_h264_left_projection_metadata
+                        .as_ref()
+                        .is_some_and(|metadata| metadata.projection_metadata_ready)
+                        && self
+                            .broker_h264_right_projection_metadata
+                            .as_ref()
+                            .is_some_and(|metadata| metadata.projection_metadata_ready);
+                    pair.pose_source = match (
+                        self.broker_h264_left_projection_metadata.as_ref(),
+                        self.broker_h264_right_projection_metadata.as_ref(),
+                    ) {
+                        (Some(left), Some(right)) => broker_pair_pose_source(left, right),
+                        _ => metadata.pose_source.clone(),
+                    };
+                    pair.source_binding_mode = "broker-h264-stream-header".to_string();
+                    pair.coordinate_chain =
+                        "broker-h264-stream-header-to-runtime-openxr-view".to_string();
+                    pair.fallback_reason = if pair.projection_metadata_ready {
+                        "waiting_for_runtime_xr_view_projection".to_string()
+                    } else {
+                        "broker_stream_metadata_not_projection_ready".to_string()
+                    };
+                }
+                Self::emit_hardware_buffer_import_marker(&format!(
+                    "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} syntheticPattern={} deliveredWidth={} deliveredHeight={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+                    side.label(),
+                    metadata.metadata_bytes,
+                    marker_token(&metadata.camera_id),
+                    metadata.projection_metadata_ready,
+                    marker_token(&metadata.pose_source),
+                    marker_token(&metadata.pose_coordinate_convention),
+                    marker_token(&metadata.source),
+                    marker_token(&metadata.synthetic_pattern),
+                    metadata.delivered_width,
+                    metadata.delivered_height,
+                ));
+            }
+            Err(error) => {
+                Self::emit_hardware_buffer_import_marker(&format!(
+                    "phase=stream-header-metadata status=error side={} metadataBytes={} error={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+                    side.label(),
+                    metadata_json.len(),
+                    marker_token(&error),
+                ));
+            }
+        }
+    }
+
     fn handle_paired_import_event(&mut self, cx: &mut Cx, event: &Event) {
         match event {
             Event::Startup => {
-                cx.request_permission(Permission::Camera);
-                cx.request_permission(Permission::HeadsetCamera);
+                if Self::broker_h264_enabled() {
+                    let source = Self::broker_h264_source();
+                    self.paired_import_choice =
+                        Some(MakepadCameraPair::from_broker_h264_source(&source));
+                    Self::emit_hardware_buffer_import_marker(&format!(
+                        "phase=startup status=broker-h264-enabled brokerHost={} brokerPort={} leftStreamPort={} rightStreamPort={} sourceMode={} syntheticPattern={} preferredWidth={} preferredHeight={} liveStream={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+                        marker_token(&source.broker_host),
+                        source.broker_port,
+                        source.stream_port,
+                        Self::broker_h264_stream_port(StereoEye::Right),
+                        marker_token(&source.source_mode),
+                        marker_token(&source.synthetic_pattern),
+                        source.preferred_width,
+                        source.preferred_height,
+                        source.live_stream,
+                    ));
+                } else {
+                    cx.request_permission(Permission::Camera);
+                    cx.request_permission(Permission::HeadsetCamera);
+                }
                 self.arm_paired_import_timer(cx, PAIRED_IMPORT_DELAY_SECONDS, "startup");
             }
             Event::VideoInputs(inputs) => {
+                if Self::broker_h264_enabled() {
+                    return;
+                }
                 self.paired_import_choice = Self::pick_makepad_camera_pair(inputs);
                 if !self.paired_import_selection_logged {
                     self.paired_import_selection_logged = true;
@@ -2565,9 +2927,35 @@ impl App {
                     self.arm_paired_import_timer(cx, PAIRED_IMPORT_DELAY_SECONDS, "video-inputs");
                 }
             }
+            Event::TextureHandleReady(ready) => {
+                self.maybe_prepare_broker_h264_import(cx, ready);
+            }
             Event::VideoYuvTexturesReady(ready) => {
                 emit_raw_video_event_marker("yuv-textures-ready", ready.video_id);
                 if let Some(side) = StereoEye::from_video_id(ready.video_id) {
+                    if Self::broker_h264_enabled() {
+                        let textures = MakepadCameraYuvTextures::new(
+                            ready.tex_y.clone(),
+                            ready.tex_u.clone(),
+                            ready.tex_v.clone(),
+                        );
+                        match side {
+                            StereoEye::Left => {
+                                self.paired_import_left_yuv_textures = Some(textures)
+                            }
+                            StereoEye::Right => {
+                                self.paired_import_right_yuv_textures = Some(textures)
+                            }
+                        }
+                        self.camera_projection_textures_bound = false;
+                        self.camera_projection_paired_textures_bound = false;
+                        Self::emit_hardware_buffer_import_marker(&format!(
+                            "phase=yuv-textures-ready status=ok side={} textureMode=cpu-yuv-decoded-broker-h264 importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+                            side.label(),
+                        ));
+                        self.bind_camera_projection_panel(cx);
+                        return;
+                    }
                     let textures = MakepadCameraYuvTextures::new(
                         ready.tex_y.clone(),
                         ready.tex_u.clone(),
@@ -2583,6 +2971,13 @@ impl App {
                     ));
                 }
             }
+            Event::VideoPlaybackMetadata(metadata) => {
+                self.handle_broker_h264_projection_metadata(
+                    metadata.video_id,
+                    &metadata.metadata_json,
+                );
+                self.emit_paired_projection_progress("stream-header-metadata");
+            }
             Event::VideoPlaybackPrepared(prepared) => {
                 emit_raw_video_event_marker("prepared", prepared.video_id);
                 if let Some(side) = StereoEye::from_video_id(prepared.video_id) {
@@ -2591,10 +2986,25 @@ impl App {
                         StereoEye::Right => self.paired_import_right_prepared = true,
                     }
                     Self::emit_hardware_buffer_import_marker(&format!(
-                        "phase=prepared status=ok side={} width={} height={} importPath=makepad-android-camera-yuv-plane-cpu-proof textureMode=yuv-plane importPlan=single-stream-yuv-proof",
+                        "phase=prepared status=ok side={} width={} height={} importPath={} textureMode={} importPlan={}",
                         side.label(),
                         prepared.video_width,
                         prepared.video_height,
+                        if Self::broker_h264_enabled() {
+                            "broker-h264-mediacodec-cpu-yuv"
+                        } else {
+                            "makepad-android-camera-yuv-plane-cpu-proof"
+                        },
+                        if Self::broker_h264_enabled() {
+                            "cpu-yuv"
+                        } else {
+                            "yuv-plane"
+                        },
+                        if Self::broker_h264_enabled() {
+                            "broker-h264-stereo-mediacodec-yuv-texture"
+                        } else {
+                            "single-stream-yuv-proof"
+                        },
                     ));
                     self.emit_paired_projection_progress("prepared");
                 }
@@ -2603,7 +3013,9 @@ impl App {
                 emit_raw_video_event_marker("texture-updated", updated.video_id);
                 if let Some(side) = StereoEye::from_video_id(updated.video_id) {
                     self.record_camera_texture_update(side, updated.current_position_ms);
-                    self.emit_yuv_texture_content_probe(cx, side, updated.yuv);
+                    if !Self::broker_h264_enabled() {
+                        self.emit_yuv_texture_content_probe(cx, side, updated.yuv);
+                    }
                     if self.paired_import_finished {
                         self.bind_camera_projection_panel(cx);
                         return;
@@ -2622,11 +3034,21 @@ impl App {
                         < TEXTURE_UPDATE_MARKER_LIMIT
                     {
                         Self::emit_hardware_buffer_import_marker(&format!(
-                            "phase=texture-updated status=ok side={} makepadVulkanImport=false yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} importPlan=single-stream-yuv-proof cpuUploadPath=makepad-camera-cpu-yuv-plane",
+                            "phase=texture-updated status=ok side={} makepadVulkanImport=false yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} importPlan={} cpuUploadPath={}",
                             side.label(),
                             updated.yuv.enabled,
                             updated.yuv.biplanar,
                             updated.yuv.rotation_steps,
+                            if Self::broker_h264_enabled() {
+                                "broker-h264-stereo-mediacodec-yuv-texture"
+                            } else {
+                                "single-stream-yuv-proof"
+                            },
+                            if Self::broker_h264_enabled() {
+                                "broker-h264-mediacodec-cpu-yuv"
+                            } else {
+                                "makepad-camera-cpu-yuv-plane"
+                            },
                         ));
                     }
                     self.complete_paired_import_if_ready(cx);
@@ -2693,9 +3115,113 @@ impl App {
         }
     }
 
+    fn maybe_prepare_broker_h264_import(&mut self, cx: &mut Cx, ready: &TextureHandleReadyEvent) {
+        if !Self::broker_h264_enabled() {
+            return;
+        }
+
+        let left_texture_id = self
+            .paired_import_left_texture
+            .as_ref()
+            .map(Texture::texture_id);
+        let right_texture_id = self
+            .paired_import_right_texture
+            .as_ref()
+            .map(Texture::texture_id);
+        let side = if Some(ready.texture_id) == left_texture_id {
+            StereoEye::Left
+        } else if Some(ready.texture_id) == right_texture_id {
+            StereoEye::Right
+        } else {
+            return;
+        };
+
+        let already_requested = match side {
+            StereoEye::Left => self.broker_h264_left_playback_requested,
+            StereoEye::Right => self.broker_h264_right_playback_requested,
+        };
+        if already_requested {
+            return;
+        }
+
+        let source = Self::broker_h264_source_for_eye(side);
+        match side {
+            StereoEye::Left => self.broker_h264_left_playback_requested = true,
+            StereoEye::Right => self.broker_h264_right_playback_requested = true,
+        }
+        Self::emit_hardware_buffer_import_marker(&format!(
+            "phase=texture-handle-ready status=ok side={} textureHandle={} textureMode=external-oes brokerHost={} brokerPort={} streamPort={} sourceMode={} syntheticPattern={} liveStream={} importPlan=broker-h264-stereo-surface-texture",
+            side.label(),
+            ready.handle,
+            marker_token(&source.broker_host),
+            source.broker_port,
+            source.stream_port,
+            marker_token(&source.source_mode),
+            marker_token(&source.synthetic_pattern),
+            source.live_stream,
+        ));
+        cx.prepare_video_playback(
+            side.video_id(),
+            VideoSource::BrokerH264(source),
+            CameraPreviewMode::Texture,
+            ready.handle,
+            ready.texture_id,
+            true,
+            false,
+        );
+    }
+
+    fn request_broker_h264_cpu_yuv_import(
+        &mut self,
+        cx: &mut Cx,
+        side: StereoEye,
+        texture_id: TextureId,
+    ) {
+        if !Self::broker_h264_enabled() {
+            return;
+        }
+        let already_requested = match side {
+            StereoEye::Left => self.broker_h264_left_playback_requested,
+            StereoEye::Right => self.broker_h264_right_playback_requested,
+        };
+        if already_requested {
+            return;
+        }
+
+        let source = Self::broker_h264_source_for_eye(side);
+        match side {
+            StereoEye::Left => self.broker_h264_left_playback_requested = true,
+            StereoEye::Right => self.broker_h264_right_playback_requested = true,
+        }
+        Self::emit_hardware_buffer_import_marker(&format!(
+            "phase=broker-h264-prepare-request status=sent side={} textureHandle=0 textureMode=cpu-yuv brokerHost={} brokerPort={} streamPort={} sourceMode={} syntheticPattern={} liveStream={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+            side.label(),
+            marker_token(&source.broker_host),
+            source.broker_port,
+            source.stream_port,
+            marker_token(&source.source_mode),
+            marker_token(&source.synthetic_pattern),
+            source.live_stream,
+        ));
+        cx.prepare_video_playback(
+            side.video_id(),
+            VideoSource::BrokerH264(source),
+            CameraPreviewMode::Texture,
+            0,
+            texture_id,
+            true,
+            false,
+        );
+    }
+
     fn try_start_paired_import(&mut self, cx: &mut Cx) {
         if self.paired_import_started || self.paired_import_finished {
             return;
+        }
+
+        if Self::broker_h264_enabled() && self.paired_import_choice.is_none() {
+            let source = Self::broker_h264_source();
+            self.paired_import_choice = Some(MakepadCameraPair::from_broker_h264_source(&source));
         }
 
         let Some(pair) = self.paired_import_choice.clone() else {
@@ -2724,8 +3250,14 @@ impl App {
         self.paired_import_right_texture = Some(right_texture);
         self.paired_import_started = true;
 
+        let broker_h264_enabled = Self::broker_h264_enabled();
         Self::emit_hardware_buffer_import_marker(&format!(
-            "phase=start status=started importPlan=single-stream-yuv-proof leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftFrameRate={} rightFrameRate={} pixelFormat={} importPath=makepad-android-camera-yuv-plane-cpu-proof textureFormat=VideoYuvPlane depthClip=false environmentDepthClip=false delayedAfterAcquisitionSeconds={:.0}",
+            "phase=start status=started importPlan={} leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftFrameRate={} rightFrameRate={} pixelFormat={} leftStreamPort={} rightStreamPort={} importPath={} textureFormat={} depthClip=false environmentDepthClip=false delayedAfterAcquisitionSeconds={:.0}",
+            if broker_h264_enabled {
+                "broker-h264-stereo-mediacodec-yuv-texture"
+            } else {
+                "single-stream-yuv-proof"
+            },
             pair.left.source_index,
             pair.right.source_index,
             pair.left.source_class,
@@ -2737,6 +3269,26 @@ impl App {
             frame_rate_token(pair.left.frame_rate),
             frame_rate_token(pair.right.frame_rate),
             pixel_format_label(pair.left.pixel_format),
+            if broker_h264_enabled {
+                Self::broker_h264_stream_port(StereoEye::Left).to_string()
+            } else {
+                "none".to_string()
+            },
+            if broker_h264_enabled {
+                Self::broker_h264_stream_port(StereoEye::Right).to_string()
+            } else {
+                "none".to_string()
+            },
+            if broker_h264_enabled {
+                "broker-h264-mediacodec-cpu-yuv"
+            } else {
+                "makepad-android-camera-yuv-plane-cpu-proof"
+            },
+            if broker_h264_enabled {
+                "VideoYuvPlaneStereo"
+            } else {
+                "VideoYuvPlane"
+            },
             PAIRED_IMPORT_DELAY_SECONDS,
         ));
         Self::emit_stereo_projection_marker(&format!(
@@ -2758,6 +3310,17 @@ impl App {
         if NATIVE_VIDEO_WIDGET_SURFACE_DIAGNOSTIC {
             if self.start_native_video_widget_surface(cx, &pair) {
                 self.paired_import_finished = true;
+            }
+            return;
+        }
+
+        if broker_h264_enabled {
+            self.bind_camera_projection_panel(cx);
+            if let Some(texture) = self.paired_import_left_texture.as_ref() {
+                self.request_broker_h264_cpu_yuv_import(cx, StereoEye::Left, texture.texture_id());
+            }
+            if let Some(texture) = self.paired_import_right_texture.as_ref() {
+                self.request_broker_h264_cpu_yuv_import(cx, StereoEye::Right, texture.texture_id());
             }
             return;
         }
@@ -2911,6 +3474,10 @@ impl App {
     }
 
     fn pick_makepad_camera_pair(inputs: &VideoInputsEvent) -> Option<MakepadCameraPair> {
+        if Self::broker_h264_enabled() {
+            let source = Self::broker_h264_source();
+            return Some(MakepadCameraPair::from_broker_h264_source(&source));
+        }
         let choices = collect_makepad_camera_choices(inputs);
         let camera2_plan = Self::latest_camera2_stereo_plan();
         camera2_plan
@@ -2986,6 +3553,7 @@ impl App {
     }
 
     fn bind_camera_projection_panel(&mut self, cx: &mut Cx) -> bool {
+        let broker_h264_enabled = Self::broker_h264_enabled();
         let paired_streams_available =
             self.paired_import_left_updated && self.paired_import_right_updated;
         if self.camera_projection_textures_bound
@@ -3036,14 +3604,38 @@ impl App {
             };
         let single_stream_visual_proof =
             !(self.paired_import_left_updated && self.paired_import_right_updated);
-        let (Some(left_yuv), Some(right_yuv)) = (left_yuv_source, right_yuv_source) else {
-            if !self.camera_projection_bind_error_logged {
-                Self::emit_stereo_projection_marker(
-                    "phase=visible-panel-bound status=waiting visibleCameraProjectionReady=false fallbackReason=makepad_camera_yuv_plane_textures_missing",
-                );
-                self.camera_projection_bind_error_logged = true;
+        let broker_h264_cpu_yuv_decode = broker_h264_enabled
+            && (left_yuv_source.is_some()
+                || right_yuv_source.is_some()
+                || self.paired_import_left_yuv_textures.is_some()
+                || self.paired_import_right_yuv_textures.is_some());
+        let (left_yuv, right_yuv) = if broker_h264_enabled {
+            if broker_h264_cpu_yuv_decode {
+                let left_yuv = left_yuv_source
+                    .clone()
+                    .or_else(|| right_yuv_source.clone())
+                    .or_else(|| self.paired_import_left_yuv_textures.clone())
+                    .or_else(|| self.paired_import_right_yuv_textures.clone());
+                let right_yuv = right_yuv_source
+                    .clone()
+                    .or_else(|| left_yuv_source.clone())
+                    .or_else(|| self.paired_import_right_yuv_textures.clone())
+                    .or_else(|| left_yuv.clone());
+                (left_yuv, right_yuv)
+            } else {
+                (None, None)
             }
-            return false;
+        } else {
+            let (Some(left_yuv), Some(right_yuv)) = (left_yuv_source, right_yuv_source) else {
+                if !self.camera_projection_bind_error_logged {
+                    Self::emit_stereo_projection_marker(
+                        "phase=visible-panel-bound status=waiting visibleCameraProjectionReady=false fallbackReason=makepad_camera_yuv_plane_textures_missing",
+                    );
+                    self.camera_projection_bind_error_logged = true;
+                }
+                return false;
+            };
+            (Some(left_yuv), Some(right_yuv))
         };
 
         let panel_ref = self.ui.widget(cx, ids!(camera_projection_panel));
@@ -3061,8 +3653,8 @@ impl App {
             cx,
             Some(left_texture),
             Some(right_texture),
-            Some(left_yuv),
-            Some(right_yuv),
+            left_yuv,
+            right_yuv,
             self.paired_import_left_rotation_steps,
             self.paired_import_right_rotation_steps,
             pair.left_surface_to_camera_h,
@@ -3076,7 +3668,11 @@ impl App {
         self.camera_projection_textures_bound = true;
         self.camera_projection_paired_textures_bound = !single_stream_visual_proof;
         Self::emit_stereo_projection_marker(&format!(
-            "phase=draw-vars-bound status=ok cameraReady=true yuvMode=true proofTintStrength=0.0 neutralWaitingPanel=true textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id drawVarsTextureRedraw=true shaderAreaStateUpdate=true leftYuvTextureBound=true rightYuvTextureBound=true singleStreamVisualProof={} updatedStreamVisualProofSide={} visibleCameraProjectionReady=true sceneOwnedPanel=true projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthrough=false s98NativePassthroughHudSplit=false s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=vertical-only-flip diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review panelTargetDepthMeters=0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 borderOnlyGuide=false paleBorderGuide=false depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
+            "phase=draw-vars-bound status=ok cameraReady=true yuvMode={} proofTintStrength=0.0 neutralWaitingPanel=true textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id drawVarsTextureRedraw=true shaderAreaStateUpdate=true leftYuvTextureBound={} rightYuvTextureBound={} brokerH264SurfaceTexture={} singleStreamVisualProof={} updatedStreamVisualProofSide={} visibleCameraProjectionReady=true sceneOwnedPanel=true projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthrough=false s98NativePassthroughHudSplit=false s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=vertical-only-flip diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review panelTargetDepthMeters=0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 borderOnlyGuide=false paleBorderGuide=false depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
+            !broker_h264_enabled || broker_h264_cpu_yuv_decode,
+            !broker_h264_enabled || broker_h264_cpu_yuv_decode,
+            !broker_h264_enabled || broker_h264_cpu_yuv_decode,
+            broker_h264_enabled && !broker_h264_cpu_yuv_decode,
             single_stream_visual_proof,
             proof_source_side,
             projection_homography_marker_fields(&pair),
@@ -3106,6 +3702,7 @@ impl App {
             return;
         }
 
+        let broker_h264_enabled = Self::broker_h264_enabled();
         let paired_streams_ready =
             self.paired_import_left_updated && self.paired_import_right_updated;
         let updated_stream_visual_proof_side = match (
@@ -3117,10 +3714,13 @@ impl App {
             (false, true) => "right",
             (false, false) => "none",
         };
-        let single_stream_ready = (self.paired_import_left_updated
-            || self.paired_import_right_updated)
-            && (self.paired_import_left_yuv_textures.is_some()
-                || self.paired_import_right_yuv_textures.is_some());
+        let single_stream_ready = if broker_h264_enabled {
+            false
+        } else {
+            (self.paired_import_left_updated || self.paired_import_right_updated)
+                && (self.paired_import_left_yuv_textures.is_some()
+                    || self.paired_import_right_yuv_textures.is_some())
+        };
         if !paired_streams_ready && !single_stream_ready {
             self.emit_paired_projection_progress("texture-updated");
             return;
@@ -3129,7 +3729,7 @@ impl App {
         let Some(pair) = self.paired_import_choice.clone() else {
             return;
         };
-        if !paired_streams_ready {
+        if !paired_streams_ready && !broker_h264_enabled {
             let visible_projection_ready = self.bind_camera_projection_panel(cx);
             if !self.camera_projection_single_stream_logged {
                 self.camera_projection_single_stream_logged = true;
@@ -3150,7 +3750,9 @@ impl App {
         let aligned_projection = pair.projection_homography_ready && paired_streams_ready;
         let visible_projection_ready = self.bind_camera_projection_panel(cx);
         Self::emit_stereo_projection_marker(&format!(
-            "phase=complete status=ok pairedLeftRightCameraFrames=true makepadVulkanImport=false projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionMode={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftRotationSteps={:.0} rightRotationSteps={:.0} projectionScale={:.2} xrRenderScale={:.2} renderPath=makepad-xr projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthrough=false s98NativePassthroughHudSplit=false s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=vertical-only-flip diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review panelTargetDepthMeters=0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 cpuUploadPath=makepad-camera-cpu-yuv-plane debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false fallbackReason={}",
+            "phase=complete status=ok pairedLeftRightCameraFrames={} brokerH264SurfaceTexture={} makepadVulkanImport=false projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionMode={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftRotationSteps={:.0} rightRotationSteps={:.0} projectionScale={:.2} xrRenderScale={:.2} renderPath=makepad-xr projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthrough=false s98NativePassthroughHudSplit=false s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=vertical-only-flip diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review panelTargetDepthMeters=0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 cpuUploadPath={} debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false fallbackReason={}",
+            paired_streams_ready,
+            broker_h264_enabled,
             pair.projection_homography_ready,
             aligned_projection,
             visible_projection_ready,
@@ -3172,6 +3774,11 @@ impl App {
             runtime_float(&Self::runtime_config(), KEY_PROJECTION_SCALE),
             runtime_float(&Self::runtime_config(), KEY_XR_RENDER_SCALE),
             projection_homography_marker_fields(&pair),
+            if broker_h264_enabled {
+                "broker-h264-mediacodec-cpu-yuv"
+            } else {
+                "makepad-camera-cpu-yuv-plane"
+            },
             marker_token(&pair.fallback_reason),
         ));
         Self::emit_stereo_comparison_parity_marker(
@@ -3312,6 +3919,21 @@ impl MakepadCameraChoice {
             area,
         )
     }
+
+    fn broker_h264(label: &'static str, width: u32, height: u32) -> Self {
+        let source_index = if label == "right" { 1 } else { 0 };
+        Self {
+            source_index,
+            input_id: Default::default(),
+            format_id: Default::default(),
+            camera_id: Some(format!("broker-h264-{label}")),
+            source_class: "synthetic",
+            width: width as usize,
+            height: height as usize,
+            frame_rate: None,
+            pixel_format: VideoPixelFormat::Unsupported(0x6832_3634),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3343,6 +3965,99 @@ impl StereoEye {
         } else {
             None
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct BrokerH264ProjectionMetadata {
+    camera_id: String,
+    source: String,
+    pose_source: String,
+    pose_coordinate_convention: String,
+    synthetic_pattern: String,
+    projection_metadata_ready: bool,
+    delivered_width: u32,
+    delivered_height: u32,
+    metadata_bytes: usize,
+}
+
+impl BrokerH264ProjectionMetadata {
+    fn parse(metadata_json: &str) -> Result<Self, String> {
+        let value: JsonValue =
+            serde_json::from_str(metadata_json).map_err(|err| format!("invalid_json_{err}"))?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| "metadata_root_not_object".to_string())?;
+        let camera_id = object
+            .get("cameraId")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("broker-h264")
+            .to_string();
+        let source = object
+            .get("source")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        let pose_source = object
+            .get("poseSource")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("missing")
+            .to_string();
+        let pose_coordinate_convention = object
+            .get("poseCoordinateConvention")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        let synthetic_pattern = object
+            .get("syntheticPattern")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        let projection_metadata_ready = object
+            .get("projectionMetadataReady")
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(false);
+        let delivered_width = json_u32(object.get("deliveredWidth")).unwrap_or(0);
+        let delivered_height = json_u32(object.get("deliveredHeight")).unwrap_or(0);
+
+        Ok(Self {
+            camera_id,
+            source,
+            pose_source,
+            pose_coordinate_convention,
+            synthetic_pattern,
+            projection_metadata_ready,
+            delivered_width,
+            delivered_height,
+            metadata_bytes: metadata_json.len(),
+        })
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    fn ready_size(&self, fallback_width: usize, fallback_height: usize) -> Option<(u32, u32)> {
+        if !self.projection_metadata_ready {
+            return None;
+        }
+        let width = self.delivered_width.max(fallback_width as u32);
+        let height = self.delivered_height.max(fallback_height as u32);
+        (width > 0 && height > 0).then_some((width, height))
+    }
+}
+
+fn json_u32(value: Option<&JsonValue>) -> Option<u32> {
+    value
+        .and_then(JsonValue::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+}
+
+fn broker_pair_pose_source(
+    left: &BrokerH264ProjectionMetadata,
+    right: &BrokerH264ProjectionMetadata,
+) -> String {
+    if left.pose_source == right.pose_source {
+        left.pose_source.clone()
+    } else {
+        format!("{}+{}", left.pose_source, right.pose_source)
     }
 }
 
@@ -3398,6 +4113,31 @@ struct MakepadCameraPair {
 }
 
 impl MakepadCameraPair {
+    fn from_broker_h264_source(source: &BrokerH264VideoSource) -> Self {
+        let width = source.preferred_width.max(1);
+        let height = source.preferred_height.max(1);
+        let left = MakepadCameraChoice::broker_h264("left", width, height);
+        let right = MakepadCameraChoice::broker_h264("right", width, height);
+        Self {
+            left,
+            right,
+            projection_metadata_ready: false,
+            pose_source: "broker-synthetic-h264-stream-header-pending".to_string(),
+            source_eye_mapping: "left-right".to_string(),
+            source_binding_mode: "broker-h264-synthetic-stereo-stream".to_string(),
+            coordinate_chain: "broker-h264-delivered-stereo-images-to-shader-surface".to_string(),
+            fallback_reason: "waiting_for_broker_h264_stream_header".to_string(),
+            left_surface_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            right_surface_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            left_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            right_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            left_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            right_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            projection_homography_ready: false,
+            runtime_xr_view_state_ready: false,
+        }
+    }
+
     fn from_camera2_plan(
         choices: &[MakepadCameraChoice],
         plan: &Camera2StereoPlan,
@@ -3864,6 +4604,38 @@ fn hotload_f32(key: &'static str, default: f32, min: f32, max: f32) -> f32 {
         .filter(|value| value.is_finite())
         .map(|value| value.clamp(min, max))
         .unwrap_or(default)
+}
+
+fn hotload_bool(key: &'static str, default: bool) -> bool {
+    runtime_property_value(key)
+        .or_else(|| std::env::var(runtime_env_key(key)).ok())
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on" | "enabled"
+            )
+        })
+        .unwrap_or(default)
+}
+
+fn hotload_text(key: &'static str, default: &str) -> String {
+    runtime_property_value(key)
+        .or_else(|| std::env::var(runtime_env_key(key)).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
+fn hotload_u32(key: &'static str, default: u32, min: u32, max: u32) -> u32 {
+    runtime_property_value(key)
+        .or_else(|| std::env::var(runtime_env_key(key)).ok())
+        .and_then(|value| value.parse::<u32>().ok())
+        .map(|value| value.clamp(min, max))
+        .unwrap_or(default)
+}
+
+fn hotload_u16(key: &'static str, default: u16, min: u16, max: u16) -> u16 {
+    hotload_u32(key, default as u32, min as u32, max as u32) as u16
 }
 
 fn runtime_env_key(key: &str) -> String {

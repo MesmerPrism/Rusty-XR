@@ -42,6 +42,14 @@ scope is limited to:
 - A Makepad `Video` widget camera-permission option used by public examples
   where headset raw-camera sources are gated separately from ordinary app
   cameras.
+- An Android-only broker H.264 video source used by public examples to request
+  broker-managed left/right streams through the same command and `RXYRVID1`
+  framing as the non-Makepad broker examples. The Quest Vulkan/XR path can hand
+  decoded MediaCodec output to Makepad as CPU-YUV planes when no GL external
+  texture handle exists; zero-copy surface texture transport remains a separate
+  performance target.
+- A video-source metadata event so public examples can consume broker
+  stream-header projection metadata before deriving homography-stage rows.
 - A small `xr_view_id()` shader builtin that exposes Makepad's existing XR
   multiview index to application shaders for per-eye texture selection without
   hardcoding backend-specific symbols.
@@ -74,6 +82,12 @@ Makepad-first lane. When the fork branch changes, update the comparison ledger
 and rerun the validation ladder before interpreting camera, streaming, or
 renderer measurements from the Makepad lane.
 
+There are two pins to keep in sync. The standalone Makepad example's
+`Cargo.lock` pins the Rust crates used by `cargo check`, while APK generation
+uses the installed `cargo-makepad` binary. Reinstall `cargo-makepad` from the
+same maintained checkout after fork changes that affect generated Java,
+packaging, Android platform bridges, or native bootstrap code.
+
 ## Validation Ladder
 
 Use the current custom APK lane as the diagnostic baseline and the Makepad lane
@@ -82,13 +96,17 @@ this order:
 
 1. Targeted formatting for the Makepad files changed by the branch.
 2. Cargo metadata checks for any workspace or manifest changes.
-3. `cargo-makepad` check and release build.
-4. Quest/Vulkan smoke for the minimal Makepad Android surface.
-5. Rusty XR Makepad example launcher and generated-XR startup/liveness smoke,
+3. Android Java compile checks when Java bridge or generated template code is
+   touched.
+4. `cargo-makepad` check and release build.
+5. Refresh the installed `cargo-makepad` binary from the maintained fork before
+   rebuilding a Rusty XR APK that depends on new Makepad Android code.
+6. Quest/Vulkan smoke for the minimal Makepad Android surface.
+7. Rusty XR Makepad example launcher and generated-XR startup/liveness smoke,
    with short startup marker capture separated from longer fault-counter
    capture.
-6. Camera2 metadata/acquisition through the Rusty XR-owned Android NDK probe.
-7. Hardware-buffer import, broker, or stream adapters only after the renderer
+8. Camera2 metadata/acquisition through the Rusty XR-owned Android NDK probe.
+9. Hardware-buffer import, broker, or stream adapters only after the renderer
    smoke and camera acquisition paths are stable enough to trust measurements.
 
 The current isolation log is tracked in

@@ -33,14 +33,20 @@ Move in small validated slices:
 3. Add camera metadata/config logging without opening Camera2.
 4. Add Camera2 acquisition diagnostics.
 5. Add hardware-buffer import.
-6. Add metadata-backed stereo projection parity checks against the custom APK
+6. Add broker-managed synthetic H.264 input through the same stream framing and
+   Android MediaCodec route used by the public broker examples. A local
+   generated texture is useful for renderer smoke only; it is not source parity
+   for broker or tri-stack comparisons.
+7. Add metadata-backed stereo projection parity checks against the custom APK
    `camera-stereo-gpu-composite` profile.
-7. Add cadence/performance markers only after active XR presentation is
+8. Add cadence/performance markers only after active XR presentation is
    confirmed through the launcher path.
 
 Keep future slices separate: active launcher presentation first,
 metadata/acquisition second, hardware-buffer import third, projection parity
-after those are validated, and performance comparison last.
+after those are validated, and performance comparison last. For broker H.264
+runs, also keep source-feed parity, decoded-texture parity, projection-stage
+parity, and zero-copy texture performance as separate conclusions.
 
 ## Validation
 
@@ -58,3 +64,16 @@ workspace root; it does not select this package.
 
 For Android build validation, use `cargo-makepad` from the maintained Makepad
 fork and keep the generated `target/` output uncommitted.
+
+The Makepad revision in this example's `Cargo.lock` controls Rust dependency
+resolution, but Android APK generation uses the installed `cargo-makepad`
+binary. After changing the maintained Makepad fork, refresh that installed
+tool from the same checkout before rebuilding an APK; otherwise generated Java
+and native packaging code can lag behind the pinned Rust revision.
+
+For broker-synthetic H.264 validation, the guarded device gate should report
+stream-header metadata for both eyes, prepared decode state, CPU-YUV texture
+readiness, nonzero left/right texture-update cadence, zero decode errors, and
+the derived `surface_to_camera`, `screen_to_surface`, and `screen_to_camera`
+rows. `max_packets=0` means a live/unbounded broker stream and must not be
+clamped to a one-packet stream.

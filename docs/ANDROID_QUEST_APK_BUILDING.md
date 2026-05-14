@@ -504,20 +504,36 @@ The source-first Makepad comparison example is
 `examples/makepad-q2q-camera-shell/`. It is a standalone package that uses
 `cargo-makepad android --variant=quest` to generate the Android manifest, Java
 activities, OpenXR loader packaging, signing, APK output, install, and run
-surface. The first implementation is a synthetic smoke lane: it logs
-`RUSTY_XR_MAKEPAD_Q2Q_STATUS` and records the Makepad packaging affordances
-before camera transport or broker integration is added. Current validation uses
-the generated launcher activity for Makepad's normal run path and direct adb
-launch of the generated XR activity for immersive smoke checks. The lane reaches
-the launcher and generated-XR startup paths, emits Java activity, native
-bootstrap, Q2Q status, and stereo-comparison markers in short startup captures,
-and stays alive in separate 90s liveness windows with no app-process GPU
-page-fault or fatal lines when built against the maintained Makepad fork state.
-The direct generated-XR path also now emits paired Makepad camera import and
-projection-mapping markers with `pairedLeftRightGpuBuffers=true` and
-`alignedProjection=true`. Repeated small hardware-buffer warnings remain
-tracked separately during paired import/performance comparison work. Current
-isolation moved the earlier GPU page-fault class below `makepad-xr` and into
-Makepad's Android Vulkan window-swapchain recreation after acquire/present
-reports suboptimal; the maintained fork carries the current frame-fence wait
-candidate.
+surface. The lane started as a synthetic smoke app, then added Camera2
+metadata/acquisition, paired texture import, and a broker-managed synthetic
+H.264 input path. Broker-synthetic validation is source parity only when it
+requests the broker's left/right H.264 streams through the public command and
+`RXYRVID1` framing, consumes stream-header projection metadata, and reports
+decoded texture cadence. A local generated texture is only a renderer smoke
+witness.
+
+On Quest Vulkan/XR builds, the verified broker path decodes with Android
+MediaCodec and uploads decoded YUV planes into Makepad textures. The older GL
+external-texture handoff depends on a texture-handle event that this path does
+not produce, so zero-copy surface-texture transport must be measured as a
+separate follow-up. Current broker-synthetic gates record unbounded
+`max_packets=0` stream headers, per-eye stream metadata, prepared decode state,
+CPU-YUV texture readiness, texture-update cadence, decode errors, and derived
+`surface_to_camera`, `screen_to_surface`, and `screen_to_camera` rows. Repeated
+small hardware-buffer warnings remain tracked separately during import and
+performance comparison work. Current isolation moved the earlier GPU page-fault
+class below `makepad-xr` and into Makepad's Android Vulkan window-swapchain
+recreation after acquire/present reports suboptimal; the maintained fork
+carries the current frame-fence wait candidate.
+
+For video-only receiver experiments, OpenXR and Vulkan should not be conflated.
+Retail Quest apps still need an XR presentation path for coherent left/right
+eye timing, pose prediction, lens correction, and compositor submission; a
+plain Android GL window is a compositor-managed panel rather than a public API
+for targeting one eye display. However, an app can be shaped as an OpenXR app
+with an OpenGL ES renderer: OpenXR owns the session and stereo swapchains,
+while GL owns `SurfaceTexture` / `GL_TEXTURE_EXTERNAL_OES` video ingestion,
+FBO-based processing passes, and final eye rendering. Treat this as a separate
+architecture candidate from the current Vulkan `AHardwareBuffer` path. Its
+main expected benefit is simpler Android video ingestion; its main expected
+cost is validating and maintaining a second renderer/presentation lane.

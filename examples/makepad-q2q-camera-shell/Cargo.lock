@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "ab_glyph_rasterizer"
 version = "0.1.8"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "aho-corasick"
@@ -19,7 +19,7 @@ dependencies = [
 [[package]]
 name = "approx"
 version = "0.5.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "num-traits 0.2.20",
 ]
@@ -33,7 +33,7 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 [[package]]
 name = "arrayvec"
 version = "0.7.6"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "ash"
@@ -68,7 +68,7 @@ checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
 [[package]]
 name = "bitflags"
 version = "2.10.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "bitflags"
@@ -88,12 +88,12 @@ dependencies = [
 [[package]]
 name = "bytemuck"
 version = "1.25.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "byteorder"
 version = "1.5.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "cfg-if"
@@ -173,17 +173,17 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "downcast-rs"
 version = "2.0.2"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "either"
 version = "1.15.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "ena"
 version = "0.14.4"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-error-log",
 ]
@@ -203,12 +203,12 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 [[package]]
 name = "foldhash"
 version = "0.2.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "fxhash"
 version = "0.2.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "byteorder",
 ]
@@ -216,7 +216,7 @@ dependencies = [
 [[package]]
 name = "glam"
 version = "0.30.10"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "approx",
  "libm 0.2.16 (git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging)",
@@ -225,7 +225,7 @@ dependencies = [
 [[package]]
 name = "glamx"
 version = "0.1.3"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "approx",
  "glam",
@@ -257,7 +257,7 @@ dependencies = [
 [[package]]
 name = "hashbrown"
 version = "0.16.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "hashbrown"
@@ -286,6 +286,12 @@ dependencies = [
  "equivalent",
  "hashbrown 0.17.0",
 ]
+
+[[package]]
+name = "itoa"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jni-sys"
@@ -340,7 +346,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "libm"
 version = "0.2.16"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "log"
@@ -360,7 +366,7 @@ dependencies = [
 [[package]]
 name = "makepad-apple-sys"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-objc-sys",
 ]
@@ -368,17 +374,17 @@ dependencies = [
 [[package]]
 name = "makepad-base64"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-byteorder-lite"
 version = "0.1.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-derive-wasm-bridge"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-micro-proc-macro",
 ]
@@ -386,7 +392,7 @@ dependencies = [
 [[package]]
 name = "makepad-derive-widget"
 version = "2.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-live-id",
  "makepad-micro-proc-macro",
@@ -395,7 +401,7 @@ dependencies = [
 [[package]]
 name = "makepad-draw"
 version = "2.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "ab_glyph_rasterizer",
  "fxhash",
@@ -416,7 +422,7 @@ dependencies = [
 [[package]]
 name = "makepad-error-log"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-micro-serde",
 ]
@@ -424,27 +430,27 @@ dependencies = [
 [[package]]
 name = "makepad-fast-inflate"
 version = "0.1.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-filesystem-watcher"
 version = "0.1.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-futures"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-futures-legacy"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-gltf"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-base64",
  "makepad-math",
@@ -454,7 +460,7 @@ dependencies = [
 [[package]]
 name = "makepad-html"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-live-id",
 ]
@@ -468,7 +474,7 @@ checksum = "9775cbec5fa0647500c3e5de7c850280a88335d1d2d770e5aa2332b801ba7064"
 [[package]]
 name = "makepad-latex-math"
 version = "0.1.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "ttf-parser",
 ]
@@ -476,7 +482,7 @@ dependencies = [
 [[package]]
 name = "makepad-live-id"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-live-id-macros",
 ]
@@ -484,7 +490,7 @@ dependencies = [
 [[package]]
 name = "makepad-live-id-macros"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-micro-proc-macro",
 ]
@@ -492,7 +498,7 @@ dependencies = [
 [[package]]
 name = "makepad-live-reload-core"
 version = "0.1.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-filesystem-watcher",
 ]
@@ -500,12 +506,12 @@ dependencies = [
 [[package]]
 name = "makepad-lz4"
 version = "0.1.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-math"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-micro-serde",
 ]
@@ -513,12 +519,12 @@ dependencies = [
 [[package]]
 name = "makepad-micro-proc-macro"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-micro-serde"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-live-id",
  "makepad-micro-serde-derive",
@@ -527,7 +533,7 @@ dependencies = [
 [[package]]
 name = "makepad-micro-serde-derive"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-micro-proc-macro",
 ]
@@ -535,7 +541,7 @@ dependencies = [
 [[package]]
 name = "makepad-network"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-apple-sys",
  "makepad-error-log",
@@ -549,12 +555,12 @@ dependencies = [
 [[package]]
 name = "makepad-objc-sys"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-platform"
 version = "2.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "ash",
  "bitflags 2.10.0",
@@ -591,12 +597,12 @@ dependencies = [
 [[package]]
 name = "makepad-regex"
 version = "0.1.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-script"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-error-log",
  "makepad-html",
@@ -610,7 +616,7 @@ dependencies = [
 [[package]]
 name = "makepad-script-derive"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-micro-proc-macro",
 ]
@@ -618,7 +624,7 @@ dependencies = [
 [[package]]
 name = "makepad-script-std"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-network",
  "makepad-script",
@@ -627,12 +633,12 @@ dependencies = [
 [[package]]
 name = "makepad-shared-bytes"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-splat"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-micro-serde",
  "makepad-webp",
@@ -642,7 +648,7 @@ dependencies = [
 [[package]]
 name = "makepad-studio-protocol"
 version = "0.1.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "bitflags 2.10.0",
  "makepad-error-log",
@@ -654,7 +660,7 @@ dependencies = [
 [[package]]
 name = "makepad-svg"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-html",
  "makepad-live-id",
@@ -663,7 +669,7 @@ dependencies = [
 [[package]]
 name = "makepad-tsdf"
 version = "0.1.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-math",
  "makepad-micro-serde",
@@ -672,7 +678,7 @@ dependencies = [
 [[package]]
 name = "makepad-wasm-bridge"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-derive-wasm-bridge",
  "makepad-live-id",
@@ -681,7 +687,7 @@ dependencies = [
 [[package]]
 name = "makepad-webp"
 version = "0.2.4"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-byteorder-lite",
 ]
@@ -689,7 +695,7 @@ dependencies = [
 [[package]]
 name = "makepad-widgets"
 version = "2.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-derive-widget",
  "makepad-draw",
@@ -703,7 +709,7 @@ dependencies = [
 [[package]]
 name = "makepad-xr"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-gltf",
  "makepad-lz4",
@@ -715,7 +721,7 @@ dependencies = [
 [[package]]
 name = "makepad-zip-file"
 version = "1.0.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-fast-inflate",
 ]
@@ -723,12 +729,12 @@ dependencies = [
 [[package]]
 name = "makepad-zune-core"
 version = "0.5.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "makepad-zune-inflate"
 version = "0.2.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "simd-adler32",
 ]
@@ -736,7 +742,7 @@ dependencies = [
 [[package]]
 name = "makepad-zune-jpeg"
 version = "0.5.12"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-zune-core",
 ]
@@ -744,7 +750,7 @@ dependencies = [
 [[package]]
 name = "makepad-zune-png"
 version = "0.5.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "makepad-zune-core",
  "makepad-zune-inflate",
@@ -753,12 +759,12 @@ dependencies = [
 [[package]]
 name = "matrixmultiply"
 version = "0.3.10"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "memchr"
 version = "2.7.6"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "memchr"
@@ -795,7 +801,7 @@ dependencies = [
 [[package]]
 name = "nalgebra"
 version = "0.34.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "approx",
  "glam",
@@ -879,7 +885,7 @@ dependencies = [
 [[package]]
 name = "num-complex"
 version = "0.4.6"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "num-traits 0.2.20",
 ]
@@ -897,7 +903,7 @@ dependencies = [
 [[package]]
 name = "num-traits"
 version = "0.2.20"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "libm 0.2.16 (git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging)",
 ]
@@ -932,7 +938,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "parry3d"
 version = "0.26.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "approx",
  "arrayvec 0.7.6 (git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging)",
@@ -968,7 +974,7 @@ dependencies = [
 [[package]]
 name = "pulldown-cmark"
 version = "0.12.2"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "bitflags 2.10.0",
  "memchr 2.7.6",
@@ -987,7 +993,7 @@ dependencies = [
 [[package]]
 name = "rapier3d"
 version = "0.32.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "bitflags 2.10.0",
  "nalgebra",
@@ -1052,6 +1058,7 @@ dependencies = [
  "ndk-sys",
  "rusty-xr-camera-model",
  "rusty-xr-runtime-config",
+ "serde_json",
 ]
 
 [[package]]
@@ -1061,7 +1068,7 @@ version = "0.1.0"
 [[package]]
 name = "rustybuzz"
 version = "0.18.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "bitflags 2.10.0",
  "bytemuck",
@@ -1083,12 +1090,54 @@ checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 [[package]]
 name = "sdfer"
 version = "0.2.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
+
+[[package]]
+name = "serde"
+version = "1.0.228"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.228"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.228"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.149"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
+dependencies = [
+ "itoa",
+ "memchr 2.8.0",
+ "serde",
+ "serde_core",
+ "zmij",
+]
 
 [[package]]
 name = "simba"
 version = "0.9.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "approx",
  "num-complex",
@@ -1098,7 +1147,7 @@ dependencies = [
 [[package]]
 name = "simd-adler32"
 version = "0.3.8"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "smallvec"
@@ -1109,7 +1158,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 [[package]]
 name = "smallvec"
 version = "1.15.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "spirv"
@@ -1123,7 +1172,7 @@ dependencies = [
 [[package]]
 name = "static_assertions"
 version = "1.1.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "syn"
@@ -1159,32 +1208,32 @@ dependencies = [
 [[package]]
 name = "ttf-parser"
 version = "0.24.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "typenum"
 version = "1.19.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "unicase"
 version = "2.9.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "unicode-bidi"
 version = "0.3.18"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "unicode-bidi-mirroring"
 version = "0.3.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "unicode-ccc"
 version = "0.3.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "unicode-ident"
@@ -1195,22 +1244,22 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 [[package]]
 name = "unicode-linebreak"
 version = "0.1.5"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "unicode-properties"
 version = "0.1.4"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "unicode-script"
 version = "0.5.8"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "unicode-segmentation"
 version = "1.12.0"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "unicode-segmentation"
@@ -1227,12 +1276,12 @@ checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 [[package]]
 name = "vec_map"
 version = "0.8.2"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "wayland-backend"
 version = "0.3.12"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "downcast-rs 1.2.1",
  "libc",
@@ -1244,7 +1293,7 @@ dependencies = [
 [[package]]
 name = "wayland-client"
 version = "0.31.12"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "bitflags 2.11.1",
  "libc",
@@ -1254,7 +1303,7 @@ dependencies = [
 [[package]]
 name = "wayland-egl"
 version = "0.32.9"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "wayland-backend",
  "wayland-sys",
@@ -1263,7 +1312,7 @@ dependencies = [
 [[package]]
 name = "wayland-protocols"
 version = "0.32.10"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "bitflags 2.11.1",
  "wayland-backend",
@@ -1273,7 +1322,7 @@ dependencies = [
 [[package]]
 name = "wayland-sys"
 version = "0.31.8"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "log",
  "pkg-config",
@@ -1282,7 +1331,7 @@ dependencies = [
 [[package]]
 name = "windows"
 version = "0.62.2"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "windows-collections",
  "windows-core",
@@ -1292,7 +1341,7 @@ dependencies = [
 [[package]]
 name = "windows-collections"
 version = "0.3.2"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "windows-core",
 ]
@@ -1300,7 +1349,7 @@ dependencies = [
 [[package]]
 name = "windows-core"
 version = "0.62.2"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "windows-link 0.2.1 (git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging)",
  "windows-result",
@@ -1310,7 +1359,7 @@ dependencies = [
 [[package]]
 name = "windows-future"
 version = "0.3.2"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "windows-core",
 ]
@@ -1324,12 +1373,12 @@ checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
 [[package]]
 name = "windows-link"
 version = "0.2.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 
 [[package]]
 name = "windows-result"
 version = "0.4.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "windows-link 0.2.1 (git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging)",
 ]
@@ -1337,7 +1386,7 @@ dependencies = [
 [[package]]
 name = "windows-strings"
 version = "0.5.1"
-source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#cba9eecebf18114f9f4aaf0d5bf9e7232b2c4221"
+source = "git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging#99a7e64301160afb159f80f786ab2f1f662b7dfe"
 dependencies = [
  "windows-link 0.2.1 (git+https://github.com/MesmerPrism/makepad.git?branch=rusty-xr%2Fandroid-libstd-packaging)",
 ]
@@ -1434,3 +1483,9 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "zmij"
+version = "1.0.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"

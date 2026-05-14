@@ -23,7 +23,9 @@ fork-patch policy are documented in
 - Uses `cargo-makepad android --variant=quest`.
 - Uses the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging`. The exact Makepad revision for this
-  example is pinned in `Cargo.lock`.
+  example is pinned in `Cargo.lock`. The APK generator is the installed
+  `cargo-makepad` binary, so refresh that binary from the same fork checkout
+  after Makepad-side Android bridge or packaging changes.
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
@@ -66,6 +68,13 @@ fork-patch policy are documented in
   camera panel. S59 proves live no-swap YUV color in that panel; S60 is the
   open step that must choose left versus right camera textures per eye before
   parity performance comparison resumes.
+- The current source can also use broker-managed synthetic H.264 stereo streams
+  instead of opening Camera2 directly. On the Quest Vulkan path, that route asks
+  the maintained Makepad fork to decode the streams with Android MediaCodec and
+  hand decoded YUV planes into the same per-eye panel. This is the deterministic
+  input lane for comparing transport, projection-stage, and multilayer
+  processing costs without relying on a physical camera scene. A zero-copy
+  surface-texture route remains a separate performance target.
 
 ## Build
 
@@ -221,8 +230,42 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\too
   -PreferDirectVrActivity
 ```
 
+For broker-synthetic H.264 parity, start the broker first, then let the guarded
+device gate set the Makepad runtime properties before launch:
+
+```powershell
+adb -s <quest-serial> shell am start -n <broker-package>/<broker-activity>
+
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+  -Serial <quest-serial> `
+  -Apk <fresh-makepad-apk> `
+  -PackageName <public-example-package> `
+  -LauncherActivity <generated-launcher-activity> `
+  -XrActivity <generated-xr-activity> `
+  -OutDir <ignored-artifact-dir> `
+  -PreferDirectVrActivity `
+  -UseBrokerH264Synthetic
+```
+
+The default broker-synthetic gate uses `127.0.0.1:8765`, left/right stream
+ports `8879` / `8880`, `diagnostic-grid`, `1280x1280`, 6 Mbps, and a
+live-bounded 45-second stream with `max_packets=0`. The Makepad path consumes
+broker stream-header projection metadata, derives `surface_to_camera`,
+`screen_to_surface`, and `screen_to_camera` rows from the current OpenXR view
+state, and reports decoded CPU-YUV texture cadence. Treat this as deterministic
+source/projection-stage parity for diagnostics; zero-copy texture performance
+still needs its own run.
+
+For this lane, `max_packets=0` is intentional: it requests the broker's
+live/unbounded stream. If a run reports one packet per eye, the decoder may not
+receive a complete access-unit sequence and the source-parity gate is invalid.
+Do not replace broker-synthetic H.264 parity with a locally generated texture
+unless the question is explicitly renderer smoke rather than broker transport
+or cross-stack input equivalence.
+
 The summary records freshness hashes plus app/global GPU-fault, fatal, small
-hardware-buffer, and stale-marker counters. Record whether the run was
+hardware-buffer, stale-marker, broker-H.264 decode, and texture-cadence
+counters. Record whether the run was
 `launcher-attempt-1`, `launcher-attempt-2`, `direct-vr-fallback`, or
 `direct-vr-attempt-1`; do not silently merge those launch classes.
 

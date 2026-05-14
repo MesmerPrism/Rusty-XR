@@ -18,7 +18,20 @@ param(
     [int]$FreshnessIntervalSeconds = 1,
     [switch]$SkipInstall,
     [switch]$SkipDirectXrFallback,
-    [switch]$PreferDirectVrActivity
+    [switch]$PreferDirectVrActivity,
+    [switch]$UseBrokerH264Synthetic,
+    [string]$BrokerH264Host = "127.0.0.1",
+    [int]$BrokerH264BrokerPort = 8765,
+    [int]$BrokerH264LeftStreamPort = 8879,
+    [int]$BrokerH264RightStreamPort = 8880,
+    [string]$BrokerH264SyntheticPattern = "diagnostic-grid",
+    [int]$BrokerH264Width = 1280,
+    [int]$BrokerH264Height = 1280,
+    [int]$BrokerH264CaptureMs = 45000,
+    [int]$BrokerH264MaxPackets = 0,
+    [int]$BrokerH264BitrateBps = 6000000,
+    [int]$BrokerH264StreamTimeoutMs = 60000,
+    [int]$BrokerH264DecodeTimeoutMs = 20000
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,6 +73,45 @@ function Grant-RuntimePermissions {
         Invoke-Adb -Arguments @("shell", "pm", "grant", $PackageName, $permission) 2>&1 |
             Add-Content -Path (Join-Path $OutDir "permission-grants.txt") -Encoding UTF8
     }
+}
+
+function Set-MakepadBrokerH264SyntheticProfile {
+    if (-not $UseBrokerH264Synthetic) {
+        return
+    }
+
+    $props = [ordered]@{
+        "debug.rustyxr.makepad.broker.h264.enabled" = "true"
+        "debug.rustyxr.makepad.broker.h264.host" = $BrokerH264Host
+        "debug.rustyxr.makepad.broker.h264.broker.port" = $BrokerH264BrokerPort
+        "debug.rustyxr.makepad.broker.h264.stream.port" = $BrokerH264LeftStreamPort
+        "debug.rustyxr.makepad.broker.h264.right.stream.port" = $BrokerH264RightStreamPort
+        "debug.rustyxr.makepad.broker.h264.source.mode" = "broker-synthetic"
+        "debug.rustyxr.makepad.broker.h264.synthetic.pattern" = $BrokerH264SyntheticPattern
+        "debug.rustyxr.makepad.broker.h264.width" = $BrokerH264Width
+        "debug.rustyxr.makepad.broker.h264.height" = $BrokerH264Height
+        "debug.rustyxr.makepad.broker.h264.capture.ms" = $BrokerH264CaptureMs
+        "debug.rustyxr.makepad.broker.h264.max.packets" = $BrokerH264MaxPackets
+        "debug.rustyxr.makepad.broker.h264.bitrate.bps" = $BrokerH264BitrateBps
+        "debug.rustyxr.makepad.broker.h264.stream.timeout.ms" = $BrokerH264StreamTimeoutMs
+        "debug.rustyxr.makepad.broker.h264.decode.timeout.ms" = $BrokerH264DecodeTimeoutMs
+        "debug.rustyxr.makepad.broker.h264.live.stream" = "true"
+    }
+
+    foreach ($entry in $props.GetEnumerator()) {
+        Invoke-Adb -Arguments @("shell", "setprop", $entry.Key, [string]$entry.Value) | Out-Null
+    }
+
+    $readback = foreach ($entry in $props.GetEnumerator()) {
+        $value = (Invoke-Adb -Arguments @("shell", "getprop", $entry.Key)) -join ""
+        [pscustomobject]@{
+            property = $entry.Key
+            expected = [string]$entry.Value
+            actual = $value.Trim()
+        }
+    }
+    $readback | ConvertTo-Json -Depth 3 |
+        Set-Content -Path (Join-Path $OutDir "broker-h264-synthetic-props.json") -Encoding UTF8
 }
 
 function Install-Apk {
@@ -115,6 +167,25 @@ function Capture-LaunchState {
     $visiblePanel = @($log | Select-String -SimpleMatch "visibleCameraProjectionReady=true").Count
     $xrCadence = @($log | Select-String -Pattern "RUSTY_XR_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\\.00)").Count
     $loadingSignals = @($log | Select-String -Pattern "(?i)XrPermissionsFlow|preflight|loading").Count
+    $brokerH264PrepareRequestCount = @($log | Select-String -SimpleMatch "phase=broker-h264-prepare-request status=sent").Count
+    $brokerH264UnboundedHeaderCount = @($log | Select-String -SimpleMatch "packets=0 metadataBytes=").Count
+    $brokerH264StreamHeaderMetadataCount = @($log | Select-String -SimpleMatch "phase=stream-header-metadata status=ok").Count
+    $brokerH264PreparedCount = @($log | Select-String -SimpleMatch "phase=prepared status=ok").Count
+    $brokerH264YuvTexturesReadyCount = @($log | Select-String -SimpleMatch "textureMode=cpu-yuv-decoded-broker-h264").Count
+    $brokerH264TextureUpdateCount = @($log | Select-String -Pattern "phase=texture-updated status=ok.*cpuUploadPath=broker-h264-mediacodec-cpu-yuv").Count
+    $brokerH264DecodeErrorCount = @($log | Select-String -Pattern "event=decode-error|Broker H[.]264 playback failed").Count
+    $pairedCameraFrameCadenceCount = @($log | Select-String -SimpleMatch "pairedLeftRightCameraFrames=true").Count
+    $alignedProjectionCadenceCount = @($log | Select-String -SimpleMatch "alignedProjection=true").Count
+    $leftTextureUpdateMax = 0
+    $rightTextureUpdateMax = 0
+    foreach ($line in @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_CADENCE" | ForEach-Object { $_.Line })) {
+        if ($line -match "leftTextureUpdateCount=(\d+)") {
+            $leftTextureUpdateMax = [Math]::Max($leftTextureUpdateMax, [int]$Matches[1])
+        }
+        if ($line -match "rightTextureUpdateCount=(\d+)") {
+            $rightTextureUpdateMax = [Math]::Max($rightTextureUpdateMax, [int]$Matches[1])
+        }
+    }
 
     $state = [ordered]@{
         label = $Label
@@ -192,6 +263,22 @@ function Capture-LaunchState {
         staleS87PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s87-runtime-xr-view-homography").Count
         staleS88PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s88-target-fast-invalid-fallback").Count
         staleS90PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s90-camera-id-bound-single-quad-target-screen-uv").Count
+        brokerH264StartupMarkerCount = @($log | Select-String -SimpleMatch "status=broker-h264-enabled").Count
+        brokerH264ImportPlanMarkerCount = @($log | Select-String -SimpleMatch "importPlan=broker-h264-stereo-mediacodec-yuv-texture").Count
+        brokerH264PrepareRequestMarkerCount = $brokerH264PrepareRequestCount
+        brokerH264UnboundedStreamHeaderMarkerCount = $brokerH264UnboundedHeaderCount
+        brokerH264StreamHeaderMetadataMarkerCount = $brokerH264StreamHeaderMetadataCount
+        brokerH264PreparedMarkerCount = $brokerH264PreparedCount
+        brokerH264YuvTexturesReadyMarkerCount = $brokerH264YuvTexturesReadyCount
+        brokerH264TextureUpdateMarkerCount = $brokerH264TextureUpdateCount
+        brokerH264DecodeErrorMarkerCount = $brokerH264DecodeErrorCount
+        brokerH264DecodedTextureReady = [bool]($brokerH264PreparedCount -gt 0 -and $brokerH264TextureUpdateCount -gt 0 -and $brokerH264DecodeErrorCount -eq 0)
+        brokerH264LeftTextureUpdateMax = $leftTextureUpdateMax
+        brokerH264RightTextureUpdateMax = $rightTextureUpdateMax
+        pairedCameraFrameCadenceMarkerCount = $pairedCameraFrameCadenceCount
+        alignedProjectionCadenceMarkerCount = $alignedProjectionCadenceCount
+        brokerH264StereoProofMarkerCount = @($log | Select-String -SimpleMatch "cpuUploadPath=broker-h264-mediacodec-cpu-yuv").Count
+        brokerH264SyntheticSourceMarkerCount = @($log | Select-String -SimpleMatch "sourceBindingMode=broker-h264-synthetic-stereo-stream").Count
         projectionHomographyReadyMarkerCount = @($log | Select-String -SimpleMatch "projectionHomographyReady=true").Count
         s71EyeCenteredMarkerCount = @($log | Select-String -SimpleMatch "s71EyeCenteredPanel=true").Count
         s71SharedPlaneParallaxRemovedMarkerCount = @($log | Select-String -SimpleMatch "s71SharedPlaneParallaxRemoved=true").Count
@@ -282,6 +369,7 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Invoke-Adb -Arguments @("devices") | Set-Content -Path (Join-Path $OutDir "adb-devices.txt") -Encoding UTF8
 Install-Apk
 Grant-RuntimePermissions
+Set-MakepadBrokerH264SyntheticProfile
 Save-Adb -Arguments @("shell", "dumpsys", "power") -Path (Join-Path $OutDir "power-before-launch.txt")
 Save-Adb -Arguments @("shell", "getprop") -Path (Join-Path $OutDir "getprop-before-launch.txt")
 
@@ -323,6 +411,7 @@ $summary = [ordered]@{
     packageName = $PackageName
     apk = $Apk
     preferDirectVrActivity = [bool]$PreferDirectVrActivity
+    useBrokerH264Synthetic = [bool]$UseBrokerH264Synthetic
     launchReady = [bool]$readyAttempt
     recoveredBy = if ($readyAttempt) { $readyAttempt.label } else { "none" }
     attempts = $attempts

@@ -58,7 +58,19 @@ launcher / generated-XR activity gate.
 
 ## Current Slice
 
-The active slice is S91. S79 matched the public target's display-to-source
+The active slice is S121. The broker-managed synthetic H.264 lane is now a
+device-verified Makepad input path: the guarded gate requests left/right
+deterministic streams with `max_packets=0`, the broker stream headers report
+unbounded packet count plus projection metadata, Android MediaCodec decodes
+both eyes into CPU-YUV planes, `VideoTextureUpdated` cadence advances on both
+streams, and the Makepad app computes `surface_to_camera`,
+`screen_to_surface`, and `screen_to_camera` rows from broker metadata plus the
+current OpenXR view state. This gives the tri-stack comparison a stable
+synthetic camera source for projection-stage and multilayer-stack diagnostics.
+The accepted status is decoded CPU-YUV source parity, not zero-copy surface
+texture parity; the latter remains a separate performance/affordance target.
+
+Earlier Makepad projection baseline context: S91. S79 matched the public target's display-to-source
 mapping, S80 showed that simply scaling fullscreen UVs before the camera
 homography is the wrong parity move, S81/S82 kept live feed while narrowing the
 gap to exact per-eye display state, and S83/S85 showed that shader-side
@@ -142,6 +154,17 @@ through `debug.rustyxr.makepad.projection.border.strength`; setting it to `0`
 removed analyzer edge-stripe signal without changing the screen-to-camera
 coordinate path. Treat the red border as an operator witness layer, not as part
 of projection parity.
+
+S120 starts the broker-managed synthetic H.264 lane. The maintained Makepad fork
+now has an Android-only broker H.264 `VideoSource`, and this example can request
+two deterministic broker streams on left/right ports before binding decoded
+frames to the same per-eye panel. The first S120 build established source/build
+parity and metadata visibility. S121 corrected the Makepad bridge so
+`max_packets=0` stays unbounded instead of being clamped to one packet; after
+that correction, the device gate proved CPU-YUV decoded texture cadence for
+both eyes and broker-metadata-driven projection rows. Treat the current broker
+lane as source/projection-stage parity for deterministic diagnostics, not a
+claim that zero-copy texture transport has equal performance cost.
 
 Historical context: S67 was a known-visible app-panel positive control for the
 paired per-eye Makepad camera panel. S59 remains the color control: Android
@@ -832,6 +855,8 @@ number of compositor slice-tear warnings.
 | S116 | Projection-area midpoint bow probe | Makepad shader hotload control, helper update, dedicated alignment APK rebuild, bow/scale sweeps, property readbacks, focused XR launch, HzDB screenshots, and row-span comparison against the Rusty XR diagnostic reference. | Diagnostic split. On the bbox-aligned footprint, linear keystone near `-0.248` fixes the top-to-bottom taper, but the center rows can remain narrower than the Rusty reference. A midpoint X-bow control proves that center curvature is independently tunable, but the current pre-homography bow/scale combination trades center-width improvement against outer-bbox width. This means the visible shape mismatch has at least two components: linear taper and side-curvature/bbox coupling. | Do not move to the internal white guide flip yet. Either choose the operator-preferred S116 compromise visually or move the curvature correction later in the projection chain so midpoint width can be adjusted without perturbing the outer footprint. |
 | S117 | Coordinate-stage audit and diagnostic demotion | Public Rusty XR camera taxonomy, Quest stereo workflow, custom APK homography source, Makepad probe/homography source, Makepad shader path review, Rusty XR homography-token logging, and a public homography-stage comparator. No device run in this audit slice. | Corrected the S115/S116 interpretation. Both Rusty XR and Makepad build `surface_to_camera`, `screen_to_surface`, and `screen_to_camera` homographies from the same shared camera-model helpers, but the Makepad projection-area offsets/scale/keystone/bow are applied to shader screen UV before those homographies are evaluated. The accepted Rusty XR `display-screen-homography` reference does not apply an equivalent pre-homography screen-domain warp. Therefore the S115/S116 controls are useful probes for locating the mismatch, but they are not parity fixes by themselves. | Keep the controls for diagnostic sweeps, but reset defaults to neutral. The next parity step is to run `tools/quest-stereo-alignment/Compare-HomographyStages.py` on paired Rusty XR and Makepad logs, compare screen UV -> content-surface UV and content-surface UV -> camera UV before adding any new correction, then place the correction at the matching stage. |
 | S118 | Projected-footprint live border correction | Makepad shader patch, neutral projection-area default cleanup, fresh alignment APK build/install, one live red-border proof capture, homography-stage comparison against the Rusty XR reference logs, and operator headset review before the Quest was disconnected. | Accepted as a good practical Makepad-vs-Rusty-XR alignment checkpoint, with provenance limits. The earlier live red-border witness was misleading because the marker came from a centered in-surface camera window, not the homography-projected camera footprint. S118 changes the live-camera branch to gate and sample through `projected_camera_uv`, draws the red marker with `projection_border_mask(projected_uv)`, emits `liveCameraWindowDomain=projected_camera_uv` and `s118ProjectedFootprintLiveWindow=true`, and keeps the projection-area warp controls neutral by default. Homography-stage comparison showed the Rusty XR and Makepad matrices agreed at the expected stages, and operator headset review reported very good alignment before the final controlled physical-screen screenshot pair could be rerun. | Treat S118 as the current repo baseline for future alignment work. Do not tune more pre-homography projection-area warp defaults from the old red-border images. The next session can fine-tune both Rusty XR and Makepad toward Meta native passthrough, starting from this projected-footprint live border and recording a fresh controlled capture pair. |
+| S120 | Broker synthetic H.264 source parity | Maintained Makepad fork patch, Cargo.lock repin, Makepad shell broker-source patch, Java compile check, `cargo check` for the Makepad example, and source/docs updates. No Quest run in this slice. | Source/build parity established for the broker-managed deterministic stereo input lane. The app can set `debug.rustyxr.makepad.broker.h264.*` properties or use the guarded device gate's `-UseBrokerH264Synthetic` switch to request left/right broker synthetic streams on `8879` / `8880`, `diagnostic-grid`, `1280x1280`, 6 Mbps, and a live 45-second stream with `max_packets=0`. The intended Quest Vulkan path uses Android MediaCodec and CPU-YUV texture upload while bypassing Camera2 permission/source selection. | Run the guarded broker-synthetic device gate with the broker already active, capture Java stream-header metadata logs, then route header projection metadata into the Makepad homography plan before comparing `screen_to_surface`, `surface_to_camera`, and `screen_to_camera` as equivalent projection stages. |
+| S121 | Broker decoded CPU-YUV parity | Makepad fork fix for unbounded `max_packets=0`, refreshed cargo-makepad install, Cargo.lock repin, app marker cleanup, APK rebuild, guarded broker-synthetic Quest gate, and gate-summary counter update. | Device-verified decoded broker input parity for Makepad. The broker stream headers report schema 3, `1280x1280`, projection metadata, and packet count `0`; both eyes emit prepared and `texture-updated` markers with `cpuUploadPath=broker-h264-mediacodec-cpu-yuv`; cadence reaches nonzero left/right texture update counts with paired frames, projection mapping, and aligned projection true. The computed homography rows now expose `surface_to_camera`, `screen_to_surface`, and `screen_to_camera` for tri-stack comparison. | Use this as the deterministic Makepad source baseline for tri-stack synthetic-camera projection analysis. Keep zero-copy surface texture transport and final visual/effect-stack parity as separate follow-up axes. |
 
 Operator visual note carried forward from S34/S35: the previous occlusion screenshot
 showed real-world geometry masking the app-owned colored panel, while the
