@@ -876,24 +876,31 @@ mod android {
             let fbo_status = if let (Some(probe), Some(renderer)) =
                 (surface_texture_oes_probe, oes_copy_renderer.as_mut())
             {
-                if let Some((source_texture, source_sequence)) =
-                    probe.updated_eye_texture(eye.view_index)
-                {
+                if let Some(source) = probe.updated_eye_texture(eye.view_index) {
                     match fbo.render_external_oes(
                         texture,
-                        source_texture,
+                        source.texture,
                         eye.width,
                         eye.height,
                         renderer,
                     ) {
                         Ok(fbo_status) => {
                             render_path = OES_COPY_RENDER_PATH;
-                            rendered_source_sequence = Some(source_sequence);
+                            rendered_source_sequence = Some(source.source_sequence);
                             if frame_count == 0 || frame_count.is_multiple_of(120) {
+                                let frame_age_at_submit_ms = source
+                                    .queued_pts_us
+                                    .and_then(|pts_us| probe.frame_age_at_submit_ms(pts_us));
+                                log_oes_submit_diagnostic(
+                                    eye.view_index,
+                                    frame_count,
+                                    &source,
+                                    frame_age_at_submit_ms,
+                                );
                                 log_projection_diagnostics(
                                     eye.view_index,
                                     frame_count,
-                                    source_sequence,
+                                    source.source_sequence,
                                 );
                             }
                             fbo_status
@@ -1404,6 +1411,15 @@ void main() {
         last_report_sequence: u64,
     }
 
+    struct OesEyeTextureSample {
+        texture: u32,
+        source_sequence: u64,
+        queued_pts_us: Option<i64>,
+        surface_timestamp_ns: Option<i64>,
+        transform_hash: Option<String>,
+        update_tex_image_count: u64,
+    }
+
     impl SurfaceTextureOesProbe {
         fn create(app: &android_activity::AndroidApp, egl: &EglContext) -> Result<Self, String> {
             egl.make_current()?;
@@ -1571,18 +1587,30 @@ void main() {
                     .saturating_sub(self.consumed_frame_available_counts[view_index])
                     .saturating_sub(1);
                 match self.update_surface_texture(egl, view_index) {
-                    Ok((timestamp_ns, transform_hash)) => {
+                    Ok((timestamp_ns, transform_hash, transform_matrix)) => {
                         if let Some(eye) = self.status.eyes.get_mut(view_index) {
                             eye.record_update(
                                 frame_count,
                                 latest_sequence,
                                 latest_pts_us,
                                 timestamp_ns,
-                                transform_hash,
+                                transform_hash.as_str(),
                             );
                             eye.frame_available_count = available_count;
                             eye.skipped_update_count =
                                 eye.skipped_update_count.saturating_add(skipped);
+                            if eye.transform_matrix_sample_count == 1
+                                || eye.transform_matrix_sample_count.is_multiple_of(120)
+                            {
+                                log_surface_texture_transform_matrix(
+                                    view_index,
+                                    eye.source_eye.as_deref(),
+                                    eye.update_tex_image_count,
+                                    timestamp_ns,
+                                    &transform_hash,
+                                    &transform_matrix,
+                                );
+                            }
                         }
                         self.consumed_frame_available_counts[view_index] = available_count;
                         updated_any = true;
@@ -1614,7 +1642,7 @@ void main() {
             &self,
             egl: &EglContext,
             view_index: usize,
-        ) -> Result<(i64, String), String> {
+        ) -> Result<(i64, String, [f32; 16]), String> {
             egl.make_current()?;
             let surface_texture = self
                 .surface_textures
@@ -1630,16 +1658,36 @@ void main() {
                 .call_method(surface_texture.as_obj(), "getTimestamp", "()J", &[])
                 .and_then(|value| value.j())
                 .map_err(|error| format!("get SurfaceTexture timestamp: {error}"))?;
-            Ok((timestamp_ns, String::from("m44:not-sampled")))
+            let transform_matrix =
+                sample_surface_texture_transform_matrix(&mut env, surface_texture.as_obj())?;
+            let transform_hash = transform_matrix_hash(&transform_matrix);
+            Ok((timestamp_ns, transform_hash, transform_matrix))
         }
 
-        fn updated_eye_texture(&self, view_index: usize) -> Option<(u32, u64)> {
+        fn updated_eye_texture(&self, view_index: usize) -> Option<OesEyeTextureSample> {
             let eye = self.status.eyes.get(view_index)?;
             if eye.update_tex_image_count == 0 || eye.decoder_error_count > 0 {
                 return None;
             }
             let texture = *self.textures.get(view_index)?;
-            Some((texture, eye.latest_stream_sequence.unwrap_or_default()))
+            Some(OesEyeTextureSample {
+                texture,
+                source_sequence: eye.latest_stream_sequence.unwrap_or_default(),
+                queued_pts_us: eye.latest_queued_pts_us,
+                surface_timestamp_ns: eye.latest_surface_texture_timestamp_ns,
+                transform_hash: eye.latest_transform_matrix_hash.clone(),
+                update_tex_image_count: eye.update_tex_image_count,
+            })
+        }
+
+        fn frame_age_at_submit_ms(&self, queued_pts_us: i64) -> Option<f32> {
+            let now_ns = android_elapsed_realtime_nanos(&self.java_vm)?;
+            let source_ns = queued_pts_us.checked_mul(1_000)?;
+            let age_ns = now_ns.checked_sub(source_ns)?;
+            if !(0..=10_000_000_000).contains(&age_ns) {
+                return None;
+            }
+            Some(age_ns as f32 / 1_000_000.0)
         }
 
         fn refresh_texture_update_rate(&mut self) {
@@ -1717,6 +1765,90 @@ void main() {
                 eye.latest_decoder_error = Some(error.to_string());
             }
         }
+    }
+
+    fn sample_surface_texture_transform_matrix(
+        env: &mut JNIEnv<'_>,
+        surface_texture: &JObject<'_>,
+    ) -> Result<[f32; 16], String> {
+        let transform_array = env
+            .new_float_array(16)
+            .map_err(|error| format!("allocate SurfaceTexture transform matrix array: {error}"))?;
+        env.call_method(
+            surface_texture,
+            "getTransformMatrix",
+            "([F)V",
+            &[JValue::Object(&transform_array)],
+        )
+        .map_err(|error| format!("get SurfaceTexture transform matrix: {error}"))?;
+        let mut transform = [0.0_f32; 16];
+        env.get_float_array_region(&transform_array, 0, &mut transform)
+            .map_err(|error| format!("read SurfaceTexture transform matrix: {error}"))?;
+        Ok(transform)
+    }
+
+    fn transform_matrix_hash(transform: &[f32; 16]) -> String {
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+        for value in transform {
+            for byte in value.to_bits().to_le_bytes() {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        format!("m44:fnv1a64:{hash:016x}")
+    }
+
+    fn android_elapsed_realtime_nanos(java_vm: &JavaVM) -> Option<i64> {
+        let mut env = java_vm.attach_current_thread().ok()?;
+        env.call_static_method("android/os/SystemClock", "elapsedRealtimeNanos", "()J", &[])
+            .ok()?
+            .j()
+            .ok()
+    }
+
+    fn log_surface_texture_transform_matrix(
+        view_index: usize,
+        source_eye: Option<&str>,
+        update_tex_image_count: u64,
+        timestamp_ns: i64,
+        transform_hash: &str,
+        transform_matrix: &[f32; 16],
+    ) {
+        let payload = serde_json::json!({
+            "schema": "rusty.xr.quest.surface_texture_oes_transform_matrix.v1",
+            "view_index": view_index,
+            "source_eye": source_eye,
+            "update_tex_image_count": update_tex_image_count,
+            "surface_texture_timestamp_ns": timestamp_ns,
+            "transform_matrix_hash": transform_hash,
+            "transform_matrix": transform_matrix,
+        });
+        log_info(format!(
+            "Rusty XR SurfaceTexture OES transform matrix {payload}"
+        ));
+    }
+
+    fn log_oes_submit_diagnostic(
+        view_index: usize,
+        frame_count: u64,
+        source: &OesEyeTextureSample,
+        frame_age_at_submit_ms: Option<f32>,
+    ) {
+        let payload = serde_json::json!({
+            "schema": "rusty.xr.quest.openxr_gles_oes_submit.v1",
+            "view_index": view_index,
+            "frame_count": frame_count,
+            "source_sequence": source.source_sequence,
+            "queued_pts_us": source.queued_pts_us,
+            "surface_texture_timestamp_ns": source.surface_timestamp_ns,
+            "transform_matrix_hash": source.transform_hash,
+            "update_tex_image_count": source.update_tex_image_count,
+            "frame_age_at_submit_ms": frame_age_at_submit_ms,
+            "render_path": OES_COPY_RENDER_PATH,
+        });
+        log_info(format!(
+            "Rusty XR OpenXR GLES OES submit diagnostic {payload}"
+        ));
     }
 
     fn start_broker_h264_oes_decode_probe(
