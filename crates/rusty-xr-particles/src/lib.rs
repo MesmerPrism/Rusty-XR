@@ -612,7 +612,9 @@ pub fn triangle_mesh_snapshot_from_surface(
 ///
 /// Runtime providers may update vertices every frame, but sampled coordinates
 /// can keep their triangle/barycentric anchors while the index topology stays
-/// stable. A changed key means the coordinate set should be rebuilt.
+/// stable. A changed key means the coordinate set should be rebuilt. The index
+/// hash is fixed-width so serialized keys are stable across 32-bit and 64-bit
+/// consumers.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MeshSurfaceTopologyKey {
@@ -3459,7 +3461,7 @@ fn mesh_surface_index_hash(indices: &[[usize; 3]]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     for triangle in indices {
         for index in triangle {
-            for byte in index.to_le_bytes() {
+            for byte in (*index as u64).to_le_bytes() {
                 hash ^= u64::from(byte);
                 hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
             }
@@ -4095,6 +4097,24 @@ mod tests {
         {
             assert!((sample.position - (old_position + offset)).length() < 1.0e-5);
         }
+    }
+
+    #[test]
+    fn mesh_surface_topology_hash_is_architecture_stable() {
+        let mesh = TriangleMeshSurface::new(
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2], [2, 3, 0]],
+        );
+
+        assert_eq!(
+            MeshSurfaceTopologyKey::from_mesh(&mesh).index_hash,
+            0xac5d_e03d_ae5e_3147
+        );
     }
 
     #[test]
