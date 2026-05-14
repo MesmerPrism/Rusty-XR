@@ -108,7 +108,14 @@ crates.
 
 Reusable status models and helpers for interpreting common Quest development
 signals such as package launch state, frame timing, runtime properties, and
-device readiness.
+device readiness. The crate now also owns provider-neutral contracts for
+Meta Quest development tooling: `hzdb`/ADB/MCP provider capabilities, safety
+classes, device health, controller info, app metadata, foreground state, log
+filters, screenshot capture manifests, file-operation plans, Perfetto trace
+sessions and metrics, docs/API search results, optional asset-search results,
+MCP server config, agent-skill metadata, and combined provider snapshots.
+The provider architecture and implementation plan are documented in
+[META_QUEST_HZDB_PROVIDER_PLAN.md](META_QUEST_HZDB_PROVIDER_PLAN.md).
 
 ### Debug Canvas
 
@@ -273,9 +280,12 @@ geometry generators. Framework-native widgets, native OpenXR/Vulkan/Android
 calls, and downstream app behavior stay in adapters or downstream app shells.
 The first Rusty Kiosk / developer-home slice follows this rule:
 `rusty-xr-contracts` models home panels, launch rows, settings shortcuts,
-helper status, and focus-recovery events, while actual 2D UI, immersive
-rendering, ADB helper lifecycle, and managed kiosk policy stay in app shells or
-companion tooling.
+helper status, focus-recovery events, and the Rusty Kiosk control-plane status
+that distinguishes `BrokerPanel2d`, `BrokerPanelWithShellHelper`, and future
+immersive-home phases. Actual 2D UI, immersive rendering, ADB helper lifecycle,
+and managed kiosk policy stay in app shells or companion tooling. The Quest
+broker APK exposes the current control-plane status through `/status`,
+`/kiosk/status`, `kiosk.get_status`, and stream `kiosk:control_plane`.
 
 A broader sanitized machine-wide audit is tracked in
 [MACHINE_REPO_TOOLING_AUDIT.md](MACHINE_REPO_TOOLING_AUDIT.md). It covers
@@ -285,6 +295,10 @@ BLE/LSL/biofeedback, and clean-room import tooling candidates from local
 sibling repositories. The foreground-OpenXR-versus-ADB tracking boundary is
 documented in
 [QUEST_TRACKING_ACCESS_BOUNDARY.md](QUEST_TRACKING_ACCESS_BOUNDARY.md).
+The 2026 Meta Horizon agentic tooling update is folded into
+[META_QUEST_HZDB_PROVIDER_PLAN.md](META_QUEST_HZDB_PROVIDER_PLAN.md): `hzdb`
+is a Meta Quest provider and optional MCP bridge, not a replacement for Rusty
+XR contracts or the Companion safety layer.
 
 ### Android / Quest APK Shells
 

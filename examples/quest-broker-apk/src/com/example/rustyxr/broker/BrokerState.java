@@ -67,6 +67,7 @@ final class BrokerState {
         status.put("videoLab", videoLabStatusJson());
         status.put("transportSessions", transportSessions.statusJson());
         status.put("clock", clock.statusJson());
+        status.put("rustyKiosk", rustyKioskStatusJson());
 
         JSONObject commands = new JSONObject();
         commands.put("schema", "rusty.xr.broker.command.v1");
@@ -86,6 +87,7 @@ final class BrokerState {
         supportedCommands.put("clock.health");
         supportedCommands.put("clock.compare_openxr");
         supportedCommands.put("clock.sync_probe");
+        supportedCommands.put("kiosk.get_status");
         supportedCommands.put("polar_pmd.get_status");
         supportedCommands.put("polar_pmd.start");
         supportedCommands.put("polar_pmd.stop");
@@ -181,6 +183,7 @@ final class BrokerState {
         capabilities.put("broker.clock.stamp.v1");
         capabilities.put("broker.clock.correlation.v1");
         capabilities.put("broker.clock.sync_probe.v1");
+        capabilities.put("rusty_kiosk.control_plane.status.v1");
         capabilities.put("bio.polar_pmd.android_ble.v1");
         capabilities.put("bio.polar_acc.direct_ble.v1");
         capabilities.put("bio.breath_assessment.v1");
@@ -240,6 +243,7 @@ final class BrokerState {
         streams.put(streamJson("clock:health", "clock", "Clock health, wall-clock jump, and discontinuity events.", true));
         streams.put(streamJson("clock:correlation", "clock", "Timestamp-domain correlation updates.", true));
         streams.put(streamJson("clock:openxr_frame", "clock", "OpenXR predicted-display timing samples when an immersive Rusty XR session publishes them.", false));
+        streams.put(streamJson("kiosk:control_plane", "control", "Rusty Kiosk phase, surface-intent, helper, and command evidence.", true));
         streams.put(streamJson("latency:sample", "latency", "WebSocket latency samples accepted by the broker.", true));
         streams.put(streamJson("bio:polar_hr_rr", "bio", "Synthetic or adapter-published Polar-compatible heart-rate/RR events.", true));
         streams.put(streamJson("bio:polar_ecg", "bio", "Synthetic or adapter-published Polar-compatible ECG frame events.", true));
@@ -292,6 +296,28 @@ final class BrokerState {
         return stream;
     }
 
+    private static Object nullableJsonString(String value) {
+        return value != null && value.length() > 0 ? value : JSONObject.NULL;
+    }
+
+    private static boolean metaShellPackage(String packageName) {
+        if (packageName == null) {
+            return false;
+        }
+        String normalized = packageName.toLowerCase(Locale.ROOT);
+        return normalized.startsWith("com.oculus.")
+            || normalized.startsWith("com.meta.")
+            || normalized.contains("horizon");
+    }
+
+    private static String activeBrokerPanelId() {
+        String page = MainActivity.activePageName();
+        if (page == null || page.length() == 0) {
+            return "broker";
+        }
+        return "broker." + page.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
+    }
+
     JSONObject cameraProviderStatusJson() throws Exception {
         return cameraProjectionProvider.toStatusJson();
     }
@@ -318,6 +344,88 @@ final class BrokerState {
 
     JSONObject shellHelperStatusJson() throws Exception {
         return shellHelper.toStatusJson();
+    }
+
+    JSONObject rustyKioskStatusJson() throws Exception {
+        JSONObject control = experimentControl.toStatusJson();
+        JSONObject helperStatus = control.optJSONObject("helper_status");
+        JSONObject clockStatus = clock.statusJson();
+
+        boolean helperConnected = shellHelper.isConnected();
+        boolean consoleVisible = MainActivity.isConsoleVisible();
+        String desiredFocus = control.optString("desired_focus", "broker");
+        String targetPackage = control.optString("target_package", "");
+        String targetActivity = control.optString("target_activity", "");
+        String foregroundPackage = helperStatus != null ? helperStatus.optString("foreground_package", "") : "";
+        String foregroundActivity = helperStatus != null ? helperStatus.optString("foreground_activity", "") : "";
+        if (foregroundPackage.length() == 0 && consoleVisible) {
+            foregroundPackage = "com.example.rustyxr.broker";
+            foregroundActivity = "com.example.rustyxr.broker.MainActivity";
+        }
+
+        String surfaceIntent = "RustyKioskDefault";
+        boolean metaMenuActive = metaShellPackage(foregroundPackage);
+        if (metaMenuActive) {
+            surfaceIntent = "MetaPanelUnexpected";
+        } else if (targetPackage.length() > 0 && targetPackage.equals(foregroundPackage)) {
+            surfaceIntent = "RustyXrTarget";
+        } else if ("target".equals(desiredFocus) && foregroundPackage.length() == 0) {
+            surfaceIntent = "UnknownSurface";
+        }
+
+        String mode = control.optString("mode", "off");
+        boolean focusGuardianActive = helperConnected &&
+            control.optBoolean("enabled", false) &&
+            !"off".equals(mode);
+        boolean proximityWatchdogActive = helperStatus != null &&
+            (helperStatus.optBoolean("proximity_watchdog_active", false) ||
+                helperStatus.optBoolean("proximity_control_enabled", false));
+
+        JSONObject latestCommand = new JSONObject();
+        latestCommand.put("schema", "rusty.xr.kiosk.command_evidence.v1");
+        latestCommand.put("command_goal", "surface.current");
+        latestCommand.put("provider", "Broker");
+        latestCommand.put("preferred_command", "GET /status");
+        latestCommand.put("fallback_command", "adb shell dumpsys window");
+        latestCommand.put("foreground_before", JSONObject.NULL);
+        latestCommand.put("foreground_after", foregroundPackage.length() > 0
+            ? foregroundPackage + (foregroundActivity.length() > 0 ? "/" + foregroundActivity : "")
+            : JSONObject.NULL);
+        latestCommand.put("clock_epoch_id", nullableJsonString(clockStatus.optString("clock_epoch_id", "")));
+        latestCommand.put("notes", new JSONArray());
+
+        JSONArray limitations = new JSONArray();
+        limitations.put("normal_android_panel_not_app_owned_immersive_home");
+        limitations.put("no_preemptive_home_menu_intercept");
+        if (!helperConnected) {
+            limitations.put("continuous_helper_not_connected");
+        }
+        if (!consoleVisible) {
+            limitations.put("broker_console_not_foreground");
+        }
+
+        JSONObject status = new JSONObject();
+        status.put("schema", "rusty.xr.kiosk.control_plane.v1");
+        status.put("phase", helperConnected ? "BrokerPanelWithShellHelper" : "BrokerPanel2d");
+        status.put("surface_intent", surfaceIntent);
+        status.put("home_mode", "Normal2d");
+        status.put("broker_available", true);
+        status.put("broker_panel_visible", consoleVisible);
+        status.put("immersive_home_visible", false);
+        status.put("shell_helper_connected", helperConnected);
+        status.put("continuous_adb_shell_required", helperConnected);
+        status.put("watchdog_required", helperConnected);
+        status.put("focus_guardian_active", focusGuardianActive);
+        status.put("proximity_watchdog_active", proximityWatchdogActive);
+        status.put("meta_menu_active", metaMenuActive);
+        status.put("meta_menu_entry_intentional", false);
+        status.put("active_panel", consoleVisible ? activeBrokerPanelId() : JSONObject.NULL);
+        status.put("foreground_package", nullableJsonString(foregroundPackage));
+        status.put("foreground_activity", nullableJsonString(foregroundActivity));
+        status.put("clock_epoch_id", nullableJsonString(clockStatus.optString("clock_epoch_id", "")));
+        status.put("latest_command", latestCommand);
+        status.put("limitations", limitations);
+        return status;
     }
 
     JSONObject clockStatusJson() throws Exception {

@@ -52,6 +52,9 @@ Public core may contain:
 - timing and network-quality metrics
 - security-policy descriptors
 - adapter-neutral endpoint metadata
+- provider-neutral Quest development tool descriptors such as `hzdb`/ADB/MCP
+  capability manifests, operation safety classes, docs/API search result
+  shapes, and trace/session report metadata
 
 Public core must not contain:
 
@@ -59,6 +62,8 @@ Public core must not contain:
 - copied proprietary packet layouts or wire formats
 - native codec/media payloads
 - release payloads that require separate commercial terms
+- installed MCP server configs that mutate a user's editor or project without
+  an explicit operator action
 
 ## Adapter Requirements
 

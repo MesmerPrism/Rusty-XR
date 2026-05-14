@@ -61,10 +61,12 @@ pub use hand::{
 pub use home::{
     ExternalLaunchState, FocusRecoveryAction, FocusRecoveryEvent, FocusRecoveryResult,
     HomeHelperState, HomeMode, HomePanelDescriptor, HomePanelKind, HomePanelPlacement,
-    HomeSessionState, HomeSupervisorPolicy, HomeSupervisorState, LauncherEntry,
-    LauncherEntrySource, SettingsShortcutCategory, SettingsShortcutDescriptor,
+    HomeSessionState, HomeSupervisorPolicy, HomeSupervisorState, KioskCommandEvidence,
+    KioskCommandProvider, KioskControlPlanePhase, KioskControlPlaneStatus, KioskSurfaceIntent,
+    LauncherEntry, LauncherEntrySource, SettingsShortcutCategory, SettingsShortcutDescriptor,
     HOME_FOCUS_RECOVERY_EVENT_SCHEMA, HOME_LAUNCHER_ENTRY_SCHEMA, HOME_PANEL_DESCRIPTOR_SCHEMA,
-    HOME_SESSION_STATE_SCHEMA, HOME_SETTINGS_SHORTCUT_SCHEMA,
+    HOME_SESSION_STATE_SCHEMA, HOME_SETTINGS_SHORTCUT_SCHEMA, KIOSK_COMMAND_EVIDENCE_SCHEMA,
+    KIOSK_CONTROL_PLANE_STATUS_SCHEMA,
 };
 pub use interaction::{
     HandInfluencePoint, HandMenuActivation, HandMenuAnchor, InteractionRay, XrCanvasHit,

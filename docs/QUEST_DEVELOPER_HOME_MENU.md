@@ -16,6 +16,14 @@ place to launch targets, inspect broker state, view the Clock panel, and record
 unexpected focus or system-panel events. Public contracts still avoid claiming
 system Home/Menu interception or managed-kiosk privileges.
 
+Rusty Kiosk also owns the local tracking setup for Quest development signals.
+That does not mean fused pose tracking. It means tracking which surface the
+headset is actually showing, which command path changed it, whether a Meta
+system menu was opened intentionally, and which provider evidence supports the
+decision. The custom Rusty XR menu is the default operator surface; entering
+Meta Home/Menu/settings should be an explicit, logged intent unless the test is
+about raw Meta shell behavior.
+
 ## Layered Shape
 
 Use four separate layers:
@@ -53,6 +61,26 @@ The helper boundary is explicit. A panel that declares helper-only commands such
 as `launcher.force_stop`, `guardian.configure_mode`, or `system.get_foreground`
 must set `requires_helper=true` to validate.
 
+## Provider Evidence Loop
+
+For each launch, recovery, settings shortcut, focus-recovery attempt, or
+unexpected Meta shell transition, Rusty Kiosk run records should include:
+
+- command goal and provider kind (`hzdb`, ADB, Companion, broker, helper, or
+  manual)
+- broker `/status`, `/clock/now`, `/clock/health`, and `clock_epoch_id` when
+  available
+- foreground app or panel before and after the operation
+- whether the resulting surface is `rusty_kiosk_default`, `rusty_xr_target`,
+  `meta_panel_intentional`, `meta_panel_unexpected`, or `unknown_surface`
+- screenshot/capture method for visual witness when the state is ambiguous
+- fallback command path if the preferred provider is unavailable
+
+The command taxonomy, safety gates, and `hzdb`/ADB fallback table live in
+[META_QUEST_HZDB_PROVIDER_PLAN.md](META_QUEST_HZDB_PROVIDER_PLAN.md). Rusty
+Kiosk should use that provider plan as a core part of learning which Quest
+signals are reliable enough for a custom Rusty XR development environment.
+
 ## Non-Goals
 
 These contracts do not:
@@ -76,8 +104,25 @@ cargo run -p rusty-xr-contracts --example developer_home_manifest --features ser
 
 The example emits a manifest with launcher, system, clock, and diagnostics
 panels, a normal target-app launcher entry, two settings shortcuts, a
-helper-aware session state, and one observe-only recovery event. It does not
-build an APK, launch a headset app, start ADB, or use a device.
+helper-aware session state, a Rusty Kiosk control-plane snapshot, and one
+observe-only recovery event. It does not build an APK, launch a headset app,
+start ADB, or use a device.
+
+## Broker Status Surface
+
+The Quest broker APK now reports the current Rusty Kiosk control-plane phase in
+its normal status payload:
+
+- `GET /status` includes a `rustyKiosk` object.
+- `GET /kiosk/status` returns the Rusty Kiosk object directly.
+- WebSocket command `kiosk.get_status` returns the same object.
+- stream `kiosk:control_plane` is broadcast when shell-helper or experiment
+  control state changes.
+
+The current implementation reports `BrokerPanel2d` or
+`BrokerPanelWithShellHelper`. It intentionally reports
+`immersive_home_visible=false` until an app-owned passthrough/full-XR home shell
+is actually active.
 
 ## Schema Export
 
@@ -87,6 +132,7 @@ The hand-reviewed schema exporter includes:
 - `home-session-state.schema.json`
 - `home-launcher-entry.schema.json`
 - `home-settings-shortcut.schema.json`
+- `home-kiosk-control-plane-status.schema.json`
 - `home-focus-recovery-event.schema.json`
 
 Run:
@@ -110,6 +156,8 @@ Read these docs together:
 - `BROKER_CLOCK_AND_TIMEBASE.md`: broker-owned elapsed-realtime clock,
   cross-app clock queries, stream stamps, and OpenXR timeline comparison
   boundary.
+- `META_QUEST_HZDB_PROVIDER_PLAN.md`: `hzdb`/ADB/MCP provider commands, safety
+  classes, signal tracking labels, and Rusty Kiosk command-goal evidence.
 
 The home contracts give those docs a shared data shape without moving platform
 behavior into the public core.

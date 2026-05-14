@@ -258,6 +258,11 @@ final class LocalBrokerServer implements Closeable {
                 return;
             }
 
+            if ("GET".equals(method) && "/kiosk/status".equals(endpointPath)) {
+                writeJsonResponse(output, 200, state.rustyKioskStatusJson().toString());
+                return;
+            }
+
             if ("GET".equals(method) && "/rustyxr/v1/events".equals(endpointPath) && wantsWebSocket(headers)) {
                 handleWebSocket(headers, input, output);
                 return;
@@ -445,6 +450,13 @@ final class LocalBrokerServer implements Closeable {
             JSONObject result = new JSONObject();
             result.put("probe", state.clockSyncProbeJson(message.optJSONObject("params")));
             return commandAck(requestId, command, true, "clock_sync_probe", result);
+        }
+
+        if ("kiosk.get_status".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("status", state.rustyKioskStatusJson());
+            return commandAck(requestId, command, true, "kiosk_status", result);
         }
 
         if ("subscribe".equals(command)) {
@@ -1350,11 +1362,15 @@ final class LocalBrokerServer implements Closeable {
         JSONObject status = state.reportShellHelperStatus(params);
         long now = unixNowNs();
         int broadcasts = broadcastStreamEvent("shell_helper.status", now, now, status);
+        JSONObject kioskStatus = state.rustyKioskStatusJson();
+        int kioskBroadcasts = broadcastStreamEvent("kiosk:control_plane", now, now, kioskStatus);
         state.acceptedCommands.incrementAndGet();
 
         JSONObject result = new JSONObject();
         result.put("status", status);
         result.put("broadcasts", broadcasts);
+        result.put("kiosk_status", kioskStatus);
+        result.put("kiosk_broadcasts", kioskBroadcasts);
         return commandAck(requestId, command, true, "shell_helper_status_reported", result);
     }
 
@@ -1365,11 +1381,15 @@ final class LocalBrokerServer implements Closeable {
         JSONObject status = state.configureExperimentControl(params);
         long now = unixNowNs();
         int broadcasts = broadcastStreamEvent("experiment.control", now, now, status);
+        JSONObject kioskStatus = state.rustyKioskStatusJson();
+        int kioskBroadcasts = broadcastStreamEvent("kiosk:control_plane", now, now, kioskStatus);
         state.acceptedCommands.incrementAndGet();
 
         JSONObject result = new JSONObject();
         result.put("control", status);
         result.put("broadcasts", broadcasts);
+        result.put("kiosk_status", kioskStatus);
+        result.put("kiosk_broadcasts", kioskBroadcasts);
         return commandAck(requestId, command, true, "experiment_control_configured", result);
     }
 
@@ -1380,11 +1400,15 @@ final class LocalBrokerServer implements Closeable {
         JSONObject status = state.reportExperimentStatus(params);
         long now = unixNowNs();
         int broadcasts = broadcastStreamEvent("experiment.control", now, now, status);
+        JSONObject kioskStatus = state.rustyKioskStatusJson();
+        int kioskBroadcasts = broadcastStreamEvent("kiosk:control_plane", now, now, kioskStatus);
         state.acceptedCommands.incrementAndGet();
 
         JSONObject result = new JSONObject();
         result.put("control", status);
         result.put("broadcasts", broadcasts);
+        result.put("kiosk_status", kioskStatus);
+        result.put("kiosk_broadcasts", kioskBroadcasts);
         return commandAck(requestId, command, true, "experiment_status_reported", result);
     }
 

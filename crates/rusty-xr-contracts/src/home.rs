@@ -15,6 +15,12 @@ pub const HOME_SETTINGS_SHORTCUT_SCHEMA: &str = "rusty.xr.home.settings_shortcut
 /// Versioned schema id for focus recovery events.
 pub const HOME_FOCUS_RECOVERY_EVENT_SCHEMA: &str = "rusty.xr.home.focus_recovery_event.v1";
 
+/// Versioned schema id for Rusty Kiosk control-plane snapshots.
+pub const KIOSK_CONTROL_PLANE_STATUS_SCHEMA: &str = "rusty.xr.kiosk.control_plane.v1";
+
+/// Versioned schema id for the command evidence embedded in control-plane snapshots.
+pub const KIOSK_COMMAND_EVIDENCE_SCHEMA: &str = "rusty.xr.kiosk.command_evidence.v1";
+
 /// High-level mode for a Rusty Kiosk, developer-home, or broker surface.
 ///
 /// These are product and routing modes, not platform privileges. A normal app
@@ -529,6 +535,376 @@ impl HomeSessionState {
     }
 }
 
+/// Concrete runtime phase for the Rusty Kiosk control plane.
+///
+/// This separates the current broker-as-2D-panel phase from the target
+/// app-owned immersive home. It is a capability statement, not a claim that the
+/// app replaced Horizon OS Home or intercepted protected system UI.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum KioskControlPlanePhase {
+    /// Broker console is visible as a normal 2D panel inside Horizon OS.
+    #[default]
+    BrokerPanel2d,
+    /// Broker panel plus an external shell helper/watchdog for observation and recovery.
+    BrokerPanelWithShellHelper,
+    /// App-owned immersive passthrough or virtual home prototype is the active target.
+    ImmersiveHomePrototype,
+    /// Immersive home plus bounded helper/watchdog supervision.
+    ImmersiveHomeWithSupervisor,
+    /// Separate managed-device policy route for real lockdown deployments.
+    ManagedDeviceKiosk,
+}
+
+impl KioskControlPlanePhase {
+    pub const fn has_app_owned_immersive_home(self) -> bool {
+        matches!(
+            self,
+            Self::ImmersiveHomePrototype | Self::ImmersiveHomeWithSupervisor
+        )
+    }
+
+    pub const fn uses_continuous_helper(self) -> bool {
+        matches!(
+            self,
+            Self::BrokerPanelWithShellHelper | Self::ImmersiveHomeWithSupervisor
+        )
+    }
+
+    pub const fn is_managed_device_route(self) -> bool {
+        matches!(self, Self::ManagedDeviceKiosk)
+    }
+}
+
+/// Operator intent inferred or declared for the currently visible surface.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum KioskSurfaceIntent {
+    /// Rusty Kiosk broker/home is intentionally the baseline.
+    #[default]
+    RustyKioskDefault,
+    /// A target Rusty XR app is intentionally focused.
+    RustyXrTarget,
+    /// Meta Home/Menu/settings was intentionally opened for a bracketed test or setting.
+    MetaPanelIntentional,
+    /// Meta Home/Menu/settings appeared without that being the current test goal.
+    MetaPanelUnexpected,
+    /// The surface is not identified yet.
+    UnknownSurface,
+}
+
+impl KioskSurfaceIntent {
+    pub const fn is_meta_surface(self) -> bool {
+        matches!(self, Self::MetaPanelIntentional | Self::MetaPanelUnexpected)
+    }
+
+    pub const fn is_unexpected(self) -> bool {
+        matches!(self, Self::MetaPanelUnexpected | Self::UnknownSurface)
+    }
+}
+
+/// Provider used for a Rusty Kiosk observation or control command.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum KioskCommandProvider {
+    /// Broker HTTP/WebSocket command surface.
+    #[default]
+    Broker,
+    /// ADB-launched shell helper or watchdog.
+    ShellHelper,
+    /// Direct ADB command path.
+    Adb,
+    /// Meta Horizon Debug Bridge CLI.
+    HzdbCli,
+    /// Meta Horizon Debug Bridge MCP server.
+    HzdbMcp,
+    /// Windows or phone companion app/provider.
+    Companion,
+    /// Operator-observed/manual record.
+    Manual,
+    /// Provider was not captured.
+    Unknown,
+}
+
+/// Evidence for the latest command path used to observe or move the kiosk state.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KioskCommandEvidence {
+    pub schema: String,
+    pub command_goal: String,
+    pub provider: KioskCommandProvider,
+    pub preferred_command: Option<String>,
+    pub fallback_command: Option<String>,
+    pub foreground_before: Option<String>,
+    pub foreground_after: Option<String>,
+    pub clock_epoch_id: Option<String>,
+    pub notes: Vec<String>,
+}
+
+impl KioskCommandEvidence {
+    pub fn new(command_goal: impl Into<String>, provider: KioskCommandProvider) -> Self {
+        Self {
+            schema: KIOSK_COMMAND_EVIDENCE_SCHEMA.to_string(),
+            command_goal: command_goal.into(),
+            provider,
+            preferred_command: None,
+            fallback_command: None,
+            foreground_before: None,
+            foreground_after: None,
+            clock_epoch_id: None,
+            notes: Vec::new(),
+        }
+    }
+
+    pub fn with_preferred_command(mut self, command: impl Into<String>) -> Self {
+        self.preferred_command = Some(command.into());
+        self
+    }
+
+    pub fn with_fallback_command(mut self, command: impl Into<String>) -> Self {
+        self.fallback_command = Some(command.into());
+        self
+    }
+
+    pub fn with_foreground_before(mut self, foreground: impl Into<String>) -> Self {
+        self.foreground_before = Some(foreground.into());
+        self
+    }
+
+    pub fn with_foreground_after(mut self, foreground: impl Into<String>) -> Self {
+        self.foreground_after = Some(foreground.into());
+        self
+    }
+
+    pub fn with_clock_epoch_id(mut self, clock_epoch_id: impl Into<String>) -> Self {
+        self.clock_epoch_id = Some(clock_epoch_id.into());
+        self
+    }
+
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == KIOSK_COMMAND_EVIDENCE_SCHEMA
+            && stable_id(&self.command_goal)
+            && self
+                .preferred_command
+                .as_ref()
+                .map(|command| non_empty(command))
+                .unwrap_or(true)
+            && self
+                .fallback_command
+                .as_ref()
+                .map(|command| non_empty(command))
+                .unwrap_or(true)
+            && self
+                .foreground_before
+                .as_ref()
+                .map(|foreground| non_empty(foreground))
+                .unwrap_or(true)
+            && self
+                .foreground_after
+                .as_ref()
+                .map(|foreground| non_empty(foreground))
+                .unwrap_or(true)
+            && self
+                .clock_epoch_id
+                .as_ref()
+                .map(|clock_epoch_id| stable_id(clock_epoch_id))
+                .unwrap_or(true)
+            && self.notes.iter().all(|note| non_empty(note))
+    }
+}
+
+/// Current Rusty Kiosk control-plane state.
+///
+/// A broker-only 2D panel can launch and report status, but it is not the
+/// target immersive developer home. Continuous helper/watchdog readiness is
+/// tracked explicitly so test reports do not confuse "broker focused in Meta
+/// shell" with "custom home environment active".
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KioskControlPlaneStatus {
+    pub schema: String,
+    pub phase: KioskControlPlanePhase,
+    pub surface_intent: KioskSurfaceIntent,
+    pub home_mode: HomeMode,
+    pub broker_available: bool,
+    pub broker_panel_visible: bool,
+    pub immersive_home_visible: bool,
+    pub shell_helper_connected: bool,
+    pub continuous_adb_shell_required: bool,
+    pub watchdog_required: bool,
+    pub focus_guardian_active: bool,
+    pub proximity_watchdog_active: bool,
+    pub meta_menu_active: bool,
+    pub meta_menu_entry_intentional: bool,
+    pub active_panel: Option<String>,
+    pub foreground_package: Option<String>,
+    pub foreground_activity: Option<String>,
+    pub clock_epoch_id: Option<String>,
+    pub latest_command: Option<KioskCommandEvidence>,
+    pub limitations: Vec<String>,
+}
+
+impl KioskControlPlaneStatus {
+    pub fn broker_panel_2d() -> Self {
+        Self {
+            schema: KIOSK_CONTROL_PLANE_STATUS_SCHEMA.to_string(),
+            phase: KioskControlPlanePhase::BrokerPanel2d,
+            surface_intent: KioskSurfaceIntent::RustyKioskDefault,
+            home_mode: HomeMode::Normal2d,
+            broker_available: true,
+            broker_panel_visible: true,
+            immersive_home_visible: false,
+            shell_helper_connected: false,
+            continuous_adb_shell_required: false,
+            watchdog_required: false,
+            focus_guardian_active: false,
+            proximity_watchdog_active: false,
+            meta_menu_active: false,
+            meta_menu_entry_intentional: false,
+            active_panel: Some("broker".to_string()),
+            foreground_package: None,
+            foreground_activity: None,
+            clock_epoch_id: None,
+            latest_command: None,
+            limitations: vec![
+                "normal_android_panel_not_app_owned_immersive_home".to_string(),
+                "no_preemptive_home_menu_intercept".to_string(),
+            ],
+        }
+    }
+
+    pub fn with_phase(mut self, phase: KioskControlPlanePhase) -> Self {
+        self.phase = phase;
+        self.home_mode = match phase {
+            KioskControlPlanePhase::BrokerPanel2d
+            | KioskControlPlanePhase::BrokerPanelWithShellHelper => HomeMode::Normal2d,
+            KioskControlPlanePhase::ImmersiveHomePrototype => HomeMode::ImmersivePassthrough,
+            KioskControlPlanePhase::ImmersiveHomeWithSupervisor => HomeMode::DeveloperSupervisor,
+            KioskControlPlanePhase::ManagedDeviceKiosk => HomeMode::ManagedKiosk,
+        };
+        self.immersive_home_visible = phase.has_app_owned_immersive_home();
+        self.continuous_adb_shell_required = phase.uses_continuous_helper();
+        self.watchdog_required = phase.uses_continuous_helper();
+        self
+    }
+
+    pub fn with_surface_intent(mut self, intent: KioskSurfaceIntent) -> Self {
+        self.surface_intent = intent;
+        self.meta_menu_active = intent.is_meta_surface();
+        self.meta_menu_entry_intentional =
+            matches!(intent, KioskSurfaceIntent::MetaPanelIntentional);
+        self
+    }
+
+    pub fn with_shell_helper_connected(mut self, connected: bool) -> Self {
+        self.shell_helper_connected = connected;
+        if connected && matches!(self.phase, KioskControlPlanePhase::BrokerPanel2d) {
+            self = self.with_phase(KioskControlPlanePhase::BrokerPanelWithShellHelper);
+        }
+        self
+    }
+
+    pub const fn with_focus_guardian_active(mut self, active: bool) -> Self {
+        self.focus_guardian_active = active;
+        self
+    }
+
+    pub const fn with_proximity_watchdog_active(mut self, active: bool) -> Self {
+        self.proximity_watchdog_active = active;
+        self
+    }
+
+    pub fn with_active_panel(mut self, panel_id: impl Into<String>) -> Self {
+        self.active_panel = Some(panel_id.into());
+        self
+    }
+
+    pub fn with_foreground_package(mut self, package_name: impl Into<String>) -> Self {
+        self.foreground_package = Some(package_name.into());
+        self
+    }
+
+    pub fn with_foreground_activity(mut self, activity_name: impl Into<String>) -> Self {
+        self.foreground_activity = Some(activity_name.into());
+        self
+    }
+
+    pub fn with_clock_epoch_id(mut self, clock_epoch_id: impl Into<String>) -> Self {
+        self.clock_epoch_id = Some(clock_epoch_id.into());
+        self
+    }
+
+    pub fn with_latest_command(mut self, command: KioskCommandEvidence) -> Self {
+        self.latest_command = Some(command);
+        self
+    }
+
+    pub fn with_limitation(mut self, limitation: impl Into<String>) -> Self {
+        self.limitations.push(limitation.into());
+        self
+    }
+
+    pub const fn is_custom_immersive_home_active(&self) -> bool {
+        self.phase.has_app_owned_immersive_home() && self.immersive_home_visible
+    }
+
+    pub const fn needs_continuous_helper_for_current_phase(&self) -> bool {
+        self.continuous_adb_shell_required || self.watchdog_required
+    }
+
+    pub fn is_current_phase_ready(&self) -> bool {
+        let helper_ready = !self.continuous_adb_shell_required || self.shell_helper_connected;
+        let watchdog_ready =
+            !self.watchdog_required || self.focus_guardian_active || self.proximity_watchdog_active;
+        self.broker_available && helper_ready && watchdog_ready
+    }
+
+    pub fn is_full_control_plane_ready(&self) -> bool {
+        self.is_custom_immersive_home_active() && self.is_current_phase_ready()
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == KIOSK_CONTROL_PLANE_STATUS_SCHEMA
+            && (!self.phase.has_app_owned_immersive_home() || self.immersive_home_visible)
+            && (!self.continuous_adb_shell_required || self.shell_helper_connected)
+            && (!self.meta_menu_active || self.surface_intent.is_meta_surface())
+            && self
+                .active_panel
+                .as_ref()
+                .map(|panel_id| stable_id(panel_id))
+                .unwrap_or(true)
+            && self
+                .foreground_package
+                .as_ref()
+                .map(|package_name| non_empty(package_name))
+                .unwrap_or(true)
+            && self
+                .foreground_activity
+                .as_ref()
+                .map(|activity_name| non_empty(activity_name))
+                .unwrap_or(true)
+            && self
+                .clock_epoch_id
+                .as_ref()
+                .map(|clock_epoch_id| stable_id(clock_epoch_id))
+                .unwrap_or(true)
+            && self
+                .latest_command
+                .as_ref()
+                .map(KioskCommandEvidence::is_valid)
+                .unwrap_or(true)
+            && self
+                .limitations
+                .iter()
+                .all(|limitation| stable_id(limitation))
+    }
+}
+
 /// Focus-recovery action recorded by developer supervisor mode.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -754,6 +1130,50 @@ mod tests {
     }
 
     #[test]
+    fn kiosk_control_plane_distinguishes_broker_panel_from_immersive_home() {
+        let status = KioskControlPlaneStatus::broker_panel_2d().with_latest_command(
+            KioskCommandEvidence::new("surface.current", KioskCommandProvider::Broker)
+                .with_preferred_command("GET /status")
+                .with_foreground_after("com.example.rustyxr.broker/.MainActivity"),
+        );
+
+        assert!(status.is_valid());
+        assert!(!status.is_custom_immersive_home_active());
+        assert!(!status.needs_continuous_helper_for_current_phase());
+        assert!(status.is_current_phase_ready());
+        assert!(!status.is_full_control_plane_ready());
+    }
+
+    #[test]
+    fn kiosk_control_plane_requires_helper_for_supervised_phase() {
+        let status = KioskControlPlaneStatus::broker_panel_2d()
+            .with_shell_helper_connected(true)
+            .with_focus_guardian_active(true)
+            .with_clock_epoch_id("clock.epoch.001");
+
+        assert_eq!(
+            status.phase,
+            KioskControlPlanePhase::BrokerPanelWithShellHelper
+        );
+        assert!(status.is_valid());
+        assert!(status.needs_continuous_helper_for_current_phase());
+        assert!(status.is_current_phase_ready());
+        assert!(!status.is_full_control_plane_ready());
+    }
+
+    #[test]
+    fn kiosk_surface_intent_marks_unexpected_meta_menu_as_signal() {
+        let status = KioskControlPlaneStatus::broker_panel_2d()
+            .with_surface_intent(KioskSurfaceIntent::MetaPanelUnexpected);
+
+        assert!(status.is_valid());
+        assert!(status.surface_intent.is_meta_surface());
+        assert!(status.surface_intent.is_unexpected());
+        assert!(status.meta_menu_active);
+        assert!(!status.meta_menu_entry_intentional);
+    }
+
+    #[test]
     fn focus_recovery_event_records_reactive_action() {
         let event = FocusRecoveryEvent::new(
             "event-001",
@@ -781,5 +1201,26 @@ mod tests {
             serde_json::from_str(&encoded).expect("state should deserialize");
 
         assert_eq!(decoded, state);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn kiosk_control_plane_round_trips_with_serde() {
+        let status = KioskControlPlaneStatus::broker_panel_2d()
+            .with_phase(KioskControlPlanePhase::ImmersiveHomeWithSupervisor)
+            .with_shell_helper_connected(true)
+            .with_focus_guardian_active(true)
+            .with_proximity_watchdog_active(true)
+            .with_surface_intent(KioskSurfaceIntent::RustyXrTarget)
+            .with_foreground_package("org.example.target")
+            .with_foreground_activity("org.example.target.MainActivity");
+
+        let encoded = serde_json::to_string(&status).expect("status should serialize");
+        let decoded: KioskControlPlaneStatus =
+            serde_json::from_str(&encoded).expect("status should deserialize");
+
+        assert_eq!(decoded, status);
+        assert!(decoded.is_custom_immersive_home_active());
+        assert!(decoded.is_full_control_plane_ready());
     }
 }

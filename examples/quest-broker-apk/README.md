@@ -24,6 +24,7 @@ owning decode, Vulkan import, projection, and OpenXR layer submission itself.
 
 - HTTP status: `http://127.0.0.1:8765/status`
 - Broker clock: `http://127.0.0.1:8765/clock/now`
+- Rusty Kiosk control-plane status: `http://127.0.0.1:8765/kiosk/status`
 - WebSocket samples/events: `ws://127.0.0.1:8765/rustyxr/v1/events`
 - LSL stream when native LSL is packaged: `rusty_xr_broker_latency`
 - OSC latency egress when enabled: `/rusty-xr/broker/latency`
@@ -34,6 +35,7 @@ owning decode, Vulkan import, projection, and OpenXR layer submission itself.
 - Camera provider stream IDs: `camera_provider.status`,
   `camera_provider.projection_profile`, `camera_provider.visual_acceptance`
 - Shell helper status stream ID: `shell_helper.status`
+- Rusty Kiosk control-plane stream ID: `kiosk:control_plane`
 - Clock stream IDs: `clock:sample`, `clock:health`, `clock:correlation`,
   `clock:openxr_frame`
 - Video-lab metric stream ID: `video_lab.metric_sample`
@@ -68,12 +70,15 @@ system-owned UI state; the broker only keeps its service and localhost API
 running.
 
 The status payload reports broker uptime, accepted sample counts, active
-capabilities, stream descriptors, command counters, LSL availability, and OSC
-ingress/egress settings. WebSocket clients can send legacy `status_request`,
-`hello`, and `latency_sample` JSON messages. They can also use the first
-versioned command envelope for status, capability, stream, subscription,
-runtime OSC ingress configuration, generic stream publication, and console
-requests. Camera-provider metadata and shell-helper status commands are also
+capabilities, stream descriptors, command counters, LSL availability, OSC
+ingress/egress settings, clock state, and a `rustyKiosk` control-plane snapshot.
+That snapshot reports whether this is still the normal 2D broker panel
+(`BrokerPanel2d` / `BrokerPanelWithShellHelper`) or a future app-owned immersive
+home. WebSocket clients can send legacy `status_request`, `hello`, and
+`latency_sample` JSON messages. They can also use the first versioned command
+envelope for status, capability, stream, subscription, runtime OSC ingress
+configuration, generic stream publication, and console requests. Camera-provider
+metadata, shell-helper status, and Rusty Kiosk status commands are also
 available:
 
 - `clock.status`
@@ -83,6 +88,7 @@ available:
 - `clock.health`
 - `clock.compare_openxr`
 - `clock.sync_probe`
+- `kiosk.get_status`
 - `camera_provider.get_status`
 - `camera_provider.get_projection_profile`
 - `camera_provider.run_app_camera_probe`

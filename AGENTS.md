@@ -101,6 +101,18 @@ The companion-managed tooling cache covers `adb`, `hzdb`, and `scrcpy`.
 Rust/Cargo, Android SDK/NDK/JDK, OpenXR loader binaries, and signing material
 remain explicit local build inputs.
 
+Treat `hzdb` as an optional Meta Quest provider, not a required core
+dependency. Before adding `hzdb`, MCP, docs/API search, Perfetto, device
+health, app lifecycle, file, log, screenshot, or proximity workflows, read
+`docs/META_QUEST_HZDB_PROVIDER_PLAN.md`. Mutating operations such as shell
+commands, file deletion, app clear/uninstall, proximity changes, port
+forwarding, `setprop`, root, and MCP config writes need an explicit operator
+gate in the invoking tool.
+For Rusty Kiosk work, provider evidence is part of the default tracking setup:
+record the command goal, provider used, fallback command, foreground before and
+after, broker clock/status, and whether any Meta menu/settings entry was
+intentional.
+
 ## Local Quest Baseline
 
 For local headset validation, prefer a broker/developer-home operator baseline

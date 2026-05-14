@@ -178,6 +178,88 @@ def schemas() -> dict[str, dict]:
             "description": {"type": "string"},
         },
     )
+    quest_tool_provider_kind = enum(
+        "QuestToolProviderKind",
+        ["Adb", "HzdbCli", "HzdbMcp", "RustyXrCompanion", "BrokerShellHelper", "Manual", "Other"],
+    )
+    provider_operation_safety = enum(
+        "ProviderOperationSafety",
+        [
+            "ReadOnly",
+            "BoundedCapture",
+            "FileRead",
+            "FileWrite",
+            "FileDelete",
+            "AppLifecycle",
+            "DeviceSetting",
+            "ShellCommand",
+            "NetworkForward",
+            "Root",
+            "Unknown",
+        ],
+    )
+    quest_device_readiness = enum(
+        "DeviceReadiness",
+        ["Unknown", "Disconnected", "PowerOnly", "SystemDialog", "RuntimeReady", "AppVisible"],
+    )
+    provider_capability = obj(
+        "ProviderCapability",
+        {
+            "provider": quest_tool_provider_kind,
+            "capability_id": string(),
+            "command_group": string(),
+            "description": string(),
+            "safety": provider_operation_safety,
+            "requires_device": boolean(),
+            "requires_network": boolean(),
+        },
+    )
+    quest_device_health = obj(
+        "DeviceHealth",
+        {
+            "provider": quest_tool_provider_kind,
+            "connected": boolean(),
+            "readiness": quest_device_readiness,
+            "battery_level_percent": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+            "storage_available_bytes": {"type": ["integer", "null"], "minimum": 0},
+            "controller_count": {"type": "integer", "minimum": 0, "maximum": 255},
+            "ui_ready": boolean(),
+            "issues": array(string()),
+        },
+    )
+    foreground_app = obj(
+        "ForegroundApp",
+        {
+            "package_name": nullable_string(),
+            "activity_name": nullable_string(),
+            "process_id": {"type": ["integer", "null"], "minimum": 0},
+            "source": string(),
+        },
+    )
+    mcp_transport = enum("McpTransport", ["Stdio", "Sse", "StreamableHttp"])
+    mcp_server_config = obj(
+        "McpServerConfig",
+        {
+            "server_name": string(),
+            "command": string(),
+            "args": array(string()),
+            "transport": mcp_transport,
+            "provider": quest_tool_provider_kind,
+            "project_local": boolean(),
+        },
+    )
+    quest_development_provider_snapshot = obj(
+        "QuestDevelopmentProviderSnapshot",
+        {
+            "provider": quest_tool_provider_kind,
+            "version": nullable_string(),
+            "capabilities": array(provider_capability),
+            "device_health": {"oneOf": [quest_device_health, {"type": "null"}]},
+            "foreground_app": {"oneOf": [foreground_app, {"type": "null"}]},
+            "mcp": {"oneOf": [mcp_server_config, {"type": "null"}]},
+            "notes": array(string()),
+        },
+    )
     broker_transport_kind = enum(
         "BrokerTransportKind",
         [
@@ -830,6 +912,69 @@ def schemas() -> dict[str, dict]:
             "supervisor": home_supervisor_state,
         },
     )
+    kiosk_control_plane_phase = enum(
+        "KioskControlPlanePhase",
+        [
+            "BrokerPanel2d",
+            "BrokerPanelWithShellHelper",
+            "ImmersiveHomePrototype",
+            "ImmersiveHomeWithSupervisor",
+            "ManagedDeviceKiosk",
+        ],
+    )
+    kiosk_surface_intent = enum(
+        "KioskSurfaceIntent",
+        [
+            "RustyKioskDefault",
+            "RustyXrTarget",
+            "MetaPanelIntentional",
+            "MetaPanelUnexpected",
+            "UnknownSurface",
+        ],
+    )
+    kiosk_command_provider = enum(
+        "KioskCommandProvider",
+        ["Broker", "ShellHelper", "Adb", "HzdbCli", "HzdbMcp", "Companion", "Manual", "Unknown"],
+    )
+    kiosk_command_evidence = obj(
+        "KioskCommandEvidence",
+        {
+            "schema": {"const": "rusty.xr.kiosk.command_evidence.v1"},
+            "command_goal": string(),
+            "provider": kiosk_command_provider,
+            "preferred_command": nullable_string(),
+            "fallback_command": nullable_string(),
+            "foreground_before": nullable_string(),
+            "foreground_after": nullable_string(),
+            "clock_epoch_id": nullable_string(),
+            "notes": array(string()),
+        },
+    )
+    kiosk_control_plane_status = obj(
+        "KioskControlPlaneStatus",
+        {
+            "schema": {"const": "rusty.xr.kiosk.control_plane.v1"},
+            "phase": kiosk_control_plane_phase,
+            "surface_intent": kiosk_surface_intent,
+            "home_mode": home_mode,
+            "broker_available": boolean(),
+            "broker_panel_visible": boolean(),
+            "immersive_home_visible": boolean(),
+            "shell_helper_connected": boolean(),
+            "continuous_adb_shell_required": boolean(),
+            "watchdog_required": boolean(),
+            "focus_guardian_active": boolean(),
+            "proximity_watchdog_active": boolean(),
+            "meta_menu_active": boolean(),
+            "meta_menu_entry_intentional": boolean(),
+            "active_panel": nullable_string(),
+            "foreground_package": nullable_string(),
+            "foreground_activity": nullable_string(),
+            "clock_epoch_id": nullable_string(),
+            "latest_command": {"oneOf": [kiosk_command_evidence, {"type": "null"}]},
+            "limitations": array(string()),
+        },
+    )
     home_focus_recovery_action = enum(
         "FocusRecoveryAction",
         ["Observe", "ReturnToBroker", "ReturnToTarget", "OpenSystemPanel", "StopSupervisor"],
@@ -1116,6 +1261,7 @@ def schemas() -> dict[str, dict]:
                 "runtimeProfiles": array(quest_runtime_profile),
             },
         ),
+        "quest-development-provider-snapshot.schema.json": quest_development_provider_snapshot,
         "capture-source-state.schema.json": obj(
             "CaptureSourceState",
             {
@@ -1253,6 +1399,7 @@ def schemas() -> dict[str, dict]:
         "home-session-state.schema.json": home_session_state,
         "home-launcher-entry.schema.json": home_launcher_entry,
         "home-settings-shortcut.schema.json": home_settings_shortcut,
+        "home-kiosk-control-plane-status.schema.json": kiosk_control_plane_status,
         "home-focus-recovery-event.schema.json": home_focus_recovery_event,
         "effect-stack-descriptor.schema.json": effect_stack_descriptor,
         "effect-stack-comparison-report.schema.json": effect_stack_comparison_report,

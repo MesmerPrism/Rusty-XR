@@ -107,6 +107,11 @@ If host analysis tools are missing, keep the `.pftrace` anyway. It can be
 opened later through `hzdb perf open`, Perfetto UI, Android Studio, Meta Quest
 Developer Hub, or a separately installed `trace_processor_shell`.
 
+When a provider-aware report is available, attach a
+`rusty-xr-quest-diagnostics::PerfTraceSession` plus extracted `PerfMetric`
+rows instead of only free-form text. The `hzdb` provider plan is tracked in
+[Meta Quest hzdb Provider Plan](META_QUEST_HZDB_PROVIDER_PLAN.md).
+
 When reading the trace, compare:
 
 - app GPU time and timewarp GPU time
@@ -201,6 +206,11 @@ Resolve Quest diagnostics tools in this order:
 the first pass. Their absence should not block capture. The first pass should
 still produce logcat, a direct HMD screenshot, a parameter manifest, and, when
 needed, a `.pftrace`.
+
+Treat `hzdb` as an optional provider. If a command mutates device state, writes
+files, changes proximity/awake behavior, starts port forwarding, clears app
+data, or runs shell commands, gate it through the operator workflow described
+in [Meta Quest hzdb Provider Plan](META_QUEST_HZDB_PROVIDER_PLAN.md).
 
 ## Rejecting Bad A/B Runs
 

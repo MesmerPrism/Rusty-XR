@@ -1,8 +1,9 @@
 use rusty_xr_contracts::{
     ExternalLaunchState, FocusRecoveryAction, FocusRecoveryEvent, FocusRecoveryResult,
     HomeHelperState, HomeMode, HomePanelDescriptor, HomePanelKind, HomePanelPlacement,
-    HomeSessionState, HomeSupervisorPolicy, HomeSupervisorState, LauncherEntry,
-    SettingsShortcutCategory, SettingsShortcutDescriptor, Vec2,
+    HomeSessionState, HomeSupervisorPolicy, HomeSupervisorState, KioskCommandEvidence,
+    KioskCommandProvider, KioskControlPlaneStatus, LauncherEntry, SettingsShortcutCategory,
+    SettingsShortcutDescriptor, Vec2,
 };
 
 #[derive(serde::Serialize)]
@@ -11,6 +12,7 @@ struct DeveloperHomeManifest {
     launcher_entries: Vec<LauncherEntry>,
     settings_shortcuts: Vec<SettingsShortcutDescriptor>,
     session: HomeSessionState,
+    kiosk_control_plane: KioskControlPlaneStatus,
     recovery_events: Vec<FocusRecoveryEvent>,
 }
 
@@ -93,6 +95,19 @@ fn main() {
         "focus recovery is configured but this synthetic example does not launch apps",
     )];
 
+    let kiosk_control_plane = KioskControlPlaneStatus::broker_panel_2d()
+        .with_shell_helper_connected(true)
+        .with_focus_guardian_active(true)
+        .with_proximity_watchdog_active(true)
+        .with_clock_epoch_id("clock.epoch.demo")
+        .with_latest_command(
+            KioskCommandEvidence::new("surface.current", KioskCommandProvider::Broker)
+                .with_preferred_command("GET /status")
+                .with_fallback_command("adb shell dumpsys window")
+                .with_foreground_after("com.example.rustyxr.broker/.MainActivity")
+                .with_clock_epoch_id("clock.epoch.demo"),
+        );
+
     for panel in &panels {
         assert!(panel.is_valid(), "invalid panel: {}", panel.panel_id);
     }
@@ -111,6 +126,10 @@ fn main() {
         );
     }
     assert!(session.is_valid(), "invalid home session");
+    assert!(
+        kiosk_control_plane.is_valid(),
+        "invalid kiosk control-plane status"
+    );
     for event in &recovery_events {
         assert!(
             event.is_valid(),
@@ -124,6 +143,7 @@ fn main() {
         launcher_entries,
         settings_shortcuts,
         session,
+        kiosk_control_plane,
         recovery_events,
     };
 

@@ -61,6 +61,7 @@ public final class MainActivity extends Activity {
     private static final boolean DEFAULT_EXPERIMENT_LAUNCH_GUARD_PREVIEW_TIMEOUT_ENABLED = false;
     private static final String[] PAGES = { "Dashboard", "Clock", "Experiment", "Polar", "Launcher", "Streams", "Commands", "Diagnostics" };
     private static volatile WeakReference<MainActivity> activeActivity = new WeakReference<>(null);
+    private static volatile boolean activeActivityResumed;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refreshRunnable = new Runnable() {
@@ -79,7 +80,7 @@ public final class MainActivity extends Activity {
     private TextView footerView;
     private LauncherStore launcherStore;
     private JSONObject lastStatus;
-    private String currentPage = PAGES[0];
+    private volatile String currentPage = PAGES[0];
     private String returnAppPackage = "";
     private String returnClientId = "";
     private String selectedLauncherListId = "";
@@ -114,6 +115,18 @@ public final class MainActivity extends Activity {
     private String experimentContentScale = "1.60";
     private boolean statusRefreshInFlight;
 
+    static boolean isConsoleVisible() {
+        return activeActivity.get() != null && activeActivityResumed;
+    }
+
+    static String activePageName() {
+        MainActivity activity = activeActivity.get();
+        if (activity == null || activity.currentPage == null || activity.currentPage.length() == 0) {
+            return "";
+        }
+        return activity.currentPage;
+    }
+
     @Override
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
@@ -143,12 +156,14 @@ public final class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         activeActivity = new WeakReference<>(this);
+        activeActivityResumed = true;
         handler.removeCallbacks(refreshRunnable);
         handler.post(refreshRunnable);
     }
 
     @Override
     protected void onPause() {
+        activeActivityResumed = false;
         handler.removeCallbacks(refreshRunnable);
         super.onPause();
     }
@@ -158,6 +173,7 @@ public final class MainActivity extends Activity {
         MainActivity activity = activeActivity.get();
         if (activity == this) {
             activeActivity = new WeakReference<>(null);
+            activeActivityResumed = false;
         }
 
         super.onDestroy();
@@ -1955,6 +1971,20 @@ public final class MainActivity extends Activity {
             .append(':').append(status.optInt("port", BrokerService.DEFAULT_PORT)).append('\n');
         builder.append('\n');
 
+        JSONObject kiosk = status.optJSONObject("rustyKiosk");
+        if (kiosk != null) {
+            builder.append("RUSTY KIOSK\n");
+            builder.append("Phase         ").append(kiosk.optString("phase", "unknown")).append('\n');
+            builder.append("Intent        ").append(kiosk.optString("surface_intent", "unknown")).append('\n');
+            builder.append("Broker panel  ").append(kiosk.optBoolean("broker_panel_visible")).append('\n');
+            builder.append("Immersive     ").append(kiosk.optBoolean("immersive_home_visible")).append('\n');
+            builder.append("Shell helper  ").append(kiosk.optBoolean("shell_helper_connected")).append('\n');
+            builder.append("Focus guard   ").append(kiosk.optBoolean("focus_guardian_active")).append('\n');
+            builder.append("Panel         ").append(kiosk.optString("active_panel", "")).append('\n');
+            builder.append("Foreground    ").append(kiosk.optString("foreground_package", "")).append('\n');
+            builder.append('\n');
+        }
+
         JSONObject counters = status.optJSONObject("counters");
         if (counters != null) {
             builder.append("COUNTERS\n");
@@ -2144,6 +2174,7 @@ public final class MainActivity extends Activity {
         builder.append("HTTP status   http://127.0.0.1:8765/status\n");
         builder.append("Clock now     http://127.0.0.1:8765/clock/now\n");
         builder.append("Clock health  http://127.0.0.1:8765/clock/health\n");
+        builder.append("Kiosk status  http://127.0.0.1:8765/kiosk/status\n");
         builder.append("WebSocket     ws://127.0.0.1:8765/rustyxr/v1/events\n\n");
 
         JSONObject client = status.optJSONObject("client");

@@ -39,7 +39,9 @@ Initial crate layout:
 - `rusty-xr-eye-model`: screen-space gaze, XR gaze-ray, AOI, processor-event,
   and synthetic eye-data contracts.
 - `rusty-xr-polar`: Polar H10 data contracts and protocol helpers.
-- `rusty-xr-quest-diagnostics`: reusable Quest diagnostic status models.
+- `rusty-xr-quest-diagnostics`: reusable Quest diagnostic status, tooling
+  provider, `hzdb`/ADB/MCP, health, app, log, screenshot, file, Perfetto,
+  docs/API, and artifact-report models.
 - `rusty-xr-camera-model`: camera metadata and projection helpers.
 - `rusty-xr-depth-model`: depth-frame and environment-depth contracts.
 - `rusty-xr-sdf`: signed-distance-field, mesh snapshot, sparse TSDF, and
@@ -196,7 +198,8 @@ Headset-local app launching and the boundary between normal PackageManager
 launches and ADB-launched shell helpers is documented in
 [docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md](docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).
 Public Rusty Kiosk / developer-home menu contracts for broker panels, launcher
-entries, settings shortcuts, helper state, and bounded focus-recovery events are
+entries, settings shortcuts, helper state, bounded focus-recovery events, and
+control-plane status snapshots are
 documented in
 [docs/QUEST_DEVELOPER_HOME_MENU.md](docs/QUEST_DEVELOPER_HOME_MENU.md).
 Generic multi-pass visual pipeline descriptors and layer comparison reports are
@@ -211,6 +214,16 @@ documented in
 The public boundary for headset/controller tracking, Android sensors, and ADB
 diagnostics is documented in
 [docs/QUEST_TRACKING_ACCESS_BOUNDARY.md](docs/QUEST_TRACKING_ACCESS_BOUNDARY.md).
+The optional Meta Quest `hzdb` provider, MCP bridge, docs-first verification,
+Perfetto analysis, and structured safety-gated device-operation plan is
+documented in
+[docs/META_QUEST_HZDB_PROVIDER_PLAN.md](docs/META_QUEST_HZDB_PROVIDER_PLAN.md).
+For Rusty Kiosk, that provider loop is part of the default tracking setup:
+record command goal, provider, fallback, foreground before/after, broker
+clock/status, and whether a Meta menu/settings surface was intentionally opened.
+The Quest broker reports that baseline through `rustyKiosk` in `/status`, direct
+`/kiosk/status`, WebSocket command `kiosk.get_status`, and stream
+`kiosk:control_plane`.
 
 The contracts examples and minimal APK can be run without headset hardware or
 downstream app code:
@@ -227,6 +240,7 @@ cargo run -p rusty-xr-particles --example dynamic_mesh_coordinates
 cargo run -p rusty-xr-particles --example hand_mesh_dynamic_collider
 cargo run -p rusty-xr-particles --example hand_mesh_sdf_attraction
 cargo run -p rusty-xr-particles --example billboard_performance_patterns
+cargo run -p rusty-xr-quest-diagnostics --example quest_provider_snapshot
 powershell -ExecutionPolicy Bypass -File .\examples\quest-minimal-apk\tools\Build-QuestMinimalApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Build-BrokerShellHelper.ps1
@@ -253,6 +267,9 @@ scene-space anchoring and Vulkan screen-space viewport conventions, live in
 Direct-device Quest render artifact diagnosis, including `VrApi`, OVR Metrics,
 Perfetto, screenshot, and one-variable A/B workflows, is documented in
 [docs/QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md](docs/QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md).
+`hzdb` is treated as an optional Meta Quest provider for those workflows, not a
+core dependency; the provider boundary and MCP safety model live in
+[docs/META_QUEST_HZDB_PROVIDER_PLAN.md](docs/META_QUEST_HZDB_PROVIDER_PLAN.md).
 Quest streaming and camera-composite cost isolation, including direct in-app
 Camera2 versus broker H.264 projected paths, render-scale interpretation, and
 the reusable streaming scorecard tooling, is documented in

@@ -72,6 +72,9 @@ Keep out of Rusty XR:
    state models.
 4. Selector-aware `hzdb`/ADB command contracts and documented fallback ladders
    for screenshots, perf traces, wake, proximity, and file transfer.
+   The first public model slice now lives in `rusty-xr-quest-diagnostics`;
+   the provider architecture and remaining work are tracked in
+   [META_QUEST_HZDB_PROVIDER_PLAN.md](META_QUEST_HZDB_PROVIDER_PLAN.md).
 5. Room mesh, semantic fallback, processed scan, and environment-depth
    diagnostic contracts.
 6. PCA/Camera2/MediaProjection capture lifecycle models, frame manifests, and
@@ -96,6 +99,7 @@ Keep out of Rusty XR:
 | USB-host ADB bootstrap | Local Android phone Quest companion tooling | USB interface descriptor for ADB class/subclass/protocol `255/66/1`, permission-flow docs, TCP handoff model | Documents how a phone can bootstrap Quest Wi-Fi ADB without a PC | Android implementation stays adapter/example-only |
 | Quest wake and visual readiness | Local Windows Quest operator tooling | `QuestWakeReadiness`, `QuestPowerStatus`, `ForegroundSnapshot`, visual blocker enum, proximity status | Captures the recurring issue that awake/mounted is not the same as visually ready | No project-specific recovery scripts or headset serials |
 | `hzdb` and ADB wrapper contracts | Local Windows Quest operator tooling, bureau notes | Selector-aware command request/result schema, screenshot/perf/wake/proximity fallback guide | Standardizes official Meta tooling use without hiding failures | Do not vendor `hzdb`; paths remain user-configured |
+| Meta Quest agentic provider | Meta Horizon OS developer tooling docs | `ProviderCapability`, `ProviderOperationSafety`, `QuestDevelopmentProviderSnapshot`, `McpServerConfig`, docs/API result models, and an optional Companion provider probe | Lets Rusty XR consume `hzdb` CLI/MCP, docs-first verification, and Perfetto analysis without replacing ADB or bypassing local safety policy | MCP and mutating device commands must remain operator-gated; do not copy Meta skill bodies or vendor tools |
 | Screenshot and cast evidence | Local Quest cast/orchestration tooling, bureau notes | Cast session manifest, screenshot manifest, visual-test artifact folder schema | Provides regression artifacts for public examples and APK smoke tests | Use upstream `scrcpy` by reference; no bundled binaries |
 | Scrcpy cast profiles | Local Quest cast/orchestration tooling | Device/cast profile descriptors, window layout bounds, capture target preference model | Reusable live visual source for Windows tooling | Attribute `scrcpy`; do not copy unlicensed quest-screen-caster code |
 | Quest session kit manifests | Local operator, runtime-profile, and phone companion tooling | APK library manifest, hotload profile, device profile, selected target/session manifest schemas | Unifies install, launch, profile push, and monitoring workflows | Package identities and release payloads remain downstream-owned |
@@ -130,6 +134,11 @@ Keep out of Rusty XR:
   it.
 - Android/Quest tooling should document configured `adb`, `hzdb`, Unity, and
   SDK paths as environment-driven checks, not repo-owned constants.
+- `hzdb` should be modeled as a provider with explicit capability and safety
+  metadata. Read-only status, docs search, app foreground detection, and trace
+  analysis can be surfaced early; `shell`, `setprop`, proximity changes, app
+  clearing/uninstalling, file deletion, and project-local MCP config writes
+  require an operator gate and audit trail.
 - BLE on Windows should document the pattern of requesting GATT service access
   before characteristic discovery, then retrying transient `AccessDenied` or
   `Unreachable` results.
@@ -175,6 +184,10 @@ Keep out of Rusty XR:
 - Android/Quest APK shell responsibility split.
 - Quest tracking access boundary for OpenXR, Android sensors, and ADB/shell
   diagnostics.
+- Provider-neutral `hzdb`/ADB/MCP diagnostic models in
+  `rusty-xr-quest-diagnostics`, including device health, app/foreground state,
+  log filters, screenshot and file-operation plans, Perfetto trace sessions,
+  docs/API search results, MCP server config, and provider capability snapshots.
 - Camera/depth/SDF contracts.
 - Plain stereo layer, visual feedback border, border tuning, and approved
   performance hints.

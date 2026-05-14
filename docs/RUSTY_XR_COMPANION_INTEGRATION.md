@@ -30,6 +30,52 @@ Rust/Cargo, Android SDK/NDK/JDK, OpenXR loader binaries, and signing identity
 remain explicit local build inputs for machines that build APK bytes from
 source.
 
+## Meta Quest Tool Providers
+
+Companion should treat `adb`, `hzdb`, shell helpers, and future MCP servers as
+providers behind one operation catalog. Rusty XR core owns the typed report
+surface in `rusty-xr-quest-diagnostics`; Companion owns invocation, process
+management, path resolution, operator prompts, and fallback order.
+
+For Rusty Kiosk, this is not just optional tooling inventory. Companion should
+make provider evidence part of the normal run record for the custom developer
+environment: which command goal was requested, which provider executed or
+failed, the foreground surface before and after, whether Meta menu/settings
+entry was intentional, and how to reproduce the same observation with a
+fallback command.
+
+The recommended provider order is:
+
+1. explicit user-supplied tool path or command
+2. Companion-managed tool cache
+3. platform SDK / Android Studio / Meta Quest Developer Hub installs
+4. device-side ADB fallbacks
+
+`hzdb` should be probed with `npx -y @meta-quest/hzdb --version` or a managed
+binary path and reported as a `QuestDevelopmentProviderSnapshot`. The first
+Companion integration should expose read-only provider status, device health,
+foreground app, app info/path, screenshot capability, log filter support,
+Perfetto capability, docs/API search availability, and MCP config availability.
+
+Rusty Kiosk manifests and Companion verification reports should include the
+same provider snapshot plus an intent label:
+
+- `rusty_kiosk_default`
+- `rusty_xr_target`
+- `meta_panel_intentional`
+- `meta_panel_unexpected`
+- `unknown_surface`
+
+Side-effecting operations should use the public safety classes from
+`ProviderOperationSafety`. `shell`, `root`, `setprop`, proximity changes,
+app clear/uninstall, file delete, and project-local MCP config writes require
+an explicit operator gate and, where practical, dry-run output. Read-only MCP
+tools can be exposed first; mutating MCP calls should return a blocked plan
+until the local operator shell grants the operation family.
+
+The full provider plan is tracked in
+[Meta Quest hzdb Provider Plan](META_QUEST_HZDB_PROVIDER_PLAN.md).
+
 For headset-local launchers, keep a clear split between normal Android app
 launching and ADB shell helpers. A normal 2D headset app can launch installed
 packages that expose a front-door Activity through Android `PackageManager`
