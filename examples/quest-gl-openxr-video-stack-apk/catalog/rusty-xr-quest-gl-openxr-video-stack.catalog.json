@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "rusty.xr.quest-app-catalog.v1",
+  "apps": [
+    {
+      "id": "rusty-xr-quest-gl-openxr-video-stack",
+      "label": "Rusty XR Quest OpenXR GLES",
+      "packageName": "com.example.rustyxr.opengles",
+      "activityName": ".GlesOpenXrActivity",
+      "apkFile": "../build/outputs/rusty-xr-quest-gl-openxr-video-stack-debug.apk",
+      "description": "Public OpenXR/OpenGL ES feasibility APK. It renders static left/right diagnostic grids and logs public GLES plus SurfaceTexture/OES feasibility payloads."
+    }
+  ],
+  "deviceProfiles": [
+    {
+      "id": "gles-openxr-smoke-test",
+      "label": "GLES OpenXR smoke test",
+      "properties": [
+        {
+          "key": "debug.oculus.cpuLevel",
+          "value": "3"
+        },
+        {
+          "key": "debug.oculus.gpuLevel",
+          "value": "3"
+        }
+      ],
+      "description": "Short OpenXR/GLES validation profile for frame-loop and static-grid checks."
+    }
+  ],
+  "runtimeProfiles": [
+    {
+      "id": "gles-static-grid",
+      "label": "GLES static stereo grid",
+      "values": {
+        "rustyxr.example": "quest-gl-openxr-video-stack-apk",
+        "rustyxr.renderer": "opengles",
+        "rustyxr.videoSource": "none",
+        "rustyxr.diagnosticPattern": "left-right-static-grid"
+      },
+      "description": "Runs the OpenXR/GLES feasibility path with no camera, broker, decoder, or effect stack. The app creates SurfaceTexture/OES output surfaces but does not feed decoded frames yet."
+    }
+  ]
+}

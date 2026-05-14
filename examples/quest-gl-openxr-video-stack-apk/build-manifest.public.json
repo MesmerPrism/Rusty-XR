@@ -1,0 +1,154 @@
+{
+  "schemaVersion": "rusty.xr.android-build-manifest.v1",
+  "exampleId": "quest-gl-openxr-video-stack-apk",
+  "artifactKind": "apk",
+  "artifact": {
+    "kind": "apk",
+    "outputPath": "build/outputs/rusty-xr-quest-gl-openxr-video-stack-debug.apk",
+    "catalogPath": "catalog/rusty-xr-quest-gl-openxr-video-stack.catalog.json"
+  },
+  "android": {
+    "manifestPath": "AndroidManifest.xml",
+    "packageName": "com.example.rustyxr.opengles",
+    "minSdk": 29,
+    "targetSdk": 35,
+    "abi": "arm64-v8a",
+    "permissions": [
+      "horizonos.permission.HAND_TRACKING",
+      "oculus.permission.handtracking",
+      "com.oculus.permission.HAND_TRACKING",
+      "android.permission.INTERNET",
+      "org.khronos.openxr.permission.OPENXR",
+      "org.khronos.openxr.permission.OPENXR_SYSTEM"
+    ],
+    "features": [
+      "android.hardware.vr.headtracking",
+      "oculus.software.handtracking"
+    ]
+  },
+  "sourceInputs": [
+    {
+      "label": "PowerShell build helper",
+      "kind": "script",
+      "path": "tools/Build-QuestGlOpenXrVideoStackApk.ps1",
+      "required": true
+    },
+    {
+      "label": "Android manifest",
+      "kind": "android-manifest",
+      "path": "AndroidManifest.xml",
+      "required": true
+    },
+    {
+      "label": "Rust native crate",
+      "kind": "cargo-manifest",
+      "path": "native/Cargo.toml",
+      "required": true
+    },
+    {
+      "label": "Rust native sources",
+      "kind": "rust-source",
+      "glob": "native/src/**/*.rs",
+      "required": true
+    },
+    {
+      "label": "Java NativeActivity subclass",
+      "kind": "java-source",
+      "glob": "src/**/*.java",
+      "required": true
+    },
+    {
+      "label": "Quest app catalog",
+      "kind": "quest-app-catalog",
+      "path": "catalog/rusty-xr-quest-gl-openxr-video-stack.catalog.json",
+      "required": true
+    }
+  ],
+  "generatedInputs": [
+    {
+      "label": "Rust arm64 native library",
+      "kind": "shared-library",
+      "path": "../../target/aarch64-linux-android/release/librusty_xr_quest_gl_openxr_video_stack_native.so",
+      "producedBy": "cargo build --manifest-path native/Cargo.toml --target aarch64-linux-android --release"
+    }
+  ],
+  "externalInputs": [
+    {
+      "label": "Android SDK",
+      "kind": "android-sdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "Android NDK",
+      "kind": "android-ndk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "OpenJDK",
+      "kind": "jdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "Quest-compatible OpenXR loader",
+      "kind": "native-library",
+      "providedBy": "User-supplied local SDK/runtime input",
+      "parameter": "-OpenXrLoaderPath",
+      "environment": "RUSTY_XR_OPENXR_LOADER"
+    },
+    {
+      "label": "Android NDK libc++ shared runtime",
+      "kind": "native-library",
+      "providedBy": "Android NDK"
+    },
+    {
+      "label": "Debug signing key",
+      "kind": "keystore",
+      "providedBy": "Generated locally by the build helper or replacement package tool"
+    }
+  ],
+  "generatedOutputs": [
+    {
+      "label": "Unsigned APK",
+      "kind": "apk",
+      "path": "build/rusty-xr-quest-gl-openxr-video-stack-unsigned.apk"
+    },
+    {
+      "label": "Aligned APK",
+      "kind": "apk",
+      "path": "build/rusty-xr-quest-gl-openxr-video-stack-aligned.apk"
+    },
+    {
+      "label": "Signed debug APK",
+      "kind": "apk",
+      "path": "build/outputs/rusty-xr-quest-gl-openxr-video-stack-debug.apk"
+    },
+    {
+      "label": "Compiled Java classes",
+      "kind": "directory",
+      "path": "build/classes"
+    },
+    {
+      "label": "Dex output",
+      "kind": "directory",
+      "path": "build/dex"
+    },
+    {
+      "label": "Packaged native libraries",
+      "kind": "directory",
+      "path": "build/package/lib/arm64-v8a"
+    }
+  ],
+  "capabilities": [
+    "openxr",
+    "opengl-es",
+    "egl",
+    "surface-texture",
+    "external-oes-output-surface",
+    "broker-h264-mediacodec-oes-decode",
+    "render-thread-update-tex-image",
+    "static-stereo-diagnostic-grids",
+    "quest-openxr-gles-feasibility-status",
+    "quest-surface-texture-oes-ingest-status",
+    "scorecard-compatible-logs"
+  ]
+}

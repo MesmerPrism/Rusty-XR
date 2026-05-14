@@ -39,6 +39,7 @@ and starts with
 The current public examples also carry source-only Android build manifests:
 `examples/quest-minimal-apk/build-manifest.public.json`,
 `examples/quest-composite-layer-apk/build-manifest.public.json`,
+`examples/quest-gl-openxr-video-stack-apk/build-manifest.public.json`,
 `examples/quest-broker-apk/build-manifest.public.json`, and
 `examples/quest-broker-shell-helper/build-manifest.public.json`. These
 manifests describe inputs, generated outputs, external tool requirements,
@@ -48,7 +49,7 @@ changing the existing build scripts.
 Validate the manifests with:
 
 ```powershell
-python tools\schema\check_android_build_manifest.py examples\quest-minimal-apk\build-manifest.public.json examples\quest-composite-layer-apk\build-manifest.public.json examples\quest-broker-apk\build-manifest.public.json examples\quest-broker-shell-helper\build-manifest.public.json examples\makepad-q2q-camera-shell\build-manifest.public.json
+python tools\schema\check_android_build_manifest.py examples\quest-minimal-apk\build-manifest.public.json examples\quest-composite-layer-apk\build-manifest.public.json examples\quest-gl-openxr-video-stack-apk\build-manifest.public.json examples\quest-broker-apk\build-manifest.public.json examples\quest-broker-shell-helper\build-manifest.public.json examples\makepad-q2q-camera-shell\build-manifest.public.json
 ```
 
 ## Android Toolchain Resolution
@@ -406,6 +407,26 @@ The APK is written under `examples/quest-composite-layer-apk/build/`, which is
 ignored. Its catalog can be used with Rusty XR Companion Apps for install,
 launch, runtime-profile extras, log capture, screenshot/cast inspection, and
 media-receiver validation.
+
+The first public OpenXR/OpenGL ES feasibility example is
+`examples/quest-gl-openxr-video-stack-apk/`. It builds a Rust native Quest APK
+that requests `XR_KHR_opengl_es_enable`, creates an EGL/OpenGL ES context,
+creates an OpenXR session with `XrGraphicsBindingOpenGLESAndroidKHR`, renders
+distinct static left/right diagnostic grids into per-eye GL swapchains, and
+logs the public `OpenXrGlesFeasibilityStatus` payload.
+
+Build it locally with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-gl-openxr-video-stack-apk\tools\Build-QuestGlOpenXrVideoStackApk.ps1 -OpenXrLoaderPath C:\path\to\libopenxr_loader.so
+```
+
+The APK is written under `examples/quest-gl-openxr-video-stack-apk/build/`,
+which is ignored. The current example also creates per-eye
+`GL_TEXTURE_EXTERNAL_OES` / `SurfaceTexture` output surfaces, connects to
+broker-compatible H.264 streams on local loopback, decodes them with Android
+MediaCodec into those surfaces, and calls `updateTexImage()` from the native GL
+render thread. It still does not include camera access or effect passes yet.
 
 The first public broker APK proof-of-concept is
 `examples/quest-broker-apk/`. It builds a separate Android APK/service for

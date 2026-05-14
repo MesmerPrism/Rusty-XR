@@ -976,15 +976,20 @@ impl StereoCameraFramePair {
 
 /// One eye's screen-to-camera projection state.
 ///
-/// The matrix is a generic 3x3 homography from display-eye screen UV into
-/// camera UV. Adapters that use a different projection representation can
-/// still record a sequence number and labels, but should only report this as
-/// valid when the homography is finite.
+/// The required matrix is a generic 3x3 homography from display-eye screen UV
+/// into camera UV. Adapters can also report the intermediate
+/// screen-to-surface and surface-to-camera rows so Vulkan, OpenGL, and
+/// framework comparison lanes can separate projection-footprint differences
+/// from texture-transform or effect-stack differences.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct CameraProjectionState {
     pub eye: Eye,
     pub projection_sequence: u64,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub screen_to_surface_uv: Option<[[f32; 3]; 3]>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub surface_to_camera_uv: Option<[[f32; 3]; 3]>,
     pub screen_to_camera_uv: [[f32; 3]; 3],
     pub source_frame_sequence: Option<u64>,
     pub projection_surface_label: String,
@@ -996,6 +1001,8 @@ impl CameraProjectionState {
         Self {
             eye,
             projection_sequence,
+            screen_to_surface_uv: None,
+            surface_to_camera_uv: None,
             screen_to_camera_uv,
             source_frame_sequence: None,
             projection_surface_label: String::new(),
@@ -1005,6 +1012,16 @@ impl CameraProjectionState {
 
     pub fn with_source_frame_sequence(mut self, source_frame_sequence: u64) -> Self {
         self.source_frame_sequence = Some(source_frame_sequence);
+        self
+    }
+
+    pub const fn with_screen_to_surface_uv(mut self, rows: [[f32; 3]; 3]) -> Self {
+        self.screen_to_surface_uv = Some(rows);
+        self
+    }
+
+    pub const fn with_surface_to_camera_uv(mut self, rows: [[f32; 3]; 3]) -> Self {
+        self.surface_to_camera_uv = Some(rows);
         self
     }
 
@@ -1018,16 +1035,21 @@ impl CameraProjectionState {
         self
     }
 
+    pub const fn has_projection_stage_rows(&self) -> bool {
+        self.screen_to_surface_uv.is_some() && self.surface_to_camera_uv.is_some()
+    }
+
     pub fn is_valid(&self) -> bool {
         self.eye != Eye::Mono
+            && homography_rows_are_valid(self.screen_to_camera_uv)
             && self
-                .screen_to_camera_uv
-                .iter()
-                .flatten()
-                .all(|value| value.is_finite())
-            && self.screen_to_camera_uv[2]
-                .iter()
-                .any(|value| value.abs() > f32::EPSILON)
+                .screen_to_surface_uv
+                .map(homography_rows_are_valid)
+                .unwrap_or(true)
+            && self
+                .surface_to_camera_uv
+                .map(homography_rows_are_valid)
+                .unwrap_or(true)
     }
 }
 
@@ -1273,6 +1295,11 @@ fn finite_non_negative(value: f32) -> bool {
     value.is_finite() && value >= 0.0
 }
 
+fn homography_rows_are_valid(rows: [[f32; 3]; 3]) -> bool {
+    rows.iter().flatten().all(|value| value.is_finite())
+        && rows[2].iter().any(|value| value.abs() > f32::EPSILON)
+}
+
 fn percent_is_valid(value: f32) -> bool {
     value.is_finite() && (0.0..=100.0).contains(&value)
 }
@@ -1461,10 +1488,14 @@ mod tests {
     fn projection_target_and_visual_state_validate_stereo_projection_rows() {
         let rows = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let left = CameraProjectionState::new(Eye::Left, 1, rows)
+            .with_screen_to_surface_uv(rows)
+            .with_surface_to_camera_uv(rows)
             .with_source_frame_sequence(10)
             .with_projection_surface_label("head-anchored-content-surface")
             .with_texture_transform_label("rotate0");
         let right = CameraProjectionState::new(Eye::Right, 1, rows)
+            .with_screen_to_surface_uv(rows)
+            .with_surface_to_camera_uv(rows)
             .with_source_frame_sequence(11)
             .with_projection_surface_label("head-anchored-content-surface")
             .with_texture_transform_label("rotate0");
@@ -1477,6 +1508,7 @@ mod tests {
 
         assert!(target.is_valid());
         assert!(visual.is_valid());
+        assert!(target.left_projection.has_projection_stage_rows());
     }
 
     #[test]

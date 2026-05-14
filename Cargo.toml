@@ -17,6 +17,7 @@ members = [
     "crates/rusty-xr-particles",
     "examples/quest-minimal-apk/native",
     "examples/quest-composite-layer-apk/native",
+    "examples/quest-gl-openxr-video-stack-apk/native",
     "examples/broker-client-probe",
 ]
 exclude = ["examples/makepad-q2q-camera-shell"]

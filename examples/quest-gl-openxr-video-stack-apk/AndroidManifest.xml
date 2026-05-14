@@ -1,0 +1,95 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.rustyxr.opengles">
+
+    <uses-sdk
+        android:minSdkVersion="29"
+        android:targetSdkVersion="35" />
+
+    <uses-feature
+        android:name="android.hardware.vr.headtracking"
+        android:required="true"
+        android:version="1" />
+    <uses-feature
+        android:name="oculus.software.handtracking"
+        android:required="false"
+        android:version="1" />
+
+    <uses-permission android:name="horizonos.permission.HAND_TRACKING" />
+    <uses-permission android:name="oculus.permission.handtracking" />
+    <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="org.khronos.openxr.permission.OPENXR" />
+    <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
+
+    <application
+        android:allowBackup="false"
+        android:debuggable="true"
+        android:extractNativeLibs="true"
+        android:label="Rusty XR GLES"
+        android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+        <meta-data
+            android:name="com.samsung.android.vr.application.mode"
+            android:value="vr_only" />
+        <meta-data
+            android:name="com.oculus.handtracking.frequency"
+            android:value="LOW" />
+        <meta-data
+            android:name="com.oculus.handtracking.version"
+            android:value="V2.0" />
+        <meta-data
+            android:name="com.oculus.supportedDevices"
+            android:value="quest2|questpro|quest3|quest3s" />
+
+        <activity
+            android:name=".GlesOpenXrActivity"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:hardwareAccelerated="false"
+            android:label="Rusty XR GLES"
+            android:launchMode="singleTask"
+            android:resizeableActivity="false"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="rusty_xr_quest_gl_openxr_video_stack_native" />
+            <meta-data
+                android:name="com.oculus.vr.focusaware"
+                android:value="true" />
+            <meta-data
+                android:name="com.oculus.intent.category.VR"
+                android:value="vr_only" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="com.oculus.intent.category.VR" />
+            </intent-filter>
+        </activity>
+
+        <activity-alias
+            android:name=".LauncherActivity"
+            android:exported="true"
+            android:label="Rusty XR GLES"
+            android:targetActivity=".GlesOpenXrActivity">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="rusty_xr_quest_gl_openxr_video_stack_native" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+    </application>
+
+    <queries>
+        <provider
+            android:name="x"
+            android:authorities="org.khronos.openxr.runtime_broker;org.khronos.openxr.system_runtime_broker" />
+        <intent>
+            <action android:name="org.khronos.openxr.OpenXRRuntimeService" />
+        </intent>
+        <intent>
+            <action android:name="org.khronos.openxr.OpenXRApiLayerService" />
+        </intent>
+    </queries>
+</manifest>

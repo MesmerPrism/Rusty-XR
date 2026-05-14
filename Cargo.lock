@@ -512,6 +512,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusty-xr-quest-gl-openxr-video-stack-native"
+version = "0.1.0"
+dependencies = [
+ "android-activity",
+ "jni 0.21.1",
+ "ndk-sys",
+ "openxr",
+ "rusty-xr-quest-diagnostics",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rusty-xr-quest-minimal-native"
 version = "0.1.0"
 dependencies = [

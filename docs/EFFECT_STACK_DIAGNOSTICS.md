@@ -68,6 +68,7 @@ their own backend-specific render graph.
 Typical public-safe pass categories include:
 
 - `Source`
+- `IngestCopy`
 - `LumaTransform`
 - `Blur`
 - `ColorMap`
@@ -90,6 +91,11 @@ A diagnostic layer is a named tap that can be captured or summarized. Examples:
 
 The layer list gives comparison tools a stable order and label vocabulary even
 when the underlying renderer uses different private pass placement.
+
+For the OpenGL lane, the descriptor vocabulary can model the external-OES
+source as an `ExternalOes` buffer and the OES-to-working-texture operation as
+an `IngestCopy` pass. This stays data-only: adapters own actual
+`SurfaceTexture`, EGL, GL texture, FBO, and OpenXR swapchain handles.
 
 ## Metrics
 

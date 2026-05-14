@@ -1,0 +1,32 @@
+[package]
+name = "rusty-xr-quest-gl-openxr-video-stack-native"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Rust native library for the public Rusty XR Quest OpenXR/OpenGL ES video-stack example."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "rusty-xr-quest-gl-openxr-status"
+path = "src/main.rs"
+
+[dependencies]
+rusty-xr-quest-diagnostics = { path = "../../../crates/rusty-xr-quest-diagnostics", features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6.1", features = ["native-activity"] }
+jni = "0.21"
+ndk-sys = "0.6"
+openxr = "0.21.1"
+
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

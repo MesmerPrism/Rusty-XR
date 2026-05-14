@@ -103,8 +103,13 @@ Expected areas:
 - `rusty-xr-broker-model`: stream/header/timestamp contracts needed for
   broker synthetic H.264 parity.
 - `rusty-xr-quest-diagnostics`: GL/OpenXR runtime status, frame cadence,
-  SurfaceTexture, FBO, and pass-budget counters if they become stable.
-- `examples/quest-gl-openxr-video-stack-apk`: proposed public Quest example for
+  SurfaceTexture, FBO, and pass-budget counters when they become stable. The
+  first GL status payload is
+  `OpenXrGlesFeasibilityStatus`, exported as
+  `quest-openxr-gles-feasibility-status.schema.json`. SurfaceTexture/OES
+  ingest diagnostics are modeled by `SurfaceTextureOesIngestStatus`, exported
+  as `quest-surface-texture-oes-ingest-status.schema.json`.
+- `examples/quest-gl-openxr-video-stack-apk`: public Quest example for
   OpenXR/GLES presentation, broker H.264 OES ingestion, projection diagnostics,
   and public-safe multilayer effects.
 - `tools`: public scorecard and layer-packet analyzers when they become
@@ -183,6 +188,12 @@ Acceptance:
   Makepad lanes;
 - no Android, EGL, OpenXR, or GL handles enter framework-neutral crates.
 
+Implementation note: `rusty-xr-contracts` now has a data-only
+`IngestCopy` pass category, an `ExternalOes` buffer format for source
+descriptors, and optional `screen_to_surface` / `surface_to_camera` rows on
+`CameraProjectionState`. These describe the GL lane without carrying native
+handles.
+
 ### Iteration 2: OpenXR/GLES Feasibility Example
 
 Goal: prove Quest OpenXR presentation through OpenGL ES.
@@ -199,6 +210,19 @@ Tasks:
 - render distinct static left/right diagnostic grids;
 - log extension list, GLES version, EGL config, swapchain dimensions, view
   count, and frame cadence.
+
+Implementation note: `rusty-xr-quest-diagnostics` now provides the data-only
+`OpenXrGlesFeasibilityStatus` model for these logs. It records the
+`XR_KHR_opengl_es_enable` extension check, EGL/GLES version/config summary,
+OpenXR GLES graphics requirements, GL swapchain formats, per-view FBO
+completeness, viewport/image-index rows, and frame cadence without storing raw
+native handles. The first example scaffold lives at
+`examples/quest-gl-openxr-video-stack-apk` and renders static per-eye grids; it
+now also includes broker-compatible H.264 decode into `SurfaceTexture` /
+`GL_TEXTURE_EXTERNAL_OES` output surfaces. Headset validation on Quest showed focused
+`GlesOpenXrActivity`, Oculus runtime GLES requirements, `GL_SRGB8_ALPHA8`
+swapchain selection, FBO-complete per-eye rendering at the runtime's 72 Hz
+cadence, and distinct left/right static grid output.
 
 Acceptance:
 
@@ -224,6 +248,12 @@ Acceptance:
 - each eye renders through an FBO-complete path;
 - screenshots or headset inspection show fresh per-eye output;
 - no texture arrays or multiview until the simple path is stable.
+
+Implementation note: the first public GLES example now uses one non-array
+swapchain per eye, attaches each acquired GL texture to an FBO, uses the
+swapchain dimensions as the viewport, and records per-eye image index,
+viewport, FBO completeness, and diagnostic pattern rows in
+`OpenXrGlesFeasibilityStatus`.
 
 ### Iteration 4: Broker Synthetic H.264 To OES Textures
 
@@ -252,6 +282,22 @@ Acceptance:
 - source-feed and decoded-texture parity are reported separately;
 - SurfaceTexture timestamp is logged as diagnostic data, not treated as the
   sole stereo-pairing authority.
+
+Implementation note: `rusty-xr-quest-diagnostics` now includes a data-only
+`SurfaceTextureOesIngestStatus` model for this lane. It records per-eye
+external texture, `SurfaceTexture`, output-surface, decoder, frame-available,
+`updateTexImage()`, stream sequence, queued PTS, SurfaceTexture timestamp,
+transform-matrix hash, decoder error, source/update-rate, and CPU-YUV upload
+counters without carrying native texture, surface, codec, or GL handles.
+
+Implementation note: the public GLES/OpenXR example now creates one
+`GL_TEXTURE_EXTERNAL_OES` texture, one Android `SurfaceTexture`, and one output
+`Surface` per eye after the EGL context is current. It starts Java MediaCodec
+decoder threads for broker-compatible `RXYRVID1` H.264 streams, releases decoder
+output buffers into those surfaces, receives frame-available callbacks, and
+calls `updateTexImage()` only from the native GL render thread. The status log
+reaches `TextureUpdated` with per-eye frame/update counts and
+`cpu_yuv_upload_count=0`.
 
 ### Iteration 5: OES Ingest Copy To Internal Raw FBO
 

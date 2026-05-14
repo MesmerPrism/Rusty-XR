@@ -260,6 +260,179 @@ def schemas() -> dict[str, dict]:
             "notes": array(string()),
         },
     )
+    frame_rate_summary = obj(
+        "FrameRateSummary",
+        {
+            "sample_count": integer(0),
+            "average_fps": number(),
+            "min_fps": number(),
+            "max_fps": number(),
+        },
+    )
+    openxr_gles_feasibility_state = enum(
+        "OpenXrGlesFeasibilityState",
+        [
+            "Unknown",
+            "NotStarted",
+            "ExtensionsEnumerated",
+            "EglContextReady",
+            "GraphicsRequirementsKnown",
+            "SessionReady",
+            "SwapchainsReady",
+            "Rendering",
+            "Failed",
+        ],
+    )
+    gl_framebuffer_completeness = enum(
+        "GlFramebufferCompleteness",
+        [
+            "Unknown",
+            "Complete",
+            "IncompleteAttachment",
+            "IncompleteMissingAttachment",
+            "IncompleteDimensions",
+            "IncompleteUnsupported",
+            "IncompleteMultisample",
+            "IncompleteLayerTargets",
+            "OtherIncomplete",
+        ],
+    )
+    openxr_gles_extension_status = obj(
+        "OpenXrGlesExtensionStatus",
+        {
+            "extension_name": string(),
+            "required": boolean(),
+            "available": boolean(),
+        },
+    )
+    openxr_gles_graphics_requirements = obj(
+        "OpenXrGlesGraphicsRequirements",
+        {
+            "min_api_version": nullable_string(),
+            "max_api_version": nullable_string(),
+        },
+    )
+    egl_gles_context_status = obj(
+        "EglGlesContextStatus",
+        {
+            "egl_version": nullable_string(),
+            "gles_version": nullable_string(),
+            "glsl_version": nullable_string(),
+            "vendor": nullable_string(),
+            "renderer": nullable_string(),
+            "config_red_bits": {"type": ["integer", "null"], "minimum": 0, "maximum": 255},
+            "config_green_bits": {"type": ["integer", "null"], "minimum": 0, "maximum": 255},
+            "config_blue_bits": {"type": ["integer", "null"], "minimum": 0, "maximum": 255},
+            "config_alpha_bits": {"type": ["integer", "null"], "minimum": 0, "maximum": 255},
+            "config_depth_bits": {"type": ["integer", "null"], "minimum": 0, "maximum": 255},
+            "config_stencil_bits": {"type": ["integer", "null"], "minimum": 0, "maximum": 255},
+            "config_samples": {"type": ["integer", "null"], "minimum": 0, "maximum": 255},
+            "egl_context_current": boolean(),
+            "external_oes_supported": boolean(),
+        },
+    )
+    openxr_gles_swapchain_format = obj(
+        "OpenXrGlesSwapchainFormat",
+        {
+            "format_id": integer(),
+            "label": string(),
+            "color_renderable": boolean(),
+            "depth_renderable": boolean(),
+            "selected": boolean(),
+        },
+    )
+    openxr_gles_view_status = obj(
+        "OpenXrGlesViewStatus",
+        {
+            "view_index": integer(0),
+            "recommended_width": integer(0),
+            "recommended_height": integer(0),
+            "swapchain_width": integer(0),
+            "swapchain_height": integer(0),
+            "acquired_image_index": {"type": ["integer", "null"], "minimum": 0},
+            "fbo_status": gl_framebuffer_completeness,
+            "viewport_x": integer(),
+            "viewport_y": integer(),
+            "viewport_width": integer(0),
+            "viewport_height": integer(0),
+            "diagnostic_pattern": string(),
+            "last_rendered_frame_index": {"type": ["integer", "null"], "minimum": 0},
+        },
+    )
+    openxr_gles_feasibility_status = obj(
+        "OpenXrGlesFeasibilityStatus",
+        {
+            "schema": {"const": "rusty.xr.quest.openxr_gles_feasibility.v1"},
+            "state": openxr_gles_feasibility_state,
+            "runtime_name": nullable_string(),
+            "runtime_version": nullable_string(),
+            "required_extensions": array(openxr_gles_extension_status),
+            "graphics_requirements": {"oneOf": [openxr_gles_graphics_requirements, {"type": "null"}]},
+            "context": {"oneOf": [egl_gles_context_status, {"type": "null"}]},
+            "swapchain_formats": array(openxr_gles_swapchain_format),
+            "views": array(openxr_gles_view_status),
+            "frame_rate": {"oneOf": [frame_rate_summary, {"type": "null"}]},
+            "issue_codes": array(string()),
+            "notes": array(string()),
+        },
+    )
+    surface_texture_oes_ingest_state = enum(
+        "SurfaceTextureOesIngestState",
+        [
+            "Unknown",
+            "NotStarted",
+            "ExternalTextureCreated",
+            "SurfaceTextureCreated",
+            "OutputSurfaceReady",
+            "DecoderConfigured",
+            "DecoderStarted",
+            "FrameAvailable",
+            "TextureUpdated",
+            "Failed",
+        ],
+    )
+    surface_texture_oes_eye_status = obj(
+        "SurfaceTextureOesEyeStatus",
+        {
+            "view_index": integer(0),
+            "stream_id": nullable_string(),
+            "source_eye": nullable_string(),
+            "external_texture_created": boolean(),
+            "surface_texture_created": boolean(),
+            "output_surface_created": boolean(),
+            "decoder_configured": boolean(),
+            "decoder_started": boolean(),
+            "source_width": {"type": ["integer", "null"], "minimum": 0},
+            "source_height": {"type": ["integer", "null"], "minimum": 0},
+            "frame_available_count": integer(0),
+            "update_tex_image_count": integer(0),
+            "skipped_update_count": integer(0),
+            "latest_stream_sequence": {"type": ["integer", "null"], "minimum": 0},
+            "latest_queued_pts_us": {"type": ["integer", "null"]},
+            "latest_surface_texture_timestamp_ns": {"type": ["integer", "null"]},
+            "latest_transform_matrix_hash": nullable_string(),
+            "transform_matrix_sample_count": integer(0),
+            "decoder_error_count": integer(0),
+            "latest_decoder_error": nullable_string(),
+            "last_update_frame_index": {"type": ["integer", "null"], "minimum": 0},
+        },
+    )
+    surface_texture_oes_ingest_status = obj(
+        "SurfaceTextureOesIngestStatus",
+        {
+            "schema": {"const": "rusty.xr.quest.surface_texture_oes_ingest.v1"},
+            "state": surface_texture_oes_ingest_state,
+            "session_id": nullable_string(),
+            "codec_name": nullable_string(),
+            "codec_mime": nullable_string(),
+            "eyes": array(surface_texture_oes_eye_status),
+            "source_feed_rate": {"oneOf": [frame_rate_summary, {"type": "null"}]},
+            "texture_update_rate": {"oneOf": [frame_rate_summary, {"type": "null"}]},
+            "cpu_yuv_upload_count": integer(0),
+            "issue_codes": array(string()),
+            "notes": array(string()),
+        },
+    )
     broker_transport_kind = enum(
         "BrokerTransportKind",
         [
@@ -1010,6 +1183,7 @@ def schemas() -> dict[str, dict]:
         "EffectPassKind",
         [
             "Source",
+            "IngestCopy",
             "LumaTransform",
             "Blur",
             "ColorMap",
@@ -1022,11 +1196,28 @@ def schemas() -> dict[str, dict]:
     )
     effect_pass_input_role = enum(
         "EffectPassInputRole",
-        ["SourceColor", "SourceLuma", "Guide", "Mask", "DisplacementMap", "PreviousPass"],
+        [
+            "SourceColor",
+            "SourceExternal",
+            "SourceLuma",
+            "Guide",
+            "Mask",
+            "DisplacementMap",
+            "PreviousPass",
+        ],
     )
     effect_buffer_format = enum(
         "EffectBufferFormat",
-        ["Rgba8", "Rgba16Float", "Rgba32Float", "R8", "R16Float", "R32Float", "ExternalGpu"],
+        [
+            "Rgba8",
+            "Rgba16Float",
+            "Rgba32Float",
+            "R8",
+            "R16Float",
+            "R32Float",
+            "ExternalOes",
+            "ExternalGpu",
+        ],
     )
     stereo_media_layout = {
         "oneOf": [
@@ -1262,6 +1453,8 @@ def schemas() -> dict[str, dict]:
             },
         ),
         "quest-development-provider-snapshot.schema.json": quest_development_provider_snapshot,
+        "quest-openxr-gles-feasibility-status.schema.json": openxr_gles_feasibility_status,
+        "quest-surface-texture-oes-ingest-status.schema.json": surface_texture_oes_ingest_status,
         "capture-source-state.schema.json": obj(
             "CaptureSourceState",
             {
