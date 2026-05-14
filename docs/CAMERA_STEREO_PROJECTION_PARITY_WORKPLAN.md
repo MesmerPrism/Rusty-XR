@@ -42,6 +42,16 @@ utilization was effectively saturated and the validation bundle still contained
 sleep/tear warnings. That makes the run useful as a correctness baseline, not
 as the final smoothness target.
 
+## Current Alignment State
+
+The accepted screen-space alignment state is S119. The earlier S91-S118 slices
+remain useful history for why the current tools exist, but coordinate parity is
+no longer the active bottleneck for the Brave fixed-screen path: the Rusty XR
+reference and borderless Makepad candidate stayed within roughly
+`0.003-0.004 px` dense homography delta, and edge-stripe scores were zero in
+both Makepad eyes. Treat remaining differences as presentation/effect/temporal
+policy unless new evidence shows projection-row drift.
+
 ## Current Fast Public Profiles
 
 The current renderer-parity profiles are:

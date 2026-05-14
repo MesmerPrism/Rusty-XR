@@ -8,7 +8,8 @@ experiments that need common XR data models, runtime configuration helpers,
 device diagnostics, passthrough-camera abstractions, depth and SDF contracts,
 plain stereo/feedback layer descriptors and tuning hints, native
 passthrough-layer style descriptors, safety-gated visual strobe descriptors,
-LSL utilities, and general particle or animation primitives.
+effect-stack diagnostic descriptors, LSL utilities, and general particle or
+animation primitives.
 The research-streaming surface now also includes source-only broker stream and
 engine-neutral eye-data contracts before native provider adapters.
 
@@ -17,6 +18,10 @@ replacement for an app-specific shell. Application repositories remain
 responsible for package identity, platform integration, rendering policy,
 assets, product behavior, signing, release payloads, and validation on target
 hardware.
+Rusty Kiosk developer-home and kiosk-like launcher concepts are modeled as data
+contracts only: panels, launcher entries, settings shortcuts, helper state, and
+bounded focus-recovery events. They do not make Rusty XR a system UI replacement
+or an MDM/device-owner kiosk implementation.
 
 ## Workspace
 
@@ -102,7 +107,9 @@ egress, runtime-configurable OSC-to-WebSocket drive events, generic published
 stream events, Polar-compatible broker bio streams, and a 2D broker console that
 XR clients can open through the broker command API. The console also includes a
 normal-mode Launcher page for named app lists, visible launchable-app search,
-and PackageManager-based app launching from the headset. It now also exposes a
+PackageManager-based app launching from the headset, plus a Clock page backed
+by a broker-owned elapsed-realtime timebase that cooperating apps can query and
+use for stream/storage stamps. It now also exposes a
 camera-projection metadata provider, a bounded app-context Camera2 capture
 probe, bounded app-context raw-luma and H.264 Camera2 side-channel probes,
 an Android platform MediaCodec decode-consumption probe, shell-helper status
@@ -129,6 +136,7 @@ so Rust tools can exercise the same status, command, stream-list,
 subscription, console-open, and latency-sample path without adopting a specific
 async runtime:
 [examples/quest-broker-apk/README.md](examples/quest-broker-apk/README.md).
+[docs/BROKER_CLOCK_AND_TIMEBASE.md](docs/BROKER_CLOCK_AND_TIMEBASE.md).
 [examples/broker-client-probe/README.md](examples/broker-client-probe/README.md).
 
 The particle crate includes a Rust-native dynamic mesh coordinate sampler that
@@ -187,6 +195,19 @@ Quest ADB input smoke-test limits are documented in
 Headset-local app launching and the boundary between normal PackageManager
 launches and ADB-launched shell helpers is documented in
 [docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md](docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).
+Public Rusty Kiosk / developer-home menu contracts for broker panels, launcher
+entries, settings shortcuts, helper state, and bounded focus-recovery events are
+documented in
+[docs/QUEST_DEVELOPER_HOME_MENU.md](docs/QUEST_DEVELOPER_HOME_MENU.md).
+Generic multi-pass visual pipeline descriptors and layer comparison reports are
+documented in
+[docs/EFFECT_STACK_DIAGNOSTICS.md](docs/EFFECT_STACK_DIAGNOSTICS.md).
+The broker clock/timebase API used by that home surface is documented in
+[docs/BROKER_CLOCK_AND_TIMEBASE.md](docs/BROKER_CLOCK_AND_TIMEBASE.md).
+The public distribution boundary between Store-style Quest apps, SideQuest or
+GitHub developer builds, external ADB hosts, Wi-Fi ADB, and shell helpers is
+documented in
+[docs/QUEST_DISTRIBUTION_AND_ADB_BOUNDARY.md](docs/QUEST_DISTRIBUTION_AND_ADB_BOUNDARY.md).
 The public boundary for headset/controller tracking, Android sensors, and ADB
 diagnostics is documented in
 [docs/QUEST_TRACKING_ACCESS_BOUNDARY.md](docs/QUEST_TRACKING_ACCESS_BOUNDARY.md).
@@ -200,6 +221,8 @@ cargo run -p rusty-xr-contracts --example composite_feedback_session --features 
 cargo run -p rusty-xr-contracts --example meta_passthrough_style_catalog --features serde
 cargo run -p rusty-xr-contracts --example audio_reactive_passthrough_style --features serde
 cargo run -p rusty-xr-contracts --example visual_strobe_profiles --features serde
+cargo run -p rusty-xr-contracts --example developer_home_manifest --features serde
+cargo run -p rusty-xr-contracts --example effect_stack_diagnostic_manifest --features serde
 cargo run -p rusty-xr-particles --example dynamic_mesh_coordinates
 cargo run -p rusty-xr-particles --example hand_mesh_dynamic_collider
 cargo run -p rusty-xr-particles --example hand_mesh_sdf_attraction
@@ -257,6 +280,9 @@ and optional MediaProjection witness handling, is documented in
 Browser-based physical-screen stimulus tooling for camera and final-display
 capture alignment runs lives in
 [tools/quest-visual-stimulus/README.md](tools/quest-visual-stimulus/README.md).
+Active camera-facing-screen runs use that tool's fullscreen foreground
+convention: a red dot at top right means the screen is reserved, and `SAFE` or
+`STOP` means the browser can be moved or covered again.
 The first implementation slices add source-only `build-manifest.public.json`
 files beside the public Android examples, the standalone Makepad smoke shell,
 and `tools/schema/check_android_build_manifest.py` to validate them.

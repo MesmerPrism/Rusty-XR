@@ -41,6 +41,7 @@ final class BrokerState {
     private final VideoLabState videoLab = new VideoLabState();
     private final TransportSessionRegistry transportSessions = new TransportSessionRegistry();
     private final BreathAssessmentState breathAssessment = new BreathAssessmentState();
+    private final ClockCore clock = new ClockCore();
     private JSONObject polarPmdStatus = defaultPolarPmdStatus();
 
     JSONObject toStatusJson(LatencyPublisher publisher, OscIngressServer oscIngressServer) throws Exception {
@@ -65,6 +66,7 @@ final class BrokerState {
         status.put("breathAssessment", breathAssessment.toStatusJson());
         status.put("videoLab", videoLabStatusJson());
         status.put("transportSessions", transportSessions.statusJson());
+        status.put("clock", clock.statusJson());
 
         JSONObject commands = new JSONObject();
         commands.put("schema", "rusty.xr.broker.command.v1");
@@ -77,6 +79,13 @@ final class BrokerState {
         supportedCommands.put("unsubscribe");
         supportedCommands.put("configure_osc_ingress");
         supportedCommands.put("publish_stream_event");
+        supportedCommands.put("clock.status");
+        supportedCommands.put("clock.now");
+        supportedCommands.put("clock.domains");
+        supportedCommands.put("clock.correlations");
+        supportedCommands.put("clock.health");
+        supportedCommands.put("clock.compare_openxr");
+        supportedCommands.put("clock.sync_probe");
         supportedCommands.put("polar_pmd.get_status");
         supportedCommands.put("polar_pmd.start");
         supportedCommands.put("polar_pmd.stop");
@@ -98,6 +107,7 @@ final class BrokerState {
         supportedCommands.put("media.request_keyframe");
         supportedCommands.put("media.set_video_bitrate");
         supportedCommands.put("media.set_quality_profile");
+        supportedCommands.put("media.start_synthetic_h264_stream");
         supportedCommands.put("media.start_h264_tcp_proxy");
         supportedCommands.put("media.run_h264_tcp_proxy_probe");
         supportedCommands.put("camera_provider.set_source_eye_mapping");
@@ -166,6 +176,11 @@ final class BrokerState {
         capabilities.put("broker.stream_event.v1");
         capabilities.put("broker.osc_ingress.configure");
         capabilities.put("broker.stream_event.publish");
+        capabilities.put("broker.clock.status.v1");
+        capabilities.put("broker.clock.snapshot.v1");
+        capabilities.put("broker.clock.stamp.v1");
+        capabilities.put("broker.clock.correlation.v1");
+        capabilities.put("broker.clock.sync_probe.v1");
         capabilities.put("bio.polar_pmd.android_ble.v1");
         capabilities.put("bio.polar_acc.direct_ble.v1");
         capabilities.put("bio.breath_assessment.v1");
@@ -189,6 +204,7 @@ final class BrokerState {
         capabilities.put("media.h264_runtime_keyframe.v1");
         capabilities.put("media.h264_runtime_bitrate.v1");
         capabilities.put("media.h264_quality_profile.v1");
+        capabilities.put("media.synthetic_h264_stream.v1");
         capabilities.put("broker.h264_tcp_proxy.v1");
         capabilities.put("broker.h264_tcp_proxy_probe.v1");
         capabilities.put("broker.lan_control.opt_in.v1");
@@ -220,6 +236,10 @@ final class BrokerState {
     JSONArray streamsJson(OscIngressServer oscIngressServer) throws Exception {
         JSONArray streams = new JSONArray();
         streams.put(streamJson("broker:status", "status", "Broker status snapshots and capability reports.", true));
+        streams.put(streamJson("clock:sample", "clock", "Broker-owned monotonic clock snapshots.", true));
+        streams.put(streamJson("clock:health", "clock", "Clock health, wall-clock jump, and discontinuity events.", true));
+        streams.put(streamJson("clock:correlation", "clock", "Timestamp-domain correlation updates.", true));
+        streams.put(streamJson("clock:openxr_frame", "clock", "OpenXR predicted-display timing samples when an immersive Rusty XR session publishes them.", false));
         streams.put(streamJson("latency:sample", "latency", "WebSocket latency samples accepted by the broker.", true));
         streams.put(streamJson("bio:polar_hr_rr", "bio", "Synthetic or adapter-published Polar-compatible heart-rate/RR events.", true));
         streams.put(streamJson("bio:polar_ecg", "bio", "Synthetic or adapter-published Polar-compatible ECG frame events.", true));
@@ -298,6 +318,42 @@ final class BrokerState {
 
     JSONObject shellHelperStatusJson() throws Exception {
         return shellHelper.toStatusJson();
+    }
+
+    JSONObject clockStatusJson() throws Exception {
+        return clock.statusJson();
+    }
+
+    JSONObject clockSnapshotJson() throws Exception {
+        return clock.snapshotJson();
+    }
+
+    JSONObject clockDomainsJson() throws Exception {
+        return clock.domainsJson();
+    }
+
+    JSONObject clockCorrelationsJson() throws Exception {
+        return clock.correlationsJson();
+    }
+
+    JSONObject clockHealthJson() throws Exception {
+        return clock.healthJson();
+    }
+
+    JSONObject clockOpenXrComparisonJson() throws Exception {
+        return clock.openXrComparisonJson();
+    }
+
+    JSONObject clockSyncProbeJson(JSONObject params) throws Exception {
+        return clock.syncProbeJson(params);
+    }
+
+    JSONObject clockStampJson() throws Exception {
+        return clock.stampJson();
+    }
+
+    JSONObject clockStampJson(String sourceDomain, Long sourceTimeNs, String correlationId) throws Exception {
+        return clock.stampJson(sourceDomain, sourceTimeNs, correlationId);
     }
 
     JSONObject reportShellHelperStatus(JSONObject params) throws Exception {

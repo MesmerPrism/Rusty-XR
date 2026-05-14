@@ -27,6 +27,9 @@ Shared pose, frame timing, eye-view, hand, render-payload, diagnostics, and
 command contracts. The contract crate also owns public room mesh source state,
 semantic room mesh snapshots, and capture lifecycle metadata because those
 types are shared by depth, scan, diagnostics, examples, and operator tooling.
+It also owns public developer-home menu contracts for app-owned panels,
+launcher entries, settings shortcuts, helper state, bounded supervisor policy,
+and focus-recovery event logging.
 
 Initial requirement: no dependency on Android, OpenXR, Vulkan, Makepad, Unity,
 Meta SDKs, or LSL.
@@ -57,11 +60,13 @@ stay transport-oriented until a stable sensor contract is ready.
 
 Reusable broker command, acknowledgement, client hello, stream manifest, sample
 header, session manifest, timing, drop counter, replay record, synthetic stream,
-and transport-lane contracts. These models keep reliable control,
-loss-tolerant streams, replay, and WebSocket/UDP fallbacks explicit without
-implementing sockets or engine adapters in core.
+transport-lane, and broker-clock contracts. These models keep reliable control,
+loss-tolerant streams, replay, WebSocket/UDP fallbacks, and timestamp-domain
+correlations explicit without implementing sockets or engine adapters in core.
 The research-XR bridge split is documented in
 [RESEARCH_XR_BROKER_BRIDGE.md](RESEARCH_XR_BROKER_BRIDGE.md).
+The broker-owned timebase and Quest broker Clock page are documented in
+[BROKER_CLOCK_AND_TIMEBASE.md](BROKER_CLOCK_AND_TIMEBASE.md).
 
 The clean-room low-latency transport direction is documented in
 [LOW_LATENCY_TRANSPORT_ARCHITECTURE.md](LOW_LATENCY_TRANSPORT_ARCHITECTURE.md).
@@ -75,7 +80,9 @@ The next broker-model slice should strengthen the existing H.264 diagnostic
 path before adding new transports: camera/source capability manifests,
 timestamp-domain fields, H.264 stream invariants, bounded relay metrics,
 runtime keyframe/bitrate commands, session-native projection metadata, and
-privacy/security policy for LAN and online relays.
+privacy/security policy for LAN and online relays. Clock follow-up work should
+add OpenXR frame-timeline samples, companion sync-probe reporting, and session
+manifest clock summaries.
 
 ### Eye Model
 
@@ -120,14 +127,15 @@ utilities.
 
 The custom stereo temporal reprojection plan is tracked in
 [CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md](CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md).
-The first public slices are data-only temporal policy/state/metric contracts
-and metrics-only runtime logging in the composite-layer example. Runtime
-smoothing, shader changes, depth-aware reprojection, and optional space-warp
-submission remain adapter/example work until measured. The near-term runtime
-order is no-smoothing validation, pose-delta clamp, screen-motion clamp, frame
-adoption, edge handling, then depth-aware and space-warp probes. The same
-temporal contracts should apply across Rusty XR direct projection, Rusty XR
-broker/existing-stream projection, and the Makepad stereo comparison lane.
+The first public slices now include data-only temporal policy/state/metric
+contracts, metrics-only runtime logging, opt-in pose-delta and screen-motion
+clamp profiles, frame-adoption controls, stream-header projection metadata,
+and edge/invalid-UV scorecard reporting in the composite-layer example.
+Direct Camera2 projection, broker H.264 projection, and the single-headset
+laptop-relay receiver path have exercised the projected scorecard surface.
+Remaining measured work is motion/stress tuning for frame holds, depth-aware
+reprojection, optional space-warp probes, and any shader policy that proves
+useful without becoming a default.
 
 ### Plain Stereo And Feedback Layers
 
@@ -140,6 +148,16 @@ custom stereo and optional screen-feedback layers.
 These contracts do not implement the Passthrough Camera API, MediaProjection,
 OpenXR composition submission, Vulkan texture import, or downstream
 image-processing, geometric-effect, scene, or product tuning stacks.
+
+### Effect Stack Diagnostics
+
+Reusable data contracts for renderer-owned multi-pass visual pipelines:
+ordered pass descriptors, logical intermediate buffers, diagnostic layer taps,
+and scalar layer-comparison metrics. These contracts help downstream shells
+compare source, guide, edge, mask, displacement, and final-composite layers
+without moving shader code, private visual behavior, generated captures, or
+native texture ownership into public core. See
+[EFFECT_STACK_DIAGNOSTICS.md](EFFECT_STACK_DIAGNOSTICS.md).
 
 ### Native Platform Passthrough Descriptors
 
@@ -253,6 +271,11 @@ plain contracts first: canvas/ray interaction, hand-menu anchors, menu command
 models, room mesh snapshots, scan package manifests, sparse TSDF snapshots, and
 geometry generators. Framework-native widgets, native OpenXR/Vulkan/Android
 calls, and downstream app behavior stay in adapters or downstream app shells.
+The first Rusty Kiosk / developer-home slice follows this rule:
+`rusty-xr-contracts` models home panels, launch rows, settings shortcuts,
+helper status, and focus-recovery events, while actual 2D UI, immersive
+rendering, ADB helper lifecycle, and managed kiosk policy stay in app shells or
+companion tooling.
 
 A broader sanitized machine-wide audit is tracked in
 [MACHINE_REPO_TOOLING_AUDIT.md](MACHINE_REPO_TOOLING_AUDIT.md). It covers
@@ -361,11 +384,14 @@ Current Quest media implementation status:
   rather than transport or handoff. The dedicated parity target map is
   documented in
   [CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md](CAMERA_STEREO_PROJECTION_PARITY_WORKPLAN.md).
-- Public contracts now include temporal projection policy/state/metric shapes,
-  and the composite-layer example emits metrics with no visual behavior change.
-  The next smoothing iterations are pose-delta clamp, screen-motion clamp,
-  frame-adoption smoothing, edge handling, depth-aware reprojection, and
-  optional space-warp probes as separate profiles.
+- Public contracts now include temporal projection policy/state/metric shapes.
+  The composite-layer example emits no-smoothing metrics, supports opt-in
+  pose-delta and screen-motion clamp profiles, carries projection metadata in
+  schema-3 stream headers, and reports frame-adoption plus edge/invalid-UV
+  fields. Direct, broker-live, and single-headset laptop-loop projected paths
+  are validated. Remaining temporal work is motion/stress tuning for nonzero
+  frame holds, then depth-aware reprojection and optional space-warp probes as
+  separate profiles.
 - Future native support should still stay in thin optional adapters or public
   examples rather than becoming private app-shell behavior inside core crates.
 
@@ -449,7 +475,7 @@ responsibilities.
 | License | `[x]` | MIT. |
 | Makepad acknowledgement | `[x]` | Root README and acknowledgements file. |
 | CI baseline | `[x]` | GitHub Actions covers fmt, tests, all features, clippy, doctests, rustdoc, docs links, schema export, and public boundary scan. |
-| Core contracts | In progress | Initial framework-neutral pose, timing, view, camera, depth, hand, render payload, layer, and counter contracts added. |
+| Core contracts | In progress | Initial framework-neutral pose, timing, view, camera, depth, hand, home/menu, render payload, layer, effect-stack diagnostics, and counter contracts added. |
 | Runtime config | In progress | Generic key/value parsing and Android property naming helpers added. |
 | BLE utilities | In progress | Framework-neutral BLE UUID, GATT path, notification, operation, scan result, and Android permission models added. |
 | LSL utilities | In progress | Pure stream descriptor, stream role, channel schema, discovery filter, endpoint status, staleness, roundtrip, biofeedback, and telemetry models added. |
@@ -462,6 +488,7 @@ responsibilities.
 | Camera model | In progress | Intrinsics scaling, projection, back-projection, and timestamp matching helpers added. |
 | Camera temporal projection | In progress | Temporal policy contracts, target/visual projection state, stereo pair timing, pose-delta lockstep clamp, screen-motion clamp, frame-adoption, edge-mode, and scorecard metric fields added. Composite-layer example validates direct and laptop-relay projected paths; physical motion stress tuning remains open. |
 | Plain stereo / feedback layers | In progress | Public mono/stereo media layer descriptors, source UV layout helpers, aspect-fit content rectangles, visual feedback border segments, border tuning, composite-feedback tuning, and performance hints added. |
+| Effect stack diagnostics | In progress | Public data-only pass graph descriptors, intermediate buffer descriptors, diagnostic layer taps, and scalar layer comparison metrics added for downstream visual pipelines. |
 | Native platform passthrough descriptors | In progress | Public Meta/OpenXR layer-purpose, placement, opacity, edge, color-map, BCS, and LUT descriptors added with contracts-only examples. |
 | Visual strobe descriptors | In progress | Public full-field and passthrough-LUT strobe profile descriptors, display-frame frequency plans, 120 Hz constraints, and safety warnings added with a no-hardware example. |
 | Depth model | In progress | Depth readiness, frame summary, per-view metadata, infinite-far range, cadence, and readback-policy helpers added. |

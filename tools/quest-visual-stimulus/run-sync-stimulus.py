@@ -28,6 +28,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--duration", type=float, default=90.0)
     parser.add_argument("--server-control", action="store_true")
     parser.add_argument("--no-open", action="store_true")
+    parser.add_argument("--foreground-resource", default="screen-foreground:primary")
+    parser.add_argument("--allow-windowed", action="store_true")
     return parser.parse_args()
 
 
@@ -55,6 +57,10 @@ class StimulusState:
             "server_control": bool(self.args.server_control),
             "hz": self.args.hz,
             "duration_seconds": self.args.duration,
+            "foreground_resource": self.args.foreground_resource,
+            "browser_fullscreen_required": not bool(self.args.allow_windowed),
+            "active_use_marker": "red-dot-top-right",
+            "safe_to_switch_rule": "Only switch windows after the red dot disappears and the status row says SAFE or STOP.",
             "created_unix_ms": int(time.time() * 1000),
             "events_path": os.fspath(self.events_path),
             "stale_events_path": os.fspath(self.stale_events_path),
@@ -86,6 +92,9 @@ class StimulusState:
             "stop_request_unix_ms": self.stop_request_unix_ms,
             "hz": self.args.hz,
             "duration_seconds": self.args.duration,
+            "foreground_resource": self.args.foreground_resource,
+            "browser_fullscreen_required": not bool(self.args.allow_windowed),
+            "active_use_marker": "red-dot-top-right",
             "control_source": self.control_source,
         }
 
@@ -197,12 +206,18 @@ def main() -> None:
             "hz": args.hz,
             "duration": args.duration,
             "control": "server" if args.server_control else "manual",
+            "require_fullscreen": "0" if args.allow_windowed else "1",
         }
     )
     url = f"http://{args.host}:{args.port}/?{query}"
     print(f"Sync stimulus URL: {url}")
     print(f"Stimulus session: {state.session_dir}")
     print(f"Events: {state.events_path}")
+    print(f"Foreground resource: {args.foreground_resource}")
+    print("Active-use convention: red dot visible at top right means do not switch windows.")
+    print("Safe-to-switch convention: wait for the red dot to disappear and the status row to say SAFE or STOP.")
+    if not args.allow_windowed:
+        print("Browser convention: keep the stimulus browser full screen and foregrounded for active runs.")
     if not args.no_open:
         webbrowser.open(url)
     try:

@@ -59,7 +59,7 @@ public final class MainActivity extends Activity {
     private static final String DEFAULT_EXPERIMENT_TARGET_ACTIVITY = "";
     private static final int DEFAULT_EXPERIMENT_LAUNCH_GUARD_TIMEOUT_MS = 20_000;
     private static final boolean DEFAULT_EXPERIMENT_LAUNCH_GUARD_PREVIEW_TIMEOUT_ENABLED = false;
-    private static final String[] PAGES = { "Dashboard", "Experiment", "Polar", "Launcher", "Streams", "Commands", "Diagnostics" };
+    private static final String[] PAGES = { "Dashboard", "Clock", "Experiment", "Polar", "Launcher", "Streams", "Commands", "Diagnostics" };
     private static volatile WeakReference<MainActivity> activeActivity = new WeakReference<>(null);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -339,7 +339,7 @@ public final class MainActivity extends Activity {
         root.addView(scroll, scrollParams);
 
         footerView = textView(13, false, MUTED);
-        footerView.setText("Endpoint: http://127.0.0.1:8765/status    WebSocket: ws://127.0.0.1:8765/rustyxr/v1/events");
+        footerView.setText("Endpoint: http://127.0.0.1:8765/status    Clock: /clock/now    WebSocket: ws://127.0.0.1:8765/rustyxr/v1/events");
         root.addView(footerView);
 
         return root;
@@ -502,6 +502,8 @@ public final class MainActivity extends Activity {
             showTextPage(buildStreams(status));
         } else if ("Commands".equals(currentPage)) {
             showTextPage(buildCommands(status));
+        } else if ("Clock".equals(currentPage)) {
+            showTextPage(buildClock(status));
         } else if ("Polar".equals(currentPage)) {
             renderPolarPage(status);
         } else if ("Experiment".equals(currentPage)) {
@@ -1979,7 +1981,9 @@ public final class MainActivity extends Activity {
         JSONObject polarPmd = status.optJSONObject("polarPmd");
         JSONObject breathAssessment = status.optJSONObject("breathAssessment");
         JSONObject videoLab = status.optJSONObject("videoLab");
+        JSONObject clock = status.optJSONObject("clock");
         builder.append("TRANSPORTS\n");
+        builder.append("Clock        ").append(clock != null ? clock.optString("health", "unknown") : "unknown").append('\n');
         builder.append("LSL           ").append(lsl != null && lsl.optBoolean("enabled") ? "enabled" : "fallback/logcat").append('\n');
         builder.append("OSC ingress   ").append(transportEnabled(osc != null ? osc.optJSONObject("ingress") : null)).append('\n');
         builder.append("OSC egress    ").append(transportEnabled(osc != null ? osc.optJSONObject("egress") : null)).append('\n');
@@ -1991,6 +1995,93 @@ public final class MainActivity extends Activity {
         builder.append('\n');
         builder.append("Use Polar to start broker-owned Polar PMD before launching a target XR app.\n");
         builder.append("Use Return to XR App to close this console while the broker service keeps running.");
+        return builder.toString();
+    }
+
+    private String buildClock(JSONObject status) {
+        StringBuilder builder = new StringBuilder(1000);
+        builder.append("CLOCK\n\n");
+
+        JSONObject clock = status.optJSONObject("clock");
+        if (clock == null) {
+            builder.append("Clock service status is not reported yet.");
+            return builder.toString();
+        }
+
+        JSONObject snapshot = clock.optJSONObject("snapshot");
+        builder.append("Health       ").append(clock.optString("health", "unknown")).append('\n');
+        builder.append("Clock id     ").append(clock.optString("clock_id", "")).append('\n');
+        builder.append("Epoch        ").append(clock.optString("clock_epoch_id", "")).append('\n');
+        builder.append("Primary      ").append(clock.optString("primary_domain", "")).append('\n');
+        if (snapshot != null) {
+            long elapsedNs = snapshot.optLong("android_elapsed_realtime_ns", 0L);
+            long unixNs = snapshot.optLong("android_realtime_unix_ns", 0L);
+            builder.append("Sequence     ").append(snapshot.optLong("sequence_number", 0L)).append('\n');
+            builder.append("Elapsed      ").append(elapsedNs).append(" ns (")
+                .append(formatNsAsMs(elapsedNs)).append(")\n");
+            builder.append("Unix label   ").append(unixNs > 0L ? Long.toString(unixNs) : "not reported").append(" ns\n");
+            builder.append("Uncertainty  ").append(snapshot.optLong("read_uncertainty_ns", 0L)).append(" ns\n");
+            builder.append("Wall jumps   ").append(snapshot.optLong("wall_clock_adjustment_counter", 0L)).append('\n');
+        }
+
+        JSONObject openXr = clock.optJSONObject("openxr_comparison");
+        if (openXr != null) {
+            builder.append('\n');
+            builder.append("OPENXR COMPARISON\n");
+            builder.append("State        ").append(openXr.optString("state", "")).append('\n');
+            builder.append("Available    ").append(openXr.optBoolean("available")).append('\n');
+            builder.append("Reason       ").append(openXr.optString("reason", "")).append('\n');
+        }
+
+        JSONArray correlations = clock.optJSONArray("correlations");
+        if (correlations != null && correlations.length() > 0) {
+            builder.append('\n');
+            builder.append("CORRELATIONS\n");
+            for (int i = 0; i < correlations.length(); i++) {
+                JSONObject correlation = correlations.optJSONObject(i);
+                if (correlation == null) {
+                    continue;
+                }
+                builder.append("- ").append(correlation.optString("correlation_id", "unknown")).append('\n');
+                builder.append("  ")
+                    .append(correlation.optString("source_domain", ""))
+                    .append(" -> ")
+                    .append(correlation.optString("target_domain", ""))
+                    .append(" quality=")
+                    .append(correlation.optString("quality", ""))
+                    .append(" samples=")
+                    .append(correlation.optInt("sample_count", 0))
+                    .append('\n');
+                builder.append("  offset_ns=").append(correlation.optLong("offset_ns", 0L))
+                    .append(" uncertainty_ns=")
+                    .append(correlation.optLong("uncertainty_ns", 0L))
+                    .append('\n');
+            }
+        }
+
+        JSONArray domains = clock.optJSONArray("domains");
+        if (domains != null && domains.length() > 0) {
+            builder.append('\n');
+            builder.append("DOMAINS\n");
+            for (int i = 0; i < domains.length(); i++) {
+                JSONObject domain = domains.optJSONObject(i);
+                if (domain == null) {
+                    continue;
+                }
+                builder.append(domain.optBoolean("available") ? "[available] " : "[offline]   ");
+                builder.append(domain.optString("id", "unknown")).append(" - ")
+                    .append(domain.optString("role", "")).append('\n');
+            }
+        }
+
+        builder.append('\n');
+        builder.append("HTTP\n");
+        builder.append("GET /clock/status\n");
+        builder.append("GET /clock/now\n");
+        builder.append("GET /clock/domains\n");
+        builder.append("GET /clock/correlations\n");
+        builder.append("GET /clock/compare/openxr\n");
+        builder.append("GET /clock/health\n");
         return builder.toString();
     }
 
@@ -2051,6 +2142,8 @@ public final class MainActivity extends Activity {
         builder.append("DIAGNOSTICS\n\n");
         builder.append("Logcat tag    ").append(BrokerService.TAG).append('\n');
         builder.append("HTTP status   http://127.0.0.1:8765/status\n");
+        builder.append("Clock now     http://127.0.0.1:8765/clock/now\n");
+        builder.append("Clock health  http://127.0.0.1:8765/clock/health\n");
         builder.append("WebSocket     ws://127.0.0.1:8765/rustyxr/v1/events\n\n");
 
         JSONObject client = status.optJSONObject("client");
@@ -2202,6 +2295,10 @@ public final class MainActivity extends Activity {
         long minutes = seconds / 60L;
         long remainingSeconds = seconds % 60L;
         return minutes + "m " + remainingSeconds + "s";
+    }
+
+    private String formatNsAsMs(long nanos) {
+        return String.format(Locale.ROOT, "%.3f ms", nanos / 1_000_000.0d);
     }
 
     private static String safeJson(String value) {

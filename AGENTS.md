@@ -101,6 +101,19 @@ The companion-managed tooling cache covers `adb`, `hzdb`, and `scrcpy`.
 Rust/Cargo, Android SDK/NDK/JDK, OpenXR loader binaries, and signing material
 remain explicit local build inputs.
 
+## Local Quest Baseline
+
+For local headset validation, prefer a broker/developer-home operator baseline
+when it is available. The public source name for this kind of surface is Rusty
+Kiosk: a normal broker/developer home used to launch targets, inspect status,
+record clock evidence, and recover focus during development.
+
+This is a workflow baseline, not a platform claim. Do not describe it as a
+system Home replacement, Home/Menu interceptor, arbitrary Android app window
+manager, or managed-device kiosk. If a test needs raw Horizon OS behavior,
+first-run prompts, Store/SideQuest behavior, or managed-device policy, state
+that the broker/developer-home baseline was intentionally skipped.
+
 ## Validation
 
 Run the relevant subset for the change:

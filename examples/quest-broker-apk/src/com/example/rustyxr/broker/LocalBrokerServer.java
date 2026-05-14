@@ -156,8 +156,12 @@ final class LocalBrokerServer implements Closeable {
                     event.put("stream", stream);
                     event.put("subscription_id", client.subscriptionIdFor(stream));
                     event.put("sequence_id", sequenceId);
-                    event.put("broker_time_unix_ns", receiveUnixNs);
-                    event.put("broker_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+                    JSONObject clockStamp = state.clockStampJson();
+                    event.put("broker_time_unix_ns", clockStamp.optLong("event_unix_ns", receiveUnixNs));
+                    event.put(
+                        "broker_time_elapsed_ns",
+                        clockStamp.optLong("event_elapsed_realtime_ns", SystemClock.elapsedRealtimeNanos()));
+                    event.put("clock_stamp", clockStamp);
                     event.put("payload", payload);
                     if (!client.sendText(event.toString())) {
                         websocketClients.remove(client);
@@ -207,14 +211,54 @@ final class LocalBrokerServer implements Closeable {
             String[] requestParts = requestLine.split(" ");
             String method = requestParts.length > 0 ? requestParts[0] : "";
             String path = requestParts.length > 1 ? requestParts[1] : "/";
+            String endpointPath = path;
+            int queryIndex = endpointPath.indexOf('?');
+            if (queryIndex >= 0) {
+                endpointPath = endpointPath.substring(0, queryIndex);
+            }
 
-            if ("GET".equals(method) && "/status".equals(path)) {
+            if ("GET".equals(method) && "/status".equals(endpointPath)) {
                 state.httpStatusRequests.incrementAndGet();
                 writeJsonResponse(output, 200, statusForConnection(null).toString());
                 return;
             }
 
-            if ("GET".equals(method) && "/rustyxr/v1/events".equals(path) && wantsWebSocket(headers)) {
+            if ("GET".equals(method) && "/clock/status".equals(endpointPath)) {
+                writeJsonResponse(output, 200, state.clockStatusJson().toString());
+                return;
+            }
+
+            if ("GET".equals(method) && "/clock/now".equals(endpointPath)) {
+                writeJsonResponse(output, 200, state.clockSnapshotJson().toString());
+                return;
+            }
+
+            if ("GET".equals(method) && "/clock/domains".equals(endpointPath)) {
+                writeJsonResponse(output, 200, state.clockDomainsJson().toString());
+                return;
+            }
+
+            if ("GET".equals(method) && "/clock/correlations".equals(endpointPath)) {
+                writeJsonResponse(output, 200, state.clockCorrelationsJson().toString());
+                return;
+            }
+
+            if ("GET".equals(method) && "/clock/health".equals(endpointPath)) {
+                writeJsonResponse(output, 200, state.clockHealthJson().toString());
+                return;
+            }
+
+            if ("GET".equals(method) && "/clock/compare/openxr".equals(endpointPath)) {
+                writeJsonResponse(output, 200, state.clockOpenXrComparisonJson().toString());
+                return;
+            }
+
+            if ("GET".equals(method) && "/clock/sync_probe".equals(endpointPath)) {
+                writeJsonResponse(output, 200, state.clockSyncProbeJson(new JSONObject()).toString());
+                return;
+            }
+
+            if ("GET".equals(method) && "/rustyxr/v1/events".equals(endpointPath) && wantsWebSocket(headers)) {
                 handleWebSocket(headers, input, output);
                 return;
             }
@@ -354,6 +398,55 @@ final class LocalBrokerServer implements Closeable {
             return commandAck(requestId, command, true, "streams", result);
         }
 
+        if ("clock.status".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("clock", state.clockStatusJson());
+            return commandAck(requestId, command, true, "clock_status", result);
+        }
+
+        if ("clock.now".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("snapshot", state.clockSnapshotJson());
+            return commandAck(requestId, command, true, "clock_now", result);
+        }
+
+        if ("clock.domains".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("domains", state.clockDomainsJson());
+            return commandAck(requestId, command, true, "clock_domains", result);
+        }
+
+        if ("clock.correlations".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("correlations", state.clockCorrelationsJson());
+            return commandAck(requestId, command, true, "clock_correlations", result);
+        }
+
+        if ("clock.health".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("health", state.clockHealthJson());
+            return commandAck(requestId, command, true, "clock_health", result);
+        }
+
+        if ("clock.compare_openxr".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("openxr_comparison", state.clockOpenXrComparisonJson());
+            return commandAck(requestId, command, true, "clock_openxr_comparison", result);
+        }
+
+        if ("clock.sync_probe".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("probe", state.clockSyncProbeJson(message.optJSONObject("params")));
+            return commandAck(requestId, command, true, "clock_sync_probe", result);
+        }
+
         if ("subscribe".equals(command)) {
             JSONObject params = message.optJSONObject("params");
             String stream = params != null ? params.optString("stream", "") : message.optString("stream", "");
@@ -460,6 +553,10 @@ final class LocalBrokerServer implements Closeable {
 
         if ("media.set_quality_profile".equals(command)) {
             return setMediaQualityProfile(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("media.start_synthetic_h264_stream".equals(command)) {
+            return startMediaSyntheticH264Stream(requestId, command, message.optJSONObject("params"));
         }
 
         if ("media.start_h264_tcp_proxy".equals(command)) {
@@ -898,6 +995,45 @@ final class LocalBrokerServer implements Closeable {
             true,
             control.optBoolean("applied", false) ? "media_quality_profile_applied" : "media_quality_profile_not_applied",
             result);
+    }
+
+    private JSONObject startMediaSyntheticH264Stream(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject start;
+        try {
+            start = BrokerAppCameraH264StreamSession.startSynthetic(
+                context,
+                params,
+                new BrokerAppCameraH264StreamSession.Sink() {
+                    @Override
+                    public void registerManifest(JSONObject manifest) throws Exception {
+                        recordAppCameraLumaManifest(manifest);
+                    }
+
+                    @Override
+                    public void recordSample(JSONObject sample) throws Exception {
+                        recordAppCameraLumaSample(sample);
+                    }
+
+                    @Override
+                    public void recordMetric(JSONObject metric) throws Exception {
+                        recordAppCameraLumaMetric(metric);
+                    }
+                });
+        } catch (IllegalArgumentException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "invalid_synthetic_h264_stream_params", safeMessage(ex));
+        } catch (SecurityException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "synthetic_h264_stream_not_allowed", safeMessage(ex));
+        }
+
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("stream_start", start);
+        return commandAck(requestId, command, true, "media_synthetic_h264_stream_started", result);
     }
 
     private JSONObject startMediaH264TcpProxy(
@@ -1530,11 +1666,13 @@ final class LocalBrokerServer implements Closeable {
         long sequence,
         JSONObject payload,
         String publisherClientId) throws Exception {
-        long receiveUnixNs = unixNowNs();
-        long receiveElapsedNs = SystemClock.elapsedRealtimeNanos();
+        JSONObject receiveStamp = state.clockStampJson("RelayReceive", SystemClock.elapsedRealtimeNanos(), "");
+        long receiveUnixNs = receiveStamp.optLong("event_unix_ns", unixNowNs());
+        long receiveElapsedNs = receiveStamp.optLong("event_elapsed_realtime_ns", SystemClock.elapsedRealtimeNanos());
         payload.put("publisher_client_id", publisherClientId != null ? publisherClientId : "");
         payload.put("broker_receive_time_unix_ns", receiveUnixNs);
         payload.put("broker_receive_time_elapsed_ns", receiveElapsedNs);
+        payload.put("clock_stamp", receiveStamp);
         int broadcasts = broadcastStreamEvent(stream, sequence, receiveUnixNs, payload);
         JSONObject breathProcessing = state.processBreathAssessmentStreamEvent(
             stream,
@@ -1856,8 +1994,9 @@ final class LocalBrokerServer implements Closeable {
     }
 
     private JSONObject acceptLatencySample(JSONObject message, String originalText) throws Exception {
-        long receiveUnixNs = unixNowNs();
-        long receiveElapsedNs = SystemClock.elapsedRealtimeNanos();
+        JSONObject receiveStamp = state.clockStampJson("RelayReceive", SystemClock.elapsedRealtimeNanos(), "");
+        long receiveUnixNs = receiveStamp.optLong("event_unix_ns", unixNowNs());
+        long receiveElapsedNs = receiveStamp.optLong("event_elapsed_realtime_ns", SystemClock.elapsedRealtimeNanos());
         long sequence = message.optLong("sequence_id", -1L);
         String path = message.optString("path", "broker_lsl");
         if (path.length() == 0) {
@@ -1868,6 +2007,7 @@ final class LocalBrokerServer implements Closeable {
         message.put("path", path);
         message.put("broker_receive_time_unix_ns", receiveUnixNs);
         message.put("broker_receive_time_elapsed_ns", receiveElapsedNs);
+        message.put("clock_stamp", receiveStamp);
         if (!message.has("payload_size_bytes")) {
             message.put("payload_size_bytes", originalText.getBytes(StandardCharsets.UTF_8).length);
         }
@@ -1900,6 +2040,7 @@ final class LocalBrokerServer implements Closeable {
         ack.put("accepted_count", accepted);
         ack.put("broker_receive_time_unix_ns", receiveUnixNs);
         ack.put("broker_publish_time_unix_ns", publishUnixNs);
+        ack.put("clock_stamp", receiveStamp);
         ack.put("lsl_forwarded", publisher != null && publisher.isLslAvailable());
         ack.put("osc_forwarded", publisher != null && publisher.isOscAvailable());
         ack.put("fallback_transport", publisher != null ? publisher.mode() : "none");

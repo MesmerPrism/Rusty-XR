@@ -131,6 +131,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final int DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS = 5000;
     private static final String DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE = "surface-texture";
     private static final String DEFAULT_BROKER_H264_SOURCE_MODE = "broker-camera";
+    private static final String DEFAULT_BROKER_H264_SYNTHETIC_PATTERN = "diagnostic-grid";
     private static final boolean DEFAULT_BROKER_H264_LIVE_DECODE = true;
     private static final boolean DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE = false;
     private static final String DEFAULT_BROKER_H264_STEREO_PAIRING_MODE = "timestamp-nearest";
@@ -733,6 +734,7 @@ public final class CompositeLayerActivity extends NativeActivity {
             brokerStereo,
             brokerLiveStream,
             stringExtra("rustyxr.brokerH264SourceMode", DEFAULT_BROKER_H264_SOURCE_MODE),
+            stringExtra("rustyxr.brokerH264SyntheticPattern", DEFAULT_BROKER_H264_SYNTHETIC_PATTERN),
             booleanExtra("rustyxr.brokerH264LiveDecode", DEFAULT_BROKER_H264_LIVE_DECODE),
             booleanExtra("rustyxr.brokerH264ByteIdentityProbe", DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE),
             stringExtra("rustyxr.brokerH264StereoPairingMode", DEFAULT_BROKER_H264_STEREO_PAIRING_MODE),

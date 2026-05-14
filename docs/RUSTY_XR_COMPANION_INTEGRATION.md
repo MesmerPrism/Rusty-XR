@@ -42,6 +42,12 @@ foreground OpenXR app, while Companion and shell helpers can launch, forward,
 log, and collect diagnostics. See
 [Quest Tracking Access Boundary](QUEST_TRACKING_ACCESS_BOUNDARY.md).
 
+Developer-home menu contracts provide a companion-friendly metadata layer for
+that split: home panels, launcher entries, settings shortcuts, helper state,
+supervisor policy, and focus-recovery events. They are public data contracts,
+not an implementation of ADB helper lifecycle or kiosk policy. See
+[Quest Developer Home Menu Contracts](QUEST_DEVELOPER_HOME_MENU.md).
+
 ## Shared Catalog Shape
 
 The current shared connection point is `quest-app-catalog.schema.json`.

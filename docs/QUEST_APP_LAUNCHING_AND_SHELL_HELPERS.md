@@ -147,6 +147,32 @@ visible launcher/leanback activities, and launches selected entries through
 `PackageManager`/Activity intents. It intentionally does not install,
 force-stop, or shell-launch packages.
 
+Rusty XR also exposes developer-home menu contracts for this split:
+`HomePanelDescriptor`, `LauncherEntry`, `SettingsShortcutDescriptor`,
+`HomeSessionState`, and `FocusRecoveryEvent`. Those contracts let a broker,
+immersive home shell, or companion describe panels and recovery state without
+claiming shell privileges in normal mode. See
+[Quest Developer Home Menu Contracts](QUEST_DEVELOPER_HOME_MENU.md).
+
+## Distribution Boundary
+
+Normal launcher behavior and shell-helper behavior should also stay split at
+distribution time:
+
+- A Store-style or release-channel 2D app should remain useful without ADB,
+  use minimal permissions, avoid broad cleartext/debug manifest defaults, and
+  not present shell-helper actions as normal app capabilities.
+- SideQuest, GitHub, lab, and enterprise developer builds may document ADB
+  shell helpers, focus/proximity diagnostics, `dumpsys`, `screenrecord`, and
+  helper push/start flows because those channels expect Developer Mode and an
+  external authorized ADB host.
+- No public build should claim that a browser download or ordinary installed
+  APK can enable Developer Mode, authorize ADB, become Android `shell`, or turn
+  on Wi-Fi ADB from a locked retail headset.
+
+For the full distribution and ADB bootstrap boundary, see
+[Quest Distribution And ADB Boundary](QUEST_DISTRIBUTION_AND_ADB_BOUNDARY.md).
+
 ## References
 
 - Android `PackageManager.getLaunchIntentForPackage` and

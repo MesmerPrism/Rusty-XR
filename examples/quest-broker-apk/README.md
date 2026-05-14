@@ -8,10 +8,11 @@ diagnostic adapters. It also exposes the first camera-projection metadata
 provider shape so XR clients can discover a projection profile while keeping
 actual rendering inside the active XR app.
 
-This is not the final runtime architecture and does not own camera buffers,
-depth textures, OpenXR frame timing, MediaProjection, H.264/H.265 transport,
-or rendering. The broker reports those boundaries explicitly so clients do not
-mistake metadata support for cross-app layer injection.
+This is not the final runtime architecture and does not own production camera
+buffers, depth textures, OpenXR frame timing, MediaProjection, media session
+policy, or rendering. The broker reports those boundaries explicitly so clients
+do not mistake diagnostic transport and metadata support for cross-app layer
+injection.
 
 For the bounded app-camera H.264 side channel, the stream-start command returns
 best-effort selected Camera2 projection metadata alongside the binary endpoint
@@ -22,6 +23,7 @@ owning decode, Vulkan import, projection, and OpenXR layer submission itself.
 ## Endpoints
 
 - HTTP status: `http://127.0.0.1:8765/status`
+- Broker clock: `http://127.0.0.1:8765/clock/now`
 - WebSocket samples/events: `ws://127.0.0.1:8765/rustyxr/v1/events`
 - LSL stream when native LSL is packaged: `rusty_xr_broker_latency`
 - OSC latency egress when enabled: `/rusty-xr/broker/latency`
@@ -32,6 +34,8 @@ owning decode, Vulkan import, projection, and OpenXR layer submission itself.
 - Camera provider stream IDs: `camera_provider.status`,
   `camera_provider.projection_profile`, `camera_provider.visual_acceptance`
 - Shell helper status stream ID: `shell_helper.status`
+- Clock stream IDs: `clock:sample`, `clock:health`, `clock:correlation`,
+  `clock:openxr_frame`
 - Video-lab metric stream ID: `video_lab.metric_sample`
 - Video-lab encoded stream manifest ID: `video_lab.encoded_stream_manifest`
 - Video-lab encoded sample metadata ID: `video_lab.encoded_sample_metadata`
@@ -72,12 +76,20 @@ runtime OSC ingress configuration, generic stream publication, and console
 requests. Camera-provider metadata and shell-helper status commands are also
 available:
 
+- `clock.status`
+- `clock.now`
+- `clock.domains`
+- `clock.correlations`
+- `clock.health`
+- `clock.compare_openxr`
+- `clock.sync_probe`
 - `camera_provider.get_status`
 - `camera_provider.get_projection_profile`
 - `camera_provider.run_app_camera_probe`
 - `camera_provider.start_app_camera_luma_stream`
 - `camera_provider.start_app_camera_h264_stream`
 - `camera_provider.run_app_camera_h264_decode_probe`
+- `media.start_synthetic_h264_stream`
 - `media.start_h264_tcp_proxy`
 - `media.run_h264_tcp_proxy_probe`
 - `camera_provider.set_source_eye_mapping`
@@ -122,11 +134,22 @@ receive generic `stream_event` messages such as:
   "schema": "rusty.xr.broker.stream_event.v1",
   "stream": "osc:/rusty-xr/drive/radius",
   "sequence_id": 42,
+  "clock_stamp": {
+    "schema": "rusty.xr.clock.stamp.v1",
+    "clock_id": "broker-clock",
+    "canonical_domain": "ElapsedRealtime"
+  },
   "payload": {
     "value01": 0.75
   }
 }
 ```
+
+The broker clock uses Android elapsed realtime for canonical ordering and wall
+clock only for labels. See
+[Broker Clock And Timebase](../../docs/BROKER_CLOCK_AND_TIMEBASE.md) for the
+HTTP endpoints, WebSocket commands, stream stamp contract, sync-probe shape,
+and OpenXR comparison boundary.
 
 The legacy `osc_drive` broadcast remains in place for compatibility while
 newer clients move to explicit subscriptions. The broker acknowledges accepted
@@ -235,6 +258,20 @@ codec library and lets receivers bootstrap projected rendering from stream
 metadata instead of launch-time projection extras. XR clients can consume this
 mode with packet-arrival decode so the receiver no longer has to wait for the
 whole declared packet count before submitting decoded frames.
+For receiver and shader diagnostics that should not depend on a live camera,
+`media.start_synthetic_h264_stream` uses the same Android platform MediaCodec
+surface encoder and the same `RXYRVID1` schema-3 binary stream writer, but draws
+deterministic app-generated frames into the encoder surface. The command accepts
+the same `device_port`, `host_port`, `preferred_width`, `preferred_height`,
+`capture_ms`, `max_packets`, `bitrate_bps`, `live_stream`, `lan_stream_enabled`,
+`bind_host`, and `advertised_host` parameters as the app-camera H.264 stream.
+It also accepts `synthetic_pattern` values `diagnostic-grid`, `checkerboard`,
+`luma-ramp`, or `motion-bar`. This path requires no camera permission and is
+intended for stream framing, decoder, projection, and downstream processing
+tests before switching back to Camera2 input. Synthetic streams include
+head-anchored projection metadata with a deterministic estimated profile so
+projected receivers can render the diagnostic image through the same stereo
+projection path they use for camera-backed streams.
 For LAN experiments, non-loopback H.264 payload binds are opt-in. Passing
 `lan_stream_enabled=true` allows `camera_provider.start_app_camera_h264_stream`
 to use a non-loopback `bind_host` such as `0.0.0.0`; `advertised_host` can
@@ -287,6 +324,9 @@ that helper report its UID, version, capabilities, heartbeat, optional bounded
 codec diagnostics, shell-visible camera metadata, and Camera2 open/capture
 feasibility through `shell_helper.report_status`. The source-only helper
 example lives in `examples/quest-broker-shell-helper`.
+For Store-style versus SideQuest/GitHub/lab distribution boundaries, including
+why shell-helper UX must stay out of normal app positioning, see
+[`docs/QUEST_DISTRIBUTION_AND_ADB_BOUNDARY.md`](../../docs/QUEST_DISTRIBUTION_AND_ADB_BOUNDARY.md).
 
 The same helper can optionally run long-lived shell-side watchdogs. The
 proximity watchdog reads `dumpsys vrpowermanager` and only re-applies

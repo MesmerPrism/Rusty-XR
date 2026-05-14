@@ -153,8 +153,7 @@ Validation:
 
 ### Iteration 2: Metrics-Only Instrumentation
 
-Status: source-implemented for the public composite-layer example; headset
-validation is pending.
+Status: implemented and validated through the public projected receiver paths.
 
 Scope:
 
@@ -177,6 +176,8 @@ Implementation notes:
 - camera frame age is logged only when the OpenXR predicted-display timestamp
   and camera midpoint timestamp appear to share a plausible clock domain;
   otherwise the field is marked `unavailable`
+- validation covered direct Camera2 projection, broker H.264 projection, and
+  the single-headset laptop-relay receiver path
 
 Acceptance:
 
@@ -185,6 +186,11 @@ Acceptance:
 - headset visual acceptance remains governed by the existing projection gate
 
 ### Iteration 3: Pose-Delta Clamp
+
+Status: implemented as an opt-in profile. The host unit test proves a nonzero
+residual under deterministic motion, and headset launch evidence proves the
+profile, mode, and limits reach the device path. Stationary headset captures
+may correctly report zero residual.
 
 Scope:
 
@@ -216,6 +222,9 @@ Acceptance:
 
 ### Iteration 4: Screen-Motion Clamp
 
+Status: implemented as an opt-in profile and validated through direct and
+single-headset laptop-relay projected paths.
+
 Scope:
 
 - add runtime profile `camera-stereo-temporal-screen-clamp-fast075`
@@ -236,6 +245,10 @@ Acceptance:
 
 ### Iteration 5: Frame Adoption Smoothing
 
+Status: plumbing and scorecard fields are implemented. Stationary validation
+has not yet forced a nonzero hold event, so a deliberate motion/stress run is
+still needed before treating thresholds as tuned.
+
 Scope:
 
 - add `hold-until-smooth`, `short-crossfade`, and `velocity-aware` adoption
@@ -252,6 +265,10 @@ Acceptance:
 - max visual lag and max frame age policies bound lingering
 
 ### Iteration 6: Edge Handling And Debug Views
+
+Status: edge/invalid-UV reporting is implemented in the projected scorecards.
+Additional visual debug overlays and depth-aware edge policy remain future
+work.
 
 Scope:
 
@@ -337,10 +354,10 @@ rustyxr.cameraTemporalStereoLockstep=true
 rustyxr.cameraTemporalEdgeMode=clamp-soft
 ```
 
-These keys are not release defaults until the renderer and scorecard slices
-exist. The public `TemporalProjectionPolicy::CONSERVATIVE_SCREEN_CLAMP`
-constant records the intended first experiment without changing runtime
-behavior.
+These keys are implemented as opt-in runtime/profile controls, not release
+defaults. The public `TemporalProjectionPolicy::CONSERVATIVE_SCREEN_CLAMP`
+constant records the conservative screen-clamp experiment without changing
+baseline runtime behavior.
 
 ## Scorecard Fields
 
@@ -350,12 +367,11 @@ The critical field is:
 applied_projection_motion_px_p95
 ```
 
-Additional planned fields:
+Implemented scorecard fields:
 
 ```text
 camera_frame_age_ms_avg
 camera_frame_age_ms_p95
-depth_frame_age_ms_avg
 stereo_pair_delta_ms_avg
 target_projection_motion_px_avg
 target_projection_motion_px_p95
@@ -370,6 +386,12 @@ held_frame_duration_ms_max
 frame_crossfade_count
 invalid_uv_px_percent
 edge_fill_px_percent
+```
+
+Planned depth/space-warp fields:
+
+```text
+depth_frame_age_ms_avg
 asw_enabled_frame_count
 asw_skipped_frame_count
 motion_vector_max_px

@@ -20,7 +20,9 @@
 
 pub mod camera;
 pub mod depth;
+pub mod effect_stack;
 pub mod hand;
+pub mod home;
 pub mod interaction;
 pub mod layer;
 pub mod math;
@@ -46,9 +48,23 @@ pub use depth::{
     ConfidenceFormat, DepthConfidenceSource, DepthFormat, DepthFrameDescriptor, DepthMetricRange,
     DepthPayloadDescriptor, DepthViewDescriptor, EnvironmentDepthState,
 };
+pub use effect_stack::{
+    EffectBufferDescriptor, EffectBufferFormat, EffectDiagnosticLayer, EffectLayerComparison,
+    EffectLayerComparisonMetrics, EffectLayerMetrics, EffectPassDescriptor, EffectPassInput,
+    EffectPassInputRole, EffectPassKind, EffectStackComparisonReport, EffectStackDescriptor,
+    EFFECT_STACK_COMPARISON_REPORT_SCHEMA, EFFECT_STACK_DESCRIPTOR_SCHEMA,
+};
 pub use hand::{
     HandJointName, HandJointPose, HandJointSnapshot, HandMeshError, HandMeshSnapshot, Handedness,
     TrackingConfidence,
+};
+pub use home::{
+    ExternalLaunchState, FocusRecoveryAction, FocusRecoveryEvent, FocusRecoveryResult,
+    HomeHelperState, HomeMode, HomePanelDescriptor, HomePanelKind, HomePanelPlacement,
+    HomeSessionState, HomeSupervisorPolicy, HomeSupervisorState, LauncherEntry,
+    LauncherEntrySource, SettingsShortcutCategory, SettingsShortcutDescriptor,
+    HOME_FOCUS_RECOVERY_EVENT_SCHEMA, HOME_LAUNCHER_ENTRY_SCHEMA, HOME_PANEL_DESCRIPTOR_SCHEMA,
+    HOME_SESSION_STATE_SCHEMA, HOME_SETTINGS_SHORTCUT_SCHEMA,
 };
 pub use interaction::{
     HandInfluencePoint, HandMenuActivation, HandMenuAnchor, InteractionRay, XrCanvasHit,

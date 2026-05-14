@@ -54,7 +54,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
     private static final String DECODE_OUTPUT_SURFACE_TEXTURE = "surface-texture";
     private static final String DECODE_OUTPUT_HARDWARE_BUFFER = "hardware-buffer";
     private static final String SOURCE_MODE_BROKER_CAMERA = "broker-camera";
+    private static final String SOURCE_MODE_BROKER_SYNTHETIC = "broker-synthetic";
     private static final String SOURCE_MODE_EXISTING_STREAM = "existing-stream";
+    private static final String DEFAULT_SYNTHETIC_PATTERN = "diagnostic-grid";
     private static final String STEREO_PAIRING_TIMESTAMP_NEAREST = "timestamp-nearest";
     private static final String STEREO_PAIRING_FRAME_ORDER = "frame-order";
     private static final long STEREO_REPLAY_DELIVERY_INTERVAL_NS = 33_333_333L;
@@ -95,6 +97,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final boolean liveStream;
         final String sourceMode;
         final boolean startBrokerCameraStream;
+        final boolean startBrokerSyntheticStream;
+        final String syntheticPattern;
         final boolean liveDecode;
         final boolean byteIdentityProbe;
         final String stereoPairingMode;
@@ -126,6 +130,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             boolean stereo,
             boolean liveStream,
             String sourceMode,
+            String syntheticPattern,
             boolean liveDecode,
             boolean byteIdentityProbe,
             String stereoPairingMode,
@@ -157,6 +162,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
             this.liveStream = liveStream;
             this.sourceMode = normalizeSourceMode(sourceMode);
             this.startBrokerCameraStream = SOURCE_MODE_BROKER_CAMERA.equals(this.sourceMode);
+            this.startBrokerSyntheticStream = SOURCE_MODE_BROKER_SYNTHETIC.equals(this.sourceMode);
+            this.syntheticPattern = normalizeSyntheticPattern(syntheticPattern);
             this.liveDecode = liveDecode;
             this.byteIdentityProbe = byteIdentityProbe;
             this.stereoPairingMode = normalizeStereoPairingMode(stereoPairingMode);
@@ -262,7 +269,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 config.liveStream,
                 config.liveDecode,
                 config.sourceMode,
-                config.startBrokerCameraStream,
+                config.startBrokerCameraStream || config.startBrokerSyntheticStream,
                 config.captureMs,
                 config.maxPackets,
                 config.streamTimeoutMs,
@@ -293,6 +300,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("live_stream_requested", config.liveStream);
             report.put("source_mode", config.sourceMode);
             report.put("broker_camera_stream_start_requested", config.startBrokerCameraStream);
+            report.put("broker_synthetic_stream_start_requested", config.startBrokerSyntheticStream);
+            report.put("synthetic_pattern", config.syntheticPattern);
             report.put("decode_output_mode", config.decodeOutputMode);
             report.put("live_decode_requested", config.liveDecode);
             report.put("byte_identity_probe_requested", config.byteIdentityProbe);
@@ -654,9 +663,12 @@ final class BrokerH264ConsumerProbe implements Runnable {
             label,
             cameraId,
             streamPort,
-            config.startBrokerCameraStream,
+            config.startBrokerCameraStream || config.startBrokerSyntheticStream,
             config.sourceMode));
         if (config.startBrokerCameraStream) {
+            return sendStartCommand(label, cameraId, streamPort);
+        }
+        if (config.startBrokerSyntheticStream) {
             return sendStartCommand(label, cameraId, streamPort);
         }
 
@@ -1017,12 +1029,20 @@ final class BrokerH264ConsumerProbe implements Runnable {
         if (cameraId != null && cameraId.length() > 0) {
             params.put("camera_id", cameraId);
         }
+        if (config.startBrokerSyntheticStream) {
+            params.put("source_mode", "synthetic_surface");
+            params.put("synthetic_pattern", config.syntheticPattern);
+        }
 
         JSONObject command = new JSONObject();
         command.put("type", "command");
         command.put("schema", "rusty.xr.broker.command.v1");
         command.put("request_id", "composite-h264-consumer-" + label + "-" + System.currentTimeMillis());
-        command.put("command", "camera_provider.start_app_camera_h264_stream");
+        command.put(
+            "command",
+            config.startBrokerSyntheticStream
+                ? "media.start_synthetic_h264_stream"
+                : "camera_provider.start_app_camera_h264_stream");
         command.put("client_id", "rusty-xr-composite-h264-consumer-" + label);
         command.put("app_label", "Rusty XR Composite Layer APK");
         command.put("app_version", "source-example");
@@ -1324,7 +1344,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
 
     private boolean shouldPaceStereoDelivery() {
         return SOURCE_MODE_EXISTING_STREAM.equals(config.sourceMode) ||
-            (SOURCE_MODE_BROKER_CAMERA.equals(config.sourceMode) && config.liveStream);
+            ((SOURCE_MODE_BROKER_CAMERA.equals(config.sourceMode) ||
+                SOURCE_MODE_BROKER_SYNTHETIC.equals(config.sourceMode)) &&
+                config.liveStream);
     }
 
     private static StereoPairResult deliverStereoPairs(
@@ -2470,7 +2492,31 @@ final class BrokerH264ConsumerProbe implements Runnable {
             "incoming-stream".equals(normalized)) {
             return SOURCE_MODE_EXISTING_STREAM;
         }
+        if ("synthetic".equals(normalized) ||
+            "broker-synthetic".equals(normalized) ||
+            "synthetic-stream".equals(normalized) ||
+            "diagnostic".equals(normalized) ||
+            "diagnostic-stream".equals(normalized)) {
+            return SOURCE_MODE_BROKER_SYNTHETIC;
+        }
         return SOURCE_MODE_BROKER_CAMERA;
+    }
+
+    private static String normalizeSyntheticPattern(String value) {
+        if (value == null || value.trim().length() == 0) {
+            return DEFAULT_SYNTHETIC_PATTERN;
+        }
+        String normalized = value.trim().toLowerCase(Locale.US).replace('_', '-');
+        if ("checker".equals(normalized) || "checkerboard".equals(normalized)) {
+            return "checkerboard";
+        }
+        if ("ramp".equals(normalized) || "luma".equals(normalized) || "luma-ramp".equals(normalized)) {
+            return "luma-ramp";
+        }
+        if ("motion".equals(normalized) || "motion-bar".equals(normalized)) {
+            return "motion-bar";
+        }
+        return DEFAULT_SYNTHETIC_PATTERN;
     }
 
     private static String normalizeStereoPairingMode(String value) {

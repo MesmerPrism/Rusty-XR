@@ -63,10 +63,10 @@
             <tr><th>Area</th><th>Public Surface</th><th>Status</th></tr>
           </thead>
           <tbody>
-            <tr><td>Core contracts</td><td>Math, pose, timing, views, camera/depth metadata, hands, render payloads, plain layers, native passthrough style descriptors, safety-gated visual strobe descriptors, counters, interaction rays, room mesh state, capture lifecycle metadata, and depth query summaries.</td><td>In progress</td></tr>
+            <tr><td>Core contracts</td><td>Math, pose, timing, views, camera/depth metadata, hands, home/menu panels, render payloads, plain layers, effect-stack diagnostics, native passthrough style descriptors, safety-gated visual strobe descriptors, counters, interaction rays, room mesh state, capture lifecycle metadata, and depth query summaries.</td><td>In progress</td></tr>
             <tr><td>Runtime config</td><td>Generic runtime keys, typed values, config maps, Android property naming helpers.</td><td>In progress</td></tr>
             <tr><td>BLE / LSL / OSC / Polar</td><td>BLE permission and GATT models, LSL stream schemas, OSC packet and UDP helpers, Polar H10 HR/RR/ECG/ACC helpers.</td><td>In progress</td></tr>
-            <tr><td>Broker model</td><td>Command envelopes, acknowledgements, client hello, stream manifests, sample headers, session manifests, transport endpoints, timing stamps, heartbeat state, drop counters, replay records, and synthetic stream samples.</td><td>In progress</td></tr>
+            <tr><td>Broker model</td><td>Command envelopes, acknowledgements, client hello, stream manifests, sample headers, session manifests, transport endpoints, timing stamps, broker-clock snapshots/stamps/correlations, heartbeat state, drop counters, replay records, and synthetic stream samples.</td><td>In progress</td></tr>
             <tr><td>Eye model</td><td>Screen-space gaze points, XR gaze rays, AOI hits, derived processor events, validity flags, provenance, and deterministic synthetic eye samples.</td><td>In progress</td></tr>
             <tr><td>Debug canvas</td><td>Normalized diagnostic HUD documents, draw lists, text runs, tones, and input-neutral HUD commands.</td><td>In progress</td></tr>
             <tr><td>Quest diagnostics</td><td>Device readiness, package launch state, frame-rate summaries, runtime counters.</td><td>In progress</td></tr>
@@ -187,6 +187,22 @@
         <a class="card" href="QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md">
           <h3>Launchers</h3>
           <p>Normal headset app launching, package visibility, and the boundary for ADB-launched shell helpers.</p>
+        </a>
+        <a class="card" href="QUEST_DEVELOPER_HOME_MENU.md">
+          <h3>Rusty Kiosk</h3>
+          <p>Data-only contracts for developer-home panels, launcher entries, settings shortcuts, helper state, and focus recovery.</p>
+        </a>
+        <a class="card" href="BROKER_CLOCK_AND_TIMEBASE.md">
+          <h3>Broker Clock</h3>
+          <p>Broker-owned elapsed-realtime clock, query API, stream stamps, sync probes, and OpenXR comparison boundary.</p>
+        </a>
+        <a class="card" href="EFFECT_STACK_DIAGNOSTICS.md">
+          <h3>Effect Diagnostics</h3>
+          <p>Data-only pass graphs, diagnostic layer taps, and scalar comparison reports for app-owned visual pipelines.</p>
+        </a>
+        <a class="card" href="QUEST_DISTRIBUTION_AND_ADB_BOUNDARY.md">
+          <h3>Distribution And ADB</h3>
+          <p>Split Store-style apps, developer builds, external ADB hosts, Wi-Fi ADB, and shell-helper positioning.</p>
         </a>
         <a class="card" href="QUEST_TRACKING_ACCESS_BOUNDARY.md">
           <h3>Tracking Access</h3>

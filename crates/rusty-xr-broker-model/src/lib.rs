@@ -3,8 +3,9 @@
 //! This crate contains pure data models for broker control envelopes, stream
 //! manifests, sample headers, timing stamps, drop counters, diagnostic binary
 //! video headers, camera/source capabilities, H.264 stream invariants, and
-//! negotiated transport lanes. It does not open sockets, depend on Android, or
-//! implement a Unity, Makepad, OpenXR, LSL, OSC, or video backend.
+//! negotiated transport lanes. It also models broker-owned clock snapshots,
+//! stamps, health, and correlation reports. It does not open sockets, depend on
+//! Android, or implement a Unity, Makepad, OpenXR, LSL, OSC, or video backend.
 //!
 //! Enable the `serde` feature when these public contracts need to cross
 //! process boundaries.
@@ -55,6 +56,21 @@ pub const BROKER_STREAM_SAMPLE_HEADER_SCHEMA: &str = "rusty.xr.broker.stream_sam
 
 /// Versioned JSON schema id for broker status snapshots.
 pub const BROKER_STATUS_SCHEMA: &str = "rusty.xr.broker.status.v1";
+
+/// Versioned JSON schema id for broker clock snapshots.
+pub const BROKER_CLOCK_SNAPSHOT_SCHEMA: &str = "rusty.xr.clock.snapshot.v1";
+
+/// Versioned JSON schema id for broker clock stamps on stored records.
+pub const BROKER_CLOCK_STAMP_SCHEMA: &str = "rusty.xr.clock.stamp.v1";
+
+/// Versioned JSON schema id for clock-domain correlation windows.
+pub const BROKER_CLOCK_CORRELATION_SCHEMA: &str = "rusty.xr.clock.correlation.v1";
+
+/// Versioned JSON schema id for broker clock health snapshots.
+pub const BROKER_CLOCK_HEALTH_SCHEMA: &str = "rusty.xr.clock.health.v1";
+
+/// Versioned JSON schema id for NTP-style clock sync probes.
+pub const BROKER_CLOCK_SYNC_PROBE_SCHEMA: &str = "rusty.xr.clock.sync_probe.v1";
 
 /// Versioned JSON schema id for broker transport session offers.
 pub const BROKER_TRANSPORT_SESSION_OFFER_SCHEMA: &str =
@@ -268,6 +284,41 @@ pub enum BrokerTimestampDomain {
     Unix,
     OpenXrPredictedDisplay,
     RelayReceive,
+    Unknown,
+}
+
+/// Health state reported by a broker-owned clock service.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BrokerClockHealthState {
+    #[default]
+    Healthy,
+    Degraded,
+    Unavailable,
+}
+
+/// Quality level for a clock-domain correlation estimate.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BrokerClockCorrelationQuality {
+    High,
+    Medium,
+    Low,
+    #[default]
+    Unavailable,
+}
+
+/// Reason the clock service marked a correlation window discontinuous.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BrokerClockDiscontinuityReason {
+    #[default]
+    None,
+    ServiceRestart,
+    WallClockJump,
+    SleepResume,
+    RuntimeLoss,
+    SampleGap,
     Unknown,
 }
 
@@ -2184,6 +2235,390 @@ impl BrokerTimingStamp {
     }
 }
 
+/// Current reading from the broker-owned clock service.
+///
+/// The canonical domain should be monotonic for storage and ordering. Unix time
+/// is included for export labels and may move if wall-clock sync changes.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerClockSnapshot {
+    pub schema: String,
+    pub clock_id: String,
+    pub clock_epoch_id: String,
+    pub sequence_number: u64,
+    pub canonical_domain: BrokerTimestampDomain,
+    pub android_elapsed_realtime_ns: u64,
+    pub android_realtime_unix_ns: Option<u64>,
+    pub read_uncertainty_ns: u64,
+    pub wall_clock_adjustment_counter: u64,
+    pub health: BrokerClockHealthState,
+}
+
+impl BrokerClockSnapshot {
+    pub fn new(
+        clock_id: impl Into<String>,
+        clock_epoch_id: impl Into<String>,
+        sequence_number: u64,
+        android_elapsed_realtime_ns: u64,
+    ) -> Self {
+        Self {
+            schema: BROKER_CLOCK_SNAPSHOT_SCHEMA.to_string(),
+            clock_id: clock_id.into(),
+            clock_epoch_id: clock_epoch_id.into(),
+            sequence_number,
+            canonical_domain: BrokerTimestampDomain::ElapsedRealtime,
+            android_elapsed_realtime_ns,
+            android_realtime_unix_ns: None,
+            read_uncertainty_ns: 0,
+            wall_clock_adjustment_counter: 0,
+            health: BrokerClockHealthState::Healthy,
+        }
+    }
+
+    pub const fn with_unix_ns(mut self, unix_ns: u64) -> Self {
+        self.android_realtime_unix_ns = Some(unix_ns);
+        self
+    }
+
+    pub const fn with_read_uncertainty_ns(mut self, read_uncertainty_ns: u64) -> Self {
+        self.read_uncertainty_ns = read_uncertainty_ns;
+        self
+    }
+
+    pub const fn with_wall_clock_adjustment_counter(mut self, counter: u64) -> Self {
+        self.wall_clock_adjustment_counter = counter;
+        self
+    }
+
+    pub const fn with_health(mut self, health: BrokerClockHealthState) -> Self {
+        self.health = health;
+        self
+    }
+
+    pub fn as_stamp(&self) -> BrokerClockStamp {
+        let mut stamp = BrokerClockStamp::new(
+            self.clock_id.clone(),
+            self.clock_epoch_id.clone(),
+            self.android_elapsed_realtime_ns,
+            self.sequence_number,
+        )
+        .with_uncertainty_ns(self.read_uncertainty_ns);
+        if let Some(unix_ns) = self.android_realtime_unix_ns {
+            stamp = stamp.with_event_unix_ns(unix_ns);
+        }
+        stamp
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == BROKER_CLOCK_SNAPSHOT_SCHEMA
+            && non_empty_string(&self.clock_id)
+            && non_empty_string(&self.clock_epoch_id)
+            && matches!(
+                self.canonical_domain,
+                BrokerTimestampDomain::ElapsedRealtime
+            )
+    }
+}
+
+/// Durable stamp attached to a broker record, stream sample, or marker.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerClockStamp {
+    pub schema: String,
+    pub clock_id: String,
+    pub clock_epoch_id: String,
+    pub canonical_domain: BrokerTimestampDomain,
+    pub event_elapsed_realtime_ns: u64,
+    pub event_unix_ns: Option<u64>,
+    pub source_domain: Option<BrokerTimestampDomain>,
+    pub source_time_ns: Option<u64>,
+    pub correlation_id: Option<String>,
+    pub uncertainty_ns: u64,
+    pub sequence_number: u64,
+}
+
+impl BrokerClockStamp {
+    pub fn new(
+        clock_id: impl Into<String>,
+        clock_epoch_id: impl Into<String>,
+        event_elapsed_realtime_ns: u64,
+        sequence_number: u64,
+    ) -> Self {
+        Self {
+            schema: BROKER_CLOCK_STAMP_SCHEMA.to_string(),
+            clock_id: clock_id.into(),
+            clock_epoch_id: clock_epoch_id.into(),
+            canonical_domain: BrokerTimestampDomain::ElapsedRealtime,
+            event_elapsed_realtime_ns,
+            event_unix_ns: None,
+            source_domain: None,
+            source_time_ns: None,
+            correlation_id: None,
+            uncertainty_ns: 0,
+            sequence_number,
+        }
+    }
+
+    pub const fn with_event_unix_ns(mut self, event_unix_ns: u64) -> Self {
+        self.event_unix_ns = Some(event_unix_ns);
+        self
+    }
+
+    pub const fn with_source_time(
+        mut self,
+        source_domain: BrokerTimestampDomain,
+        source_time_ns: u64,
+    ) -> Self {
+        self.source_domain = Some(source_domain);
+        self.source_time_ns = Some(source_time_ns);
+        self
+    }
+
+    pub fn with_correlation_id(mut self, correlation_id: impl Into<String>) -> Self {
+        self.correlation_id = Some(correlation_id.into());
+        self
+    }
+
+    pub const fn with_uncertainty_ns(mut self, uncertainty_ns: u64) -> Self {
+        self.uncertainty_ns = uncertainty_ns;
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == BROKER_CLOCK_STAMP_SCHEMA
+            && non_empty_string(&self.clock_id)
+            && non_empty_string(&self.clock_epoch_id)
+            && matches!(
+                self.canonical_domain,
+                BrokerTimestampDomain::ElapsedRealtime
+            )
+            && self
+                .source_domain
+                .zip(self.source_time_ns)
+                .map(|(domain, _)| !matches!(domain, BrokerTimestampDomain::Unknown))
+                .unwrap_or(self.source_domain.is_none() && self.source_time_ns.is_none())
+            && self
+                .correlation_id
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+    }
+}
+
+/// Affine estimate from one timestamp domain into another.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrokerClockCorrelation {
+    pub schema: String,
+    pub correlation_id: String,
+    pub source_domain: BrokerTimestampDomain,
+    pub target_domain: BrokerTimestampDomain,
+    pub sample_count: u32,
+    pub window_start_elapsed_ns: u64,
+    pub window_end_elapsed_ns: u64,
+    pub offset_ns: i64,
+    pub drift_ppm: f32,
+    pub rms_error_ns: u64,
+    pub max_error_ns: u64,
+    pub p95_error_ns: u64,
+    pub uncertainty_ns: u64,
+    pub quality: BrokerClockCorrelationQuality,
+    pub last_discontinuity_reason: BrokerClockDiscontinuityReason,
+}
+
+impl BrokerClockCorrelation {
+    pub fn new(
+        correlation_id: impl Into<String>,
+        source_domain: BrokerTimestampDomain,
+        target_domain: BrokerTimestampDomain,
+        window_start_elapsed_ns: u64,
+        window_end_elapsed_ns: u64,
+    ) -> Self {
+        Self {
+            schema: BROKER_CLOCK_CORRELATION_SCHEMA.to_string(),
+            correlation_id: correlation_id.into(),
+            source_domain,
+            target_domain,
+            sample_count: 0,
+            window_start_elapsed_ns,
+            window_end_elapsed_ns,
+            offset_ns: 0,
+            drift_ppm: 0.0,
+            rms_error_ns: 0,
+            max_error_ns: 0,
+            p95_error_ns: 0,
+            uncertainty_ns: 0,
+            quality: BrokerClockCorrelationQuality::Unavailable,
+            last_discontinuity_reason: BrokerClockDiscontinuityReason::None,
+        }
+    }
+
+    pub const fn with_sample_count(mut self, sample_count: u32) -> Self {
+        self.sample_count = sample_count;
+        self
+    }
+
+    pub const fn with_offset_ns(mut self, offset_ns: i64) -> Self {
+        self.offset_ns = offset_ns;
+        self
+    }
+
+    pub const fn with_drift_ppm(mut self, drift_ppm: f32) -> Self {
+        self.drift_ppm = drift_ppm;
+        self
+    }
+
+    pub const fn with_error_stats(
+        mut self,
+        rms_error_ns: u64,
+        max_error_ns: u64,
+        p95_error_ns: u64,
+        uncertainty_ns: u64,
+    ) -> Self {
+        self.rms_error_ns = rms_error_ns;
+        self.max_error_ns = max_error_ns;
+        self.p95_error_ns = p95_error_ns;
+        self.uncertainty_ns = uncertainty_ns;
+        self
+    }
+
+    pub const fn with_quality(mut self, quality: BrokerClockCorrelationQuality) -> Self {
+        self.quality = quality;
+        self
+    }
+
+    pub const fn with_discontinuity(mut self, reason: BrokerClockDiscontinuityReason) -> Self {
+        self.last_discontinuity_reason = reason;
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == BROKER_CLOCK_CORRELATION_SCHEMA
+            && non_empty_string(&self.correlation_id)
+            && !matches!(self.source_domain, BrokerTimestampDomain::Unknown)
+            && !matches!(self.target_domain, BrokerTimestampDomain::Unknown)
+            && self.source_domain != self.target_domain
+            && self.window_end_elapsed_ns >= self.window_start_elapsed_ns
+            && self.drift_ppm.is_finite()
+            && self.max_error_ns >= self.rms_error_ns
+            && self.max_error_ns >= self.p95_error_ns
+            && (!matches!(self.quality, BrokerClockCorrelationQuality::Unavailable)
+                || self.sample_count == 0)
+    }
+}
+
+/// Health summary for the broker-owned clock service.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrokerClockHealth {
+    pub schema: String,
+    pub clock_id: String,
+    pub clock_epoch_id: String,
+    pub health: BrokerClockHealthState,
+    pub wall_clock_adjustment_counter: u64,
+    pub last_snapshot: BrokerClockSnapshot,
+    pub active_correlations: Vec<BrokerClockCorrelation>,
+}
+
+impl BrokerClockHealth {
+    pub fn new(last_snapshot: BrokerClockSnapshot) -> Self {
+        Self {
+            schema: BROKER_CLOCK_HEALTH_SCHEMA.to_string(),
+            clock_id: last_snapshot.clock_id.clone(),
+            clock_epoch_id: last_snapshot.clock_epoch_id.clone(),
+            health: last_snapshot.health,
+            wall_clock_adjustment_counter: last_snapshot.wall_clock_adjustment_counter,
+            last_snapshot,
+            active_correlations: Vec::new(),
+        }
+    }
+
+    pub fn with_correlation(mut self, correlation: BrokerClockCorrelation) -> Self {
+        self.active_correlations.push(correlation);
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == BROKER_CLOCK_HEALTH_SCHEMA
+            && non_empty_string(&self.clock_id)
+            && non_empty_string(&self.clock_epoch_id)
+            && self.last_snapshot.is_valid()
+            && self
+                .active_correlations
+                .iter()
+                .all(BrokerClockCorrelation::is_valid)
+    }
+}
+
+/// Four-timestamp probe for estimating host-target clock offset.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerClockSyncProbe {
+    pub schema: String,
+    pub probe_id: String,
+    pub sequence_number: u64,
+    pub host_send_unix_ns: u64,
+    pub target_receive_elapsed_ns: u64,
+    pub target_receive_unix_ns: u64,
+    pub target_send_elapsed_ns: u64,
+    pub target_send_unix_ns: u64,
+    pub host_receive_unix_ns: Option<u64>,
+}
+
+impl BrokerClockSyncProbe {
+    pub fn new(
+        probe_id: impl Into<String>,
+        sequence_number: u64,
+        host_send_unix_ns: u64,
+        target_receive: BrokerTimingStamp,
+        target_send: BrokerTimingStamp,
+    ) -> Option<Self> {
+        Some(Self {
+            schema: BROKER_CLOCK_SYNC_PROBE_SCHEMA.to_string(),
+            probe_id: probe_id.into(),
+            sequence_number,
+            host_send_unix_ns,
+            target_receive_elapsed_ns: target_receive.elapsed_ns,
+            target_receive_unix_ns: target_receive.unix_ns?,
+            target_send_elapsed_ns: target_send.elapsed_ns,
+            target_send_unix_ns: target_send.unix_ns?,
+            host_receive_unix_ns: None,
+        })
+    }
+
+    pub const fn with_host_receive_unix_ns(mut self, host_receive_unix_ns: u64) -> Self {
+        self.host_receive_unix_ns = Some(host_receive_unix_ns);
+        self
+    }
+
+    pub fn round_trip_ns(&self) -> Option<u64> {
+        self.host_receive_unix_ns?
+            .checked_sub(self.host_send_unix_ns)?
+            .checked_sub(
+                self.target_send_unix_ns
+                    .checked_sub(self.target_receive_unix_ns)?,
+            )
+    }
+
+    pub fn target_minus_host_offset_ns(&self) -> Option<i128> {
+        let host_receive = self.host_receive_unix_ns?;
+        let outbound = self.target_receive_unix_ns as i128 - self.host_send_unix_ns as i128;
+        let inbound = self.target_send_unix_ns as i128 - host_receive as i128;
+        Some((outbound + inbound) / 2)
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == BROKER_CLOCK_SYNC_PROBE_SCHEMA
+            && non_empty_string(&self.probe_id)
+            && self.target_send_elapsed_ns >= self.target_receive_elapsed_ns
+            && self.target_send_unix_ns >= self.target_receive_unix_ns
+            && self
+                .host_receive_unix_ns
+                .map(|receive| receive >= self.host_send_unix_ns)
+                .unwrap_or(true)
+    }
+}
+
 /// Broker-visible packet and queue counters.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -3112,6 +3547,86 @@ mod tests {
         };
 
         assert!(status.is_valid());
+    }
+
+    #[test]
+    fn clock_snapshot_converts_to_storage_stamp() {
+        let snapshot = BrokerClockSnapshot::new("broker-clock", "epoch-001", 7, 1_000)
+            .with_unix_ns(2_000)
+            .with_read_uncertainty_ns(50)
+            .with_wall_clock_adjustment_counter(1);
+        let stamp = snapshot
+            .as_stamp()
+            .with_source_time(BrokerTimestampDomain::OpenXrPredictedDisplay, 900);
+
+        assert!(snapshot.is_valid());
+        assert!(stamp.is_valid());
+        assert_eq!(stamp.schema, BROKER_CLOCK_STAMP_SCHEMA);
+        assert_eq!(stamp.event_elapsed_realtime_ns, 1_000);
+        assert_eq!(stamp.event_unix_ns, Some(2_000));
+        assert_eq!(stamp.uncertainty_ns, 50);
+        assert_eq!(
+            stamp.source_domain,
+            Some(BrokerTimestampDomain::OpenXrPredictedDisplay)
+        );
+    }
+
+    #[test]
+    fn clock_correlation_requires_distinct_known_domains() {
+        let correlation = BrokerClockCorrelation::new(
+            "openxr-window-001",
+            BrokerTimestampDomain::OpenXrPredictedDisplay,
+            BrokerTimestampDomain::ElapsedRealtime,
+            1_000,
+            2_000,
+        )
+        .with_sample_count(120)
+        .with_offset_ns(-200)
+        .with_drift_ppm(0.25)
+        .with_error_stats(50, 200, 150, 250)
+        .with_quality(BrokerClockCorrelationQuality::High);
+        let invalid = BrokerClockCorrelation::new(
+            "bad",
+            BrokerTimestampDomain::ElapsedRealtime,
+            BrokerTimestampDomain::ElapsedRealtime,
+            2_000,
+            1_000,
+        );
+
+        assert!(correlation.is_valid());
+        assert!(!invalid.is_valid());
+    }
+
+    #[test]
+    fn clock_health_wraps_snapshot_and_correlations() {
+        let snapshot = BrokerClockSnapshot::new("broker-clock", "epoch-001", 1, 1_000);
+        let correlation = BrokerClockCorrelation::new(
+            "host-window-001",
+            BrokerTimestampDomain::Unix,
+            BrokerTimestampDomain::ElapsedRealtime,
+            1_000,
+            2_000,
+        )
+        .with_sample_count(16)
+        .with_quality(BrokerClockCorrelationQuality::Medium);
+        let health = BrokerClockHealth::new(snapshot).with_correlation(correlation);
+
+        assert!(health.is_valid());
+        assert_eq!(health.schema, BROKER_CLOCK_HEALTH_SCHEMA);
+        assert_eq!(health.active_correlations.len(), 1);
+    }
+
+    #[test]
+    fn clock_sync_probe_reports_ntp_style_offset() {
+        let target_receive = BrokerTimingStamp::elapsed(1_000).with_unix_ns(10_050);
+        let target_send = BrokerTimingStamp::elapsed(1_100).with_unix_ns(10_150);
+        let probe = BrokerClockSyncProbe::new("probe-001", 1, 10_000, target_receive, target_send)
+            .expect("target stamps include unix time")
+            .with_host_receive_unix_ns(10_300);
+
+        assert!(probe.is_valid());
+        assert_eq!(probe.round_trip_ns(), Some(200));
+        assert_eq!(probe.target_minus_host_offset_ns(), Some(-50));
     }
 
     #[cfg(feature = "serde")]

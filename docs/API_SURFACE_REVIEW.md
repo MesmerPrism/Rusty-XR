@@ -14,13 +14,18 @@ LSL-native adapters.
 
 - `rusty-xr-contracts`: math, pose, timing, camera/depth metadata, temporal
   camera projection policy/state/metric contracts, hands, interaction rays,
-  plain media layers, native passthrough style descriptors, safety-gated visual
-  strobe descriptors, render payloads, runtime counters, room mesh source
-  state, semantic room mesh snapshots, and capture lifecycle state.
+  developer-home panel/session/launcher/settings/recovery contracts, plain
+  media layers, effect-stack diagnostic descriptors, native passthrough style
+  descriptors, safety-gated visual strobe descriptors, render payloads,
+  runtime counters, room mesh source state, semantic room mesh snapshots, and
+  capture lifecycle state.
 - `rusty-xr-runtime-config`: generic runtime keys, values, and Android property
   naming helpers.
 - `rusty-xr-ble`, `rusty-xr-lsl`, and `rusty-xr-polar`: protocol/data models
   without native transport backends.
+- `rusty-xr-broker-model`: broker command envelopes, stream/session metadata,
+  transport-lane contracts, timing stamps, stream replay records, and
+  broker-clock snapshot/stamp/correlation/health/sync-probe models.
 - `rusty-xr-camera-model`, `rusty-xr-depth-model`, `rusty-xr-sdf`, and
   `rusty-xr-particles`: deterministic camera projection and temporal
   homography-motion helpers, dynamic mesh coordinate sampling, same-surface and
@@ -36,6 +41,12 @@ LSL-native adapters.
 - Prefer adding schemas for cross-repo metadata before adding native adapters.
 - Keep APK payloads, signing, install scripts, local captures, and package
   identity in downstream or companion repositories.
+- Keep Rusty Kiosk custom-home rendering, ADB helper lifecycle, focus recovery
+  execution, and managed kiosk policy in app shells or companion tooling.
+  Public core should only model the data contracts.
+- Keep effect-stack render passes as descriptors and comparison reports.
+  Shader implementation, concrete visual tuning, native texture ownership, and
+  generated captures stay in downstream app shells.
 - Use `quest-app-catalog.schema.json` as the shared metadata shape for public
   example APK listings when example APKs are later published.
 - Keep session-level capture/OpenXR examples public-authored and adapter-owned:

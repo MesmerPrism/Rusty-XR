@@ -78,6 +78,15 @@ are visible in the projected path. The next public milestone is one-way LAN Q2Q
 using the same stream-header metadata path, with additional motion stress tests
 used to tune the adoption thresholds.
 
+Validation status after the 2026-05-13 streaming pass:
+
+- E1 direct in-app Camera2 to the Rusty XR projected screen passed.
+- E2 on-device broker H.264 to the Rusty XR projected screen passed.
+- E3 Quest camera to laptop relay to Quest receiver to the Rusty XR projected
+  screen passed.
+- E4 one-way LAN Quest-to-Quest, E5 reverse direction, and E6 reduced-quality
+  two-way LAN are still pending a second headset on the same network.
+
 ## Target Shape
 
 The online target should remain native Quest-to-Quest streaming. Browser and

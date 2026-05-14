@@ -31,6 +31,28 @@ artifacts/sync-stimulus/<session-id>/
 Use `--no-open` when another process or browser profile should open the page.
 Use `--host 0.0.0.0` only for a deliberate LAN-visible run.
 
+## Active Screen Convention
+
+Camera-facing-screen runs on a shared lab machine should reserve the visible
+desktop foreground in that machine's local coordination system before the
+stimulus is opened. Use the resource name `screen-foreground:primary` when that
+convention is available.
+
+The browser page is the visual surface for the run. Keep it fullscreen and
+foregrounded until the active-use indicator says the run is over. The page uses
+this strict convention:
+
+- Red dot visible at the top right: the stimulus is active; do not switch
+  windows, move the browser, or cover the screen.
+- Red dot absent and status row says `SAFE` or `STOP`: the active camera-facing
+  screen interval is over and it is safe to change windows.
+- Status row includes a live frame counter, cycle counter, remaining time,
+  fullscreen state (`FS` or `NOFS`), and foreground state (`FG` or `BG`).
+
+In server-control mode, click the page once and press F11 if needed before the
+capture watcher starts the run. This gives the browser permission to enter
+fullscreen and leaves a visible `FS FG` preflight state for the operator.
+
 ## Evidence Rules
 
 - Keep generated session files and captures under ignored `artifacts/` folders.
@@ -40,3 +62,5 @@ Use `--host 0.0.0.0` only for a deliberate LAN-visible run.
   frame or compositor layer captured the same state.
 - Keep physical-screen stimulus runs separate from synthetic projection-area
   diagnostic renders; they answer different alignment questions.
+- Reject or mark any run where browser events show `NOFS` or `BG` during the
+  active interval unless the run was deliberately started with `--allow-windowed`.

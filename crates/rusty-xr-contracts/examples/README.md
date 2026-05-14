@@ -86,3 +86,36 @@ The example does not draw or flash anything. It prints descriptors only.
 Applications that actually present these stimuli must require explicit opt-in
 and should follow the warnings in
 `docs/VISUAL_STROBE_PROFILES.md`.
+
+## Developer Home Manifest
+
+`developer_home_manifest.rs` emits a synthetic public Rusty Kiosk /
+developer-home manifest: launcher, system, clock, and diagnostics panels, a
+normal launcher entry, settings shortcuts, helper state, bounded supervisor
+policy, and a focus-recovery event.
+
+Run it with:
+
+```powershell
+cargo run -p rusty-xr-contracts --example developer_home_manifest --features serde
+```
+
+The example does not build an APK, start ADB, launch another app, intercept
+system buttons, or provide kiosk lock-down. It demonstrates the contract shape
+documented in `docs/QUEST_DEVELOPER_HOME_MENU.md`.
+
+## Effect Stack Diagnostic Manifest
+
+`effect_stack_diagnostic_manifest.rs` emits a generic multi-pass visual
+pipeline descriptor and a layer comparison report for a synthetic
+color/edge-detection stack.
+
+Run it with:
+
+```powershell
+cargo run -p rusty-xr-contracts --example effect_stack_diagnostic_manifest --features serde
+```
+
+The example is data-only. It does not define shader behavior, private visual
+tuning, native texture ownership, or a renderer backend. It demonstrates the
+public diagnostic shape documented in `docs/EFFECT_STACK_DIAGNOSTICS.md`.

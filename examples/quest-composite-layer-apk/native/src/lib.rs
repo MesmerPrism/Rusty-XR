@@ -562,16 +562,11 @@ impl StereoProjectionControls {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum CameraFrameAdoptionMode {
+    #[default]
     Off,
     HoldUntilSmooth,
-}
-
-impl Default for CameraFrameAdoptionMode {
-    fn default() -> Self {
-        Self::Off
-    }
 }
 
 impl CameraFrameAdoptionMode {

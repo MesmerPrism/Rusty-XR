@@ -247,6 +247,18 @@ def schemas() -> dict[str, dict]:
             "Unknown",
         ],
     )
+    broker_clock_health_state = enum(
+        "BrokerClockHealthState",
+        ["Healthy", "Degraded", "Unavailable"],
+    )
+    broker_clock_correlation_quality = enum(
+        "BrokerClockCorrelationQuality",
+        ["High", "Medium", "Low", "Unavailable"],
+    )
+    broker_clock_discontinuity_reason = enum(
+        "BrokerClockDiscontinuityReason",
+        ["None", "ServiceRestart", "WallClockJump", "SleepResume", "RuntimeLoss", "SampleGap", "Unknown"],
+    )
     broker_camera_api_path = enum(
         "BrokerCameraApiPath",
         [
@@ -421,6 +433,83 @@ def schemas() -> dict[str, dict]:
             "stream_min_frame_duration_ns": {"type": ["integer", "null"], "minimum": 1},
             "timestamp_domain": broker_timestamp_domain,
             "selected_reason": nullable_string(),
+        },
+    )
+    broker_clock_stamp = obj(
+        "BrokerClockStamp",
+        {
+            "schema": {"const": "rusty.xr.clock.stamp.v1"},
+            "clock_id": string(),
+            "clock_epoch_id": string(),
+            "canonical_domain": broker_timestamp_domain,
+            "event_elapsed_realtime_ns": integer(0),
+            "event_unix_ns": {"type": ["integer", "null"], "minimum": 0},
+            "source_domain": {"oneOf": [broker_timestamp_domain, {"type": "null"}]},
+            "source_time_ns": {"type": ["integer", "null"], "minimum": 0},
+            "correlation_id": nullable_string(),
+            "uncertainty_ns": integer(0),
+            "sequence_number": integer(0),
+        },
+    )
+    broker_clock_snapshot = obj(
+        "BrokerClockSnapshot",
+        {
+            "schema": {"const": "rusty.xr.clock.snapshot.v1"},
+            "clock_id": string(),
+            "clock_epoch_id": string(),
+            "sequence_number": integer(0),
+            "canonical_domain": broker_timestamp_domain,
+            "android_elapsed_realtime_ns": integer(0),
+            "android_realtime_unix_ns": {"type": ["integer", "null"], "minimum": 0},
+            "read_uncertainty_ns": integer(0),
+            "wall_clock_adjustment_counter": integer(0),
+            "health": broker_clock_health_state,
+        },
+    )
+    broker_clock_correlation = obj(
+        "BrokerClockCorrelation",
+        {
+            "schema": {"const": "rusty.xr.clock.correlation.v1"},
+            "correlation_id": string(),
+            "source_domain": broker_timestamp_domain,
+            "target_domain": broker_timestamp_domain,
+            "sample_count": integer(0),
+            "window_start_elapsed_ns": integer(0),
+            "window_end_elapsed_ns": integer(0),
+            "offset_ns": {"type": "integer"},
+            "drift_ppm": number(),
+            "rms_error_ns": integer(0),
+            "max_error_ns": integer(0),
+            "p95_error_ns": integer(0),
+            "uncertainty_ns": integer(0),
+            "quality": broker_clock_correlation_quality,
+            "last_discontinuity_reason": broker_clock_discontinuity_reason,
+        },
+    )
+    broker_clock_health = obj(
+        "BrokerClockHealth",
+        {
+            "schema": {"const": "rusty.xr.clock.health.v1"},
+            "clock_id": string(),
+            "clock_epoch_id": string(),
+            "health": broker_clock_health_state,
+            "wall_clock_adjustment_counter": integer(0),
+            "last_snapshot": broker_clock_snapshot,
+            "active_correlations": array(broker_clock_correlation),
+        },
+    )
+    broker_clock_sync_probe = obj(
+        "BrokerClockSyncProbe",
+        {
+            "schema": {"const": "rusty.xr.clock.sync_probe.v1"},
+            "probe_id": string(),
+            "sequence_number": integer(0),
+            "host_send_unix_ns": integer(0),
+            "target_receive_elapsed_ns": integer(0),
+            "target_receive_unix_ns": integer(0),
+            "target_send_elapsed_ns": integer(0),
+            "target_send_unix_ns": integer(0),
+            "host_receive_unix_ns": {"type": ["integer", "null"], "minimum": 0},
         },
     )
     broker_h264_stream_invariants = obj(
@@ -619,6 +708,281 @@ def schemas() -> dict[str, dict]:
             "base": eye_sample_base,
             "duration_ns": {"type": ["integer", "null"], "minimum": 0},
             "derived_from": eye_derived_provenance,
+        },
+    )
+    home_mode = enum(
+        "HomeMode",
+        ["Normal2d", "ImmersivePassthrough", "ImmersiveVirtual", "DeveloperSupervisor", "ManagedKiosk"],
+    )
+    home_panel_kind = enum(
+        "HomePanelKind",
+        [
+            "BrokerPage",
+            "LocalApplet",
+            "WebApplet",
+            "CooperatingApp",
+            "RemoteSurface",
+            "SettingsShortcut",
+            "Diagnostic",
+        ],
+    )
+    home_panel_placement = enum(
+        "HomePanelPlacement",
+        ["Flat2d", "HeadLocked", "WorldLocked", "HandAnchored", "Desk"],
+    )
+    home_panel_descriptor = obj(
+        "HomePanelDescriptor",
+        {
+            "schema": {"const": "rusty.xr.home.panel.v1"},
+            "panel_id": string(),
+            "title": string(),
+            "kind": home_panel_kind,
+            "default_size_m": vec2(),
+            "min_size_m": vec2(),
+            "max_size_m": vec2(),
+            "placement": home_panel_placement,
+            "requires_helper": boolean(),
+            "commands": array(string()),
+        },
+    )
+    home_launcher_entry_source = enum(
+        "LauncherEntrySource",
+        ["PackageManager", "Catalog", "Manual", "HelperObserved"],
+    )
+    home_launcher_entry = obj(
+        "LauncherEntry",
+        {
+            "schema": {"const": "rusty.xr.home.launcher_entry.v1"},
+            "package_name": string(),
+            "label": string(),
+            "launch_component": nullable_string(),
+            "source": home_launcher_entry_source,
+            "requires_helper": boolean(),
+            "profile_id": nullable_string(),
+            "warnings": array(string()),
+        },
+    )
+    home_settings_shortcut_category = enum(
+        "SettingsShortcutCategory",
+        ["Network", "Bluetooth", "Display", "Apps", "Cast", "Developer", "Privacy", "Boundary", "Other"],
+    )
+    home_settings_shortcut = obj(
+        "SettingsShortcutDescriptor",
+        {
+            "schema": {"const": "rusty.xr.home.settings_shortcut.v1"},
+            "shortcut_id": string(),
+            "label": string(),
+            "android_action": string(),
+            "category": home_settings_shortcut_category,
+            "requires_confirmation": boolean(),
+            "requires_helper": boolean(),
+            "warning": nullable_string(),
+        },
+    )
+    home_helper_state = obj(
+        "HomeHelperState",
+        {
+            "connected": boolean(),
+            "uid_label": nullable_string(),
+            "capabilities": array(string()),
+            "last_heartbeat_elapsed_ns": {"type": ["integer", "null"], "minimum": 0},
+        },
+    )
+    home_supervisor_policy = enum(
+        "HomeSupervisorPolicy",
+        [
+            "Disabled",
+            "ObserveOnly",
+            "ReturnToBrokerAfterLimbo",
+            "ReturnToTargetAfterHome",
+            "GuardedDemoSession",
+            "ManagedDevicePolicy",
+        ],
+    )
+    home_supervisor_state = obj(
+        "HomeSupervisorState",
+        {
+            "enabled": boolean(),
+            "policy": home_supervisor_policy,
+            "max_attempts": integer(0),
+            "cooldown_ms": integer(0),
+            "attempt_count": integer(0),
+            "last_event_id": nullable_string(),
+        },
+    )
+    home_external_launch_state = obj(
+        "ExternalLaunchState",
+        {
+            "package_name": string(),
+            "launch_mode": string(),
+            "requested_at_unix_ms": {"type": ["integer", "null"], "minimum": 0},
+            "observed_foreground": nullable_string(),
+        },
+    )
+    home_session_state = obj(
+        "HomeSessionState",
+        {
+            "schema": {"const": "rusty.xr.home.state.v1"},
+            "mode": home_mode,
+            "active_panels": array(string()),
+            "last_external_launch": {"oneOf": [home_external_launch_state, {"type": "null"}]},
+            "helper": home_helper_state,
+            "supervisor": home_supervisor_state,
+        },
+    )
+    home_focus_recovery_action = enum(
+        "FocusRecoveryAction",
+        ["Observe", "ReturnToBroker", "ReturnToTarget", "OpenSystemPanel", "StopSupervisor"],
+    )
+    home_focus_recovery_result = enum(
+        "FocusRecoveryResult",
+        [
+            "NotAttempted",
+            "Started",
+            "Succeeded",
+            "Failed",
+            "SkippedProtectedPrompt",
+            "CooldownActive",
+            "MaxAttemptsReached",
+        ],
+    )
+    home_focus_recovery_event = obj(
+        "FocusRecoveryEvent",
+        {
+            "schema": {"const": "rusty.xr.home.focus_recovery_event.v1"},
+            "event_id": string(),
+            "policy": home_supervisor_policy,
+            "action": home_focus_recovery_action,
+            "result": home_focus_recovery_result,
+            "reason": string(),
+            "previous_foreground": nullable_string(),
+            "requested_target": nullable_string(),
+            "attempt_count": integer(0),
+            "event_time_unix_ms": {"type": ["integer", "null"], "minimum": 0},
+        },
+    )
+    effect_pass_kind = enum(
+        "EffectPassKind",
+        [
+            "Source",
+            "LumaTransform",
+            "Blur",
+            "ColorMap",
+            "EdgeDetection",
+            "ScalarMap",
+            "Displacement",
+            "Composite",
+            "DiagnosticTap",
+        ],
+    )
+    effect_pass_input_role = enum(
+        "EffectPassInputRole",
+        ["SourceColor", "SourceLuma", "Guide", "Mask", "DisplacementMap", "PreviousPass"],
+    )
+    effect_buffer_format = enum(
+        "EffectBufferFormat",
+        ["Rgba8", "Rgba16Float", "Rgba32Float", "R8", "R16Float", "R32Float", "ExternalGpu"],
+    )
+    stereo_media_layout = {
+        "oneOf": [
+            {"const": "Mono"},
+            obj("StereoMediaLayoutSideBySide", {"SideBySide": obj("SideBySideFields", {"left_first": boolean()})}),
+            obj("StereoMediaLayoutTopBottom", {"TopBottom": obj("TopBottomFields", {"left_first": boolean()})}),
+            {"const": "Separate"},
+        ]
+    }
+    effect_buffer_descriptor = obj(
+        "EffectBufferDescriptor",
+        {
+            "buffer_id": string(),
+            "size": image_size(),
+            "format": effect_buffer_format,
+            "stereo_layout": stereo_media_layout,
+            "persistent": boolean(),
+        },
+    )
+    effect_pass_input = obj(
+        "EffectPassInput",
+        {
+            "input_id": string(),
+            "role": effect_pass_input_role,
+        },
+    )
+    effect_pass_descriptor = obj(
+        "EffectPassDescriptor",
+        {
+            "pass_id": string(),
+            "kind": effect_pass_kind,
+            "inputs": array(effect_pass_input),
+            "output_buffer": nullable_string(),
+            "enabled_by_default": boolean(),
+            "offscreen": boolean(),
+            "separable": boolean(),
+            "diagnostic_label": nullable_string(),
+            "parameter_keys": array(string()),
+        },
+    )
+    effect_diagnostic_layer = obj(
+        "EffectDiagnosticLayer",
+        {
+            "layer_id": string(),
+            "label": string(),
+            "pass_id": nullable_string(),
+            "buffer_id": nullable_string(),
+            "expected_role": effect_pass_input_role,
+        },
+    )
+    effect_stack_descriptor = obj(
+        "EffectStackDescriptor",
+        {
+            "schema": {"const": "rusty.xr.effect_stack.descriptor.v1"},
+            "stack_id": string(),
+            "source_size": image_size(),
+            "source_layout": stereo_media_layout,
+            "buffers": array(effect_buffer_descriptor),
+            "passes": array(effect_pass_descriptor),
+            "diagnostic_layers": array(effect_diagnostic_layer),
+        },
+    )
+    effect_layer_metrics = obj(
+        "EffectLayerMetrics",
+        {
+            "active_pixel_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+            "luma_mean": {"type": "number", "minimum": 0, "maximum": 1},
+            "luma_std": {"type": "number", "minimum": 0},
+            "edge_energy": {"type": "number", "minimum": 0},
+            "high_frequency_energy": {"type": "number", "minimum": 0},
+        },
+    )
+    effect_layer_comparison_metrics = obj(
+        "EffectLayerComparisonMetrics",
+        {
+            "luma_rmse": {"type": "number", "minimum": 0},
+            "luma_bias": number(),
+            "luma_correlation": {"type": "number", "minimum": -1, "maximum": 1},
+            "edge_ratio_candidate_over_reference": {"type": "number", "minimum": 0},
+            "high_frequency_ratio_candidate_over_reference": {"type": "number", "minimum": 0},
+        },
+    )
+    effect_layer_comparison = obj(
+        "EffectLayerComparison",
+        {
+            "layer_id": string(),
+            "reference": {"oneOf": [effect_layer_metrics, {"type": "null"}]},
+            "candidate": {"oneOf": [effect_layer_metrics, {"type": "null"}]},
+            "pair": {"oneOf": [effect_layer_comparison_metrics, {"type": "null"}]},
+            "note": nullable_string(),
+        },
+    )
+    effect_stack_comparison_report = obj(
+        "EffectStackComparisonReport",
+        {
+            "schema": {"const": "rusty.xr.effect_stack.comparison_report.v1"},
+            "report_id": string(),
+            "stack_id": string(),
+            "reference_label": string(),
+            "candidate_label": string(),
+            "layers": array(effect_layer_comparison),
         },
     )
     return {
@@ -829,6 +1193,11 @@ def schemas() -> dict[str, dict]:
         "broker-network-quality-sample.schema.json": broker_network_quality_sample,
         "broker-packet-descriptor.schema.json": broker_packet_descriptor,
         "broker-camera-source-capabilities.schema.json": broker_camera_source_capabilities,
+        "broker-clock-snapshot.schema.json": broker_clock_snapshot,
+        "broker-clock-stamp.schema.json": broker_clock_stamp,
+        "broker-clock-correlation.schema.json": broker_clock_correlation,
+        "broker-clock-health.schema.json": broker_clock_health,
+        "broker-clock-sync-probe.schema.json": broker_clock_sync_probe,
         "broker-h264-stream-invariants.schema.json": broker_h264_stream_invariants,
         "broker-session-manifest.schema.json": obj(
             "BrokerSessionManifest",
@@ -880,6 +1249,13 @@ def schemas() -> dict[str, dict]:
         "eye-xr-gaze-ray.schema.json": eye_xr_gaze_ray,
         "eye-screen-aoi-hit.schema.json": eye_screen_aoi_hit,
         "eye-processor-event.schema.json": eye_processor_event,
+        "home-panel-descriptor.schema.json": home_panel_descriptor,
+        "home-session-state.schema.json": home_session_state,
+        "home-launcher-entry.schema.json": home_launcher_entry,
+        "home-settings-shortcut.schema.json": home_settings_shortcut,
+        "home-focus-recovery-event.schema.json": home_focus_recovery_event,
+        "effect-stack-descriptor.schema.json": effect_stack_descriptor,
+        "effect-stack-comparison-report.schema.json": effect_stack_comparison_report,
     }
 
 

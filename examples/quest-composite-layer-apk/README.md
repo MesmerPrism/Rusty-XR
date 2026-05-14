@@ -369,14 +369,18 @@ Useful launch extras:
   `rustyxr.brokerH264BitrateBps`, and
   `rustyxr.brokerH264DecodeTimeoutMs`,
   `rustyxr.brokerH264DecodeOutputMode`, `rustyxr.brokerH264SourceMode`,
-  `rustyxr.brokerH264LiveStream`, and `rustyxr.brokerH264LiveDecode`. The
-  default source mode is
+  `rustyxr.brokerH264SyntheticPattern`, `rustyxr.brokerH264LiveStream`, and
+  `rustyxr.brokerH264LiveDecode`. The default source mode is
   `broker-camera`, which asks the running broker to start an app-context
-  Camera2-to-H.264 stream. Set `rustyxr.brokerH264SourceMode=existing-stream`
-  when a broker TCP proxy, laptop test source, or other tool has already
-  exposed a `RXYRVID1` H.264 stream on the configured port. Existing-stream
-  mode skips the broker camera start command and only tests receive, decode,
-  hardware-buffer handoff, and OpenXR draw. When
+  Camera2-to-H.264 stream. Set `rustyxr.brokerH264SourceMode=broker-synthetic`
+  to request the broker's deterministic MediaCodec synthetic H.264 source
+  instead; `rustyxr.brokerH264SyntheticPattern` can be `diagnostic-grid`,
+  `checkerboard`, `luma-ramp`, or `motion-bar`. Set
+  `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
+  laptop test source, or other tool has already exposed a `RXYRVID1` H.264
+  stream on the configured port. Existing-stream mode skips the broker start
+  command and only tests receive, decode, hardware-buffer handoff, and OpenXR
+  draw. When
   `rustyxr.brokerH264LiveStream=true` and
   `rustyxr.brokerH264LiveDecode=true`, stereo hardware-buffer mode decodes
   packets as they arrive, pairs left/right decoded frames with a small queue,

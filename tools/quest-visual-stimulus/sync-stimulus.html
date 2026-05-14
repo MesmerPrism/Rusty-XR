@@ -94,6 +94,22 @@
       letter-spacing: 0;
       white-space: nowrap;
     }
+    #activeIndicator {
+      position: fixed;
+      right: 3vmin;
+      top: 3vmin;
+      width: 4vmin;
+      height: 4vmin;
+      min-width: 28px;
+      min-height: 28px;
+      border-radius: 999px;
+      background: #f00;
+      border: 0.7vmin solid #fff;
+      box-shadow: 0 0 0 0.8vmin #000, 0 0 3vmin #f00;
+      display: none;
+      z-index: 6;
+    }
+    .active-use #activeIndicator { display: block; }
     #preflight {
       position: fixed;
       inset: 0;
@@ -152,6 +168,7 @@
   <div id="c2" class="corner"></div>
   <div id="c3" class="corner"></div>
   <div id="c4" class="corner"></div>
+  <div id="activeIndicator" aria-label="active stimulus marker"></div>
   <div id="status">ARMED</div>
   <section id="preflight">
     <div id="preflightInner">
@@ -167,6 +184,7 @@
     const durationSeconds = Math.max(1, Number(params.get("duration") || "90"));
     const serverControl = params.get("control") === "server";
     const logEveryCycle = params.get("log_cycles") !== "0";
+    const requireFullscreen = params.get("require_fullscreen") !== "0";
     const stage = document.getElementById("stage");
     const pulse = document.getElementById("pulse");
     const status = document.getElementById("status");
@@ -179,11 +197,12 @@
     let startPerfMs = 0;
     let startDateMs = 0;
     let lastCycle = -1;
+    let frameCount = 0;
     let statePoll = null;
 
     if (serverControl) {
       document.body.classList.add("server");
-      preflightText.textContent = "Armed. Click once or press F11 to fullscreen the browser; the capture watcher starts the pattern after the target capture reports its first frame.";
+      preflightText.textContent = "Armed. Click this page once, press F11 if needed, and keep it foregrounded. The capture watcher starts the pattern after the target capture reports its first frame.";
     }
 
     for (let i = 0; i < 64; i += 1) {
@@ -205,6 +224,34 @@
       cells[index].className = `cell ${on ? "white" : "black"}`;
     }
 
+    function browserState() {
+      return {
+        fullscreen: Boolean(document.fullscreenElement),
+        focused: document.hasFocus(),
+        visibility_state: document.visibilityState,
+        viewport: [window.innerWidth, window.innerHeight]
+      };
+    }
+
+    function formatSeconds(value) {
+      const safe = Math.max(0, Math.ceil(value));
+      const minutes = Math.floor(safe / 60);
+      const seconds = safe % 60;
+      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    function setActiveUse(active) {
+      document.body.classList.toggle("active-use", active);
+    }
+
+    function updateStatus(label, cycle, elapsedMs) {
+      const elapsedSeconds = Math.max(0, elapsedMs / 1000);
+      const remaining = Math.max(0, durationSeconds - elapsedSeconds);
+      const fullscreen = document.fullscreenElement ? "FS" : "NOFS";
+      const focus = document.hasFocus() && document.visibilityState === "visible" ? "FG" : "BG";
+      status.textContent = `${label} ${sessionId} F${frameCount} C${Math.max(0, cycle)} REM ${formatSeconds(remaining)} ${fullscreen} ${focus}`;
+    }
+
     async function postEvent(event) {
       const payload = {
         session_id: sessionId,
@@ -212,6 +259,7 @@
         client_date_now_ms: Date.now(),
         client_perf_now_ms: performance.now(),
         client_time_origin_ms: performance.timeOrigin,
+        browser_state: browserState(),
         user_agent: navigator.userAgent
       };
       try {
@@ -223,6 +271,7 @@
           if (response.status === 409) {
             stopped = true;
             running = false;
+            setActiveUse(false);
             status.textContent = `STALE ${sessionId}`;
           }
         });
@@ -254,7 +303,6 @@
       pulse.style.background = pulseOn ? "#fff" : "#000";
       pulse.style.borderColor = pulseOn ? "#000" : "#fff";
       document.body.style.background = pulseOn ? "#050505" : "#f7f7f7";
-      status.textContent = `RUN ${sessionId}  CYCLE ${cycle}`;
     }
 
     function animationLoop() {
@@ -267,12 +315,15 @@
       if (elapsedSeconds >= durationSeconds) {
         stopped = true;
         running = false;
-        status.textContent = `STOP ${sessionId}`;
+        setActiveUse(false);
+        status.textContent = `SAFE ${sessionId} DONE F${frameCount}`;
         postEvent({
           type: "visual_stop",
           elapsed_ms: elapsedMs,
           duration_seconds: durationSeconds,
-          last_cycle: lastCycle
+          last_cycle: lastCycle,
+          frame_count: frameCount,
+          browser_state: browserState()
         });
         fetch("/control/stop", {
           method: "POST",
@@ -282,6 +333,7 @@
         requestAnimationFrame(animationLoop);
         return;
       }
+      frameCount += 1;
       const cycle = Math.floor(elapsedSeconds * hz);
       if (cycle !== lastCycle) {
         lastCycle = cycle;
@@ -291,11 +343,15 @@
             type: "cycle",
             cycle,
             elapsed_ms: elapsedMs,
+            remaining_seconds: Math.max(0, durationSeconds - elapsedSeconds),
+            frame_count: frameCount,
             hz,
-            value: cycle % 2
+            value: cycle % 2,
+            browser_state: browserState()
           });
         }
       }
+      updateStatus("ACTIVE", cycle, elapsedMs);
       requestAnimationFrame(animationLoop);
     }
 
@@ -311,10 +367,16 @@
     async function startStimulus(source, serverState) {
       if (running || stopped) return;
       await enterFullscreen();
+      if (requireFullscreen && !document.fullscreenElement) {
+        status.textContent = `ARMED ${sessionId} NEED F11`;
+      }
       startPerfMs = performance.now();
       startDateMs = Date.now();
+      frameCount = 0;
       running = true;
+      setActiveUse(true);
       document.body.classList.add("running");
+      updateStatus("ACTIVE", 0, 0);
       await postEvent({
         type: "visual_start",
         source,
@@ -322,6 +384,8 @@
         duration_seconds: durationSeconds,
         start_date_ms: startDateMs,
         start_perf_ms: startPerfMs,
+        require_fullscreen: requireFullscreen,
+        browser_state: browserState(),
         server_state: serverState || null
       });
     }
@@ -369,6 +433,13 @@
           clearInterval(statePoll);
           return;
         }
+        if (state.stopped) {
+          stopped = true;
+          setActiveUse(false);
+          status.textContent = `SAFE ${sessionId}`;
+          clearInterval(statePoll);
+          return;
+        }
         if (state.running) {
           await startStimulus("server_control", state);
           clearInterval(statePoll);
@@ -377,12 +448,30 @@
       }
     }
 
+    document.addEventListener("fullscreenchange", () => {
+      postEvent({ type: "fullscreen_change", browser_state: browserState() });
+      if (running && !stopped) updateStatus("ACTIVE", lastCycle, performance.now() - startPerfMs);
+    });
+    document.addEventListener("visibilitychange", () => {
+      postEvent({ type: "visibility_change", browser_state: browserState() });
+      if (running && !stopped) updateStatus("ACTIVE", lastCycle, performance.now() - startPerfMs);
+    });
+    window.addEventListener("focus", () => {
+      postEvent({ type: "window_focus", browser_state: browserState() });
+      if (running && !stopped) updateStatus("ACTIVE", lastCycle, performance.now() - startPerfMs);
+    });
+    window.addEventListener("blur", () => {
+      postEvent({ type: "window_blur", browser_state: browserState() });
+      if (running && !stopped) updateStatus("ACTIVE", lastCycle, performance.now() - startPerfMs);
+    });
+
     postEvent({
       type: "page_loaded",
       control: serverControl ? "server" : "manual",
       hz,
       duration_seconds: durationSeconds,
-      viewport: [window.innerWidth, window.innerHeight]
+      require_fullscreen: requireFullscreen,
+      browser_state: browserState()
     });
     renderPattern(0);
     if (serverControl) {

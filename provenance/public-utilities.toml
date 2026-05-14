@@ -174,6 +174,24 @@ scrubbed_private_dependencies = ["native provider implementation", "generated ro
 review_status = "foundation-pass"
 
 [[utility]]
+crate = "rusty-xr-contracts/home"
+source_family = "developer home, broker launcher, and supervised-session planning"
+extraction_date = "2026-05-13"
+public_safe_rationale = "Home panels, launcher rows, settings shortcuts, helper status, supervisor policy, session state, and focus-recovery events are reusable data contracts for broker consoles, app-owned immersive homes, and companion tooling without implementing platform control."
+license_assumptions = "Authored for this MIT repository as clean public contracts from general Android launcher, XR panel, and supervised-session concepts."
+scrubbed_private_dependencies = ["private package identities", "private launch profiles", "ADB helper artifacts", "system UI replacement claims", "managed-kiosk policy enforcement", "generated captures"]
+review_status = "first-contract-pass"
+
+[[utility]]
+crate = "rusty-xr-contracts/effect_stack"
+source_family = "downstream visual-pipeline diagnostics"
+extraction_date = "2026-05-14"
+public_safe_rationale = "Ordered pass descriptors, logical intermediate buffers, diagnostic layer taps, and scalar comparison metrics are reusable across app-owned visual pipelines without exposing shader code or project-specific visual behavior."
+license_assumptions = "Authored for this MIT repository as clean public contracts from generic renderer and image-analysis concepts."
+scrubbed_private_dependencies = ["private visual-effect behavior", "private tuning constants", "shader implementation", "package identity", "generated captures", "headset logs", "local artifact paths"]
+review_status = "first-contract-pass"
+
+[[utility]]
 crate = "tools/schema/quest-app-catalog"
 source_family = "public companion/operator catalog metadata"
 extraction_date = "2026-04-29"

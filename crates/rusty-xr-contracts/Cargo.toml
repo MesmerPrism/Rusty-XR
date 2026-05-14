@@ -41,5 +41,15 @@ name = "visual_strobe_profiles"
 path = "examples/visual_strobe_profiles.rs"
 required-features = ["serde"]
 
+[[example]]
+name = "developer_home_manifest"
+path = "examples/developer_home_manifest.rs"
+required-features = ["serde"]
+
+[[example]]
+name = "effect_stack_diagnostic_manifest"
+path = "examples/effect_stack_diagnostic_manifest.rs"
+required-features = ["serde"]
+
 [lints]
 workspace = true

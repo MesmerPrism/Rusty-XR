@@ -363,17 +363,18 @@ correctly but lacks projection metadata or final `gpu-projected` status.
 
 ## Current Next Target
 
-The next public implementation slice is scorecard hardening plus temporal
-smoothing, not a new transport. Harden the current laptop-loop and direct
-projection gates with camera/source manifests, timestamp domains, H.264 stream
-invariants, and session role/direction fields, then implement the temporal
-projection profiles from
-[CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md](CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md).
+The next public implementation slice is one-way LAN Q2Q using the same
+schema-3 stream-header projection metadata that passed the single-headset
+laptop-loop proof. The direct Camera2 projected path, on-device broker H.264
+projected path, and Quest -> laptop relay -> Quest projected path have all
+rendered through the XR projection gate with scorecard evidence.
 
-The no-smoothing run should report equal target and applied projection motion.
-After that, pose-delta, screen-motion, frame-hold, depth-aware, and space-warp
-profiles can be compared against the same baseline. The key scorecard value for
-that work is `applied_projection_motion_px_p95`.
+Temporal projection is now opt-in rather than merely planned: no-smoothing
+metrics, pose-delta clamp, screen-motion clamp, frame-adoption fields, and
+edge/invalid-UV reporting exist in the projected scorecards. The remaining
+temporal work is deliberate motion/stress validation for nonzero frame holds,
+then depth-aware and optional space-warp profiles. The key scorecard value for
+that work remains `applied_projection_motion_px_p95`.
 
 Projected draw attribution still matters: separate projection shader cost,
 border/perimeter work, descriptor/import reuse, command recording, and submit

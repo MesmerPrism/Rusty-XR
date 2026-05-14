@@ -77,10 +77,14 @@ The initial export covers:
 - Polar accelerometer frames.
 - Scan surface samples.
 - Broker command envelopes, acknowledgements, stream manifests, stream sample
-  headers, stream events, replay records, synthetic wave samples, and session
-  manifests.
+  headers, stream events, replay records, synthetic wave samples, session
+  manifests, clock snapshots, clock stamps, clock correlations, clock health,
+  and clock sync probes.
 - Eye screen-gaze points, XR gaze rays, screen AOI hits, and derived processor
   events.
+- Developer-home panel descriptors, home session state, launcher entries,
+  settings shortcuts, and focus-recovery events.
+- Effect-stack descriptors and comparison reports.
 
 Future schemas should be added only after the corresponding contract has tests
 and a clear downstream use.

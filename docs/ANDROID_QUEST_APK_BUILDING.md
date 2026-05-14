@@ -331,6 +331,9 @@ to Android `shell` or self-start that helper.
 
 For the full public boundary, see
 [QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md](QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).
+For the distribution boundary between Store-style 2D apps, SideQuest or GitHub
+developer builds, external ADB hosts, Wi-Fi ADB, and shell helpers, see
+[QUEST_DISTRIBUTION_AND_ADB_BOUNDARY.md](QUEST_DISTRIBUTION_AND_ADB_BOUNDARY.md).
 
 ## Public Example Policy
 
