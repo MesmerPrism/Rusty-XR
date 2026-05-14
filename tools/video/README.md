@@ -42,11 +42,18 @@ python .\tools\video\q2q_relay.py server `
   --token-file .\relay-token.txt `
   --certfile .\relay-cert.pem `
   --keyfile .\relay-key.pem `
+  --allow-remote <tester-public-ip> `
   --log-jsonl .\relay-events.jsonl
 ```
 
 For short lab tests you can omit `--certfile` / `--keyfile`, but internet tests
 should use TLS and a non-default token.
+
+Use `--allow-remote <ip-or-cidr>` to restrict which public sender/receiver
+sites can register with the relay. Repeat it for multiple sites, or use
+`--allow-remote-file` with one IP/CIDR per line. If the relay host also runs a
+local bridge, include the local loopback or LAN source address used by that
+bridge.
 
 Sender-site bridge for one eye:
 

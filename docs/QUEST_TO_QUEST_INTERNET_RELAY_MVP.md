@@ -65,6 +65,7 @@ python .\tools\video\q2q_relay.py server `
   --token-file .\relay-token.txt `
   --certfile .\relay-cert.pem `
   --keyfile .\relay-key.pem `
+  --allow-remote <tester-public-ip> `
   --log-jsonl .\relay-events.jsonl
 ```
 
@@ -104,6 +105,9 @@ Repeat for the right eye with the matching stream/listen ports.
 
 - Use a fresh high-entropy token per test session.
 - Use TLS for internet tests.
+- Restrict relay registration by public tester IP with `--allow-remote` or
+  `--allow-remote-file` when the tester IPs are known. Use firewall-level
+  allowlisting on the relay host when available.
 - Do not log raw media payloads.
 - Keep relay logs to metadata: session id, eye, peer role, byte counts, close
   reasons, and timing.

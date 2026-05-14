@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hmac
+import ipaddress
 import json
 import socket
 import ssl
@@ -114,6 +115,25 @@ def load_token(args: argparse.Namespace) -> str:
     return token
 
 
+def load_remote_allowlist(args: argparse.Namespace) -> list[ipaddress._BaseNetwork]:
+    values: list[str] = []
+    for item in getattr(args, "allow_remote", None) or []:
+        values.append(str(item))
+    for file_name in getattr(args, "allow_remote_file", None) or []:
+        for line in Path(file_name).read_text(encoding="utf-8").splitlines():
+            value = line.split("#", 1)[0].strip()
+            if value:
+                values.append(value)
+
+    networks: list[ipaddress._BaseNetwork] = []
+    for value in values:
+        try:
+            networks.append(ipaddress.ip_network(value, strict=False))
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"invalid --allow-remote value {value!r}: {exc}") from exc
+    return networks
+
+
 class EventLogger:
     def __init__(self, log_path: str = "") -> None:
         self._lock = threading.Lock()
@@ -175,6 +195,7 @@ class RelayServer:
         logger: EventLogger,
         peer_wait_timeout_s: float,
         ssl_context: ssl.SSLContext | None,
+        allowed_remotes: list[ipaddress._BaseNetwork] | None = None,
     ) -> None:
         self.listen_host = listen_host
         self.listen_port = listen_port
@@ -182,6 +203,7 @@ class RelayServer:
         self.logger = logger
         self.peer_wait_timeout_s = peer_wait_timeout_s
         self.ssl_context = ssl_context
+        self.allowed_remotes = allowed_remotes or []
         self._lock = threading.Lock()
         self._lanes: dict[tuple[str, str], Lane] = {}
         self._stop = threading.Event()
@@ -197,6 +219,7 @@ class RelayServer:
                 listen_host=self.listen_host,
                 listen_port=self.listen_port,
                 tls=bool(self.ssl_context),
+                allow_remote_count=len(self.allowed_remotes),
             )
             while not self._stop.is_set():
                 try:
@@ -207,15 +230,29 @@ class RelayServer:
                     if self._stop.is_set():
                         break
                     raise
+                address_text = f"{address[0]}:{address[1]}"
+                if not self._remote_allowed(address[0]):
+                    self.logger.emit("remote_rejected", address=address_text, reason="remote IP not in allowlist")
+                    close_socket(conn)
+                    continue
                 thread = threading.Thread(
                     target=self._handle_connection,
-                    args=(conn, f"{address[0]}:{address[1]}"),
+                    args=(conn, address_text),
                     daemon=True,
                 )
                 thread.start()
 
     def stop(self) -> None:
         self._stop.set()
+
+    def _remote_allowed(self, remote_host: str) -> bool:
+        if not self.allowed_remotes:
+            return True
+        try:
+            remote_ip = ipaddress.ip_address(remote_host)
+        except ValueError:
+            return False
+        return any(remote_ip in network for network in self.allowed_remotes)
 
     def _handle_connection(self, raw_sock: socket.socket, address: str) -> None:
         sock: socket.socket | None = raw_sock
@@ -605,6 +642,18 @@ def main(argv: list[str]) -> int:
     server.add_argument("--peer-wait-timeout-s", type=float, default=300.0)
     server.add_argument("--certfile", default="", help="TLS certificate. If omitted, the server runs cleartext.")
     server.add_argument("--keyfile", default="", help="TLS private key.")
+    server.add_argument(
+        "--allow-remote",
+        action="append",
+        default=[],
+        help="Allow only this remote IP/CIDR. Repeat for multiple testers. If omitted, all remote IPs are allowed.",
+    )
+    server.add_argument(
+        "--allow-remote-file",
+        action="append",
+        default=[],
+        help="File containing allowed remote IP/CIDR entries, one per line. # comments are allowed.",
+    )
     server.add_argument("--log-jsonl", default="")
 
     sender = subparsers.add_parser("send", help="Bridge a local Quest/source stream to the relay.")
@@ -633,7 +682,15 @@ def main(argv: list[str]) -> int:
             context = make_server_ssl_context(args.certfile, args.keyfile)
         logger = EventLogger(args.log_jsonl)
         try:
-            relay = RelayServer(args.listen_host, args.port, token, logger, args.peer_wait_timeout_s, context)
+            relay = RelayServer(
+                args.listen_host,
+                args.port,
+                token,
+                logger,
+                args.peer_wait_timeout_s,
+                context,
+                load_remote_allowlist(args),
+            )
             relay.serve_forever()
         finally:
             logger.close()

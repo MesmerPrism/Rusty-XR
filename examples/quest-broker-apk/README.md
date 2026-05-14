@@ -476,6 +476,13 @@ Without `liblsl.so`, the broker still builds, answers status requests, accepts
 WebSocket latency samples, emits logcat diagnostics, and supports OSC ingress
 and OSC egress.
 
+If a developer machine has `RUSTY_XR_ANDROID_LIBLSL` set but the current
+artifact should not package native LSL, pass `-DisableNativeLsl`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-apk\tools\Build-QuestBrokerApk.ps1 -DisableNativeLsl
+```
+
 An LSL-capable validation build should report `enabled=true` and
 `publisher=native-lsl` under `/status` -> `lsl`. Accepted latency samples
 should acknowledge `lsl_forwarded=true` and

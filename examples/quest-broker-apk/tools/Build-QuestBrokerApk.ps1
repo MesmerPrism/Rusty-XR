@@ -10,6 +10,7 @@ param(
     [string]$JdkRoot = '',
     [string]$LslAndroidLibraryPath = '',
     [switch]$RequireNativeLsl,
+    [switch]$DisableNativeLsl,
     [ValidateRange(29, 35)]
     [int]$TargetSdkVersion = 35
 )
@@ -223,7 +224,16 @@ $javacArgs = @(
 ) + $javaSources
 Invoke-Tool -File $javac -Arguments $javacArgs
 
-$lslAndroidLibrary = Resolve-LslAndroidLibrary -RequestedPath $LslAndroidLibraryPath
+$lslAndroidLibrary = ''
+if ($DisableNativeLsl -and $RequireNativeLsl) {
+    throw 'DisableNativeLsl and RequireNativeLsl cannot be used together.'
+}
+
+if ($DisableNativeLsl) {
+    Write-Host 'Native LSL packaging disabled for this build.'
+} else {
+    $lslAndroidLibrary = Resolve-LslAndroidLibrary -RequestedPath $LslAndroidLibraryPath
+}
 if ($RequireNativeLsl -and [string]::IsNullOrWhiteSpace($lslAndroidLibrary)) {
     throw 'Native LSL packaging was required, but no Android liblsl.so was supplied. Pass -LslAndroidLibraryPath or set RUSTY_XR_ANDROID_LIBLSL.'
 }
