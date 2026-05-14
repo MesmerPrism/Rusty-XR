@@ -266,12 +266,15 @@ the same `device_port`, `host_port`, `preferred_width`, `preferred_height`,
 `capture_ms`, `max_packets`, `bitrate_bps`, `live_stream`, `lan_stream_enabled`,
 `bind_host`, and `advertised_host` parameters as the app-camera H.264 stream.
 It also accepts `synthetic_pattern` values `diagnostic-grid`, `checkerboard`,
-`luma-ramp`, or `motion-bar`. This path requires no camera permission and is
-intended for stream framing, decoder, projection, and downstream processing
-tests before switching back to Camera2 input. Synthetic streams include
-head-anchored projection metadata with a deterministic estimated profile so
-projected receivers can render the diagnostic image through the same stereo
-projection path they use for camera-backed streams.
+`luma-ramp`, or `motion-bar`. The `diagnostic-grid` frame contains color bars, a
+luma ramp, and a lower checkerboard with an intentional 1-pixel white line
+overlay anchored to the checker cell centers for high-frequency blur and
+projection diagnostics. This path requires no camera permission and is intended
+for stream framing, decoder, projection, and downstream processing tests before
+switching back to Camera2 input. Synthetic streams include head-anchored
+projection metadata with a deterministic estimated profile so projected
+receivers can render the diagnostic image through the same stereo projection
+path they use for camera-backed streams.
 For LAN experiments, non-loopback H.264 payload binds are opt-in. Passing
 `lan_stream_enabled=true` allows `camera_provider.start_app_camera_h264_stream`
 to use a non-loopback `bind_host` such as `0.0.0.0`; `advertised_host` can

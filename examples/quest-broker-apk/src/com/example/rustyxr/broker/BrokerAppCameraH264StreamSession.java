@@ -2037,21 +2037,48 @@ final class BrokerAppCameraH264StreamSession {
 
         int checkerTop = rampTop + rampHeight + Math.max(8, height / 32);
         int cell = Math.max(16, Math.min(width, height) / 12);
-        for (int y = checkerTop; y < height; y += cell) {
+        drawSyntheticDiagnosticCheckerboard(canvas, paint, width, height, checkerTop, cell);
+    }
+
+    private static void drawSyntheticDiagnosticCheckerboard(
+        Canvas canvas,
+        Paint paint,
+        int width,
+        int height,
+        int top,
+        int cell) {
+        for (int y = top; y < height; y += cell) {
             for (int x = 0; x < width; x += cell) {
-                boolean high = (((x / cell) + (y / cell)) & 1) == 0;
+                int cellX = x / cell;
+                int cellY = (y - top) / cell;
+                boolean high = ((cellX + cellY) & 1) == 0;
                 paint.setColor(high ? Color.rgb(224, 224, 224) : Color.rgb(32, 32, 32));
                 canvas.drawRect(new Rect(x, y, Math.min(width, x + cell), Math.min(height, y + cell)), paint);
             }
         }
 
-        paint.setColor(Color.rgb(255, 255, 255));
-        int gridStep = Math.max(32, Math.min(width, height) / 8);
-        for (int x = 0; x < width; x += gridStep) {
-            canvas.drawLine(x, 0, x, height, paint);
+        drawSyntheticThinLineOverlay(canvas, paint, 0, top, width, height, cell);
+    }
+
+    private static void drawSyntheticThinLineOverlay(
+        Canvas canvas,
+        Paint paint,
+        int left,
+        int top,
+        int right,
+        int bottom,
+        int cell) {
+        if (left >= right || top >= bottom || cell <= 1) {
+            return;
         }
-        for (int y = 0; y < height; y += gridStep) {
-            canvas.drawLine(0, y, width, y, paint);
+
+        paint.setColor(Color.rgb(255, 255, 255));
+        int offset = Math.max(1, cell / 2);
+        for (int x = left + offset; x < right; x += cell) {
+            canvas.drawRect(new Rect(x, top, Math.min(right, x + 1), bottom), paint);
+        }
+        for (int y = top + offset; y < bottom; y += cell) {
+            canvas.drawRect(new Rect(left, y, right, Math.min(bottom, y + 1)), paint);
         }
     }
 

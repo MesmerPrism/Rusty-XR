@@ -375,7 +375,9 @@ Useful launch extras:
   Camera2-to-H.264 stream. Set `rustyxr.brokerH264SourceMode=broker-synthetic`
   to request the broker's deterministic MediaCodec synthetic H.264 source
   instead; `rustyxr.brokerH264SyntheticPattern` can be `diagnostic-grid`,
-  `checkerboard`, `luma-ramp`, or `motion-bar`. Set
+  `checkerboard`, `luma-ramp`, or `motion-bar`. `diagnostic-grid` includes a
+  checkerboard-anchored 1-pixel white line overlay for blur/projection
+  diagnostics. Set
   `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264
   stream on the configured port. Existing-stream mode skips the broker start
