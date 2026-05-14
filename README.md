@@ -205,6 +205,10 @@ documented in
 Generic multi-pass visual pipeline descriptors and layer comparison reports are
 documented in
 [docs/EFFECT_STACK_DIAGNOSTICS.md](docs/EFFECT_STACK_DIAGNOSTICS.md).
+The public implementation plan for an OpenGL ES + OpenXR multilayer video
+stack, including SurfaceTexture/OES ingestion, public edge/mask examples,
+projection diagnostics, and Vulkan/Makepad comparison gates, is tracked in
+[docs/OPENGL_OPENXR_MULTILAYER_STACK_PLAN.md](docs/OPENGL_OPENXR_MULTILAYER_STACK_PLAN.md).
 The broker clock/timebase API used by that home surface is documented in
 [docs/BROKER_CLOCK_AND_TIMEBASE.md](docs/BROKER_CLOCK_AND_TIMEBASE.md).
 The public distribution boundary between Store-style Quest apps, SideQuest or

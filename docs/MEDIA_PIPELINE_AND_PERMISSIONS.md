@@ -189,6 +189,10 @@ behavior into the core:
   validated Quest path this meant Android hardware buffers and Vulkan
   external-format / YCbCr-aware sampling. CPU-readable YUV is useful for
   capture/debug, but it should not be the default visible path.
+- Track the OpenGL ES `SurfaceTexture` / external-OES lane as a separate
+  public implementation candidate for video-backed multilayer effects. Its
+  implementation order and comparison gates are documented in
+  [OPENGL_OPENXR_MULTILAYER_STACK_PLAN.md](OPENGL_OPENXR_MULTILAYER_STACK_PLAN.md).
 - Keep the native compositor passthrough layer, raw camera overlay, and
   optional MediaProjection screen-capture surface separate. They have different
   permissions, timing, and sampling rules.

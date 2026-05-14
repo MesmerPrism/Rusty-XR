@@ -38,6 +38,20 @@ Public docs and examples should use generic terms such as "color map",
 downstream app, package id, private profile, private visual stack, or local
 artifact path in committed public files.
 
+## OpenGL/OpenXR Implementation Lane
+
+The public OpenGL ES + OpenXR multilayer stack plan is tracked in
+[OPENGL_OPENXR_MULTILAYER_STACK_PLAN.md](OPENGL_OPENXR_MULTILAYER_STACK_PLAN.md).
+That plan turns these data contracts into a reusable renderer/example lane:
+Android `SurfaceTexture` / `GL_TEXTURE_EXTERNAL_OES` input, an OES ingest copy
+to internal GL textures, public-safe FBO pass graphs, projection-policy
+diagnostic layers, and public examples such as luma, edge detection, masks,
+simple color maps, and final composites.
+
+The OpenGL lane does not make private visual stacks public. It should prove
+source-feed parity, decoded-texture parity, projection-stage parity, and
+pass-budget cost before downstream apps use it for product-specific effects.
+
 ## Pass Graph Shape
 
 An `EffectStackDescriptor` is an ordered graph. Inputs may refer to:

@@ -166,6 +166,23 @@ without moving shader code, private visual behavior, generated captures, or
 native texture ownership into public core. See
 [EFFECT_STACK_DIAGNOSTICS.md](EFFECT_STACK_DIAGNOSTICS.md).
 
+### OpenGL/OpenXR Multilayer Stack
+
+Rusty XR should own the reusable OpenGL ES + OpenXR implementation lane for
+video-backed multilayer stacks. The public plan keeps the current Vulkan
+hardware-buffer path as the performance baseline while adding a separate
+SurfaceTexture / external-OES lane for public examples such as luma, edge
+detection, masks, simple color maps, and final composites. Downstream apps can
+consume this lane for private visual behavior without publishing their recipes
+or tuning constants here.
+
+The implementation sequence is documented in
+[OPENGL_OPENXR_MULTILAYER_STACK_PLAN.md](OPENGL_OPENXR_MULTILAYER_STACK_PLAN.md):
+OpenXR/GLES feasibility, broker synthetic H.264 to OES textures, OES ingest
+copy to internal FBOs, projection-policy diagnostic layers, public multilayer
+examples, deterministic cross-lane parity, performance/pass-budget comparison,
+temporal projection integration, and only then live Camera2.
+
 ### Native Platform Passthrough Descriptors
 
 Reusable descriptors for compositor-owned Meta/OpenXR passthrough layers:
@@ -503,6 +520,7 @@ responsibilities.
 | Camera temporal projection | In progress | Temporal policy contracts, target/visual projection state, stereo pair timing, pose-delta lockstep clamp, screen-motion clamp, frame-adoption, edge-mode, and scorecard metric fields added. Composite-layer example validates direct and laptop-relay projected paths; physical motion stress tuning remains open. |
 | Plain stereo / feedback layers | In progress | Public mono/stereo media layer descriptors, source UV layout helpers, aspect-fit content rectangles, visual feedback border segments, border tuning, composite-feedback tuning, and performance hints added. |
 | Effect stack diagnostics | In progress | Public data-only pass graph descriptors, intermediate buffer descriptors, diagnostic layer taps, and scalar layer comparison metrics added for downstream visual pipelines. |
+| OpenGL/OpenXR multilayer stack | Planned | Public implementation lane documented for OpenXR/GLES presentation, SurfaceTexture/OES ingestion, internal FBO pass graphs, projection-policy diagnostics, and public edge/mask/composite examples. |
 | Native platform passthrough descriptors | In progress | Public Meta/OpenXR layer-purpose, placement, opacity, edge, color-map, BCS, and LUT descriptors added with contracts-only examples. |
 | Visual strobe descriptors | In progress | Public full-field and passthrough-LUT strobe profile descriptors, display-frame frequency plans, 120 Hz constraints, and safety warnings added with a no-hardware example. |
 | Depth model | In progress | Depth readiness, frame summary, per-view metadata, infinite-far range, cadence, and readback-policy helpers added. |
