@@ -959,6 +959,8 @@ pub struct MeshSurfaceSampleConfig {
     pub first_tier_neighbor_count: usize,
     pub second_tier_neighbor_count: usize,
     pub seed: u64,
+    pub pattern: MeshSurfaceSamplePattern,
+    pub min_spacing: MeshSurfaceMinSpacingConfig,
 }
 
 impl Default for MeshSurfaceSampleConfig {
@@ -968,6 +970,74 @@ impl Default for MeshSurfaceSampleConfig {
             first_tier_neighbor_count: 6,
             second_tier_neighbor_count: 12,
             seed: 11_337,
+            pattern: MeshSurfaceSamplePattern::default(),
+            min_spacing: MeshSurfaceMinSpacingConfig::default(),
+        }
+    }
+}
+
+impl MeshSurfaceSampleConfig {
+    pub fn with_min_spacing(mut self, spacing_factor: f32) -> Self {
+        self.min_spacing.enabled = true;
+        self.min_spacing.spacing_factor = spacing_factor;
+        self
+    }
+
+    pub fn high_quality_surface_points(point_count: usize) -> Self {
+        Self {
+            point_count,
+            pattern: MeshSurfaceSamplePattern::LowDiscrepancy,
+            min_spacing: MeshSurfaceMinSpacingConfig {
+                enabled: true,
+                oversample_factor: 8,
+                spacing_factor: 0.95,
+                relax_passes: 4,
+                binary_search_iterations: 8,
+                max_candidate_evaluations: 4_000_000,
+            },
+            ..Self::default()
+        }
+    }
+}
+
+/// Candidate sequence used before optional spacing selection.
+///
+/// `AreaStratified` preserves the original deterministic sampler behavior.
+/// `LowDiscrepancy` uses a Halton sequence over cumulative triangle area and
+/// barycentric coordinates to reduce visible clumps before any rejection pass.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MeshSurfaceSamplePattern {
+    #[default]
+    AreaStratified,
+    LowDiscrepancy,
+}
+
+/// Optional blue-noise-style selection pass for mesh surface samples.
+///
+/// The pass over-generates area-weighted candidates, then greedily keeps points
+/// that satisfy a minimum 3D spacing. If the requested spacing is infeasible, it
+/// searches down to the largest spacing that can still return `point_count`.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeshSurfaceMinSpacingConfig {
+    pub enabled: bool,
+    pub oversample_factor: usize,
+    pub spacing_factor: f32,
+    pub relax_passes: usize,
+    pub binary_search_iterations: usize,
+    pub max_candidate_evaluations: usize,
+}
+
+impl Default for MeshSurfaceMinSpacingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            oversample_factor: 8,
+            spacing_factor: 0.95,
+            relax_passes: 4,
+            binary_search_iterations: 8,
+            max_candidate_evaluations: 4_000_000,
         }
     }
 }
@@ -1167,9 +1237,10 @@ impl MeshSurfaceCrossNeighborhood {
 
 /// Build a deterministic, roughly even set of coordinates over a mesh surface.
 ///
-/// The sampler uses triangle-area stratification plus low-discrepancy
-/// barycentric placement. It gives stable, visually even coverage for small and
-/// medium public examples; it is not a strict blue-noise optimizer.
+/// The default sampler uses triangle-area stratification plus low-discrepancy
+/// barycentric placement. `MeshSurfaceMinSpacingConfig` can enable an
+/// oversampled blue-noise-style selection pass when callers need fewer visible
+/// clumps at authoring time.
 pub fn sample_mesh_surface_points(
     mesh: &TriangleMeshSurface,
     config: MeshSurfaceSampleConfig,
@@ -1190,27 +1261,74 @@ pub fn sample_mesh_surface_points(
         return MeshSurfaceSampleSet::default();
     }
 
+    let spacing = sanitize_min_spacing_config(config.min_spacing);
+    let candidate_count = if spacing.enabled {
+        config
+            .point_count
+            .saturating_mul(spacing.oversample_factor.max(2))
+            .max(config.point_count)
+    } else {
+        config.point_count
+    };
+
     let mut per_triangle_counts = vec![0_usize; mesh.triangles.len()];
-    let mut samples = Vec::with_capacity(config.point_count);
-    for sample_index in 0..config.point_count {
-        let area_target = stratified_area_target(sample_index, config.point_count, total_area);
+    let mut candidates = Vec::with_capacity(candidate_count);
+    for sample_index in 0..candidate_count {
+        let area_target = sample_area_target(
+            sample_index,
+            candidate_count,
+            total_area,
+            config.seed,
+            config.pattern,
+        );
         let record_index = select_surface_triangle(&triangles, area_target);
         let record = triangles[record_index];
         let local_index = per_triangle_counts[record.triangle_index];
         per_triangle_counts[record.triangle_index] += 1;
 
-        let barycentric = sample_barycentric(local_index, config.seed, record.triangle_index);
+        let barycentric = sample_barycentric(
+            sample_index,
+            local_index,
+            config.seed,
+            record.triangle_index,
+            config.pattern,
+        );
         let [a, b, c] = record.indices;
         let position = (mesh.vertices[a] * barycentric[0])
             + (mesh.vertices[b] * barycentric[1])
             + (mesh.vertices[c] * barycentric[2]);
-        samples.push(MeshSurfaceSample {
+        candidates.push(MeshSurfaceSample {
             position,
             normal: record.normal,
             triangle_index: record.triangle_index,
             barycentric,
         });
     }
+
+    let samples = if spacing.enabled && candidates.len() > config.point_count {
+        let candidate_positions: Vec<_> = candidates.iter().map(|sample| sample.position).collect();
+        let ideal_spacing = estimate_ideal_sample_spacing(total_area, config.point_count);
+        let min_spacing = ideal_spacing * spacing.spacing_factor;
+        let selected = select_sample_indices_with_minimum_spacing(
+            &candidate_positions,
+            MinimumSpacingSelectionConfig {
+                target_count: config.point_count,
+                requested_spacing: min_spacing,
+                relax_passes: spacing.relax_passes,
+                binary_search_iterations: spacing.binary_search_iterations,
+                max_candidate_evaluations: spacing.max_candidate_evaluations,
+                seed: config.seed,
+                prefer_sequential_first_pass: config.pattern
+                    == MeshSurfaceSamplePattern::LowDiscrepancy,
+            },
+        );
+        selected
+            .into_iter()
+            .filter_map(|index| candidates.get(index).copied())
+            .collect()
+    } else {
+        candidates
+    };
 
     let positions: Vec<_> = samples.iter().map(|sample| sample.position).collect();
     let (first_tier_neighbors, second_tier_neighbors) = build_nearest_neighbor_tiers(
@@ -2890,6 +3008,24 @@ fn stratified_area_target(sample_index: usize, point_count: usize, total_area: f
     (unit * total_area).min(total_area)
 }
 
+fn sample_area_target(
+    sample_index: usize,
+    point_count: usize,
+    total_area: f32,
+    seed: u64,
+    pattern: MeshSurfaceSamplePattern,
+) -> f32 {
+    match pattern {
+        MeshSurfaceSamplePattern::AreaStratified => {
+            stratified_area_target(sample_index, point_count, total_area)
+        }
+        MeshSurfaceSamplePattern::LowDiscrepancy => {
+            let unit = shifted_halton01(sample_index + 1, 2, seed, 0);
+            (unit * total_area).min(total_area)
+        }
+    }
+}
+
 fn select_surface_triangle(records: &[SurfaceTriangleRecord], area_target: f32) -> usize {
     let mut low = 0_usize;
     let mut high = records.len();
@@ -2904,11 +3040,49 @@ fn select_surface_triangle(records: &[SurfaceTriangleRecord], area_target: f32) 
     low.min(records.len().saturating_sub(1))
 }
 
-fn sample_barycentric(local_index: usize, seed: u64, triangle_index: usize) -> [f32; 3] {
-    let u = quasirandom01(local_index, seed, triangle_index, 0);
-    let v = quasirandom01(local_index, seed, triangle_index, 1);
+fn sample_barycentric(
+    sample_index: usize,
+    local_index: usize,
+    seed: u64,
+    triangle_index: usize,
+    pattern: MeshSurfaceSamplePattern,
+) -> [f32; 3] {
+    let (u, v) = match pattern {
+        MeshSurfaceSamplePattern::AreaStratified => (
+            quasirandom01(local_index, seed, triangle_index, 0),
+            quasirandom01(local_index, seed, triangle_index, 1),
+        ),
+        MeshSurfaceSamplePattern::LowDiscrepancy => (
+            shifted_halton01(sample_index + 1, 3, seed, 1),
+            shifted_halton01(sample_index + 1, 5, seed, 2),
+        ),
+    };
     let sqrt_u = u.sqrt();
     [1.0 - sqrt_u, sqrt_u * (1.0 - v), sqrt_u * v]
+}
+
+fn shifted_halton01(index: usize, base: u32, seed: u64, axis: u32) -> f32 {
+    let offset = hash01(
+        (seed as u32)
+            ^ ((seed >> 32) as u32)
+            ^ axis.wrapping_mul(0x85EB_CA6B)
+            ^ base.wrapping_mul(0x9E37_79B9),
+    );
+    (halton01(index as u64, base) + offset)
+        .fract()
+        .clamp(1.0e-6, 0.999_999)
+}
+
+fn halton01(mut index: u64, base: u32) -> f32 {
+    let base = base.max(2) as u64;
+    let mut factor = 1.0_f32;
+    let mut result = 0.0_f32;
+    while index > 0 {
+        factor /= base as f32;
+        result += factor * (index % base) as f32;
+        index /= base;
+    }
+    result
 }
 
 fn quasirandom01(local_index: usize, seed: u64, triangle_index: usize, axis: u32) -> f32 {
@@ -2921,6 +3095,260 @@ fn quasirandom01(local_index: usize, seed: u64, triangle_index: usize, axis: u32
     ((local_index as f32 + 0.5) * step + offset)
         .fract()
         .clamp(1.0e-6, 0.999_999)
+}
+
+fn sanitize_min_spacing_config(config: MeshSurfaceMinSpacingConfig) -> MeshSurfaceMinSpacingConfig {
+    MeshSurfaceMinSpacingConfig {
+        enabled: config.enabled,
+        oversample_factor: config.oversample_factor.max(2),
+        spacing_factor: if config.spacing_factor.is_finite() {
+            config.spacing_factor.max(0.0)
+        } else {
+            0.0
+        },
+        relax_passes: config.relax_passes.max(1),
+        binary_search_iterations: config.binary_search_iterations.max(4),
+        max_candidate_evaluations: config.max_candidate_evaluations,
+    }
+}
+
+fn estimate_ideal_sample_spacing(total_area: f32, point_count: usize) -> f32 {
+    if !total_area.is_finite() || total_area <= 0.0 || point_count == 0 {
+        return 0.0;
+    }
+    ((2.0 * total_area) / (3.0_f32.sqrt() * point_count as f32)).sqrt()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MinimumSpacingSelectionConfig {
+    target_count: usize,
+    requested_spacing: f32,
+    relax_passes: usize,
+    binary_search_iterations: usize,
+    max_candidate_evaluations: usize,
+    seed: u64,
+    prefer_sequential_first_pass: bool,
+}
+
+fn select_sample_indices_with_minimum_spacing(
+    positions: &[Vec3],
+    config: MinimumSpacingSelectionConfig,
+) -> Vec<usize> {
+    if positions.is_empty() || config.target_count == 0 {
+        return Vec::new();
+    }
+
+    let target_count = config.target_count.min(positions.len());
+    let mut passes = config.relax_passes.max(1);
+    let mut iterations = config.binary_search_iterations.max(4);
+    if config.max_candidate_evaluations > 0 {
+        while (positions.len() as u128) * (passes as u128) * ((iterations + 1) as u128)
+            > config.max_candidate_evaluations as u128
+            && (passes > 1 || iterations > 4)
+        {
+            if passes > 1 {
+                passes -= 1;
+            } else {
+                iterations -= 1;
+            }
+        }
+    }
+
+    let requested_spacing = if config.requested_spacing.is_finite() {
+        config.requested_spacing.max(0.0)
+    } else {
+        0.0
+    };
+    let mut best_spacing = -1.0_f32;
+    let mut best_selection = Vec::new();
+
+    for pass in 0..passes {
+        let ordered_indices = if pass == 0 && config.prefer_sequential_first_pass {
+            sequential_indices(positions.len())
+        } else {
+            shuffled_indices(
+                positions.len(),
+                config.seed ^ (pass as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15),
+            )
+        };
+
+        let at_requested = select_indices_with_spacing_single_pass(
+            positions,
+            &ordered_indices,
+            target_count,
+            requested_spacing,
+            false,
+        );
+        if at_requested.len() >= target_count {
+            return trim_indices_to_target(at_requested, target_count);
+        }
+
+        let mut lo = 0.0_f32;
+        let mut hi = requested_spacing;
+        let mut best_for_pass = Vec::new();
+        for _ in 0..iterations {
+            let mid = 0.5 * (lo + hi);
+            let selected = select_indices_with_spacing_single_pass(
+                positions,
+                &ordered_indices,
+                target_count,
+                mid,
+                false,
+            );
+            if selected.len() >= target_count {
+                lo = mid;
+                best_for_pass = selected;
+            } else {
+                hi = mid;
+            }
+        }
+
+        if !best_for_pass.is_empty() && lo > best_spacing {
+            best_spacing = lo;
+            best_selection = best_for_pass;
+        }
+    }
+
+    if best_selection.len() >= target_count {
+        return trim_indices_to_target(best_selection, target_count);
+    }
+
+    select_indices_with_spacing_single_pass(
+        positions,
+        &sequential_indices(positions.len()),
+        target_count,
+        0.0,
+        true,
+    )
+}
+
+fn select_indices_with_spacing_single_pass(
+    positions: &[Vec3],
+    ordered_indices: &[usize],
+    target_count: usize,
+    min_spacing: f32,
+    fill_remainder: bool,
+) -> Vec<usize> {
+    if target_count == 0 {
+        return Vec::new();
+    }
+    if min_spacing <= 1.0e-7 {
+        return ordered_indices.iter().copied().take(target_count).collect();
+    }
+
+    let min_dist_sq = min_spacing * min_spacing;
+    let inv_cell = 1.0 / min_spacing;
+    let mut selected = Vec::with_capacity(target_count);
+    let mut grid = HashMap::<SampleGridKey, Vec<usize>>::new();
+
+    for source_index in ordered_indices.iter().copied() {
+        let Some(point) = positions.get(source_index).copied() else {
+            continue;
+        };
+        let key = SampleGridKey::from_point(point, inv_cell);
+        let mut blocked = false;
+        for dz in -1..=1 {
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let neighbor_key = SampleGridKey::new(key.x + dx, key.y + dy, key.z + dz);
+                    let Some(bucket) = grid.get(&neighbor_key) else {
+                        continue;
+                    };
+                    if bucket.iter().copied().any(|accepted_index| {
+                        (positions[accepted_index] - point).length_squared() < min_dist_sq
+                    }) {
+                        blocked = true;
+                        break;
+                    }
+                }
+                if blocked {
+                    break;
+                }
+            }
+            if blocked {
+                break;
+            }
+        }
+
+        if blocked {
+            continue;
+        }
+
+        selected.push(source_index);
+        grid.entry(key).or_default().push(source_index);
+        if selected.len() >= target_count {
+            break;
+        }
+    }
+
+    if fill_remainder && selected.len() < target_count {
+        let mut used = HashSet::new();
+        for index in selected.iter().copied() {
+            used.insert(index);
+        }
+        for source_index in ordered_indices.iter().copied() {
+            if used.insert(source_index) {
+                selected.push(source_index);
+            }
+            if selected.len() >= target_count {
+                break;
+            }
+        }
+    }
+
+    selected
+}
+
+fn sequential_indices(count: usize) -> Vec<usize> {
+    (0..count).collect()
+}
+
+fn shuffled_indices(count: usize, seed: u64) -> Vec<usize> {
+    let mut indices = sequential_indices(count);
+    let mut rng = DeterministicRng::new(seed);
+    for index in (1..indices.len()).rev() {
+        let other = rng.next_usize(index + 1);
+        indices.swap(index, other);
+    }
+    indices
+}
+
+fn trim_indices_to_target(mut indices: Vec<usize>, target_count: usize) -> Vec<usize> {
+    indices.truncate(target_count);
+    indices
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct SampleGridKey {
+    x: i32,
+    y: i32,
+    z: i32,
+}
+
+impl SampleGridKey {
+    const fn new(x: i32, y: i32, z: i32) -> Self {
+        Self { x, y, z }
+    }
+
+    fn from_point(point: Vec3, inv_cell: f32) -> Self {
+        Self::new(
+            floor_to_i32(point.x * inv_cell),
+            floor_to_i32(point.y * inv_cell),
+            floor_to_i32(point.z * inv_cell),
+        )
+    }
+}
+
+fn floor_to_i32(value: f32) -> i32 {
+    if !value.is_finite() {
+        0
+    } else if value <= i32::MIN as f32 {
+        i32::MIN
+    } else if value >= i32::MAX as f32 {
+        i32::MAX
+    } else {
+        value.floor() as i32
+    }
 }
 
 fn build_nearest_neighbor_tiers(
@@ -3551,6 +3979,7 @@ mod tests {
             first_tier_neighbor_count: 3,
             second_tier_neighbor_count: 4,
             seed: 19,
+            ..MeshSurfaceSampleConfig::default()
         });
 
         assert_eq!(samples.point_count(), 16);
@@ -3584,12 +4013,38 @@ mod tests {
             first_tier_neighbor_count: 2,
             second_tier_neighbor_count: 2,
             seed: 77,
+            ..MeshSurfaceSampleConfig::default()
         };
 
         let first = sample_mesh_surface_points(&mesh, config);
         let second = sample_mesh_surface_points(&mesh, config);
 
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn mesh_surface_sampler_supports_high_quality_spacing() {
+        let mesh = TriangleMeshSurface::new(
+            vec![
+                Vec3::new(-1.0, -1.0, 0.0),
+                Vec3::new(1.0, -1.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::new(-1.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2], [0, 2, 3]],
+        );
+        let mut config = MeshSurfaceSampleConfig::high_quality_surface_points(32);
+        config.first_tier_neighbor_count = 3;
+        config.second_tier_neighbor_count = 4;
+        config.seed = 12_345;
+
+        let first = sample_mesh_surface_points(&mesh, config);
+        let second = sample_mesh_surface_points(&mesh, config);
+
+        assert_eq!(first, second);
+        assert_eq!(first.point_count(), 32);
+        assert!(first.is_valid());
+        assert!(minimum_pair_distance(&first.positions()) > 0.16);
     }
 
     #[test]
@@ -3607,6 +4062,7 @@ mod tests {
             first_tier_neighbor_count: 2,
             second_tier_neighbor_count: 2,
             seed: 101,
+            ..MeshSurfaceSampleConfig::default()
         });
 
         let first = sampler.update_from_mesh(&mesh);
@@ -3665,6 +4121,7 @@ mod tests {
             first_tier_neighbor_count: 2,
             second_tier_neighbor_count: 3,
             seed: 202,
+            ..MeshSurfaceSampleConfig::default()
         });
 
         let first = sampler.update_from_mesh(&initial);
@@ -3747,6 +4204,7 @@ mod tests {
             first_tier_neighbor_count: 2,
             second_tier_neighbor_count: 2,
             seed: 17,
+            ..MeshSurfaceSampleConfig::default()
         });
         let before = samples.positions();
         let offset = Vec3::new(0.5, -0.25, 1.25);
@@ -3807,6 +4265,7 @@ mod tests {
             first_tier_neighbor_count: 2,
             second_tier_neighbor_count: 1,
             seed: 31,
+            ..MeshSurfaceSampleConfig::default()
         });
 
         assert_eq!(mesh.triangle_count(), 1);
@@ -3896,6 +4355,7 @@ mod tests {
             first_tier_neighbor_count: 2,
             second_tier_neighbor_count: 2,
             seed: 99,
+            ..MeshSurfaceSampleConfig::default()
         })
         .with_render_style(
             RenderCoordinateSpace::World,
@@ -3959,6 +4419,7 @@ mod tests {
             first_tier_neighbor_count: 2,
             second_tier_neighbor_count: 3,
             seed: 7,
+            ..MeshSurfaceSampleConfig::default()
         });
 
         let first = sampler.update_from_snapshot(&initial);
@@ -3984,6 +4445,7 @@ mod tests {
             first_tier_neighbor_count: 5,
             second_tier_neighbor_count: 7,
             seed: 5,
+            ..MeshSurfaceSampleConfig::default()
         });
         let particles = samples.render_particles(0.006, ColorRgba::new(0.2, 0.8, 1.0, 1.0));
         let payload = samples.render_payload(
@@ -4263,6 +4725,7 @@ mod tests {
             first_tier_neighbor_count: 3,
             second_tier_neighbor_count: 2,
             seed: 91,
+            ..MeshSurfaceSampleConfig::default()
         });
 
         let encoded = serde_json::to_string(&samples).expect("samples should serialize");
@@ -4288,5 +4751,15 @@ mod tests {
             serde_json::from_str(&encoded).expect("collider should deserialize");
 
         assert_eq!(decoded, collider);
+    }
+
+    fn minimum_pair_distance(points: &[Vec3]) -> f32 {
+        let mut minimum = f32::INFINITY;
+        for origin in 0..points.len() {
+            for candidate in origin + 1..points.len() {
+                minimum = minimum.min((points[origin] - points[candidate]).length());
+            }
+        }
+        minimum
     }
 }

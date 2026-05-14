@@ -10,6 +10,7 @@ fn main() {
         first_tier_neighbor_count: 6,
         second_tier_neighbor_count: 12,
         seed: 42,
+        ..MeshSurfaceSampleConfig::default()
     };
     let mesh = build_fixture_hand_mesh(FixtureHandMeshConfig::default());
     let snapshot = hand_snapshot_from_mesh(0, &mesh, Handedness::Left);

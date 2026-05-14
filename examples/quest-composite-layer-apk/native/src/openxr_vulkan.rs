@@ -8709,6 +8709,7 @@ impl OpenXrHandMeshRuntimeHand {
             first_tier_neighbor_count: 6,
             second_tier_neighbor_count: 12,
             seed,
+            ..MeshSurfaceSampleConfig::default()
         })
         .with_render_style(
             rusty_xr_particles::RenderCoordinateSpace::World,

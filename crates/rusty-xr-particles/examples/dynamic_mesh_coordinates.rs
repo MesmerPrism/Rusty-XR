@@ -9,6 +9,7 @@ fn main() {
         first_tier_neighbor_count: 4,
         second_tier_neighbor_count: 8,
         seed: 2026,
+        ..MeshSurfaceSampleConfig::default()
     };
     let mesh = sample_grid_mesh(4, 0.05);
     let mut sampler = LiveMeshSurfaceSampler::new(config);

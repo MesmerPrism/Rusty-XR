@@ -38,6 +38,28 @@ vertices. The sample identities are preserved.
 If vertex count, triangle count, or index topology changes, the sampler returns
 `ResampledTopology` and builds a new coordinate set.
 
+## Sampling Quality
+
+The default `MeshSurfaceSampleConfig` uses deterministic triangle-area
+stratification and low-discrepancy barycentric placement. This gives stable,
+roughly even coverage over the actual mesh surface without random per-run
+scatter.
+
+For authoring or lower-count coordinate sets where visible clumping matters,
+use `MeshSurfaceSampleConfig::high_quality_surface_points(point_count)` or set:
+
+- `pattern: MeshSurfaceSamplePattern::LowDiscrepancy`
+- `min_spacing.enabled: true`
+
+That path generates more area-weighted candidates, then selects an exact
+`point_count` subset with a blue-noise-style minimum-distance pass. If the
+requested spacing is too aggressive for the mesh and count, the sampler relaxes
+the spacing and still returns the requested count.
+
+The spacing pass compares Euclidean 3D distances between candidate surface
+points. It is a practical evenness filter for mesh coordinates, not a strict
+geodesic Poisson-disk solver.
+
 ## Neighborhoods
 
 `MeshSurfaceSampleSet` stores two same-surface nearest-neighbor tiers. These
