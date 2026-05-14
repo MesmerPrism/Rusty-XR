@@ -519,6 +519,7 @@ dependencies = [
  "jni 0.21.1",
  "ndk-sys",
  "openxr",
+ "rusty-xr-contracts",
  "rusty-xr-quest-diagnostics",
  "serde",
  "serde_json",

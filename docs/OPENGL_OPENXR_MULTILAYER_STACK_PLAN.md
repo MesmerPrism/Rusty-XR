@@ -97,7 +97,9 @@ Expected areas:
 - `docs`: this plan, media/projection/effect-stack links, and scorecard
   guidance.
 - `rusty-xr-contracts`: public pass descriptors, diagnostic layer taps, and
-  comparison report fields if gaps appear.
+  comparison report fields if gaps appear. It now also contains the data-only
+  `ProjectionPerformanceMatrixPacket` shape for cross-lane source, projection
+  footprint, and pass-budget scorecards.
 - `rusty-xr-camera-model`: projection-stage and temporal-projection helpers
   reused by both Vulkan and GL examples.
 - `rusty-xr-broker-model`: stream/header/timestamp contracts needed for
@@ -398,6 +400,13 @@ Acceptance:
 - GL decoded-texture parity passes before projection claims;
 - stage rows are present for every lane being compared;
 - projection differences are classified before shader constants are changed.
+
+Implementation note: `rusty-xr-contracts` exposes
+`ProjectionPerformanceMatrixPacket`, `ProjectionMatrixLaneReport`,
+`ProjectionStageTokenRow`, `ProjectionFootprintSummary`, and
+`ProjectionPerformanceScorecard`. These are handle-free packet rows only;
+adapters and downstream apps still own artifact capture and renderer-specific
+parsing.
 
 ### Iteration 9: Performance And Pass-Budget Matrix
 

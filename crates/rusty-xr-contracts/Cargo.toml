@@ -51,5 +51,10 @@ name = "effect_stack_diagnostic_manifest"
 path = "examples/effect_stack_diagnostic_manifest.rs"
 required-features = ["serde"]
 
+[[example]]
+name = "projection_performance_matrix_packet"
+path = "examples/projection_performance_matrix_packet.rs"
+required-features = ["serde"]
+
 [lints]
 workspace = true

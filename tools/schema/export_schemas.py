@@ -1321,6 +1321,157 @@ def schemas() -> dict[str, dict]:
             "layers": array(effect_layer_comparison),
         },
     )
+    eye = enum("Eye", ["Mono", "Left", "Right"])
+    matrix_lane_kind = enum(
+        "ProjectionMatrixLaneKind",
+        [
+            "OpenXrVulkanHardwareBuffer",
+            "FrameworkCpuYuv",
+            "OpenXrOpenGlSurfaceTextureOes",
+            "Reference",
+            "Other",
+        ],
+    )
+    matrix_step_status = enum(
+        "MatrixStepStatus",
+        ["NotRun", "Passed", "Failed", "Blocked", "NotApplicable", "Ambiguous"],
+    )
+    projection_stage_kind = enum(
+        "ProjectionStageKind",
+        ["ScreenToSurface", "SurfaceToCamera", "ScreenToCamera"],
+    )
+    projection_guide_domain = enum(
+        "ProjectionGuideDomain",
+        ["Unknown", "DisplayScreen", "SubmittedSurface", "DirectSurfaceCamera", "ScreenCamera", "Other"],
+    )
+    invalid_projection_fill_policy = enum(
+        "InvalidProjectionFillPolicy",
+        ["Unknown", "Black", "Clamp", "Repeat", "OrientedSourceFallback", "VisualContinuityFallback", "Other"],
+    )
+    homography_rows = {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": {"type": "array", "minItems": 3, "maxItems": 3, "items": number()},
+    }
+    nullable_number = {"type": ["number", "null"]}
+    nullable_integer = {"type": ["integer", "null"], "minimum": 0}
+    nullable_signed_integer = {"type": ["integer", "null"]}
+    matrix_synthetic_video_source = obj(
+        "MatrixSyntheticVideoSource",
+        {
+            "pattern": string(),
+            "size": image_size(),
+            "left_port": integer(0),
+            "right_port": integer(0),
+            "bitrate_bps": integer(0),
+            "max_packets": integer(0),
+            "stream_header_projection_metadata": boolean(),
+            "live_unbounded": boolean(),
+        },
+    )
+    projection_stage_token_row = obj(
+        "ProjectionStageTokenRow",
+        {
+            "lane_id": string(),
+            "eye": eye,
+            "stage": projection_stage_kind,
+            "token": nullable_string(),
+            "rows": {"oneOf": [homography_rows, {"type": "null"}]},
+            "source": nullable_string(),
+        },
+    )
+    projection_footprint_row_span = obj(
+        "ProjectionFootprintRowSpan",
+        {
+            "row_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+            "x0_fraction": nullable_number,
+            "x1_fraction": nullable_number,
+            "width_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+            "center_fraction": nullable_number,
+        },
+    )
+    projection_footprint_summary = obj(
+        "ProjectionFootprintSummary",
+        {
+            "lane_id": string(),
+            "layer_id": string(),
+            "active_fraction": nullable_number,
+            "bbox_fraction": {
+                "oneOf": [
+                    {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0, "maximum": 1}},
+                    {"type": "null"},
+                ]
+            },
+            "row_spans": array(projection_footprint_row_span),
+            "mask_iou_against_reference": nullable_number,
+            "invalid_fill_policy": invalid_projection_fill_policy,
+            "guide_domain": projection_guide_domain,
+            "explicit_valid_mask": boolean(),
+            "note": nullable_string(),
+        },
+    )
+    projection_performance_scorecard = obj(
+        "ProjectionPerformanceScorecard",
+        {
+            "source_packet_fps": nullable_number,
+            "decoder_input_access_unit_fps": nullable_number,
+            "decoded_texture_update_fps": nullable_number,
+            "surface_texture_update_count": nullable_integer,
+            "surface_texture_skipped_frame_count": nullable_integer,
+            "cpu_yuv_upload_update_fps": nullable_number,
+            "hardware_buffer_import_count": nullable_integer,
+            "hardware_buffer_import_cache_miss_count": nullable_integer,
+            "hardware_buffer_import_cache_evict_count": nullable_integer,
+            "openxr_fps": nullable_number,
+            "app_cpu_ms": nullable_number,
+            "app_gpu_ms": nullable_number,
+            "app_cpu_gpu_ms": nullable_number,
+            "gpu_percent": nullable_number,
+            "thermal_status": nullable_signed_integer,
+            "performance_level_cpu": nullable_integer,
+            "performance_level_gpu": nullable_integer,
+            "pass_count": nullable_integer,
+            "fbo_switch_count": nullable_integer,
+            "render_target_switch_count": nullable_integer,
+            "intermediate_texture_bytes_per_frame": nullable_integer,
+            "frame_age_at_submit_ms": nullable_number,
+            "repeated_render_frames_per_distinct_source_frame": nullable_number,
+            "app_fatal_count": nullable_integer,
+            "gpu_fault_count": nullable_integer,
+            "android_runtime_crash_count": nullable_integer,
+        },
+    )
+    projection_matrix_lane_report = obj(
+        "ProjectionMatrixLaneReport",
+        {
+            "lane_id": string(),
+            "label": string(),
+            "kind": matrix_lane_kind,
+            "source_feed": matrix_step_status,
+            "decoded_texture": matrix_step_status,
+            "projection_stage": matrix_step_status,
+            "projection_footprint": matrix_step_status,
+            "public_or_raw_layer": matrix_step_status,
+            "effect_or_guide_layer": matrix_step_status,
+            "performance_budget": matrix_step_status,
+            "stage_tokens": array(projection_stage_token_row),
+            "footprints": array(projection_footprint_summary),
+            "performance": {"oneOf": [projection_performance_scorecard, {"type": "null"}]},
+            "notes": array(string()),
+            "blockers": array(string()),
+        },
+    )
+    projection_performance_matrix_packet = obj(
+        "ProjectionPerformanceMatrixPacket",
+        {
+            "schema": {"const": "rusty.xr.projection_performance_matrix.v1"},
+            "packet_id": string(),
+            "source": matrix_synthetic_video_source,
+            "lanes": array(projection_matrix_lane_report),
+            "notes": array(string()),
+        },
+    )
     return {
         "runtime-config.schema.json": obj(
             "RuntimeConfig",
@@ -1596,6 +1747,7 @@ def schemas() -> dict[str, dict]:
         "home-focus-recovery-event.schema.json": home_focus_recovery_event,
         "effect-stack-descriptor.schema.json": effect_stack_descriptor,
         "effect-stack-comparison-report.schema.json": effect_stack_comparison_report,
+        "projection-performance-matrix.schema.json": projection_performance_matrix_packet,
     }
 
 

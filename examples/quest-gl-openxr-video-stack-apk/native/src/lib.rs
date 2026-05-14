@@ -28,6 +28,10 @@ mod android {
     };
     use openxr as xr;
     use openxr::sys::Handle as _;
+    use rusty_xr_contracts::{
+        Eye, InvalidProjectionFillPolicy, ProjectionFootprintRowSpan, ProjectionFootprintSummary,
+        ProjectionGuideDomain, ProjectionStageKind, ProjectionStageTokenRow,
+    };
     use rusty_xr_quest_diagnostics::{
         EglGlesContextStatus, FrameRateSummary, GlFramebufferCompleteness,
         OpenXrGlesFeasibilityState, OpenXrGlesGraphicsRequirements, OpenXrGlesSwapchainFormat,
@@ -36,6 +40,7 @@ mod android {
     };
     use std::{
         ffi::{CStr, CString},
+        mem,
         os::raw::{c_char, c_int, c_void},
         ptr,
         sync::{
@@ -48,8 +53,10 @@ mod android {
     const VIEW_COUNT: usize = 2;
     const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
     const GL_COLOR_BUFFER_BIT: u32 = 0x0000_4000;
+    const GL_TRIANGLE_STRIP: u32 = 0x0005;
     const GL_SCISSOR_TEST: u32 = 0x0C11;
     const GL_TEXTURE_2D: u32 = 0x0DE1;
+    const GL_FLOAT: u32 = 0x1406;
     const GL_VENDOR: u32 = 0x1F00;
     const GL_RENDERER: u32 = 0x1F01;
     const GL_VERSION: u32 = 0x1F02;
@@ -61,6 +68,14 @@ mod android {
     const GL_SRGB8_ALPHA8: u32 = 0x8C43;
     const GL_NO_ERROR: u32 = 0;
     const GL_TEXTURE_EXTERNAL_OES: u32 = 0x8D65;
+    const GL_TEXTURE0: u32 = 0x84C0;
+    const GL_ARRAY_BUFFER: u32 = 0x8892;
+    const GL_STATIC_DRAW: u32 = 0x88E4;
+    const GL_COMPILE_STATUS: u32 = 0x8B81;
+    const GL_LINK_STATUS: u32 = 0x8B82;
+    const GL_INFO_LOG_LENGTH: u32 = 0x8B84;
+    const GL_VERTEX_SHADER: u32 = 0x8B31;
+    const GL_FRAGMENT_SHADER: u32 = 0x8B30;
     const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
     const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
     const GL_TEXTURE_WRAP_S: u32 = 0x2802;
@@ -84,7 +99,8 @@ mod android {
     const GL_FRAMEBUFFER_UNSUPPORTED: u32 = 0x8CDD;
     const GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE: u32 = 0x8D56;
     const DEFAULT_OES_SURFACE_WIDTH: i32 = 1280;
-    const DEFAULT_OES_SURFACE_HEIGHT: i32 = 720;
+    const DEFAULT_OES_SURFACE_HEIGHT: i32 = 1280;
+    const OES_COPY_RENDER_PATH: &str = "broker-h264-oes-full-surface-copy";
 
     static OES_DECODE_CALLBACKS: OnceLock<OesDecodeCallbackState> = OnceLock::new();
 
@@ -258,6 +274,52 @@ mod android {
         fn glTexParameteri(target: u32, pname: u32, param: c_int);
         fn glGetError() -> u32;
         fn glFlush();
+        fn glActiveTexture(texture: u32);
+        fn glCreateShader(shader_type: u32) -> u32;
+        fn glShaderSource(
+            shader: u32,
+            count: c_int,
+            string: *const *const c_char,
+            length: *const c_int,
+        );
+        fn glCompileShader(shader: u32);
+        fn glGetShaderiv(shader: u32, pname: u32, params: *mut c_int);
+        fn glGetShaderInfoLog(
+            shader: u32,
+            buf_size: c_int,
+            length: *mut c_int,
+            info_log: *mut c_char,
+        );
+        fn glDeleteShader(shader: u32);
+        fn glCreateProgram() -> u32;
+        fn glAttachShader(program: u32, shader: u32);
+        fn glLinkProgram(program: u32);
+        fn glGetProgramiv(program: u32, pname: u32, params: *mut c_int);
+        fn glGetProgramInfoLog(
+            program: u32,
+            buf_size: c_int,
+            length: *mut c_int,
+            info_log: *mut c_char,
+        );
+        fn glDeleteProgram(program: u32);
+        fn glUseProgram(program: u32);
+        fn glGetUniformLocation(program: u32, name: *const c_char) -> c_int;
+        fn glUniform1i(location: c_int, v0: c_int);
+        fn glGenBuffers(n: c_int, buffers: *mut u32);
+        fn glDeleteBuffers(n: c_int, buffers: *const u32);
+        fn glBindBuffer(target: u32, buffer: u32);
+        fn glBufferData(target: u32, size: isize, data: *const c_void, usage: u32);
+        fn glEnableVertexAttribArray(index: u32);
+        fn glDisableVertexAttribArray(index: u32);
+        fn glVertexAttribPointer(
+            index: u32,
+            size: c_int,
+            type_: u32,
+            normalized: u8,
+            stride: c_int,
+            pointer: *const c_void,
+        );
+        fn glDrawArrays(mode: u32, first: c_int, count: c_int);
     }
 
     #[no_mangle]
@@ -378,6 +440,21 @@ mod android {
             .map_err(|error| format!("create LOCAL reference space: {error}"))?;
         let mut swapchains = create_eye_swapchains(&xr_instance, system, &session, &mut status)?;
         let mut fbo = GlFramebuffer::new();
+        let mut oes_copy_renderer = match OesCopyRenderer::new() {
+            Ok(renderer) => Some(renderer),
+            Err(error) => {
+                status
+                    .issue_codes
+                    .push(String::from("oes_copy_renderer_create_failed"));
+                status.notes.push(format!(
+                    "Could not create the public OES full-surface copy renderer: {error}"
+                ));
+                log_error(format!(
+                    "Rusty XR OpenXR GLES OES copy renderer creation failed: {error}"
+                ));
+                None
+            }
+        };
         status.state = OpenXrGlesFeasibilityState::SwapchainsReady;
         log_status(&status);
 
@@ -460,7 +537,15 @@ mod android {
                 if let Some(probe) = surface_texture_oes_probe.as_mut() {
                     probe.update_textures(&egl, frame_count);
                 }
-                render_eye_swapchains(&egl, &mut fbo, &mut swapchains, frame_count, &mut status)?;
+                render_eye_swapchains(
+                    &egl,
+                    &mut fbo,
+                    &mut swapchains,
+                    frame_count,
+                    &mut status,
+                    surface_texture_oes_probe.as_ref(),
+                    &mut oes_copy_renderer,
+                )?;
 
                 for (index, eye) in swapchains.iter().enumerate() {
                     let Some(view) = views.get(index) else {
@@ -764,6 +849,8 @@ mod android {
         swapchains: &mut [EyeSwapchain],
         frame_count: u64,
         status: &mut OpenXrGlesFeasibilityStatus,
+        surface_texture_oes_probe: Option<&SurfaceTextureOesProbe>,
+        oes_copy_renderer: &mut Option<OesCopyRenderer>,
     ) -> Result<(), String> {
         egl.make_current()?;
         for eye in swapchains {
@@ -784,7 +871,50 @@ mod android {
                 .copied()
                 .ok_or_else(|| format!("swapchain image index {image_index} is out of range"))?;
 
-            let fbo_status = fbo.render_grid(texture, eye.width, eye.height, eye.view_index)?;
+            let mut render_path = eye.pattern;
+            let mut rendered_source_sequence = None;
+            let fbo_status = if let (Some(probe), Some(renderer)) =
+                (surface_texture_oes_probe, oes_copy_renderer.as_mut())
+            {
+                if let Some((source_texture, source_sequence)) =
+                    probe.updated_eye_texture(eye.view_index)
+                {
+                    match fbo.render_external_oes(
+                        texture,
+                        source_texture,
+                        eye.width,
+                        eye.height,
+                        renderer,
+                    ) {
+                        Ok(fbo_status) => {
+                            render_path = OES_COPY_RENDER_PATH;
+                            rendered_source_sequence = Some(source_sequence);
+                            if frame_count == 0 || frame_count.is_multiple_of(120) {
+                                log_projection_diagnostics(
+                                    eye.view_index,
+                                    frame_count,
+                                    source_sequence,
+                                );
+                            }
+                            fbo_status
+                        }
+                        Err(error) => {
+                            status
+                                .issue_codes
+                                .push(String::from("oes_to_swapchain_copy_failed"));
+                            log_error(format!(
+                                "Rusty XR OpenXR GLES OES copy failed eye={} frame={}: {error}",
+                                eye.view_index, frame_count
+                            ));
+                            fbo.render_grid(texture, eye.width, eye.height, eye.view_index)?
+                        }
+                    }
+                } else {
+                    fbo.render_grid(texture, eye.width, eye.height, eye.view_index)?
+                }
+            } else {
+                fbo.render_grid(texture, eye.width, eye.height, eye.view_index)?
+            };
             if let Some(view) = status.views.get_mut(eye.view_index) {
                 view.acquired_image_index = Some(image_index);
                 view.fbo_status = fbo_status;
@@ -792,18 +922,20 @@ mod android {
                 view.viewport_y = 0;
                 view.viewport_width = eye.width;
                 view.viewport_height = eye.height;
+                view.diagnostic_pattern = render_path.to_string();
                 view.last_rendered_frame_index = Some(frame_count);
             }
             if frame_count == 0 || frame_count.is_multiple_of(120) {
                 log_info(format!(
-                    "Rusty XR OpenXR GLES rendered eye={} imageIndex={} texture={} viewport={}x{} fbo={:?} pattern={}",
+                    "Rusty XR OpenXR GLES rendered eye={} imageIndex={} texture={} viewport={}x{} fbo={:?} pattern={} sourceSequence={:?}",
                     eye.view_index,
                     image_index,
                     texture,
                     eye.width,
                     eye.height,
                     fbo_status,
-                    eye.pattern
+                    render_path,
+                    rendered_source_sequence
                 ));
             }
             eye.handle.release_image().map_err(|error| {
@@ -826,6 +958,143 @@ mod android {
         height: u32,
         view_index: usize,
         pattern: &'static str,
+    }
+
+    struct OesCopyRenderer {
+        program: u32,
+        vertex_buffer: u32,
+        sampler_location: c_int,
+    }
+
+    impl OesCopyRenderer {
+        fn new() -> Result<Self, String> {
+            let vertex_shader = compile_shader(
+                GL_VERTEX_SHADER,
+                r#"#version 300 es
+layout(location = 0) in vec2 a_position;
+layout(location = 1) in vec2 a_uv;
+out vec2 v_uv;
+void main() {
+    v_uv = a_uv;
+    gl_Position = vec4(a_position, 0.0, 1.0);
+}"#,
+            )?;
+            let fragment_shader = match compile_shader(
+                GL_FRAGMENT_SHADER,
+                r#"#version 300 es
+#extension GL_OES_EGL_image_external_essl3 : require
+precision mediump float;
+uniform samplerExternalOES u_source;
+in vec2 v_uv;
+out vec4 out_color;
+void main() {
+    out_color = texture(u_source, v_uv);
+}"#,
+            ) {
+                Ok(shader) => shader,
+                Err(error) => {
+                    delete_shader(vertex_shader);
+                    return Err(error);
+                }
+            };
+            let program = match link_program(vertex_shader, fragment_shader) {
+                Ok(program) => program,
+                Err(error) => {
+                    delete_shader(vertex_shader);
+                    delete_shader(fragment_shader);
+                    return Err(error);
+                }
+            };
+            delete_shader(vertex_shader);
+            delete_shader(fragment_shader);
+
+            let sampler_name =
+                CString::new("u_source").map_err(|error| format!("sampler CString: {error}"))?;
+            let sampler_location = unsafe { glGetUniformLocation(program, sampler_name.as_ptr()) };
+            if sampler_location < 0 {
+                unsafe {
+                    glDeleteProgram(program);
+                }
+                return Err("OES copy shader did not expose u_source uniform".to_string());
+            }
+
+            let vertices: [f32; 16] = [
+                -1.0, -1.0, 0.0, 0.0, //
+                1.0, -1.0, 1.0, 0.0, //
+                -1.0, 1.0, 0.0, 1.0, //
+                1.0, 1.0, 1.0, 1.0,
+            ];
+            let mut vertex_buffer = 0;
+            unsafe {
+                glGenBuffers(1, &mut vertex_buffer);
+                if vertex_buffer == 0 {
+                    glDeleteProgram(program);
+                    return Err("glGenBuffers returned 0 for OES copy quad".to_string());
+                }
+                glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+                glBufferData(
+                    GL_ARRAY_BUFFER,
+                    (vertices.len() * mem::size_of::<f32>()) as isize,
+                    vertices.as_ptr().cast(),
+                    GL_STATIC_DRAW,
+                );
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+            }
+
+            Ok(Self {
+                program,
+                vertex_buffer,
+                sampler_location,
+            })
+        }
+
+        fn render(&mut self, source_oes_texture: u32) -> Result<(), String> {
+            unsafe {
+                glUseProgram(self.program);
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_EXTERNAL_OES, source_oes_texture);
+                glUniform1i(self.sampler_location, 0);
+                glBindBuffer(GL_ARRAY_BUFFER, self.vertex_buffer);
+                let stride = (4 * mem::size_of::<f32>()) as c_int;
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(0, 2, GL_FLOAT, 0, stride, ptr::null());
+                glEnableVertexAttribArray(1);
+                glVertexAttribPointer(
+                    1,
+                    2,
+                    GL_FLOAT,
+                    0,
+                    stride,
+                    (2 * mem::size_of::<f32>()) as *const c_void,
+                );
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                glDisableVertexAttribArray(0);
+                glDisableVertexAttribArray(1);
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+                glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+                glUseProgram(0);
+                let error = glGetError();
+                if error != GL_NO_ERROR {
+                    return Err(format!(
+                        "OES full-surface draw returned GL error 0x{error:04x}"
+                    ));
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for OesCopyRenderer {
+        fn drop(&mut self) {
+            unsafe {
+                if self.vertex_buffer != 0 {
+                    glDeleteBuffers(1, &self.vertex_buffer);
+                }
+                if self.program != 0 {
+                    glDeleteProgram(self.program);
+                }
+            }
+        }
     }
 
     struct EglContext {
@@ -1051,6 +1320,39 @@ mod android {
                 );
                 glClear(GL_COLOR_BUFFER_BIT);
                 glDisable(GL_SCISSOR_TEST);
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                Ok(fbo_status)
+            }
+        }
+
+        fn render_external_oes(
+            &mut self,
+            target_texture: u32,
+            source_oes_texture: u32,
+            width: u32,
+            height: u32,
+            renderer: &mut OesCopyRenderer,
+        ) -> Result<GlFramebufferCompleteness, String> {
+            unsafe {
+                glBindFramebuffer(GL_FRAMEBUFFER, self.id);
+                glFramebufferTexture2D(
+                    GL_FRAMEBUFFER,
+                    GL_COLOR_ATTACHMENT0,
+                    GL_TEXTURE_2D,
+                    target_texture,
+                    0,
+                );
+                let raw_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+                let fbo_status = framebuffer_status(raw_status);
+                if !fbo_status.is_complete() {
+                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    return Ok(fbo_status);
+                }
+
+                glViewport(0, 0, width as c_int, height as c_int);
+                glClearColor(0.0, 0.0, 0.0, 1.0);
+                glClear(GL_COLOR_BUFFER_BIT);
+                renderer.render(source_oes_texture)?;
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 Ok(fbo_status)
             }
@@ -1331,6 +1633,15 @@ mod android {
             Ok((timestamp_ns, String::from("m44:not-sampled")))
         }
 
+        fn updated_eye_texture(&self, view_index: usize) -> Option<(u32, u64)> {
+            let eye = self.status.eyes.get(view_index)?;
+            if eye.update_tex_image_count == 0 || eye.decoder_error_count > 0 {
+                return None;
+            }
+            let texture = *self.textures.get(view_index)?;
+            Some((texture, eye.latest_stream_sequence.unwrap_or_default()))
+        }
+
         fn refresh_texture_update_rate(&mut self) {
             let elapsed = self.update_rate_start.elapsed().as_secs_f32();
             if elapsed <= 0.0 {
@@ -1586,6 +1897,151 @@ mod android {
                 glDeleteTextures(1, &texture);
             }
         }
+    }
+
+    fn compile_shader(shader_type: u32, source: &str) -> Result<u32, String> {
+        let source = CString::new(source).map_err(|error| format!("shader CString: {error}"))?;
+        unsafe {
+            let shader = glCreateShader(shader_type);
+            if shader == 0 {
+                return Err("glCreateShader returned 0".to_string());
+            }
+            let ptr = source.as_ptr();
+            glShaderSource(shader, 1, &ptr, ptr::null());
+            glCompileShader(shader);
+            let mut compiled = 0;
+            glGetShaderiv(shader, GL_COMPILE_STATUS, &mut compiled);
+            if compiled == 0 {
+                let info_log = shader_info_log(shader);
+                glDeleteShader(shader);
+                return Err(format!("OES copy shader compile failed: {info_log}"));
+            }
+            Ok(shader)
+        }
+    }
+
+    fn link_program(vertex_shader: u32, fragment_shader: u32) -> Result<u32, String> {
+        unsafe {
+            let program = glCreateProgram();
+            if program == 0 {
+                return Err("glCreateProgram returned 0".to_string());
+            }
+            glAttachShader(program, vertex_shader);
+            glAttachShader(program, fragment_shader);
+            glLinkProgram(program);
+            let mut linked = 0;
+            glGetProgramiv(program, GL_LINK_STATUS, &mut linked);
+            if linked == 0 {
+                let info_log = program_info_log(program);
+                glDeleteProgram(program);
+                return Err(format!("OES copy program link failed: {info_log}"));
+            }
+            Ok(program)
+        }
+    }
+
+    fn shader_info_log(shader: u32) -> String {
+        unsafe {
+            let mut length = 0;
+            glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &mut length);
+            if length <= 1 {
+                return String::from("no shader info log");
+            }
+            let mut buffer = vec![0_u8; length as usize];
+            glGetShaderInfoLog(
+                shader,
+                length,
+                ptr::null_mut(),
+                buffer.as_mut_ptr().cast::<c_char>(),
+            );
+            CStr::from_ptr(buffer.as_ptr().cast::<c_char>())
+                .to_string_lossy()
+                .into_owned()
+        }
+    }
+
+    fn program_info_log(program: u32) -> String {
+        unsafe {
+            let mut length = 0;
+            glGetProgramiv(program, GL_INFO_LOG_LENGTH, &mut length);
+            if length <= 1 {
+                return String::from("no program info log");
+            }
+            let mut buffer = vec![0_u8; length as usize];
+            glGetProgramInfoLog(
+                program,
+                length,
+                ptr::null_mut(),
+                buffer.as_mut_ptr().cast::<c_char>(),
+            );
+            CStr::from_ptr(buffer.as_ptr().cast::<c_char>())
+                .to_string_lossy()
+                .into_owned()
+        }
+    }
+
+    fn delete_shader(shader: u32) {
+        unsafe {
+            if shader != 0 {
+                glDeleteShader(shader);
+            }
+        }
+    }
+
+    fn log_projection_diagnostics(view_index: usize, frame_count: u64, source_sequence: u64) {
+        let Some(eye) = eye_from_view_index(view_index) else {
+            return;
+        };
+        let identity = identity_homography();
+        for stage in [
+            ProjectionStageKind::ScreenToSurface,
+            ProjectionStageKind::SurfaceToCamera,
+            ProjectionStageKind::ScreenToCamera,
+        ] {
+            let row = ProjectionStageTokenRow::new("rusty_xr_gl_oes", eye, stage)
+                .with_rows(identity)
+                .with_source(format!(
+                    "{OES_COPY_RENDER_PATH}:frame={frame_count}:source_sequence={source_sequence}"
+                ));
+            match serde_json::to_string(&row) {
+                Ok(json) => log_info(format!("Rusty XR OpenXR GLES projection stage row {json}")),
+                Err(error) => log_error(format!(
+                    "Rusty XR OpenXR GLES projection stage serialization failed: {error}"
+                )),
+            }
+        }
+
+        let footprint =
+            ProjectionFootprintSummary::new("rusty_xr_gl_oes", "public_raw_oes_full_surface")
+                .with_active_fraction(1.0)
+                .with_bbox_fraction([0.0, 0.0, 1.0, 1.0])
+                .with_row_span(ProjectionFootprintRowSpan::new(0.0, 1.0).with_span(0.0, 1.0))
+                .with_row_span(ProjectionFootprintRowSpan::new(0.5, 1.0).with_span(0.0, 1.0))
+                .with_row_span(ProjectionFootprintRowSpan::new(1.0, 1.0).with_span(0.0, 1.0))
+                .with_invalid_fill_policy(InvalidProjectionFillPolicy::Black)
+                .with_guide_domain(ProjectionGuideDomain::SubmittedSurface)
+                .with_explicit_valid_mask(true)
+                .with_note(format!(
+                    "Full-surface public raw OES copy into the OpenXR GLES swapchain at frame {frame_count}."
+                ));
+        match serde_json::to_string(&footprint) {
+            Ok(json) => log_info(format!("Rusty XR OpenXR GLES projection footprint {json}")),
+            Err(error) => log_error(format!(
+                "Rusty XR OpenXR GLES projection footprint serialization failed: {error}"
+            )),
+        }
+    }
+
+    fn eye_from_view_index(view_index: usize) -> Option<Eye> {
+        match view_index {
+            0 => Some(Eye::Left),
+            1 => Some(Eye::Right),
+            _ => None,
+        }
+    }
+
+    const fn identity_homography() -> [[f32; 3]; 3] {
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
     }
 
     fn framebuffer_status(raw: u32) -> GlFramebufferCompleteness {

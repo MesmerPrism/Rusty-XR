@@ -51,6 +51,9 @@ simple color maps, and final composites.
 The OpenGL lane does not make private visual stacks public. It should prove
 source-feed parity, decoded-texture parity, projection-stage parity, and
 pass-budget cost before downstream apps use it for product-specific effects.
+Cross-lane packet rows use the public
+`ProjectionPerformanceMatrixPacket` contract so renderer-specific artifacts can
+be summarized without copying shader behavior or native handles into Rusty XR.
 
 ## Pass Graph Shape
 

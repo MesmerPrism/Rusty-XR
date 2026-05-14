@@ -5,14 +5,18 @@ import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Build;
 import android.os.SystemClock;
+import android.util.Base64;
 import android.util.Log;
 import android.view.Surface;
 
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.EOFException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
@@ -20,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -32,6 +37,13 @@ public final class BrokerH264OesDecodeProbe {
     private static final int MAX_PACKET_BYTES = 1024 * 1024;
     private static final int MAX_STREAM_HEADER_METADATA_BYTES = 256 * 1024;
     private static final int DEQUEUE_TIMEOUT_US = 10000;
+    private static final int BROKER_COMMAND_PORT = 8765;
+    private static final int SYNTHETIC_WIDTH = 1280;
+    private static final int SYNTHETIC_HEIGHT = 1280;
+    private static final int SYNTHETIC_FPS = 30;
+    private static final int SYNTHETIC_BITRATE_BPS = 6000000;
+    private static final int SYNTHETIC_CAPTURE_MS = 45000;
+    private static final String SYNTHETIC_PATTERN = "diagnostic-grid";
 
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final EyeDecoder[] eyes;
@@ -87,6 +99,8 @@ public final class BrokerH264OesDecodeProbe {
             targetConnectTimeoutMs,
             targetDecodeTimeoutMs);
         BrokerH264OesDecodeProbe probe = new BrokerH264OesDecodeProbe(left, right);
+        prepareBrokerSyntheticStream(targetHost, "left", leftPort, targetMaxPackets);
+        prepareBrokerSyntheticStream(targetHost, "right", rightPort, targetMaxPackets);
         emitReport(probeReport("start", targetHost, leftPort, rightPort, targetMaxPackets));
         left.start(probe.running);
         right.start(probe.running);
@@ -131,6 +145,141 @@ public final class BrokerH264OesDecodeProbe {
         String reportJson = report.toString();
         Log.i(TAG, "Rusty XR broker H.264 OES decode report " + reportJson);
         nativeBrokerH264DecodeReport(reportJson);
+    }
+
+    private static void prepareBrokerSyntheticStream(
+        String host,
+        String label,
+        int streamPort,
+        int maxPackets) {
+        JSONObject report = new JSONObject();
+        try {
+            sendStartCommand(host, label, streamPort, maxPackets);
+            report.put("schema", REPORT_SCHEMA);
+            report.put("event", "broker_prepare");
+            report.put("label", label);
+            report.put("host", host);
+            report.put("broker_port", BROKER_COMMAND_PORT);
+            report.put("stream_port", streamPort);
+            report.put("width", SYNTHETIC_WIDTH);
+            report.put("height", SYNTHETIC_HEIGHT);
+            report.put("bitrate_bps", SYNTHETIC_BITRATE_BPS);
+            report.put("synthetic_pattern", SYNTHETIC_PATTERN);
+            report.put("max_packets", maxPackets);
+            report.put("accepted", true);
+        } catch (Throwable error) {
+            try {
+                report.put("schema", REPORT_SCHEMA);
+                report.put("event", "broker_prepare");
+                report.put("label", label);
+                report.put("host", host);
+                report.put("broker_port", BROKER_COMMAND_PORT);
+                report.put("stream_port", streamPort);
+                report.put("accepted", false);
+                report.put("error", error.toString());
+            } catch (Exception jsonError) {
+                Log.w(TAG, "Could not build broker prepare failure report", jsonError);
+            }
+            Log.w(TAG, "Broker synthetic H.264 prepare failed for " + label, error);
+        }
+        emitReport(report);
+    }
+
+    private static void sendStartCommand(
+        String host,
+        String label,
+        int streamPort,
+        int maxPackets) throws Exception {
+        Socket socket = new Socket();
+        try {
+            socket.connect(new InetSocketAddress(host, BROKER_COMMAND_PORT), 5000);
+            socket.setSoTimeout(5000);
+            InputStream input = socket.getInputStream();
+            OutputStream output = socket.getOutputStream();
+            byte[] nonce = ("rusty-xr-gles-h264-" + label + "-" + System.nanoTime())
+                .getBytes(StandardCharsets.US_ASCII);
+            String key = Base64.encodeToString(nonce, Base64.NO_WRAP);
+            String request =
+                "GET /rustyxr/v1/events HTTP/1.1\r\n" +
+                "Host: " + host + ":" + BROKER_COMMAND_PORT + "\r\n" +
+                "Upgrade: websocket\r\n" +
+                "Connection: Upgrade\r\n" +
+                "Sec-WebSocket-Version: 13\r\n" +
+                "Sec-WebSocket-Key: " + key + "\r\n" +
+                "\r\n";
+            output.write(request.getBytes(StandardCharsets.US_ASCII));
+            output.flush();
+            String status = readHttpLine(input);
+            if (status == null || !status.contains("101")) {
+                throw new IllegalStateException("Broker WebSocket upgrade failed: " + status);
+            }
+            while (true) {
+                String line = readHttpLine(input);
+                if (line == null || line.length() == 0) {
+                    break;
+                }
+            }
+
+            readWebSocketTextFrame(input);
+            sendMaskedTextFrame(output, startCommandJson(label, streamPort, maxPackets).toString());
+            long deadline = SystemClock.elapsedRealtimeNanos() + 5000L * 1_000_000L;
+            while (SystemClock.elapsedRealtimeNanos() < deadline) {
+                String text = readWebSocketTextFrame(input);
+                if (text == null || text.length() == 0) {
+                    continue;
+                }
+                JSONObject message = new JSONObject(text);
+                if ("command_ack".equals(message.optString("type", ""))) {
+                    if (!message.optBoolean("accepted", false)) {
+                        throw new IllegalStateException(
+                            "Broker rejected " + label + " stream: " +
+                                message.optString("message", ""));
+                    }
+                    Log.i(TAG, "Broker synthetic H.264 OES command accepted label=" +
+                        label + " port=" + streamPort);
+                    return;
+                }
+            }
+            throw new IllegalStateException("Timed out waiting for broker command ack: " + label);
+        } finally {
+            try {
+                socket.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private static JSONObject startCommandJson(
+        String label,
+        int streamPort,
+        int maxPackets) throws Exception {
+        JSONObject params = new JSONObject();
+        params.put("device_port", streamPort);
+        params.put("host_port", streamPort);
+        params.put("preferred_width", SYNTHETIC_WIDTH);
+        params.put("preferred_height", SYNTHETIC_HEIGHT);
+        params.put("capture_ms", SYNTHETIC_CAPTURE_MS);
+        params.put("max_packets", maxPackets);
+        params.put("bitrate_bps", SYNTHETIC_BITRATE_BPS);
+        params.put("live_stream", true);
+        params.put("source_mode", "synthetic_surface");
+        params.put("synthetic_pattern", SYNTHETIC_PATTERN);
+        params.put("accept_timeout_ms", 60000);
+        params.put("writer_queue_depth", 64);
+        params.put("camera_id", "synthetic-" + label);
+
+        JSONObject command = new JSONObject();
+        command.put("type", "command");
+        command.put("schema", "rusty.xr.broker.command.v1");
+        command.put(
+            "request_id",
+            "rusty-xr-gles-synthetic-h264-" + label + "-" + System.currentTimeMillis());
+        command.put("command", "media.start_synthetic_h264_stream");
+        command.put("client_id", "rusty-xr-gles-broker-synthetic-h264-" + label);
+        command.put("app_label", "Rusty XR GLES");
+        command.put("app_version", "public-opengl-openxr-video-stack");
+        command.put("params", params);
+        return command;
     }
 
     private static final class EyeDecoder implements Runnable, SurfaceTexture.OnFrameAvailableListener {
@@ -221,9 +370,7 @@ public final class BrokerH264OesDecodeProbe {
         }
 
         private void decodeStream(DecodeStats stats) throws Exception {
-            Socket activeSocket = new Socket();
-            socket = activeSocket;
-            activeSocket.connect(new InetSocketAddress(host, port), connectTimeoutMs);
+            Socket activeSocket = connectStreamSocket(stats);
             activeSocket.setSoTimeout(connectTimeoutMs);
             stats.connected = true;
             report("connected", stats, null);
@@ -370,6 +517,44 @@ public final class BrokerH264OesDecodeProbe {
             }
         }
 
+        private Socket connectStreamSocket(DecodeStats stats) throws Exception {
+            long deadlineNs = SystemClock.elapsedRealtimeNanos()
+                + Math.max(connectTimeoutMs, 30000) * 1_000_000L;
+            Throwable lastError = null;
+            while ((running == null || running.get())
+                && SystemClock.elapsedRealtimeNanos() < deadlineNs) {
+                Socket candidate = new Socket();
+                socket = candidate;
+                stats.connectAttemptCount++;
+                try {
+                    candidate.connect(
+                        new InetSocketAddress(host, port),
+                        Math.max(250, Math.min(connectTimeoutMs, 1000)));
+                    return candidate;
+                } catch (Throwable error) {
+                    lastError = error;
+                    try {
+                        candidate.close();
+                    } catch (Exception ignored) {
+                    }
+                    if (socket == candidate) {
+                        socket = null;
+                    }
+                    if (stats.connectAttemptCount == 1 || stats.connectAttemptCount % 10 == 0) {
+                        Log.i(TAG, "Waiting for broker H.264 stream listener label=" +
+                            label + " port=" + port +
+                            " attempts=" + stats.connectAttemptCount);
+                    }
+                    SystemClock.sleep(100L);
+                }
+            }
+            throw new IllegalStateException(
+                "Timed out waiting for broker H.264 stream listener label=" +
+                    label + " port=" + port +
+                    " attempts=" + stats.connectAttemptCount,
+                lastError);
+        }
+
         private NextPacket nextPacket(
             DataInputStream input,
             StreamHeader header,
@@ -505,6 +690,126 @@ public final class BrokerH264OesDecodeProbe {
         byte[] payload = new byte[size];
         input.readFully(payload);
         return new Packet(ptsUs, flags, sourceElapsedNs, sourceUnixNs, payload);
+    }
+
+    private static void sendMaskedTextFrame(OutputStream output, String text) throws Exception {
+        byte[] payload = text.getBytes(StandardCharsets.UTF_8);
+        output.write(0x81);
+        if (payload.length < 126) {
+            output.write(0x80 | payload.length);
+        } else if (payload.length <= 65535) {
+            output.write(0x80 | 126);
+            output.write((payload.length >>> 8) & 0xff);
+            output.write(payload.length & 0xff);
+        } else {
+            output.write(0x80 | 127);
+            long length = payload.length;
+            for (int i = 7; i >= 0; i--) {
+                output.write((int) ((length >>> (i * 8)) & 0xff));
+            }
+        }
+
+        byte[] mask = new byte[4];
+        new Random(System.nanoTime()).nextBytes(mask);
+        output.write(mask);
+        for (int i = 0; i < payload.length; i++) {
+            output.write(payload[i] ^ mask[i % 4]);
+        }
+        output.flush();
+    }
+
+    private static String readWebSocketTextFrame(InputStream input) throws Exception {
+        int first = input.read();
+        if (first < 0) {
+            return "";
+        }
+        int second = input.read();
+        if (second < 0) {
+            return "";
+        }
+
+        int opcode = first & 0x0f;
+        boolean masked = (second & 0x80) != 0;
+        long length = second & 0x7f;
+        if (length == 126) {
+            length = readUnsignedShort(input);
+        } else if (length == 127) {
+            length = readLong(input);
+        }
+        if (length < 0 || length > 1024 * 1024) {
+            throw new IllegalStateException("Broker WebSocket frame is too large.");
+        }
+
+        byte[] mask = null;
+        if (masked) {
+            mask = readExact(input, 4);
+        }
+        byte[] payload = readExact(input, (int) length);
+        if (mask != null) {
+            for (int i = 0; i < payload.length; i++) {
+                payload[i] = (byte) (payload[i] ^ mask[i % 4]);
+            }
+        }
+        return opcode == 1 ? new String(payload, StandardCharsets.UTF_8) : "";
+    }
+
+    private static String readHttpLine(InputStream input) throws Exception {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        int previous = -1;
+        while (true) {
+            int value = input.read();
+            if (value < 0) {
+                break;
+            }
+            if (previous == '\r' && value == '\n') {
+                break;
+            }
+            buffer.write(value);
+            previous = value;
+            if (buffer.size() > 8192) {
+                throw new IllegalStateException("HTTP line exceeded 8192 bytes.");
+            }
+        }
+        byte[] bytes = buffer.toByteArray();
+        int length = bytes.length;
+        if (length > 0 && bytes[length - 1] == '\r') {
+            length--;
+        }
+        return new String(bytes, 0, length, StandardCharsets.US_ASCII);
+    }
+
+    private static int readUnsignedShort(InputStream input) throws Exception {
+        int high = input.read();
+        int low = input.read();
+        if (high < 0 || low < 0) {
+            throw new IllegalStateException("Truncated unsigned short.");
+        }
+        return ((high & 0xff) << 8) | (low & 0xff);
+    }
+
+    private static long readLong(InputStream input) throws Exception {
+        long value = 0L;
+        for (int i = 0; i < 8; i++) {
+            int next = input.read();
+            if (next < 0) {
+                throw new IllegalStateException("Truncated long.");
+            }
+            value = (value << 8) | (next & 0xffL);
+        }
+        return value;
+    }
+
+    private static byte[] readExact(InputStream input, int length) throws Exception {
+        byte[] bytes = new byte[length];
+        int offset = 0;
+        while (offset < length) {
+            int read = input.read(bytes, offset, length - offset);
+            if (read < 0) {
+                throw new IllegalStateException("Truncated frame payload.");
+            }
+            offset += read;
+        }
+        return bytes;
     }
 
     private static void queuePacket(MediaCodec decoder, int inputIndex, Packet packet)
@@ -740,6 +1045,7 @@ public final class BrokerH264OesDecodeProbe {
         boolean streamEndedByEof;
         long decodeStartElapsedNs;
         long decodeEndElapsedNs;
+        int connectAttemptCount;
         int errorCount;
         String lastError = "";
 
@@ -791,6 +1097,7 @@ public final class BrokerH264OesDecodeProbe {
             report.put("stream_ended_by_eof", streamEndedByEof);
             report.put("decode_start_elapsed_ns", decodeStartElapsedNs);
             report.put("decode_end_elapsed_ns", decodeEndElapsedNs);
+            report.put("connect_attempt_count", connectAttemptCount);
             report.put("error_count", errorCount);
             if (lastError.length() > 0) {
                 report.put("last_error", lastError);

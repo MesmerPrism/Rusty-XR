@@ -27,6 +27,7 @@ pub mod interaction;
 pub mod layer;
 pub mod math;
 pub mod passthrough;
+pub mod projection_matrix;
 pub mod render;
 pub mod room;
 pub mod strobe;
@@ -86,6 +87,13 @@ pub use passthrough::{
     PassthroughMonoToMonoMap, PassthroughMonoToRgbaMap, PassthroughStyle, PlatformPassthroughLayer,
     PASSTHROUGH_COLOR_MAP_SIZE, XR_FB_PASSTHROUGH_EXTENSION, XR_FB_TRIANGLE_MESH_EXTENSION,
     XR_META_PASSTHROUGH_COLOR_LUT_EXTENSION,
+};
+pub use projection_matrix::{
+    InvalidProjectionFillPolicy, MatrixStepStatus, MatrixSyntheticVideoSource,
+    ProjectionFootprintRowSpan, ProjectionFootprintSummary, ProjectionGuideDomain,
+    ProjectionMatrixLaneKind, ProjectionMatrixLaneReport, ProjectionPerformanceMatrixPacket,
+    ProjectionPerformanceScorecard, ProjectionStageKind, ProjectionStageTokenRow,
+    PROJECTION_PERFORMANCE_MATRIX_SCHEMA,
 };
 pub use render::{
     ColorRgba, CounterSample, CounterValue, RenderCoordinateSpace, RenderPayload, RenderPoint,
