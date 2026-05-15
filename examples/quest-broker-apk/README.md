@@ -283,7 +283,10 @@ for stream framing, decoder, projection, and downstream processing tests before
 switching back to Camera2 input. Synthetic streams include head-anchored
 projection metadata with a deterministic estimated profile so projected
 receivers can render the diagnostic image through the same stereo projection
-path they use for camera-backed streams.
+path they use for camera-backed streams. `synthetic_side_marker` is an optional
+diagnostic overlay with values `none`, `left`, `right`, or `both`; it draws small
+colored corner markers after the base pattern so stereo receivers can visually
+check source-eye mapping without changing private downstream shader behavior.
 For LAN experiments, non-loopback H.264 payload binds are opt-in. Passing
 `lan_stream_enabled=true` allows `camera_provider.start_app_camera_h264_stream`
 to use a non-loopback `bind_host` such as `0.0.0.0`; `advertised_host` can
