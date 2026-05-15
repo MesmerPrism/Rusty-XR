@@ -384,6 +384,37 @@ def pick_last(items: list[dict[str, Any]]) -> dict[str, Any]:
     return items[-1] if items else {}
 
 
+def merge_consumer_reports(items: list[dict[str, Any]]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    if not items:
+        return merged
+    progress_count = 0
+    for item in items:
+        if item.get("event") == "progress":
+            progress_count += 1
+        for key, value in item.items():
+            if value is not None:
+                merged[key] = value
+    merged["consumer_report_count"] = len(items)
+    merged["consumer_progress_report_count"] = progress_count
+    merged["consumer_terminal_report_count"] = len(items) - progress_count
+    return merged
+
+
+def report_rate_from_total_duration(items: list[dict[str, Any]]) -> float | None:
+    durations = [
+        value
+        for item in items
+        if isinstance((value := item.get("total_duration_ns")), (int, float))
+    ]
+    if len(durations) < 2:
+        return None
+    window_ns = max(durations) - min(durations)
+    if window_ns <= 0:
+        return None
+    return (len(durations) - 1) * 1_000_000_000.0 / window_ns
+
+
 def pick_present(*values: Any) -> Any:
     for value in values:
         if value is not None:
@@ -552,7 +583,11 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         ],
     )))
 
-    consumer = pick_last(logcat["consumer_reports"])
+    consumer_reports = logcat["consumer_reports"]
+    consumer_progress_reports = [
+        report for report in consumer_reports if report.get("event") == "progress"
+    ]
+    consumer = merge_consumer_reports(consumer_reports)
     stereo_summary = pick_last(logcat["stereo_summaries"])
     direct_stereo_pair = pick_last(logcat["direct_stereo_pairs"])
     final_projection = pick_last(logcat["projection_statuses"])
@@ -611,6 +646,10 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "horizon_loading_complete_events": logcat["launch_state"].get("horizon_loading_complete_events"),
         "horizon_launch_blocked_events": logcat["launch_state"].get("horizon_launch_blocked_events"),
         "horizon_permission_dialog_events": logcat["launch_state"].get("horizon_permission_dialog_events"),
+        "consumer_report_count": len(consumer_reports),
+        "consumer_progress_report_count": len(consumer_progress_reports),
+        "consumer_terminal_report_count": len(consumer_reports) - len(consumer_progress_reports),
+        "consumer_progress_report_rate_hz": report_rate_from_total_duration(consumer_progress_reports),
         "source_mode": consumer.get("source_mode"),
         "live_decode_path": consumer.get("live_decode_path"),
         "live_stream_requested": consumer.get("live_stream_requested", stereo_summary.get("liveStream")),
