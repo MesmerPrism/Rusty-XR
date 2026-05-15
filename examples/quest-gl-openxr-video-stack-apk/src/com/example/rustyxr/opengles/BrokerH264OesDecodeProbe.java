@@ -1,5 +1,7 @@
 package com.example.rustyxr.opengles;
 
+import android.app.Activity;
+import android.content.Intent;
 import android.graphics.SurfaceTexture;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
@@ -44,6 +46,8 @@ public final class BrokerH264OesDecodeProbe {
     private static final int SYNTHETIC_BITRATE_BPS = 6000000;
     private static final int SYNTHETIC_CAPTURE_MS = 45000;
     private static final String SYNTHETIC_PATTERN = "diagnostic-grid";
+    private static final String SOURCE_MODE_BROKER_SYNTHETIC = "broker-synthetic";
+    private static final String SOURCE_MODE_BROKER_CAMERA = "broker-camera";
 
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final EyeDecoder[] eyes;
@@ -64,6 +68,7 @@ public final class BrokerH264OesDecodeProbe {
     }
 
     public static BrokerH264OesDecodeProbe start(
+        Activity activity,
         String host,
         int leftPort,
         int rightPort,
@@ -74,34 +79,38 @@ public final class BrokerH264OesDecodeProbe {
         int maxPackets,
         int connectTimeoutMs,
         int decodeTimeoutMs) {
-        String targetHost = normalizeHost(host);
-        int targetMaxPackets = Math.max(0, maxPackets);
-        int targetConnectTimeoutMs = connectTimeoutMs > 0 ? connectTimeoutMs : 5000;
-        int targetDecodeTimeoutMs = Math.max(0, decodeTimeoutMs);
+        Config config = Config.fromActivity(
+            activity,
+            host,
+            leftPort,
+            rightPort,
+            maxPackets,
+            connectTimeoutMs,
+            decodeTimeoutMs);
         EyeDecoder left = new EyeDecoder(
             0,
             "left",
-            targetHost,
-            leftPort,
+            config.host,
+            config.leftPort,
             leftSurface,
             leftSurfaceTexture,
-            targetMaxPackets,
-            targetConnectTimeoutMs,
-            targetDecodeTimeoutMs);
+            config.maxPackets,
+            config.connectTimeoutMs,
+            config.decodeTimeoutMs);
         EyeDecoder right = new EyeDecoder(
             1,
             "right",
-            targetHost,
-            rightPort,
+            config.host,
+            config.rightPort,
             rightSurface,
             rightSurfaceTexture,
-            targetMaxPackets,
-            targetConnectTimeoutMs,
-            targetDecodeTimeoutMs);
+            config.maxPackets,
+            config.connectTimeoutMs,
+            config.decodeTimeoutMs);
         BrokerH264OesDecodeProbe probe = new BrokerH264OesDecodeProbe(left, right);
-        prepareBrokerSyntheticStream(targetHost, "left", leftPort, targetMaxPackets);
-        prepareBrokerSyntheticStream(targetHost, "right", rightPort, targetMaxPackets);
-        emitReport(probeReport("start", targetHost, leftPort, rightPort, targetMaxPackets));
+        prepareBrokerStream(config, "left", config.leftPort, config.leftCameraId);
+        prepareBrokerStream(config, "right", config.rightPort, config.rightCameraId);
+        emitReport(probeReport("start", config));
         left.start(probe.running);
         right.start(probe.running);
         return probe;
@@ -121,20 +130,166 @@ public final class BrokerH264OesDecodeProbe {
         return host.trim();
     }
 
+    private static int clampInt(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static String normalizeSourceMode(String sourceMode) {
+        if (sourceMode == null) {
+            return SOURCE_MODE_BROKER_SYNTHETIC;
+        }
+        String normalized = sourceMode.trim().toLowerCase(Locale.US);
+        if ("synthetic".equals(normalized) || "synthetic_surface".equals(normalized)) {
+            return SOURCE_MODE_BROKER_SYNTHETIC;
+        }
+        if (SOURCE_MODE_BROKER_CAMERA.equals(normalized)) {
+            return SOURCE_MODE_BROKER_CAMERA;
+        }
+        return SOURCE_MODE_BROKER_SYNTHETIC;
+    }
+
+    private static String stringExtra(Activity activity, String key, String defaultValue) {
+        Intent intent = activity != null ? activity.getIntent() : null;
+        if (intent == null || !intent.hasExtra(key)) {
+            return defaultValue;
+        }
+        String value = intent.getStringExtra(key);
+        return value != null && value.length() > 0 ? value : defaultValue;
+    }
+
+    private static int intExtra(Activity activity, String key, int defaultValue) {
+        Intent intent = activity != null ? activity.getIntent() : null;
+        return intent != null && intent.hasExtra(key) ? intent.getIntExtra(key, defaultValue) : defaultValue;
+    }
+
+    private static boolean booleanExtra(Activity activity, String key, boolean defaultValue) {
+        Intent intent = activity != null ? activity.getIntent() : null;
+        return intent != null && intent.hasExtra(key)
+            ? intent.getBooleanExtra(key, defaultValue)
+            : defaultValue;
+    }
+
+    private static final class Config {
+        final String host;
+        final int brokerPort;
+        final int leftPort;
+        final int rightPort;
+        final int width;
+        final int height;
+        final int captureMs;
+        final int maxPackets;
+        final int bitrateBps;
+        final int frameRateHz;
+        final int connectTimeoutMs;
+        final int decodeTimeoutMs;
+        final boolean liveStream;
+        final String sourceMode;
+        final String syntheticPattern;
+        final String leftCameraId;
+        final String rightCameraId;
+
+        private Config(
+            String host,
+            int brokerPort,
+            int leftPort,
+            int rightPort,
+            int width,
+            int height,
+            int captureMs,
+            int maxPackets,
+            int bitrateBps,
+            int frameRateHz,
+            int connectTimeoutMs,
+            int decodeTimeoutMs,
+            boolean liveStream,
+            String sourceMode,
+            String syntheticPattern,
+            String leftCameraId,
+            String rightCameraId) {
+            this.host = normalizeHost(host);
+            this.brokerPort = Math.max(1, brokerPort);
+            this.leftPort = Math.max(1, leftPort);
+            this.rightPort = Math.max(1, rightPort);
+            this.width = Math.max(16, width);
+            this.height = Math.max(16, height);
+            this.captureMs = Math.max(0, captureMs);
+            this.maxPackets = Math.max(0, maxPackets);
+            this.bitrateBps = Math.max(100000, bitrateBps);
+            this.frameRateHz = clampInt(frameRateHz, 1, 120);
+            this.connectTimeoutMs = connectTimeoutMs > 0 ? connectTimeoutMs : 5000;
+            this.decodeTimeoutMs = Math.max(0, decodeTimeoutMs);
+            this.liveStream = liveStream;
+            this.sourceMode = normalizeSourceMode(sourceMode);
+            this.syntheticPattern =
+                syntheticPattern != null && syntheticPattern.length() > 0
+                    ? syntheticPattern
+                    : SYNTHETIC_PATTERN;
+            this.leftCameraId = leftCameraId != null && leftCameraId.length() > 0
+                ? leftCameraId
+                : "synthetic-left";
+            this.rightCameraId = rightCameraId != null && rightCameraId.length() > 0
+                ? rightCameraId
+                : "synthetic-right";
+        }
+
+        static Config fromActivity(
+            Activity activity,
+            String host,
+            int leftPort,
+            int rightPort,
+            int maxPackets,
+            int connectTimeoutMs,
+            int decodeTimeoutMs) {
+            String cameraId = stringExtra(activity, "rustyxr.brokerH264CameraId", "");
+            String leftCameraId = stringExtra(activity, "rustyxr.brokerH264LeftCameraId", cameraId);
+            String rightCameraId = stringExtra(activity, "rustyxr.brokerH264RightCameraId", "");
+            return new Config(
+                stringExtra(activity, "rustyxr.brokerHost", host),
+                intExtra(activity, "rustyxr.brokerPort", BROKER_COMMAND_PORT),
+                intExtra(activity, "rustyxr.brokerH264StreamPort", leftPort),
+                intExtra(activity, "rustyxr.brokerH264RightStreamPort", rightPort),
+                intExtra(activity, "rustyxr.brokerH264Width", SYNTHETIC_WIDTH),
+                intExtra(activity, "rustyxr.brokerH264Height", SYNTHETIC_HEIGHT),
+                intExtra(activity, "rustyxr.brokerH264CaptureMs", SYNTHETIC_CAPTURE_MS),
+                intExtra(activity, "rustyxr.brokerH264MaxPackets", maxPackets),
+                intExtra(activity, "rustyxr.brokerH264BitrateBps", SYNTHETIC_BITRATE_BPS),
+                intExtra(activity, "rustyxr.brokerH264FrameRateHz", SYNTHETIC_FPS),
+                intExtra(activity, "rustyxr.brokerH264CommandTimeoutMs", connectTimeoutMs),
+                intExtra(activity, "rustyxr.brokerH264DecodeTimeoutMs", decodeTimeoutMs),
+                booleanExtra(activity, "rustyxr.brokerH264LiveStream", true),
+                stringExtra(activity, "rustyxr.brokerH264SourceMode", SOURCE_MODE_BROKER_SYNTHETIC),
+                stringExtra(activity, "rustyxr.brokerH264SyntheticPattern", SYNTHETIC_PATTERN),
+                leftCameraId,
+                rightCameraId);
+        }
+
+        boolean startBrokerSyntheticStream() {
+            return SOURCE_MODE_BROKER_SYNTHETIC.equals(sourceMode);
+        }
+    }
+
     private static JSONObject probeReport(
         String event,
-        String host,
-        int leftPort,
-        int rightPort,
-        int maxPackets) {
+        Config config) {
         JSONObject report = new JSONObject();
         try {
             report.put("schema", REPORT_SCHEMA);
             report.put("event", event);
-            report.put("host", host);
-            report.put("left_port", leftPort);
-            report.put("right_port", rightPort);
-            report.put("max_packets", maxPackets);
+            report.put("host", config.host);
+            report.put("broker_port", config.brokerPort);
+            report.put("left_port", config.leftPort);
+            report.put("right_port", config.rightPort);
+            report.put("source_mode", config.sourceMode);
+            report.put("width", config.width);
+            report.put("height", config.height);
+            report.put("capture_ms", config.captureMs);
+            report.put("max_packets", config.maxPackets);
+            report.put("bitrate_bps", config.bitrateBps);
+            report.put("frame_rate_hz", config.frameRateHz);
+            report.put("live_stream", config.liveStream);
+            report.put("synthetic_pattern", config.syntheticPattern);
+            report.put("left_camera_id", config.leftCameraId);
+            report.put("right_camera_id", config.rightCameraId);
         } catch (Exception error) {
             Log.w(TAG, "Could not build broker H.264 OES probe report", error);
         }
@@ -147,53 +302,57 @@ public final class BrokerH264OesDecodeProbe {
         nativeBrokerH264DecodeReport(reportJson);
     }
 
-    private static void prepareBrokerSyntheticStream(
-        String host,
+    private static void prepareBrokerStream(
+        Config config,
         String label,
         int streamPort,
-        int maxPackets) {
+        String cameraId) {
         JSONObject report = new JSONObject();
         try {
-            sendStartCommand(host, label, streamPort, maxPackets);
+            sendStartCommand(config, label, streamPort, cameraId);
             report.put("schema", REPORT_SCHEMA);
             report.put("event", "broker_prepare");
             report.put("label", label);
-            report.put("host", host);
-            report.put("broker_port", BROKER_COMMAND_PORT);
+            report.put("host", config.host);
+            report.put("broker_port", config.brokerPort);
             report.put("stream_port", streamPort);
-            report.put("width", SYNTHETIC_WIDTH);
-            report.put("height", SYNTHETIC_HEIGHT);
-            report.put("bitrate_bps", SYNTHETIC_BITRATE_BPS);
-            report.put("synthetic_pattern", SYNTHETIC_PATTERN);
-            report.put("max_packets", maxPackets);
+            report.put("source_mode", config.sourceMode);
+            report.put("width", config.width);
+            report.put("height", config.height);
+            report.put("bitrate_bps", config.bitrateBps);
+            report.put("frame_rate_hz", config.frameRateHz);
+            report.put("synthetic_pattern", config.syntheticPattern);
+            report.put("camera_id", cameraId);
+            report.put("max_packets", config.maxPackets);
             report.put("accepted", true);
         } catch (Throwable error) {
             try {
                 report.put("schema", REPORT_SCHEMA);
                 report.put("event", "broker_prepare");
                 report.put("label", label);
-                report.put("host", host);
-                report.put("broker_port", BROKER_COMMAND_PORT);
+                report.put("host", config.host);
+                report.put("broker_port", config.brokerPort);
                 report.put("stream_port", streamPort);
+                report.put("source_mode", config.sourceMode);
                 report.put("accepted", false);
                 report.put("error", error.toString());
             } catch (Exception jsonError) {
                 Log.w(TAG, "Could not build broker prepare failure report", jsonError);
             }
-            Log.w(TAG, "Broker synthetic H.264 prepare failed for " + label, error);
+            Log.w(TAG, "Broker H.264 OES prepare failed for " + label, error);
         }
         emitReport(report);
     }
 
     private static void sendStartCommand(
-        String host,
+        Config config,
         String label,
         int streamPort,
-        int maxPackets) throws Exception {
+        String cameraId) throws Exception {
         Socket socket = new Socket();
         try {
-            socket.connect(new InetSocketAddress(host, BROKER_COMMAND_PORT), 5000);
-            socket.setSoTimeout(5000);
+            socket.connect(new InetSocketAddress(config.host, config.brokerPort), config.connectTimeoutMs);
+            socket.setSoTimeout(config.connectTimeoutMs);
             InputStream input = socket.getInputStream();
             OutputStream output = socket.getOutputStream();
             byte[] nonce = ("rusty-xr-gles-h264-" + label + "-" + System.nanoTime())
@@ -201,7 +360,7 @@ public final class BrokerH264OesDecodeProbe {
             String key = Base64.encodeToString(nonce, Base64.NO_WRAP);
             String request =
                 "GET /rustyxr/v1/events HTTP/1.1\r\n" +
-                "Host: " + host + ":" + BROKER_COMMAND_PORT + "\r\n" +
+                "Host: " + config.host + ":" + config.brokerPort + "\r\n" +
                 "Upgrade: websocket\r\n" +
                 "Connection: Upgrade\r\n" +
                 "Sec-WebSocket-Version: 13\r\n" +
@@ -221,8 +380,8 @@ public final class BrokerH264OesDecodeProbe {
             }
 
             readWebSocketTextFrame(input);
-            sendMaskedTextFrame(output, startCommandJson(label, streamPort, maxPackets).toString());
-            long deadline = SystemClock.elapsedRealtimeNanos() + 5000L * 1_000_000L;
+            sendMaskedTextFrame(output, startCommandJson(config, label, streamPort, cameraId).toString());
+            long deadline = SystemClock.elapsedRealtimeNanos() + config.connectTimeoutMs * 1_000_000L;
             while (SystemClock.elapsedRealtimeNanos() < deadline) {
                 String text = readWebSocketTextFrame(input);
                 if (text == null || text.length() == 0) {
@@ -235,8 +394,8 @@ public final class BrokerH264OesDecodeProbe {
                             "Broker rejected " + label + " stream: " +
                                 message.optString("message", ""));
                     }
-                    Log.i(TAG, "Broker synthetic H.264 OES command accepted label=" +
-                        label + " port=" + streamPort);
+                    Log.i(TAG, "Broker H.264 OES command accepted label=" +
+                        label + " sourceMode=" + config.sourceMode + " port=" + streamPort);
                     return;
                 }
             }
@@ -250,32 +409,40 @@ public final class BrokerH264OesDecodeProbe {
     }
 
     private static JSONObject startCommandJson(
+        Config config,
         String label,
         int streamPort,
-        int maxPackets) throws Exception {
+        String cameraId) throws Exception {
         JSONObject params = new JSONObject();
         params.put("device_port", streamPort);
         params.put("host_port", streamPort);
-        params.put("preferred_width", SYNTHETIC_WIDTH);
-        params.put("preferred_height", SYNTHETIC_HEIGHT);
-        params.put("capture_ms", SYNTHETIC_CAPTURE_MS);
-        params.put("max_packets", maxPackets);
-        params.put("bitrate_bps", SYNTHETIC_BITRATE_BPS);
-        params.put("live_stream", true);
-        params.put("source_mode", "synthetic_surface");
-        params.put("synthetic_pattern", SYNTHETIC_PATTERN);
+        params.put("preferred_width", config.width);
+        params.put("preferred_height", config.height);
+        params.put("capture_ms", config.captureMs);
+        params.put("max_packets", config.maxPackets);
+        params.put("bitrate_bps", config.bitrateBps);
+        params.put("frame_rate_hz", config.frameRateHz);
+        params.put("live_stream", config.liveStream);
+        if (config.startBrokerSyntheticStream()) {
+            params.put("source_mode", "synthetic_surface");
+            params.put("synthetic_pattern", config.syntheticPattern);
+        }
         params.put("accept_timeout_ms", 60000);
         params.put("writer_queue_depth", 64);
-        params.put("camera_id", "synthetic-" + label);
+        params.put("camera_id", cameraId);
 
         JSONObject command = new JSONObject();
         command.put("type", "command");
         command.put("schema", "rusty.xr.broker.command.v1");
         command.put(
             "request_id",
-            "rusty-xr-gles-synthetic-h264-" + label + "-" + System.currentTimeMillis());
-        command.put("command", "media.start_synthetic_h264_stream");
-        command.put("client_id", "rusty-xr-gles-broker-synthetic-h264-" + label);
+            "rusty-xr-gles-" + config.sourceMode + "-h264-" + label + "-" + System.currentTimeMillis());
+        command.put(
+            "command",
+            config.startBrokerSyntheticStream()
+                ? "media.start_synthetic_h264_stream"
+                : "camera_provider.start_app_camera_h264_stream");
+        command.put("client_id", "rusty-xr-gles-" + config.sourceMode + "-h264-" + label);
         command.put("app_label", "Rusty XR GLES");
         command.put("app_version", "public-opengl-openxr-video-stack");
         command.put("params", params);

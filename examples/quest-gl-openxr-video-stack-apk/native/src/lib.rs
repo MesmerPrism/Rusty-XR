@@ -2344,8 +2344,9 @@ void main() {
             .call_static_method(
                 &helper_class,
                 "start",
-                "(Ljava/lang/String;IILandroid/view/Surface;Landroid/view/Surface;Landroid/graphics/SurfaceTexture;Landroid/graphics/SurfaceTexture;III)Lcom/example/rustyxr/opengles/BrokerH264OesDecodeProbe;",
+                "(Landroid/app/Activity;Ljava/lang/String;IILandroid/view/Surface;Landroid/view/Surface;Landroid/graphics/SurfaceTexture;Landroid/graphics/SurfaceTexture;III)Lcom/example/rustyxr/opengles/BrokerH264OesDecodeProbe;",
                 &[
+                    JValue::Object(&activity),
                     JValue::Object(&host_object),
                     JValue::Int(BROKER_H264_LEFT_STREAM_PORT),
                     JValue::Int(BROKER_H264_RIGHT_STREAM_PORT),

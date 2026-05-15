@@ -25,6 +25,29 @@
         }
       ],
       "description": "Short OpenXR/GLES validation profile for frame-loop and static-grid checks."
+    },
+    {
+      "id": "gles-openxr-comparison-level-5",
+      "label": "GLES OpenXR comparison level 5",
+      "properties": [
+        {
+          "key": "debug.oculus.cpuLevel",
+          "value": "5"
+        },
+        {
+          "key": "debug.oculus.gpuLevel",
+          "value": "5"
+        },
+        {
+          "key": "debug.oculus.foveation.dynamic",
+          "value": "false"
+        },
+        {
+          "key": "debug.oculus.foveation.level",
+          "value": "0"
+        }
+      ],
+      "description": "Controlled Quest comparison profile for GL/OES camera-path parity checks."
     }
   ],
   "runtimeProfiles": [
@@ -38,6 +61,57 @@
         "rustyxr.diagnosticPattern": "left-right-static-grid"
       },
       "description": "Runs the OpenXR/GLES feasibility path with no camera, broker, decoder, or effect stack. The app creates SurfaceTexture/OES output surfaces but does not feed decoded frames yet."
+    },
+    {
+      "id": "gles-broker-synthetic-h264-oes-projection",
+      "label": "GLES broker synthetic H.264 OES projection",
+      "values": {
+        "rustyxr.example": "quest-gl-openxr-video-stack-apk",
+        "rustyxr.renderer": "opengles",
+        "rustyxr.videoSource": "broker-h264-oes",
+        "rustyxr.brokerH264SourceMode": "broker-synthetic",
+        "rustyxr.brokerH264SyntheticPattern": "diagnostic-grid",
+        "rustyxr.brokerHost": "127.0.0.1",
+        "rustyxr.brokerPort": "8765",
+        "rustyxr.brokerH264StreamPort": "8879",
+        "rustyxr.brokerH264RightStreamPort": "8880",
+        "rustyxr.brokerH264Width": "1280",
+        "rustyxr.brokerH264Height": "1280",
+        "rustyxr.brokerH264CaptureMs": "45000",
+        "rustyxr.brokerH264MaxPackets": "0",
+        "rustyxr.brokerH264BitrateBps": "6000000",
+        "rustyxr.brokerH264FrameRateHz": "50",
+        "rustyxr.brokerH264LiveStream": "true",
+        "rustyxr.brokerH264CommandTimeoutMs": "60000",
+        "rustyxr.brokerH264DecodeTimeoutMs": "0"
+      },
+      "description": "Runs broker synthetic H.264 through Android MediaCodec into SurfaceTexture/OES and renders the projected GL camera-space path."
+    },
+    {
+      "id": "gles-broker-camera-h264-oes-projection",
+      "label": "GLES broker camera H.264 OES projection",
+      "values": {
+        "rustyxr.example": "quest-gl-openxr-video-stack-apk",
+        "rustyxr.renderer": "opengles",
+        "rustyxr.videoSource": "broker-camera-h264-oes",
+        "rustyxr.brokerH264SourceMode": "broker-camera",
+        "rustyxr.brokerHost": "127.0.0.1",
+        "rustyxr.brokerPort": "8765",
+        "rustyxr.brokerH264StreamPort": "8879",
+        "rustyxr.brokerH264RightStreamPort": "8880",
+        "rustyxr.brokerH264LeftCameraId": "50",
+        "rustyxr.brokerH264RightCameraId": "51",
+        "rustyxr.brokerH264Width": "1280",
+        "rustyxr.brokerH264Height": "1280",
+        "rustyxr.brokerH264CaptureMs": "45000",
+        "rustyxr.brokerH264MaxPackets": "0",
+        "rustyxr.brokerH264BitrateBps": "6000000",
+        "rustyxr.brokerH264FrameRateHz": "50",
+        "rustyxr.brokerH264LiveStream": "true",
+        "rustyxr.brokerH264CommandTimeoutMs": "60000",
+        "rustyxr.brokerH264DecodeTimeoutMs": "0"
+      },
+      "description": "Runs broker Camera2 H.264 through Android MediaCodec into SurfaceTexture/OES and renders the projected GL camera-space path."
     }
   ]
 }
