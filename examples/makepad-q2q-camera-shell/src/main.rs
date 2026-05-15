@@ -54,11 +54,14 @@ const DEFAULT_BROKER_H264_STREAM_PORT: u16 = 8879;
 const DEFAULT_BROKER_H264_RIGHT_STREAM_PORT: u16 = 8880;
 const DEFAULT_BROKER_H264_SOURCE_MODE: &str = "broker-synthetic";
 const DEFAULT_BROKER_H264_SYNTHETIC_PATTERN: &str = "diagnostic-grid";
+const DEFAULT_BROKER_H264_LEFT_CAMERA_ID: &str = "";
+const DEFAULT_BROKER_H264_RIGHT_CAMERA_ID: &str = "";
 const DEFAULT_BROKER_H264_WIDTH: u32 = 1280;
 const DEFAULT_BROKER_H264_HEIGHT: u32 = 1280;
 const DEFAULT_BROKER_H264_CAPTURE_MS: u32 = 45_000;
 const DEFAULT_BROKER_H264_MAX_PACKETS: u32 = 0;
 const DEFAULT_BROKER_H264_BITRATE_BPS: u32 = 6_000_000;
+const DEFAULT_BROKER_H264_FRAME_RATE_HZ: u32 = 30;
 const DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS: u32 = 10_000;
 const DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS: u32 = 30_000;
 const DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS: u32 = 20_000;
@@ -89,7 +92,7 @@ const TARGET_PROJECTION_RAW_OVERSCAN: f32 = 1.06;
 const IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY: [[f32; 3]; 3] =
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
-const MAKEPAD_REV: &str = "99a7e643";
+const MAKEPAD_REV: &str = "e10a3530";
 const DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-right-source";
 const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
@@ -142,11 +145,14 @@ const KEY_MAKEPAD_BROKER_H264_STREAM_PORT: &str = "makepad_broker_h264_stream_po
 const KEY_MAKEPAD_BROKER_H264_RIGHT_STREAM_PORT: &str = "makepad_broker_h264_right_stream_port";
 const KEY_MAKEPAD_BROKER_H264_SOURCE_MODE: &str = "makepad_broker_h264_source_mode";
 const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN: &str = "makepad_broker_h264_synthetic_pattern";
+const KEY_MAKEPAD_BROKER_H264_LEFT_CAMERA_ID: &str = "makepad_broker_h264_left_camera_id";
+const KEY_MAKEPAD_BROKER_H264_RIGHT_CAMERA_ID: &str = "makepad_broker_h264_right_camera_id";
 const KEY_MAKEPAD_BROKER_H264_WIDTH: &str = "makepad_broker_h264_width";
 const KEY_MAKEPAD_BROKER_H264_HEIGHT: &str = "makepad_broker_h264_height";
 const KEY_MAKEPAD_BROKER_H264_CAPTURE_MS: &str = "makepad_broker_h264_capture_ms";
 const KEY_MAKEPAD_BROKER_H264_MAX_PACKETS: &str = "makepad_broker_h264_max_packets";
 const KEY_MAKEPAD_BROKER_H264_BITRATE_BPS: &str = "makepad_broker_h264_bitrate_bps";
+const KEY_MAKEPAD_BROKER_H264_FRAME_RATE_HZ: &str = "makepad_broker_h264_frame_rate_hz";
 const KEY_MAKEPAD_BROKER_H264_COMMAND_TIMEOUT_MS: &str = "makepad_broker_h264_command_timeout_ms";
 const KEY_MAKEPAD_BROKER_H264_STREAM_TIMEOUT_MS: &str = "makepad_broker_h264_stream_timeout_ms";
 const KEY_MAKEPAD_BROKER_H264_DECODE_TIMEOUT_MS: &str = "makepad_broker_h264_decode_timeout_ms";
@@ -2177,6 +2183,16 @@ impl App {
                 KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN,
                 DEFAULT_BROKER_H264_SYNTHETIC_PATTERN,
             ),
+            camera_id: match eye {
+                StereoEye::Left => hotload_text(
+                    KEY_MAKEPAD_BROKER_H264_LEFT_CAMERA_ID,
+                    DEFAULT_BROKER_H264_LEFT_CAMERA_ID,
+                ),
+                StereoEye::Right => hotload_text(
+                    KEY_MAKEPAD_BROKER_H264_RIGHT_CAMERA_ID,
+                    DEFAULT_BROKER_H264_RIGHT_CAMERA_ID,
+                ),
+            },
             preferred_width: hotload_u32(
                 KEY_MAKEPAD_BROKER_H264_WIDTH,
                 DEFAULT_BROKER_H264_WIDTH,
@@ -2206,6 +2222,12 @@ impl App {
                 DEFAULT_BROKER_H264_BITRATE_BPS,
                 100_000,
                 20_000_000,
+            ),
+            frame_rate_hz: hotload_u32(
+                KEY_MAKEPAD_BROKER_H264_FRAME_RATE_HZ,
+                DEFAULT_BROKER_H264_FRAME_RATE_HZ,
+                1,
+                120,
             ),
             command_timeout_ms: hotload_u32(
                 KEY_MAKEPAD_BROKER_H264_COMMAND_TIMEOUT_MS,
@@ -4118,13 +4140,29 @@ impl MakepadCameraPair {
         let height = source.preferred_height.max(1);
         let left = MakepadCameraChoice::broker_h264("left", width, height);
         let right = MakepadCameraChoice::broker_h264("right", width, height);
+        let source_mode = source
+            .source_mode
+            .trim()
+            .to_ascii_lowercase()
+            .replace('_', "-");
+        let source_binding_mode = match source_mode.as_str() {
+            "broker-camera" | "camera" | "camera2" => "broker-h264-camera-stereo-stream",
+            "existing-stream" | "existing" | "remote" | "proxied" | "proxy" | "proxy-stream"
+            | "incoming" | "incoming-stream" => "broker-h264-existing-stereo-stream",
+            _ => "broker-h264-synthetic-stereo-stream",
+        };
+        let pose_source = match source_binding_mode {
+            "broker-h264-camera-stereo-stream" => "broker-camera-h264-stream-header-pending",
+            "broker-h264-existing-stereo-stream" => "broker-existing-h264-stream-header-pending",
+            _ => "broker-synthetic-h264-stream-header-pending",
+        };
         Self {
             left,
             right,
             projection_metadata_ready: false,
-            pose_source: "broker-synthetic-h264-stream-header-pending".to_string(),
+            pose_source: pose_source.to_string(),
             source_eye_mapping: "left-right".to_string(),
-            source_binding_mode: "broker-h264-synthetic-stereo-stream".to_string(),
+            source_binding_mode: source_binding_mode.to_string(),
             coordinate_chain: "broker-h264-delivered-stereo-images-to-shader-surface".to_string(),
             fallback_reason: "waiting_for_broker_h264_stream_header".to_string(),
             left_surface_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,

@@ -20,16 +20,20 @@ param(
     [switch]$SkipDirectXrFallback,
     [switch]$PreferDirectVrActivity,
     [switch]$UseBrokerH264Synthetic,
+    [switch]$UseBrokerH264Camera,
     [string]$BrokerH264Host = "127.0.0.1",
     [int]$BrokerH264BrokerPort = 8765,
     [int]$BrokerH264LeftStreamPort = 8879,
     [int]$BrokerH264RightStreamPort = 8880,
     [string]$BrokerH264SyntheticPattern = "diagnostic-grid",
+    [string]$BrokerH264LeftCameraId = "",
+    [string]$BrokerH264RightCameraId = "",
     [int]$BrokerH264Width = 1280,
     [int]$BrokerH264Height = 1280,
     [int]$BrokerH264CaptureMs = 45000,
     [int]$BrokerH264MaxPackets = 0,
     [int]$BrokerH264BitrateBps = 6000000,
+    [int]$BrokerH264FrameRateHz = 50,
     [int]$BrokerH264StreamTimeoutMs = 60000,
     [int]$BrokerH264DecodeTimeoutMs = 20000
 )
@@ -75,24 +79,31 @@ function Grant-RuntimePermissions {
     }
 }
 
-function Set-MakepadBrokerH264SyntheticProfile {
-    if (-not $UseBrokerH264Synthetic) {
+function Set-MakepadBrokerH264Profile {
+    if ($UseBrokerH264Synthetic -and $UseBrokerH264Camera) {
+        throw "Use only one broker H.264 source switch: -UseBrokerH264Synthetic or -UseBrokerH264Camera."
+    }
+    if (-not ($UseBrokerH264Synthetic -or $UseBrokerH264Camera)) {
         return
     }
 
+    $sourceMode = if ($UseBrokerH264Camera) { "broker-camera" } else { "broker-synthetic" }
     $props = [ordered]@{
         "debug.rustyxr.makepad.broker.h264.enabled" = "true"
         "debug.rustyxr.makepad.broker.h264.host" = $BrokerH264Host
         "debug.rustyxr.makepad.broker.h264.broker.port" = $BrokerH264BrokerPort
         "debug.rustyxr.makepad.broker.h264.stream.port" = $BrokerH264LeftStreamPort
         "debug.rustyxr.makepad.broker.h264.right.stream.port" = $BrokerH264RightStreamPort
-        "debug.rustyxr.makepad.broker.h264.source.mode" = "broker-synthetic"
+        "debug.rustyxr.makepad.broker.h264.source.mode" = $sourceMode
         "debug.rustyxr.makepad.broker.h264.synthetic.pattern" = $BrokerH264SyntheticPattern
+        "debug.rustyxr.makepad.broker.h264.left.camera.id" = $BrokerH264LeftCameraId
+        "debug.rustyxr.makepad.broker.h264.right.camera.id" = $BrokerH264RightCameraId
         "debug.rustyxr.makepad.broker.h264.width" = $BrokerH264Width
         "debug.rustyxr.makepad.broker.h264.height" = $BrokerH264Height
         "debug.rustyxr.makepad.broker.h264.capture.ms" = $BrokerH264CaptureMs
         "debug.rustyxr.makepad.broker.h264.max.packets" = $BrokerH264MaxPackets
         "debug.rustyxr.makepad.broker.h264.bitrate.bps" = $BrokerH264BitrateBps
+        "debug.rustyxr.makepad.broker.h264.frame.rate.hz" = $BrokerH264FrameRateHz
         "debug.rustyxr.makepad.broker.h264.stream.timeout.ms" = $BrokerH264StreamTimeoutMs
         "debug.rustyxr.makepad.broker.h264.decode.timeout.ms" = $BrokerH264DecodeTimeoutMs
         "debug.rustyxr.makepad.broker.h264.live.stream" = "true"
@@ -111,7 +122,12 @@ function Set-MakepadBrokerH264SyntheticProfile {
         }
     }
     $readback | ConvertTo-Json -Depth 3 |
-        Set-Content -Path (Join-Path $OutDir "broker-h264-synthetic-props.json") -Encoding UTF8
+        Set-Content -Path (Join-Path $OutDir "broker-h264-props.json") -Encoding UTF8
+
+    if ($UseBrokerH264Synthetic) {
+        $readback | ConvertTo-Json -Depth 3 |
+            Set-Content -Path (Join-Path $OutDir "broker-h264-synthetic-props.json") -Encoding UTF8
+    }
 }
 
 function Install-Apk {
@@ -369,7 +385,7 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Invoke-Adb -Arguments @("devices") | Set-Content -Path (Join-Path $OutDir "adb-devices.txt") -Encoding UTF8
 Install-Apk
 Grant-RuntimePermissions
-Set-MakepadBrokerH264SyntheticProfile
+Set-MakepadBrokerH264Profile
 Save-Adb -Arguments @("shell", "dumpsys", "power") -Path (Join-Path $OutDir "power-before-launch.txt")
 Save-Adb -Arguments @("shell", "getprop") -Path (Join-Path $OutDir "getprop-before-launch.txt")
 
@@ -412,6 +428,11 @@ $summary = [ordered]@{
     apk = $Apk
     preferDirectVrActivity = [bool]$PreferDirectVrActivity
     useBrokerH264Synthetic = [bool]$UseBrokerH264Synthetic
+    useBrokerH264Camera = [bool]$UseBrokerH264Camera
+    brokerH264SourceMode = if ($UseBrokerH264Camera) { "broker-camera" } elseif ($UseBrokerH264Synthetic) { "broker-synthetic" } else { "disabled" }
+    brokerH264FrameRateHz = $BrokerH264FrameRateHz
+    brokerH264LeftCameraId = $BrokerH264LeftCameraId
+    brokerH264RightCameraId = $BrokerH264RightCameraId
     launchReady = [bool]$readyAttempt
     recoveredBy = if ($readyAttempt) { $readyAttempt.label } else { "none" }
     attempts = $attempts

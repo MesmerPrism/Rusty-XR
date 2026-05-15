@@ -46,8 +46,9 @@ scope is limited to:
   broker-managed left/right streams through the same command and `RXYRVID1`
   framing as the non-Makepad broker examples. The Quest Vulkan/XR path can hand
   decoded MediaCodec output to Makepad as CPU-YUV planes when no GL external
-  texture handle exists; zero-copy surface texture transport remains a separate
-  performance target.
+  texture handle exists; broker-camera requests can carry a camera ID and source
+  frame-rate target, while zero-copy surface texture transport remains a
+  separate performance target.
 - A video-source metadata event so public examples can consume broker
   stream-header projection metadata before deriving homography-stage rows.
 - A small `xr_view_id()` shader builtin that exposes Makepad's existing XR

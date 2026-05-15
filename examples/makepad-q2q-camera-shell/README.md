@@ -230,8 +230,9 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\too
   -PreferDirectVrActivity
 ```
 
-For broker-synthetic H.264 parity, start the broker first, then let the guarded
-device gate set the Makepad runtime properties before launch:
+For broker H.264 parity, start the broker first, then let the guarded device
+gate set the Makepad runtime properties before launch. Use broker-synthetic for
+deterministic source/projection checks:
 
 ```powershell
 adb -s <quest-serial> shell am start -n <broker-package>/<broker-activity>
@@ -247,14 +248,33 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\too
   -UseBrokerH264Synthetic
 ```
 
-The default broker-synthetic gate uses `127.0.0.1:8765`, left/right stream
-ports `8879` / `8880`, `diagnostic-grid`, `1280x1280`, 6 Mbps, and a
-live-bounded 45-second stream with `max_packets=0`. The Makepad path consumes
-broker stream-header projection metadata, derives `surface_to_camera`,
-`screen_to_surface`, and `screen_to_camera` rows from the current OpenXR view
-state, and reports decoded CPU-YUV texture cadence. Treat this as deterministic
-source/projection-stage parity for diagnostics; zero-copy texture performance
-still needs its own run.
+Use broker-camera for a physical Camera2 -> H.264 -> MediaCodec CPU-YUV run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+  -Serial <quest-serial> `
+  -Apk <fresh-makepad-apk> `
+  -PackageName <public-example-package> `
+  -LauncherActivity <generated-launcher-activity> `
+  -XrActivity <generated-xr-activity> `
+  -OutDir <ignored-artifact-dir> `
+  -PreferDirectVrActivity `
+  -UseBrokerH264Camera `
+  -BrokerH264LeftCameraId 50 `
+  -BrokerH264RightCameraId 51 `
+  -BrokerH264FrameRateHz 50
+```
+
+The default broker-H.264 gate uses `127.0.0.1:8765`, left/right stream ports
+`8879` / `8880`, `1280x1280`, 6 Mbps, and a live-bounded 45-second stream with
+`max_packets=0`. The synthetic profile also sets `diagnostic-grid`. The
+broker-camera profile forwards requested left/right camera IDs and source FPS
+to the public broker command. The Makepad path consumes broker stream-header
+projection metadata, derives `surface_to_camera`, `screen_to_surface`, and
+`screen_to_camera` rows from the current OpenXR view state, and reports decoded
+CPU-YUV texture cadence. Treat this as deterministic source/projection-stage
+or physical-camera transport parity for diagnostics; zero-copy texture
+performance still needs its own run.
 
 For this lane, `max_packets=0` is intentional: it requests the broker's
 live/unbounded stream. If a run reports one packet per eye, the decoder may not
