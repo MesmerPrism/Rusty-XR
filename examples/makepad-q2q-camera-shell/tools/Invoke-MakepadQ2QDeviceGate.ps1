@@ -64,6 +64,19 @@ function Activity-Component {
     return "$PackageName/$Activity"
 }
 
+function Parse-DoubleInvariant {
+    param([string]$Value)
+    $parsed = 0.0
+    if ([double]::TryParse(
+            $Value,
+            [System.Globalization.NumberStyles]::Float,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [ref]$parsed)) {
+        return $parsed
+    }
+    return 0.0
+}
+
 function Grant-RuntimePermissions {
     $permissions = @(
         "android.permission.CAMERA",
@@ -190,6 +203,43 @@ function Capture-LaunchState {
     $brokerH264YuvTexturesReadyCount = @($log | Select-String -SimpleMatch "textureMode=cpu-yuv-decoded-broker-h264").Count
     $brokerH264TextureUpdateCount = @($log | Select-String -Pattern "phase=texture-updated status=ok.*cpuUploadPath=broker-h264-mediacodec-cpu-yuv").Count
     $brokerH264DecodeErrorCount = @($log | Select-String -Pattern "event=decode-error|Broker H[.]264 playback failed").Count
+    $brokerH264ProgressLines = @($log | Select-String -SimpleMatch "Broker H.264 playback progress" | ForEach-Object { $_.Line })
+    $brokerH264ProgressCount = @($brokerH264ProgressLines).Count
+    $brokerH264CompleteProgressCount = @($brokerH264ProgressLines | Select-String -SimpleMatch "phase=complete").Count
+    $brokerH264PacketsReadMax = 0
+    $brokerH264InputQueuedMax = 0
+    $brokerH264DecodedFrameMax = 0
+    $brokerH264YuvFrameEmitMax = 0
+    $brokerH264PacketReadRateHzMax = 0.0
+    $brokerH264InputQueueRateHzMax = 0.0
+    $brokerH264DecodedFrameRateHzMax = 0.0
+    $brokerH264YuvFrameEmitRateHzMax = 0.0
+    foreach ($line in $brokerH264ProgressLines) {
+        if ($line -match "packetsRead=(\d+)") {
+            $brokerH264PacketsReadMax = [Math]::Max($brokerH264PacketsReadMax, [int]$Matches[1])
+        }
+        if ($line -match "inputQueuedCount=(\d+)") {
+            $brokerH264InputQueuedMax = [Math]::Max($brokerH264InputQueuedMax, [int]$Matches[1])
+        }
+        if ($line -match "decodedFrameCount=(\d+)") {
+            $brokerH264DecodedFrameMax = [Math]::Max($brokerH264DecodedFrameMax, [int]$Matches[1])
+        }
+        if ($line -match "yuvFrameEmitCount=(\d+)") {
+            $brokerH264YuvFrameEmitMax = [Math]::Max($brokerH264YuvFrameEmitMax, [int]$Matches[1])
+        }
+        if ($line -match "packetReadRateHz=([0-9.]+)") {
+            $brokerH264PacketReadRateHzMax = [Math]::Max($brokerH264PacketReadRateHzMax, (Parse-DoubleInvariant $Matches[1]))
+        }
+        if ($line -match "inputQueueRateHz=([0-9.]+)") {
+            $brokerH264InputQueueRateHzMax = [Math]::Max($brokerH264InputQueueRateHzMax, (Parse-DoubleInvariant $Matches[1]))
+        }
+        if ($line -match "decodedFrameRateHz=([0-9.]+)") {
+            $brokerH264DecodedFrameRateHzMax = [Math]::Max($brokerH264DecodedFrameRateHzMax, (Parse-DoubleInvariant $Matches[1]))
+        }
+        if ($line -match "yuvFrameEmitRateHz=([0-9.]+)") {
+            $brokerH264YuvFrameEmitRateHzMax = [Math]::Max($brokerH264YuvFrameEmitRateHzMax, (Parse-DoubleInvariant $Matches[1]))
+        }
+    }
     $pairedCameraFrameCadenceCount = @($log | Select-String -SimpleMatch "pairedLeftRightCameraFrames=true").Count
     $alignedProjectionCadenceCount = @($log | Select-String -SimpleMatch "alignedProjection=true").Count
     $leftTextureUpdateMax = 0
@@ -288,6 +338,16 @@ function Capture-LaunchState {
         brokerH264YuvTexturesReadyMarkerCount = $brokerH264YuvTexturesReadyCount
         brokerH264TextureUpdateMarkerCount = $brokerH264TextureUpdateCount
         brokerH264DecodeErrorMarkerCount = $brokerH264DecodeErrorCount
+        brokerH264ProgressMarkerCount = $brokerH264ProgressCount
+        brokerH264CompleteProgressMarkerCount = $brokerH264CompleteProgressCount
+        brokerH264PacketsReadMax = $brokerH264PacketsReadMax
+        brokerH264InputQueuedMax = $brokerH264InputQueuedMax
+        brokerH264DecodedFrameMax = $brokerH264DecodedFrameMax
+        brokerH264YuvFrameEmitMax = $brokerH264YuvFrameEmitMax
+        brokerH264PacketReadRateHzMax = $brokerH264PacketReadRateHzMax
+        brokerH264InputQueueRateHzMax = $brokerH264InputQueueRateHzMax
+        brokerH264DecodedFrameRateHzMax = $brokerH264DecodedFrameRateHzMax
+        brokerH264YuvFrameEmitRateHzMax = $brokerH264YuvFrameEmitRateHzMax
         brokerH264DecodedTextureReady = [bool]($brokerH264PreparedCount -gt 0 -and $brokerH264TextureUpdateCount -gt 0 -and $brokerH264DecodeErrorCount -eq 0)
         brokerH264LeftTextureUpdateMax = $leftTextureUpdateMax
         brokerH264RightTextureUpdateMax = $rightTextureUpdateMax
