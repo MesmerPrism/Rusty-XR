@@ -112,6 +112,21 @@
         "rustyxr.brokerH264DecodeTimeoutMs": "0"
       },
       "description": "Runs broker Camera2 H.264 through Android MediaCodec into SurfaceTexture/OES and renders the projected GL camera-space path."
+    },
+    {
+      "id": "gles-direct-camera2-oes-projection",
+      "label": "GLES direct Camera2 OES projection",
+      "values": {
+        "rustyxr.example": "quest-gl-openxr-video-stack-apk",
+        "rustyxr.renderer": "opengles",
+        "rustyxr.videoSource": "direct-camera2-oes",
+        "rustyxr.directCamera2OesLeftCameraId": "50",
+        "rustyxr.directCamera2OesRightCameraId": "51",
+        "rustyxr.directCamera2OesWidth": "1280",
+        "rustyxr.directCamera2OesHeight": "1280",
+        "rustyxr.directCamera2OesFrameRateHz": "50"
+      },
+      "description": "Runs Camera2 directly inside the GLES APK into per-eye SurfaceTexture/OES surfaces and renders the projected GL camera-space path."
     }
   ]
 }

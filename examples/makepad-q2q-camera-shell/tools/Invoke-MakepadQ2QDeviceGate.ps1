@@ -214,6 +214,8 @@ function Capture-LaunchState {
     $brokerH264InputQueueRateHzMax = 0.0
     $brokerH264DecodedFrameRateHzMax = 0.0
     $brokerH264YuvFrameEmitRateHzMax = 0.0
+    $brokerH264YuvCopyTimeMsMax = 0
+    $brokerH264YuvCopyAvgMsMax = 0.0
     foreach ($line in $brokerH264ProgressLines) {
         if ($line -match "packetsRead=(\d+)") {
             $brokerH264PacketsReadMax = [Math]::Max($brokerH264PacketsReadMax, [int]$Matches[1])
@@ -226,6 +228,12 @@ function Capture-LaunchState {
         }
         if ($line -match "yuvFrameEmitCount=(\d+)") {
             $brokerH264YuvFrameEmitMax = [Math]::Max($brokerH264YuvFrameEmitMax, [int]$Matches[1])
+        }
+        if ($line -match "yuvCopyTimeMs=(\d+)") {
+            $brokerH264YuvCopyTimeMsMax = [Math]::Max($brokerH264YuvCopyTimeMsMax, [int]$Matches[1])
+        }
+        if ($line -match "yuvCopyAvgMs=([0-9.]+)") {
+            $brokerH264YuvCopyAvgMsMax = [Math]::Max($brokerH264YuvCopyAvgMsMax, (Parse-DoubleInvariant $Matches[1]))
         }
         if ($line -match "packetReadRateHz=([0-9.]+)") {
             $brokerH264PacketReadRateHzMax = [Math]::Max($brokerH264PacketReadRateHzMax, (Parse-DoubleInvariant $Matches[1]))
@@ -344,6 +352,8 @@ function Capture-LaunchState {
         brokerH264InputQueuedMax = $brokerH264InputQueuedMax
         brokerH264DecodedFrameMax = $brokerH264DecodedFrameMax
         brokerH264YuvFrameEmitMax = $brokerH264YuvFrameEmitMax
+        brokerH264YuvCopyTimeMsMax = $brokerH264YuvCopyTimeMsMax
+        brokerH264YuvCopyAvgMsMax = $brokerH264YuvCopyAvgMsMax
         brokerH264PacketReadRateHzMax = $brokerH264PacketReadRateHzMax
         brokerH264InputQueueRateHzMax = $brokerH264InputQueueRateHzMax
         brokerH264DecodedFrameRateHzMax = $brokerH264DecodedFrameRateHzMax

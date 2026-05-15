@@ -29,9 +29,12 @@ mod android {
     use openxr as xr;
     use openxr::sys::Handle as _;
     use rusty_xr_camera_model::{
-        head_anchored_preview_surface_corners, invert_homography, screen_to_camera_uv_homography,
-        surface_to_camera_uv_homography, surface_to_eye_screen_uv_homography, CameraBasis,
-        CameraIntrinsics, ImageSize, Quat, TrackingBasis, Vec2, Vec3,
+        camera2_lens_pose_to_extrinsics,
+        camera_basis_from_camera2_reference_pose_relative_to_center,
+        head_anchored_preview_surface_corners, invert_homography, scale_intrinsics_to_image,
+        screen_to_camera_uv_homography, surface_to_camera_uv_homography,
+        surface_to_eye_screen_uv_homography, CameraBasis, CameraExtrinsics, CameraIntrinsics,
+        ImageSize, Quat, TrackingBasis, Vec2, Vec3,
     };
     use rusty_xr_contracts::{
         Eye, InvalidProjectionFillPolicy, ProjectionFootprintRowSpan, ProjectionFootprintSummary,
@@ -107,6 +110,7 @@ mod android {
     const DEFAULT_OES_SURFACE_HEIGHT: i32 = 1280;
     const OES_COPY_RENDER_PATH: &str = "broker-h264-oes-full-surface-copy";
     const OES_PROJECTED_RENDER_PATH: &str = "broker-h264-oes-projected-camera-uv";
+    const DIRECT_CAMERA2_OES_SOURCE: &str = "app.camera2_oes_surface_texture";
     const PROJECTION_TARGET_DEPTH_METERS: f32 = 0.75;
     const PROJECTION_PREVIEW_FOV_Y_DEGREES: f32 = 60.0;
     const PROJECTION_RAW_OVERSCAN: f32 = 1.06;
@@ -1533,6 +1537,38 @@ void main() {
         projection_metadata: [Option<OesProjectionMetadata>; VIEW_COUNT],
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum OesInputSourceKind {
+        None,
+        BrokerH264,
+        DirectCamera2,
+    }
+
+    impl OesInputSourceKind {
+        fn from_label(label: Option<&str>) -> Self {
+            let normalized = label.unwrap_or("").trim().to_ascii_lowercase();
+            if normalized == "none" || normalized == "static" {
+                Self::None
+            } else if normalized.contains("direct")
+                || normalized.contains("camera2-oes")
+                || normalized.contains("camera-oes")
+            {
+                Self::DirectCamera2
+            } else {
+                Self::BrokerH264
+            }
+        }
+
+        fn stream_label(self, view_index: usize) -> String {
+            let eye_name = if view_index == 0 { "left" } else { "right" };
+            match self {
+                Self::None => format!("static-grid:{eye_name}"),
+                Self::BrokerH264 => format!("broker-h264-oes:{eye_name}"),
+                Self::DirectCamera2 => format!("direct-camera2-oes:{eye_name}"),
+            }
+        }
+    }
+
     struct OesEyeTextureSample {
         texture: u32,
         source_sequence: u64,
@@ -1552,6 +1588,8 @@ void main() {
         projection_metadata_ready: bool,
         delivered_width: u32,
         delivered_height: u32,
+        intrinsics: Option<CameraIntrinsics>,
+        extrinsics: Option<CameraExtrinsics>,
     }
 
     impl OesProjectionMetadata {
@@ -1590,6 +1628,8 @@ void main() {
                 .unwrap_or(false);
             let delivered_width = json_u32(object.get("deliveredWidth")).unwrap_or(0);
             let delivered_height = json_u32(object.get("deliveredHeight")).unwrap_or(0);
+            let intrinsics = parse_camera_intrinsics(object, delivered_width, delivered_height);
+            let extrinsics = parse_camera2_extrinsics(object);
             Ok(Self {
                 camera_id,
                 source,
@@ -1599,11 +1639,21 @@ void main() {
                 projection_metadata_ready,
                 delivered_width,
                 delivered_height,
+                intrinsics,
+                extrinsics,
             })
         }
 
         fn is_synthetic(&self) -> bool {
             self.source == "broker_app.synthetic_h264_stream"
+        }
+
+        fn has_camera2_projection(&self) -> bool {
+            self.projection_metadata_ready
+                && self.intrinsics.is_some()
+                && self.extrinsics.is_some()
+                && self.delivered_width > 0
+                && self.delivered_height > 0
         }
     }
 
@@ -1611,6 +1661,73 @@ void main() {
         value
             .and_then(serde_json::Value::as_u64)
             .and_then(|value| u32::try_from(value).ok())
+    }
+
+    fn json_f32(value: Option<&serde_json::Value>) -> Option<f32> {
+        let value = value.and_then(serde_json::Value::as_f64)? as f32;
+        value.is_finite().then_some(value)
+    }
+
+    fn json_object_size(value: Option<&serde_json::Value>) -> Option<ImageSize> {
+        let object = value?.as_object()?;
+        let width = json_u32(object.get("width"))?;
+        let height = json_u32(object.get("height"))?;
+        ImageSize::new(width, height)
+            .is_non_empty()
+            .then_some(ImageSize::new(width, height))
+    }
+
+    fn parse_camera_intrinsics(
+        object: &serde_json::Map<String, serde_json::Value>,
+        delivered_width: u32,
+        delivered_height: u32,
+    ) -> Option<CameraIntrinsics> {
+        let intrinsics = object.get("intrinsics")?.as_object()?;
+        let source_size = json_object_size(object.get("intrinsicsDomain"))
+            .or_else(|| json_object_size(object.get("activeArrayDomain")))
+            .or_else(|| json_object_size(object.get("sensorPixelDomain")))
+            .or_else(|| {
+                ImageSize::new(delivered_width, delivered_height)
+                    .is_non_empty()
+                    .then_some(ImageSize::new(delivered_width, delivered_height))
+            })?;
+        let target_size = ImageSize::new(delivered_width, delivered_height);
+        if !target_size.is_non_empty() {
+            return None;
+        }
+        let source_intrinsics = CameraIntrinsics::new(
+            Vec2::new(
+                json_f32(intrinsics.get("fx"))?,
+                json_f32(intrinsics.get("fy"))?,
+            ),
+            Vec2::new(
+                json_f32(intrinsics.get("cx"))?,
+                json_f32(intrinsics.get("cy"))?,
+            ),
+            source_size,
+        )
+        .with_skew_px(json_f32(intrinsics.get("skew")).unwrap_or(0.0));
+        scale_intrinsics_to_image(source_intrinsics, source_size, target_size).ok()
+    }
+
+    fn parse_camera2_extrinsics(
+        object: &serde_json::Map<String, serde_json::Value>,
+    ) -> Option<CameraExtrinsics> {
+        let extrinsics = object.get("extrinsics")?.as_object()?;
+        camera2_lens_pose_to_extrinsics(
+            [
+                json_f32(extrinsics.get("px"))?,
+                json_f32(extrinsics.get("py"))?,
+                json_f32(extrinsics.get("pz"))?,
+            ],
+            [
+                json_f32(extrinsics.get("qx"))?,
+                json_f32(extrinsics.get("qy"))?,
+                json_f32(extrinsics.get("qz"))?,
+                json_f32(extrinsics.get("qw"))?,
+            ],
+        )
+        .ok()
     }
 
     #[derive(Clone, Debug)]
@@ -1645,11 +1762,26 @@ void main() {
             oes_decode_callbacks().reset();
             let java_vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }
                 .map_err(|error| format!("wrap Android JavaVM: {error}"))?;
+            let source_kind = {
+                let mut env = java_vm.attach_current_thread().map_err(|error| {
+                    format!("attach JNI thread for OES source selection: {error}")
+                })?;
+                let activity = unsafe {
+                    JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+                };
+                OesInputSourceKind::from_label(
+                    activity_string_extra(&mut env, &activity, "rustyxr.videoSource").as_deref(),
+                )
+            };
             let mut textures = Vec::with_capacity(VIEW_COUNT);
             let mut status = SurfaceTextureOesIngestStatus::new();
-            status.codec_mime = Some(String::from("video/avc"));
+            status.codec_mime = match source_kind {
+                OesInputSourceKind::BrokerH264 => Some(String::from("video/avc")),
+                OesInputSourceKind::DirectCamera2 => Some(String::from("camera2/surface-texture")),
+                OesInputSourceKind::None => None,
+            };
             status.notes.push(String::from(
-                "Created SurfaceTexture-backed output surfaces for broker H.264 MediaCodec decode; updateTexImage runs on the native GL render thread.",
+                "Created SurfaceTexture-backed output surfaces; updateTexImage runs on the native GL render thread.",
             ));
 
             let (surface_textures, output_surfaces) = {
@@ -1720,7 +1852,7 @@ void main() {
                     let eye_name = if view_index == 0 { "left" } else { "right" };
                     let mut eye = SurfaceTextureOesEyeStatus::for_stream(
                         view_index as u32,
-                        format!("public-synthetic:{eye_name}"),
+                        source_kind.stream_label(view_index),
                         eye_name,
                     )
                     .mark_surface_ready();
@@ -1733,42 +1865,77 @@ void main() {
             };
 
             let decode_probe = {
-                let mut env = java_vm.attach_current_thread().map_err(|error| {
-                    format!("attach JNI thread for broker H.264 OES decode start: {error}")
-                })?;
-                match start_broker_h264_oes_decode_probe(
-                    &mut env,
-                    app,
-                    &output_surfaces,
-                    &surface_textures,
-                ) {
-                    Ok(probe) => {
-                        for eye in &mut status.eyes {
-                            eye.decoder_configured = true;
-                            eye.decoder_started = true;
-                        }
-                        status.state = SurfaceTextureOesIngestState::DecoderStarted;
-                        status.notes.push(format!(
-                            "Started broker-compatible RXYRVID1 H.264 decode threads host={} leftPort={} rightPort={}.",
-                            BROKER_H264_DEFAULT_HOST,
-                            BROKER_H264_LEFT_STREAM_PORT,
-                            BROKER_H264_RIGHT_STREAM_PORT
-                        ));
-                        Some(probe)
-                    }
-                    Err(error) => {
+                let mut env = java_vm
+                    .attach_current_thread()
+                    .map_err(|error| format!("attach JNI thread for OES source start: {error}"))?;
+                match source_kind {
+                    OesInputSourceKind::None => {
                         status.state = SurfaceTextureOesIngestState::OutputSurfaceReady;
-                        status
-                            .issue_codes
-                            .push(String::from("broker_h264_oes_decode_start_failed"));
-                        status.notes.push(error);
+                        status.notes.push(String::from(
+                            "No OES video source requested; rendering static GLES grids.",
+                        ));
                         None
+                    }
+                    OesInputSourceKind::BrokerH264 => {
+                        match start_broker_h264_oes_decode_probe(
+                            &mut env,
+                            app,
+                            &output_surfaces,
+                            &surface_textures,
+                        ) {
+                            Ok(probe) => {
+                                for eye in &mut status.eyes {
+                                    eye.decoder_configured = true;
+                                    eye.decoder_started = true;
+                                }
+                                status.state = SurfaceTextureOesIngestState::DecoderStarted;
+                                status.notes.push(format!(
+                                    "Started broker-compatible RXYRVID1 H.264 decode threads host={} leftPort={} rightPort={}.",
+                                    BROKER_H264_DEFAULT_HOST,
+                                    BROKER_H264_LEFT_STREAM_PORT,
+                                    BROKER_H264_RIGHT_STREAM_PORT
+                                ));
+                                Some(probe)
+                            }
+                            Err(error) => {
+                                status.state = SurfaceTextureOesIngestState::OutputSurfaceReady;
+                                status
+                                    .issue_codes
+                                    .push(String::from("broker_h264_oes_decode_start_failed"));
+                                status.notes.push(error);
+                                None
+                            }
+                        }
+                    }
+                    OesInputSourceKind::DirectCamera2 => {
+                        match start_direct_camera2_oes_probe(
+                            &mut env,
+                            app,
+                            &output_surfaces,
+                            &surface_textures,
+                        ) {
+                            Ok(probe) => {
+                                status.state = SurfaceTextureOesIngestState::OutputSurfaceReady;
+                                status.notes.push(String::from(
+                                    "Started direct Camera2 capture into SurfaceTexture/OES output surfaces.",
+                                ));
+                                Some(probe)
+                            }
+                            Err(error) => {
+                                status.state = SurfaceTextureOesIngestState::OutputSurfaceReady;
+                                status
+                                    .issue_codes
+                                    .push(String::from("direct_camera2_oes_start_failed"));
+                                status.notes.push(error);
+                                None
+                            }
+                        }
                     }
                 }
             };
 
             log_info(format!(
-                "Rusty XR SurfaceTexture OES output surfaces ready eyes={} size={}x{} decoderStarted={}",
+                "Rusty XR SurfaceTexture OES output surfaces ready eyes={} size={}x{} sourceStarted={}",
                 status.eyes.len(),
                 DEFAULT_OES_SURFACE_WIDTH,
                 DEFAULT_OES_SURFACE_HEIGHT,
@@ -1919,12 +2086,16 @@ void main() {
                 || !right.projection_metadata_ready
                 || width == 0
                 || height == 0
-                || !left.is_synthetic()
-                || !right.is_synthetic()
             {
                 return None;
             }
-            broker_synthetic_projection_plan_from_xr_views(left, right, width, height, views)
+            if left.is_synthetic() && right.is_synthetic() {
+                broker_synthetic_projection_plan_from_xr_views(left, right, width, height, views)
+            } else if left.has_camera2_projection() && right.has_camera2_projection() {
+                camera2_projection_plan_from_xr_views(left, right, width, height, views)
+            } else {
+                None
+            }
         }
 
         fn refresh_texture_update_rate(&mut self) {
@@ -2131,13 +2302,113 @@ void main() {
         })
     }
 
+    fn camera2_projection_plan_from_xr_views(
+        left_metadata: &OesProjectionMetadata,
+        right_metadata: &OesProjectionMetadata,
+        width: u32,
+        height: u32,
+        views: &[xr::View],
+    ) -> Option<OesProjectionPlan> {
+        let left_view = views.first()?;
+        let right_view = views.get(1)?;
+        let tracking = tracking_basis_from_xr_views(left_view, right_view)?;
+        let aspect = fov_aspect(left_view).unwrap_or(PROJECTION_SOURCE_ASPECT);
+        let surface = head_anchored_preview_surface_corners(
+            tracking,
+            PROJECTION_PREVIEW_FOV_Y_DEGREES,
+            PROJECTION_TARGET_DEPTH_METERS,
+            aspect,
+            PROJECTION_RAW_OVERSCAN,
+        )
+        .ok()?;
+        let left_extrinsics = left_metadata.extrinsics?;
+        let right_extrinsics = right_metadata.extrinsics?;
+        let reference_center = (left_extrinsics.world_from_camera.position
+            + right_extrinsics.world_from_camera.position)
+            * 0.5;
+        let left_basis = camera_basis_from_camera2_reference_pose_relative_to_center(
+            tracking,
+            left_extrinsics,
+            reference_center,
+        )
+        .ok()?;
+        let right_basis = camera_basis_from_camera2_reference_pose_relative_to_center(
+            tracking,
+            right_extrinsics,
+            reference_center,
+        )
+        .ok()?;
+        let left_intrinsics = left_metadata.intrinsics?;
+        let right_intrinsics = right_metadata.intrinsics?;
+        let left_surface_to_camera =
+            surface_to_camera_uv_homography(surface, left_basis, left_intrinsics).ok()?;
+        let right_surface_to_camera =
+            surface_to_camera_uv_homography(surface, right_basis, right_intrinsics).ok()?;
+        let left_eye_basis = eye_basis_from_xr_view(left_view)?;
+        let right_eye_basis = eye_basis_from_xr_view(right_view)?;
+        let left_surface_to_screen = surface_to_eye_screen_uv_homography(
+            surface,
+            left_eye_basis,
+            left_view.fov.angle_left.tan(),
+            left_view.fov.angle_right.tan(),
+            left_view.fov.angle_down.tan(),
+            left_view.fov.angle_up.tan(),
+        )
+        .ok()?;
+        let right_surface_to_screen = surface_to_eye_screen_uv_homography(
+            surface,
+            right_eye_basis,
+            right_view.fov.angle_left.tan(),
+            right_view.fov.angle_right.tan(),
+            right_view.fov.angle_down.tan(),
+            right_view.fov.angle_up.tan(),
+        )
+        .ok()?;
+        let left_screen_to_surface_h = invert_homography(left_surface_to_screen)?;
+        let right_screen_to_surface_h = invert_homography(right_surface_to_screen)?;
+        let left_screen_to_camera_h =
+            screen_to_camera_uv_homography(left_surface_to_screen, left_surface_to_camera).ok()?;
+        let right_screen_to_camera_h =
+            screen_to_camera_uv_homography(right_surface_to_screen, right_surface_to_camera)
+                .ok()?;
+        let left_source_label = projection_source_label(left_metadata, width, height);
+        let right_source_label = projection_source_label(right_metadata, width, height);
+
+        Some(OesProjectionPlan {
+            left: OesEyeProjection {
+                eye: Eye::Left,
+                screen_to_surface_h: left_screen_to_surface_h,
+                surface_to_camera_h: left_surface_to_camera,
+                screen_to_camera_h: left_screen_to_camera_h,
+                source_label: left_source_label,
+                source_eye: "left".to_string(),
+            },
+            right: OesEyeProjection {
+                eye: Eye::Right,
+                screen_to_surface_h: right_screen_to_surface_h,
+                surface_to_camera_h: right_surface_to_camera,
+                screen_to_camera_h: right_screen_to_camera_h,
+                source_label: right_source_label,
+                source_eye: "right".to_string(),
+            },
+        })
+    }
+
     fn projection_source_label(
         metadata: &OesProjectionMetadata,
         width: u32,
         height: u32,
     ) -> String {
+        let metadata_label = if metadata.is_synthetic() {
+            "broker_stream_header"
+        } else if metadata.source == DIRECT_CAMERA2_OES_SOURCE {
+            "direct_camera2_characteristics"
+        } else {
+            "camera2_stream_header"
+        };
         format!(
-            "{OES_PROJECTED_RENDER_PATH}:metadata=broker_stream_header:source={}:camera_id={}:pose_source={}:coordinate_convention={}:pattern={}:size={}x{}",
+            "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:pattern={}:size={}x{}",
+            metadata_label,
             metadata.source,
             metadata.camera_id,
             metadata.pose_source,
@@ -2373,6 +2644,101 @@ void main() {
         })
     }
 
+    fn start_direct_camera2_oes_probe(
+        env: &mut JNIEnv<'_>,
+        app: &android_activity::AndroidApp,
+        output_surfaces: &[GlobalRef],
+        surface_textures: &[GlobalRef],
+    ) -> Result<GlobalRef, String> {
+        if output_surfaces.len() < VIEW_COUNT || surface_textures.len() < VIEW_COUNT {
+            return Err(format!(
+                "direct Camera2 OES probe requires {VIEW_COUNT} output surfaces and SurfaceTextures"
+            ));
+        }
+        let class_name = env
+            .new_string("com.example.rustyxr.opengles.DirectCamera2OesProbe")
+            .map_err(|error| {
+                jni_error(env, "create direct Camera2 OES helper class string", error)
+            })?;
+        let class_name_object = JObject::from(class_name);
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        let class_loader = env
+            .call_method(
+                &activity,
+                "getClassLoader",
+                "()Ljava/lang/ClassLoader;",
+                &[],
+            )
+            .and_then(|value| value.l())
+            .map_err(|error| jni_error(env, "read Activity class loader", error))?;
+        let helper_class_object = env
+            .call_method(
+                &class_loader,
+                "loadClass",
+                "(Ljava/lang/String;)Ljava/lang/Class;",
+                &[JValue::Object(&class_name_object)],
+            )
+            .and_then(|value| value.l())
+            .map_err(|error| jni_error(env, "load direct Camera2 OES helper class", error))?;
+        let helper_class = JClass::from(helper_class_object);
+        let probe = env
+            .call_static_method(
+                &helper_class,
+                "start",
+                "(Landroid/app/Activity;Landroid/view/Surface;Landroid/view/Surface;Landroid/graphics/SurfaceTexture;Landroid/graphics/SurfaceTexture;III)Lcom/example/rustyxr/opengles/DirectCamera2OesProbe;",
+                &[
+                    JValue::Object(&activity),
+                    JValue::Object(output_surfaces[0].as_obj()),
+                    JValue::Object(output_surfaces[1].as_obj()),
+                    JValue::Object(surface_textures[0].as_obj()),
+                    JValue::Object(surface_textures[1].as_obj()),
+                    JValue::Int(DEFAULT_OES_SURFACE_WIDTH),
+                    JValue::Int(DEFAULT_OES_SURFACE_HEIGHT),
+                    JValue::Int(50),
+                ],
+            )
+            .and_then(|value| value.l())
+            .map_err(|error| jni_error(env, "start Java direct Camera2 OES probe", error))?;
+        if probe.is_null() {
+            return Err("Java direct Camera2 OES probe returned null".to_string());
+        }
+        env.new_global_ref(&probe)
+            .map_err(|error| jni_error(env, "promote direct Camera2 OES probe reference", error))
+    }
+
+    fn activity_string_extra(
+        env: &mut JNIEnv<'_>,
+        activity: &JObject<'_>,
+        key: &str,
+    ) -> Option<String> {
+        let intent = env
+            .call_method(activity, "getIntent", "()Landroid/content/Intent;", &[])
+            .and_then(|value| value.l())
+            .ok()?;
+        if intent.is_null() {
+            return None;
+        }
+        let key = env.new_string(key).ok()?;
+        let key_object = JObject::from(key);
+        let value = env
+            .call_method(
+                &intent,
+                "getStringExtra",
+                "(Ljava/lang/String;)Ljava/lang/String;",
+                &[JValue::Object(&key_object)],
+            )
+            .and_then(|value| value.l())
+            .ok()?;
+        if value.is_null() {
+            return None;
+        }
+        env.get_string(&JString::from(value))
+            .map(|value| value.to_string_lossy().into_owned())
+            .ok()
+    }
+
     fn jni_error(env: &mut JNIEnv<'_>, context: &str, error: impl std::fmt::Display) -> String {
         if env.exception_check().unwrap_or(false) {
             let _ = env.exception_describe();
@@ -2409,6 +2775,37 @@ void main() {
             .map(|value| value.to_string_lossy().into_owned())
             .unwrap_or_else(|_| "{\"event\":\"invalidJniString\"}".to_string());
         log_info(format!("Rusty XR broker H.264 OES decode report {report}"));
+        oes_decode_callbacks().record_report(report);
+    }
+
+    #[allow(non_snake_case)]
+    #[no_mangle]
+    pub extern "system" fn Java_com_example_rustyxr_opengles_DirectCamera2OesProbe_nativeDirectCamera2OesFrameAvailable(
+        _env: JNIEnv<'_>,
+        _class: JClass<'_>,
+        view_index: jint,
+        sequence: jlong,
+        queued_pts_us: jlong,
+    ) {
+        let Ok(view_index) = usize::try_from(view_index) else {
+            return;
+        };
+        let sequence = u64::try_from(sequence).unwrap_or(0);
+        oes_decode_callbacks().mark_frame_available(view_index, sequence, queued_pts_us);
+    }
+
+    #[allow(non_snake_case)]
+    #[no_mangle]
+    pub extern "system" fn Java_com_example_rustyxr_opengles_DirectCamera2OesProbe_nativeDirectCamera2OesReport(
+        mut env: JNIEnv<'_>,
+        _class: JClass<'_>,
+        report_json: JString<'_>,
+    ) {
+        let report = env
+            .get_string(&report_json)
+            .map(|value| value.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| "{\"event\":\"invalidJniString\"}".to_string());
+        log_info(format!("Rusty XR direct Camera2 OES report {report}"));
         oes_decode_callbacks().record_report(report);
     }
 

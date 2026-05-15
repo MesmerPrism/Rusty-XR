@@ -19,13 +19,15 @@ Current scope:
 - use launch extras to choose broker synthetic or broker Camera2 H.264 input,
   source fps, ports, resolution, bitrate, capture duration, packet limit, and
   per-eye camera IDs;
+- optionally open Camera2 directly inside the APK and route per-eye preview
+  output to the same `SurfaceTexture`/OES render path;
 - log `OpenXrGlesFeasibilityStatus` and `SurfaceTextureOesIngestStatus` JSON.
 
-It intentionally does not open Camera2 directly and it does not include effect
-passes yet. Its physical camera path is broker Camera2 -> H.264 ->
-SurfaceTexture/OES. If no broker-compatible streams are listening on the
-selected ports, the app still renders the static OpenXR/GLES grids and logs the
-decode connection failure in the SurfaceTexture/OES ingest diagnostics.
+It does not include effect passes yet. Its physical camera paths are direct
+Camera2 -> SurfaceTexture/OES and broker Camera2 -> H.264 ->
+SurfaceTexture/OES. If no selected source can start, the app still renders the
+static OpenXR/GLES grids and logs the source failure in the SurfaceTexture/OES
+ingest diagnostics.
 
 The manifest declares optional hand-tracking launch eligibility so a hands-only
 headset setup can enter the app without a controller-required launch gate. This
@@ -86,6 +88,10 @@ The catalog exposes these GL/OES camera-path profiles:
 - `gles-broker-camera-h264-oes-projection`: requests broker Camera2 H.264 from
   camera IDs 50/51, 1280x1280, 6 Mbps, requested 50 fps, ports 8879/8880, and
   `max_packets=0`.
+- `gles-direct-camera2-oes-projection`: opens Camera2 camera IDs 50/51 inside
+  the APK, routes preview output directly to per-eye `SurfaceTexture`/OES
+  surfaces, requests 1280x1280 and 50 fps, and renders the projected GL
+  camera-space path.
 
 The GL/OES APK reads the same public broker H.264 launch extras used by the
 composite-layer example where they apply:
@@ -112,5 +118,18 @@ rustyxr.brokerH264DecodeTimeoutMs
 
 Use `rustyxr.brokerH264SourceMode=broker-synthetic` for deterministic source
 parity and `rustyxr.brokerH264SourceMode=broker-camera` for physical camera
-checks. Direct Camera2/OES is intentionally bracketed as a separate future
-architecture rather than part of this example's current camera path.
+checks.
+
+The direct Camera2/OES path reads these launch extras:
+
+```text
+rustyxr.directCamera2OesCameraId
+rustyxr.directCamera2OesLeftCameraId
+rustyxr.directCamera2OesRightCameraId
+rustyxr.directCamera2OesWidth
+rustyxr.directCamera2OesHeight
+rustyxr.directCamera2OesFrameRateHz
+```
+
+Direct Camera2/OES requires camera permissions to be granted before launch.
+The profile does not change headset power, proximity, or stay-awake state.
