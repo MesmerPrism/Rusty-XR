@@ -6,6 +6,7 @@ import android.graphics.SurfaceTexture;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.Base64;
 import android.util.Log;
@@ -153,8 +154,16 @@ public final class BrokerH264OesDecodeProbe {
         if (intent == null || !intent.hasExtra(key)) {
             return defaultValue;
         }
-        String value = intent.getStringExtra(key);
-        return value != null && value.length() > 0 ? value : defaultValue;
+        Bundle extras = intent.getExtras();
+        if (extras == null || !extras.containsKey(key)) {
+            return defaultValue;
+        }
+        Object value = extras.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        String text = String.valueOf(value);
+        return text.length() > 0 ? text : defaultValue;
     }
 
     private static int intExtra(Activity activity, String key, int defaultValue) {
