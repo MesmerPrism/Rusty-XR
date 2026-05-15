@@ -103,6 +103,38 @@ MCP should expose read-only status and planning tools first. Side-effecting MCP
 calls should return a blocked plan unless the local operator shell has already
 granted that operation family.
 
+## Camera Readiness Signals
+
+Camera acquisition runs need a stricter readiness gate than ordinary app
+launches. Display-on, wakefulness, headset-mounted, ADB reachability, and a
+foreground OpenXR app are necessary context, but they do not by themselves prove
+that Camera2/PCA frames will flow. Recent Quest validation showed a state where
+the screen and app launch path were usable while raw camera delivery did not
+recover until the operator brought the headset fully back through the normal
+system power-menu path.
+
+Public diagnostics should therefore separate these signals:
+
+- `display_ready`: screen/wakefulness/headset-mounted state.
+- `app_launch_ready`: ADB or provider can foreground the target app.
+- `broker_ready`: broker status and clock endpoints are reachable.
+- `tracking_ready`: operator or provider evidence shows normal hand/controller
+  tracking is active.
+- `camera_ready`: Camera2/PCA frame counters advance and visible ROIs or an
+  operator witness confirm live camera content.
+
+Provider tools should preserve power, stay-awake, and proximity state by
+default. `hzdb device proximity`, `configure-testing`, `adb shell svc power
+stayon`, sensor-lock overrides, and automatic restore commands are
+`DeviceSetting` operations: require explicit run intent and log the previous and
+final states. A camera run that needs such a change should say so up front; a
+run that only needs observation should use passive readback.
+
+When camera readiness is uncertain, start with a direct Camera2/HWB profile,
+then move to broker-camera, SurfaceTexture/OES, CPU-YUV, or other codec lanes.
+Do not use broker clock health, app foreground, screenshots, or passthrough
+background imagery as substitutes for live camera-frame progression.
+
 ## Implementation Plan
 
 ### P0 - Capability Probe

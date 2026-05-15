@@ -7,6 +7,35 @@ reference details.
 The tools write into `artifacts/quest-camera-profile-runs/`, which is ignored
 by the repository.
 
+## Camera Readiness Preflight
+
+The runner preserves headset power, stay-awake, and proximity state by default.
+If a run deliberately needs a timed `hzdb` proximity hold, pass
+`-UseProximityHold` and record that choice in the run notes. The older
+`-SkipProximityHold` flag remains accepted for scripts that already pass it,
+but no proximity hold is taken unless `-UseProximityHold` is present.
+
+Before camera-profile runs after sleep, standby, or sensor-lock transitions,
+record passive state first:
+
+- `adb get-state`
+- power and VR power-manager dumps
+- current foreground/focus
+- broker `/status`, `/clock/now`, and `/clock/health` when available
+- recent camera-service or app camera log markers
+
+Display-on, wakefulness, and headset-mounted signals are useful context, but
+they are not enough by themselves to prove Camera2/PCA readiness. If an
+operator is wearing the headset, ask for a simple hand-tracking or system-menu
+readiness confirmation before retrying camera acquisition. Treat an
+operator-driven long power-button press to the power menu as a manual recovery
+step, not as something this runner should automate.
+
+Use a direct Camera2/HWB profile first when proving camera readiness, then
+advance to broker-camera or codec profiles. Accept a run only when camera-frame
+progression, visible ROIs or operator witness, projection status, and import
+failure counters agree.
+
 ## Run A Catalog Profile
 
 From the Rusty XR repo root:
@@ -170,9 +199,9 @@ groups in `<runtime-profile>-freshness-summary.json`, and passes the sequence to
 the validator. The validation report records how many captured frames had
 visible non-black screen content and whether the sequence was byte-identical.
 Use that freshness summary for camera/parity runs so a frozen or black
-screenshot sequence is not mistaken for live camera feed. The harness uses a
-timed `hzdb` proximity hold when available; it intentionally does not send
-automation/proximity-disable broadcasts before launch.
+screenshot sequence is not mistaken for live camera feed. The harness records a
+post-preflight power snapshot even when no proximity hold is requested; the
+snapshot prefix is kept stable for existing parsers.
 
 ## Validate A Run
 

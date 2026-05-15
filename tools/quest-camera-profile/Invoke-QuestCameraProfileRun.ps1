@@ -18,6 +18,7 @@ param(
     [string]$LaunchActivity = "",
     [switch]$Install,
     [string]$Apk = "",
+    [switch]$UseProximityHold,
     [switch]$SkipProximityHold,
     [int]$ProximityHoldDurationMs = 600000,
     [switch]$CaptureHzdbScreencap,
@@ -30,6 +31,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($UseProximityHold -and $SkipProximityHold) {
+    throw "-UseProximityHold and -SkipProximityHold cannot be used together."
+}
+$proximityHoldRequested = [bool]$UseProximityHold
 
 if (-not $Validator) {
     $Validator = Join-Path $PSScriptRoot "Validate-QuestCameraRun.py"
@@ -612,7 +618,7 @@ if ($device) {
 Capture-PowerSnapshot -Dir $dir -Prefix "preflight"
 Invoke-Adb -Arguments @("shell", "am", "force-stop", $packageName) | Out-Null
 Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
-if (-not $SkipProximityHold) {
+if ($proximityHoldRequested) {
     Invoke-ProximityHold -Dir $dir -DurationMs $ProximityHoldDurationMs
 }
 Capture-PowerSnapshot -Dir $dir -Prefix "post-proximity-hold"
@@ -654,7 +660,8 @@ $manifest = [ordered]@{
     cameraPipelinePreset = $CameraPipelinePreset
     cameraProjectionMode = $CameraProjectionMode
     warmupSeconds = $WarmupSeconds
-    proximityHoldDurationMs = if ($SkipProximityHold) { 0 } else { $ProximityHoldDurationMs }
+    proximityHoldRequested = $proximityHoldRequested
+    proximityHoldDurationMs = if ($proximityHoldRequested) { $ProximityHoldDurationMs } else { 0 }
     captureHzdbScreencap = [bool]$CaptureHzdbScreencap
     captureMetacam = [bool]$CaptureMetacam
     freshnessFrames = $FreshnessFrames

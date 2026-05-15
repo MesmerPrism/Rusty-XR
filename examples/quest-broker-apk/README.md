@@ -81,6 +81,14 @@ configuration, generic stream publication, and console requests. Camera-provider
 metadata, shell-helper status, and Rusty Kiosk status commands are also
 available:
 
+Broker service readiness, visible broker panel readiness, and raw camera
+readiness are separate states. A service-start activity can keep the localhost
+API, clock, and stream metadata healthy without making the broker console the
+visible panel. Conversely, a visible broker panel does not prove Camera2/PCA
+delivery for a later XR target. Camera runs should record broker status and
+clock health, but they should still require target-side camera frame progression
+or an operator visual witness before accepting the run as camera-ready.
+
 - `clock.status`
 - `clock.now`
 - `clock.domains`

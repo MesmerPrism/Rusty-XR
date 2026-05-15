@@ -81,6 +81,23 @@ The command taxonomy, safety gates, and `hzdb`/ADB fallback table live in
 Kiosk should use that provider plan as a core part of learning which Quest
 signals are reliable enough for a custom Rusty XR development environment.
 
+## Camera Readiness Gate
+
+Rusty Kiosk can keep broker status, clock, and launch controls available while
+the headset is still not ready to deliver raw camera frames. Treat broker health
+and app foreground as separate from Camera2/PCA readiness.
+
+Before camera validation after sleep, standby, or sensor-lock transitions,
+collect passive evidence first: power state, foreground, broker status/clock,
+tracking readiness when an operator is wearing the headset, and recent camera
+log markers. Do not toggle stay-awake or proximity state as routine cleanup.
+Only use proximity holds, sensor-lock overrides, or stay-awake commands when the
+run explicitly requests that device-setting change.
+
+The first camera proof should be a simple direct camera path with frame-counter
+progression and visible camera content. Broker-camera, codec, or downstream
+rendering lanes should be tested after that baseline is known good.
+
 ## Non-Goals
 
 These contracts do not:
