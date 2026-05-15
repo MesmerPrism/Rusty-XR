@@ -71,6 +71,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
     private static final int SURFACE_FRAME_WAIT_MS = 250;
     private static final int HARDWARE_BUFFER_WAIT_MS = 250;
     private static final int HARDWARE_BUFFER_READER_MAX_IMAGES = 4;
+    private static final long LIVE_PROGRESS_LOG_INTERVAL_NS = 1_000_000_000L;
 
     interface Sink {
         void onBrokerH264ConsumerProbe(JSONObject report);
@@ -559,13 +560,15 @@ final class BrokerH264ConsumerProbe implements Runnable {
             config.streamPort,
             config.leftCameraId,
             leftStart.streamProjectionMetadata,
-            pairer);
+            pairer,
+            startedElapsedNs);
         LiveDecodeStreamTask rightDecode = new LiveDecodeStreamTask(
             "right",
             config.rightStreamPort,
             config.rightCameraId,
             rightStart.streamProjectionMetadata,
-            pairer);
+            pairer,
+            startedElapsedNs);
         Log.i(TAG, String.format(
             Locale.US,
             "Rusty XR broker H.264 live stereo starting decode tasks: leftPort=%d rightPort=%d leftMetadataReady=%s rightMetadataReady=%s",
@@ -1292,6 +1295,78 @@ final class BrokerH264ConsumerProbe implements Runnable {
         report.put(reportKey(prefix, "decode_duration_ns"), Math.max(0L, result.decodeEndElapsedNs - result.decodeStartElapsedNs));
     }
 
+    private void logLiveProgress(
+        String label,
+        LiveDecodeResult result,
+        LiveStereoPairer pairer,
+        long startedElapsedNs,
+        boolean force) {
+        long nowNs = SystemClock.elapsedRealtimeNanos();
+        if (!force &&
+                result.lastProgressLogElapsedNs > 0L &&
+                nowNs - result.lastProgressLogElapsedNs < LIVE_PROGRESS_LOG_INTERVAL_NS) {
+            return;
+        }
+        result.lastProgressLogElapsedNs = nowNs;
+        try {
+            JSONObject progress = new JSONObject();
+            progress.put("schema", "rusty.xr.composite.broker_h264_consumer_probe.v1");
+            progress.put("source", "composite_app_broker_h264_consumer");
+            progress.put("event", "progress");
+            progress.put("progress_label", label);
+            progress.put("broker_host", config.brokerHost);
+            progress.put("broker_port", config.brokerPort);
+            progress.put("stream_port", config.streamPort);
+            progress.put("right_stream_port", config.rightStreamPort);
+            progress.put("preferred_width", config.preferredWidth);
+            progress.put("preferred_height", config.preferredHeight);
+            progress.put("capture_ms", config.captureMs);
+            progress.put("max_packets", config.maxPackets);
+            progress.put("bitrate_bps", config.bitrateBps);
+            progress.put("stereo_requested", config.stereo);
+            progress.put("live_stream_requested", config.liveStream);
+            progress.put("source_mode", config.sourceMode);
+            progress.put("broker_synthetic_stream_start_requested", config.startBrokerSyntheticStream);
+            progress.put("synthetic_pattern", config.syntheticPattern);
+            progress.put("decode_output_mode", config.decodeOutputMode);
+            progress.put("live_decode_requested", config.liveDecode);
+            progress.put("stereo_pairing_mode_requested", config.stereoPairingMode);
+            progress.put("live_decode_path", true);
+            progress.put("total_duration_ns", Math.max(0L, nowNs - startedElapsedNs));
+            putLiveDecodeReport(progress, label, result);
+            long receiveWindowNs = result.receiveEndElapsedNs > result.receiveStartElapsedNs
+                ? result.receiveEndElapsedNs - result.receiveStartElapsedNs
+                : nowNs - result.receiveStartElapsedNs;
+            long decodeWindowNs = result.decodeEndElapsedNs > result.decodeStartElapsedNs
+                ? result.decodeEndElapsedNs - result.decodeStartElapsedNs
+                : nowNs - result.decodeStartElapsedNs;
+            progress.put(reportKey(label, "stream_receive_duration_ns"), Math.max(0L, receiveWindowNs));
+            progress.put(
+                reportKey(label, "stream_wire_packet_rate_hz"),
+                rateHzFromNs(result.packetCount, Math.max(0L, result.lastPacketReceiveElapsedNs - result.firstPacketReceiveElapsedNs)));
+            progress.put(
+                reportKey(label, "stream_source_packet_rate_hz"),
+                rateHzFromNs(result.packetCount, Math.max(0L, result.lastSourceElapsedNs - result.firstSourceElapsedNs)));
+            progress.put(reportKey(label, "decode_duration_ns"), Math.max(0L, decodeWindowNs));
+            progress.put(
+                reportKey(label, "decoded_frame_rate_hz"),
+                rateHzFromNs(result.decodedFrameCount, Math.max(0L, decodeWindowNs)));
+
+            StereoPairResult pair = pairer.snapshot();
+            progress.put("stereo_pair_count", pair.pairCount);
+            progress.put("stereo_pair_native_accepted_count", pair.nativeAcceptedCount);
+            progress.put("stereo_pair_native_rejected_count", pair.nativeRejectedCount);
+            progress.put("stereo_live_pair_queue_drop_count", pair.queueDropCount);
+            progress.put("stereo_pair_delta_avg_ns", pair.pairCount > 0 ? pair.deltaTotalNs / pair.pairCount : 0L);
+            progress.put("stereo_pair_delta_max_ns", pair.deltaMaxNs);
+            putStageTimingReport(progress, "", "stereo_pair_native_bridge", pair.nativeBridgeTiming);
+            progress.put("succeeded", result.decodedFrameCount > 0 || pair.nativeAcceptedCount > 0);
+            Log.i(TAG, "Rusty XR broker H.264 consumer probe: " + progress.toString());
+        } catch (Exception ex) {
+            Log.w(TAG, "Could not log broker H.264 live progress: " + safeMessage(ex));
+        }
+    }
+
     private static void putByteIdentityReport(JSONObject report, String prefix, DecodeResult decode) throws Exception {
         report.put(reportKey(prefix, "byte_identity_decode_output_mode"), decode.decodeOutputMode);
         report.put(reportKey(prefix, "byte_identity_decoder_name"), decode.decoderName);
@@ -1723,6 +1798,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
         private final String cameraId;
         private final JSONObject streamProjectionMetadata;
         private final LiveStereoPairer pairer;
+        private final long startedElapsedNs;
         private final Thread thread;
         private LiveDecodeResult result;
         private Exception error;
@@ -1732,12 +1808,14 @@ final class BrokerH264ConsumerProbe implements Runnable {
             int streamPort,
             String cameraId,
             JSONObject streamProjectionMetadata,
-            LiveStereoPairer pairer) {
+            LiveStereoPairer pairer,
+            long startedElapsedNs) {
             this.label = label;
             this.streamPort = streamPort;
             this.cameraId = cameraId;
             this.streamProjectionMetadata = streamProjectionMetadata;
             this.pairer = pairer;
+            this.startedElapsedNs = startedElapsedNs;
             this.thread = new Thread(this, "RustyXrBrokerH264LiveDecode-" + label);
         }
 
@@ -1758,7 +1836,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                     cameraId,
                     streamProjectionMetadata != null &&
                         streamProjectionMetadata.optBoolean("projectionMetadataReady", false)));
-                result = decodeLiveStream(label, streamPort, cameraId, streamProjectionMetadata, pairer);
+                result = decodeLiveStream(label, streamPort, cameraId, streamProjectionMetadata, pairer, startedElapsedNs);
                 Log.i(TAG, String.format(
                     Locale.US,
                     "Rusty XR broker H.264 live decode thread completed: label=%s packets=%d decodedFrames=%d nativeAcceptedPending=%d",
@@ -1793,7 +1871,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
         int streamPort,
         String cameraId,
         JSONObject streamProjectionMetadata,
-        LiveStereoPairer pairer) throws Exception {
+        LiveStereoPairer pairer,
+        long startedElapsedNs) throws Exception {
         Log.i(TAG, String.format(
             Locale.US,
             "Rusty XR broker H.264 live decode connecting: label=%s target=%s:%d cameraId=%s",
@@ -2003,6 +2082,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                         result.lastHardwareBufferLayers = deliver.layers;
                         result.lastHardwareBufferId = deliver.bufferId;
                         pairer.offer(label, decodedFrame);
+                        logLiveProgress(label, result, pairer, startedElapsedNs, false);
                     }
                     closeFrames(frame);
                 } else {
@@ -2021,6 +2101,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 applyLiveOutputFormat(result, decoder.getOutputFormat());
             }
             result.receiveEndElapsedNs = SystemClock.elapsedRealtimeNanos();
+            logLiveProgress(label, result, pairer, startedElapsedNs, true);
         } finally {
             result.decodeEndElapsedNs = SystemClock.elapsedRealtimeNanos();
             if (decoder != null) {
@@ -3774,6 +3855,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
         long lastHardwareBufferId;
         long decodeStartElapsedNs;
         long decodeEndElapsedNs;
+        long lastProgressLogElapsedNs;
         String lastError = "";
     }
 

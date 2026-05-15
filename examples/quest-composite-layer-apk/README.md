@@ -387,7 +387,14 @@ Useful launch extras:
   `rustyxr.brokerH264LiveDecode=true`, stereo hardware-buffer mode decodes
   packets as they arrive, pairs left/right decoded frames with a small queue,
   submits them immediately through the native stereo bridge, and closes the
-  Java `HardwareBuffer` handles after native acquisition. Set
+  Java `HardwareBuffer` handles after native acquisition. Live decode also logs
+  periodic `event=progress` `rusty.xr.composite.broker_h264_consumer_probe.v1`
+  reports on the same `Rusty XR broker H.264 consumer probe:` marker so
+  long-running validation can sample packet, decode, and native-pair cadence
+  before the stream reaches its terminal report. For sustained broker-synthetic
+  performance validation, use `rustyxr.brokerH264MaxPackets=0` and set
+  `rustyxr.brokerH264CaptureMs` longer than the profile warmup plus sampling
+  window so freshness checks run while decoded frames are still arriving. Set
   `rustyxr.brokerH264LiveDecode=false` to force the older retained-clip replay
   path for regression comparison.
 - `rustyxr.openxrPassthroughProbe`: `off` by default. `client` creates an
