@@ -653,6 +653,10 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "source_mode": consumer.get("source_mode"),
         "live_decode_path": consumer.get("live_decode_path"),
         "live_stream_requested": consumer.get("live_stream_requested", stereo_summary.get("liveStream")),
+        "broker_h264_capture_ms": pick_metric("capture_ms", consumer, broker_video_lab_scorecard),
+        "broker_h264_max_packets": pick_metric("max_packets", consumer, broker_video_lab_scorecard),
+        "broker_h264_bitrate_bps": pick_metric("bitrate_bps", consumer, broker_video_lab_scorecard),
+        "broker_h264_frame_rate_hz": pick_metric("frame_rate_hz", consumer, broker_video_lab_scorecard),
         "decode_output_mode": consumer.get("decode_output_mode"),
         "camera_source_id": pick_nonempty_metric(
             "camera_source_id",
@@ -1251,6 +1255,7 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("shader", "projectionShaderPath"),
         ("aligned", "alignedProjection"),
         ("live", "live_decode_path"),
+        ("broker fps", "broker_h264_frame_rate_hz"),
         ("cam", "selected_camera_ids"),
         ("size", "selected_size"),
         ("fps", "selected_fps_range_hz"),

@@ -270,7 +270,10 @@ surface encoder and the same `RXYRVID1` schema-3 binary stream writer, but draws
 deterministic app-generated frames into the encoder surface. The command accepts
 the same `device_port`, `host_port`, `preferred_width`, `preferred_height`,
 `capture_ms`, `max_packets`, `bitrate_bps`, `live_stream`, `lan_stream_enabled`,
-`bind_host`, and `advertised_host` parameters as the app-camera H.264 stream.
+`bind_host`, `advertised_host`, and `frame_rate_hz` parameters as the
+app-camera H.264 stream. `frame_rate_hz` requests the encoder input cadence;
+the stream manifest records the requested value, while measured packet and
+decode cadence remain the source of truth for device support.
 It also accepts `synthetic_pattern` values `diagnostic-grid`, `checkerboard`,
 `luma-ramp`, or `motion-bar`. The `diagnostic-grid` frame contains color bars, a
 luma ramp, and a lower checkerboard with an intentional 1-pixel white line

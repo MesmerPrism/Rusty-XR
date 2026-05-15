@@ -366,7 +366,8 @@ Useful launch extras:
   `rustyxr.brokerH264LeftCameraId`, `rustyxr.brokerH264RightCameraId`,
   `rustyxr.brokerH264Width`, `rustyxr.brokerH264Height`,
   `rustyxr.brokerH264CaptureMs`, `rustyxr.brokerH264MaxPackets`,
-  `rustyxr.brokerH264BitrateBps`, and
+  `rustyxr.brokerH264BitrateBps`,
+  `rustyxr.brokerH264FrameRateHz`, and
   `rustyxr.brokerH264DecodeTimeoutMs`,
   `rustyxr.brokerH264DecodeOutputMode`, `rustyxr.brokerH264SourceMode`,
   `rustyxr.brokerH264SyntheticPattern`, `rustyxr.brokerH264LiveStream`, and
@@ -377,7 +378,9 @@ Useful launch extras:
   instead; `rustyxr.brokerH264SyntheticPattern` can be `diagnostic-grid`,
   `checkerboard`, `luma-ramp`, or `motion-bar`. `diagnostic-grid` includes a
   checkerboard-anchored 1-pixel white line overlay for blur/projection
-  diagnostics. Set
+  diagnostics. `rustyxr.brokerH264FrameRateHz` requests the broker synthetic
+  encoder cadence; the observed packet/decode cadence should be treated as the
+  measured result because device encoder support may clamp or fall back. Set
   `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264
   stream on the configured port. Existing-stream mode skips the broker start

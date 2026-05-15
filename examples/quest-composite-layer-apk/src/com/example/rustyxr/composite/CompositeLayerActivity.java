@@ -126,6 +126,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final int DEFAULT_BROKER_H264_CAPTURE_MS = 900;
     private static final int DEFAULT_BROKER_H264_MAX_PACKETS = 12;
     private static final int DEFAULT_BROKER_H264_BITRATE_BPS = 1_000_000;
+    private static final int DEFAULT_BROKER_H264_FRAME_RATE_HZ = 30;
     private static final int DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS = 10000;
     private static final int DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS = 20000;
     private static final int DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS = 5000;
@@ -291,6 +292,10 @@ public final class CompositeLayerActivity extends NativeActivity {
         }
 
         return defaultValue;
+    }
+
+    private static int clampInt(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private float floatExtra(String name, float defaultValue) {
@@ -727,6 +732,10 @@ public final class CompositeLayerActivity extends NativeActivity {
             brokerLiveStream ? Math.max(0, brokerH264CaptureMs) : Math.max(100, brokerH264CaptureMs),
             brokerLiveStream ? Math.max(0, brokerH264MaxPackets) : Math.max(1, brokerH264MaxPackets),
             Math.max(100000, intExtra("rustyxr.brokerH264BitrateBps", DEFAULT_BROKER_H264_BITRATE_BPS)),
+            clampInt(
+                intExtra("rustyxr.brokerH264FrameRateHz", DEFAULT_BROKER_H264_FRAME_RATE_HZ),
+                1,
+                120),
             Math.max(1000, intExtra("rustyxr.brokerH264CommandTimeoutMs", DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS)),
             Math.max(1000, intExtra("rustyxr.brokerH264StreamTimeoutMs", DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS)),
             Math.max(1000, intExtra("rustyxr.brokerH264DecodeTimeoutMs", DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS)),

@@ -90,6 +90,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final int captureMs;
         final int maxPackets;
         final int bitrateBps;
+        final int frameRateHz;
         final int commandTimeoutMs;
         final int streamTimeoutMs;
         final int decodeTimeoutMs;
@@ -124,6 +125,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             int captureMs,
             int maxPackets,
             int bitrateBps,
+            int frameRateHz,
             int commandTimeoutMs,
             int streamTimeoutMs,
             int decodeTimeoutMs,
@@ -155,6 +157,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             this.captureMs = captureMs;
             this.maxPackets = maxPackets;
             this.bitrateBps = bitrateBps;
+            this.frameRateHz = frameRateHz;
             this.commandTimeoutMs = commandTimeoutMs;
             this.streamTimeoutMs = streamTimeoutMs;
             this.decodeTimeoutMs = decodeTimeoutMs;
@@ -261,7 +264,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
         try {
             Log.i(TAG, String.format(
                 Locale.US,
-                "Rusty XR broker H.264 consumer config: host=%s brokerPort=%d leftStreamPort=%d rightStreamPort=%d stereo=%s liveStream=%s liveDecode=%s sourceMode=%s startBroker=%s captureMs=%d maxPackets=%d streamTimeoutMs=%d decodeTimeoutMs=%d leftCameraId=%s rightCameraId=%s metadataChars=%d leftMetadataChars=%d rightMetadataChars=%d metadataBase64Chars=%d leftMetadataBase64Chars=%d rightMetadataBase64Chars=%d",
+                "Rusty XR broker H.264 consumer config: host=%s brokerPort=%d leftStreamPort=%d rightStreamPort=%d stereo=%s liveStream=%s liveDecode=%s sourceMode=%s startBroker=%s captureMs=%d maxPackets=%d bitrateBps=%d frameRateHz=%d streamTimeoutMs=%d decodeTimeoutMs=%d leftCameraId=%s rightCameraId=%s metadataChars=%d leftMetadataChars=%d rightMetadataChars=%d metadataBase64Chars=%d leftMetadataBase64Chars=%d rightMetadataBase64Chars=%d",
                 config.brokerHost,
                 config.brokerPort,
                 config.streamPort,
@@ -273,6 +276,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 config.startBrokerCameraStream || config.startBrokerSyntheticStream,
                 config.captureMs,
                 config.maxPackets,
+                config.bitrateBps,
+                config.frameRateHz,
                 config.streamTimeoutMs,
                 config.decodeTimeoutMs,
                 config.leftCameraId,
@@ -297,6 +302,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("capture_ms", config.captureMs);
             report.put("max_packets", config.maxPackets);
             report.put("bitrate_bps", config.bitrateBps);
+            report.put("frame_rate_hz", config.frameRateHz);
             report.put("stereo_requested", config.stereo);
             report.put("live_stream_requested", config.liveStream);
             report.put("source_mode", config.sourceMode);
@@ -1028,6 +1034,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
         params.put("capture_ms", config.captureMs);
         params.put("max_packets", config.maxPackets);
         params.put("bitrate_bps", config.bitrateBps);
+        params.put("frame_rate_hz", config.frameRateHz);
         params.put("live_stream", config.liveStream);
         if (cameraId != null && cameraId.length() > 0) {
             params.put("camera_id", cameraId);
@@ -1323,6 +1330,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             progress.put("capture_ms", config.captureMs);
             progress.put("max_packets", config.maxPackets);
             progress.put("bitrate_bps", config.bitrateBps);
+            progress.put("frame_rate_hz", config.frameRateHz);
             progress.put("stereo_requested", config.stereo);
             progress.put("live_stream_requested", config.liveStream);
             progress.put("source_mode", config.sourceMode);

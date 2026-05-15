@@ -50,6 +50,7 @@ final class BrokerAppCameraH264DecodeProbe {
             probe.put("capture_ms", capture.captureMs);
             probe.put("max_packets", capture.maxPackets);
             probe.put("bitrate_bps", capture.bitrateBps);
+            probe.put("frame_rate_hz", capture.frameRateHz);
             probe.put("decode_timeout_ms", decodeTimeoutMs);
             probe.put("encoded_packet_count", capture.packets.size());
             probe.put("encoded_video_packet_count", videoPacketCount(capture.packets));

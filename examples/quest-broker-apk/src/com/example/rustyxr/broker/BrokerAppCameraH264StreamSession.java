@@ -72,7 +72,9 @@ final class BrokerAppCameraH264StreamSession {
     private static final int DEFAULT_BITRATE_BPS = 1_000_000;
     private static final int MIN_RUNTIME_BITRATE_BPS = 100_000;
     private static final int MAX_RUNTIME_BITRATE_BPS = 20_000_000;
-    private static final int FRAME_RATE_HZ = 30;
+    private static final int DEFAULT_FRAME_RATE_HZ = 30;
+    private static final int MIN_FRAME_RATE_HZ = 1;
+    private static final int MAX_FRAME_RATE_HZ = 120;
     private static final int OPEN_TIMEOUT_MS = 4000;
     private static final int SESSION_TIMEOUT_MS = 4000;
     private static final int DEFAULT_STREAM_ACCEPT_TIMEOUT_MS = 15000;
@@ -148,6 +150,10 @@ final class BrokerAppCameraH264StreamSession {
             100,
             MAX_STREAM_ACCEPT_TIMEOUT_MS);
         final int bitrateBps = clamp(params != null ? params.optInt("bitrate_bps", DEFAULT_BITRATE_BPS) : DEFAULT_BITRATE_BPS, 100_000, 20_000_000);
+        final int frameRateHz = clamp(
+            params != null ? params.optInt("frame_rate_hz", DEFAULT_FRAME_RATE_HZ) : DEFAULT_FRAME_RATE_HZ,
+            MIN_FRAME_RATE_HZ,
+            MAX_FRAME_RATE_HZ);
         final String requestedCameraId = params != null ? params.optString("camera_id", "").trim() : "";
         final boolean lanStreamEnabled = params != null && params.optBoolean("lan_stream_enabled", false);
         final String bindHost = normalizeBindHost(
@@ -175,6 +181,7 @@ final class BrokerAppCameraH264StreamSession {
         endpoint.put("stream_id", streamId);
         endpoint.put("source_mode", sourceMode);
         endpoint.put("source", source);
+        endpoint.put("frame_rate_hz", frameRateHz);
 
         final String cameraPermissionState = cameraPermissionState(appContext);
         JSONObject start = new JSONObject();
@@ -205,6 +212,7 @@ final class BrokerAppCameraH264StreamSession {
         start.put("writer_queue_depth", writerQueueDepth);
         start.put("accept_timeout_ms", acceptTimeoutMs);
         start.put("bitrate_bps", bitrateBps);
+        start.put("frame_rate_hz", frameRateHz);
         start.put("live_stream", liveStream);
         start.put("stream_mode", streamMode(liveStream, captureMs, maxPackets));
         start.put("binary_endpoint", endpoint);
@@ -214,6 +222,8 @@ final class BrokerAppCameraH264StreamSession {
             start.put("selected_width", syntheticSize.getWidth());
             start.put("selected_height", syntheticSize.getHeight());
             start.put("selected_reason", "synthetic_diagnostic_source");
+            start.put("selected_fps_min_hz", frameRateHz);
+            start.put("selected_fps_max_hz", frameRateHz);
             start.put("timestamp_domain", "ElapsedRealtime");
             start.put("synthetic_pattern", syntheticPattern);
             start.put("projection_metadata", buildSyntheticProjectionMetadata(syntheticSize, syntheticPattern));
@@ -224,7 +234,7 @@ final class BrokerAppCameraH264StreamSession {
                     appContext.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                 CameraManager manager = (CameraManager) appContext.getSystemService(Context.CAMERA_SERVICE);
                 if (manager != null) {
-                    CameraSelection selection = chooseCamera(manager, requestedCameraId, preferredWidth, preferredHeight);
+                    CameraSelection selection = chooseCamera(manager, requestedCameraId, preferredWidth, preferredHeight, frameRateHz);
                     start.put("selected_camera_id", selection.cameraId);
                     start.put("selected_width", selection.size.getWidth());
                     start.put("selected_height", selection.size.getHeight());
@@ -256,6 +266,7 @@ final class BrokerAppCameraH264StreamSession {
                     writerQueueDepth,
                     acceptTimeoutMs,
                     bitrateBps,
+                    frameRateHz,
                     liveStream,
                     syntheticSource,
                     syntheticPattern);
@@ -327,6 +338,10 @@ final class BrokerAppCameraH264StreamSession {
         final int captureMs = clamp(params != null ? params.optInt("capture_ms", DEFAULT_CAPTURE_MS) : DEFAULT_CAPTURE_MS, 100, MAX_CAPTURE_MS);
         final int maxPackets = clamp(params != null ? params.optInt("max_packets", DEFAULT_MAX_PACKETS) : DEFAULT_MAX_PACKETS, 1, MAX_PACKETS);
         final int bitrateBps = clamp(params != null ? params.optInt("bitrate_bps", DEFAULT_BITRATE_BPS) : DEFAULT_BITRATE_BPS, 100_000, 20_000_000);
+        final int frameRateHz = clamp(
+            params != null ? params.optInt("frame_rate_hz", DEFAULT_FRAME_RATE_HZ) : DEFAULT_FRAME_RATE_HZ,
+            MIN_FRAME_RATE_HZ,
+            MAX_FRAME_RATE_HZ);
         final String requestedCameraId = params != null ? params.optString("camera_id", "").trim() : "";
 
         if (appContext == null) {
@@ -341,7 +356,7 @@ final class BrokerAppCameraH264StreamSession {
             throw new IllegalStateException("CameraManager is unavailable.");
         }
 
-        CameraSelection selection = chooseCamera(manager, requestedCameraId, preferredWidth, preferredHeight);
+        CameraSelection selection = chooseCamera(manager, requestedCameraId, preferredWidth, preferredHeight, frameRateHz);
         EncoderMetadata encoderMetadata = new EncoderMetadata();
         encoderMetadata.sensorTimestampSource = sensorTimestampSourceLabel(
             selection.characteristics.get(CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE));
@@ -353,6 +368,7 @@ final class BrokerAppCameraH264StreamSession {
             captureMs,
             maxPackets,
             bitrateBps,
+            frameRateHz,
             encoderMetadata);
         long encodeEndElapsedNs = SystemClock.elapsedRealtimeNanos();
         return new CaptureResult(
@@ -363,6 +379,7 @@ final class BrokerAppCameraH264StreamSession {
             captureMs,
             maxPackets,
             bitrateBps,
+            frameRateHz,
             encodeStartElapsedNs,
             encodeEndElapsedNs,
             packets,
@@ -489,6 +506,7 @@ final class BrokerAppCameraH264StreamSession {
         int writerQueueDepth,
         int acceptTimeoutMs,
         int bitrateBps,
+        int frameRateHz,
         boolean liveStream,
         boolean syntheticSource,
         String syntheticPattern) {
@@ -522,7 +540,7 @@ final class BrokerAppCameraH264StreamSession {
                 if (manager == null) {
                     throw new IllegalStateException("CameraManager is unavailable.");
                 }
-                selection = chooseCamera(manager, requestedCameraId, preferredWidth, preferredHeight);
+                selection = chooseCamera(manager, requestedCameraId, preferredWidth, preferredHeight, frameRateHz);
                 cameraId = selection.cameraId;
                 size = selection.size;
                 streamProjectionMetadata = buildProjectionMetadata(selection);
@@ -537,6 +555,7 @@ final class BrokerAppCameraH264StreamSession {
                 captureMs,
                 maxPackets,
                 bitrateBps,
+                frameRateHz,
                 liveStream,
                 endpoint,
                 selection,
@@ -553,6 +572,7 @@ final class BrokerAppCameraH264StreamSession {
                         writerQueueDepth,
                         acceptTimeoutMs,
                         bitrateBps,
+                        frameRateHz,
                         devicePort,
                         bindHost,
                         sink,
@@ -571,6 +591,7 @@ final class BrokerAppCameraH264StreamSession {
                         writerQueueDepth,
                         acceptTimeoutMs,
                         bitrateBps,
+                        frameRateHz,
                         devicePort,
                         bindHost,
                         sink,
@@ -584,8 +605,8 @@ final class BrokerAppCameraH264StreamSession {
                 encodeEndElapsedNs = liveResult.encodeEndElapsedNs;
             } else {
                 packets = syntheticSource
-                    ? encodeSyntheticPackets(size, captureMs, maxPackets, bitrateBps, encoderMetadata, syntheticPattern)
-                    : encodeCameraPackets(manager, cameraId, size, captureMs, maxPackets, bitrateBps, encoderMetadata);
+                    ? encodeSyntheticPackets(size, captureMs, maxPackets, bitrateBps, frameRateHz, encoderMetadata, syntheticPattern)
+                    : encodeCameraPackets(manager, cameraId, size, captureMs, maxPackets, bitrateBps, frameRateHz, encoderMetadata);
                 encodeEndElapsedNs = SystemClock.elapsedRealtimeNanos();
                 registerManifest(
                     sink,
@@ -595,6 +616,7 @@ final class BrokerAppCameraH264StreamSession {
                     captureMs,
                     maxPackets,
                     bitrateBps,
+                    frameRateHz,
                     liveStream,
                     endpoint,
                     selection,
@@ -630,6 +652,7 @@ final class BrokerAppCameraH264StreamSession {
                     writeStats,
                     captureMs,
                     maxPackets,
+                    frameRateHz,
                     liveStream,
                     selection,
                     encoderMetadata,
@@ -648,12 +671,13 @@ final class BrokerAppCameraH264StreamSession {
         final int captureMs,
         final int maxPackets,
         final int bitrateBps,
+        final int frameRateHz,
         final EncoderMetadata encoderMetadata) throws Exception {
         final List<EncodedPacket> packets = new ArrayList<EncodedPacket>();
         HandlerThread thread = new HandlerThread("RustyXrAppCameraH264Capture");
         thread.start();
         Handler handler = new Handler(thread.getLooper());
-        EncoderSelection encoderSelection = selectH264Encoder(size, bitrateBps);
+        EncoderSelection encoderSelection = selectH264Encoder(size, bitrateBps, frameRateHz);
         MediaCodec encoder = createH264Encoder(encoderSelection, encoderMetadata);
         Surface encoderSurface = null;
         CaptureTimingTracker captureTiming = new CaptureTimingTracker();
@@ -661,7 +685,7 @@ final class BrokerAppCameraH264StreamSession {
         final CameraCaptureSession[] sessionRef = new CameraCaptureSession[1];
         try {
             applyEncoderSelectionMetadata(encoderSelection, encoderMetadata, encoder);
-            configureH264Encoder(encoder, size, bitrateBps, encoderMetadata);
+            configureH264Encoder(encoder, size, bitrateBps, frameRateHz, encoderMetadata);
             encoderSurface = encoder.createInputSurface();
             encoder.start();
             requestSyncFrameOnStart(encoder, encoderMetadata);
@@ -675,7 +699,7 @@ final class BrokerAppCameraH264StreamSession {
                 size,
                 0L,
                 manager.getCameraCharacteristics(cameraId),
-                chooseFpsRange(manager.getCameraCharacteristics(cameraId)),
+                chooseFpsRange(manager.getCameraCharacteristics(cameraId), frameRateHz),
                 streamMinFrameDurationNs(manager.getCameraCharacteristics(cameraId), size),
                 "capture_probe_selection"));
             sessionRef[0].setRepeatingRequest(builder.build(), captureTiming, handler);
@@ -716,17 +740,18 @@ final class BrokerAppCameraH264StreamSession {
         final int captureMs,
         final int maxPackets,
         final int bitrateBps,
+        final int frameRateHz,
         final EncoderMetadata encoderMetadata,
         final String syntheticPattern) throws Exception {
         final List<EncodedPacket> packets = new ArrayList<EncodedPacket>();
         final int effectiveMaxPackets = maxPackets > 0 ? maxPackets : MAX_SYNTHETIC_FRAME_COUNT;
-        final int frameLimit = syntheticFrameLimit(captureMs, effectiveMaxPackets);
-        EncoderSelection encoderSelection = selectH264Encoder(size, bitrateBps);
+        final int frameLimit = syntheticFrameLimit(captureMs, effectiveMaxPackets, frameRateHz);
+        EncoderSelection encoderSelection = selectH264Encoder(size, bitrateBps, frameRateHz);
         MediaCodec encoder = createH264Encoder(encoderSelection, encoderMetadata);
         Surface encoderSurface = null;
         try {
             applyEncoderSelectionMetadata(encoderSelection, encoderMetadata, encoder);
-            configureH264Encoder(encoder, size, bitrateBps, encoderMetadata);
+            configureH264Encoder(encoder, size, bitrateBps, frameRateHz, encoderMetadata);
             encoderSurface = encoder.createInputSurface();
             encoder.start();
             requestSyncFrameOnStart(encoder, encoderMetadata);
@@ -741,7 +766,7 @@ final class BrokerAppCameraH264StreamSession {
                 long frameStartElapsedNs = SystemClock.elapsedRealtimeNanos();
                 drawSyntheticEncoderFrame(encoderSurface, frameIndex, size, syntheticPattern);
                 drainEncoder(encoder, packets, false, effectiveMaxPackets, encoderMetadata);
-                sleepUntilSyntheticFrameCadence(frameStartElapsedNs);
+                sleepUntilSyntheticFrameCadence(frameStartElapsedNs, frameRateHz);
                 frameIndex++;
             }
             encoder.signalEndOfInputStream();
@@ -771,6 +796,7 @@ final class BrokerAppCameraH264StreamSession {
         final int writerQueueDepth,
         final int acceptTimeoutMs,
         final int bitrateBps,
+        final int frameRateHz,
         final int devicePort,
         final String bindHost,
         final Sink sink,
@@ -783,7 +809,7 @@ final class BrokerAppCameraH264StreamSession {
         HandlerThread thread = new HandlerThread("RustyXrAppCameraH264LiveCapture");
         thread.start();
         Handler handler = new Handler(thread.getLooper());
-        EncoderSelection encoderSelection = selectH264Encoder(size, bitrateBps);
+        EncoderSelection encoderSelection = selectH264Encoder(size, bitrateBps, frameRateHz);
         MediaCodec encoder = createH264Encoder(encoderSelection, encoderMetadata);
         Surface encoderSurface = null;
         CaptureTimingTracker captureTiming = new CaptureTimingTracker();
@@ -824,7 +850,7 @@ final class BrokerAppCameraH264StreamSession {
             writerThread.start();
 
             applyEncoderSelectionMetadata(encoderSelection, encoderMetadata, encoder);
-            configureH264Encoder(encoder, size, bitrateBps, encoderMetadata);
+            configureH264Encoder(encoder, size, bitrateBps, frameRateHz, encoderMetadata);
             encoderSurface = encoder.createInputSurface();
             encoder.start();
             requestSyncFrameOnStart(encoder, encoderMetadata);
@@ -862,6 +888,7 @@ final class BrokerAppCameraH264StreamSession {
                     size,
                     captureMs,
                     bitrateBps,
+                    frameRateHz,
                     endpoint,
                     selection,
                     encoderMetadata,
@@ -885,6 +912,7 @@ final class BrokerAppCameraH264StreamSession {
                 size,
                 captureMs,
                 bitrateBps,
+                frameRateHz,
                 endpoint,
                 selection,
                 encoderMetadata,
@@ -949,6 +977,7 @@ final class BrokerAppCameraH264StreamSession {
         final int writerQueueDepth,
         final int acceptTimeoutMs,
         final int bitrateBps,
+        final int frameRateHz,
         final int devicePort,
         final String bindHost,
         final Sink sink,
@@ -959,7 +988,7 @@ final class BrokerAppCameraH264StreamSession {
         final EncoderMetadata encoderMetadata,
         final String syntheticPattern) throws Exception {
         final List<EncodedPacket> packets = new ArrayList<EncodedPacket>();
-        EncoderSelection encoderSelection = selectH264Encoder(size, bitrateBps);
+        EncoderSelection encoderSelection = selectH264Encoder(size, bitrateBps, frameRateHz);
         MediaCodec encoder = createH264Encoder(encoderSelection, encoderMetadata);
         Surface encoderSurface = null;
         ServerSocket server = null;
@@ -997,7 +1026,7 @@ final class BrokerAppCameraH264StreamSession {
             writerThread.start();
 
             applyEncoderSelectionMetadata(encoderSelection, encoderMetadata, encoder);
-            configureH264Encoder(encoder, size, bitrateBps, encoderMetadata);
+            configureH264Encoder(encoder, size, bitrateBps, frameRateHz, encoderMetadata);
             encoderSurface = encoder.createInputSurface();
             encoder.start();
             requestSyncFrameOnStart(encoder, encoderMetadata);
@@ -1033,12 +1062,13 @@ final class BrokerAppCameraH264StreamSession {
                     size,
                     captureMs,
                     bitrateBps,
+                    frameRateHz,
                     endpoint,
                     null,
                     encoderMetadata,
                     true,
                     syntheticPattern);
-                sleepUntilSyntheticFrameCadence(frameStartElapsedNs);
+                sleepUntilSyntheticFrameCadence(frameStartElapsedNs, frameRateHz);
                 frameIndex++;
             }
             encoder.signalEndOfInputStream();
@@ -1053,6 +1083,7 @@ final class BrokerAppCameraH264StreamSession {
                 size,
                 captureMs,
                 bitrateBps,
+                frameRateHz,
                 endpoint,
                 null,
                 encoderMetadata,
@@ -1196,7 +1227,7 @@ final class BrokerAppCameraH264StreamSession {
         }
     }
 
-    private static EncoderSelection selectH264Encoder(Size size, int bitrateBps) {
+    private static EncoderSelection selectH264Encoder(Size size, int bitrateBps, int frameRateHz) {
         EncoderSelection best = null;
         try {
             MediaCodecList codecList = new MediaCodecList(MediaCodecList.ALL_CODECS);
@@ -1206,7 +1237,7 @@ final class BrokerAppCameraH264StreamSession {
                 if (info == null || !info.isEncoder() || !supportsType(info, MIME_H264)) {
                     continue;
                 }
-                EncoderSelection candidate = inspectH264Encoder(info, size, bitrateBps);
+                EncoderSelection candidate = inspectH264Encoder(info, size, bitrateBps, frameRateHz);
                 if (candidate != null && (best == null || candidate.score > best.score)) {
                     best = candidate;
                 }
@@ -1217,13 +1248,13 @@ final class BrokerAppCameraH264StreamSession {
         return best;
     }
 
-    private static EncoderSelection inspectH264Encoder(MediaCodecInfo info, Size size, int bitrateBps) {
+    private static EncoderSelection inspectH264Encoder(MediaCodecInfo info, Size size, int bitrateBps, int frameRateHz) {
         try {
             MediaCodecInfo.CodecCapabilities capabilities = info.getCapabilitiesForType(MIME_H264);
             MediaCodecInfo.VideoCapabilities videoCapabilities = capabilities.getVideoCapabilities();
             MediaCodecInfo.EncoderCapabilities encoderCapabilities = capabilities.getEncoderCapabilities();
             boolean sizeAndRateSupported = videoCapabilities == null ||
-                videoCapabilities.areSizeAndRateSupported(size.getWidth(), size.getHeight(), (double) FRAME_RATE_HZ);
+                videoCapabilities.areSizeAndRateSupported(size.getWidth(), size.getHeight(), (double) frameRateHz);
             boolean sizeSupported = videoCapabilities == null ||
                 videoCapabilities.isSizeSupported(size.getWidth(), size.getHeight());
             int widthAlignment = videoCapabilities != null ? videoCapabilities.getWidthAlignment() : 1;
@@ -1339,6 +1370,7 @@ final class BrokerAppCameraH264StreamSession {
         MediaCodec encoder,
         Size size,
         int bitrateBps,
+        int frameRateHz,
         EncoderMetadata encoderMetadata) throws Exception {
         encoderMetadata.prependHeadersToSyncFramesRequested = true;
         encoderMetadata.optionalLowLatencyHintsRequested = true;
@@ -1347,7 +1379,7 @@ final class BrokerAppCameraH264StreamSession {
             : -1;
         try {
             encoder.configure(
-                buildH264EncoderFormat(size, bitrateBps, true, bitrateMode),
+                buildH264EncoderFormat(size, bitrateBps, frameRateHz, true, bitrateMode),
                 null,
                 null,
                 MediaCodec.CONFIGURE_FLAG_ENCODE);
@@ -1365,7 +1397,7 @@ final class BrokerAppCameraH264StreamSession {
             }
             try {
                 encoder.configure(
-                    buildH264EncoderFormat(size, bitrateBps, false, bitrateMode),
+                    buildH264EncoderFormat(size, bitrateBps, frameRateHz, false, bitrateMode),
                     null,
                     null,
                     MediaCodec.CONFIGURE_FLAG_ENCODE);
@@ -1382,7 +1414,7 @@ final class BrokerAppCameraH264StreamSession {
                 } catch (Exception ignored) {
                 }
                 encoder.configure(
-                    buildH264EncoderFormat(size, bitrateBps, false, -1),
+                    buildH264EncoderFormat(size, bitrateBps, frameRateHz, false, -1),
                     null,
                     null,
                     MediaCodec.CONFIGURE_FLAG_ENCODE);
@@ -1393,12 +1425,13 @@ final class BrokerAppCameraH264StreamSession {
     private static MediaFormat buildH264EncoderFormat(
         Size size,
         int bitrateBps,
+        int frameRateHz,
         boolean includeOptionalHints,
         int bitrateMode) {
         MediaFormat format = MediaFormat.createVideoFormat(MIME_H264, size.getWidth(), size.getHeight());
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         format.setInteger(MediaFormat.KEY_BIT_RATE, bitrateBps);
-        format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE_HZ);
+        format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRateHz);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
         if (bitrateMode >= 0) {
             format.setInteger(MediaFormat.KEY_BITRATE_MODE, bitrateMode);
@@ -1409,7 +1442,7 @@ final class BrokerAppCameraH264StreamSession {
             format.setInteger(MediaFormat.KEY_LATENCY, 1);
             format.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0);
             format.setInteger(MediaFormat.KEY_OUTPUT_REORDER_DEPTH, 0);
-            format.setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, (float) FRAME_RATE_HZ);
+            format.setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, (float) frameRateHz);
         }
         return format;
     }
@@ -1522,6 +1555,7 @@ final class BrokerAppCameraH264StreamSession {
         Size size,
         int captureMs,
         int bitrateBps,
+        int frameRateHz,
         JSONObject endpoint,
         CameraSelection selection,
         EncoderMetadata encoderMetadata,
@@ -1547,6 +1581,7 @@ final class BrokerAppCameraH264StreamSession {
                     captureMs,
                     maxPackets,
                     bitrateBps,
+                    frameRateHz,
                     true,
                     endpoint,
                     selection,
@@ -1590,7 +1625,8 @@ final class BrokerAppCameraH264StreamSession {
         CameraManager manager,
         String requestedCameraId,
         int preferredWidth,
-        int preferredHeight) throws Exception {
+        int preferredHeight,
+        int frameRateHz) throws Exception {
         String[] ids = manager.getCameraIdList();
         CameraSelection best = null;
         for (int i = 0; i < ids.length; i++) {
@@ -1609,7 +1645,7 @@ final class BrokerAppCameraH264StreamSession {
             double translationX = translation != null && translation.length > 0 ? translation[0] : 0.0;
             long score = scoreCamera(back, translationX, size, preferredWidth, preferredHeight);
             if (best == null || score > best.score) {
-                Range<Integer> fpsRange = chooseFpsRange(characteristics);
+                Range<Integer> fpsRange = chooseFpsRange(characteristics, frameRateHz);
                 long streamMinFrameDurationNs = streamMinFrameDurationNs(characteristics, size);
                 String selectionReason = requestedCameraId != null && requestedCameraId.length() > 0
                     ? "requested_camera_id_closest_preferred_private_size"
@@ -1675,7 +1711,7 @@ final class BrokerAppCameraH264StreamSession {
         return score;
     }
 
-    private static Range<Integer> chooseFpsRange(CameraCharacteristics characteristics) {
+    private static Range<Integer> chooseFpsRange(CameraCharacteristics characteristics, int frameRateHz) {
         Range<Integer>[] ranges = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
         if (ranges == null || ranges.length == 0) {
             return null;
@@ -1689,9 +1725,9 @@ final class BrokerAppCameraH264StreamSession {
             }
             int lower = range.getLower().intValue();
             int upper = range.getUpper().intValue();
-            long containsPenalty = lower <= FRAME_RATE_HZ && upper >= FRAME_RATE_HZ ? 0L : 1_000_000L;
+            long containsPenalty = lower <= frameRateHz && upper >= frameRateHz ? 0L : 1_000_000L;
             long spanPenalty = Math.max(0, upper - lower);
-            long targetPenalty = Math.abs(upper - FRAME_RATE_HZ) * 1000L + Math.abs(lower - FRAME_RATE_HZ);
+            long targetPenalty = Math.abs(upper - frameRateHz) * 1000L + Math.abs(lower - frameRateHz);
             long score = containsPenalty + targetPenalty + spanPenalty;
             if (best == null || score < bestScore) {
                 best = range;
@@ -1751,7 +1787,8 @@ final class BrokerAppCameraH264StreamSession {
         CameraSelection selection,
         boolean syntheticSource,
         String syntheticPattern,
-        Size size) throws Exception {
+        Size size,
+        int frameRateHz) throws Exception {
         if (!syntheticSource) {
             putCameraSourceSelectionFields(target, selection, "Granted");
             return;
@@ -1767,6 +1804,8 @@ final class BrokerAppCameraH264StreamSession {
         target.put("selected_width", size != null ? size.getWidth() : 0);
         target.put("selected_height", size != null ? size.getHeight() : 0);
         target.put("selected_reason", "synthetic_diagnostic_source");
+        target.put("selected_fps_min_hz", frameRateHz);
+        target.put("selected_fps_max_hz", frameRateHz);
         target.put("synthetic_pattern", pattern);
     }
 
@@ -2329,6 +2368,7 @@ final class BrokerAppCameraH264StreamSession {
         int captureMs,
         int maxPackets,
         int bitrateBps,
+        int frameRateHz,
         boolean liveStream,
         JSONObject endpoint,
         CameraSelection selection,
@@ -2347,7 +2387,7 @@ final class BrokerAppCameraH264StreamSession {
         manifest.put("decoder_target", "surface");
         manifest.put("width", size.getWidth());
         manifest.put("height", size.getHeight());
-        manifest.put("frame_rate_hz", FRAME_RATE_HZ);
+        manifest.put("frame_rate_hz", frameRateHz);
         manifest.put("bitrate_bps", bitrateBps);
         manifest.put("source_kind", syntheticSource ? SOURCE_SYNTHETIC_H264 : SOURCE_CAMERA_H264);
         manifest.put("source_mode", syntheticSource ? SOURCE_MODE_SYNTHETIC_SURFACE : SOURCE_MODE_CAMERA2);
@@ -2360,7 +2400,7 @@ final class BrokerAppCameraH264StreamSession {
         manifest.put("writer_queue_depth", liveStream && endpoint != null ? endpoint.optInt("writer_queue_depth", 0) : 0);
         manifest.put("binary_schema_version", SCHEMA_VERSION);
         manifest.put("binary_endpoint", endpoint);
-        putSourceSelectionFields(manifest, selection, syntheticSource, syntheticPattern, size);
+        putSourceSelectionFields(manifest, selection, syntheticSource, syntheticPattern, size, frameRateHz);
         if (selection != null) {
             manifest.put("camera_source_capabilities", buildCameraSourceCapabilities(selection, "Granted"));
         }
@@ -2433,6 +2473,7 @@ final class BrokerAppCameraH264StreamSession {
         StreamWriteStats writeStats,
         int captureMs,
         int maxPackets,
+        int frameRateHz,
         boolean liveStream,
         CameraSelection selection,
         EncoderMetadata encoderMetadata,
@@ -2461,6 +2502,7 @@ final class BrokerAppCameraH264StreamSession {
         metric.put("camera_encode_end_elapsed_ns", encodeEndElapsedNs);
         metric.put("camera_encode_duration_ns", Math.max(0L, encodeEndElapsedNs - encodeStartElapsedNs));
         metric.put("live_stream", liveStream);
+        metric.put("frame_rate_hz", frameRateHz);
         metric.put("stream_mode", streamMode(liveStream, captureMs, maxPackets));
         metric.put("binary_listen_start_elapsed_ns", writeStats.listenStartElapsedNs);
         metric.put("binary_accept_elapsed_ns", writeStats.acceptElapsedNs);
@@ -2494,7 +2536,7 @@ final class BrokerAppCameraH264StreamSession {
         }
         metric.put("width", size != null ? size.getWidth() : 0);
         metric.put("height", size != null ? size.getHeight() : 0);
-        putSourceSelectionFields(metric, selection, syntheticSource, syntheticPattern, size);
+        putSourceSelectionFields(metric, selection, syntheticSource, syntheticPattern, size, frameRateHz);
         if (lastError != null && lastError.length() > 0) {
             metric.put("last_error", lastError);
         }
@@ -2731,16 +2773,16 @@ final class BrokerAppCameraH264StreamSession {
         return DEFAULT_SYNTHETIC_PATTERN;
     }
 
-    private static int syntheticFrameLimit(int captureMs, int maxPackets) {
+    private static int syntheticFrameLimit(int captureMs, int maxPackets, int frameRateHz) {
         int timeFrames = captureMs > 0
-            ? Math.max(1, (int) Math.ceil(captureMs * FRAME_RATE_HZ / 1000.0))
+            ? Math.max(1, (int) Math.ceil(captureMs * frameRateHz / 1000.0))
             : MAX_SYNTHETIC_FRAME_COUNT;
         int packetFrames = maxPackets > 0 ? Math.max(maxPackets + 4, timeFrames) : timeFrames;
         return clamp(packetFrames, 1, MAX_SYNTHETIC_FRAME_COUNT);
     }
 
-    private static void sleepUntilSyntheticFrameCadence(long frameStartElapsedNs) throws InterruptedException {
-        long frameIntervalNs = 1_000_000_000L / FRAME_RATE_HZ;
+    private static void sleepUntilSyntheticFrameCadence(long frameStartElapsedNs, int frameRateHz) throws InterruptedException {
+        long frameIntervalNs = 1_000_000_000L / Math.max(1, frameRateHz);
         long targetElapsedNs = frameStartElapsedNs + frameIntervalNs;
         long remainingNs = targetElapsedNs - SystemClock.elapsedRealtimeNanos();
         if (remainingNs > 0L) {
@@ -2990,6 +3032,7 @@ final class BrokerAppCameraH264StreamSession {
         final int captureMs;
         final int maxPackets;
         final int bitrateBps;
+        final int frameRateHz;
         final long encodeStartElapsedNs;
         final long encodeEndElapsedNs;
         final List<EncodedPacket> packets;
@@ -3003,6 +3046,7 @@ final class BrokerAppCameraH264StreamSession {
             int captureMs,
             int maxPackets,
             int bitrateBps,
+            int frameRateHz,
             long encodeStartElapsedNs,
             long encodeEndElapsedNs,
             List<EncodedPacket> packets,
@@ -3014,6 +3058,7 @@ final class BrokerAppCameraH264StreamSession {
             this.captureMs = captureMs;
             this.maxPackets = maxPackets;
             this.bitrateBps = bitrateBps;
+            this.frameRateHz = frameRateHz;
             this.encodeStartElapsedNs = encodeStartElapsedNs;
             this.encodeEndElapsedNs = encodeEndElapsedNs;
             this.packets = packets;
