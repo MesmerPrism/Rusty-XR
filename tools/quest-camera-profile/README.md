@@ -58,6 +58,16 @@ readiness confirmation before retrying camera acquisition. Treat an
 operator-driven long power-button press to the power menu as a manual recovery
 step, not as something this runner should automate.
 
+When a run falls into screen-awake but camera-unready state, preserve the
+cause-side transition too. Compare pre/mid/post VR power-manager dumps and
+recent logcat for `setActivityMonitorState: Idle`,
+`releasePowerStateLock: MOUNTED`, `onDeviceIdle`,
+`mountWakelock: false`, `setVirtualProxState(DISABLED)`,
+`Calling goToSleep()`, and transition to `STANDBY`. A later ADB wake or app
+launch can restore the screen while Camera2/PCA frame production is still
+unavailable, so the next camera run must re-prove readiness with live frame
+progression.
+
 For longer raw-stack verification, `mStayOn=false` and
 `stay_on_while_plugged_in=0` mean the Android stay-awake guard is off and normal
 timeout sleep can still occur. Use the raw-stack suite's
@@ -170,6 +180,11 @@ Use `rustyxr.cameraBlurRadiusPx` to adjust the sample radius for stack
 comparison. The app-parsed runtime config log reports both the requested preset
 and the resolved feed, sampler, decode, projection-effect, tone, blur radius,
 and swapchain settings.
+`rustyxr.cameraProjectionAreaOpacity` fades valid projected camera pixels, while
+`rustyxr.cameraProjectionBorderOpacity` fades the solid diagnostic border. For a
+red-border passthrough alignment run, use a solid-red preset with
+`rustyxr.openxrPassthroughProbe=underlay` and sweep only the opacity values; do
+not switch geometry presets while measuring screen-space offsets.
 Projection mode remains independent from those presets so border, sampler, and
 color modules can be tested against both public geometry mappings in the same
 APK.
@@ -187,6 +202,10 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `display-screen-homography` or `quad-surface`. |
 | `rustyxr.cameraProjectionAreaOffsetYUv` | float | Optional Vulkan/HWB vertical projection-area sweep knob for screen-space centering diagnostics. |
 | `rustyxr.projectionAreaOffsetYUv` | float | Optional GL/OES vertical projection-area sweep knob for screen-space centering diagnostics. |
+| `rustyxr.cameraProjectionAreaOpacity` | float | Vulkan/HWB valid projection-window alpha, clamped to `0..1`. |
+| `rustyxr.cameraProjectionBorderOpacity` | float | Vulkan/HWB solid border alpha, clamped to `0..1`. |
+| `rustyxr.projectionAreaOpacity` | float | GL/OES valid projection-window alpha, clamped to `0..1`. |
+| `rustyxr.projectionBorderOpacity` | float | GL/OES solid border alpha, clamped to `0..1`. |
 | `rustyxr.cameraBorderCycleHz` | float | Adjusts the generic phase-cycled border-color rate used by `raw-projection-cycling-border-unorm`; ignored by static border presets. |
 | `rustyxr.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in pixels for blur projection presets. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |

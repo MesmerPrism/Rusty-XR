@@ -138,6 +138,12 @@ valid footprint evidence; rerun after checking the launch extras and shader
 logs.
 Use `rustyxr.projectionAreaOffsetYUv=<value>` for controlled vertical
 projection-area centering sweeps after the hard-mask border is proven.
+Use `rustyxr.projectionAreaOpacity=<0..1>` to fade valid projected OES camera
+pixels and `rustyxr.projectionBorderOpacity=<0..1>` to fade the solid-red
+outside-projection region independently. Opacity below `1.0` requests
+source-alpha composition for the projection layer; whether transparent pixels
+show native passthrough or a black compositor background depends on the active
+runtime composition setup.
 Set `rustyxr.processingLayer=blur` and `rustyxr.cameraBlurRadiusPx=<px>` to run
 the same valid projected camera samples through the public 9-tap diagnostic blur
 layer. Leave `rustyxr.processingLayer=raw` for projection-only checks.

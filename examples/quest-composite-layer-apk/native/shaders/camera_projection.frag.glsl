@@ -971,6 +971,8 @@ void main() {
     float overscan = max(abs(pc.params.x), 1.0);
     float edge_fade = clamp(pc.params.y, 0.0, 0.5);
     float content_uv_scale = max(pc.params.z, 1.0);
+    float projection_area_opacity = clamp(pc.effect_params.y, 0.0, 1.0);
+    float projection_border_opacity = clamp(pc.effect_params.z, 0.0, 1.0);
 
     vec2 local_uv = vec2(0.5) + ((v_surface_uv - vec2(0.5)) / overscan);
     bool content_surface_valid = true;
@@ -1205,7 +1207,12 @@ void main() {
         ? mix(0.90, 1.0, smoothstep(0.0, edge_fade, surface_edge_distance))
         : 1.0;
     float source_edge_dim = mix(0.94, 1.0, coverage);
-    float out_alpha = passthrough_underlay_alpha && !masked_projection_valid ? 0.0 : 1.0;
+    float out_alpha = 1.0;
+    if (raw_projection_area_mask) {
+        out_alpha = masked_projection_valid
+            ? projection_area_opacity
+            : (passthrough_underlay_alpha ? 0.0 : projection_border_opacity);
+    }
     vec3 final_color = color * surface_edge_dim * source_edge_dim;
     if (raw_projection_solid_red && !masked_projection_valid) {
         final_color = vec3(1.0, 0.0, 0.0);

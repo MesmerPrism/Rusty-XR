@@ -600,6 +600,12 @@ The catalog keeps camera path experiments as separate runtime profiles:
   applied to valid camera samples only. Use
   `rustyxr.cameraProjectionAreaOffsetYUv=<value>` for controlled vertical
   centering sweeps after the hard-mask evidence is valid.
+  Use `rustyxr.cameraProjectionAreaOpacity=<0..1>` to fade the projected camera
+  window and `rustyxr.cameraProjectionBorderOpacity=<0..1>` to fade the
+  surrounding solid border independently. A red-border passthrough alignment
+  run should keep the solid-red preset and set
+  `rustyxr.openxrPassthroughProbe=underlay` so opacity changes do not alter the
+  projection geometry.
 - `broker-h264` existing-stream mode: set
   `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264

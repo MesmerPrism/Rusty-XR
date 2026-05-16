@@ -135,6 +135,17 @@ then move to broker-camera, SurfaceTexture/OES, CPU-YUV, or other codec lanes.
 Do not use broker clock health, app foreground, screenshots, or passthrough
 background imagery as substitutes for live camera-frame progression.
 
+When a camera-ready run falls into standby, provider tooling should capture the
+cause side as well as the failed camera retry. Preserve pre/mid/post
+`dumpsys power`, VR power-manager dumps, foreground/focus, broker clock/status,
+and recent logcat. A useful standby signature is VR power-manager events such
+as `setActivityMonitorState: Idle`, `onDeviceIdle` with
+`mountWakelock: false`, `releasePowerStateLock: MOUNTED`,
+`setVirtualProxState(DISABLED)`, `Calling goToSleep()`, and `STANDBY`. A
+subsequent ADB wake can restore display/app launch while leaving Camera2/PCA
+frame production unavailable, so provider tools should not collapse
+`display_ready` and `camera_ready`.
+
 ## Implementation Plan
 
 ### P0 - Capability Probe

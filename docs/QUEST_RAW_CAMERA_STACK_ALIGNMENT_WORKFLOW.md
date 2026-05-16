@@ -56,6 +56,11 @@ Launch/profile behavior:
 - projection-area offset sweep values such as
   `rustyxr.cameraProjectionAreaOffsetYUv`, `rustyxr.projectionAreaOffsetYUv`,
   or `debug.rustyxr.makepad.projection.area.offset.vertical.uv`;
+- independent projection-area and border opacity values such as
+  `rustyxr.cameraProjectionAreaOpacity`,
+  `rustyxr.cameraProjectionBorderOpacity`, `rustyxr.projectionAreaOpacity`,
+  `rustyxr.projectionBorderOpacity`, and the matching Makepad
+  `debug.rustyxr.makepad.projection.*.opacity` properties;
 - synthetic pattern selection when running broker-synthetic validation;
 - screenshot, HzDB, logcat, freshness, visual-stimulus, and comparison capture
   options.
@@ -193,6 +198,12 @@ feedback-color or camera samples in that region is not valid alignment evidence.
 For operator alignment against native passthrough, use
 `-ProjectionBorderPolicy passthrough-underlay`; the same non-projection-area
 region must be transparent so the compositor passthrough underlay is visible.
+For opacity sweeps, keep `-ProjectionBorderPolicy solid-red`, add
+`-EnableNativePassthroughUnderlay`, and tune
+`-ProjectionAreaOpacity <0..1>` separately from
+`-ProjectionBorderOpacity <0..1>`. That keeps the full submitted XR surface and
+the red border active while fading only the projected camera window against the
+native passthrough background.
 Use `-ProcessingLayer blur -BlurRadiusPx 2.0` when comparing the same raw
 projection area through the public diagnostic blur layer. The blur layer is a
 small generic 9-tap sampler intended for processing-stack diagnostics; it is
@@ -209,6 +220,10 @@ The suite applies the same policy to every public lane:
 Use `-ProjectionAreaOffsetYUv <value>` on the suite to run repeatable vertical
 centering sweeps. Record the observed direction per renderer before deciding on
 a final lane-specific offset.
+Use `-ProjectionAreaOpacity` for the projection-window fade and
+`-ProjectionBorderOpacity` for the non-projection area/border fade. Opacity
+changes must not move the camera projection area; rerun the solid-red
+screen-space analyzer after each geometry change.
 
 Transparent GL/OES pixels show compositor background unless a runtime
 passthrough underlay is active for that app. Treat that as a composition
@@ -226,10 +241,13 @@ and launches the generated XR activity directly because the normal launcher
 activity is not the reliable XR presentation gate.
 The suite writes passive `state-snapshots\` before and after each mode. These
 snapshots record ADB state, `dumpsys power`, `stay_on_while_plugged_in`, focus,
-windows, and broker status/clock endpoints where available. Use them to
-distinguish camera-readiness failures from normal timeout sleep, focus loss, or
-broker state changes. Do not treat proximity settings alone as proof that the
-headset cannot enter a camera-unready power state.
+windows, VR power-manager state, and broker status/clock endpoints where
+available. The suite summary includes a state-transition audit when a mode
+changes wakefulness or VR power state. Use that audit to distinguish
+camera-readiness failures from normal timeout sleep, focus loss, broker state
+changes, or a headset transition into screen-awake/camera-unready state. Do not
+treat proximity settings alone as proof that the headset cannot enter a
+camera-unready power state.
 For long unattended verification, pass `-EnableStayAwakeGuard`. That explicitly
 runs `svc power stayon true`, records the prior and resulting
 `stay_on_while_plugged_in` values under `awake-guard\`, and leaves the guard in
@@ -302,8 +320,12 @@ Run the comparison in this order:
 If a headset sleeps during a run, stop the mode sequence and preserve the next
 state snapshot. The important fields are wakefulness, last sleep reason, last
 sleep/wake times, stay-on setting, foreground/focus, and whether broker clock
-and stream status remained healthy. Resume camera validation only after the
-operator or platform state has returned to camera-ready status.
+and stream status remained healthy. Also inspect VR power-manager events around
+`setActivityMonitorState: Idle`, `onDeviceIdle`, `mountWakelock: false`,
+`releasePowerStateLock: MOUNTED`, `setVirtualProxState(DISABLED)`, and
+`Calling goToSleep()`. Resume camera validation only after the operator or
+platform state has returned to camera-ready status and live camera-frame
+progression has been re-proven.
 
 Useful tools:
 

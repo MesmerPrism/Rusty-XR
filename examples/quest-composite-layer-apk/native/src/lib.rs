@@ -630,6 +630,8 @@ pub(crate) struct RuntimeConfig {
     pub(crate) camera_preview_fov_y_degrees: f32,
     pub(crate) camera_projection_scale: f32,
     pub(crate) camera_projection_area_offset_y_uv: f32,
+    pub(crate) camera_projection_area_opacity: f32,
+    pub(crate) camera_projection_border_opacity: f32,
     pub(crate) camera_raw_overlay_overscan: f32,
     pub(crate) camera_full_view_overlay_overscan: f32,
     pub(crate) camera_edge_fade: f32,
@@ -708,6 +710,8 @@ impl Default for RuntimeConfig {
             camera_preview_fov_y_degrees: 60.0,
             camera_projection_scale: 0.75,
             camera_projection_area_offset_y_uv: 0.0,
+            camera_projection_area_opacity: 1.0,
+            camera_projection_border_opacity: 1.0,
             camera_raw_overlay_overscan: 1.06,
             camera_full_view_overlay_overscan: 2.10,
             camera_edge_fade: 0.12,
@@ -962,7 +966,22 @@ impl RuntimeConfig {
     }
 
     pub(crate) fn camera_effect_params_push(&self) -> [f32; 4] {
-        [self.camera_blur_radius_px.clamp(0.0, 16.0), 0.0, 0.0, 0.0]
+        [
+            self.camera_blur_radius_px.clamp(0.0, 16.0),
+            self.camera_projection_area_opacity.clamp(0.0, 1.0),
+            self.camera_projection_border_opacity.clamp(0.0, 1.0),
+            0.0,
+        ]
+    }
+
+    #[cfg(target_os = "android")]
+    pub(crate) fn projection_layer_needs_source_alpha(&self) -> bool {
+        self.openxr_passthrough_probe.submits_composition_layer()
+            || self
+                .camera_projection_effect_mode
+                .uses_passthrough_underlay_alpha()
+            || self.camera_projection_area_opacity < 0.999
+            || self.camera_projection_border_opacity < 0.999
     }
 
     pub(crate) fn camera_border_cycle_phase(&self, frame_count: u64) -> f32 {
@@ -1206,7 +1225,7 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} cameraBlurRadiusPx={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} projectionScale={} projectionAreaOffsetYUv={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} cameraBlurRadiusPx={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} projectionScale={} projectionAreaOffsetYUv={} projectionAreaOpacity={} projectionBorderOpacity={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -1246,6 +1265,8 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_preview_fov_y_degrees,
         config.camera_projection_scale,
         config.camera_projection_area_offset_y_uv,
+        config.camera_projection_area_opacity,
+        config.camera_projection_border_opacity,
         config.camera_raw_overlay_overscan,
         config.camera_full_view_overlay_overscan,
         config.camera_edge_fade,
@@ -1759,6 +1780,8 @@ struct JavaRuntimeConfig {
     camera_preview_fov_y_degrees: Option<f32>,
     camera_projection_scale: Option<f32>,
     camera_projection_area_offset_y_uv: Option<f32>,
+    camera_projection_area_opacity: Option<f32>,
+    camera_projection_border_opacity: Option<f32>,
     camera_raw_overlay_overscan: Option<f32>,
     camera_full_view_overlay_overscan: Option<f32>,
     camera_edge_fade: Option<f32>,
@@ -1896,6 +1919,16 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_area_offset_y_uv)
             .clamp(-0.5, 0.5),
+        camera_projection_area_opacity: bridge
+            .camera_projection_area_opacity
+            .filter(|value| value.is_finite())
+            .unwrap_or(defaults.camera_projection_area_opacity)
+            .clamp(0.0, 1.0),
+        camera_projection_border_opacity: bridge
+            .camera_projection_border_opacity
+            .filter(|value| value.is_finite())
+            .unwrap_or(defaults.camera_projection_border_opacity)
+            .clamp(0.0, 1.0),
         camera_raw_overlay_overscan: finite_positive_or(
             bridge.camera_raw_overlay_overscan,
             defaults.camera_raw_overlay_overscan,
@@ -3700,6 +3733,8 @@ mod tests {
             camera_preview_fov_y_degrees: Some(60.0),
             camera_projection_scale: Some(0.75),
             camera_projection_area_offset_y_uv: Some(0.0),
+            camera_projection_area_opacity: Some(0.42),
+            camera_projection_border_opacity: Some(0.85),
             camera_raw_overlay_overscan: Some(1.06),
             camera_full_view_overlay_overscan: Some(2.15),
             camera_edge_fade: Some(0.06),
@@ -3795,6 +3830,8 @@ mod tests {
         assert_eq!(config.camera_projection_fov_y_degrees, 92.0);
         assert_eq!(config.camera_preview_fov_y_degrees, 60.0);
         assert_eq!(config.camera_projection_scale, 0.75);
+        assert_eq!(config.camera_projection_area_opacity, 0.42);
+        assert_eq!(config.camera_projection_border_opacity, 0.85);
         assert_eq!(config.camera_raw_overlay_overscan, 1.06);
         assert_eq!(config.camera_full_view_overlay_overscan, 2.15);
         assert_eq!(config.camera_edge_fade, 0.06);

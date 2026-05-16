@@ -19,6 +19,9 @@ This workflow owns:
   only inside the projected camera region;
 - invalid-region policy: solid diagnostic color for segmentation or transparent
   passthrough underlay for operator alignment;
+- independent opacity controls for the projected camera area and the surrounding
+  border/matte region, so the same full submitted surface can be compared
+  against native passthrough without changing geometry;
 - broker-synthetic H.264 stimuli for deterministic projection, color/luma,
   temporal, and blur checks;
 - the public 9-tap diagnostic blur layer as a processing-stack witness;
@@ -103,6 +106,12 @@ native passthrough:
 - changing the border policy must not move, scale, or crop the camera
   projection area.
 
+For red-border passthrough alignment, keep the invalid-region policy at
+`solid-red`, enable the native passthrough underlay, and sweep projection-area
+opacity from `1.0` to `0.0`. The border opacity is a separate control. This mode
+is useful when the operator needs to see the exact projected-camera window
+against Meta passthrough while retaining a hard red outline/matte.
+
 If a lane appears vertically or horizontally offset, record it as a projection
 space finding. Do not compensate with downstream visual-effect parameters.
 
@@ -125,11 +134,11 @@ stale/repeated frames.
 
 ## Public Control Map
 
-| Renderer family | Raw border control | Blur control |
-| --- | --- | --- |
-| Vulkan/HWB | `rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `raw-projection-blur-solid-red-unorm` or `raw-projection-blur-underlay-unorm`, plus `rustyxr.cameraBlurRadiusPx` |
-| GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
-| Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.processing.layer=blur`, plus `debug.rustyxr.makepad.blur.radius.px` |
+| Renderer family | Raw border control | Projection-area opacity | Border opacity | Blur control |
+| --- | --- | --- | --- | --- |
+| Vulkan/HWB | `rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `rustyxr.cameraProjectionAreaOpacity` | `rustyxr.cameraProjectionBorderOpacity` | `raw-projection-blur-solid-red-unorm` or `raw-projection-blur-underlay-unorm`, plus `rustyxr.cameraBlurRadiusPx` |
+| GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
+| Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.projection.area.opacity` | `debug.rustyxr.makepad.projection.border.opacity` | `debug.rustyxr.makepad.processing.layer=blur`, plus `debug.rustyxr.makepad.blur.radius.px` |
 
 The suite-level `-ProjectionAreaOffsetYUv` parameter forwards the same
 screen-space vertical sweep intent to each renderer through its native key. Use

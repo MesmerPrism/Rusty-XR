@@ -228,6 +228,13 @@ impl CameraProjectionEffectMode {
             Self::RawProjectionFast | Self::ProjectionAreaDiagnostic
         )
     }
+
+    pub(crate) const fn uses_passthrough_underlay_alpha(self) -> bool {
+        matches!(
+            self,
+            Self::RawProjectionBlurUnderlay | Self::RawProjectionUnderlay
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

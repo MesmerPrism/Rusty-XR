@@ -302,6 +302,11 @@ camera projection in the same full submitted render surface. Use the solid-red
 policy when the actual projected camera footprint needs an unmistakable marker;
 use passthrough-underlay for manual headset alignment against native
 passthrough.
+Add `-EnableNativePassthrough -ProjectionAreaOpacity <0..1>
+-ProjectionBorderOpacity <0..1>` when you want a solid-red border with native
+passthrough active behind the same full submitted surface. The area opacity
+fades only valid projected camera pixels; the border opacity fades the
+non-projection matte/border independently.
 Add `-ProcessingLayer blur -BlurRadiusPx 2.0` to enable the public diagnostic
 blur layer for valid camera samples while keeping the same projection border
 policy. The gate writes `debug.rustyxr.makepad.processing.layer` and

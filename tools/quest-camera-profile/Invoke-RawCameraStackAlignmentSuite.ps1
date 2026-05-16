@@ -26,6 +26,9 @@ param(
     [string]$ProcessingLayer = "raw",
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionAreaOffsetYUv = 0.0,
+    [double]$ProjectionAreaOpacity = 1.0,
+    [double]$ProjectionBorderOpacity = 1.0,
+    [switch]$EnableNativePassthroughUnderlay,
     [switch]$EnableStayAwakeGuard,
     [switch]$RestoreStayAwakeGuard,
     [switch]$CaptureHzdbScreencap,
@@ -111,6 +114,9 @@ function Save-StateSnapshot {
     Save-TextCommand -Path (Join-Path $snapshotRoot "dumpsys-power.txt") -Command {
         Invoke-AdbText -Arguments @("shell", "dumpsys", "power")
     }
+    Save-TextCommand -Path (Join-Path $snapshotRoot "dumpsys-vrpowermanager.txt") -Command {
+        Invoke-AdbText -Arguments @("shell", "dumpsys", "vrpowermanager")
+    }
     Save-TextCommand -Path (Join-Path $snapshotRoot "stay-on-while-plugged-in.txt") -Command {
         Invoke-AdbText -Arguments @("shell", "settings", "get", "global", "stay_on_while_plugged_in")
     }
@@ -129,6 +135,71 @@ function Save-StateSnapshot {
     Save-TextCommand -Path (Join-Path $snapshotRoot "broker-clock-health.json") -Command {
         (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8765/clock/health" -TimeoutSec 3).Content
     }
+}
+
+function Get-FirstRegexValue {
+    param(
+        [string]$Text,
+        [string]$Pattern
+    )
+    if ($Text -match $Pattern) {
+        return $Matches[1]
+    }
+    return ""
+}
+
+function Get-StateSnapshotSummary {
+    param([string]$Label)
+    $safeLabel = $Label -replace '[^A-Za-z0-9_.-]', '_'
+    $snapshotRoot = Join-Path $sessionRoot "state-snapshots\$safeLabel"
+    $powerPath = Join-Path $snapshotRoot "dumpsys-power.txt"
+    $vrPath = Join-Path $snapshotRoot "dumpsys-vrpowermanager.txt"
+    $stayPath = Join-Path $snapshotRoot "stay-on-while-plugged-in.txt"
+    $powerText = if (Test-Path -LiteralPath $powerPath) { Get-Content -Raw -Path $powerPath } else { "" }
+    $vrText = if (Test-Path -LiteralPath $vrPath) { Get-Content -Raw -Path $vrPath } else { "" }
+    $staySetting = if (Test-Path -LiteralPath $stayPath) { ((Get-Content -Raw -Path $stayPath) -split "`r?`n" | Select-Object -First 1).Trim() } else { "" }
+
+    return [pscustomobject]@{
+        label = $Label
+        artifactRoot = $snapshotRoot
+        wakefulness = Get-FirstRegexValue -Text $powerText -Pattern 'mWakefulness=([^\r\n]+)'
+        stayOn = Get-FirstRegexValue -Text $powerText -Pattern 'mStayOn=([^\r\n]+)'
+        stayOnWhilePluggedIn = $staySetting
+        proximityPositive = Get-FirstRegexValue -Text $powerText -Pattern 'mProximityPositive=([^\r\n]+)'
+        lastSleepReason = Get-FirstRegexValue -Text $powerText -Pattern 'mLastSleepReason=([^\r\n]+)'
+        vrState = Get-FirstRegexValue -Text $vrText -Pattern '(?m)^State:\s*([^\r\n]+)'
+        virtualProximityState = Get-FirstRegexValue -Text $vrText -Pattern 'Virtual proximity state:\s*([^\r\n]+)'
+        mountWakeLockCount = Get-FirstRegexValue -Text $vrText -Pattern 'MountWakeLock count:\s*([^\r\n]+)'
+        hasGoToSleep = [bool]($vrText -match 'Calling goToSleep\(\)')
+        hasMountWakeLockFalseIdle = [bool]($vrText -match 'onDeviceIdle: state: HEADSET_MOUNTED, forceUnmountWakelock: false, mountWakelock: false')
+    }
+}
+
+function Get-StateIssueSummary {
+    param(
+        [object]$Before,
+        [object]$After
+    )
+    $issues = [System.Collections.Generic.List[string]]::new()
+    if ($After.wakefulness -eq "Asleep") {
+        $issues.Add("after wakefulness is Asleep")
+    }
+    if ($After.vrState -eq "STANDBY") {
+        $issues.Add("after VR power state is STANDBY")
+    }
+    if ($Before.wakefulness -and $After.wakefulness -and $Before.wakefulness -ne $After.wakefulness) {
+        $issues.Add(("wakefulness changed {0}->{1}" -f $Before.wakefulness, $After.wakefulness))
+    }
+    if ($Before.vrState -and $After.vrState -and $Before.vrState -ne $After.vrState) {
+        $issues.Add(("VR state changed {0}->{1}" -f $Before.vrState, $After.vrState))
+    }
+    if ($After.hasMountWakeLockFalseIdle) {
+        $issues.Add("VR power log contains mountWakelock=false idle")
+    }
+    if ($After.hasGoToSleep) {
+        $issues.Add("VR power log contains goToSleep")
+    }
+    return ($issues -join "; ")
 }
 
 function Restart-BrokerBeforeMode {
@@ -232,23 +303,33 @@ function Format-InvariantDouble {
 function Get-VulkanProjectionBorderOverride {
     $blurRadius = Format-InvariantDouble -Value $BlurRadiusPx
     $offsetY = Format-InvariantDouble -Value $ProjectionAreaOffsetYUv
-    $offsetOverride = "rustyxr.cameraProjectionAreaOffsetYUv=$offsetY"
+    $areaOpacity = Format-InvariantDouble -Value $ProjectionAreaOpacity
+    $borderOpacity = Format-InvariantDouble -Value $ProjectionBorderOpacity
+    $commonOverride = "rustyxr.cameraProjectionAreaOffsetYUv=$offsetY,rustyxr.cameraProjectionAreaOpacity=$areaOpacity,rustyxr.cameraProjectionBorderOpacity=$borderOpacity"
+    $passthroughOverride = if ($EnableNativePassthroughUnderlay -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0) {
+        "rustyxr.openxrPassthroughProbe=underlay"
+    }
+    else {
+        "rustyxr.openxrPassthroughProbe=off"
+    }
     if ($ProcessingLayer -eq "blur") {
         if ($ProjectionBorderPolicy -eq "passthrough-underlay") {
-            return "rustyxr.cameraPipelinePreset=raw-projection-blur-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-underlay,rustyxr.openxrPassthroughProbe=underlay,rustyxr.cameraBlurRadiusPx=$blurRadius,$offsetOverride"
+            return "rustyxr.cameraPipelinePreset=raw-projection-blur-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-underlay,$passthroughOverride,rustyxr.cameraBlurRadiusPx=$blurRadius,$commonOverride"
         }
-        return "rustyxr.cameraPipelinePreset=raw-projection-blur-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.cameraBlurRadiusPx=$blurRadius,$offsetOverride"
+        return "rustyxr.cameraPipelinePreset=raw-projection-blur-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-solid-red,$passthroughOverride,rustyxr.cameraBlurRadiusPx=$blurRadius,$commonOverride"
     }
     if ($ProjectionBorderPolicy -eq "passthrough-underlay") {
-        return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,rustyxr.openxrPassthroughProbe=underlay,$offsetOverride"
+        return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,$passthroughOverride,$commonOverride"
     }
-    return "rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,$offsetOverride"
+    return "rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,$passthroughOverride,$commonOverride"
 }
 
 function Get-GlesProjectionBorderOverride {
     $blurRadius = Format-InvariantDouble -Value $BlurRadiusPx
     $offsetY = Format-InvariantDouble -Value $ProjectionAreaOffsetYUv
-    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,rustyxr.processingLayer=$ProcessingLayer,rustyxr.cameraBlurRadiusPx=$blurRadius,rustyxr.projectionAreaOffsetYUv=$offsetY"
+    $areaOpacity = Format-InvariantDouble -Value $ProjectionAreaOpacity
+    $borderOpacity = Format-InvariantDouble -Value $ProjectionBorderOpacity
+    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,rustyxr.processingLayer=$ProcessingLayer,rustyxr.cameraBlurRadiusPx=$blurRadius,rustyxr.projectionAreaOffsetYUv=$offsetY,rustyxr.projectionAreaOpacity=$areaOpacity,rustyxr.projectionBorderOpacity=$borderOpacity"
 }
 
 function Get-CommonQuestProfileArgs {
@@ -290,6 +371,7 @@ function Invoke-QuestProfileMode {
     $modeRoot = Join-Path $sessionRoot $ModeId
     New-Item -ItemType Directory -Force -Path $modeRoot | Out-Null
     Save-StateSnapshot -Label "before-$ModeId"
+    $stateBefore = Get-StateSnapshotSummary -Label "before-$ModeId"
 
     $argList = [System.Collections.Generic.List[string]]::new()
     foreach ($item in (Get-CommonQuestProfileArgs -ModeRunRoot $modeRoot)) {
@@ -337,6 +419,8 @@ function Invoke-QuestProfileMode {
         }
     }
     Save-StateSnapshot -Label "after-$ModeId"
+    $stateAfter = Get-StateSnapshotSummary -Label "after-$ModeId"
+    $stateIssues = Get-StateIssueSummary -Before $stateBefore -After $stateAfter
 
     $latestRun = Get-ChildItem -Path $modeRoot -Directory -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending |
@@ -350,6 +434,9 @@ function Invoke-QuestProfileMode {
             runtimeProfile = $RuntimeProfile
             artifactRoot = $modeRoot
             latestRun = if ($latestRun) { $latestRun.FullName } else { "" }
+            stateBefore = $stateBefore
+            stateAfter = $stateAfter
+            stateIssues = $stateIssues
         })
 }
 
@@ -367,6 +454,7 @@ function Invoke-MakepadMode {
     $modeRoot = Join-Path $sessionRoot $ModeId
     New-Item -ItemType Directory -Force -Path $modeRoot | Out-Null
     Save-StateSnapshot -Label "before-$ModeId"
+    $stateBefore = Get-StateSnapshotSummary -Label "before-$ModeId"
 
     $argList = [System.Collections.Generic.List[string]]::new()
     $argList.Add("-Serial")
@@ -395,6 +483,13 @@ function Invoke-MakepadMode {
     $argList.Add((Format-InvariantDouble -Value $BlurRadiusPx))
     $argList.Add("-ProjectionAreaOffsetYUv")
     $argList.Add((Format-InvariantDouble -Value $ProjectionAreaOffsetYUv))
+    $argList.Add("-ProjectionAreaOpacity")
+    $argList.Add((Format-InvariantDouble -Value $ProjectionAreaOpacity))
+    $argList.Add("-ProjectionBorderOpacity")
+    $argList.Add((Format-InvariantDouble -Value $ProjectionBorderOpacity))
+    if ($EnableNativePassthroughUnderlay) {
+        $argList.Add("-EnableNativePassthrough")
+    }
 
     if ($UseBrokerH264Camera) {
         $argList.Add("-UseBrokerH264Camera")
@@ -443,6 +538,8 @@ function Invoke-MakepadMode {
         }
     }
     Save-StateSnapshot -Label "after-$ModeId"
+    $stateAfter = Get-StateSnapshotSummary -Label "after-$ModeId"
+    $stateIssues = Get-StateIssueSummary -Before $stateBefore -After $stateAfter
 
     $results.Add([pscustomobject]@{
             mode = $ModeId
@@ -452,6 +549,9 @@ function Invoke-MakepadMode {
             runtimeProfile = if ($UseBrokerH264Camera) { "makepad broker H.264 camera" } else { "makepad direct camera" }
             artifactRoot = $modeRoot
             latestRun = $modeRoot
+            stateBefore = $stateBefore
+            stateAfter = $stateAfter
+            stateIssues = $stateIssues
         })
 }
 
@@ -527,7 +627,7 @@ if ($RestoreStayAwakeGuard) {
 }
 
 $summaryJson = Join-Path $sessionRoot "raw-camera-stack-suite-summary.json"
-$results | ConvertTo-Json -Depth 4 | Set-Content -Path $summaryJson -Encoding UTF8
+$results | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryJson -Encoding UTF8
 
 $summaryMd = Join-Path $sessionRoot "raw-camera-stack-suite-summary.md"
 $lines = [System.Collections.Generic.List[string]]::new()
@@ -538,6 +638,9 @@ $lines.Add(("- Border policy: ``{0}``" -f $ProjectionBorderPolicy))
 $lines.Add(("- Processing layer: ``{0}``" -f $ProcessingLayer))
 $lines.Add(("- Blur radius px: ``{0}``" -f (Format-InvariantDouble -Value $BlurRadiusPx)))
 $lines.Add(("- Projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value $ProjectionAreaOffsetYUv)))
+$lines.Add(("- Projection area opacity: ``{0}``" -f (Format-InvariantDouble -Value $ProjectionAreaOpacity)))
+$lines.Add(("- Projection border opacity: ``{0}``" -f (Format-InvariantDouble -Value $ProjectionBorderOpacity)))
+$lines.Add(("- Native passthrough underlay requested: ``{0}``" -f [bool]$EnableNativePassthroughUnderlay))
 $lines.Add(("- Vulkan/HWB border override: ``{0}``" -f (Get-VulkanProjectionBorderOverride)))
 $lines.Add(("- GL/OES border override: ``{0}``" -f (Get-GlesProjectionBorderOverride)))
 $lines.Add(("- Warmup seconds: ``{0}``" -f $WarmupSeconds))
@@ -570,6 +673,23 @@ foreach ($result in $results) {
     $lines.Add(('| `{0}` | `{1}` | {2} | `{3}` |' -f $result.mode, $result.status, $result.architecture, $artifact))
     if ($result.error) {
         $lines.Add(('| `{0}` | error | {1} | `{2}` |' -f $result.mode, $result.error.Replace('|', '/'), $artifact))
+    }
+}
+$stateIssueRows = @($results | Where-Object { $_.stateIssues })
+if ($stateIssueRows.Count -gt 0) {
+    $lines.Add("")
+    $lines.Add("## State Transition Audit")
+    $lines.Add("")
+    $lines.Add("If wakefulness or VR power state changes during a mode, treat later camera evidence as bracketed until readiness is re-proven.")
+    $lines.Add("")
+    $lines.Add("| Mode | Before | After | Issues |")
+    $lines.Add("| --- | --- | --- | --- |")
+    foreach ($result in $stateIssueRows) {
+        $beforeState = if ($result.stateBefore.vrState) { $result.stateBefore.vrState } else { "unknown" }
+        $afterState = if ($result.stateAfter.vrState) { $result.stateAfter.vrState } else { "unknown" }
+        $beforeWake = if ($result.stateBefore.wakefulness) { $result.stateBefore.wakefulness } else { "unknown" }
+        $afterWake = if ($result.stateAfter.wakefulness) { $result.stateAfter.wakefulness } else { "unknown" }
+        $lines.Add(('| `{0}` | `{1}` / `{2}` | `{3}` / `{4}` | {5} |' -f $result.mode, $beforeWake, $beforeState, $afterWake, $afterState, $result.stateIssues.Replace('|', '/')))
     }
 }
 $lines.Add("")

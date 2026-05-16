@@ -3387,8 +3387,7 @@ unsafe fn run_vulkan(
                         .image_rect(rect),
                 ),
         ];
-        let projection_layer_flags = if config.openxr_passthrough_probe.submits_composition_layer()
-        {
+        let projection_layer_flags = if config.projection_layer_needs_source_alpha() {
             xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA
         } else {
             xr::CompositionLayerFlags::EMPTY

@@ -41,7 +41,10 @@ param(
     [ValidateSet("raw", "blur")]
     [string]$ProcessingLayer = "raw",
     [double]$BlurRadiusPx = 2.0,
-    [double]$ProjectionAreaOffsetYUv = 0.0
+    [double]$ProjectionAreaOffsetYUv = 0.0,
+    [double]$ProjectionAreaOpacity = 1.0,
+    [double]$ProjectionBorderOpacity = 1.0,
+    [switch]$EnableNativePassthrough
 )
 
 $ErrorActionPreference = "Stop"
@@ -155,11 +158,13 @@ function Set-MakepadBrokerH264Profile {
 }
 
 function Set-MakepadProjectionTargetProfile {
-    $nativePassthrough = if ($ProjectionBorderPolicy -eq "passthrough-underlay") { "true" } else { "false" }
+    $nativePassthrough = if ($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0) { "true" } else { "false" }
     $props = [ordered]@{
         "debug.rustyxr.makepad.projection.border.policy" = $ProjectionBorderPolicy
         "debug.rustyxr.makepad.native.passthrough.enabled" = $nativePassthrough
-        "debug.rustyxr.makepad.projection.border.strength" = "1.0"
+        "debug.rustyxr.makepad.projection.border.strength" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
+        "debug.rustyxr.makepad.projection.border.opacity" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
+        "debug.rustyxr.makepad.projection.area.opacity" = (Format-InvariantDouble -Value $ProjectionAreaOpacity)
         "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
         "debug.rustyxr.makepad.projection.area.offset.vertical.uv" = (Format-InvariantDouble -Value $ProjectionAreaOffsetYUv)
@@ -540,7 +545,9 @@ $summary = [ordered]@{
     useBrokerH264Camera = [bool]$UseBrokerH264Camera
     brokerH264SourceMode = if ($UseBrokerH264Camera) { "broker-camera" } elseif ($UseBrokerH264Synthetic) { "broker-synthetic" } else { "disabled" }
     projectionBorderPolicy = $ProjectionBorderPolicy
-    nativePassthroughRequested = [bool]($ProjectionBorderPolicy -eq "passthrough-underlay")
+    nativePassthroughRequested = [bool]($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0)
+    projectionAreaOpacity = $ProjectionAreaOpacity
+    projectionBorderOpacity = $ProjectionBorderOpacity
     processingLayer = $ProcessingLayer
     blurRadiusPx = $BlurRadiusPx
     brokerH264FrameRateHz = $BrokerH264FrameRateHz

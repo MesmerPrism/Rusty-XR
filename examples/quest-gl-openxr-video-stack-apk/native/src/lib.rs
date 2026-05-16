@@ -157,6 +157,16 @@ mod android {
             matches!(self, Self::PassthroughUnderlay)
         }
 
+        fn needs_source_alpha(
+            self,
+            projection_area_opacity: f32,
+            projection_border_opacity: f32,
+        ) -> bool {
+            self.uses_source_alpha()
+                || projection_area_opacity < 0.999
+                || projection_border_opacity < 0.999
+        }
+
         const fn clear_color(self) -> (f32, f32, f32, f32) {
             match self {
                 Self::SolidRed => (1.0, 0.0, 0.0, 1.0),
@@ -528,18 +538,25 @@ mod android {
         let processing_layer = processing_layer_from_activity(&app);
         let blur_radius_px = blur_radius_px_from_activity(&app);
         let projection_area_offset_y_uv = projection_area_offset_y_uv_from_activity(&app);
+        let projection_area_opacity = projection_area_opacity_from_activity(&app);
+        let projection_border_opacity = projection_border_opacity_from_activity(&app);
+        let projection_uses_source_alpha = projection_border_policy
+            .needs_source_alpha(projection_area_opacity, projection_border_opacity);
         log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetYUv={:.6}",
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetYUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3}",
             projection_border_policy.stable_id(),
             processing_layer.stable_id(),
             blur_radius_px,
-            projection_area_offset_y_uv
+            projection_area_offset_y_uv,
+            projection_area_opacity,
+            projection_border_opacity
         ));
         let environment_blend_mode = select_environment_blend_mode(
             &xr_instance,
             system,
             &mut status,
             projection_border_policy,
+            projection_uses_source_alpha,
         )?;
         let requirements = xr_instance
             .graphics_requirements::<xr::OpenGlEs>(system)
@@ -693,6 +710,8 @@ mod android {
                     projection_border_policy,
                     processing_layer,
                     blur_radius_px,
+                    projection_area_opacity,
+                    projection_border_opacity,
                 )?;
 
                 for (index, eye) in swapchains.iter().enumerate() {
@@ -729,7 +748,7 @@ mod android {
                     .map_err(|error| format!("end OpenXR frame without layers: {error}"))?;
             } else {
                 let layer = xr::CompositionLayerProjection::new()
-                    .layer_flags(if projection_border_policy.uses_source_alpha() {
+                    .layer_flags(if projection_uses_source_alpha {
                         xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA
                     } else {
                         xr::CompositionLayerFlags::EMPTY
@@ -875,11 +894,12 @@ mod android {
         system: xr::SystemId,
         status: &mut OpenXrGlesFeasibilityStatus,
         projection_border_policy: OesProjectionBorderPolicy,
+        projection_uses_source_alpha: bool,
     ) -> Result<xr::EnvironmentBlendMode, String> {
         let modes = instance
             .enumerate_environment_blend_modes(system, VIEW_TYPE)
             .map_err(|error| format!("enumerate environment blend modes: {error}"))?;
-        let selected = if projection_border_policy.uses_source_alpha() {
+        let selected = if projection_uses_source_alpha {
             modes
                 .iter()
                 .copied()
@@ -1025,6 +1045,8 @@ mod android {
         projection_border_policy: OesProjectionBorderPolicy,
         processing_layer: OesProcessingLayer,
         blur_radius_px: f32,
+        projection_area_opacity: f32,
+        projection_border_opacity: f32,
     ) -> Result<(), String> {
         egl.make_current()?;
         for eye in swapchains {
@@ -1062,6 +1084,8 @@ mod android {
                         projection_border_policy,
                         processing_layer,
                         blur_radius_px,
+                        projection_area_opacity,
+                        projection_border_opacity,
                     ) {
                         Ok(fbo_status) => {
                             render_path = if eye_projection.is_some() {
@@ -1162,6 +1186,8 @@ mod android {
         projection_border_policy_location: c_int,
         processing_layer_location: c_int,
         blur_radius_px_location: c_int,
+        projection_area_opacity_location: c_int,
+        projection_border_opacity_location: c_int,
         source_texel_size_location: c_int,
     }
 
@@ -1190,6 +1216,8 @@ uniform vec3 u_screen_to_camera_h2;
 uniform int u_projection_border_policy;
 uniform int u_processing_layer;
 uniform float u_blur_radius_px;
+uniform float u_projection_area_opacity;
+uniform float u_projection_border_opacity;
 uniform vec2 u_source_texel_size;
 in vec2 v_uv;
 out vec4 out_color;
@@ -1197,7 +1225,7 @@ vec4 invalid_projection_color() {
     if (u_projection_border_policy == 1) {
         return vec4(0.0, 0.0, 0.0, 0.0);
     }
-    return vec4(1.0, 0.0, 0.0, 1.0);
+    return vec4(1.0, 0.0, 0.0, clamp(u_projection_border_opacity, 0.0, 1.0));
 }
 float projection_area_distance(vec2 uv) {
     vec2 half_size = vec2(0.47, 0.36);
@@ -1209,7 +1237,10 @@ float projection_area_distance(vec2 uv) {
     return clamp(1.0 + signed_distance / max(min(half_size.x, half_size.y), 0.001), 0.0, 2.0);
 }
 vec4 camera_sample(vec2 uv) {
-    return vec4(texture(u_source, clamp(uv, vec2(0.0), vec2(1.0))).rgb, 1.0);
+    return vec4(
+        texture(u_source, clamp(uv, vec2(0.0), vec2(1.0))).rgb,
+        clamp(u_projection_area_opacity, 0.0, 1.0)
+    );
 }
 vec4 blurred_camera_sample(vec2 uv) {
     float radius = max(u_blur_radius_px, 0.0);
@@ -1229,7 +1260,10 @@ vec4 blurred_camera_sample(vec2 uv) {
         camera_sample(sample_uv - texel).rgb +
         camera_sample(sample_uv + vec2(texel.x, -texel.y)).rgb +
         camera_sample(sample_uv + vec2(-texel.x, texel.y)).rgb;
-    return vec4(clamp(center + axis * 0.12 + diag * 0.04, vec3(0.0), vec3(1.0)), 1.0);
+    return vec4(
+        clamp(center + axis * 0.12 + diag * 0.04, vec3(0.0), vec3(1.0)),
+        clamp(u_projection_area_opacity, 0.0, 1.0)
+    );
 }
 void main() {
     if (projection_area_distance(v_uv) > 1.0) {
@@ -1282,6 +1316,8 @@ void main() {
                     uniform_location(program, "u_projection_border_policy")?,
                     uniform_location(program, "u_processing_layer")?,
                     uniform_location(program, "u_blur_radius_px")?,
+                    uniform_location(program, "u_projection_area_opacity")?,
+                    uniform_location(program, "u_projection_border_opacity")?,
                     uniform_location(program, "u_source_texel_size")?,
                 ))
             })();
@@ -1293,6 +1329,8 @@ void main() {
                 projection_border_policy_location,
                 processing_layer_location,
                 blur_radius_px_location,
+                projection_area_opacity_location,
+                projection_border_opacity_location,
                 source_texel_size_location,
             ) = match uniform_locations {
                 Ok(locations) => locations,
@@ -1337,6 +1375,8 @@ void main() {
                 projection_border_policy_location,
                 processing_layer_location,
                 blur_radius_px_location,
+                projection_area_opacity_location,
+                projection_border_opacity_location,
                 source_texel_size_location,
             })
         }
@@ -1348,6 +1388,8 @@ void main() {
             projection_border_policy: OesProjectionBorderPolicy,
             processing_layer: OesProcessingLayer,
             blur_radius_px: f32,
+            projection_area_opacity: f32,
+            projection_border_opacity: f32,
             source_texel_size: [f32; 2],
         ) -> Result<(), String> {
             unsafe {
@@ -1363,6 +1405,14 @@ void main() {
                 glUniform1f(
                     self.blur_radius_px_location,
                     blur_radius_px.clamp(0.0, 16.0),
+                );
+                glUniform1f(
+                    self.projection_area_opacity_location,
+                    projection_area_opacity.clamp(0.0, 1.0),
+                );
+                glUniform1f(
+                    self.projection_border_opacity_location,
+                    projection_border_opacity.clamp(0.0, 1.0),
                 );
                 glUniform2f(
                     self.source_texel_size_location,
@@ -1669,6 +1719,8 @@ void main() {
             projection_border_policy: OesProjectionBorderPolicy,
             processing_layer: OesProcessingLayer,
             blur_radius_px: f32,
+            projection_area_opacity: f32,
+            projection_border_opacity: f32,
         ) -> Result<GlFramebufferCompleteness, String> {
             unsafe {
                 glBindFramebuffer(GL_FRAMEBUFFER, self.id);
@@ -1688,7 +1740,12 @@ void main() {
 
                 glViewport(0, 0, width as c_int, height as c_int);
                 let (clear_r, clear_g, clear_b, clear_a) = projection_border_policy.clear_color();
-                glClearColor(clear_r, clear_g, clear_b, clear_a);
+                glClearColor(
+                    clear_r,
+                    clear_g,
+                    clear_b,
+                    clear_a * projection_border_opacity.clamp(0.0, 1.0),
+                );
                 glClear(GL_COLOR_BUFFER_BIT);
                 renderer.render(
                     source_oes_texture,
@@ -1698,6 +1755,8 @@ void main() {
                     projection_border_policy,
                     processing_layer,
                     blur_radius_px,
+                    projection_area_opacity,
+                    projection_border_opacity,
                     [
                         1.0 / DEFAULT_OES_SURFACE_WIDTH.max(1) as f32,
                         1.0 / DEFAULT_OES_SURFACE_HEIGHT.max(1) as f32,
@@ -3078,6 +3137,46 @@ void main() {
             .filter(|value| value.is_finite())
             .unwrap_or(0.0)
             .clamp(-0.5, 0.5)
+    }
+
+    fn projection_area_opacity_from_activity(app: &android_activity::AndroidApp) -> f32 {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return 1.0;
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return 1.0;
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaOpacity")
+            .or_else(|| {
+                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAreaOpacity")
+            })
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0)
+    }
+
+    fn projection_border_opacity_from_activity(app: &android_activity::AndroidApp) -> f32 {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return 1.0;
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return 1.0;
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.projectionBorderOpacity")
+            .or_else(|| {
+                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionBorderOpacity")
+            })
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0)
     }
 
     fn jni_error(env: &mut JNIEnv<'_>, context: &str, error: impl std::fmt::Display) -> String {
