@@ -9,6 +9,12 @@ Android `SurfaceTexture` / `GL_TEXTURE_EXTERNAL_OES` ingestion, OpenGL FBO
 pass graphs, projection diagnostics, and public effect-stack examples against
 the existing Vulkan and Makepad lanes.
 
+The current public alignment workflow is
+[SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md](SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md).
+Use that workflow to keep the GL/OES raw projection target, invalid-region
+policy, and public diagnostic blur layer comparable with the Vulkan/HWB and
+Makepad lanes before downstream apps add product-specific effects.
+
 ## Boundary
 
 Rusty XR owns the general infrastructure:
@@ -18,8 +24,8 @@ Rusty XR owns the general infrastructure:
 - OES-to-internal-texture copy pass;
 - public pass-graph and layer-diagnostic vocabulary;
 - projection-policy diagnostics and scorecard fields;
-- public example stacks such as luma, edge detection, masks, simple color maps,
-  and final composites.
+- public example stacks such as diagnostic blur, luma, edge detection, masks,
+  simple color maps, and final composites.
 
 Downstream apps own product-specific behavior:
 

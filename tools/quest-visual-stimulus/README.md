@@ -9,6 +9,13 @@ The tool does not capture headset images by itself. Pair its output with ADB,
 HzDB, MediaProjection, headset share-menu capture, or an external camera
 witness, and record the capture method in the run manifest.
 
+In the projection/blur alignment workflow, use broker-synthetic H.264 stimuli
+first for deterministic screen-space and blur packets. Use this browser
+stimulus after those packets are coherent, when the headset is physically aimed
+at the display and the question is how the physical camera path compares with
+native passthrough. See
+`docs/SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md`.
+
 ## Run
 
 From the repository root:

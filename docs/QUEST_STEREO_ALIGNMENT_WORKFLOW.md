@@ -9,6 +9,11 @@ For cross-architecture raw lane naming and the full public verification suite
 covering Vulkan/HWB, OpenGL/OES, and Makepad CPU-YUV direct and broker paths,
 see
 [QUEST_RAW_CAMERA_STACK_ALIGNMENT_WORKFLOW.md](QUEST_RAW_CAMERA_STACK_ALIGNMENT_WORKFLOW.md).
+For the current screen-space and blur alignment sequence, start with
+[SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md](SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md).
+It supersedes older one-off projection/effect comparison ordering by keeping
+raw projection area, border policy, synthetic stimuli, public blur, and later
+physical-screen passthrough checks as separate phases.
 
 ## Source Boundaries
 

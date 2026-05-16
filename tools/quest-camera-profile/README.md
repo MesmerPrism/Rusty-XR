@@ -15,6 +15,11 @@ lane definitions in
 architecture names such as `vulkan-hwb-broker-h264-raw` while preserving the
 older catalog runtime profile IDs as implementation aliases.
 
+For the current screen-space plus blur ordering, start from
+`docs\SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md`: broker-synthetic
+`diagnostic-grid` and `motion-bar` first, raw projection area before blur, and
+physical Brave stimulus only after the deterministic packets are coherent.
+
 ## Camera Readiness Preflight
 
 The runner preserves headset power, stay-awake, and proximity state by default.

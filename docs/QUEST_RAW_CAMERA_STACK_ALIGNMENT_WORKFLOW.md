@@ -9,6 +9,11 @@ The goal is to align the public lanes to each other and to native passthrough
 with repeatable diagnostics. Downstream apps can then consume the same lane
 shape without moving app-specific visual behavior into this repository.
 
+For the current ordered workflow that combines raw projection area alignment,
+public diagnostic blur comparison, broker-synthetic stimuli, and the later
+physical-screen Brave stimulus pass, see
+[SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md](SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md).
+
 ## Canonical Lane Names
 
 Use these names in run folders, summaries, and issue notes. Older runtime

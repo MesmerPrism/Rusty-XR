@@ -55,6 +55,21 @@ Cross-lane packet rows use the public
 `ProjectionPerformanceMatrixPacket` contract so renderer-specific artifacts can
 be summarized without copying shader behavior or native handles into Rusty XR.
 
+## Public Diagnostic Blur Alignment
+
+Rusty XR also owns a small public blur witness for alignment work. The blur is a
+generic diagnostic layer, not a downstream visual recipe: valid camera samples
+are blurred, while invalid projected pixels keep the selected border policy.
+Use it after raw projection coverage is classified so blur, source cadence, and
+projection-footprint differences are not mixed together.
+
+The ordered workflow is documented in
+[SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md](SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md).
+It starts with broker-synthetic `diagnostic-grid` and `motion-bar` H.264 input,
+compares raw projection area first, then switches only the processing layer to
+the public blur path. Physical-screen Brave stimulus runs come later as
+camera-facing-screen and native-passthrough correlation evidence.
+
 ## Pass Graph Shape
 
 An `EffectStackDescriptor` is an ordered graph. Inputs may refer to:

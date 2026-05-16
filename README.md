@@ -302,6 +302,10 @@ The raw camera stack alignment workflow names the comparable public direct and
 broker lanes across Vulkan/HWB, OpenGL/OES, and Makepad CPU-YUV paths and
 documents the full-suite runner:
 [docs/QUEST_RAW_CAMERA_STACK_ALIGNMENT_WORKFLOW.md](docs/QUEST_RAW_CAMERA_STACK_ALIGNMENT_WORKFLOW.md).
+The current ordered projection-area and public diagnostic blur workflow,
+including broker-synthetic `diagnostic-grid` / `motion-bar` inputs and the
+later Brave physical-screen stimulus pass, is documented in
+[docs/SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md](docs/SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md).
 Browser-based physical-screen stimulus tooling for camera and final-display
 capture alignment runs lives in
 [tools/quest-visual-stimulus/README.md](tools/quest-visual-stimulus/README.md).
