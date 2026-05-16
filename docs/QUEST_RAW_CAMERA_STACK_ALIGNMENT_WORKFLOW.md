@@ -241,6 +241,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -MakepadXrActivity <xr-activity> `
   -Install `
   -EnableStayAwakeGuard `
+  -RestartBrokerBeforeBrokerModes `
   -ProjectionBorderPolicy passthrough-underlay `
   -ProcessingLayer blur `
   -BlurRadiusPx 2.0
@@ -250,6 +251,23 @@ Use `solid-red` for image-derived border checks and `passthrough-underlay` for
 manual alignment with native passthrough. Leave `-ProcessingLayer raw` for
 projection-only checks, and switch to `blur` only when comparing camera-sample
 processing behavior across the lanes.
+
+Use `-RestartBrokerBeforeBrokerModes` when multiple live broker-camera lanes
+reuse the same H.264 ports in one suite. The switch restarts the broker console
+before each broker lane and records `broker-restarts\` snapshots so stale
+unbounded stream sockets do not masquerade as camera/projection failures.
+
+After a solid-red suite run, measure each lane in the captured screenshot
+coordinate system:
+
+```powershell
+python .\tools\quest-camera-profile\Analyze-RawStackScreenSpace.py `
+  .\artifacts\raw-stack-suite\<session-id>
+```
+
+The report gives per-eye bounding boxes, center offsets, and row spans in
+screen pixels. Use the vertical offset values to compare each lane against the
+eye-half center before changing projection knobs.
 
 ## Diagnostic Loop
 

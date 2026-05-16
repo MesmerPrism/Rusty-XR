@@ -168,6 +168,23 @@ For each alignment slice, keep the generated evidence under ignored
 - whether the evidence came from broker synthetic input or physical camera
   input.
 
+For raw-stack suite runs that use `solid-red` invalid fill, derive repeatable
+screen-space coordinates from the captured screenshot pixels:
+
+```powershell
+python .\tools\quest-camera-profile\Analyze-RawStackScreenSpace.py `
+  .\artifacts\raw-stack-suite\<session-id>
+```
+
+The analyzer writes `screen-space-analysis\screen-space-summary.md`,
+`screen-space-report.json`, and a contact sheet. Coordinates are reported in
+the screenshot output space with origin at the top left, `x` increasing right,
+and `y` increasing down. Positive vertical center offset means the detected
+camera projection area is below the center of that eye's screenshot half.
+If solid-red invalid fill is not present in a lane, the analyzer falls back to a
+visible-content envelope; keep that distinction in the notes before treating a
+row as a strict valid-mask footprint.
+
 Do not treat MediaProjection, ADB screenshots, or browser event logs as
 submitted per-eye render-target proof. They are useful witnesses, but they need
 to be labeled as final-display or correlation evidence.

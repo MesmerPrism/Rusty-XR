@@ -16,6 +16,10 @@ param(
     [int]$FreshnessIntervalMs = 1000,
     [string]$BrokerH264LeftCameraId = "50",
     [string]$BrokerH264RightCameraId = "51",
+    [switch]$RestartBrokerBeforeBrokerModes,
+    [string]$BrokerPackageName = "com.example.rustyxr.broker",
+    [string]$BrokerActivityName = ".MainActivity",
+    [int]$BrokerRestartSettleSeconds = 8,
     [ValidateSet("solid-red", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("raw", "blur")]
@@ -123,6 +127,40 @@ function Save-StateSnapshot {
     }
     Save-TextCommand -Path (Join-Path $snapshotRoot "broker-clock-health.json") -Command {
         (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8765/clock/health" -TimeoutSec 3).Content
+    }
+}
+
+function Restart-BrokerBeforeMode {
+    param([string]$ModeId)
+    if (-not $RestartBrokerBeforeBrokerModes -or -not $ModeId.Contains("broker-h264")) {
+        return
+    }
+
+    $restartRoot = Join-Path $sessionRoot ("broker-restarts\" + ($ModeId -replace '[^A-Za-z0-9_.-]', '_'))
+    New-Item -ItemType Directory -Force -Path $restartRoot | Out-Null
+    Save-TextCommand -Path (Join-Path $restartRoot "before-broker-status.json") -Command {
+        (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8765/status" -TimeoutSec 3).Content
+    }
+
+    Invoke-AdbText -Arguments @("shell", "am", "force-stop", $BrokerPackageName) |
+        Out-File -FilePath (Join-Path $restartRoot "force-stop.txt") -Encoding UTF8
+    Start-Sleep -Seconds 2
+
+    $activity = if ($BrokerActivityName.StartsWith(".")) {
+        "$BrokerPackageName/$BrokerActivityName"
+    }
+    elseif ($BrokerActivityName.Contains("/")) {
+        $BrokerActivityName
+    }
+    else {
+        "$BrokerPackageName/$BrokerActivityName"
+    }
+    Invoke-AdbText -Arguments @("shell", "am", "start", "-n", $activity) |
+        Out-File -FilePath (Join-Path $restartRoot "start.txt") -Encoding UTF8
+    Start-Sleep -Seconds ([Math]::Max(1, $BrokerRestartSettleSeconds))
+
+    Save-TextCommand -Path (Join-Path $restartRoot "after-broker-status.json") -Command {
+        (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8765/status" -TimeoutSec 5).Content
     }
 }
 
@@ -412,6 +450,7 @@ function Invoke-MakepadMode {
 }
 
 foreach ($modeId in $Mode) {
+    Restart-BrokerBeforeMode -ModeId $modeId
     switch ($modeId) {
         "vulkan-hwb-direct-camera2-raw" {
             Invoke-QuestProfileMode `
@@ -498,6 +537,11 @@ $lines.Add(("- Warmup seconds: ``{0}``" -f $WarmupSeconds))
 $lines.Add(("- Sample seconds: ``{0}``" -f $SampleSeconds))
 $lines.Add(("- Freshness frames: ``{0}``" -f $FreshnessFrames))
 $lines.Add(("- Broker camera IDs: left ``{0}``, right ``{1}``" -f $BrokerH264LeftCameraId, $BrokerH264RightCameraId))
+$lines.Add(("- Restart broker before broker modes: ``{0}``" -f [bool]$RestartBrokerBeforeBrokerModes))
+if ($RestartBrokerBeforeBrokerModes) {
+    $lines.Add(("- Broker restart target: ``{0}/{1}``, settle seconds ``{2}``" -f $BrokerPackageName, $BrokerActivityName, $BrokerRestartSettleSeconds))
+    $lines.Add("- Broker restart snapshots: ``broker-restarts/``")
+}
 $lines.Add("- Passive state snapshots: ``state-snapshots/``")
 if ($EnableStayAwakeGuard) {
     $lines.Add("- Stay-awake guard: enabled with ``svc power stayon true``")

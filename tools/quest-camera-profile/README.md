@@ -20,6 +20,20 @@ For the current screen-space plus blur ordering, start from
 `diagnostic-grid` and `motion-bar` first, raw projection area before blur, and
 physical Brave stimulus only after the deterministic packets are coherent.
 
+For suite runs with solid-red invalid fill, analyze the resulting screenshot
+coordinate coverage with:
+
+```powershell
+python .\tools\quest-camera-profile\Analyze-RawStackScreenSpace.py `
+  .\artifacts\raw-stack-suite\<session-id>
+```
+
+When a single suite runs multiple live broker-camera modes on the same H.264
+ports, pass `-RestartBrokerBeforeBrokerModes` to
+`Invoke-RawCameraStackAlignmentSuite.ps1`. It restarts the broker console before
+each broker lane and writes `broker-restarts\` snapshots, which keeps stale
+unbounded stream sockets from looking like black-frame receiver failures.
+
 ## Camera Readiness Preflight
 
 The runner preserves headset power, stay-awake, and proximity state by default.
