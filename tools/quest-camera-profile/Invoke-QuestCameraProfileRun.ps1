@@ -49,6 +49,52 @@ function Resolve-InputPath {
     return [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Path))
 }
 
+function Convert-ToExtendedWindowsPath {
+    param([string]$Path)
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    if ($env:OS -eq "Windows_NT" -and -not $fullPath.StartsWith("\\?\")) {
+        return "\\?\$fullPath"
+    }
+    return $fullPath
+}
+
+function Get-FileSha256Hex {
+    param([string]$Path)
+    $stream = [System.IO.File]::OpenRead((Convert-ToExtendedWindowsPath -Path $Path))
+    try {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $bytes = $sha.ComputeHash($stream)
+            return [BitConverter]::ToString($bytes).Replace("-", "")
+        }
+        finally {
+            $sha.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Get-FileByteLength {
+    param([string]$Path)
+    return ([System.IO.FileInfo]::new((Convert-ToExtendedWindowsPath -Path $Path))).Length
+}
+
+function Write-Utf8TextFile {
+    param(
+        [string]$Path,
+        [object]$Value
+    )
+    $directory = Split-Path -Path $Path -Parent
+    if ($directory) {
+        [System.IO.Directory]::CreateDirectory((Convert-ToExtendedWindowsPath -Path $directory)) | Out-Null
+    }
+    $text = if ($Value -is [array]) { $Value -join [Environment]::NewLine } else { [string]$Value }
+    $encoding = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText((Convert-ToExtendedWindowsPath -Path $Path), $text, $encoding)
+}
+
 function Get-AdbArguments {
     param([string[]]$Arguments)
     if ($Serial) {
@@ -68,7 +114,7 @@ function Save-AdbTextCapture {
         [string[]]$Arguments,
         [string]$OutputPath
     )
-    Invoke-Adb -Arguments $Arguments | Out-File -FilePath $OutputPath -Encoding UTF8
+    Write-Utf8TextFile -Path $OutputPath -Value ((Invoke-Adb -Arguments $Arguments) -join [Environment]::NewLine)
 }
 
 function Resolve-ProcessFileName {
@@ -136,7 +182,7 @@ function Invoke-ProcessCapture {
 
     $stdout = $process.StandardOutput.ReadToEnd()
     $stderr = $process.StandardError.ReadToEnd()
-    @(
+    $capturedLines = @(
         "fileName=$FileName"
         "resolvedFileName=$resolvedFileName"
         "exitCode=$($process.ExitCode)"
@@ -146,7 +192,8 @@ function Invoke-ProcessCapture {
         ""
         "[stderr]"
         $stderr
-    ) | Set-Content -Path $OutputPath -Encoding UTF8
+    )
+    Write-Utf8TextFile -Path $OutputPath -Value $capturedLines
 
     if ($process.ExitCode -ne 0) {
         throw "$FileName failed with exit code $($process.ExitCode); see $OutputPath"
@@ -184,7 +231,11 @@ function Invoke-AdbBinaryCapture {
         throw "Failed to start adb for binary capture."
     }
 
-    $fileStream = [System.IO.File]::Create($OutputPath)
+    $outputDirectory = Split-Path -Path $OutputPath -Parent
+    if ($outputDirectory) {
+        [System.IO.Directory]::CreateDirectory((Convert-ToExtendedWindowsPath -Path $outputDirectory)) | Out-Null
+    }
+    $fileStream = [System.IO.File]::Create((Convert-ToExtendedWindowsPath -Path $OutputPath))
     try {
         $process.StandardOutput.BaseStream.CopyTo($fileStream)
     }
@@ -204,7 +255,7 @@ function Invoke-AdbBinaryCapture {
     $stderr = $process.StandardError.ReadToEnd()
     if ($process.ExitCode -ne 0) {
         $stderrPath = "$OutputPath.stderr.txt"
-        Set-Content -Path $stderrPath -Value $stderr -Encoding UTF8
+        Write-Utf8TextFile -Path $stderrPath -Value $stderr
         throw "adb binary capture failed with exit code $($process.ExitCode); see $stderrPath"
     }
 }
@@ -376,7 +427,7 @@ function New-PowerStateSummary {
         issues = @($issues)
     }
 
-    $summary | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $Dir "power-state-summary.json") -Encoding UTF8
+    Write-Utf8TextFile -Path (Join-Path $Dir "power-state-summary.json") -Value ($summary | ConvertTo-Json -Depth 6)
     return $summary
 }
 
@@ -404,10 +455,11 @@ function Invoke-ProximityHold {
             -TimeoutSeconds 120
     }
     catch {
-        @(
+        $proximityHoldLines = @(
             "Timed hzdb proximity hold failed."
             $_.Exception.Message
-        ) | Set-Content -Path (Join-Path $Dir "hzdb-proximity-hold.txt") -Encoding UTF8
+        )
+        Write-Utf8TextFile -Path (Join-Path $Dir "hzdb-proximity-hold.txt") -Value $proximityHoldLines
     }
 }
 
@@ -457,13 +509,14 @@ function Invoke-RunValidation {
         if (Test-Path -LiteralPath $sequenceDir) {
             $validatorArgs += @("--sequence-dir", $sequenceDir)
         }
-        & python @validatorArgs | Out-File -FilePath (Join-Path $Dir "$Label-validation-stdout.txt") -Encoding UTF8
+        Write-Utf8TextFile -Path (Join-Path $Dir "$Label-validation-stdout.txt") -Value ((& python @validatorArgs) -join [Environment]::NewLine)
     }
     catch {
-        @(
+        $validationErrorLines = @(
             "validation failed"
             $_.Exception.Message
-        ) | Set-Content -Path (Join-Path $Dir "$Label-validation-error.txt") -Encoding UTF8
+        )
+        Write-Utf8TextFile -Path (Join-Path $Dir "$Label-validation-error.txt") -Value $validationErrorLines
     }
 }
 
@@ -485,8 +538,8 @@ function Capture-Artifacts {
             $frames += [pscustomobject][ordered]@{
                 index = $index
                 path = $framePath
-                sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $framePath).Hash
-                bytes = (Get-Item -LiteralPath $framePath).Length
+                sha256 = Get-FileSha256Hex -Path $framePath
+                bytes = Get-FileByteLength -Path $framePath
             }
             if ($index -lt ($FreshnessFrames - 1) -and $FreshnessIntervalMs -gt 0) {
                 Start-Sleep -Milliseconds $FreshnessIntervalMs
@@ -513,7 +566,7 @@ function Capture-Artifacts {
             byteIdenticalFreezeSuspected = $duplicateGroups.Count -gt 0
             frames = $frames
         }
-        $freshnessSummary | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $Dir "$Label-freshness-summary.json") -Encoding UTF8
+        Write-Utf8TextFile -Path (Join-Path $Dir "$Label-freshness-summary.json") -Value ($freshnessSummary | ConvertTo-Json -Depth 6)
     }
     if ($CaptureHzdbScreencap) {
         $arguments = @("-y", $HzdbNpxPackage, "capture", "screenshot")
@@ -525,7 +578,7 @@ function Capture-Artifacts {
             Invoke-ProcessCapture -FileName $Npx -ArgumentList $arguments -OutputPath (Join-Path $Dir "$Label-hzdb-screencap-capture.txt") -TimeoutSeconds 120
         }
         catch {
-            @("hzdb screencap failed."; $_.Exception.Message) | Set-Content -Path (Join-Path $Dir "$Label-hzdb-screencap-capture.txt") -Encoding UTF8
+            Write-Utf8TextFile -Path (Join-Path $Dir "$Label-hzdb-screencap-capture.txt") -Value @("hzdb screencap failed."; $_.Exception.Message)
         }
     }
     if ($CaptureMetacam) {
@@ -538,7 +591,7 @@ function Capture-Artifacts {
             Invoke-ProcessCapture -FileName $Npx -ArgumentList $arguments -OutputPath (Join-Path $Dir "$Label-metacam-capture.txt") -TimeoutSeconds 120
         }
         catch {
-            @("hzdb metacam capture failed."; $_.Exception.Message) | Set-Content -Path (Join-Path $Dir "$Label-metacam-capture.txt") -Encoding UTF8
+            Write-Utf8TextFile -Path (Join-Path $Dir "$Label-metacam-capture.txt") -Value @("hzdb metacam capture failed."; $_.Exception.Message)
         }
     }
 
@@ -592,7 +645,7 @@ if ($CameraProjectionMode) {
     $values["rustyxr.cameraProjectionMode"] = $CameraProjectionMode
 }
 
-Invoke-Adb -Arguments @("devices") | Out-File -FilePath (Join-Path $dir "adb-devices.txt") -Encoding UTF8
+Write-Utf8TextFile -Path (Join-Path $dir "adb-devices.txt") -Value ((Invoke-Adb -Arguments @("devices")) -join [Environment]::NewLine)
 
 if ($Install) {
     $apkPath = $Apk
@@ -631,7 +684,7 @@ foreach ($key in ($values.Keys | Sort-Object)) {
     Add-AmExtra -LaunchArgs $launchArgs -Key $key -Value $values[$key]
 }
 
-($launchArgs -join " ") | Set-Content -Path (Join-Path $dir "launch-command.txt") -Encoding ASCII
+Write-Utf8TextFile -Path (Join-Path $dir "launch-command.txt") -Value ($launchArgs -join " ")
 Save-AdbTextCapture -Arguments $launchArgs.ToArray() -OutputPath (Join-Path $dir "launch.txt")
 
 Start-Sleep -Seconds $WarmupSeconds
@@ -683,5 +736,5 @@ $manifest = [ordered]@{
         }
     })
 }
-$manifest | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $dir "run-manifest.json") -Encoding UTF8
+Write-Utf8TextFile -Path (Join-Path $dir "run-manifest.json") -Value ($manifest | ConvertTo-Json -Depth 6)
 Write-Output $dir

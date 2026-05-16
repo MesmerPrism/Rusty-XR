@@ -5,6 +5,11 @@ alignment across the Rusty XR custom APK path and the Makepad-first camera
 shell. Keep raw screenshots, logs, APKs, local paths, headset serials, and
 private target details out of committed files.
 
+For cross-architecture raw lane naming and the full public verification suite
+covering Vulkan/HWB, OpenGL/OES, and Makepad CPU-YUV direct and broker paths,
+see
+[QUEST_RAW_CAMERA_STACK_ALIGNMENT_WORKFLOW.md](QUEST_RAW_CAMERA_STACK_ALIGNMENT_WORKFLOW.md).
+
 ## Source Boundaries
 
 Keep these witnesses separate:

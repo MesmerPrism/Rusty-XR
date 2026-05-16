@@ -7,6 +7,14 @@ reference details.
 The tools write into `artifacts/quest-camera-profile-runs/`, which is ignored
 by the repository.
 
+For the public raw-stack comparison across Vulkan/HWB, OpenGL/OES, and Makepad
+CPU-YUV lanes, use
+`tools\quest-camera-profile\Invoke-RawCameraStackAlignmentSuite.ps1` and the
+lane definitions in
+`docs\QUEST_RAW_CAMERA_STACK_ALIGNMENT_WORKFLOW.md`. The suite uses canonical
+architecture names such as `vulkan-hwb-broker-h264-raw` while preserving the
+older catalog runtime profile IDs as implementation aliases.
+
 ## Camera Readiness Preflight
 
 The runner preserves headset power, stay-awake, and proximity state by default.
@@ -30,6 +38,13 @@ operator is wearing the headset, ask for a simple hand-tracking or system-menu
 readiness confirmation before retrying camera acquisition. Treat an
 operator-driven long power-button press to the power menu as a manual recovery
 step, not as something this runner should automate.
+
+For longer raw-stack verification, `mStayOn=false` and
+`stay_on_while_plugged_in=0` mean the Android stay-awake guard is off and normal
+timeout sleep can still occur. Use the raw-stack suite's
+`-EnableStayAwakeGuard` switch when the run should hold the headset awake; that
+logs the prior value and runs `svc power stayon true`. This is a power-management
+guard, not a proximity-sensor override.
 
 Use a direct Camera2/HWB profile first when proving camera readiness, then
 advance to broker-camera or codec profiles. Accept a run only when camera-frame

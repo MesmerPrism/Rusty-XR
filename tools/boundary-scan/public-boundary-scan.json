@@ -2,6 +2,7 @@
   "exclude_globs": [
     ".git/**",
     "target/**",
+    "examples/**/target/**",
     "graphify-out/**",
     "artifacts/**",
     "captures/**",

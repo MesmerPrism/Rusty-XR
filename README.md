@@ -298,6 +298,10 @@ The active Makepad stereo-comparison implementation ledger is tracked in
 The dedicated Quest stereo alignment workflow, including screenshot analysis
 and optional MediaProjection witness handling, is documented in
 [docs/QUEST_STEREO_ALIGNMENT_WORKFLOW.md](docs/QUEST_STEREO_ALIGNMENT_WORKFLOW.md).
+The raw camera stack alignment workflow names the comparable public direct and
+broker lanes across Vulkan/HWB, OpenGL/OES, and Makepad CPU-YUV paths and
+documents the full-suite runner:
+[docs/QUEST_RAW_CAMERA_STACK_ALIGNMENT_WORKFLOW.md](docs/QUEST_RAW_CAMERA_STACK_ALIGNMENT_WORKFLOW.md).
 Browser-based physical-screen stimulus tooling for camera and final-display
 capture alignment runs lives in
 [tools/quest-visual-stimulus/README.md](tools/quest-visual-stimulus/README.md).
