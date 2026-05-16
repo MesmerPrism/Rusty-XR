@@ -265,6 +265,44 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\too
   -BrokerH264FrameRateHz 50
 ```
 
+For raw projection-area alignment, the Makepad target uses the same full-layer
+plus projected sub-area shape as the other public camera targets. The invalid
+projection region can be launched as an opaque solid-red diagnostic border or
+as a transparent border over native passthrough:
+
+```powershell
+# Direct Camera2, solid diagnostic border.
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+  -Serial <quest-serial> `
+  -Apk <fresh-makepad-apk> `
+  -PackageName <public-example-package> `
+  -LauncherActivity <generated-launcher-activity> `
+  -XrActivity <generated-xr-activity> `
+  -OutDir <ignored-artifact-dir> `
+  -ProjectionBorderPolicy solid-red
+
+# Direct Camera2, passthrough underlay border.
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+  -Serial <quest-serial> `
+  -Apk <fresh-makepad-apk> `
+  -PackageName <public-example-package> `
+  -LauncherActivity <generated-launcher-activity> `
+  -XrActivity <generated-xr-activity> `
+  -OutDir <ignored-artifact-dir> `
+  -ProjectionBorderPolicy passthrough-underlay
+```
+
+The same `-ProjectionBorderPolicy` switch can be combined with
+`-UseBrokerH264Camera` or `-UseBrokerH264Synthetic`. It sets
+`debug.rustyxr.makepad.projection.border.policy` and pairs
+`passthrough-underlay` with
+`debug.rustyxr.makepad.native.passthrough.enabled=true`. The app writes alpha
+zero outside the projected camera region for the underlay policy and keeps the
+camera projection in the same full submitted render surface. Use the solid-red
+policy when the actual projected camera footprint needs an unmistakable marker;
+use passthrough-underlay for manual headset alignment against native
+passthrough.
+
 The default broker-H.264 gate uses `127.0.0.1:8765`, left/right stream ports
 `8879` / `8880`, `1280x1280`, 6 Mbps, and a live-bounded 45-second stream with
 `max_packets=0`. The synthetic profile also sets `diagnostic-grid`. The
@@ -304,8 +342,9 @@ counters. Record whether the run was
   `tools/Send-MakepadQ2QHorizontalOffset.ps1` writes `debug.rustyxr` properties
   for horizontal alignment strength, additive left/right/vertical UV offsets,
   projection-footprint offsets/scales/X-keystone/midpoint bow, the synthetic
-  projection-area diagnostic toggle, camera-window content scale, and
-  projection-border strength; the running app polls those values. The
+  projection-area diagnostic toggle, camera-window content scale,
+  projection-border strength, and projection-border policy; the running app
+  polls those values. The
   projection-footprint keystone and bow controls are pre-homography diagnostics
   and reset to neutral.
 - The first shared-core bridge is deliberately small: resolved profile values

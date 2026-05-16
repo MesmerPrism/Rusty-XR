@@ -8,6 +8,8 @@ param(
     [double]$SymmetricUv = [double]::NaN,
     [double]$ContentScale = [double]::NaN,
     [double]$ProjectionBorderStrength = [double]::NaN,
+    [ValidateSet("solid-red", "passthrough-underlay")]
+    [string]$ProjectionBorderPolicy = "",
     [double]$ProjectionAreaDiagnostic = [double]::NaN,
     [double]$ProjectionAreaLeftUv = [double]::NaN,
     [double]$ProjectionAreaRightUv = [double]::NaN,
@@ -66,6 +68,8 @@ $properties = [ordered]@{
     VerticalUv = "debug.rustyxr.makepad.vertical.offset.uv"
     ContentScale = "debug.rustyxr.makepad.content.uv.scale"
     ProjectionBorderStrength = "debug.rustyxr.makepad.projection.border.strength"
+    ProjectionBorderPolicy = "debug.rustyxr.makepad.projection.border.policy"
+    NativePassthroughEnabled = "debug.rustyxr.makepad.native.passthrough.enabled"
     ProjectionAreaDiagnostic = "debug.rustyxr.makepad.projection.area.diagnostic"
     ProjectionAreaLeftUv = "debug.rustyxr.makepad.projection.area.offset.left.uv"
     ProjectionAreaRightUv = "debug.rustyxr.makepad.projection.area.offset.right.uv"
@@ -84,6 +88,7 @@ if ($Reset) {
     $VerticalUv = 0.0
     $ContentScale = 1.60
     $ProjectionBorderStrength = 1.0
+    $ProjectionBorderPolicy = "solid-red"
     $ProjectionAreaDiagnostic = 0.0
     $ProjectionAreaLeftUv = 0.0
     $ProjectionAreaRightUv = 0.0
@@ -136,6 +141,11 @@ if (-not [double]::IsNaN($ContentScale)) {
 }
 if (-not [double]::IsNaN($ProjectionBorderStrength)) {
     Set-Prop -Name $properties.ProjectionBorderStrength -Value $ProjectionBorderStrength
+}
+if ($ProjectionBorderPolicy) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionBorderPolicy, $ProjectionBorderPolicy)
+    $nativePassthrough = if ($ProjectionBorderPolicy -eq "passthrough-underlay") { "true" } else { "false" }
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.NativePassthroughEnabled, $nativePassthrough)
 }
 if (-not [double]::IsNaN($ProjectionAreaDiagnostic)) {
     Set-Prop -Name $properties.ProjectionAreaDiagnostic -Value $ProjectionAreaDiagnostic

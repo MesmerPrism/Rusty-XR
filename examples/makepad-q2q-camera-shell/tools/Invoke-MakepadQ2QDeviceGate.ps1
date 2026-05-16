@@ -35,7 +35,9 @@ param(
     [int]$BrokerH264BitrateBps = 6000000,
     [int]$BrokerH264FrameRateHz = 50,
     [int]$BrokerH264StreamTimeoutMs = 60000,
-    [int]$BrokerH264DecodeTimeoutMs = 20000
+    [int]$BrokerH264DecodeTimeoutMs = 20000,
+    [ValidateSet("solid-red", "passthrough-underlay")]
+    [string]$ProjectionBorderPolicy = "solid-red"
 )
 
 $ErrorActionPreference = "Stop"
@@ -141,6 +143,30 @@ function Set-MakepadBrokerH264Profile {
         $readback | ConvertTo-Json -Depth 3 |
             Set-Content -Path (Join-Path $OutDir "broker-h264-synthetic-props.json") -Encoding UTF8
     }
+}
+
+function Set-MakepadProjectionTargetProfile {
+    $nativePassthrough = if ($ProjectionBorderPolicy -eq "passthrough-underlay") { "true" } else { "false" }
+    $props = [ordered]@{
+        "debug.rustyxr.makepad.projection.border.policy" = $ProjectionBorderPolicy
+        "debug.rustyxr.makepad.native.passthrough.enabled" = $nativePassthrough
+        "debug.rustyxr.makepad.projection.border.strength" = "1.0"
+    }
+
+    foreach ($entry in $props.GetEnumerator()) {
+        Invoke-Adb -Arguments @("shell", "setprop", $entry.Key, [string]$entry.Value) | Out-Null
+    }
+
+    $readback = foreach ($entry in $props.GetEnumerator()) {
+        $value = (Invoke-Adb -Arguments @("shell", "getprop", $entry.Key)) -join ""
+        [pscustomobject]@{
+            property = $entry.Key
+            expected = [string]$entry.Value
+            actual = $value.Trim()
+        }
+    }
+    $readback | ConvertTo-Json -Depth 3 |
+        Set-Content -Path (Join-Path $OutDir "projection-target-props.json") -Encoding UTF8
 }
 
 function Install-Apk {
@@ -455,6 +481,7 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Invoke-Adb -Arguments @("devices") | Set-Content -Path (Join-Path $OutDir "adb-devices.txt") -Encoding UTF8
 Install-Apk
 Grant-RuntimePermissions
+Set-MakepadProjectionTargetProfile
 Set-MakepadBrokerH264Profile
 Save-Adb -Arguments @("shell", "dumpsys", "power") -Path (Join-Path $OutDir "power-before-launch.txt")
 Save-Adb -Arguments @("shell", "getprop") -Path (Join-Path $OutDir "getprop-before-launch.txt")
@@ -500,6 +527,8 @@ $summary = [ordered]@{
     useBrokerH264Synthetic = [bool]$UseBrokerH264Synthetic
     useBrokerH264Camera = [bool]$UseBrokerH264Camera
     brokerH264SourceMode = if ($UseBrokerH264Camera) { "broker-camera" } elseif ($UseBrokerH264Synthetic) { "broker-synthetic" } else { "disabled" }
+    projectionBorderPolicy = $ProjectionBorderPolicy
+    nativePassthroughRequested = [bool]($ProjectionBorderPolicy -eq "passthrough-underlay")
     brokerH264FrameRateHz = $BrokerH264FrameRateHz
     brokerH264LeftCameraId = $BrokerH264LeftCameraId
     brokerH264RightCameraId = $BrokerH264RightCameraId
