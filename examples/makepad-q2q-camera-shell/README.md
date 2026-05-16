@@ -305,7 +305,9 @@ passthrough.
 
 The default broker-H.264 gate uses `127.0.0.1:8765`, left/right stream ports
 `8879` / `8880`, `1280x1280`, 6 Mbps, and a live-bounded 45-second stream with
-`max_packets=0`. The synthetic profile also sets `diagnostic-grid`. The
+`max_packets=0`. Set `BrokerH264CaptureMs=0` when the gate needs to prove a
+live/unbounded stream instead of a bounded capture window. The synthetic
+profile also sets `diagnostic-grid`. The
 broker-camera profile forwards requested left/right camera IDs and source FPS
 to the public broker command. The Makepad path consumes broker stream-header
 projection metadata, derives `surface_to_camera`, `screen_to_surface`, and
@@ -315,11 +317,14 @@ or physical-camera transport parity for diagnostics; zero-copy texture
 performance still needs its own run.
 
 For this lane, `max_packets=0` is intentional: it requests the broker's
-live/unbounded stream. If a run reports one packet per eye, the decoder may not
-receive a complete access-unit sequence and the source-parity gate is invalid.
-Do not replace broker-synthetic H.264 parity with a locally generated texture
-unless the question is explicitly renderer smoke rather than broker transport
-or cross-stack input equivalence.
+live/unbounded stream, and `BrokerH264CaptureMs=0` preserves that unbounded
+duration through the generated Android broker player. Positive capture
+durations remain useful when the test intentionally wants a bounded stream. If
+a run reports one packet per eye, the decoder may not receive a complete
+access-unit sequence and the source-parity gate is invalid. Do not replace
+broker-synthetic H.264 parity with a locally generated texture unless the
+question is explicitly renderer smoke rather than broker transport or
+cross-stack input equivalence.
 
 The summary records freshness hashes plus app/global GPU-fault, fatal, small
 hardware-buffer, stale-marker, broker-H.264 decode, and texture-cadence
