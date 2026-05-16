@@ -143,9 +143,13 @@ is opaque red for segmentation and operator checks. The
 `raw-projection-underlay-unorm` preset submits a public
 OpenXR passthrough underlay and alpha-blends the raw projection layer, which is
 useful when comparing background composition separately from raw camera
-sampling. The app-parsed runtime config log reports both the requested preset
-and the resolved feed, sampler, decode, projection-effect, tone, and swapchain
-settings.
+sampling. The `raw-projection-blur-solid-red-unorm` and
+`raw-projection-blur-underlay-unorm` presets keep the same projection-area
+policy but run the valid camera samples through a generic 9-tap diagnostic blur.
+Use `rustyxr.cameraBlurRadiusPx` to adjust the sample radius for stack
+comparison. The app-parsed runtime config log reports both the requested preset
+and the resolved feed, sampler, decode, projection-effect, tone, blur radius,
+and swapchain settings.
 Projection mode remains independent from those presets so border, sampler, and
 color modules can be tested against both public geometry mappings in the same
 APK.
@@ -159,9 +163,10 @@ integrations on these stable keys instead of duplicating shader-specific state:
 
 | Key | Type | Purpose |
 | --- | --- | --- |
-| `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, or `raw-projection-cycling-border-unorm`. |
+| `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-blur-solid-red-unorm`, `raw-projection-blur-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, or `raw-projection-cycling-border-unorm`. |
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `display-screen-homography` or `quad-surface`. |
 | `rustyxr.cameraBorderCycleHz` | float | Adjusts the generic phase-cycled border-color rate used by `raw-projection-cycling-border-unorm`; ignored by static border presets. |
+| `rustyxr.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in pixels for blur projection presets. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
 | `rustyxr.openxrPassthroughProbe` | string | Keeps native passthrough checks separate from camera projection: `off`, `warmup`, `client`, or `underlay`. |
 

@@ -131,6 +131,9 @@ against a native passthrough underlay. The GL/OES APK writes transparent alpha
 outside valid projected camera UVs in that mode and requests OpenXR source-alpha
 blending; the visible background still depends on whether the runtime/app is
 submitting passthrough behind the projection layer.
+Set `rustyxr.processingLayer=blur` and `rustyxr.cameraBlurRadiusPx=<px>` to run
+the same valid projected camera samples through the public 9-tap diagnostic blur
+layer. Leave `rustyxr.processingLayer=raw` for projection-only checks.
 
 The direct Camera2/OES path reads these launch extras:
 

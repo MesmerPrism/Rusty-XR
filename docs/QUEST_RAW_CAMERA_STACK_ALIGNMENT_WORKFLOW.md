@@ -181,14 +181,18 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 For automated segmentation, use `-ProjectionBorderPolicy solid-red`. For
 operator alignment against native passthrough, use
 `-ProjectionBorderPolicy passthrough-underlay`.
+Use `-ProcessingLayer blur -BlurRadiusPx 2.0` when comparing the same raw
+projection area through the public diagnostic blur layer. The blur layer is a
+small generic 9-tap sampler intended for processing-stack diagnostics; it is
+not a downstream visual-effect preset or a performance-optimized separable blur.
 
 The suite applies the same policy to every public lane:
 
-| Renderer family | `solid-red` mapping | `passthrough-underlay` mapping |
+| Renderer family | Border mapping | Blur mapping |
 | --- | --- | --- |
-| Vulkan/HWB | `raw-projection-solid-red-unorm` plus `raw-projection-solid-red` | `raw-projection-underlay-unorm` plus the public OpenXR passthrough underlay |
-| GL/OES | `rustyxr.projectionBorderPolicy=solid-red` writes opaque red outside valid projected camera UVs | `rustyxr.projectionBorderPolicy=passthrough-underlay` writes transparent alpha outside valid projected camera UVs and requests alpha source blending |
-| Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` | `debug.rustyxr.makepad.projection.border.policy=passthrough-underlay` plus native passthrough request |
+| Vulkan/HWB | `raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `raw-projection-blur-solid-red-unorm` or `raw-projection-blur-underlay-unorm` plus `rustyxr.cameraBlurRadiusPx` |
+| GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
+| Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.processing.layer=blur` plus `debug.rustyxr.makepad.blur.radius.px` |
 
 Transparent GL/OES pixels show compositor background unless a runtime
 passthrough underlay is active for that app. Treat that as a composition
@@ -232,11 +236,15 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -MakepadXrActivity <xr-activity> `
   -Install `
   -EnableStayAwakeGuard `
-  -ProjectionBorderPolicy passthrough-underlay
+  -ProjectionBorderPolicy passthrough-underlay `
+  -ProcessingLayer blur `
+  -BlurRadiusPx 2.0
 ```
 
 Use `solid-red` for image-derived border checks and `passthrough-underlay` for
-manual alignment with native passthrough.
+manual alignment with native passthrough. Leave `-ProcessingLayer raw` for
+projection-only checks, and switch to `blur` only when comparing camera-sample
+processing behavior across the lanes.
 
 ## Diagnostic Loop
 

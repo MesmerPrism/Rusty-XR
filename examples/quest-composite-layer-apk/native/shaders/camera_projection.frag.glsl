@@ -30,6 +30,7 @@ layout(set = 0, binding = 2, std140) uniform CameraProjectionSurfaceMap {
 layout(push_constant) uniform CameraProjectionPush {
     vec4 params;
     vec4 color_adjust;
+    vec4 effect_params;
     vec4 left_h0;
     vec4 left_h1;
     vec4 left_h2;
@@ -392,6 +393,27 @@ vec2 camera_texel_size(int source_eye) {
 #endif
     vec2 dims = vec2(float(max(size.x, 1)), float(max(size.y, 1)));
     return 1.0 / dims;
+}
+
+vec3 sample_source_eye_blur_raw(int source_eye, vec2 camera_uv, float radius_px) {
+    float radius = max(radius_px, 0.0);
+    if (radius <= 0.001) {
+        return sample_source_eye_raw(source_eye, camera_uv).rgb;
+    }
+    vec2 texel = camera_texel_size(source_eye) * radius;
+    vec2 uv = clamp(camera_uv, vec2(0.0), vec2(1.0));
+    vec3 center = sample_source_eye_raw(source_eye, uv).rgb * 0.36;
+    vec3 axis =
+        sample_source_eye_raw(source_eye, clamp(uv + vec2(texel.x, 0.0), vec2(0.0), vec2(1.0))).rgb +
+        sample_source_eye_raw(source_eye, clamp(uv - vec2(texel.x, 0.0), vec2(0.0), vec2(1.0))).rgb +
+        sample_source_eye_raw(source_eye, clamp(uv + vec2(0.0, texel.y), vec2(0.0), vec2(1.0))).rgb +
+        sample_source_eye_raw(source_eye, clamp(uv - vec2(0.0, texel.y), vec2(0.0), vec2(1.0))).rgb;
+    vec3 diag =
+        sample_source_eye_raw(source_eye, clamp(uv + texel, vec2(0.0), vec2(1.0))).rgb +
+        sample_source_eye_raw(source_eye, clamp(uv - texel, vec2(0.0), vec2(1.0))).rgb +
+        sample_source_eye_raw(source_eye, clamp(uv + vec2(texel.x, -texel.y), vec2(0.0), vec2(1.0))).rgb +
+        sample_source_eye_raw(source_eye, clamp(uv + vec2(-texel.x, texel.y), vec2(0.0), vec2(1.0))).rgb;
+    return clamp01(center + axis * 0.12 + diag * 0.04);
 }
 
 float source_luma(vec2 sample_uv, int source_eye, int transform_flags) {
@@ -1021,8 +1043,13 @@ void main() {
     bool raw_projection_cycling_border = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_CYCLING_BORDER) != 0;
     bool passthrough_underlay_alpha = (packed_flags & CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA) != 0;
     bool raw_projection_solid_red = raw_projection_invalid_fill && raw_projection_perimeter_fill;
+    bool raw_projection_blur = raw_projection_soft_border && raw_projection_strong_border;
     vec3 color = center_color;
-    if (raw_projection_solid_red) {
+    if (raw_projection_blur) {
+        color = projection_valid
+            ? sample_source_eye_blur_raw(source_eye, raw_projected_uv, pc.effect_params.x)
+            : (raw_projection_solid_red ? vec3(1.0, 0.0, 0.0) : center_color);
+    } else if (raw_projection_solid_red) {
         color = projection_valid ? center_color : vec3(1.0, 0.0, 0.0);
     } else if (raw_projection_cycling_border) {
         color = resolve_raw_projection_soft_border(

@@ -593,7 +593,10 @@ The catalog keeps camera path experiments as separate runtime profiles:
   invalid projected-camera pixels as opaque red. Use
   `rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm` when the same
   raw camera projection should alpha-blend over the public OpenXR passthrough
-  underlay instead.
+  underlay instead. Use `raw-projection-blur-solid-red-unorm` or
+  `raw-projection-blur-underlay-unorm` with `rustyxr.cameraBlurRadiusPx=<px>`
+  for the same projection-area policies with the public diagnostic blur layer
+  applied to valid camera samples only.
 - `broker-h264` existing-stream mode: set
   `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264

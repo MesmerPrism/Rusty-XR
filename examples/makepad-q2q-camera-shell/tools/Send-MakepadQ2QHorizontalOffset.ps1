@@ -10,6 +10,9 @@ param(
     [double]$ProjectionBorderStrength = [double]::NaN,
     [ValidateSet("solid-red", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "",
+    [ValidateSet("", "raw", "blur")]
+    [string]$ProcessingLayer = "",
+    [double]$BlurRadiusPx = [double]::NaN,
     [double]$ProjectionAreaDiagnostic = [double]::NaN,
     [double]$ProjectionAreaLeftUv = [double]::NaN,
     [double]$ProjectionAreaRightUv = [double]::NaN,
@@ -70,6 +73,8 @@ $properties = [ordered]@{
     ProjectionBorderStrength = "debug.rustyxr.makepad.projection.border.strength"
     ProjectionBorderPolicy = "debug.rustyxr.makepad.projection.border.policy"
     NativePassthroughEnabled = "debug.rustyxr.makepad.native.passthrough.enabled"
+    ProcessingLayer = "debug.rustyxr.makepad.processing.layer"
+    BlurRadiusPx = "debug.rustyxr.makepad.blur.radius.px"
     ProjectionAreaDiagnostic = "debug.rustyxr.makepad.projection.area.diagnostic"
     ProjectionAreaLeftUv = "debug.rustyxr.makepad.projection.area.offset.left.uv"
     ProjectionAreaRightUv = "debug.rustyxr.makepad.projection.area.offset.right.uv"
@@ -89,6 +94,8 @@ if ($Reset) {
     $ContentScale = 1.60
     $ProjectionBorderStrength = 1.0
     $ProjectionBorderPolicy = "solid-red"
+    $ProcessingLayer = "raw"
+    $BlurRadiusPx = 2.0
     $ProjectionAreaDiagnostic = 0.0
     $ProjectionAreaLeftUv = 0.0
     $ProjectionAreaRightUv = 0.0
@@ -112,6 +119,7 @@ Assert-Range -Name "VerticalUv" -Value $VerticalUv -Min -0.5 -Max 0.5
 Assert-Range -Name "SymmetricUv" -Value $SymmetricUv -Min -0.5 -Max 0.5
 Assert-Range -Name "ContentScale" -Value $ContentScale -Min 1.0 -Max 2.4
 Assert-Range -Name "ProjectionBorderStrength" -Value $ProjectionBorderStrength -Min 0.0 -Max 1.0
+Assert-Range -Name "BlurRadiusPx" -Value $BlurRadiusPx -Min 0.0 -Max 16.0
 Assert-Range -Name "ProjectionAreaDiagnostic" -Value $ProjectionAreaDiagnostic -Min 0.0 -Max 2.0
 Assert-Range -Name "ProjectionAreaLeftUv" -Value $ProjectionAreaLeftUv -Min -0.5 -Max 0.5
 Assert-Range -Name "ProjectionAreaRightUv" -Value $ProjectionAreaRightUv -Min -0.5 -Max 0.5
@@ -146,6 +154,12 @@ if ($ProjectionBorderPolicy) {
     Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionBorderPolicy, $ProjectionBorderPolicy)
     $nativePassthrough = if ($ProjectionBorderPolicy -eq "passthrough-underlay") { "true" } else { "false" }
     Invoke-Adb -Arguments @("shell", "setprop", $properties.NativePassthroughEnabled, $nativePassthrough)
+}
+if ($ProcessingLayer) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProcessingLayer, $ProcessingLayer)
+}
+if (-not [double]::IsNaN($BlurRadiusPx)) {
+    Set-Prop -Name $properties.BlurRadiusPx -Value $BlurRadiusPx
 }
 if (-not [double]::IsNaN($ProjectionAreaDiagnostic)) {
     Set-Prop -Name $properties.ProjectionAreaDiagnostic -Value $ProjectionAreaDiagnostic

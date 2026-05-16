@@ -12,6 +12,8 @@ pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_DYNAMIC_BORDER: u32 = 1 << 20
 pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_WARM_BORDER: u32 = 1 << 21;
 pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_CYCLING_BORDER: u32 = 1 << 22;
 pub(crate) const CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC: u32 = 1 << 23;
+const CAMERA_SHADER_FLAG_RAW_PROJECTION_BLUR_SENTINEL: u32 =
+    CAMERA_SHADER_FLAG_RAW_PROJECTION_SOFT_BORDER | CAMERA_SHADER_FLAG_RAW_PROJECTION_STRONG_BORDER;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum CameraFeedPipelineMode {
@@ -52,6 +54,9 @@ pub(crate) enum CameraProjectionEffectMode {
     BorderComposite,
     RawProjectionFast,
     RawProjectionSolidRed,
+    RawProjectionBlur,
+    RawProjectionBlurSolidRed,
+    RawProjectionBlurUnderlay,
     RawProjectionInvalidFill,
     RawProjectionPerimeterFill,
     RawProjectionSoftBorder,
@@ -74,6 +79,20 @@ impl CameraProjectionEffectMode {
             | "raw-projection-red-border"
             | "direct-raw-projection-solid-red"
             | "fast-raw-solid-red" => Some(Self::RawProjectionSolidRed),
+            "raw-projection-blur"
+            | "raw-projection-blur-diagnostic"
+            | "direct-raw-projection-blur"
+            | "fast-raw-blur" => Some(Self::RawProjectionBlur),
+            "raw-projection-blur-solid-red"
+            | "raw-projection-solid-red-blur"
+            | "raw-projection-blur-red-border"
+            | "direct-raw-projection-blur-solid-red"
+            | "fast-raw-blur-solid-red" => Some(Self::RawProjectionBlurSolidRed),
+            "raw-projection-blur-underlay"
+            | "raw-projection-underlay-blur"
+            | "raw-projection-blur-passthrough-underlay"
+            | "direct-raw-projection-blur-underlay"
+            | "fast-raw-blur-underlay" => Some(Self::RawProjectionBlurUnderlay),
             "raw-projection-invalid-fill"
             | "raw-projection-invalid-only-fill"
             | "direct-raw-projection-invalid-fill"
@@ -125,6 +144,9 @@ impl CameraProjectionEffectMode {
             Self::BorderComposite => "border-composite",
             Self::RawProjectionFast => "raw-projection-fast",
             Self::RawProjectionSolidRed => "raw-projection-solid-red",
+            Self::RawProjectionBlur => "raw-projection-blur",
+            Self::RawProjectionBlurSolidRed => "raw-projection-blur-solid-red",
+            Self::RawProjectionBlurUnderlay => "raw-projection-blur-underlay",
             Self::RawProjectionInvalidFill => "raw-projection-invalid-fill",
             Self::RawProjectionPerimeterFill => "raw-projection-perimeter-fill",
             Self::RawProjectionSoftBorder => "raw-projection-soft-border",
@@ -145,6 +167,21 @@ impl CameraProjectionEffectMode {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
                     | CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL
                     | CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL
+            }
+            Self::RawProjectionBlur => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_BLUR_SENTINEL
+            }
+            Self::RawProjectionBlurSolidRed => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_BLUR_SENTINEL
+                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL
+                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL
+            }
+            Self::RawProjectionBlurUnderlay => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_BLUR_SENTINEL
+                    | CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA
             }
             Self::RawProjectionInvalidFill => {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST

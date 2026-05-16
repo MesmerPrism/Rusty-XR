@@ -18,6 +18,9 @@ param(
     [string]$BrokerH264RightCameraId = "51",
     [ValidateSet("solid-red", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "solid-red",
+    [ValidateSet("raw", "blur")]
+    [string]$ProcessingLayer = "raw",
+    [double]$BlurRadiusPx = 2.0,
     [switch]$EnableStayAwakeGuard,
     [switch]$RestoreStayAwakeGuard,
     [switch]$CaptureHzdbScreencap,
@@ -182,7 +185,19 @@ function Join-OverrideValues {
     return (@($Values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ",")
 }
 
+function Format-InvariantDouble {
+    param([double]$Value)
+    return $Value.ToString("0.######", [Globalization.CultureInfo]::InvariantCulture)
+}
+
 function Get-VulkanProjectionBorderOverride {
+    $blurRadius = Format-InvariantDouble -Value $BlurRadiusPx
+    if ($ProcessingLayer -eq "blur") {
+        if ($ProjectionBorderPolicy -eq "passthrough-underlay") {
+            return "rustyxr.cameraPipelinePreset=raw-projection-blur-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-underlay,rustyxr.openxrPassthroughProbe=underlay,rustyxr.cameraBlurRadiusPx=$blurRadius"
+        }
+        return "rustyxr.cameraPipelinePreset=raw-projection-blur-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.cameraBlurRadiusPx=$blurRadius"
+    }
     if ($ProjectionBorderPolicy -eq "passthrough-underlay") {
         return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,rustyxr.openxrPassthroughProbe=underlay"
     }
@@ -190,7 +205,8 @@ function Get-VulkanProjectionBorderOverride {
 }
 
 function Get-GlesProjectionBorderOverride {
-    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy"
+    $blurRadius = Format-InvariantDouble -Value $BlurRadiusPx
+    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,rustyxr.processingLayer=$ProcessingLayer,rustyxr.cameraBlurRadiusPx=$blurRadius"
 }
 
 function Get-CommonQuestProfileArgs {
@@ -331,6 +347,10 @@ function Invoke-MakepadMode {
     $argList.Add([string][Math]::Max(1, [int][Math]::Round($FreshnessIntervalMs / 1000.0)))
     $argList.Add("-ProjectionBorderPolicy")
     $argList.Add($ProjectionBorderPolicy)
+    $argList.Add("-ProcessingLayer")
+    $argList.Add($ProcessingLayer)
+    $argList.Add("-BlurRadiusPx")
+    $argList.Add((Format-InvariantDouble -Value $BlurRadiusPx))
 
     if ($UseBrokerH264Camera) {
         $argList.Add("-UseBrokerH264Camera")
@@ -470,6 +490,8 @@ $lines.Add("# Raw Camera Stack Alignment Suite")
 $lines.Add("")
 $lines.Add(("- Session: ``{0}``" -f $sessionId))
 $lines.Add(("- Border policy: ``{0}``" -f $ProjectionBorderPolicy))
+$lines.Add(("- Processing layer: ``{0}``" -f $ProcessingLayer))
+$lines.Add(("- Blur radius px: ``{0}``" -f (Format-InvariantDouble -Value $BlurRadiusPx)))
 $lines.Add(("- Vulkan/HWB border override: ``{0}``" -f (Get-VulkanProjectionBorderOverride)))
 $lines.Add(("- GL/OES border override: ``{0}``" -f (Get-GlesProjectionBorderOverride)))
 $lines.Add(("- Warmup seconds: ``{0}``" -f $WarmupSeconds))

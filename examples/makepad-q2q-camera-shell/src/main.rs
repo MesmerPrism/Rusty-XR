@@ -139,6 +139,8 @@ const KEY_MAKEPAD_PROJECTION_AREA_SCALE_Y: &str = "makepad_projection_area_scale
 const KEY_MAKEPAD_PROJECTION_AREA_KEYSTONE_X: &str = "makepad_projection_area_keystone_x";
 const KEY_MAKEPAD_PROJECTION_AREA_BOW_X: &str = "makepad_projection_area_bow_x";
 const KEY_MAKEPAD_PROJECTION_BORDER_POLICY: &str = "makepad_projection_border_policy";
+const KEY_MAKEPAD_PROCESSING_LAYER: &str = "makepad_processing_layer";
+const KEY_MAKEPAD_BLUR_RADIUS_PX: &str = "makepad_blur_radius_px";
 const KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED: &str = "makepad_native_passthrough_enabled";
 const KEY_MAKEPAD_BROKER_H264_ENABLED: &str = "makepad_broker_h264_enabled";
 const KEY_MAKEPAD_BROKER_H264_HOST: &str = "makepad_broker_h264_host";
@@ -255,6 +257,8 @@ script_mod! {
         force_in_surface_camera_window: 1.0
         projection_border_strength: 1.0
         projection_border_policy: 0.0
+        processing_layer: 0.0
+        blur_radius_px: 2.0
         projection_area_diagnostic: 0.0
         projection_area_offset_left_uv: 0.0
         projection_area_offset_right_uv: 0.0
@@ -577,6 +581,45 @@ script_mod! {
             return self.yuv_to_rgb(y_val, u_val, v_val);
         }
 
+        sample_camera_rgb: fn(coord: vec2f, eye_selector: float) -> vec3f {
+            let sample_uv = clamp(coord, vec2(0.0, 0.0), vec2(1.0, 1.0));
+            let left_yuv = self.sample_left_yuv(sample_uv);
+            let right_yuv = self.sample_right_yuv(sample_uv);
+            let yuv_rgb = mix(left_yuv, right_yuv, eye_selector);
+            let left_external_rgb = self.left_camera_texture.sample_video(sample_uv).xyz;
+            let right_external_rgb = self.right_camera_texture.sample_video(sample_uv).xyz;
+            let external_rgb = mix(left_external_rgb, right_external_rgb, eye_selector);
+            return mix(external_rgb, yuv_rgb, self.yuv_mode);
+        }
+
+        sample_camera_blur_rgb: fn(coord: vec2f, eye_selector: float) -> vec3f {
+            let radius = clamp(self.blur_radius_px, 0.0, 16.0) / 1280.0;
+            let sample_uv = clamp(coord, vec2(0.0, 0.0), vec2(1.0, 1.0));
+            let center = self.sample_camera_rgb(sample_uv, eye_selector) * 0.36;
+            let axis =
+                self.sample_camera_rgb(sample_uv + vec2(radius, 0.0), eye_selector) +
+                self.sample_camera_rgb(sample_uv - vec2(radius, 0.0), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(0.0, radius), eye_selector) +
+                self.sample_camera_rgb(sample_uv - vec2(0.0, radius), eye_selector);
+            let diag =
+                self.sample_camera_rgb(sample_uv + vec2(radius, radius), eye_selector) +
+                self.sample_camera_rgb(sample_uv - vec2(radius, radius), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(radius, -radius), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(-radius, radius), eye_selector);
+            let color = center + axis * 0.12 + diag * 0.04;
+            return vec3(
+                clamp(color.x, 0.0, 1.0),
+                clamp(color.y, 0.0, 1.0),
+                clamp(color.z, 0.0, 1.0)
+            );
+        }
+
+        sample_processed_camera_rgb: fn(coord: vec2f, eye_selector: float) -> vec3f {
+            let raw_rgb = self.sample_camera_rgb(coord, eye_selector);
+            let blur_rgb = self.sample_camera_blur_rgb(coord, eye_selector);
+            return mix(raw_rgb, blur_rgb, step(0.5, self.processing_layer));
+        }
+
         guide_mask: fn(coord: vec2f) -> float {
             let edge_x = min(coord.x, 1.0 - coord.x);
             let edge_y = min(coord.y, 1.0 - coord.y);
@@ -696,20 +739,7 @@ script_mod! {
             if self.force_in_surface_camera_window > 0.5 {
                 let camera_window_uv = clamp(projected_uv, vec2(0.0, 0.0), vec2(1.0, 1.0));
                 let window_sample_uv = vec2(camera_window_uv.x, 1.0 - camera_window_uv.y);
-                let left_y = self.left_tex_y.sample(window_sample_uv).x;
-                let left_u = self.left_tex_u.sample(window_sample_uv).x;
-                let left_v = self.left_tex_v.sample(window_sample_uv).x;
-                let right_y = self.right_tex_y.sample(window_sample_uv).x;
-                let right_u = self.right_tex_u.sample(window_sample_uv).x;
-                let right_v = self.right_tex_v.sample(window_sample_uv).x;
-                let y_val = mix(left_y, right_y, eye_selector);
-                let u_val = mix(left_u, right_u, eye_selector);
-                let v_val = mix(left_v, right_v, eye_selector);
-                let yuv_rgb = self.yuv_to_rgb_limited_601(y_val, u_val, v_val);
-                let left_external_rgb = self.left_camera_texture.sample_video(window_sample_uv).xyz;
-                let right_external_rgb = self.right_camera_texture.sample_video(window_sample_uv).xyz;
-                let external_rgb = mix(left_external_rgb, right_external_rgb, eye_selector);
-                let camera_rgb = mix(external_rgb, yuv_rgb, self.yuv_mode);
+                let camera_rgb = self.sample_processed_camera_rgb(window_sample_uv, eye_selector);
                 let passthrough_border_policy = step(0.5, self.projection_border_policy);
                 let matte = mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), passthrough_border_policy);
                 let camera_window_valid = projection_valid;
@@ -723,21 +753,8 @@ script_mod! {
                 let alpha = mix(1.0, camera_window_valid, passthrough_border_policy);
                 return vec4(guided_window.x, guided_window.y, guided_window.z, alpha);
             }
-            let left_y = self.left_tex_y.sample(live_sample_uv).x;
-            let left_u = self.left_tex_u.sample(live_sample_uv).x;
-            let left_v = self.left_tex_v.sample(live_sample_uv).x;
-            let right_y = self.right_tex_y.sample(live_sample_uv).x;
-            let right_u = self.right_tex_u.sample(live_sample_uv).x;
-            let right_v = self.right_tex_v.sample(live_sample_uv).x;
-            let y_val = mix(left_y, right_y, eye_selector);
-            let u_val = mix(left_u, right_u, eye_selector);
-            let v_val = mix(left_v, right_v, eye_selector);
-            let yuv_rgb = self.yuv_to_rgb_limited_601(y_val, u_val, v_val);
-            let left_external_rgb = self.left_camera_texture.sample_video(live_sample_uv).xyz;
-            let right_external_rgb = self.right_camera_texture.sample_video(live_sample_uv).xyz;
-            let external_rgb = mix(left_external_rgb, right_external_rgb, eye_selector);
             let direct_rgb =
-                mix(external_rgb, yuv_rgb, self.yuv_mode) * mix(0.12, 1.0, live_projection_valid);
+                self.sample_processed_camera_rgb(live_sample_uv, eye_selector) * mix(0.12, 1.0, live_projection_valid);
             let guided_direct = mix(direct_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
             return vec4(guided_direct.x, guided_direct.y, guided_direct.z, 1.0);
 
@@ -957,6 +974,10 @@ pub struct App {
     #[rust]
     projection_border_policy: f32,
     #[rust]
+    processing_layer: f32,
+    #[rust]
+    blur_radius_px: f32,
+    #[rust]
     projection_area_diagnostic: f32,
     #[rust]
     projection_area_offset_left_uv: f32,
@@ -1063,6 +1084,10 @@ pub struct DrawMakepadStereoCameraPanel {
     pub projection_border_strength: f32,
     #[live(0.0_f32)]
     pub projection_border_policy: f32,
+    #[live(0.0_f32)]
+    pub processing_layer: f32,
+    #[live(2.0_f32)]
+    pub blur_radius_px: f32,
     #[live(0.0_f32)]
     pub projection_area_diagnostic: f32,
     #[live(0.0_f32)]
@@ -1286,6 +1311,8 @@ struct HorizontalAlignmentTuning {
     content_uv_scale: f32,
     projection_border_strength: f32,
     projection_border_policy: f32,
+    processing_layer: f32,
+    blur_radius_px: f32,
     projection_area_diagnostic: f32,
     projection_area_offset_left_uv: f32,
     projection_area_offset_right_uv: f32,
@@ -1306,6 +1333,8 @@ impl Default for HorizontalAlignmentTuning {
             content_uv_scale: TARGET_FULL_VIEW_CONTENT_UV_SCALE,
             projection_border_strength: TARGET_PROJECTION_BORDER_STRENGTH,
             projection_border_policy: MakepadProjectionBorderPolicy::current().shader_code(),
+            processing_layer: MakepadProcessingLayer::current().shader_code(),
+            blur_radius_px: makepad_blur_radius_px(),
             projection_area_diagnostic: TARGET_PROJECTION_AREA_DIAGNOSTIC,
             projection_area_offset_left_uv: TARGET_PROJECTION_AREA_OFFSET_LEFT_UV,
             projection_area_offset_right_uv: TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV,
@@ -1465,6 +1494,8 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.projection_border_strength = TARGET_PROJECTION_BORDER_STRENGTH;
         self.draw_panel.projection_border_policy =
             MakepadProjectionBorderPolicy::current().shader_code();
+        self.draw_panel.processing_layer = MakepadProcessingLayer::current().shader_code();
+        self.draw_panel.blur_radius_px = makepad_blur_radius_px();
         self.draw_panel.projection_area_diagnostic = TARGET_PROJECTION_AREA_DIAGNOSTIC;
         self.draw_panel.projection_area_offset_left_uv = TARGET_PROJECTION_AREA_OFFSET_LEFT_UV;
         self.draw_panel.projection_area_offset_right_uv = TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV;
@@ -1573,6 +1604,26 @@ impl MakepadStereoCameraPanel {
         );
         self.draw_panel.draw_vars.set_instance_on_area(
             cx,
+            live_id!(processing_layer),
+            &[self.draw_panel.processing_layer],
+        );
+        self.draw_panel.draw_vars.set_uniform_on_area(
+            cx,
+            live_id!(processing_layer),
+            &[self.draw_panel.processing_layer],
+        );
+        self.draw_panel.draw_vars.set_instance_on_area(
+            cx,
+            live_id!(blur_radius_px),
+            &[self.draw_panel.blur_radius_px],
+        );
+        self.draw_panel.draw_vars.set_uniform_on_area(
+            cx,
+            live_id!(blur_radius_px),
+            &[self.draw_panel.blur_radius_px],
+        );
+        self.draw_panel.draw_vars.set_instance_on_area(
+            cx,
             live_id!(projection_area_diagnostic),
             &[TARGET_PROJECTION_AREA_DIAGNOSTIC],
         );
@@ -1590,6 +1641,8 @@ impl MakepadStereoCameraPanel {
                 live_id!(projection_border_strength),
                 TARGET_PROJECTION_BORDER_STRENGTH,
             ),
+            (live_id!(processing_layer), self.draw_panel.processing_layer),
+            (live_id!(blur_radius_px), self.draw_panel.blur_radius_px),
             (
                 live_id!(projection_area_diagnostic),
                 TARGET_PROJECTION_AREA_DIAGNOSTIC,
@@ -1903,6 +1956,8 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.content_uv_scale = tuning.content_uv_scale;
         self.draw_panel.projection_border_strength = tuning.projection_border_strength;
         self.draw_panel.projection_border_policy = tuning.projection_border_policy;
+        self.draw_panel.processing_layer = tuning.processing_layer;
+        self.draw_panel.blur_radius_px = tuning.blur_radius_px;
         self.draw_panel.projection_area_diagnostic = tuning.projection_area_diagnostic;
         self.draw_panel.projection_area_offset_left_uv = tuning.projection_area_offset_left_uv;
         self.draw_panel.projection_area_offset_right_uv = tuning.projection_area_offset_right_uv;
@@ -1935,6 +1990,8 @@ impl MakepadStereoCameraPanel {
                 live_id!(projection_border_policy),
                 tuning.projection_border_policy,
             ),
+            (live_id!(processing_layer), tuning.processing_layer),
+            (live_id!(blur_radius_px), tuning.blur_radius_px),
             (
                 live_id!(projection_area_diagnostic),
                 tuning.projection_area_diagnostic,
@@ -2527,6 +2584,8 @@ impl App {
             1.0,
         );
         let projection_border_policy = MakepadProjectionBorderPolicy::current().shader_code();
+        let processing_layer = MakepadProcessingLayer::current().shader_code();
+        let blur_radius_px = makepad_blur_radius_px();
         let projection_area_diagnostic = hotload_f32(
             KEY_MAKEPAD_PROJECTION_AREA_DIAGNOSTIC,
             TARGET_PROJECTION_AREA_DIAGNOSTIC,
@@ -2583,6 +2642,8 @@ impl App {
             content_uv_scale,
             projection_border_strength,
             projection_border_policy,
+            processing_layer,
+            blur_radius_px,
             projection_area_diagnostic,
             projection_area_offset_left_uv,
             projection_area_offset_right_uv,
@@ -2604,6 +2665,8 @@ impl App {
                 content_uv_scale: self.content_uv_scale,
                 projection_border_strength: self.projection_border_strength,
                 projection_border_policy: self.projection_border_policy,
+                processing_layer: self.processing_layer,
+                blur_radius_px: self.blur_radius_px,
                 projection_area_diagnostic: self.projection_area_diagnostic,
                 projection_area_offset_left_uv: self.projection_area_offset_left_uv,
                 projection_area_offset_right_uv: self.projection_area_offset_right_uv,
@@ -2628,6 +2691,8 @@ impl App {
             || (self.content_uv_scale - tuning.content_uv_scale).abs() > 0.0001
             || (self.projection_border_strength - tuning.projection_border_strength).abs() > 0.0001
             || (self.projection_border_policy - tuning.projection_border_policy).abs() > 0.0001
+            || (self.processing_layer - tuning.processing_layer).abs() > 0.0001
+            || (self.blur_radius_px - tuning.blur_radius_px).abs() > 0.0001
             || (self.projection_area_diagnostic - tuning.projection_area_diagnostic).abs() > 0.0001
             || (self.projection_area_offset_left_uv - tuning.projection_area_offset_left_uv).abs()
                 > 0.0001
@@ -2654,6 +2719,8 @@ impl App {
         self.content_uv_scale = tuning.content_uv_scale;
         self.projection_border_strength = tuning.projection_border_strength;
         self.projection_border_policy = tuning.projection_border_policy;
+        self.processing_layer = tuning.processing_layer;
+        self.blur_radius_px = tuning.blur_radius_px;
         self.projection_area_diagnostic = tuning.projection_area_diagnostic;
         self.projection_area_offset_left_uv = tuning.projection_area_offset_left_uv;
         self.projection_area_offset_right_uv = tuning.projection_area_offset_right_uv;
@@ -2664,7 +2731,7 @@ impl App {
         self.projection_area_bow_x = tuning.projection_area_bow_x;
         let panel_bound = self.apply_horizontal_alignment_tuning_to_panel(cx, tuning);
         Self::emit_stereo_projection_marker(&format!(
-            "phase=horizontal-alignment-hotload status=applied s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109RedProjectionBorder=true s110VerticalWindowOffsetHotload=true s111ProjectionAreaDiagnostic=true s112ProjectionAreaScreenOffset=true s113ProjectionAreaScreenScale=true s114ProjectionAreaFootprintOnlyDiagnostic=true s115ProjectionAreaKeystone=true s116ProjectionAreaMidpointBow=true s117PreHomographyDiagnosticOnly=true s118ProjectedFootprintLiveWindow=true horizontalAlignmentSource=screen_to_camera_center_delta_safe_window_invalid_matte manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true projectionBorderStrengthHotload=true projectionBorderPolicyHotload=true projectionAreaDiagnosticHotload=true projectionAreaScreenOffsetHotload=true projectionAreaScreenScaleHotload=true projectionAreaKeystoneHotload=true projectionAreaBowHotload=true projectionAreaTransformStage=pre_homography_screen_uv borderlessWindowMask=false redProjectionBorder={} propertyPrefix=debug.rustyxr {} projectionAreaDiagnosticMode=0_off_1_full_2_footprint_only horizontalAlignmentStrength={:.4} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} projectionBorderStrength={:.4} projectionAreaDiagnostic={:.1} projectionAreaLeftUv={:.4} projectionAreaRightUv={:.4} projectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaKeystoneX={:.4} projectionAreaBowX={:.4} panelBound={} visualInspection=required",
+            "phase=horizontal-alignment-hotload status=applied s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109RedProjectionBorder=true s110VerticalWindowOffsetHotload=true s111ProjectionAreaDiagnostic=true s112ProjectionAreaScreenOffset=true s113ProjectionAreaScreenScale=true s114ProjectionAreaFootprintOnlyDiagnostic=true s115ProjectionAreaKeystone=true s116ProjectionAreaMidpointBow=true s117PreHomographyDiagnosticOnly=true s118ProjectedFootprintLiveWindow=true s119ProcessingLayerHotload=true horizontalAlignmentSource=screen_to_camera_center_delta_safe_window_invalid_matte manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true projectionBorderStrengthHotload=true projectionBorderPolicyHotload=true processingLayerHotload=true projectionAreaDiagnosticHotload=true projectionAreaScreenOffsetHotload=true projectionAreaScreenScaleHotload=true projectionAreaKeystoneHotload=true projectionAreaBowHotload=true projectionAreaTransformStage=pre_homography_screen_uv borderlessWindowMask=false redProjectionBorder={} propertyPrefix=debug.rustyxr {} projectionAreaDiagnosticMode=0_off_1_full_2_footprint_only horizontalAlignmentStrength={:.4} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} projectionBorderStrength={:.4} processingLayer={} blurRadiusPx={:.2} projectionAreaDiagnostic={:.1} projectionAreaLeftUv={:.4} projectionAreaRightUv={:.4} projectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaKeystoneX={:.4} projectionAreaBowX={:.4} panelBound={} visualInspection=required",
             tuning.projection_border_strength > 0.0001,
             makepad_projection_target_marker_fields(),
             tuning.strength,
@@ -2673,6 +2740,8 @@ impl App {
             tuning.vertical_offset_uv,
             tuning.content_uv_scale,
             tuning.projection_border_strength,
+            MakepadProcessingLayer::current().stable_id(),
+            tuning.blur_radius_px,
             tuning.projection_area_diagnostic,
             tuning.projection_area_offset_left_uv,
             tuning.projection_area_offset_right_uv,
@@ -4666,6 +4735,40 @@ impl MakepadProjectionBorderPolicy {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MakepadProcessingLayer {
+    Raw,
+    Blur,
+}
+
+impl MakepadProcessingLayer {
+    fn current() -> Self {
+        let value = hotload_text(KEY_MAKEPAD_PROCESSING_LAYER, "raw");
+        match value.trim().to_ascii_lowercase().as_str() {
+            "blur" | "blur-diagnostic" | "diagnostic-blur" => Self::Blur,
+            _ => Self::Raw,
+        }
+    }
+
+    fn stable_id(self) -> &'static str {
+        match self {
+            Self::Raw => "raw",
+            Self::Blur => "blur",
+        }
+    }
+
+    fn shader_code(self) -> f32 {
+        match self {
+            Self::Raw => 0.0,
+            Self::Blur => 1.0,
+        }
+    }
+}
+
+fn makepad_blur_radius_px() -> f32 {
+    hotload_f32(KEY_MAKEPAD_BLUR_RADIUS_PX, 2.0, 0.0, 16.0)
+}
+
 fn makepad_native_passthrough_enabled() -> bool {
     let policy = MakepadProjectionBorderPolicy::current();
     hotload_bool(
@@ -4676,13 +4779,16 @@ fn makepad_native_passthrough_enabled() -> bool {
 
 fn makepad_projection_target_marker_fields() -> String {
     let policy = MakepadProjectionBorderPolicy::current();
+    let processing_layer = MakepadProcessingLayer::current();
     let native_passthrough = makepad_native_passthrough_enabled();
     format!(
-        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={}",
+        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={} processingLayer={} blurRadiusPx={:.2}",
         native_passthrough,
         policy.stable_id(),
         policy.stable_id(),
-        policy.wants_native_passthrough()
+        policy.wants_native_passthrough(),
+        processing_layer.stable_id(),
+        makepad_blur_radius_px()
     )
 }
 

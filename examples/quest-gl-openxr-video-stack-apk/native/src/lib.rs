@@ -165,6 +165,37 @@ mod android {
         }
     }
 
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    enum OesProcessingLayer {
+        #[default]
+        Raw,
+        Blur,
+    }
+
+    impl OesProcessingLayer {
+        fn parse(value: &str) -> Option<Self> {
+            match value.trim().to_ascii_lowercase().as_str() {
+                "" | "raw" | "off" | "none" | "source" => Some(Self::Raw),
+                "blur" | "blur-diagnostic" | "diagnostic-blur" => Some(Self::Blur),
+                _ => None,
+            }
+        }
+
+        const fn stable_id(self) -> &'static str {
+            match self {
+                Self::Raw => "raw",
+                Self::Blur => "blur",
+            }
+        }
+
+        const fn shader_id(self) -> c_int {
+            match self {
+                Self::Raw => 0,
+                Self::Blur => 1,
+            }
+        }
+    }
+
     struct OesDecodeCallbackState {
         frame_available_counts: [AtomicU64; VIEW_COUNT],
         latest_sequences: [AtomicU64; VIEW_COUNT],
@@ -397,6 +428,8 @@ mod android {
         fn glUseProgram(program: u32);
         fn glGetUniformLocation(program: u32, name: *const c_char) -> c_int;
         fn glUniform1i(location: c_int, v0: c_int);
+        fn glUniform1f(location: c_int, v0: f32);
+        fn glUniform2f(location: c_int, v0: f32, v1: f32);
         fn glUniform3f(location: c_int, v0: f32, v1: f32, v2: f32);
         fn glGenBuffers(n: c_int, buffers: *mut u32);
         fn glDeleteBuffers(n: c_int, buffers: *const u32);
@@ -492,9 +525,13 @@ mod android {
             .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
             .map_err(|error| format!("get HMD system: {error}"))?;
         let projection_border_policy = projection_border_policy_from_activity(&app);
+        let processing_layer = processing_layer_from_activity(&app);
+        let blur_radius_px = blur_radius_px_from_activity(&app);
         log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={}",
-            projection_border_policy.stable_id()
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3}",
+            projection_border_policy.stable_id(),
+            processing_layer.stable_id(),
+            blur_radius_px
         ));
         let environment_blend_mode = select_environment_blend_mode(
             &xr_instance,
@@ -652,6 +689,8 @@ mod android {
                     projection_plan.as_ref(),
                     &mut oes_copy_renderer,
                     projection_border_policy,
+                    processing_layer,
+                    blur_radius_px,
                 )?;
 
                 for (index, eye) in swapchains.iter().enumerate() {
@@ -982,6 +1021,8 @@ mod android {
         projection_plan: Option<&OesProjectionPlan>,
         oes_copy_renderer: &mut Option<OesCopyRenderer>,
         projection_border_policy: OesProjectionBorderPolicy,
+        processing_layer: OesProcessingLayer,
+        blur_radius_px: f32,
     ) -> Result<(), String> {
         egl.make_current()?;
         for eye in swapchains {
@@ -1017,6 +1058,8 @@ mod android {
                         renderer,
                         eye_projection,
                         projection_border_policy,
+                        processing_layer,
+                        blur_radius_px,
                     ) {
                         Ok(fbo_status) => {
                             render_path = if eye_projection.is_some() {
@@ -1115,6 +1158,9 @@ mod android {
         screen_to_camera_h1_location: c_int,
         screen_to_camera_h2_location: c_int,
         projection_border_policy_location: c_int,
+        processing_layer_location: c_int,
+        blur_radius_px_location: c_int,
+        source_texel_size_location: c_int,
     }
 
     impl OesCopyRenderer {
@@ -1140,6 +1186,9 @@ uniform vec3 u_screen_to_camera_h0;
 uniform vec3 u_screen_to_camera_h1;
 uniform vec3 u_screen_to_camera_h2;
 uniform int u_projection_border_policy;
+uniform int u_processing_layer;
+uniform float u_blur_radius_px;
+uniform vec2 u_source_texel_size;
 in vec2 v_uv;
 out vec4 out_color;
 vec4 invalid_projection_color() {
@@ -1147,6 +1196,29 @@ vec4 invalid_projection_color() {
         return vec4(0.0, 0.0, 0.0, 0.0);
     }
     return vec4(1.0, 0.0, 0.0, 1.0);
+}
+vec4 camera_sample(vec2 uv) {
+    return vec4(texture(u_source, clamp(uv, vec2(0.0), vec2(1.0))).rgb, 1.0);
+}
+vec4 blurred_camera_sample(vec2 uv) {
+    float radius = max(u_blur_radius_px, 0.0);
+    if (radius <= 0.001) {
+        return camera_sample(uv);
+    }
+    vec2 texel = u_source_texel_size * radius;
+    vec2 sample_uv = clamp(uv, vec2(0.0), vec2(1.0));
+    vec3 center = camera_sample(sample_uv).rgb * 0.36;
+    vec3 axis =
+        camera_sample(sample_uv + vec2(texel.x, 0.0)).rgb +
+        camera_sample(sample_uv - vec2(texel.x, 0.0)).rgb +
+        camera_sample(sample_uv + vec2(0.0, texel.y)).rgb +
+        camera_sample(sample_uv - vec2(0.0, texel.y)).rgb;
+    vec3 diag =
+        camera_sample(sample_uv + texel).rgb +
+        camera_sample(sample_uv - texel).rgb +
+        camera_sample(sample_uv + vec2(texel.x, -texel.y)).rgb +
+        camera_sample(sample_uv + vec2(-texel.x, texel.y)).rgb;
+    return vec4(clamp(center + axis * 0.12 + diag * 0.04, vec3(0.0), vec3(1.0)), 1.0);
 }
 void main() {
     vec3 input_uv = vec3(v_uv, 1.0);
@@ -1164,8 +1236,9 @@ void main() {
         out_color = invalid_projection_color();
         return;
     }
-    vec4 sample_color = texture(u_source, camera_uv);
-    out_color = vec4(sample_color.rgb, 1.0);
+    out_color = u_processing_layer == 1
+        ? blurred_camera_sample(camera_uv)
+        : camera_sample(camera_uv);
 }"#,
             ) {
                 Ok(shader) => shader,
@@ -1192,6 +1265,9 @@ void main() {
                     uniform_location(program, "u_screen_to_camera_h1")?,
                     uniform_location(program, "u_screen_to_camera_h2")?,
                     uniform_location(program, "u_projection_border_policy")?,
+                    uniform_location(program, "u_processing_layer")?,
+                    uniform_location(program, "u_blur_radius_px")?,
+                    uniform_location(program, "u_source_texel_size")?,
                 ))
             })();
             let (
@@ -1200,6 +1276,9 @@ void main() {
                 screen_to_camera_h1_location,
                 screen_to_camera_h2_location,
                 projection_border_policy_location,
+                processing_layer_location,
+                blur_radius_px_location,
+                source_texel_size_location,
             ) = match uniform_locations {
                 Ok(locations) => locations,
                 Err(error) => {
@@ -1241,6 +1320,9 @@ void main() {
                 screen_to_camera_h1_location,
                 screen_to_camera_h2_location,
                 projection_border_policy_location,
+                processing_layer_location,
+                blur_radius_px_location,
+                source_texel_size_location,
             })
         }
 
@@ -1249,6 +1331,9 @@ void main() {
             source_oes_texture: u32,
             screen_to_camera_h: [[f32; 3]; 3],
             projection_border_policy: OesProjectionBorderPolicy,
+            processing_layer: OesProcessingLayer,
+            blur_radius_px: f32,
+            source_texel_size: [f32; 2],
         ) -> Result<(), String> {
             unsafe {
                 glUseProgram(self.program);
@@ -1258,6 +1343,16 @@ void main() {
                 glUniform1i(
                     self.projection_border_policy_location,
                     projection_border_policy.shader_id(),
+                );
+                glUniform1i(self.processing_layer_location, processing_layer.shader_id());
+                glUniform1f(
+                    self.blur_radius_px_location,
+                    blur_radius_px.clamp(0.0, 16.0),
+                );
+                glUniform2f(
+                    self.source_texel_size_location,
+                    source_texel_size[0],
+                    source_texel_size[1],
                 );
                 glUniform3f(
                     self.screen_to_camera_h0_location,
@@ -1557,6 +1652,8 @@ void main() {
             renderer: &mut OesCopyRenderer,
             projection: Option<&OesEyeProjection>,
             projection_border_policy: OesProjectionBorderPolicy,
+            processing_layer: OesProcessingLayer,
+            blur_radius_px: f32,
         ) -> Result<GlFramebufferCompleteness, String> {
             unsafe {
                 glBindFramebuffer(GL_FRAMEBUFFER, self.id);
@@ -1584,6 +1681,12 @@ void main() {
                         .map(|projection| projection.screen_to_camera_h)
                         .unwrap_or_else(identity_homography),
                     projection_border_policy,
+                    processing_layer,
+                    blur_radius_px,
+                    [
+                        1.0 / DEFAULT_OES_SURFACE_WIDTH.max(1) as f32,
+                        1.0 / DEFAULT_OES_SURFACE_HEIGHT.max(1) as f32,
+                    ],
                 )?;
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 Ok(fbo_status)
@@ -2863,6 +2966,43 @@ void main() {
             .as_deref()
             .and_then(OesProjectionBorderPolicy::parse)
             .unwrap_or_default()
+    }
+
+    fn processing_layer_from_activity(app: &android_activity::AndroidApp) -> OesProcessingLayer {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return OesProcessingLayer::default();
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return OesProcessingLayer::default();
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        let requested = activity_string_extra(&mut env, &activity, "rustyxr.processingLayer")
+            .or_else(|| {
+                activity_string_extra(&mut env, &activity, "rustyxr.cameraProcessingLayer")
+            });
+        requested
+            .as_deref()
+            .and_then(OesProcessingLayer::parse)
+            .unwrap_or_default()
+    }
+
+    fn blur_radius_px_from_activity(app: &android_activity::AndroidApp) -> f32 {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return 2.0;
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return 2.0;
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.cameraBlurRadiusPx")
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(2.0)
+            .clamp(0.0, 16.0)
     }
 
     fn jni_error(env: &mut JNIEnv<'_>, context: &str, error: impl std::fmt::Display) -> String {

@@ -37,7 +37,10 @@ param(
     [int]$BrokerH264StreamTimeoutMs = 60000,
     [int]$BrokerH264DecodeTimeoutMs = 20000,
     [ValidateSet("solid-red", "passthrough-underlay")]
-    [string]$ProjectionBorderPolicy = "solid-red"
+    [string]$ProjectionBorderPolicy = "solid-red",
+    [ValidateSet("raw", "blur")]
+    [string]$ProcessingLayer = "raw",
+    [double]$BlurRadiusPx = 2.0
 )
 
 $ErrorActionPreference = "Stop"
@@ -77,6 +80,11 @@ function Parse-DoubleInvariant {
         return $parsed
     }
     return 0.0
+}
+
+function Format-InvariantDouble {
+    param([double]$Value)
+    return $Value.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
 function Grant-RuntimePermissions {
@@ -151,6 +159,8 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.projection.border.policy" = $ProjectionBorderPolicy
         "debug.rustyxr.makepad.native.passthrough.enabled" = $nativePassthrough
         "debug.rustyxr.makepad.projection.border.strength" = "1.0"
+        "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
+        "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
     }
 
     foreach ($entry in $props.GetEnumerator()) {
@@ -529,6 +539,8 @@ $summary = [ordered]@{
     brokerH264SourceMode = if ($UseBrokerH264Camera) { "broker-camera" } elseif ($UseBrokerH264Synthetic) { "broker-synthetic" } else { "disabled" }
     projectionBorderPolicy = $ProjectionBorderPolicy
     nativePassthroughRequested = [bool]($ProjectionBorderPolicy -eq "passthrough-underlay")
+    processingLayer = $ProcessingLayer
+    blurRadiusPx = $BlurRadiusPx
     brokerH264FrameRateHz = $BrokerH264FrameRateHz
     brokerH264LeftCameraId = $BrokerH264LeftCameraId
     brokerH264RightCameraId = $BrokerH264RightCameraId

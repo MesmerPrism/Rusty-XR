@@ -302,6 +302,12 @@ camera projection in the same full submitted render surface. Use the solid-red
 policy when the actual projected camera footprint needs an unmistakable marker;
 use passthrough-underlay for manual headset alignment against native
 passthrough.
+Add `-ProcessingLayer blur -BlurRadiusPx 2.0` to enable the public diagnostic
+blur layer for valid camera samples while keeping the same projection border
+policy. The gate writes `debug.rustyxr.makepad.processing.layer` and
+`debug.rustyxr.makepad.blur.radius.px`, and the running app also accepts those
+properties through `tools\Send-MakepadQ2QHorizontalOffset.ps1` for short
+operator A/B checks.
 
 The default broker-H.264 gate uses `127.0.0.1:8765`, left/right stream ports
 `8879` / `8880`, `1280x1280`, 6 Mbps, and a live-bounded 45-second stream with
