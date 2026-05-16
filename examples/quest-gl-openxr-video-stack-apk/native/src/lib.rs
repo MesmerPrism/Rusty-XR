@@ -119,6 +119,52 @@ mod android {
 
     static OES_DECODE_CALLBACKS: OnceLock<OesDecodeCallbackState> = OnceLock::new();
 
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    enum OesProjectionBorderPolicy {
+        #[default]
+        SolidRed,
+        PassthroughUnderlay,
+    }
+
+    impl OesProjectionBorderPolicy {
+        fn parse(value: &str) -> Option<Self> {
+            match value.trim().to_ascii_lowercase().as_str() {
+                "" | "solid-red" | "red" | "diagnostic-red" | "opaque-red" => Some(Self::SolidRed),
+                "passthrough-underlay"
+                | "transparent-underlay"
+                | "transparent"
+                | "alpha"
+                | "clear" => Some(Self::PassthroughUnderlay),
+                _ => None,
+            }
+        }
+
+        const fn stable_id(self) -> &'static str {
+            match self {
+                Self::SolidRed => "solid-red",
+                Self::PassthroughUnderlay => "passthrough-underlay",
+            }
+        }
+
+        const fn shader_id(self) -> c_int {
+            match self {
+                Self::SolidRed => 0,
+                Self::PassthroughUnderlay => 1,
+            }
+        }
+
+        const fn uses_source_alpha(self) -> bool {
+            matches!(self, Self::PassthroughUnderlay)
+        }
+
+        const fn clear_color(self) -> (f32, f32, f32, f32) {
+            match self {
+                Self::SolidRed => (1.0, 0.0, 0.0, 1.0),
+                Self::PassthroughUnderlay => (0.0, 0.0, 0.0, 0.0),
+            }
+        }
+    }
+
     struct OesDecodeCallbackState {
         frame_available_counts: [AtomicU64; VIEW_COUNT],
         latest_sequences: [AtomicU64; VIEW_COUNT],
@@ -445,8 +491,17 @@ mod android {
         let system = xr_instance
             .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
             .map_err(|error| format!("get HMD system: {error}"))?;
-        let environment_blend_mode =
-            select_environment_blend_mode(&xr_instance, system, &mut status)?;
+        let projection_border_policy = projection_border_policy_from_activity(&app);
+        log_info(format!(
+            "Rusty XR OpenXR GLES projection border policy={}",
+            projection_border_policy.stable_id()
+        ));
+        let environment_blend_mode = select_environment_blend_mode(
+            &xr_instance,
+            system,
+            &mut status,
+            projection_border_policy,
+        )?;
         let requirements = xr_instance
             .graphics_requirements::<xr::OpenGlEs>(system)
             .map_err(|error| format!("read OpenGL ES graphics requirements: {error}"))?;
@@ -596,6 +651,7 @@ mod android {
                     surface_texture_oes_probe.as_ref(),
                     projection_plan.as_ref(),
                     &mut oes_copy_renderer,
+                    projection_border_policy,
                 )?;
 
                 for (index, eye) in swapchains.iter().enumerate() {
@@ -632,6 +688,11 @@ mod android {
                     .map_err(|error| format!("end OpenXR frame without layers: {error}"))?;
             } else {
                 let layer = xr::CompositionLayerProjection::new()
+                    .layer_flags(if projection_border_policy.uses_source_alpha() {
+                        xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA
+                    } else {
+                        xr::CompositionLayerFlags::EMPTY
+                    })
                     .space(&stage)
                     .views(&projection_views);
                 frame_stream
@@ -772,21 +833,38 @@ mod android {
         instance: &xr::Instance,
         system: xr::SystemId,
         status: &mut OpenXrGlesFeasibilityStatus,
+        projection_border_policy: OesProjectionBorderPolicy,
     ) -> Result<xr::EnvironmentBlendMode, String> {
         let modes = instance
             .enumerate_environment_blend_modes(system, VIEW_TYPE)
             .map_err(|error| format!("enumerate environment blend modes: {error}"))?;
-        let selected = modes
-            .iter()
-            .copied()
-            .find(|mode| *mode == xr::EnvironmentBlendMode::OPAQUE)
-            .or_else(|| modes.first().copied())
-            .ok_or_else(|| "OpenXR runtime reported no environment blend modes".to_string())?;
+        let selected = if projection_border_policy.uses_source_alpha() {
+            modes
+                .iter()
+                .copied()
+                .find(|mode| *mode == xr::EnvironmentBlendMode::ALPHA_BLEND)
+                .or_else(|| {
+                    modes
+                        .iter()
+                        .copied()
+                        .find(|mode| *mode == xr::EnvironmentBlendMode::OPAQUE)
+                })
+                .or_else(|| modes.first().copied())
+        } else {
+            modes
+                .iter()
+                .copied()
+                .find(|mode| *mode == xr::EnvironmentBlendMode::OPAQUE)
+                .or_else(|| modes.first().copied())
+        }
+        .ok_or_else(|| "OpenXR runtime reported no environment blend modes".to_string())?;
         status.notes.push(format!(
-            "environmentBlendModes={modes:?}; selected={selected:?}"
+            "environmentBlendModes={modes:?}; selected={selected:?}; projectionBorderPolicy={}",
+            projection_border_policy.stable_id()
         ));
         log_info(format!(
-            "Rusty XR OpenXR GLES environment blend modes available={modes:?} selected={selected:?}"
+            "Rusty XR OpenXR GLES environment blend modes available={modes:?} selected={selected:?} projectionBorderPolicy={}",
+            projection_border_policy.stable_id()
         ));
         Ok(selected)
     }
@@ -903,6 +981,7 @@ mod android {
         surface_texture_oes_probe: Option<&SurfaceTextureOesProbe>,
         projection_plan: Option<&OesProjectionPlan>,
         oes_copy_renderer: &mut Option<OesCopyRenderer>,
+        projection_border_policy: OesProjectionBorderPolicy,
     ) -> Result<(), String> {
         egl.make_current()?;
         for eye in swapchains {
@@ -937,6 +1016,7 @@ mod android {
                         eye.height,
                         renderer,
                         eye_projection,
+                        projection_border_policy,
                     ) {
                         Ok(fbo_status) => {
                             render_path = if eye_projection.is_some() {
@@ -1034,6 +1114,7 @@ mod android {
         screen_to_camera_h0_location: c_int,
         screen_to_camera_h1_location: c_int,
         screen_to_camera_h2_location: c_int,
+        projection_border_policy_location: c_int,
     }
 
     impl OesCopyRenderer {
@@ -1058,8 +1139,15 @@ uniform samplerExternalOES u_source;
 uniform vec3 u_screen_to_camera_h0;
 uniform vec3 u_screen_to_camera_h1;
 uniform vec3 u_screen_to_camera_h2;
+uniform int u_projection_border_policy;
 in vec2 v_uv;
 out vec4 out_color;
+vec4 invalid_projection_color() {
+    if (u_projection_border_policy == 1) {
+        return vec4(0.0, 0.0, 0.0, 0.0);
+    }
+    return vec4(1.0, 0.0, 0.0, 1.0);
+}
 void main() {
     vec3 input_uv = vec3(v_uv, 1.0);
     vec3 camera_uv_h = vec3(
@@ -1068,15 +1156,16 @@ void main() {
         dot(u_screen_to_camera_h2, input_uv)
     );
     if (abs(camera_uv_h.z) < 0.00001) {
-        out_color = vec4(0.0, 0.0, 0.0, 1.0);
+        out_color = invalid_projection_color();
         return;
     }
     vec2 camera_uv = camera_uv_h.xy / camera_uv_h.z;
     if (camera_uv.x < 0.0 || camera_uv.x > 1.0 || camera_uv.y < 0.0 || camera_uv.y > 1.0) {
-        out_color = vec4(0.0, 0.0, 0.0, 1.0);
+        out_color = invalid_projection_color();
         return;
     }
-    out_color = texture(u_source, camera_uv);
+    vec4 sample_color = texture(u_source, camera_uv);
+    out_color = vec4(sample_color.rgb, 1.0);
 }"#,
             ) {
                 Ok(shader) => shader,
@@ -1102,6 +1191,7 @@ void main() {
                     uniform_location(program, "u_screen_to_camera_h0")?,
                     uniform_location(program, "u_screen_to_camera_h1")?,
                     uniform_location(program, "u_screen_to_camera_h2")?,
+                    uniform_location(program, "u_projection_border_policy")?,
                 ))
             })();
             let (
@@ -1109,6 +1199,7 @@ void main() {
                 screen_to_camera_h0_location,
                 screen_to_camera_h1_location,
                 screen_to_camera_h2_location,
+                projection_border_policy_location,
             ) = match uniform_locations {
                 Ok(locations) => locations,
                 Err(error) => {
@@ -1149,6 +1240,7 @@ void main() {
                 screen_to_camera_h0_location,
                 screen_to_camera_h1_location,
                 screen_to_camera_h2_location,
+                projection_border_policy_location,
             })
         }
 
@@ -1156,12 +1248,17 @@ void main() {
             &mut self,
             source_oes_texture: u32,
             screen_to_camera_h: [[f32; 3]; 3],
+            projection_border_policy: OesProjectionBorderPolicy,
         ) -> Result<(), String> {
             unsafe {
                 glUseProgram(self.program);
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_EXTERNAL_OES, source_oes_texture);
                 glUniform1i(self.sampler_location, 0);
+                glUniform1i(
+                    self.projection_border_policy_location,
+                    projection_border_policy.shader_id(),
+                );
                 glUniform3f(
                     self.screen_to_camera_h0_location,
                     screen_to_camera_h[0][0],
@@ -1459,6 +1556,7 @@ void main() {
             height: u32,
             renderer: &mut OesCopyRenderer,
             projection: Option<&OesEyeProjection>,
+            projection_border_policy: OesProjectionBorderPolicy,
         ) -> Result<GlFramebufferCompleteness, String> {
             unsafe {
                 glBindFramebuffer(GL_FRAMEBUFFER, self.id);
@@ -1477,13 +1575,15 @@ void main() {
                 }
 
                 glViewport(0, 0, width as c_int, height as c_int);
-                glClearColor(0.0, 0.0, 0.0, 1.0);
+                let (clear_r, clear_g, clear_b, clear_a) = projection_border_policy.clear_color();
+                glClearColor(clear_r, clear_g, clear_b, clear_a);
                 glClear(GL_COLOR_BUFFER_BIT);
                 renderer.render(
                     source_oes_texture,
                     projection
                         .map(|projection| projection.screen_to_camera_h)
                         .unwrap_or_else(identity_homography),
+                    projection_border_policy,
                 )?;
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 Ok(fbo_status)
@@ -2737,6 +2837,32 @@ void main() {
         env.get_string(&JString::from(value))
             .map(|value| value.to_string_lossy().into_owned())
             .ok()
+    }
+
+    fn projection_border_policy_from_activity(
+        app: &android_activity::AndroidApp,
+    ) -> OesProjectionBorderPolicy {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return OesProjectionBorderPolicy::default();
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return OesProjectionBorderPolicy::default();
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        let requested = activity_string_extra(
+            &mut env,
+            &activity,
+            "rustyxr.projectionBorderPolicy",
+        )
+        .or_else(|| {
+            activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionBorderPolicy")
+        });
+        requested
+            .as_deref()
+            .and_then(OesProjectionBorderPolicy::parse)
+            .unwrap_or_default()
     }
 
     fn jni_error(env: &mut JNIEnv<'_>, context: &str, error: impl std::fmt::Display) -> String {

@@ -1020,8 +1020,11 @@ void main() {
     bool raw_projection_warm_border = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_WARM_BORDER) != 0;
     bool raw_projection_cycling_border = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_CYCLING_BORDER) != 0;
     bool passthrough_underlay_alpha = (packed_flags & CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA) != 0;
+    bool raw_projection_solid_red = raw_projection_invalid_fill && raw_projection_perimeter_fill;
     vec3 color = center_color;
-    if (raw_projection_cycling_border) {
+    if (raw_projection_solid_red) {
+        color = projection_valid ? center_color : vec3(1.0, 0.0, 0.0);
+    } else if (raw_projection_cycling_border) {
         color = resolve_raw_projection_soft_border(
             sample_content_uv,
             eye,
@@ -1173,5 +1176,9 @@ void main() {
         : 1.0;
     float source_edge_dim = mix(0.94, 1.0, coverage);
     float out_alpha = passthrough_underlay_alpha ? coverage : 1.0;
-    out_color = vec4(clamp01(color * surface_edge_dim * source_edge_dim), out_alpha);
+    vec3 final_color = color * surface_edge_dim * source_edge_dim;
+    if (raw_projection_solid_red && !projection_valid) {
+        final_color = vec3(1.0, 0.0, 0.0);
+    }
+    out_color = vec4(clamp01(final_color), out_alpha);
 }

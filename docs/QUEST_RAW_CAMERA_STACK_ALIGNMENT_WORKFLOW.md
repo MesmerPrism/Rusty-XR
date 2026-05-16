@@ -103,7 +103,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
   -RuntimeProfile camera-stereo-gpu-composite-fast075 `
-  -Override rustyxr.cameraTargetFps=50 `
+  -Override rustyxr.cameraTargetFps=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off `
   -FreshnessFrames 6
 ```
 
@@ -116,7 +116,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
   -RuntimeProfile broker-h264-stereo-live-openxr-projection-fast075-probe `
-  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50 `
+  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off `
   -FreshnessFrames 6
 ```
 
@@ -129,6 +129,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-gl-openxr-video-stack `
   -DeviceProfile gles-openxr-comparison-level-5 `
   -RuntimeProfile gles-direct-camera2-oes-projection `
+  -Override rustyxr.projectionBorderPolicy=solid-red `
   -FreshnessFrames 6
 ```
 
@@ -141,7 +142,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-gl-openxr-video-stack `
   -DeviceProfile gles-openxr-comparison-level-5 `
   -RuntimeProfile gles-broker-camera-h264-oes-projection `
-  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50 `
+  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.projectionBorderPolicy=solid-red `
   -FreshnessFrames 6
 ```
 
@@ -180,6 +181,18 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 For automated segmentation, use `-ProjectionBorderPolicy solid-red`. For
 operator alignment against native passthrough, use
 `-ProjectionBorderPolicy passthrough-underlay`.
+
+The suite applies the same policy to every public lane:
+
+| Renderer family | `solid-red` mapping | `passthrough-underlay` mapping |
+| --- | --- | --- |
+| Vulkan/HWB | `raw-projection-solid-red-unorm` plus `raw-projection-solid-red` | `raw-projection-underlay-unorm` plus the public OpenXR passthrough underlay |
+| GL/OES | `rustyxr.projectionBorderPolicy=solid-red` writes opaque red outside valid projected camera UVs | `rustyxr.projectionBorderPolicy=passthrough-underlay` writes transparent alpha outside valid projected camera UVs and requests alpha source blending |
+| Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` | `debug.rustyxr.makepad.projection.border.policy=passthrough-underlay` plus native passthrough request |
+
+Transparent GL/OES pixels show compositor background unless a runtime
+passthrough underlay is active for that app. Treat that as a composition
+configuration difference, not a projection-area difference.
 
 ## Full Public Suite
 

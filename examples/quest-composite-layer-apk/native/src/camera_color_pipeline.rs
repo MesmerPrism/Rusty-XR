@@ -51,6 +51,7 @@ pub(crate) enum CameraProjectionEffectMode {
     #[default]
     BorderComposite,
     RawProjectionFast,
+    RawProjectionSolidRed,
     RawProjectionInvalidFill,
     RawProjectionPerimeterFill,
     RawProjectionSoftBorder,
@@ -69,6 +70,10 @@ impl CameraProjectionEffectMode {
             "raw-projection-fast" | "direct-raw-projection" | "raw-direct" | "fast-raw" => {
                 Some(Self::RawProjectionFast)
             }
+            "raw-projection-solid-red"
+            | "raw-projection-red-border"
+            | "direct-raw-projection-solid-red"
+            | "fast-raw-solid-red" => Some(Self::RawProjectionSolidRed),
             "raw-projection-invalid-fill"
             | "raw-projection-invalid-only-fill"
             | "direct-raw-projection-invalid-fill"
@@ -119,6 +124,7 @@ impl CameraProjectionEffectMode {
         match self {
             Self::BorderComposite => "border-composite",
             Self::RawProjectionFast => "raw-projection-fast",
+            Self::RawProjectionSolidRed => "raw-projection-solid-red",
             Self::RawProjectionInvalidFill => "raw-projection-invalid-fill",
             Self::RawProjectionPerimeterFill => "raw-projection-perimeter-fill",
             Self::RawProjectionSoftBorder => "raw-projection-soft-border",
@@ -135,6 +141,11 @@ impl CameraProjectionEffectMode {
         match self {
             Self::BorderComposite => 0,
             Self::RawProjectionFast => CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST,
+            Self::RawProjectionSolidRed => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL
+                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL
+            }
             Self::RawProjectionInvalidFill => {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
                     | CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL

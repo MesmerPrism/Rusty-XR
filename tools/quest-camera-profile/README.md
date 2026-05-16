@@ -137,6 +137,9 @@ luma-preserving warm feedback term for border-color A/B tests. The
 phase-cycled generic color term for testing temporal border-color feedback; use
 `-Override 'rustyxr.cameraBorderCycleHz=<rate>'` to adjust the cycle rate in the
 same APK. The
+`raw-projection-solid-red-unorm` preset is the clean projection-area alignment
+probe: valid projected camera pixels stay raw and every invalid projected pixel
+is opaque red for segmentation and operator checks. The
 `raw-projection-underlay-unorm` preset submits a public
 OpenXR passthrough underlay and alpha-blends the raw projection layer, which is
 useful when comparing background composition separately from raw camera
@@ -156,7 +159,7 @@ integrations on these stable keys instead of duplicating shader-specific state:
 
 | Key | Type | Purpose |
 | --- | --- | --- |
-| `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, or `raw-projection-cycling-border-unorm`. |
+| `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, or `raw-projection-cycling-border-unorm`. |
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `display-screen-homography` or `quad-surface`. |
 | `rustyxr.cameraBorderCycleHz` | float | Adjusts the generic phase-cycled border-color rate used by `raw-projection-cycling-border-unorm`; ignored by static border presets. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |

@@ -587,6 +587,13 @@ The catalog keeps camera path experiments as separate runtime profiles:
 - `broker-h264-stereo-live-openxr-projection-fast065-probe`: the same fast
   raw-projection path at `rustyxr.xrRenderScale=0.65` for fragment-load headroom
   checks.
+- For projection-area alignment, override any direct or broker raw-projection
+  profile with `rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm`
+  and `rustyxr.cameraProjectionEffectMode=raw-projection-solid-red` to render
+  invalid projected-camera pixels as opaque red. Use
+  `rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm` when the same
+  raw camera projection should alpha-blend over the public OpenXR passthrough
+  underlay instead.
 - `broker-h264` existing-stream mode: set
   `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264

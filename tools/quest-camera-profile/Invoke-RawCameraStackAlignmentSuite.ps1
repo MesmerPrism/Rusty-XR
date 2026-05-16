@@ -177,6 +177,22 @@ if ($EnableStayAwakeGuard) {
     $stayAwakeGuardState = Set-StayAwakeGuard
 }
 
+function Join-OverrideValues {
+    param([string[]]$Values)
+    return (@($Values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ",")
+}
+
+function Get-VulkanProjectionBorderOverride {
+    if ($ProjectionBorderPolicy -eq "passthrough-underlay") {
+        return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,rustyxr.openxrPassthroughProbe=underlay"
+    }
+    return "rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off"
+}
+
+function Get-GlesProjectionBorderOverride {
+    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy"
+}
+
 function Get-CommonQuestProfileArgs {
     param([string]$ModeRunRoot)
     $common = [System.Collections.Generic.List[string]]::new()
@@ -387,7 +403,7 @@ foreach ($modeId in $Mode) {
                 -RuntimeProfile "camera-stereo-gpu-composite-fast075" `
                 -Apk $CompositeApk `
                 -InstallKey "composite" `
-                -Override "rustyxr.cameraTargetFps=50"
+                -Override (Join-OverrideValues -Values @("rustyxr.cameraTargetFps=50", (Get-VulkanProjectionBorderOverride)))
         }
         "vulkan-hwb-broker-h264-raw" {
             Invoke-QuestProfileMode `
@@ -399,7 +415,7 @@ foreach ($modeId in $Mode) {
                 -RuntimeProfile "broker-h264-stereo-live-openxr-projection-fast075-probe" `
                 -Apk $CompositeApk `
                 -InstallKey "composite" `
-                -Override "rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.brokerH264Width=1280,rustyxr.brokerH264Height=1280,rustyxr.brokerH264BitrateBps=6000000,rustyxr.brokerH264LiveStream=true,rustyxr.brokerH264LiveDecode=true"
+                -Override (Join-OverrideValues -Values @("rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.brokerH264Width=1280,rustyxr.brokerH264Height=1280,rustyxr.brokerH264BitrateBps=6000000,rustyxr.brokerH264LiveStream=true,rustyxr.brokerH264LiveDecode=true", (Get-VulkanProjectionBorderOverride)))
         }
         "gles-oes-direct-camera2-raw" {
             Invoke-QuestProfileMode `
@@ -410,7 +426,8 @@ foreach ($modeId in $Mode) {
                 -DeviceProfile "gles-openxr-comparison-level-5" `
                 -RuntimeProfile "gles-direct-camera2-oes-projection" `
                 -Apk $GlesApk `
-                -InstallKey "gles"
+                -InstallKey "gles" `
+                -Override (Get-GlesProjectionBorderOverride)
         }
         "gles-oes-broker-h264-raw" {
             Invoke-QuestProfileMode `
@@ -422,7 +439,7 @@ foreach ($modeId in $Mode) {
                 -RuntimeProfile "gles-broker-camera-h264-oes-projection" `
                 -Apk $GlesApk `
                 -InstallKey "gles" `
-                -Override "rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.brokerH264Width=1280,rustyxr.brokerH264Height=1280,rustyxr.brokerH264BitrateBps=6000000,rustyxr.brokerH264LiveStream=true,rustyxr.brokerH264LiveDecode=true"
+                -Override (Join-OverrideValues -Values @("rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.brokerH264Width=1280,rustyxr.brokerH264Height=1280,rustyxr.brokerH264BitrateBps=6000000,rustyxr.brokerH264LiveStream=true,rustyxr.brokerH264LiveDecode=true", (Get-GlesProjectionBorderOverride)))
         }
         "makepad-cpuyuv-direct-camera2-raw" {
             Invoke-MakepadMode `
@@ -453,6 +470,8 @@ $lines.Add("# Raw Camera Stack Alignment Suite")
 $lines.Add("")
 $lines.Add(("- Session: ``{0}``" -f $sessionId))
 $lines.Add(("- Border policy: ``{0}``" -f $ProjectionBorderPolicy))
+$lines.Add(("- Vulkan/HWB border override: ``{0}``" -f (Get-VulkanProjectionBorderOverride)))
+$lines.Add(("- GL/OES border override: ``{0}``" -f (Get-GlesProjectionBorderOverride)))
 $lines.Add(("- Warmup seconds: ``{0}``" -f $WarmupSeconds))
 $lines.Add(("- Sample seconds: ``{0}``" -f $SampleSeconds))
 $lines.Add(("- Freshness frames: ``{0}``" -f $FreshnessFrames))

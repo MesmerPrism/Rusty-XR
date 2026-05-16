@@ -401,6 +401,7 @@ pub(crate) enum CameraPipelinePreset {
     ShaderDecodeUnorm,
     SeparateDecodeUnorm,
     RawProjectionFastUnorm,
+    RawProjectionSolidRedUnorm,
     RawProjectionInvalidFillUnorm,
     RawProjectionPerimeterFillUnorm,
     RawProjectionSoftBorderUnorm,
@@ -429,6 +430,10 @@ impl CameraPipelinePreset {
             "raw-projection-fast-unorm" | "direct-raw-projection-unorm" | "fast-raw-unorm" => {
                 Some(Self::RawProjectionFastUnorm)
             }
+            "raw-projection-solid-red-unorm"
+            | "raw-projection-red-border-unorm"
+            | "direct-raw-projection-solid-red-unorm"
+            | "fast-raw-solid-red-unorm" => Some(Self::RawProjectionSolidRedUnorm),
             "raw-projection-invalid-fill-unorm"
             | "raw-projection-invalid-only-fill-unorm"
             | "direct-raw-projection-invalid-fill-unorm"
@@ -485,6 +490,7 @@ impl CameraPipelinePreset {
             Self::ShaderDecodeUnorm => "shader-decode-unorm",
             Self::SeparateDecodeUnorm => "separate-decode-unorm",
             Self::RawProjectionFastUnorm => "raw-projection-fast-unorm",
+            Self::RawProjectionSolidRedUnorm => "raw-projection-solid-red-unorm",
             Self::RawProjectionInvalidFillUnorm => "raw-projection-invalid-fill-unorm",
             Self::RawProjectionPerimeterFillUnorm => "raw-projection-perimeter-fill-unorm",
             Self::RawProjectionSoftBorderUnorm => "raw-projection-soft-border-unorm",
@@ -2218,6 +2224,15 @@ fn apply_camera_pipeline_preset(config: &mut RuntimeConfig) {
             OpenXrColorFormatMode::Rgba8Unorm,
             config.openxr_passthrough_probe,
         ),
+        CameraPipelinePreset::RawProjectionSolidRedUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionSolidRed,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
         CameraPipelinePreset::RawProjectionInvalidFillUnorm => (
             CameraFeedPipelineMode::RawFeed,
             CameraColorMode::ExternalRgb,
@@ -3943,6 +3958,46 @@ mod tests {
         assert_eq!(
             config.camera_projection_effect_mode,
             CameraProjectionEffectMode::RawProjectionFast
+        );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.camera_sampler_binding_mode,
+            CameraSamplerBindingMode::CombinedImmutableSampler
+        );
+        assert_eq!(
+            config.camera_import_image_layout_mode,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition
+        );
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+    }
+
+    #[test]
+    fn runtime_config_raw_projection_solid_red_preset_selects_solid_red_unorm_path() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-solid-red-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            camera_feed_pipeline_mode: Some("projected-feed".to_string()),
+            camera_color_mode: Some("debug-red-only".to_string()),
+            camera_sampler_binding_mode: Some("separate-image-sampler".to_string()),
+            camera_import_image_layout_mode: Some("general-no-transition".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionSolidRedUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionSolidRed
         );
         assert_eq!(
             config.camera_feed_pipeline_mode,
