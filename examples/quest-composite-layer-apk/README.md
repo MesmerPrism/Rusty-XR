@@ -589,14 +589,17 @@ The catalog keeps camera path experiments as separate runtime profiles:
   checks.
 - For projection-area alignment, override any direct or broker raw-projection
   profile with `rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm`
-  and `rustyxr.cameraProjectionEffectMode=raw-projection-solid-red` to render
-  invalid projected-camera pixels as opaque red. Use
+  and `rustyxr.cameraProjectionEffectMode=raw-projection-solid-red` to keep
+  camera pixels inside the hard public projection-area mask and render the
+  outside-projection area as opaque red. Use
   `rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm` when the same
-  raw camera projection should alpha-blend over the public OpenXR passthrough
-  underlay instead. Use `raw-projection-blur-solid-red-unorm` or
+  outside-projection area should be transparent over the public OpenXR
+  passthrough underlay instead. Use `raw-projection-blur-solid-red-unorm` or
   `raw-projection-blur-underlay-unorm` with `rustyxr.cameraBlurRadiusPx=<px>`
   for the same projection-area policies with the public diagnostic blur layer
-  applied to valid camera samples only.
+  applied to valid camera samples only. Use
+  `rustyxr.cameraProjectionAreaOffsetYUv=<value>` for controlled vertical
+  centering sweeps after the hard-mask evidence is valid.
 - `broker-h264` existing-stream mode: set
   `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264

@@ -40,7 +40,8 @@ APK-owned behavior:
 - renderer family: Vulkan/HWB, OpenGL/OES, or Makepad CPU-YUV;
 - MediaCodec output target and texture ownership;
 - raw projection shaders and projection-status logging;
-- support for solid diagnostic border versus native-passthrough underlay;
+- support for a full submitted XR surface with a hard camera-projection sub-area
+  mask, toggled between solid diagnostic border and native-passthrough underlay;
 - generic counters such as packet cadence, decoded-frame cadence, import churn,
   render cadence, frame freshness, and fatal/runtime markers.
 
@@ -52,6 +53,9 @@ Launch/profile behavior:
 - device performance level, refresh rate, render scale, foveation, and warmup;
 - projection border policy: `solid-red` for automated segmentation or
   `passthrough-underlay` for operator alignment against native passthrough;
+- projection-area offset sweep values such as
+  `rustyxr.cameraProjectionAreaOffsetYUv`, `rustyxr.projectionAreaOffsetYUv`,
+  or `debug.rustyxr.makepad.projection.area.offset.vertical.uv`;
 - synthetic pattern selection when running broker-synthetic validation;
 - screenshot, HzDB, logcat, freshness, visual-stimulus, and comparison capture
   options.
@@ -183,9 +187,12 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -SampleSeconds 20
 ```
 
-For automated segmentation, use `-ProjectionBorderPolicy solid-red`. For
-operator alignment against native passthrough, use
-`-ProjectionBorderPolicy passthrough-underlay`.
+For automated segmentation, use `-ProjectionBorderPolicy solid-red`. This must
+render the whole non-projection-area region as hard red; a screenshot with
+feedback-color or camera samples in that region is not valid alignment evidence.
+For operator alignment against native passthrough, use
+`-ProjectionBorderPolicy passthrough-underlay`; the same non-projection-area
+region must be transparent so the compositor passthrough underlay is visible.
 Use `-ProcessingLayer blur -BlurRadiusPx 2.0` when comparing the same raw
 projection area through the public diagnostic blur layer. The blur layer is a
 small generic 9-tap sampler intended for processing-stack diagnostics; it is
@@ -198,6 +205,10 @@ The suite applies the same policy to every public lane:
 | Vulkan/HWB | `raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `raw-projection-blur-solid-red-unorm` or `raw-projection-blur-underlay-unorm` plus `rustyxr.cameraBlurRadiusPx` |
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
 | Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.processing.layer=blur` plus `debug.rustyxr.makepad.blur.radius.px` |
+
+Use `-ProjectionAreaOffsetYUv <value>` on the suite to run repeatable vertical
+centering sweeps. Record the observed direction per renderer before deciding on
+a final lane-specific offset.
 
 Transparent GL/OES pixels show compositor background unless a runtime
 passthrough underlay is active for that app. Treat that as a composition
@@ -251,6 +262,8 @@ Use `solid-red` for image-derived border checks and `passthrough-underlay` for
 manual alignment with native passthrough. Leave `-ProcessingLayer raw` for
 projection-only checks, and switch to `blur` only when comparing camera-sample
 processing behavior across the lanes.
+Use `-ProjectionAreaOffsetYUv <value>` for controlled vertical-centering sweeps
+without changing horizontal alignment.
 
 Use `-RestartBrokerBeforeBrokerModes` when multiple live broker-camera lanes
 reuse the same H.264 ports in one suite. The switch restarts the broker console
@@ -266,8 +279,10 @@ python .\tools\quest-camera-profile\Analyze-RawStackScreenSpace.py `
 ```
 
 The report gives per-eye bounding boxes, center offsets, and row spans in
-screen pixels. Use the vertical offset values to compare each lane against the
-eye-half center before changing projection knobs.
+screen pixels. In `solid-red` runs, the analyzer requires the red
+projection-area mask; if it is missing, the lane is marked ambiguous instead of
+falling back to visible-content segmentation. Use the vertical offset values to
+compare each lane against the eye-half center before changing projection knobs.
 
 ## Diagnostic Loop
 
@@ -325,6 +340,11 @@ outside-projection region with the border policy:
 - `passthrough-underlay`: best for manual alignment to native passthrough;
 - transparent or underlay borders should not change the actual projection
   coordinates.
+
+Reject mixed evidence: a `solid-red` run with feedback-colored, feathered, or
+camera-sampled border pixels is a border-policy failure, not a valid projection
+area measurement. Rerun with the corrected hard-mask profile before tuning
+screen-space offsets.
 
 If a lane is vertically or horizontally offset from native passthrough, record
 the offset as a projection-space finding, not as an effect-stack finding. Do not

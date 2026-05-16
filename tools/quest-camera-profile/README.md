@@ -157,12 +157,13 @@ phase-cycled generic color term for testing temporal border-color feedback; use
 `-Override 'rustyxr.cameraBorderCycleHz=<rate>'` to adjust the cycle rate in the
 same APK. The
 `raw-projection-solid-red-unorm` preset is the clean projection-area alignment
-probe: valid projected camera pixels stay raw and every invalid projected pixel
-is opaque red for segmentation and operator checks. The
+probe: valid projected camera pixels inside the hard public projection-area mask
+stay raw, and every pixel outside that area is opaque red for segmentation and
+operator checks. The
 `raw-projection-underlay-unorm` preset submits a public
-OpenXR passthrough underlay and alpha-blends the raw projection layer, which is
-useful when comparing background composition separately from raw camera
-sampling. The `raw-projection-blur-solid-red-unorm` and
+OpenXR passthrough underlay and makes that same outside-projection area
+transparent, which is useful when comparing background composition separately
+from raw camera sampling. The `raw-projection-blur-solid-red-unorm` and
 `raw-projection-blur-underlay-unorm` presets keep the same projection-area
 policy but run the valid camera samples through a generic 9-tap diagnostic blur.
 Use `rustyxr.cameraBlurRadiusPx` to adjust the sample radius for stack
@@ -184,6 +185,8 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | --- | --- | --- |
 | `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-blur-solid-red-unorm`, `raw-projection-blur-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, or `raw-projection-cycling-border-unorm`. |
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `display-screen-homography` or `quad-surface`. |
+| `rustyxr.cameraProjectionAreaOffsetYUv` | float | Optional Vulkan/HWB vertical projection-area sweep knob for screen-space centering diagnostics. |
+| `rustyxr.projectionAreaOffsetYUv` | float | Optional GL/OES vertical projection-area sweep knob for screen-space centering diagnostics. |
 | `rustyxr.cameraBorderCycleHz` | float | Adjusts the generic phase-cycled border-color rate used by `raw-projection-cycling-border-unorm`; ignored by static border presets. |
 | `rustyxr.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in pixels for blur projection presets. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |

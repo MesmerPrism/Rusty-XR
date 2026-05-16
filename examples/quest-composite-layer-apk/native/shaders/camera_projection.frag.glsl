@@ -1044,13 +1044,16 @@ void main() {
     bool passthrough_underlay_alpha = (packed_flags & CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA) != 0;
     bool raw_projection_solid_red = raw_projection_invalid_fill && raw_projection_perimeter_fill;
     bool raw_projection_blur = raw_projection_soft_border && raw_projection_strong_border;
+    bool raw_projection_area_mask = raw_projection_solid_red || passthrough_underlay_alpha;
+    bool projection_area_inside = resolve_camera_oval_distance(sample_content_uv) <= 1.0;
+    bool masked_projection_valid = projection_valid && (!raw_projection_area_mask || projection_area_inside);
     vec3 color = center_color;
     if (raw_projection_blur) {
-        color = projection_valid
+        color = masked_projection_valid
             ? sample_source_eye_blur_raw(source_eye, raw_projected_uv, pc.effect_params.x)
             : (raw_projection_solid_red ? vec3(1.0, 0.0, 0.0) : center_color);
     } else if (raw_projection_solid_red) {
-        color = projection_valid ? center_color : vec3(1.0, 0.0, 0.0);
+        color = masked_projection_valid ? center_color : vec3(1.0, 0.0, 0.0);
     } else if (raw_projection_cycling_border) {
         color = resolve_raw_projection_soft_border(
             sample_content_uv,
@@ -1202,9 +1205,9 @@ void main() {
         ? mix(0.90, 1.0, smoothstep(0.0, edge_fade, surface_edge_distance))
         : 1.0;
     float source_edge_dim = mix(0.94, 1.0, coverage);
-    float out_alpha = passthrough_underlay_alpha ? coverage : 1.0;
+    float out_alpha = passthrough_underlay_alpha && !masked_projection_valid ? 0.0 : 1.0;
     vec3 final_color = color * surface_edge_dim * source_edge_dim;
-    if (raw_projection_solid_red && !projection_valid) {
+    if (raw_projection_solid_red && !masked_projection_valid) {
         final_color = vec3(1.0, 0.0, 0.0);
     }
     out_color = vec4(clamp01(final_color), out_alpha);

@@ -21,9 +21,9 @@ Current scope:
   per-eye camera IDs;
 - optionally open Camera2 directly inside the APK and route per-eye preview
   output to the same `SurfaceTexture`/OES render path;
-- select `rustyxr.projectionBorderPolicy=solid-red` for opaque red invalid
-  projection pixels or `passthrough-underlay` for transparent invalid
-  projection pixels with source-alpha blending;
+- select `rustyxr.projectionBorderPolicy=solid-red` for an opaque red
+  outside-projection hard mask or `passthrough-underlay` for the same region as
+  transparent alpha with source-alpha blending;
 - log `OpenXrGlesFeasibilityStatus` and `SurfaceTextureOesIngestStatus` JSON.
 
 It does not include effect passes yet. Its physical camera paths are direct
@@ -118,6 +118,7 @@ rustyxr.brokerH264LiveStream
 rustyxr.brokerH264CommandTimeoutMs
 rustyxr.brokerH264DecodeTimeoutMs
 rustyxr.projectionBorderPolicy
+rustyxr.projectionAreaOffsetYUv
 ```
 
 Use `rustyxr.brokerH264SourceMode=broker-synthetic` for deterministic source
@@ -127,10 +128,16 @@ checks.
 Use `rustyxr.projectionBorderPolicy=solid-red` for image segmentation and
 projection-area footprint checks. Use
 `rustyxr.projectionBorderPolicy=passthrough-underlay` for operator alignment
-against a native passthrough underlay. The GL/OES APK writes transparent alpha
-outside valid projected camera UVs in that mode and requests OpenXR source-alpha
-blending; the visible background still depends on whether the runtime/app is
-submitting passthrough behind the projection layer.
+against a native passthrough underlay. Both policies use the same hard public
+projection-area mask over the full submitted eye surface: solid-red fills the
+outside-projection region, while passthrough-underlay writes transparent alpha
+there and requests OpenXR source-alpha blending. The visible transparent
+background still depends on whether the runtime/app is submitting passthrough
+behind the projection layer. A black outside region in a `solid-red` run is not
+valid footprint evidence; rerun after checking the launch extras and shader
+logs.
+Use `rustyxr.projectionAreaOffsetYUv=<value>` for controlled vertical
+projection-area centering sweeps after the hard-mask border is proven.
 Set `rustyxr.processingLayer=blur` and `rustyxr.cameraBlurRadiusPx=<px>` to run
 the same valid projected camera samples through the public 9-tap diagnostic blur
 layer. Leave `rustyxr.processingLayer=raw` for projection-only checks.

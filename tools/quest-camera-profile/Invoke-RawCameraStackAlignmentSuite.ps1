@@ -25,6 +25,7 @@ param(
     [ValidateSet("raw", "blur")]
     [string]$ProcessingLayer = "raw",
     [double]$BlurRadiusPx = 2.0,
+    [double]$ProjectionAreaOffsetYUv = 0.0,
     [switch]$EnableStayAwakeGuard,
     [switch]$RestoreStayAwakeGuard,
     [switch]$CaptureHzdbScreencap,
@@ -230,21 +231,24 @@ function Format-InvariantDouble {
 
 function Get-VulkanProjectionBorderOverride {
     $blurRadius = Format-InvariantDouble -Value $BlurRadiusPx
+    $offsetY = Format-InvariantDouble -Value $ProjectionAreaOffsetYUv
+    $offsetOverride = "rustyxr.cameraProjectionAreaOffsetYUv=$offsetY"
     if ($ProcessingLayer -eq "blur") {
         if ($ProjectionBorderPolicy -eq "passthrough-underlay") {
-            return "rustyxr.cameraPipelinePreset=raw-projection-blur-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-underlay,rustyxr.openxrPassthroughProbe=underlay,rustyxr.cameraBlurRadiusPx=$blurRadius"
+            return "rustyxr.cameraPipelinePreset=raw-projection-blur-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-underlay,rustyxr.openxrPassthroughProbe=underlay,rustyxr.cameraBlurRadiusPx=$blurRadius,$offsetOverride"
         }
-        return "rustyxr.cameraPipelinePreset=raw-projection-blur-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.cameraBlurRadiusPx=$blurRadius"
+        return "rustyxr.cameraPipelinePreset=raw-projection-blur-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.cameraBlurRadiusPx=$blurRadius,$offsetOverride"
     }
     if ($ProjectionBorderPolicy -eq "passthrough-underlay") {
-        return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,rustyxr.openxrPassthroughProbe=underlay"
+        return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,rustyxr.openxrPassthroughProbe=underlay,$offsetOverride"
     }
-    return "rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off"
+    return "rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,$offsetOverride"
 }
 
 function Get-GlesProjectionBorderOverride {
     $blurRadius = Format-InvariantDouble -Value $BlurRadiusPx
-    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,rustyxr.processingLayer=$ProcessingLayer,rustyxr.cameraBlurRadiusPx=$blurRadius"
+    $offsetY = Format-InvariantDouble -Value $ProjectionAreaOffsetYUv
+    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,rustyxr.processingLayer=$ProcessingLayer,rustyxr.cameraBlurRadiusPx=$blurRadius,rustyxr.projectionAreaOffsetYUv=$offsetY"
 }
 
 function Get-CommonQuestProfileArgs {
@@ -389,6 +393,8 @@ function Invoke-MakepadMode {
     $argList.Add($ProcessingLayer)
     $argList.Add("-BlurRadiusPx")
     $argList.Add((Format-InvariantDouble -Value $BlurRadiusPx))
+    $argList.Add("-ProjectionAreaOffsetYUv")
+    $argList.Add((Format-InvariantDouble -Value $ProjectionAreaOffsetYUv))
 
     if ($UseBrokerH264Camera) {
         $argList.Add("-UseBrokerH264Camera")
@@ -531,6 +537,7 @@ $lines.Add(("- Session: ``{0}``" -f $sessionId))
 $lines.Add(("- Border policy: ``{0}``" -f $ProjectionBorderPolicy))
 $lines.Add(("- Processing layer: ``{0}``" -f $ProcessingLayer))
 $lines.Add(("- Blur radius px: ``{0}``" -f (Format-InvariantDouble -Value $BlurRadiusPx)))
+$lines.Add(("- Projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value $ProjectionAreaOffsetYUv)))
 $lines.Add(("- Vulkan/HWB border override: ``{0}``" -f (Get-VulkanProjectionBorderOverride)))
 $lines.Add(("- GL/OES border override: ``{0}``" -f (Get-GlesProjectionBorderOverride)))
 $lines.Add(("- Warmup seconds: ``{0}``" -f $WarmupSeconds))

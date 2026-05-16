@@ -6034,9 +6034,31 @@ fn homography_token(rows: [[f32; 3]; 3]) -> String {
         .join(",")
 }
 
+fn screen_to_domain_with_visual_y_offset(
+    mut rows: [[f32; 3]; 3],
+    offset_y_uv: f32,
+) -> [[f32; 3]; 3] {
+    let input_y_offset = -offset_y_uv.clamp(-0.5, 0.5);
+    for row in &mut rows {
+        row[2] += row[1] * input_y_offset;
+    }
+    rows
+}
+
+fn domain_to_screen_with_visual_y_offset(
+    mut rows: [[f32; 3]; 3],
+    offset_y_uv: f32,
+) -> [[f32; 3]; 3] {
+    let output_y_offset = offset_y_uv.clamp(-0.5, 0.5);
+    for column in 0..3 {
+        rows[1][column] += rows[2][column] * output_y_offset;
+    }
+    rows
+}
+
 fn projected_homography_marker_fields(homographies: &ProjectedStereoHomographies) -> String {
     format!(
-        "projectionHomographyReady=true projectionAreaTransformStage=none projectionAreaWarpParity=reference_unwarped_screen_uv leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={}",
+        "projectionHomographyReady=true projectionAreaTransformStage=screen_space_y_offset projectionAreaWarpParity=reference_unwarped_screen_uv leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={}",
         homography_token(homographies.left.surface_to_camera),
         homography_token(homographies.right.surface_to_camera),
         homography_token(homographies.left.screen_to_camera),
@@ -6162,9 +6184,14 @@ fn projected_display_eye_homography(
     // feed as if a real quad had supplied rasterized surface coordinates.
     // The mode remains visible in logs/catalogs so a future mesh-quad backend
     // can be A/B tested without changing launch profiles.
-    let screen_to_surface = invert_homography(surface_to_screen)?;
-    let screen_to_camera =
-        screen_to_camera_uv_homography(surface_to_screen, surface_to_camera).ok()?;
+    let offset_y_uv = config.camera_projection_area_offset_y_uv;
+    let screen_to_surface =
+        screen_to_domain_with_visual_y_offset(invert_homography(surface_to_screen)?, offset_y_uv);
+    let screen_to_camera = screen_to_domain_with_visual_y_offset(
+        screen_to_camera_uv_homography(surface_to_screen, surface_to_camera).ok()?,
+        offset_y_uv,
+    );
+    let surface_to_screen = domain_to_screen_with_visual_y_offset(surface_to_screen, offset_y_uv);
     Some(DisplayEyeProjectionMapping {
         surface_to_camera,
         screen_to_camera,

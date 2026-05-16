@@ -89,6 +89,10 @@ Use `solid-red` invalid-region policy for automated analysis:
 - visible differences between the projected camera footprint and the full
   submitted layer.
 
+The solid-red policy must be a hard projection-area mask. If the captured
+outside-projection region contains feedback color, feathering, or camera samples,
+reject the run and fix the border-mode routing before measuring offsets.
+
 Use `passthrough-underlay` invalid-region policy for operator alignment against
 native passthrough:
 
@@ -126,6 +130,10 @@ stale/repeated frames.
 | Vulkan/HWB | `rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `raw-projection-blur-solid-red-unorm` or `raw-projection-blur-underlay-unorm`, plus `rustyxr.cameraBlurRadiusPx` |
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
 | Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.processing.layer=blur`, plus `debug.rustyxr.makepad.blur.radius.px` |
+
+The suite-level `-ProjectionAreaOffsetYUv` parameter forwards the same
+screen-space vertical sweep intent to each renderer through its native key. Use
+it only after the raw hard-mask evidence is valid.
 
 Prefer the full-suite runner for comparable public runs:
 
@@ -181,9 +189,9 @@ The analyzer writes `screen-space-analysis\screen-space-summary.md`,
 the screenshot output space with origin at the top left, `x` increasing right,
 and `y` increasing down. Positive vertical center offset means the detected
 camera projection area is below the center of that eye's screenshot half.
-If solid-red invalid fill is not present in a lane, the analyzer falls back to a
-visible-content envelope; keep that distinction in the notes before treating a
-row as a strict valid-mask footprint.
+If solid-red invalid fill is not present in a `solid-red` lane, the analyzer
+marks the lane ambiguous. Visible-content fallback is reserved for transparent
+underlay/operator runs and must not be treated as a strict valid-mask footprint.
 
 Do not treat MediaProjection, ADB screenshots, or browser event logs as
 submitted per-eye render-target proof. They are useful witnesses, but they need

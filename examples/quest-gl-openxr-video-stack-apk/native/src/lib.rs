@@ -527,11 +527,13 @@ mod android {
         let projection_border_policy = projection_border_policy_from_activity(&app);
         let processing_layer = processing_layer_from_activity(&app);
         let blur_radius_px = blur_radius_px_from_activity(&app);
+        let projection_area_offset_y_uv = projection_area_offset_y_uv_from_activity(&app);
         log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3}",
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetYUv={:.6}",
             projection_border_policy.stable_id(),
             processing_layer.stable_id(),
-            blur_radius_px
+            blur_radius_px,
+            projection_area_offset_y_uv
         ));
         let environment_blend_mode = select_environment_blend_mode(
             &xr_instance,
@@ -676,9 +678,9 @@ mod android {
                 if let Some(probe) = surface_texture_oes_probe.as_mut() {
                     probe.update_textures(&egl, frame_count);
                 }
-                let projection_plan = surface_texture_oes_probe
-                    .as_ref()
-                    .and_then(|probe| probe.projection_plan_from_xr_views(&views));
+                let projection_plan = surface_texture_oes_probe.as_ref().and_then(|probe| {
+                    probe.projection_plan_from_xr_views(&views, projection_area_offset_y_uv)
+                });
                 render_eye_swapchains(
                     &egl,
                     &mut fbo,
@@ -1197,6 +1199,15 @@ vec4 invalid_projection_color() {
     }
     return vec4(1.0, 0.0, 0.0, 1.0);
 }
+float projection_area_distance(vec2 uv) {
+    vec2 half_size = vec2(0.47, 0.36);
+    float corner_radius = 0.08;
+    vec2 q = abs(uv - vec2(0.5)) - (half_size - vec2(corner_radius));
+    float outside = length(max(q, vec2(0.0)));
+    float inside = min(max(q.x, q.y), 0.0);
+    float signed_distance = outside + inside - corner_radius;
+    return clamp(1.0 + signed_distance / max(min(half_size.x, half_size.y), 0.001), 0.0, 2.0);
+}
 vec4 camera_sample(vec2 uv) {
     return vec4(texture(u_source, clamp(uv, vec2(0.0), vec2(1.0))).rgb, 1.0);
 }
@@ -1221,6 +1232,10 @@ vec4 blurred_camera_sample(vec2 uv) {
     return vec4(clamp(center + axis * 0.12 + diag * 0.04, vec3(0.0), vec3(1.0)), 1.0);
 }
 void main() {
+    if (projection_area_distance(v_uv) > 1.0) {
+        out_color = invalid_projection_color();
+        return;
+    }
     vec3 input_uv = vec3(v_uv, 1.0);
     vec3 camera_uv_h = vec3(
         dot(u_screen_to_camera_h0, input_uv),
@@ -2280,7 +2295,11 @@ void main() {
             Some(age_ns as f32 / 1_000_000.0)
         }
 
-        fn projection_plan_from_xr_views(&self, views: &[xr::View]) -> Option<OesProjectionPlan> {
+        fn projection_plan_from_xr_views(
+            &self,
+            views: &[xr::View],
+            projection_area_offset_y_uv: f32,
+        ) -> Option<OesProjectionPlan> {
             let left = self.projection_metadata[0].as_ref()?;
             let right = self.projection_metadata[1].as_ref()?;
             let width = left.delivered_width.max(right.delivered_width);
@@ -2293,9 +2312,23 @@ void main() {
                 return None;
             }
             if left.is_synthetic() && right.is_synthetic() {
-                broker_synthetic_projection_plan_from_xr_views(left, right, width, height, views)
+                broker_synthetic_projection_plan_from_xr_views(
+                    left,
+                    right,
+                    width,
+                    height,
+                    views,
+                    projection_area_offset_y_uv,
+                )
             } else if left.has_camera2_projection() && right.has_camera2_projection() {
-                camera2_projection_plan_from_xr_views(left, right, width, height, views)
+                camera2_projection_plan_from_xr_views(
+                    left,
+                    right,
+                    width,
+                    height,
+                    views,
+                    projection_area_offset_y_uv,
+                )
             } else {
                 None
             }
@@ -2434,6 +2467,7 @@ void main() {
         width: u32,
         height: u32,
         views: &[xr::View],
+        projection_area_offset_y_uv: f32,
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
@@ -2476,12 +2510,22 @@ void main() {
             right_view.fov.angle_up.tan(),
         )
         .ok()?;
-        let left_screen_to_surface_h = invert_homography(left_surface_to_screen)?;
-        let right_screen_to_surface_h = invert_homography(right_surface_to_screen)?;
-        let left_screen_to_camera_h =
-            screen_to_camera_uv_homography(left_surface_to_screen, surface_to_camera).ok()?;
-        let right_screen_to_camera_h =
-            screen_to_camera_uv_homography(right_surface_to_screen, surface_to_camera).ok()?;
+        let left_screen_to_surface_h = screen_to_domain_with_visual_y_offset(
+            invert_homography(left_surface_to_screen)?,
+            projection_area_offset_y_uv,
+        );
+        let right_screen_to_surface_h = screen_to_domain_with_visual_y_offset(
+            invert_homography(right_surface_to_screen)?,
+            projection_area_offset_y_uv,
+        );
+        let left_screen_to_camera_h = screen_to_domain_with_visual_y_offset(
+            screen_to_camera_uv_homography(left_surface_to_screen, surface_to_camera).ok()?,
+            projection_area_offset_y_uv,
+        );
+        let right_screen_to_camera_h = screen_to_domain_with_visual_y_offset(
+            screen_to_camera_uv_homography(right_surface_to_screen, surface_to_camera).ok()?,
+            projection_area_offset_y_uv,
+        );
         let left_source_label = projection_source_label(left_metadata, width, height);
         let right_source_label = projection_source_label(right_metadata, width, height);
 
@@ -2511,6 +2555,7 @@ void main() {
         width: u32,
         height: u32,
         views: &[xr::View],
+        projection_area_offset_y_uv: f32,
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
@@ -2567,13 +2612,23 @@ void main() {
             right_view.fov.angle_up.tan(),
         )
         .ok()?;
-        let left_screen_to_surface_h = invert_homography(left_surface_to_screen)?;
-        let right_screen_to_surface_h = invert_homography(right_surface_to_screen)?;
-        let left_screen_to_camera_h =
-            screen_to_camera_uv_homography(left_surface_to_screen, left_surface_to_camera).ok()?;
-        let right_screen_to_camera_h =
+        let left_screen_to_surface_h = screen_to_domain_with_visual_y_offset(
+            invert_homography(left_surface_to_screen)?,
+            projection_area_offset_y_uv,
+        );
+        let right_screen_to_surface_h = screen_to_domain_with_visual_y_offset(
+            invert_homography(right_surface_to_screen)?,
+            projection_area_offset_y_uv,
+        );
+        let left_screen_to_camera_h = screen_to_domain_with_visual_y_offset(
+            screen_to_camera_uv_homography(left_surface_to_screen, left_surface_to_camera).ok()?,
+            projection_area_offset_y_uv,
+        );
+        let right_screen_to_camera_h = screen_to_domain_with_visual_y_offset(
             screen_to_camera_uv_homography(right_surface_to_screen, right_surface_to_camera)
-                .ok()?;
+                .ok()?,
+            projection_area_offset_y_uv,
+        );
         let left_source_label = projection_source_label(left_metadata, width, height);
         let right_source_label = projection_source_label(right_metadata, width, height);
 
@@ -3003,6 +3058,26 @@ void main() {
             .filter(|value| value.is_finite())
             .unwrap_or(2.0)
             .clamp(0.0, 16.0)
+    }
+
+    fn projection_area_offset_y_uv_from_activity(app: &android_activity::AndroidApp) -> f32 {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return 0.0;
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return 0.0;
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaOffsetYUv")
+            .or_else(|| {
+                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAreaOffsetYUv")
+            })
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(0.0)
+            .clamp(-0.5, 0.5)
     }
 
     fn jni_error(env: &mut JNIEnv<'_>, context: &str, error: impl std::fmt::Display) -> String {
@@ -3438,6 +3513,17 @@ void main() {
 
     const fn identity_homography() -> [[f32; 3]; 3] {
         [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    }
+
+    fn screen_to_domain_with_visual_y_offset(
+        mut rows: [[f32; 3]; 3],
+        offset_y_uv: f32,
+    ) -> [[f32; 3]; 3] {
+        let input_y_offset = -offset_y_uv.clamp(-0.5, 0.5);
+        for row in &mut rows {
+            row[2] += row[1] * input_y_offset;
+        }
+        rows
     }
 
     fn framebuffer_status(raw: u32) -> GlFramebufferCompleteness {

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -142,10 +143,21 @@ def summarize_eye(
     full_height: int,
     min_area_fraction: float,
     max_area_fraction: float,
+    expected_solid_red: bool,
 ) -> dict[str, Any]:
     red = red_invalid_mask(rgb)
     red_fraction = float(red.mean())
     visible = visible_content_mask(rgb)
+    if expected_solid_red and red_fraction < 0.02:
+        return {
+            "eye": eye,
+            "status": "blocked",
+            "reason": "expected-solid-red-mask-not-detected",
+            "segmentation_strategy": "solid-red-invalid-region",
+            "red_fraction": red_fraction,
+            "visible_fraction": float(visible.mean()),
+            "eye_rect_px": [x_offset, 0, rgb.shape[1], rgb.shape[0]],
+        }
     candidate = ~red
     strategy = "solid-red-invalid-region"
     component = None
@@ -278,7 +290,12 @@ def freshness_summary(path: Path) -> dict[str, Any] | None:
     return None
 
 
-def analyze_image(path: Path, min_area_fraction: float, max_area_fraction: float) -> dict[str, Any]:
+def analyze_image(
+    path: Path,
+    min_area_fraction: float,
+    max_area_fraction: float,
+    expected_solid_red: bool,
+) -> dict[str, Any]:
     rgb = load_rgb(path)
     height, width = rgb.shape[:2]
     half = width // 2
@@ -288,9 +305,10 @@ def analyze_image(path: Path, min_area_fraction: float, max_area_fraction: float
         "image_path": str(path),
         "image_size_px": [width, height],
         "coordinate_system": "screenshot pixels, origin top-left, x right, y down",
+        "expected_solid_red_mask": expected_solid_red,
         "eyes": [
-            summarize_eye(left, "left", 0, width, height, min_area_fraction, max_area_fraction),
-            summarize_eye(right, "right", half, width, height, min_area_fraction, max_area_fraction),
+            summarize_eye(left, "left", 0, width, height, min_area_fraction, max_area_fraction, expected_solid_red),
+            summarize_eye(right, "right", half, width, height, min_area_fraction, max_area_fraction, expected_solid_red),
         ],
     }
 
@@ -384,12 +402,27 @@ def load_suite_rows(suite_root: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def load_suite_context(suite_root: Path) -> dict[str, Any]:
+    context: dict[str, Any] = {}
+    summary_md = suite_root / "raw-camera-stack-suite-summary.md"
+    if summary_md.exists():
+        text = summary_md.read_text(encoding="utf-8", errors="replace")
+        border = re.search(r"- Border policy:\s+`([^`]+)`", text)
+        if border:
+            context["projection_border_policy"] = border.group(1)
+        layer = re.search(r"- Processing layer:\s+`([^`]+)`", text)
+        if layer:
+            context["processing_layer"] = layer.group(1)
+    return context
+
+
 def build_markdown(report: dict[str, Any]) -> str:
     lines = [
         "# Raw Stack Screen-Space Analysis",
         "",
         f"- Suite root: `{report['suite_root']}`",
         "- Coordinate system: screenshot pixels, origin top-left, x right, y down.",
+        f"- Projection border policy: `{report.get('projection_border_policy', 'unknown')}`.",
         "- Segmentation: solid-red invalid-fill when present; otherwise largest visible-content envelope in each eye half.",
         "",
         "| Mode | Status | Image | Left bbox x,y,w,h | Left dy px | Right bbox x,y,w,h | Right dy px | Feed | Freshness |",
@@ -422,7 +455,8 @@ def build_markdown(report: dict[str, Any]) -> str:
             "",
             "- Positive `dy` means the detected projection component is below the vertical center of the eye half.",
             "- Horizontal alignment is recorded but not tuned by this report.",
-            "- Solid-red invalid-fill gives the strictest projection-area mask. Visible-content fallback is repeatable, but it measures a content envelope rather than a strict valid mask.",
+            "- Solid-red invalid-fill gives the strictest projection-area mask. If a solid-red run does not contain the red mask, the lane is blocked instead of falling back to a content envelope.",
+            "- Visible-content fallback is repeatable for transparent-underlay/operator runs, but it measures a content envelope rather than a strict valid mask.",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -439,6 +473,8 @@ def main() -> int:
     suite_root = args.suite_root.resolve()
     out_dir = (args.out_dir or (suite_root / "screen-space-analysis")).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    context = load_suite_context(suite_root)
+    expected_solid_red = context.get("projection_border_policy") == "solid-red"
 
     lanes = []
     for row in load_suite_rows(suite_root):
@@ -456,7 +492,12 @@ def main() -> int:
         freshness = freshness_summary(artifact_root)
         lane.update(lane_status_from_validation(validation, freshness))
         if image_path:
-            image_report = analyze_image(image_path, args.min_area_fraction, args.max_area_fraction)
+            image_report = analyze_image(
+                image_path,
+                args.min_area_fraction,
+                args.max_area_fraction,
+                expected_solid_red,
+            )
             lane.update(image_report)
             if all(eye.get("status") == "passed" for eye in image_report["eyes"]):
                 lane["status"] = "passed"
@@ -475,6 +516,8 @@ def main() -> int:
         "schema_version": SCHEMA_VERSION,
         "suite_root": str(suite_root),
         "out_dir": str(out_dir),
+        "projection_border_policy": context.get("projection_border_policy", "unknown"),
+        "processing_layer": context.get("processing_layer", "unknown"),
         "lanes": lanes,
     }
     write_json(out_dir / "screen-space-report.json", report)

@@ -40,7 +40,8 @@ param(
     [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("raw", "blur")]
     [string]$ProcessingLayer = "raw",
-    [double]$BlurRadiusPx = 2.0
+    [double]$BlurRadiusPx = 2.0,
+    [double]$ProjectionAreaOffsetYUv = 0.0
 )
 
 $ErrorActionPreference = "Stop"
@@ -161,6 +162,7 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.projection.border.strength" = "1.0"
         "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
+        "debug.rustyxr.makepad.projection.area.offset.vertical.uv" = (Format-InvariantDouble -Value $ProjectionAreaOffsetYUv)
     }
 
     foreach ($entry in $props.GetEnumerator()) {

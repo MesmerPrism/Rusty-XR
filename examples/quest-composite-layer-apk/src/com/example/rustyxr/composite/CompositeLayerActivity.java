@@ -48,6 +48,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES = 92.0f;
     private static final float DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES = 60.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_SCALE = 0.75f;
+    private static final float DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_Y_UV = 0.0f;
     private static final float DEFAULT_CAMERA_RAW_OVERLAY_OVERSCAN = 1.06f;
     private static final float DEFAULT_CAMERA_FULL_VIEW_OVERLAY_OVERSCAN = 2.10f;
     private static final float DEFAULT_CAMERA_EDGE_FADE = 0.12f;
@@ -417,6 +418,7 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraProjectionFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraProjectionFovYDegrees", DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES)));
         builder.append(",\"cameraPreviewFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraPreviewFovYDegrees", DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES)));
         builder.append(",\"cameraProjectionScale\":").append(floatJson(floatExtra("rustyxr.cameraProjectionScale", DEFAULT_CAMERA_PROJECTION_SCALE)));
+        builder.append(",\"cameraProjectionAreaOffsetYUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaOffsetYUv", DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_Y_UV)));
         builder.append(",\"cameraRawOverlayOverscan\":").append(floatJson(floatExtra("rustyxr.cameraRawOverlayOverscan", DEFAULT_CAMERA_RAW_OVERLAY_OVERSCAN)));
         builder.append(",\"cameraFullViewOverlayOverscan\":").append(floatJson(floatExtra("rustyxr.cameraFullViewOverlayOverscan", DEFAULT_CAMERA_FULL_VIEW_OVERLAY_OVERSCAN)));
         builder.append(",\"cameraEdgeFade\":").append(floatJson(floatExtra("rustyxr.cameraEdgeFade", DEFAULT_CAMERA_EDGE_FADE)));
