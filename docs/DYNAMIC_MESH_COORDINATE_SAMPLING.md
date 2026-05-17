@@ -154,6 +154,10 @@ The portable fixture example does not require headset hardware:
 cargo run -p rusty-xr-particles --example dynamic_mesh_coordinates
 ```
 
+Portable fixture manifests for exchanging public synthetic topology and
+neighbor expectations are documented in
+[mesh fixture manifest](MESH_FIXTURE_MANIFEST.md).
+
 ## References
 
 - Khronos OpenXR `XR_FB_hand_tracking_mesh`:

@@ -1,0 +1,53 @@
+{
+  "schema": "rusty.xr.mesh_fixture_manifest.v1",
+  "fixture_id": "synthetic-hand-mesh-topology-v1",
+  "fixture_kind": "HandMesh",
+  "topology_key": {
+    "vertex_count": 48,
+    "triangle_count": 72,
+    "index_hash": 14778546692211168997
+  },
+  "topology_hash": 14778546692211168997,
+  "vertex_count": 48,
+  "index_count": 216,
+  "coordinate_sample_count": 64,
+  "coordinate_space": "Local",
+  "coordinate_units": "Meters",
+  "coordinate_convention": "RightHandedYUpNegativeZForward",
+  "winding_order": "CounterClockwise",
+  "index_format": "U32",
+  "expected_neighbor_tiers": [
+    {
+      "tier": 1,
+      "min_neighbor_count": 5,
+      "max_neighbor_count": 5
+    },
+    {
+      "tier": 2,
+      "min_neighbor_count": 7,
+      "max_neighbor_count": 7
+    }
+  ],
+  "motion": "Deforming",
+  "allowed_deformation_frames": {
+    "min_frame_count": 1,
+    "max_frame_count": 16
+  },
+  "validation_expectations": [
+    "CountsMatchTopology",
+    "IndicesInRange",
+    "FiniteCoordinates",
+    "NonDegenerateSurface",
+    "StableTopologyHash",
+    "DeformationFrameRange"
+  ],
+  "intended_uses": [
+    "TopologyTests",
+    "SamplingTests",
+    "SdfDepthTests",
+    "ParticleTests",
+    "RenderPayloadTests",
+    "ColliderTests"
+  ],
+  "provenance": "Synthetic"
+}

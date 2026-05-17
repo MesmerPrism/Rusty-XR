@@ -149,6 +149,96 @@ def schemas() -> dict[str, dict]:
             "last_seen_time_ns": {"type": ["integer", "null"], "minimum": 0},
         },
     )
+    mesh_surface_topology_key = obj(
+        "MeshSurfaceTopologyKey",
+        {
+            "vertex_count": integer(0),
+            "triangle_count": integer(0),
+            "index_hash": integer(0),
+        },
+    )
+    mesh_fixture_kind = enum(
+        "MeshFixtureKind",
+        ["HandMesh", "SyntheticSurface", "Icosphere", "DeformingMesh", "Grid", "Other"],
+    )
+    mesh_fixture_coordinate_space = enum(
+        "MeshFixtureCoordinateSpace",
+        ["Local", "Stage", "World", "UnitSphere"],
+    )
+    mesh_fixture_units = enum("MeshFixtureUnits", ["Meters", "UnitRadius", "Unitless"])
+    mesh_fixture_coordinate_convention = enum(
+        "MeshFixtureCoordinateConvention",
+        ["RightHandedYUpNegativeZForward", "UnitSphere"],
+    )
+    mesh_fixture_winding_order = enum(
+        "MeshFixtureWindingOrder",
+        ["Clockwise", "CounterClockwise", "MixedOrUnspecified"],
+    )
+    mesh_fixture_index_format = enum("MeshFixtureIndexFormat", ["U16", "U32", "Usize"])
+    mesh_fixture_motion_kind = enum("MeshFixtureMotionKind", ["Static", "Animated", "Deforming"])
+    mesh_fixture_neighbor_tier = obj(
+        "MeshFixtureNeighborTier",
+        {
+            "tier": integer(1),
+            "min_neighbor_count": integer(0),
+            "max_neighbor_count": integer(0),
+        },
+    )
+    mesh_fixture_frame_range = obj(
+        "MeshFixtureFrameRange",
+        {
+            "min_frame_count": integer(1),
+            "max_frame_count": integer(1),
+        },
+    )
+    mesh_fixture_validation_expectation = enum(
+        "MeshFixtureValidationExpectation",
+        [
+            "CountsMatchTopology",
+            "IndicesInRange",
+            "FiniteCoordinates",
+            "NonDegenerateSurface",
+            "StableTopologyHash",
+            "NeighborTiersMatchSampleCount",
+            "DeformationFrameRange",
+        ],
+    )
+    mesh_fixture_intended_use = enum(
+        "MeshFixtureIntendedUse",
+        [
+            "TopologyTests",
+            "SamplingTests",
+            "SdfDepthTests",
+            "ParticleTests",
+            "RenderPayloadTests",
+            "ColliderTests",
+        ],
+    )
+    mesh_fixture_provenance = enum("MeshFixtureProvenance", ["Synthetic", "Public", "Example", "Generated"])
+    mesh_fixture_manifest = obj(
+        "MeshFixtureManifest",
+        {
+            "schema": {"const": "rusty.xr.mesh_fixture_manifest.v1"},
+            "fixture_id": string(),
+            "fixture_kind": mesh_fixture_kind,
+            "topology_key": mesh_surface_topology_key,
+            "topology_hash": integer(0),
+            "vertex_count": integer(0),
+            "index_count": integer(0),
+            "coordinate_sample_count": integer(0),
+            "coordinate_space": mesh_fixture_coordinate_space,
+            "coordinate_units": mesh_fixture_units,
+            "coordinate_convention": mesh_fixture_coordinate_convention,
+            "winding_order": mesh_fixture_winding_order,
+            "index_format": mesh_fixture_index_format,
+            "expected_neighbor_tiers": array(mesh_fixture_neighbor_tier),
+            "motion": mesh_fixture_motion_kind,
+            "allowed_deformation_frames": mesh_fixture_frame_range,
+            "validation_expectations": array(mesh_fixture_validation_expectation),
+            "intended_uses": array(mesh_fixture_intended_use),
+            "provenance": mesh_fixture_provenance,
+        },
+    )
     quest_catalog_app = obj(
         "QuestCatalogApp",
         {
@@ -1650,6 +1740,7 @@ def schemas() -> dict[str, dict]:
                 "surfaces": array(room_mesh_surface),
             },
         ),
+        "mesh-fixture-manifest.schema.json": mesh_fixture_manifest,
         "polar-acc-frame.schema.json": obj(
             "PolarAccFrame",
             {

@@ -74,6 +74,7 @@ The initial export covers:
 - Quest app catalogs for Rusty XR Companion metadata.
 - Capture source and room mesh source states.
 - Semantic room mesh snapshots.
+- Mesh fixture manifests.
 - Polar accelerometer frames.
 - Scan surface samples.
 - Broker command envelopes, acknowledgements, stream manifests, stream sample

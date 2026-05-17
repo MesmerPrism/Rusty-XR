@@ -147,6 +147,7 @@ same-surface and cross-surface neighborhoods, and rebuilds only when mesh
 topology changes. The hand-mesh path consumes public `HandMeshSnapshot` frames
 from a native provider, so Meta/OpenXR hand mesh data can be adapted without
 putting platform calls in the core crate. See
+[docs/MESH_FIXTURE_MANIFEST.md](docs/MESH_FIXTURE_MANIFEST.md),
 [docs/DYNAMIC_MESH_COORDINATE_SAMPLING.md](docs/DYNAMIC_MESH_COORDINATE_SAMPLING.md)
 and
 [docs/HAND_MESH_PARTICLE_RUNTIME.md](docs/HAND_MESH_PARTICLE_RUNTIME.md).

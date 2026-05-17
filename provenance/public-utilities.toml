@@ -244,3 +244,12 @@ public_safe_rationale = "Collider-ready dynamic mesh surfaces, optional normal-b
 license_assumptions = "Authored for this MIT repository from public triangle-mesh collision and diagnostic-visual workflow concepts; no platform SDK sample code or downstream behavior is copied."
 scrubbed_private_dependencies = ["native provider implementation", "physics-engine handles", "renderer backend code", "collision callbacks", "package identity", "generated captures", "signing material"]
 review_status = "public-utility"
+
+[[utility]]
+crate = "crates/rusty-xr-particles/mesh-fixture-manifest"
+source_family = "public synthetic mesh fixture workflow"
+extraction_date = "2026-05-17"
+public_safe_rationale = "Portable mesh fixture manifests, topology keys, neighbor-tier expectations, and small generated grid/icosphere/deforming/hand-topology fixtures let downstream dynamic-mesh consumers test public utilities without private captures or app-specific behavior."
+license_assumptions = "Authored for this MIT repository from public mesh topology, sampling, and fixture-manifest concepts."
+scrubbed_private_dependencies = ["native provider implementation", "recorded meshes", "calibration data", "private tuning constants", "renderer backend code", "package identity", "generated captures", "signing material"]
+review_status = "first-manifest-pass"

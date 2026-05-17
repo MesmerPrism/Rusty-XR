@@ -19,6 +19,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+mod mesh_fixture;
+pub use mesh_fixture::*;
+
 pub use rusty_xr_contracts::{
     ColorRgba, HandMeshError, HandMeshSnapshot, Handedness, RenderCoordinateSpace, RenderPayload,
     RenderPoint, RuntimeCounters, Vec3,

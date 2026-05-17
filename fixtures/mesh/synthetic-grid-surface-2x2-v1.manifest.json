@@ -1,0 +1,50 @@
+{
+  "schema": "rusty.xr.mesh_fixture_manifest.v1",
+  "fixture_id": "synthetic-grid-surface-2x2-v1",
+  "fixture_kind": "Grid",
+  "topology_key": {
+    "vertex_count": 9,
+    "triangle_count": 8,
+    "index_hash": 1409477092787967777
+  },
+  "topology_hash": 1409477092787967777,
+  "vertex_count": 9,
+  "index_count": 24,
+  "coordinate_sample_count": 16,
+  "coordinate_space": "Local",
+  "coordinate_units": "Meters",
+  "coordinate_convention": "RightHandedYUpNegativeZForward",
+  "winding_order": "CounterClockwise",
+  "index_format": "U32",
+  "expected_neighbor_tiers": [
+    {
+      "tier": 1,
+      "min_neighbor_count": 4,
+      "max_neighbor_count": 4
+    },
+    {
+      "tier": 2,
+      "min_neighbor_count": 8,
+      "max_neighbor_count": 8
+    }
+  ],
+  "motion": "Static",
+  "allowed_deformation_frames": {
+    "min_frame_count": 1,
+    "max_frame_count": 1
+  },
+  "validation_expectations": [
+    "CountsMatchTopology",
+    "IndicesInRange",
+    "FiniteCoordinates",
+    "NonDegenerateSurface",
+    "StableTopologyHash"
+  ],
+  "intended_uses": [
+    "TopologyTests",
+    "SamplingTests",
+    "ParticleTests",
+    "RenderPayloadTests"
+  ],
+  "provenance": "Synthetic"
+}

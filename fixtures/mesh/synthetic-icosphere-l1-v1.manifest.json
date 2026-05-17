@@ -1,0 +1,54 @@
+{
+  "schema": "rusty.xr.mesh_fixture_manifest.v1",
+  "fixture_id": "synthetic-icosphere-l1-v1",
+  "fixture_kind": "Icosphere",
+  "topology_key": {
+    "vertex_count": 42,
+    "triangle_count": 80,
+    "index_hash": 2665548989956968229
+  },
+  "topology_hash": 2665548989956968229,
+  "vertex_count": 42,
+  "index_count": 240,
+  "coordinate_sample_count": 42,
+  "coordinate_space": "UnitSphere",
+  "coordinate_units": "UnitRadius",
+  "coordinate_convention": "UnitSphere",
+  "winding_order": "CounterClockwise",
+  "index_format": "U32",
+  "expected_neighbor_tiers": [
+    {
+      "tier": 1,
+      "min_neighbor_count": 5,
+      "max_neighbor_count": 6
+    },
+    {
+      "tier": 2,
+      "min_neighbor_count": 10,
+      "max_neighbor_count": 10
+    },
+    {
+      "tier": 3,
+      "min_neighbor_count": 10,
+      "max_neighbor_count": 12
+    }
+  ],
+  "motion": "Static",
+  "allowed_deformation_frames": {
+    "min_frame_count": 1,
+    "max_frame_count": 1
+  },
+  "validation_expectations": [
+    "CountsMatchTopology",
+    "IndicesInRange",
+    "FiniteCoordinates",
+    "NonDegenerateSurface",
+    "StableTopologyHash"
+  ],
+  "intended_uses": [
+    "TopologyTests",
+    "SamplingTests",
+    "ParticleTests"
+  ],
+  "provenance": "Generated"
+}
