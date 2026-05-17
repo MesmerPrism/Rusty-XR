@@ -17,6 +17,9 @@ final class BrokerState {
     static final String BROKER_VERSION = "0.1.0-public-proof";
     static final int PROTOCOL_VERSION = 1;
     static final String CONTRACT_VERSION = "rusty.xr.broker.v1";
+    static final String KIOSK_CONTROL_PLANE_STATUS_SCHEMA = "rusty.xr.kiosk.control_plane.v1";
+    static final String KIOSK_COMMAND_EVIDENCE_SCHEMA = "rusty.xr.kiosk.command_evidence.v1";
+    static final String KIOSK_COMMAND_RUN_RECORD_SCHEMA = "rusty.xr.kiosk.command_run_record.v1";
 
     final long startedElapsedNanos = SystemClock.elapsedRealtimeNanos();
     final long startedUnixMs = System.currentTimeMillis();
@@ -66,8 +69,18 @@ final class BrokerState {
         status.put("breathAssessment", breathAssessment.toStatusJson());
         status.put("videoLab", videoLabStatusJson());
         status.put("transportSessions", transportSessions.statusJson());
+        status.put("q2qRelay", BrokerQ2QRelayClientSession.statusJson(null));
         status.put("clock", clock.statusJson());
-        status.put("rustyKiosk", rustyKioskStatusJson());
+        JSONObject kioskStatus = rustyKioskStatusJson();
+        status.put("rustyKiosk", kioskStatus);
+        status.put(
+            "kioskCommandRunRecord",
+            rustyKioskCommandRunRecordJson(
+                "broker-http-status",
+                "GET /status",
+                JSONObject.NULL,
+                kioskStatus,
+                "broker_http_status_snapshot"));
 
         JSONObject commands = new JSONObject();
         commands.put("schema", "rusty.xr.broker.command.v1");
@@ -112,6 +125,10 @@ final class BrokerState {
         supportedCommands.put("media.start_synthetic_h264_stream");
         supportedCommands.put("media.start_h264_tcp_proxy");
         supportedCommands.put("media.run_h264_tcp_proxy_probe");
+        supportedCommands.put("q2q_relay.start_sender");
+        supportedCommands.put("q2q_relay.start_receiver");
+        supportedCommands.put("q2q_relay.get_status");
+        supportedCommands.put("q2q_relay.stop");
         supportedCommands.put("camera_provider.set_source_eye_mapping");
         supportedCommands.put("camera_provider.set_texture_transform");
         supportedCommands.put("camera_provider.record_visual_acceptance");
@@ -184,6 +201,7 @@ final class BrokerState {
         capabilities.put("broker.clock.correlation.v1");
         capabilities.put("broker.clock.sync_probe.v1");
         capabilities.put("rusty_kiosk.control_plane.status.v1");
+        capabilities.put("rusty.xr.kiosk.command_run_record.v1");
         capabilities.put("bio.polar_pmd.android_ble.v1");
         capabilities.put("bio.polar_acc.direct_ble.v1");
         capabilities.put("bio.breath_assessment.v1");
@@ -210,6 +228,11 @@ final class BrokerState {
         capabilities.put("media.synthetic_h264_stream.v1");
         capabilities.put("broker.h264_tcp_proxy.v1");
         capabilities.put("broker.h264_tcp_proxy_probe.v1");
+        capabilities.put("broker.q2q_relay.native.v1");
+        capabilities.put("broker.q2q_relay.sender.v1");
+        capabilities.put("broker.q2q_relay.receiver.v1");
+        capabilities.put("broker.q2q_relay.synthetic_h264.v1");
+        capabilities.put("broker.q2q_relay.camera_h264.v1");
         capabilities.put("broker.lan_control.opt_in.v1");
         capabilities.put("shell_helper.status.v1");
         capabilities.put("broker.transport.session_control.v1");
@@ -262,6 +285,7 @@ final class BrokerState {
         streams.put(streamJson("transport.session_created", "transport", "Transport session creation events.", transportSessions.createdCount() > 0));
         streams.put(streamJson("transport.session_closed", "transport", "Transport session close events.", transportSessions.closedCount() > 0));
         streams.put(streamJson("transport.session_failed", "transport", "Transport session failure events.", transportSessions.failedCount() > 0));
+        streams.put(streamJson("q2q_relay.status", "transport", "Native Quest relay sender/receiver lane status.", true));
         streams.put(streamJson("video_lab.metric_sample", "video", "Video texture latency lab metric samples.", videoLabMetricSamples.get() > 0));
         streams.put(streamJson(
             "video_lab.encoded_stream_manifest",
@@ -382,7 +406,7 @@ final class BrokerState {
                 helperStatus.optBoolean("proximity_control_enabled", false));
 
         JSONObject latestCommand = new JSONObject();
-        latestCommand.put("schema", "rusty.xr.kiosk.command_evidence.v1");
+        latestCommand.put("schema", KIOSK_COMMAND_EVIDENCE_SCHEMA);
         latestCommand.put("command_goal", "surface.current");
         latestCommand.put("provider", "Broker");
         latestCommand.put("preferred_command", "GET /status");
@@ -405,7 +429,7 @@ final class BrokerState {
         }
 
         JSONObject status = new JSONObject();
-        status.put("schema", "rusty.xr.kiosk.control_plane.v1");
+        status.put("schema", KIOSK_CONTROL_PLANE_STATUS_SCHEMA);
         status.put("phase", helperConnected ? "BrokerPanelWithShellHelper" : "BrokerPanel2d");
         status.put("surface_intent", surfaceIntent);
         status.put("home_mode", "Normal2d");
@@ -426,6 +450,90 @@ final class BrokerState {
         status.put("latest_command", latestCommand);
         status.put("limitations", limitations);
         return status;
+    }
+
+    JSONObject rustyKioskCommandRunRecordJson(
+        String runId,
+        String preferredCommand,
+        Object statusBefore,
+        Object statusAfter,
+        String note) throws Exception {
+        JSONObject after = statusAfter instanceof JSONObject ? (JSONObject) statusAfter : null;
+        String foregroundAfter = after != null ? foregroundLabel(after) : "";
+        String clockEpochId = after != null ? after.optString("clock_epoch_id", "") : "";
+        String surfaceIntent = after != null ? after.optString("surface_intent", "UnknownSurface") : "UnknownSurface";
+
+        JSONObject primary = kioskCommandEvidenceJson(
+            "Companion",
+            preferredCommand,
+            "GET /kiosk/status",
+            JSONObject.NULL,
+            foregroundAfter,
+            clockEpochId,
+            "broker_json_report_path");
+        JSONObject fallback = kioskCommandEvidenceJson(
+            "Broker",
+            "GET /kiosk/status",
+            "adb shell dumpsys window",
+            JSONObject.NULL,
+            foregroundAfter,
+            clockEpochId,
+            "broker_http_fallback_path");
+
+        JSONObject record = new JSONObject();
+        record.put("schema", KIOSK_COMMAND_RUN_RECORD_SCHEMA);
+        record.put("run_id", runId != null && runId.length() > 0 ? runId : "broker-kiosk-command-run");
+        record.put("command_goal", "surface.current");
+        record.put("surface_intent", surfaceIntent);
+        record.put("primary", primary);
+        record.put("fallback", fallback);
+        record.put("status_before", statusBefore != null ? statusBefore : JSONObject.NULL);
+        record.put("status_after", statusAfter != null ? statusAfter : JSONObject.NULL);
+        record.put("outcome", "Succeeded");
+        record.put("issue_codes", new JSONArray());
+        JSONArray notes = new JSONArray();
+        if (note != null && note.length() > 0) {
+            notes.put(note);
+        }
+        record.put("notes", notes);
+        return record;
+    }
+
+    private JSONObject kioskCommandEvidenceJson(
+        String provider,
+        String preferredCommand,
+        String fallbackCommand,
+        Object foregroundBefore,
+        String foregroundAfter,
+        String clockEpochId,
+        String note) throws Exception {
+        JSONObject evidence = new JSONObject();
+        evidence.put("schema", KIOSK_COMMAND_EVIDENCE_SCHEMA);
+        evidence.put("command_goal", "surface.current");
+        evidence.put("provider", provider != null && provider.length() > 0 ? provider : "Unknown");
+        evidence.put("preferred_command", preferredCommand != null && preferredCommand.length() > 0 ? preferredCommand : JSONObject.NULL);
+        evidence.put("fallback_command", fallbackCommand != null && fallbackCommand.length() > 0 ? fallbackCommand : JSONObject.NULL);
+        evidence.put("foreground_before", foregroundBefore != null ? foregroundBefore : JSONObject.NULL);
+        evidence.put("foreground_after", foregroundAfter != null && foregroundAfter.length() > 0 ? foregroundAfter : JSONObject.NULL);
+        evidence.put("clock_epoch_id", nullableJsonString(clockEpochId));
+        JSONArray notes = new JSONArray();
+        if (note != null && note.length() > 0) {
+            notes.put(note);
+        }
+        evidence.put("notes", notes);
+        return evidence;
+    }
+
+    private static String foregroundLabel(JSONObject status) {
+        if (status == null) {
+            return "";
+        }
+        String foregroundPackage = status.optString("foreground_package", "");
+        String foregroundActivity = status.optString("foreground_activity", "");
+        if (foregroundPackage.length() == 0) {
+            return "";
+        }
+        return foregroundActivity.length() > 0 ? foregroundPackage + "/" + foregroundActivity : foregroundPackage;
     }
 
     JSONObject clockStatusJson() throws Exception {

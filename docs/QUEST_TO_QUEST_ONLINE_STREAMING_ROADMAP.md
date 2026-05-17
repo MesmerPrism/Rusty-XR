@@ -87,6 +87,22 @@ Validation status after the 2026-05-13 streaming pass:
 - E4 one-way LAN Quest-to-Quest, E5 reverse direction, and E6 reduced-quality
   two-way LAN are still pending a second headset on the same network.
 
+## 2026-05-16 Remote Relay Update
+
+The first public-internet rehearsal proved that DNS, relay reachability, TLS
+verification, token auth, and relay byte forwarding can work across remote
+sites. It also showed that PC-mediated bridge mode creates failure modes that
+are not inherent to Quest-to-Quest streaming: sender PC to Quest LAN
+reachability, receiver PC firewall rules, ADB forward/reverse freshness, and
+one-shot stream sources consumed by probes.
+
+Bridge mode should therefore remain a fallback and diagnostic scaffold. The
+primary online milestone is now a Quest-native relay client in the broker path:
+the sender broker writes `RXYRVID1` output to outbound TLS relay sockets, and
+the receiver broker reads outbound TLS relay sockets into device-local
+existing-stream inputs for the composite. Agent PCs should coordinate through
+ADB, broker commands, screenshots, logcat, and scorecard extraction only.
+
 ## Target Shape
 
 The online target should remain native Quest-to-Quest streaming. Browser and
@@ -373,6 +389,16 @@ For a first internet-capable version, keep the current H.264 framing and add an
 authenticated relay that both Quests connect to with outbound TLS connections.
 This avoids relying on inbound connections through phone hotspots, routers, or
 carrier NAT.
+
+The first implementation should be broker-native, not PC-bridge-first:
+
+- sender broker command starts left/right Camera2 H.264 streams and connects
+  each eye to the relay as a `sender` lane
+- receiver broker command connects each eye to the relay as a `receiver` lane
+  and exposes device-local existing-stream ports for the composite
+- PCs push short-lived test CA/token material, send broker commands, and
+  collect logs, but do not forward media bytes
+- PC bridge clients remain available for transport isolation and fallback only
 
 Suggested split:
 

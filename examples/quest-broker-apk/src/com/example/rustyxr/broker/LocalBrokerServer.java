@@ -454,8 +454,17 @@ final class LocalBrokerServer implements Closeable {
 
         if ("kiosk.get_status".equals(command)) {
             state.acceptedCommands.incrementAndGet();
+            JSONObject kioskStatus = state.rustyKioskStatusJson();
             JSONObject result = new JSONObject();
-            result.put("status", state.rustyKioskStatusJson());
+            result.put("status", kioskStatus);
+            result.put(
+                "command_run_record",
+                state.rustyKioskCommandRunRecordJson(
+                    requestId != null && requestId.length() > 0 ? requestId : "broker-ws-kiosk-get-status",
+                    "websocket kiosk.get_status",
+                    JSONObject.NULL,
+                    kioskStatus,
+                    "broker_websocket_kiosk_status"));
             return commandAck(requestId, command, true, "kiosk_status", result);
         }
 
@@ -577,6 +586,22 @@ final class LocalBrokerServer implements Closeable {
 
         if ("media.run_h264_tcp_proxy_probe".equals(command)) {
             return runMediaH264TcpProxyProbe(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("q2q_relay.start_sender".equals(command)) {
+            return startQ2QRelaySender(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("q2q_relay.start_receiver".equals(command)) {
+            return startQ2QRelayReceiver(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("q2q_relay.get_status".equals(command)) {
+            return getQ2QRelayStatus(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("q2q_relay.stop".equals(command)) {
+            return stopQ2QRelay(requestId, command, message.optJSONObject("params"));
         }
 
         if ("camera_provider.set_source_eye_mapping".equals(command)) {
@@ -1129,6 +1154,99 @@ final class LocalBrokerServer implements Closeable {
                 ? "media_h264_tcp_proxy_probe_succeeded"
                 : "media_h264_tcp_proxy_probe_completed",
             result);
+    }
+
+    private JSONObject startQ2QRelaySender(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (context == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_context", "Broker app context is not available.");
+        }
+
+        JSONObject start;
+        try {
+            start = BrokerQ2QRelayClientSession.startSender(
+                context,
+                params,
+                new BrokerAppCameraH264StreamSession.Sink() {
+                    @Override
+                    public void registerManifest(JSONObject manifest) throws Exception {
+                        recordAppCameraLumaManifest(manifest);
+                    }
+
+                    @Override
+                    public void recordSample(JSONObject sample) throws Exception {
+                        recordAppCameraLumaSample(sample);
+                    }
+
+                    @Override
+                    public void recordMetric(JSONObject metric) throws Exception {
+                        recordAppCameraLumaMetric(metric);
+                    }
+                });
+        } catch (IllegalArgumentException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "invalid_q2q_relay_sender_params", safeMessage(ex));
+        } catch (SecurityException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "q2q_relay_sender_not_allowed", safeMessage(ex));
+        } catch (Exception ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "q2q_relay_sender_start_failed", safeMessage(ex));
+        }
+
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("relay_start", start);
+        return commandAck(requestId, command, true, "q2q_relay_sender_started", result);
+    }
+
+    private JSONObject startQ2QRelayReceiver(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject start;
+        try {
+            start = BrokerQ2QRelayClientSession.startReceiver(params);
+        } catch (IllegalArgumentException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "invalid_q2q_relay_receiver_params", safeMessage(ex));
+        } catch (SecurityException ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "q2q_relay_receiver_not_allowed", safeMessage(ex));
+        } catch (Exception ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "q2q_relay_receiver_start_failed", safeMessage(ex));
+        }
+
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("relay_start", start);
+        return commandAck(requestId, command, true, "q2q_relay_receiver_started", result);
+    }
+
+    private JSONObject getQ2QRelayStatus(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject status = BrokerQ2QRelayClientSession.statusJson(params);
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("status", status);
+        return commandAck(requestId, command, true, "q2q_relay_status", result);
+    }
+
+    private JSONObject stopQ2QRelay(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        JSONObject stopped = BrokerQ2QRelayClientSession.stop(params);
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("stop", stopped);
+        return commandAck(requestId, command, true, "q2q_relay_stopped", result);
     }
 
     private JSONObject runCameraProviderAppCameraH264DecodeProbe(

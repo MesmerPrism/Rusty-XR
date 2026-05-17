@@ -10,7 +10,15 @@ for proving pairing, remote bandwidth, relay byte counts, receiver decode,
 hardware-buffer import, and projected stereo rendering before introducing a
 larger native media dependency.
 
+The PC bridge is a diagnostic fallback, not the target media architecture. The
+next online milestone is a Quest-native relay client inside the broker path:
+each headset opens outbound authenticated TLS connections to the relay, while
+PCs are used only for ADB command/control, screenshots, logcat, and scorecard
+collection.
+
 ## Topology
+
+### Bridge Diagnostic Topology
 
 One stereo direction uses four bridge clients, two per eye:
 
@@ -41,6 +49,28 @@ Receiver Quest broker + composite
 
 The relay does not parse media frames. It only authenticates a simple
 newline-delimited JSON hello and forwards the binary stream.
+
+### Quest-Native Target Topology
+
+```text
+Sender Quest broker
+  Camera2 -> MediaCodec H.264 -> RXYRVID1 left/right streams
+  outbound TLS relay clients
+
+Internet relay
+  q2q_relay.py server
+  pairs clients by session id and eye
+  forwards bytes sender -> receiver
+
+Receiver Quest broker + composite
+  outbound TLS relay clients
+  device-local existing-stream ports
+  MediaCodec decode -> ImageReader PRIVATE hardware buffers
+  AHardwareBuffer import -> Vulkan/OpenXR projected stereo draw
+```
+
+In this topology the sender and receiver PCs are not in the media path and do
+not need inbound firewall rules or LAN reachability to the Quest stream ports.
 
 ## Tooling
 
@@ -132,3 +162,7 @@ Treat the relay as a transport pass only until the receiver scorecard shows:
 The first internet profile should use reduced quality (`720x720` or `960x960`,
 bounded duration, moderate bitrate) before moving back to high-quality
 `1280x1280` stereo streams.
+
+Track bridge-mode and Quest-native results separately. A PC bridge pass proves
+relay and receiver pieces, but it is not a direct Quest-to-Quest pass until
+the media lanes originate and terminate in Quest-owned relay clients.

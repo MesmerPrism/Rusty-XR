@@ -228,13 +228,6 @@ function Resolve-RustyXrAndroidToolchain {
             }
         }
 
-        $unityRoot = Join-Path $env:ProgramFiles 'Unity\Hub\Editor'
-        if (Test-Path -LiteralPath $unityRoot -PathType Container) {
-            $playerCandidates += Get-ChildItem -LiteralPath $unityRoot -Directory |
-                ForEach-Object { Join-Path $_.FullName 'Editor\Data\PlaybackEngines\AndroidPlayer' } |
-                Where-Object { Test-Path -LiteralPath $_ -PathType Container } |
-                Sort-Object -Descending
-        }
     }
 
     $errors = @()
@@ -274,7 +267,7 @@ function Resolve-RustyXrAndroidToolchain {
         }
     }
 
-    $message = 'Could not find Android tooling. Use -AndroidPlayerRoot for a Unity Android player root, or provide split roots with -AndroidSdkRoot/-AndroidNdkRoot/-JdkRoot. Environment fallbacks are RUSTY_XR_ANDROID_SDK_ROOT, RUSTY_XR_ANDROID_NDK_ROOT, RUSTY_XR_ANDROID_JDK_ROOT, ANDROID_SDK_ROOT, ANDROID_NDK_ROOT, and JAVA_HOME.'
+    $message = 'Could not find Android tooling. Prefer split roots with -AndroidSdkRoot/-AndroidNdkRoot/-JdkRoot or RUSTY_XR_ANDROID_SDK_ROOT, RUSTY_XR_ANDROID_NDK_ROOT, RUSTY_XR_ANDROID_JDK_ROOT, ANDROID_SDK_ROOT, ANDROID_NDK_ROOT, and JAVA_HOME. Unity AndroidPlayer remains supported only when passed explicitly with -AndroidPlayerRoot or UNITY_ANDROID_PLAYER_ROOT/ANDROID_PLAYER_ROOT.'
     if ($errors.Count -gt 0) {
         $message = "$message Tried: $($errors -join '; ')"
     }

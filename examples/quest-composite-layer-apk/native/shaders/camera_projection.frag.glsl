@@ -31,6 +31,7 @@ layout(push_constant) uniform CameraProjectionPush {
     vec4 params;
     vec4 color_adjust;
     vec4 effect_params;
+    vec4 area_params;
     vec4 left_h0;
     vec4 left_h1;
     vec4 left_h2;
@@ -50,10 +51,7 @@ const float BORDER_PULLBACK = 0.16;
 const float BORDER_SWIRL_STRENGTH = 0.18;
 const float BORDER_ZOOM = 0.12;
 const float BORDER_EDGE_BOOST = 0.50;
-const float BORDER_RADIUS_X = 0.47;
-const float BORDER_RADIUS_Y = 0.36;
 const float BORDER_FEATHER = 0.10;
-const float BORDER_CORNER_RADIUS = 0.08;
 const float BORDER_BRIGHTNESS_INSET = 0.16;
 const float BORDER_BRIGHTNESS_CUTOFF = 0.25;
 const float BORDER_BRIGHTNESS_FEATHER = 0.14;
@@ -325,9 +323,12 @@ float resolve_fov_border_mix(float coverage) {
 }
 
 float resolve_camera_oval_distance(vec2 content_uv) {
-    vec2 half_size = vec2(max(BORDER_RADIUS_X, 0.05), max(BORDER_RADIUS_Y, 0.05));
+    vec2 half_size = vec2(
+        clamp(pc.area_params.x, 0.05, 0.50),
+        clamp(pc.area_params.y, 0.05, 0.50)
+    );
     float corner_radius = clamp(
-        BORDER_CORNER_RADIUS,
+        pc.area_params.z,
         0.0,
         min(half_size.x, half_size.y) - 0.001
     );
@@ -973,11 +974,14 @@ void main() {
     float content_uv_scale = max(pc.params.z, 1.0);
     float projection_area_opacity = clamp(pc.effect_params.y, 0.0, 1.0);
     float projection_border_opacity = clamp(pc.effect_params.z, 0.0, 1.0);
+    float projection_area_scale = clamp(pc.area_params.w, 0.05, 4.0);
+    vec2 projection_screen_uv =
+        (v_surface_uv - vec2(0.5)) * projection_area_scale + vec2(0.5);
 
     vec2 local_uv = vec2(0.5) + ((v_surface_uv - vec2(0.5)) / overscan);
     bool content_surface_valid = true;
     vec2 projected_content_uv = content_uv_from_screen_uv(
-        v_surface_uv,
+        projection_screen_uv,
         eye,
         projected,
         content_surface_valid
@@ -986,7 +990,7 @@ void main() {
         ? projected_content_uv
         : (v_surface_uv - vec2(0.5)) * content_uv_scale + vec2(0.5);
     vec2 sample_content_uv = projected ? content_uv : clamp(local_uv, vec2(0.0), vec2(1.0));
-    vec2 projection_uv = projected ? v_surface_uv : sample_content_uv;
+    vec2 projection_uv = projected ? projection_screen_uv : sample_content_uv;
 
     bool projection_valid = false;
     vec2 raw_projected_uv = projected_camera_uv(

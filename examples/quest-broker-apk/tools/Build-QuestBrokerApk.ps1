@@ -46,44 +46,6 @@ function Invoke-Tool {
     }
 }
 
-function Find-AndroidPlayerRoot {
-    param([string]$RequestedRoot)
-
-    if (-not [string]::IsNullOrWhiteSpace($RequestedRoot)) {
-        $resolved = (Resolve-Path $RequestedRoot).Path
-        if ((Test-Path (Join-Path $resolved 'SDK')) -and
-            (Test-Path (Join-Path $resolved 'OpenJDK'))) {
-            return $resolved
-        }
-
-        throw "AndroidPlayerRoot does not contain SDK and OpenJDK: $resolved"
-    }
-
-    foreach ($envName in @('UNITY_ANDROID_PLAYER_ROOT', 'ANDROID_PLAYER_ROOT')) {
-        $value = [Environment]::GetEnvironmentVariable($envName)
-        if (-not [string]::IsNullOrWhiteSpace($value) -and (Test-Path $value)) {
-            return Find-AndroidPlayerRoot -RequestedRoot $value
-        }
-    }
-
-    $unityRoot = Join-Path $env:ProgramFiles 'Unity\Hub\Editor'
-    if (Test-Path $unityRoot) {
-        $candidate = Get-ChildItem -LiteralPath $unityRoot -Directory |
-            ForEach-Object { Join-Path $_.FullName 'Editor\Data\PlaybackEngines\AndroidPlayer' } |
-            Where-Object {
-                (Test-Path (Join-Path $_ 'SDK')) -and
-                (Test-Path (Join-Path $_ 'OpenJDK'))
-            } |
-            Sort-Object -Descending |
-            Select-Object -First 1
-        if ($null -ne $candidate) {
-            return $candidate
-        }
-    }
-
-    throw 'Could not find Android tooling. Pass -AndroidPlayerRoot or set UNITY_ANDROID_PLAYER_ROOT.'
-}
-
 function Get-LatestDirectory {
     param(
         [string]$Parent,
@@ -140,19 +102,55 @@ function Resolve-LslAndroidLibrary {
 }
 
 function Resolve-NdkToolchainRoot {
-    param([string]$AndroidRoot)
+    param(
+        [string]$NdkRoot,
+        [string]$AndroidRoot
+    )
 
-    $candidate = Join-Path $AndroidRoot 'NDK\toolchains\llvm\prebuilt\windows-x86_64'
-    if (Test-Path $candidate) {
+    if (-not [string]::IsNullOrWhiteSpace($NdkRoot)) {
+        $candidate = Join-Path $NdkRoot 'toolchains\llvm\prebuilt\windows-x86_64'
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($AndroidRoot)) {
+        $candidate = Join-Path $AndroidRoot 'NDK\toolchains\llvm\prebuilt\windows-x86_64'
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    $message = if (-not [string]::IsNullOrWhiteSpace($NdkRoot)) {
+        "Native LSL packaging requires an Android NDK LLVM prebuilt under: $NdkRoot"
+    } else {
+        'Native LSL packaging requires an Android NDK root.'
+    }
+    throw $message
+}
+
+function Resolve-NdkLibcxxShared {
+    param([string]$NdkRoot)
+
+    if (-not [string]::IsNullOrWhiteSpace($NdkRoot)) {
+        $candidate = Join-Path $NdkRoot 'toolchains\llvm\prebuilt\windows-x86_64\sysroot\usr\lib\aarch64-linux-android\libc++_shared.so'
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    $candidate = Join-Path $NdkRoot 'toolchains\llvm\prebuilt\windows-x86_64\sysroot\usr\lib\aarch64-linux-android\29\libc++_shared.so'
+    if (-not [string]::IsNullOrWhiteSpace($NdkRoot) -and (Test-Path $candidate)) {
         return $candidate
     }
 
-    throw 'Native LSL packaging requires the Android NDK from the Android player root.'
+    throw "Native LSL packaging requires libc++_shared.so under the Android NDK root: $NdkRoot"
 }
 
 $toolchain = Resolve-RustyXrAndroidToolchain -AndroidPlayerRoot $AndroidPlayerRoot -AndroidSdkRoot $AndroidSdkRoot -AndroidNdkRoot $AndroidNdkRoot -JdkRoot $JdkRoot
 $androidRoot = $toolchain.AndroidPlayerRoot
 $sdkRoot = $toolchain.SdkRoot
+$ndkRoot = $toolchain.NdkRoot
 $jdkRoot = $toolchain.JdkRoot
 $buildToolsRoot = Get-RustyXrLatestAndroidDirectory -Parent (Join-Path $sdkRoot 'build-tools') -Pattern '*'
 $platformRoot = Get-RustyXrLatestAndroidDirectory -Parent (Join-Path $sdkRoot 'platforms') -Pattern 'android-*'
@@ -239,9 +237,9 @@ if ($RequireNativeLsl -and [string]::IsNullOrWhiteSpace($lslAndroidLibrary)) {
 }
 
 if (-not [string]::IsNullOrWhiteSpace($lslAndroidLibrary)) {
-    $ndkToolchainRoot = Resolve-NdkToolchainRoot -AndroidRoot $androidRoot
+    $ndkToolchainRoot = Resolve-NdkToolchainRoot -NdkRoot $ndkRoot -AndroidRoot $androidRoot
     $clangxx = Join-Path $ndkToolchainRoot 'bin\aarch64-linux-android29-clang++.cmd'
-    $libcxxShared = Join-Path $ndkToolchainRoot 'sysroot\usr\lib\aarch64-linux-android\libc++_shared.so'
+    $libcxxShared = Resolve-NdkLibcxxShared -NdkRoot $ndkRoot
     foreach ($tool in @($clangxx, $libcxxShared)) {
         if (-not (Test-Path $tool)) {
             throw "Required native LSL build input was not found: $tool"

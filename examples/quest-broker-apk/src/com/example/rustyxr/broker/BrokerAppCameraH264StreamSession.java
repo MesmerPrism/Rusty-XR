@@ -56,6 +56,9 @@ final class BrokerAppCameraH264StreamSession {
     private static final String SOURCE_MODE_CAMERA2 = "camera2";
     private static final String SOURCE_MODE_SYNTHETIC_SURFACE = "synthetic_surface";
     private static final String DEFAULT_SYNTHETIC_PATTERN = "diagnostic-grid";
+    private static final String SYNTHETIC_STIMULUS_ORIENTATION_SCHEMA = "rusty.xr.synthetic_stimulus_orientation.v1";
+    private static final String SYNTHETIC_STIMULUS_RASTER_ORIENTATION = "top-left-origin-y-down";
+    private static final String SYNTHETIC_STIMULUS_UPRIGHT_MARKER = "color-bars-top";
     private static final String MAGIC = "RXYRVID1";
     private static final int SCHEMA_VERSION = 3;
     private static final int CODEC_H264 = 1;
@@ -229,6 +232,7 @@ final class BrokerAppCameraH264StreamSession {
             start.put("timestamp_domain", "ElapsedRealtime");
             start.put("synthetic_pattern", syntheticPattern);
             start.put("synthetic_side_marker", syntheticSideMarker);
+            putSyntheticStimulusOrientationFields(start);
             start.put("projection_metadata", buildSyntheticProjectionMetadata(syntheticSize, syntheticPattern, syntheticSideMarker));
         }
         try {
@@ -1828,6 +1832,7 @@ final class BrokerAppCameraH264StreamSession {
         target.put("selected_fps_max_hz", frameRateHz);
         target.put("synthetic_pattern", pattern);
         target.put("synthetic_side_marker", sideMarker);
+        putSyntheticStimulusOrientationFields(target);
     }
 
     private static JSONObject buildCameraSourceCapabilities(
@@ -2043,7 +2048,17 @@ final class BrokerAppCameraH264StreamSession {
         metadata.put("syntheticPattern", pattern);
         metadata.put("syntheticSideMarker", sideMarker);
         metadata.put("syntheticProjectionFovYDegrees", SYNTHETIC_PROJECTION_FOV_Y_DEGREES);
+        putSyntheticStimulusOrientationFields(metadata);
         return metadata;
+    }
+
+    private static void putSyntheticStimulusOrientationFields(JSONObject target) throws Exception {
+        target.put("stimulusOrientationSchema", SYNTHETIC_STIMULUS_ORIENTATION_SCHEMA);
+        target.put("stimulusRasterOrientation", SYNTHETIC_STIMULUS_RASTER_ORIENTATION);
+        target.put("stimulusOrigin", "top-left");
+        target.put("stimulusYAxis", "down");
+        target.put("stimulusUprightMarker", SYNTHETIC_STIMULUS_UPRIGHT_MARKER);
+        target.put("stimulusOrientationDefault", false);
     }
 
     private static void drawSyntheticEncoderFrame(
@@ -2067,6 +2082,7 @@ final class BrokerAppCameraH264StreamSession {
             } else {
                 drawSyntheticDiagnosticGrid(canvas, paint, width, height);
             }
+            drawSyntheticOrientationMarkers(canvas, paint, width, height);
             if ("motion-bar".equals(pattern)) {
                 drawSyntheticMotionMarker(canvas, paint, width, height, frameIndex);
             }
@@ -2126,6 +2142,29 @@ final class BrokerAppCameraH264StreamSession {
         }
 
         drawSyntheticThinLineOverlay(canvas, paint, 0, top, width, height, cell);
+    }
+
+    private static void drawSyntheticOrientationMarkers(Canvas canvas, Paint paint, int width, int height) {
+        int marker = Math.max(40, Math.min(width, height) / 10);
+        int strip = Math.max(6, marker / 7);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(0, 220, 80));
+        canvas.drawRect(new Rect(0, 0, marker, marker), paint);
+        paint.setColor(Color.WHITE);
+        canvas.drawRect(new Rect(0, 0, width, strip), paint);
+        canvas.drawRect(new Rect(0, 0, strip, marker), paint);
+        paint.setColor(Color.BLACK);
+        paint.setTextSize(Math.max(18.0f, marker * 0.36f));
+        canvas.drawText("TOP", strip * 2.0f, marker * 0.62f, paint);
+
+        paint.setColor(Color.rgb(220, 0, 0));
+        canvas.drawRect(new Rect(0, height - marker, marker, height), paint);
+        paint.setColor(Color.WHITE);
+        canvas.drawRect(new Rect(0, height - strip, width, height), paint);
+        canvas.drawRect(new Rect(0, height - marker, strip, height), paint);
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(Math.max(18.0f, marker * 0.30f));
+        canvas.drawText("BOT", strip * 2.0f, height - marker * 0.36f, paint);
     }
 
     private static void drawSyntheticThinLineOverlay(

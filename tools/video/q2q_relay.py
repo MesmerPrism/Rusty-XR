@@ -449,6 +449,7 @@ def connect_relay(args: argparse.Namespace, role: str) -> socket.socket:
     if not ack.get("ok"):
         close_socket(raw)
         raise RuntimeError(f"relay rejected {role}: {ack.get('message')}")
+    raw.settimeout(None)
     return raw
 
 
@@ -462,6 +463,7 @@ def run_sender(args: argparse.Namespace) -> int:
         relay = connect_relay(args, "sender")
         logger.emit("sender_relay_connected", relay_host=args.relay_host, relay_port=args.relay_port, eye=args.eye)
         source = connect_tcp(args.source_host, args.source_port, args.connect_timeout_s)
+        source.settimeout(None)
         logger.emit("sender_source_connected", source_host=args.source_host, source_port=args.source_port, eye=args.eye)
         bytes_forwarded = copy_stream(source, relay)
         with contextlib.suppress(Exception):
@@ -500,6 +502,7 @@ def run_receiver(args: argparse.Namespace) -> int:
             )
             local_client, address = listener.accept()
             local_client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            local_client.settimeout(None)
             logger.emit("receiver_local_client_connected", address=f"{address[0]}:{address[1]}", eye=args.eye)
         relay = connect_relay(args, "receiver")
         logger.emit("receiver_relay_connected", relay_host=args.relay_host, relay_port=args.relay_port, eye=args.eye)
