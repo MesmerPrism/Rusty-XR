@@ -273,6 +273,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -RestartBrokerBeforeBrokerModes `
   -BrokerH264SourceMode broker-synthetic `
   -BrokerH264SyntheticPattern diagnostic-grid `
+  -BrokerH264SyntheticProjectionProfile camera-matched `
   -ProjectionBorderPolicy passthrough-underlay `
   -ProcessingLayer blur `
   -BlurRadiusPx 2.0
@@ -291,10 +292,13 @@ before each broker lane and records `broker-restarts\` snapshots so stale
 unbounded stream sockets do not masquerade as camera/projection failures.
 Set `-BrokerH264SourceMode broker-synthetic` for the deterministic
 broker-managed source lane. The suite forwards the same synthetic pattern,
-stream ports, resolution, bitrate, requested FPS, capture duration, and max
-packet settings into the Vulkan/HWB, GL/OES, and Makepad broker modes, so
-their projection rows and screen-space masks can be compared before physical
-camera variables are reintroduced.
+source-geometry profile, stream ports, resolution, bitrate, requested FPS,
+capture duration, and max packet settings into the Vulkan/HWB, GL/OES, and
+Makepad broker modes, so their projection rows and screen-space masks can be
+compared before physical camera variables are reintroduced. Use
+`camera-matched` when synthetic pixels should follow the real Camera2
+projection shape, and `full-frame-diagnostic` when the diagnostic raster should
+exercise projection-surface coverage and orientation directly.
 
 After a solid-red suite run, measure each lane in the captured screenshot
 coordinate system:

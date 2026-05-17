@@ -47,6 +47,7 @@ public final class BrokerH264OesDecodeProbe {
     private static final int SYNTHETIC_BITRATE_BPS = 6000000;
     private static final int SYNTHETIC_CAPTURE_MS = 45000;
     private static final String SYNTHETIC_PATTERN = "diagnostic-grid";
+    private static final String SYNTHETIC_PROJECTION_PROFILE = "head-anchored-virtual-camera";
     private static final String SOURCE_MODE_BROKER_SYNTHETIC = "broker-synthetic";
     private static final String SOURCE_MODE_BROKER_CAMERA = "broker-camera";
 
@@ -194,6 +195,7 @@ public final class BrokerH264OesDecodeProbe {
         final boolean liveStream;
         final String sourceMode;
         final String syntheticPattern;
+        final String syntheticProjectionProfile;
         final String leftCameraId;
         final String rightCameraId;
 
@@ -213,6 +215,7 @@ public final class BrokerH264OesDecodeProbe {
             boolean liveStream,
             String sourceMode,
             String syntheticPattern,
+            String syntheticProjectionProfile,
             String leftCameraId,
             String rightCameraId) {
             this.host = normalizeHost(host);
@@ -233,6 +236,10 @@ public final class BrokerH264OesDecodeProbe {
                 syntheticPattern != null && syntheticPattern.length() > 0
                     ? syntheticPattern
                     : SYNTHETIC_PATTERN;
+            this.syntheticProjectionProfile =
+                syntheticProjectionProfile != null && syntheticProjectionProfile.length() > 0
+                    ? syntheticProjectionProfile
+                    : SYNTHETIC_PROJECTION_PROFILE;
             this.leftCameraId = leftCameraId != null && leftCameraId.length() > 0
                 ? leftCameraId
                 : "synthetic-left";
@@ -268,6 +275,7 @@ public final class BrokerH264OesDecodeProbe {
                 booleanExtra(activity, "rustyxr.brokerH264LiveStream", true),
                 stringExtra(activity, "rustyxr.brokerH264SourceMode", SOURCE_MODE_BROKER_SYNTHETIC),
                 stringExtra(activity, "rustyxr.brokerH264SyntheticPattern", SYNTHETIC_PATTERN),
+                stringExtra(activity, "rustyxr.brokerH264SyntheticProjectionProfile", SYNTHETIC_PROJECTION_PROFILE),
                 leftCameraId,
                 rightCameraId);
         }
@@ -297,6 +305,7 @@ public final class BrokerH264OesDecodeProbe {
             report.put("frame_rate_hz", config.frameRateHz);
             report.put("live_stream", config.liveStream);
             report.put("synthetic_pattern", config.syntheticPattern);
+            report.put("synthetic_projection_profile", config.syntheticProjectionProfile);
             report.put("left_camera_id", config.leftCameraId);
             report.put("right_camera_id", config.rightCameraId);
         } catch (Exception error) {
@@ -331,6 +340,7 @@ public final class BrokerH264OesDecodeProbe {
             report.put("bitrate_bps", config.bitrateBps);
             report.put("frame_rate_hz", config.frameRateHz);
             report.put("synthetic_pattern", config.syntheticPattern);
+            report.put("synthetic_projection_profile", config.syntheticProjectionProfile);
             report.put("camera_id", cameraId);
             report.put("max_packets", config.maxPackets);
             report.put("accepted", true);
@@ -435,6 +445,7 @@ public final class BrokerH264OesDecodeProbe {
         if (config.startBrokerSyntheticStream()) {
             params.put("source_mode", "synthetic_surface");
             params.put("synthetic_pattern", config.syntheticPattern);
+            params.put("synthetic_projection_profile", config.syntheticProjectionProfile);
         }
         params.put("accept_timeout_ms", 60000);
         params.put("writer_queue_depth", 64);

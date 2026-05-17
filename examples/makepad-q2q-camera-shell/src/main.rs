@@ -54,6 +54,7 @@ const DEFAULT_BROKER_H264_STREAM_PORT: u16 = 8879;
 const DEFAULT_BROKER_H264_RIGHT_STREAM_PORT: u16 = 8880;
 const DEFAULT_BROKER_H264_SOURCE_MODE: &str = "broker-synthetic";
 const DEFAULT_BROKER_H264_SYNTHETIC_PATTERN: &str = "diagnostic-grid";
+const DEFAULT_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE: &str = "head-anchored-virtual-camera";
 const DEFAULT_BROKER_H264_LEFT_CAMERA_ID: &str = "";
 const DEFAULT_BROKER_H264_RIGHT_CAMERA_ID: &str = "";
 const DEFAULT_BROKER_H264_WIDTH: u32 = 1280;
@@ -161,6 +162,8 @@ const KEY_MAKEPAD_BROKER_H264_STREAM_PORT: &str = "makepad_broker_h264_stream_po
 const KEY_MAKEPAD_BROKER_H264_RIGHT_STREAM_PORT: &str = "makepad_broker_h264_right_stream_port";
 const KEY_MAKEPAD_BROKER_H264_SOURCE_MODE: &str = "makepad_broker_h264_source_mode";
 const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN: &str = "makepad_broker_h264_synthetic_pattern";
+const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE: &str =
+    "makepad_broker_h264_synthetic_projection_profile";
 const KEY_MAKEPAD_BROKER_H264_LEFT_CAMERA_ID: &str = "makepad_broker_h264_left_camera_id";
 const KEY_MAKEPAD_BROKER_H264_RIGHT_CAMERA_ID: &str = "makepad_broker_h264_right_camera_id";
 const KEY_MAKEPAD_BROKER_H264_WIDTH: &str = "makepad_broker_h264_width";
@@ -2374,6 +2377,10 @@ impl App {
                 KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN,
                 DEFAULT_BROKER_H264_SYNTHETIC_PATTERN,
             ),
+            synthetic_projection_profile: hotload_text(
+                KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE,
+                DEFAULT_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE,
+            ),
             camera_id: match eye {
                 StereoEye::Left => hotload_text(
                     KEY_MAKEPAD_BROKER_H264_LEFT_CAMERA_ID,
@@ -2558,14 +2565,47 @@ impl App {
         if left_width != right_width || left_height != right_height {
             return false;
         }
-        let Some(plan) = android_camera_probe::broker_synthetic_projection_plan_from_xr_views(
-            &left_metadata.camera_id,
-            &right_metadata.camera_id,
-            left_width,
-            left_height,
-            views,
-        ) else {
+        let full_frame_diagnostic = left_metadata.is_full_frame_diagnostic_synthetic()
+            && right_metadata.is_full_frame_diagnostic_synthetic();
+        let camera_matched = left_metadata.is_camera_matched_synthetic()
+            && right_metadata.is_camera_matched_synthetic();
+        let Some(plan) = (if full_frame_diagnostic {
+            android_camera_probe::broker_full_frame_projection_plan_from_xr_views(
+                &left_metadata.camera_id,
+                &right_metadata.camera_id,
+                left_width,
+                left_height,
+                views,
+            )
+            .map(Camera2StereoPlan::from)
+        } else if camera_matched {
+            Self::latest_camera2_stereo_plan().map(|mut plan| {
+                plan.left_camera_id = left_metadata.camera_id.clone();
+                plan.right_camera_id = right_metadata.camera_id.clone();
+                plan.width = left_width;
+                plan.height = left_height;
+                plan.coordinate_chain =
+                    format!("broker-h264-camera-matched-stream-header/{}", plan.coordinate_chain);
+                plan
+            })
+        } else {
+            android_camera_probe::broker_synthetic_projection_plan_from_xr_views(
+                &left_metadata.camera_id,
+                &right_metadata.camera_id,
+                left_width,
+                left_height,
+                views,
+            )
+            .map(Camera2StereoPlan::from)
+        }) else {
             return false;
+        };
+        let source_binding_mode = if camera_matched {
+            "broker-h264-stream-header-camera-matched"
+        } else if full_frame_diagnostic {
+            "broker-h264-stream-header-full-frame-diagnostic"
+        } else {
+            "broker-h264-stream-header"
         };
 
         pair.left.camera_id = Some(plan.left_camera_id.clone());
@@ -2578,7 +2618,7 @@ impl App {
             left_metadata.projection_metadata_ready && right_metadata.projection_metadata_ready;
         pair.pose_source = broker_pair_pose_source(left_metadata, right_metadata);
         pair.source_eye_mapping = plan.source_eye_mapping.to_string();
-        pair.source_binding_mode = "broker-h264-stream-header".to_string();
+        pair.source_binding_mode = source_binding_mode.to_string();
         pair.coordinate_chain = plan.coordinate_chain.to_string();
         pair.fallback_reason = plan.fallback_reason.to_string();
         pair.left_surface_to_camera_h = plan.left_surface_to_camera_h;
@@ -2592,12 +2632,13 @@ impl App {
         if !self.broker_h264_projection_plan_logged {
             self.broker_h264_projection_plan_logged = true;
                 Self::emit_stereo_projection_marker(&format!(
-                    "phase=broker-h264-projection-plan status=ok projectionMetadataReady={} runtimeXrViewStateReady={} poseSource={} poseCoordinateConvention={} sourceEyeMapping={} coordinateChain={} leftCameraId={} rightCameraId={} width={} height={} leftMetadataBytes={} rightMetadataBytes={} leftMetadataSource={} rightMetadataSource={} leftSyntheticPattern={} rightSyntheticPattern={} leftStimulusRasterOrientation={} rightStimulusRasterOrientation={} leftStimulusUprightMarker={} rightStimulusUprightMarker={} {}",
+                    "phase=broker-h264-projection-plan status=ok projectionMetadataReady={} runtimeXrViewStateReady={} poseSource={} poseCoordinateConvention={} sourceEyeMapping={} sourceBindingMode={} coordinateChain={} leftCameraId={} rightCameraId={} width={} height={} leftMetadataBytes={} rightMetadataBytes={} leftMetadataSource={} rightMetadataSource={} leftProjectionGeometryProfile={} rightProjectionGeometryProfile={} leftSyntheticPattern={} rightSyntheticPattern={} leftStimulusRasterOrientation={} rightStimulusRasterOrientation={} leftStimulusUprightMarker={} rightStimulusUprightMarker={} {}",
                 pair.projection_metadata_ready,
                 pair.runtime_xr_view_state_ready,
                 marker_token(&pair.pose_source),
                 marker_token(&left_metadata.pose_coordinate_convention),
                 marker_token(&pair.source_eye_mapping),
+                marker_token(&pair.source_binding_mode),
                 marker_token(&pair.coordinate_chain),
                 marker_token(&plan.left_camera_id),
                 marker_token(&plan.right_camera_id),
@@ -2607,6 +2648,8 @@ impl App {
                 right_metadata.metadata_bytes,
                 marker_token(&left_metadata.source),
                 marker_token(&right_metadata.source),
+                marker_token(&left_metadata.projection_geometry_profile),
+                marker_token(&right_metadata.projection_geometry_profile),
                 marker_token(&left_metadata.synthetic_pattern),
                 marker_token(&right_metadata.synthetic_pattern),
                 marker_token(&left_metadata.stimulus_raster_orientation),
@@ -4266,6 +4309,8 @@ struct BrokerH264ProjectionMetadata {
     source: String,
     pose_source: String,
     pose_coordinate_convention: String,
+    synthetic_projection_profile: String,
+    projection_geometry_profile: String,
     synthetic_pattern: String,
     stimulus_raster_orientation: String,
     stimulus_upright_marker: String,
@@ -4303,6 +4348,18 @@ impl BrokerH264ProjectionMetadata {
             .and_then(JsonValue::as_str)
             .unwrap_or("unknown")
             .to_string();
+        let synthetic_projection_profile = object
+            .get("syntheticProjectionProfile")
+            .or_else(|| object.get("projectionGeometryProfile"))
+            .and_then(JsonValue::as_str)
+            .unwrap_or("head-anchored-virtual-camera")
+            .to_string();
+        let projection_geometry_profile = object
+            .get("projectionGeometryProfile")
+            .or_else(|| object.get("syntheticProjectionProfile"))
+            .and_then(JsonValue::as_str)
+            .unwrap_or(synthetic_projection_profile.as_str())
+            .to_string();
         let synthetic_pattern = object
             .get("syntheticPattern")
             .and_then(JsonValue::as_str)
@@ -4335,6 +4392,8 @@ impl BrokerH264ProjectionMetadata {
             source,
             pose_source,
             pose_coordinate_convention,
+            synthetic_projection_profile,
+            projection_geometry_profile,
             synthetic_pattern,
             stimulus_raster_orientation,
             stimulus_upright_marker,
@@ -4361,6 +4420,19 @@ impl BrokerH264ProjectionMetadata {
             && !self.stimulus_orientation_default
             && self.stimulus_raster_orientation == "top-left-origin-y-down"
             && self.stimulus_upright_marker == "color-bars-top"
+    }
+
+    fn synthetic_profile_is(&self, expected: &str) -> bool {
+        self.synthetic_projection_profile == expected || self.projection_geometry_profile == expected
+    }
+
+    fn is_camera_matched_synthetic(&self) -> bool {
+        self.source == "broker_app.synthetic_h264_stream" && self.synthetic_profile_is("camera-matched")
+    }
+
+    fn is_full_frame_diagnostic_synthetic(&self) -> bool {
+        self.source == "broker_app.synthetic_h264_stream"
+            && self.synthetic_profile_is("full-frame-diagnostic")
     }
 }
 

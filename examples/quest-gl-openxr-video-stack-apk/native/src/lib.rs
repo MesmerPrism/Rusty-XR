@@ -1971,6 +1971,8 @@ void main() {
         source: String,
         pose_source: String,
         pose_coordinate_convention: String,
+        synthetic_projection_profile: String,
+        projection_geometry_profile: String,
         synthetic_pattern: String,
         stimulus_raster_orientation: String,
         stimulus_upright_marker: String,
@@ -2007,6 +2009,18 @@ void main() {
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown")
                 .to_string();
+            let synthetic_projection_profile = object
+                .get("syntheticProjectionProfile")
+                .or_else(|| object.get("projectionGeometryProfile"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("head-anchored-virtual-camera")
+                .to_string();
+            let projection_geometry_profile = object
+                .get("projectionGeometryProfile")
+                .or_else(|| object.get("syntheticProjectionProfile"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(synthetic_projection_profile.as_str())
+                .to_string();
             let synthetic_pattern = object
                 .get("syntheticPattern")
                 .and_then(serde_json::Value::as_str)
@@ -2040,6 +2054,8 @@ void main() {
                 source,
                 pose_source,
                 pose_coordinate_convention,
+                synthetic_projection_profile,
+                projection_geometry_profile,
                 synthetic_pattern,
                 stimulus_raster_orientation,
                 stimulus_upright_marker,
@@ -2054,6 +2070,19 @@ void main() {
 
         fn is_synthetic(&self) -> bool {
             self.source == "broker_app.synthetic_h264_stream"
+        }
+
+        fn synthetic_profile_is(&self, expected: &str) -> bool {
+            self.synthetic_projection_profile == expected
+                || self.projection_geometry_profile == expected
+        }
+
+        fn is_camera_matched_synthetic(&self) -> bool {
+            self.is_synthetic() && self.synthetic_profile_is("camera-matched")
+        }
+
+        fn is_full_frame_diagnostic_synthetic(&self) -> bool {
+            self.is_synthetic() && self.synthetic_profile_is("full-frame-diagnostic")
         }
 
         fn has_explicit_top_left_stimulus_orientation(&self) -> bool {
@@ -2527,7 +2556,33 @@ void main() {
             {
                 return None;
             }
-            if left.is_synthetic() && right.is_synthetic() {
+            if left.is_full_frame_diagnostic_synthetic()
+                && right.is_full_frame_diagnostic_synthetic()
+            {
+                broker_full_frame_projection_plan_from_xr_views(
+                    left,
+                    right,
+                    width,
+                    height,
+                    views,
+                    projection_area_offset_y_uv,
+                    projection_area_scale,
+                )
+            } else if left.is_camera_matched_synthetic()
+                && right.is_camera_matched_synthetic()
+                && left.has_camera2_projection()
+                && right.has_camera2_projection()
+            {
+                camera2_projection_plan_from_xr_views(
+                    left,
+                    right,
+                    width,
+                    height,
+                    views,
+                    projection_area_offset_y_uv,
+                    projection_area_scale,
+                )
+            } else if left.is_synthetic() && right.is_synthetic() {
                 broker_synthetic_projection_plan_from_xr_views(
                     left,
                     right,
@@ -2779,6 +2834,85 @@ void main() {
         })
     }
 
+    fn broker_full_frame_projection_plan_from_xr_views(
+        left_metadata: &OesProjectionMetadata,
+        right_metadata: &OesProjectionMetadata,
+        width: u32,
+        height: u32,
+        views: &[xr::View],
+        projection_area_offset_y_uv: f32,
+        projection_area_scale: [f32; 2],
+    ) -> Option<OesProjectionPlan> {
+        let left_view = views.first()?;
+        let right_view = views.get(1)?;
+        let tracking = tracking_basis_from_xr_views(left_view, right_view)?;
+        let aspect = fov_aspect(left_view).unwrap_or(PROJECTION_SOURCE_ASPECT);
+        let surface = head_anchored_preview_surface_corners(
+            tracking,
+            PROJECTION_PREVIEW_FOV_Y_DEGREES,
+            PROJECTION_TARGET_DEPTH_METERS,
+            aspect,
+            PROJECTION_RAW_OVERSCAN,
+        )
+        .ok()?;
+        let left_eye_basis = eye_basis_from_xr_view(left_view)?;
+        let right_eye_basis = eye_basis_from_xr_view(right_view)?;
+        let left_surface_to_screen = surface_to_eye_screen_uv_homography(
+            surface,
+            left_eye_basis,
+            left_view.fov.angle_left.tan(),
+            left_view.fov.angle_right.tan(),
+            left_view.fov.angle_down.tan(),
+            left_view.fov.angle_up.tan(),
+        )
+        .ok()?;
+        let right_surface_to_screen = surface_to_eye_screen_uv_homography(
+            surface,
+            right_eye_basis,
+            right_view.fov.angle_left.tan(),
+            right_view.fov.angle_right.tan(),
+            right_view.fov.angle_down.tan(),
+            right_view.fov.angle_up.tan(),
+        )
+        .ok()?;
+        let left_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
+            invert_homography(left_surface_to_screen)?,
+            projection_area_offset_y_uv,
+            projection_area_scale,
+        );
+        let right_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
+            invert_homography(right_surface_to_screen)?,
+            projection_area_offset_y_uv,
+            projection_area_scale,
+        );
+        let identity = identity_homography();
+        let left_source_label = projection_source_label(left_metadata, width, height);
+        let right_source_label = projection_source_label(right_metadata, width, height);
+
+        Some(OesProjectionPlan {
+            left: OesEyeProjection {
+                eye: Eye::Left,
+                screen_to_surface_h: left_screen_to_surface_h,
+                surface_to_camera_h: identity,
+                screen_to_camera_h: left_screen_to_surface_h,
+                source_label: left_source_label,
+                source_eye: "left".to_string(),
+                use_surface_texture_transform: !left_metadata
+                    .has_explicit_top_left_stimulus_orientation(),
+            },
+            right: OesEyeProjection {
+                eye: Eye::Right,
+                screen_to_surface_h: right_screen_to_surface_h,
+                surface_to_camera_h: identity,
+                screen_to_camera_h: right_screen_to_surface_h,
+                source_label: right_source_label,
+                source_eye: "right".to_string(),
+                use_surface_texture_transform: !right_metadata
+                    .has_explicit_top_left_stimulus_orientation(),
+            },
+        })
+    }
+
     fn camera2_projection_plan_from_xr_views(
         left_metadata: &OesProjectionMetadata,
         right_metadata: &OesProjectionMetadata,
@@ -2902,12 +3036,13 @@ void main() {
             "camera2_stream_header"
         };
         format!(
-            "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:pattern={}:size={}x{}",
+            "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:pattern={}:size={}x{}",
             metadata_label,
             metadata.source,
             metadata.camera_id,
             metadata.pose_source,
             metadata.pose_coordinate_convention,
+            metadata.projection_geometry_profile,
             metadata.synthetic_pattern,
             width,
             height

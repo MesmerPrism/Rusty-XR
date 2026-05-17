@@ -2906,9 +2906,16 @@ unsafe fn run_vulkan(
                         if last_logged_prepared_stereo_frame_index != Some(stereo_frame.index)
                             && (stereo_frame.index == 0 || stereo_frame.index % 120 == 0)
                         {
-                            let orientation_accepted = projection_active
-                                && controls.left_texture_transform.is_explicit_visual_check()
-                                && controls.right_texture_transform.is_explicit_visual_check();
+                            let explicit_visual_check =
+                                controls.left_texture_transform.is_explicit_visual_check()
+                                    && controls.right_texture_transform.is_explicit_visual_check();
+                            let accepted_flat_visual_check =
+                                !projection_active
+                                    && config.visual_release_accepted
+                                    && explicit_visual_check;
+                            let orientation_accepted =
+                                explicit_visual_check
+                                    && (projection_active || accepted_flat_visual_check);
                             let pose_source = stereo_frame
                                 .left
                                 .diagnostics
@@ -2936,7 +2943,13 @@ unsafe fn run_vulkan(
                                 "Rusty XR GPU stereo camera draw prepared frame {} requestedTier={} activeTier={} alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true cpuUploadCount=0 poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} orientationAccepted={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} importCacheSize={} stereoDescriptorCacheSize={} projectionShaderPath={} projectionMetadataReady={} fallbackReason={}",
                                 stereo_frame.index,
                                 config.camera_tier.stable_id(),
-                                if projection_active { "gpu-projected" } else { "gpu-buffer-probe" },
+                                if projection_active {
+                                    "gpu-projected"
+                                } else if accepted_flat_visual_check {
+                                    "gpu-flat-visual-check"
+                                } else {
+                                    "gpu-buffer-probe"
+                                },
                                 projection_active,
                                 pose_source,
                                 pose_reference,
@@ -2964,7 +2977,13 @@ unsafe fn run_vulkan(
                                 controls.diagnostic_step,
                                 gpu_camera_renderer.imports.len(),
                                 gpu_camera_renderer.stereo_descriptors.len(),
-                                if projection_active { "projected" } else { "flat-probe" },
+                                if projection_active {
+                                    "projected"
+                                } else if accepted_flat_visual_check {
+                                    "flat-visual-check"
+                                } else {
+                                    "flat-probe"
+                                },
                                 stereo_projection_metadata_ready(&stereo_frame),
                                 if projection_active {
                                     if config.visual_release_accepted {
@@ -2972,6 +2991,8 @@ unsafe fn run_vulkan(
                                     } else {
                                         "projected shader path active; visual orientation/alignment acceptance still required"
                                     }
+                                } else if accepted_flat_visual_check {
+                                    "missing per-eye projection metadata; drawing accepted flat stereo visual-check path"
                                 } else {
                                     "missing per-eye projection metadata or explicit texture orientation"
                                 }
@@ -5069,7 +5090,14 @@ impl GpuCameraRenderer {
             };
         let projection_active = projection_homographies.is_some();
         let uniforms = uniforms.with_border_cycle_phase(config, frame_count);
-        if config.camera_tier == CameraCompositeTier::GpuProjected && !projection_active {
+        let accepted_flat_visual_check =
+            config.visual_release_accepted
+                && controls.left_texture_transform.is_explicit_visual_check()
+                && controls.right_texture_transform.is_explicit_visual_check();
+        if config.camera_tier == CameraCompositeTier::GpuProjected
+            && !projection_active
+            && !accepted_flat_visual_check
+        {
             return;
         }
         let uniform_offset = resources.projection_uniform_offset(frame_count);
@@ -6080,14 +6108,19 @@ fn projected_stereo_homographies(
     views: &[xr::View],
     resolution: vk::Extent2D,
 ) -> Option<(DisplayEyeProjectionMapping, DisplayEyeProjectionMapping)> {
-    let left_extrinsics = frame.left.metadata.extrinsics?;
-    let right_extrinsics = frame.right.metadata.extrinsics?;
-    if !left_extrinsics.is_valid() || !right_extrinsics.is_valid() {
-        return None;
-    }
-    let reference_center = (left_extrinsics.world_from_camera.position
-        + right_extrinsics.world_from_camera.position)
-        * 0.5;
+    let full_frame_diagnostic =
+        is_full_frame_diagnostic_frame(&frame.left) && is_full_frame_diagnostic_frame(&frame.right);
+    let reference_center = if full_frame_diagnostic {
+        Vec3::ZERO
+    } else {
+        let left_extrinsics = frame.left.metadata.extrinsics?;
+        let right_extrinsics = frame.right.metadata.extrinsics?;
+        if !left_extrinsics.is_valid() || !right_extrinsics.is_valid() {
+            return None;
+        }
+        (left_extrinsics.world_from_camera.position + right_extrinsics.world_from_camera.position)
+            * 0.5
+    };
     let left_view = views.first()?;
     let right_view = views.get(1).unwrap_or(left_view);
     let (display_left_source, display_right_source) = match controls.source_eye_mapping {
@@ -6121,6 +6154,15 @@ fn projected_display_eye_homography(
     resolution: vk::Extent2D,
     reference_center: Vec3,
 ) -> Option<DisplayEyeProjectionMapping> {
+    if is_full_frame_diagnostic_frame(frame) {
+        return projected_full_frame_display_eye_homography(
+            frame,
+            config,
+            views,
+            display_view,
+            resolution,
+        );
+    }
     let intrinsics = frame.metadata.intrinsics?;
     let source_domain = frame.metadata.intrinsics_domain?;
     let scaled = scale_intrinsics_to_image(
@@ -6201,6 +6243,68 @@ fn projected_display_eye_homography(
         screen_to_surface,
         surface_to_screen,
     })
+}
+
+fn projected_full_frame_display_eye_homography(
+    _frame: &HeadsetCameraGpuFrame,
+    config: &crate::RuntimeConfig,
+    views: &[xr::View],
+    display_view: &xr::View,
+    resolution: vk::Extent2D,
+) -> Option<DisplayEyeProjectionMapping> {
+    let tracking = tracking_basis_from_views(views)?;
+    let aspect = views
+        .first()
+        .and_then(|view| fov_aspect(view.fov))
+        .unwrap_or_else(|| {
+            if resolution.height == 0 {
+                1.0
+            } else {
+                resolution.width as f32 / resolution.height as f32
+            }
+        })
+        .clamp(0.25, 4.0);
+    let surface_corners = head_anchored_preview_surface_corners(
+        tracking,
+        config.camera_preview_fov_y_degrees,
+        config.camera_projection_scale.max(0.05),
+        aspect,
+        config.camera_raw_overlay_overscan,
+    )
+    .ok()?;
+    let eye_basis = eye_basis_from_view(display_view)?;
+    let surface_to_screen = surface_to_eye_screen_uv_homography(
+        surface_corners,
+        eye_basis,
+        display_view.fov.angle_left.tan(),
+        display_view.fov.angle_right.tan(),
+        display_view.fov.angle_down.tan(),
+        display_view.fov.angle_up.tan(),
+    )
+    .ok()?;
+    let offset_y_uv = config.camera_projection_area_offset_y_uv;
+    let screen_to_surface =
+        screen_to_domain_with_visual_y_offset(invert_homography(surface_to_screen)?, offset_y_uv);
+    let surface_to_screen = domain_to_screen_with_visual_y_offset(surface_to_screen, offset_y_uv);
+    Some(DisplayEyeProjectionMapping {
+        surface_to_camera: identity_homography(),
+        screen_to_camera: screen_to_surface,
+        screen_to_surface,
+        surface_to_screen,
+    })
+}
+
+fn is_full_frame_diagnostic_frame(frame: &HeadsetCameraGpuFrame) -> bool {
+    frame
+        .diagnostics
+        .synthetic_projection_profile
+        .as_deref()
+        .is_some_and(|value| value == "full-frame-diagnostic")
+        || frame
+            .diagnostics
+            .projection_geometry_profile
+            .as_deref()
+            .is_some_and(|value| value == "full-frame-diagnostic")
 }
 
 fn eye_basis_from_view(view: &xr::View) -> Option<CameraBasis> {

@@ -57,6 +57,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
     private static final String SOURCE_MODE_BROKER_SYNTHETIC = "broker-synthetic";
     private static final String SOURCE_MODE_EXISTING_STREAM = "existing-stream";
     private static final String DEFAULT_SYNTHETIC_PATTERN = "diagnostic-grid";
+    private static final String DEFAULT_SYNTHETIC_PROJECTION_PROFILE = "head-anchored-virtual-camera";
     private static final String STEREO_PAIRING_TIMESTAMP_NEAREST = "timestamp-nearest";
     private static final String STEREO_PAIRING_FRAME_ORDER = "frame-order";
     private static final long STEREO_REPLAY_DELIVERY_INTERVAL_NS = 33_333_333L;
@@ -101,6 +102,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final boolean startBrokerCameraStream;
         final boolean startBrokerSyntheticStream;
         final String syntheticPattern;
+        final String syntheticProjectionProfile;
         final boolean liveDecode;
         final boolean byteIdentityProbe;
         final String stereoPairingMode;
@@ -134,6 +136,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             boolean liveStream,
             String sourceMode,
             String syntheticPattern,
+            String syntheticProjectionProfile,
             boolean liveDecode,
             boolean byteIdentityProbe,
             String stereoPairingMode,
@@ -168,6 +171,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             this.startBrokerCameraStream = SOURCE_MODE_BROKER_CAMERA.equals(this.sourceMode);
             this.startBrokerSyntheticStream = SOURCE_MODE_BROKER_SYNTHETIC.equals(this.sourceMode);
             this.syntheticPattern = normalizeSyntheticPattern(syntheticPattern);
+            this.syntheticProjectionProfile = normalizeSyntheticProjectionProfile(syntheticProjectionProfile);
             this.liveDecode = liveDecode;
             this.byteIdentityProbe = byteIdentityProbe;
             this.stereoPairingMode = normalizeStereoPairingMode(stereoPairingMode);
@@ -309,6 +313,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("broker_camera_stream_start_requested", config.startBrokerCameraStream);
             report.put("broker_synthetic_stream_start_requested", config.startBrokerSyntheticStream);
             report.put("synthetic_pattern", config.syntheticPattern);
+            report.put("synthetic_projection_profile", config.syntheticProjectionProfile);
             report.put("decode_output_mode", config.decodeOutputMode);
             report.put("live_decode_requested", config.liveDecode);
             report.put("byte_identity_probe_requested", config.byteIdentityProbe);
@@ -1042,6 +1047,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
         if (config.startBrokerSyntheticStream) {
             params.put("source_mode", "synthetic_surface");
             params.put("synthetic_pattern", config.syntheticPattern);
+            params.put("synthetic_projection_profile", config.syntheticProjectionProfile);
         }
 
         JSONObject command = new JSONObject();
@@ -2608,6 +2614,25 @@ final class BrokerH264ConsumerProbe implements Runnable {
         return DEFAULT_SYNTHETIC_PATTERN;
     }
 
+    private static String normalizeSyntheticProjectionProfile(String value) {
+        if (value == null || value.trim().length() == 0) {
+            return DEFAULT_SYNTHETIC_PROJECTION_PROFILE;
+        }
+        String normalized = value.trim().toLowerCase(Locale.US).replace('_', '-');
+        if ("camera-matched".equals(normalized) || "camera-matched-synthetic".equals(normalized)) {
+            return "camera-matched";
+        }
+        if ("full-frame".equals(normalized) ||
+            "full-frame-diagnostic".equals(normalized) ||
+            "projection-space-diagnostic".equals(normalized)) {
+            return "full-frame-diagnostic";
+        }
+        if (DEFAULT_SYNTHETIC_PROJECTION_PROFILE.equals(normalized)) {
+            return DEFAULT_SYNTHETIC_PROJECTION_PROFILE;
+        }
+        return DEFAULT_SYNTHETIC_PROJECTION_PROFILE;
+    }
+
     private static String normalizeStereoPairingMode(String value) {
         if (value == null || value.trim().length() == 0) {
             return STEREO_PAIRING_TIMESTAMP_NEAREST;
@@ -3288,6 +3313,11 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 !"missing".equals(streamProjectionMetadata.optString("poseSource", "missing")) &&
                 !streamProjectionMetadata.optBoolean("missingPose", false);
 
+            metadata.put(
+                "source",
+                hasStreamProjectionMetadata
+                    ? streamProjectionMetadata.optString("source", "broker_app.h264_stream")
+                    : "broker_app.h264_stream");
             metadata.put("sourceLabel", "Broker H.264 decoded hardware buffer");
             metadata.put(
                 "cameraId",
@@ -3337,6 +3367,27 @@ final class BrokerH264ConsumerProbe implements Runnable {
             if (hasStreamProjectionMetadata && streamProjectionMetadata.has("lensPoseReferenceLabel")) {
                 metadata.put("lensPoseReferenceLabel", streamProjectionMetadata.optString("lensPoseReferenceLabel"));
             }
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticPattern");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticSideMarker");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticProjectionProfile");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "projectionGeometryProfile");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticProjectionProfileRequested");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticProjectionProfileFallbackReason");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticGeometryReferenceCameraId");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticGeometryReferenceSource");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusOrientationSchema");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusRasterOrientation");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusOrigin");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusYAxis");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusUprightMarker");
+            if (hasStreamProjectionMetadata && streamProjectionMetadata.has("diagnosticSource")) {
+                metadata.put("diagnosticSource", streamProjectionMetadata.optBoolean("diagnosticSource", false));
+            }
+            if (hasStreamProjectionMetadata && streamProjectionMetadata.has("stimulusOrientationDefault")) {
+                metadata.put(
+                    "stimulusOrientationDefault",
+                    streamProjectionMetadata.optBoolean("stimulusOrientationDefault", false));
+            }
             if (intrinsics != null) {
                 metadata.put("intrinsics", new JSONObject(intrinsics.toString()));
             }
@@ -3369,6 +3420,15 @@ final class BrokerH264ConsumerProbe implements Runnable {
         } catch (Exception ignored) {
         }
         return metadata.toString();
+    }
+
+    private static void copyOptionalStreamString(
+        JSONObject source,
+        JSONObject target,
+        String key) throws Exception {
+        if (source != null && source.has(key)) {
+            target.put(key, source.optString(key, ""));
+        }
     }
 
     private Socket connectWithRetry(String host, int port, int timeoutMs, String label) throws Exception {

@@ -35,6 +35,10 @@ each broker lane and writes `broker-restarts\` snapshots, which keeps stale
 unbounded stream sockets from looking like black-frame receiver failures.
 For deterministic projection work, pass
 `-BrokerH264SourceMode broker-synthetic -BrokerH264SyntheticPattern diagnostic-grid`.
+Add `-BrokerH264SyntheticProjectionProfile camera-matched` when the synthetic
+stream should use the same Camera2 projection geometry as the direct camera
+path, or `-BrokerH264SyntheticProjectionProfile full-frame-diagnostic` when the
+synthetic raster should act as projection-surface diagnostic content.
 The suite forwards the same broker source parameters into the Vulkan/HWB,
 GL/OES, and Makepad broker lanes so the screen-space analyzer can report both
 the hard solid-red footprint and the projection-stage rows found in each lane's

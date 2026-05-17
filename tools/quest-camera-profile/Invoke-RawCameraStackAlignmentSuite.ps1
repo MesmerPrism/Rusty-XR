@@ -20,6 +20,8 @@ param(
     [string]$BrokerH264LeftCameraId = "50",
     [string]$BrokerH264RightCameraId = "51",
     [string]$BrokerH264SyntheticPattern = "diagnostic-grid",
+    [ValidateSet("head-anchored-virtual-camera", "camera-matched", "full-frame-diagnostic")]
+    [string]$BrokerH264SyntheticProjectionProfile = "head-anchored-virtual-camera",
     [int]$BrokerH264LeftStreamPort = 8879,
     [int]$BrokerH264RightStreamPort = 8880,
     [int]$BrokerH264Width = 1280,
@@ -497,6 +499,7 @@ function Get-BrokerH264Override {
     $values = [System.Collections.Generic.List[string]]::new()
     $values.Add("rustyxr.brokerH264SourceMode=$BrokerH264SourceMode")
     $values.Add("rustyxr.brokerH264SyntheticPattern=$BrokerH264SyntheticPattern")
+    $values.Add("rustyxr.brokerH264SyntheticProjectionProfile=$BrokerH264SyntheticProjectionProfile")
     $values.Add("rustyxr.brokerH264StreamPort=$BrokerH264LeftStreamPort")
     $values.Add("rustyxr.brokerH264RightStreamPort=$BrokerH264RightStreamPort")
     $values.Add("rustyxr.brokerH264CaptureMs=$BrokerH264CaptureMs")
@@ -696,6 +699,8 @@ function Invoke-MakepadMode {
         $argList.Add("-UseBrokerH264Synthetic")
         $argList.Add("-BrokerH264SyntheticPattern")
         $argList.Add($BrokerH264SyntheticPattern)
+        $argList.Add("-BrokerH264SyntheticProjectionProfile")
+        $argList.Add($BrokerH264SyntheticProjectionProfile)
     }
 
     if ($BrokerSourceMode) {
@@ -923,6 +928,7 @@ $lines.Add(("- Sample seconds: ``{0}``" -f $SampleSeconds))
 $lines.Add(("- Freshness frames: ``{0}``" -f $FreshnessFrames))
 $lines.Add(("- Broker H.264 source mode: ``{0}``" -f $BrokerH264SourceMode))
 $lines.Add(("- Broker H.264 synthetic pattern: ``{0}``" -f $BrokerH264SyntheticPattern))
+$lines.Add(("- Broker H.264 synthetic projection profile: ``{0}``" -f $BrokerH264SyntheticProjectionProfile))
 $lines.Add(("- Broker H.264 stream ports: left ``{0}``, right ``{1}``" -f $BrokerH264LeftStreamPort, $BrokerH264RightStreamPort))
 $lines.Add(("- Broker H.264 source shape: ``{0}x{1}``, bitrate ``{2}``, requested FPS ``{3}``, capture ms ``{4}``, max packets ``{5}``" -f $BrokerH264Width, $BrokerH264Height, $BrokerH264BitrateBps, $BrokerH264FrameRateHz, $BrokerH264CaptureMs, $BrokerH264MaxPackets))
 $lines.Add(("- Broker camera IDs: left ``{0}``, right ``{1}``" -f $BrokerH264LeftCameraId, $BrokerH264RightCameraId))

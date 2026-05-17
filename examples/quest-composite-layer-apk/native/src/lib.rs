@@ -116,6 +116,7 @@ pub(crate) struct HeadsetCameraFrame {
 #[derive(Clone, Debug)]
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) struct HeadsetCameraFrameDiagnostics {
+    pub(crate) source: Option<String>,
     pub(crate) camera_id: Option<String>,
     pub(crate) lens_facing: Option<String>,
     pub(crate) lens_facing_rank: Option<i32>,
@@ -126,6 +127,10 @@ pub(crate) struct HeadsetCameraFrameDiagnostics {
     pub(crate) pose_source: Option<String>,
     pub(crate) pose_coordinate_convention: Option<String>,
     pub(crate) lens_pose_reference_label: Option<String>,
+    pub(crate) diagnostic_source: Option<bool>,
+    pub(crate) synthetic_projection_profile: Option<String>,
+    pub(crate) projection_geometry_profile: Option<String>,
+    pub(crate) synthetic_pattern: Option<String>,
     pub(crate) requested_stereo_layout: Option<String>,
     pub(crate) stereo_layout: StereoMediaLayout,
     pub(crate) mono_fallback: bool,
@@ -2651,6 +2656,7 @@ fn parse_f32_list(value: &str, expected_len: usize) -> Option<Vec<f32>> {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct JavaCameraFrameMetadata {
+    source: Option<String>,
     source_label: Option<String>,
     camera_id: Option<String>,
     lens_facing: Option<String>,
@@ -2673,6 +2679,10 @@ struct JavaCameraFrameMetadata {
     pose_source: Option<String>,
     pose_coordinate_convention: Option<String>,
     lens_pose_reference_label: Option<String>,
+    diagnostic_source: Option<bool>,
+    synthetic_projection_profile: Option<String>,
+    projection_geometry_profile: Option<String>,
+    synthetic_pattern: Option<String>,
     extrinsics: Option<JavaCameraExtrinsics>,
     missing_intrinsics: Option<bool>,
     missing_pose: Option<bool>,
@@ -2808,6 +2818,7 @@ fn public_camera_metadata(
     }
 
     let diagnostics = HeadsetCameraFrameDiagnostics {
+        source: bridge.and_then(|value| value.source.clone()),
         camera_id: bridge.and_then(|value| value.camera_id.clone()),
         lens_facing: bridge.and_then(|value| value.lens_facing.clone()),
         lens_facing_rank: bridge.and_then(|value| value.lens_facing_rank),
@@ -2826,6 +2837,12 @@ fn public_camera_metadata(
         pose_coordinate_convention: bridge
             .and_then(|value| value.pose_coordinate_convention.clone()),
         lens_pose_reference_label: bridge.and_then(|value| value.lens_pose_reference_label.clone()),
+        diagnostic_source: bridge.and_then(|value| value.diagnostic_source),
+        synthetic_projection_profile: bridge
+            .and_then(|value| value.synthetic_projection_profile.clone()),
+        projection_geometry_profile: bridge
+            .and_then(|value| value.projection_geometry_profile.clone()),
+        synthetic_pattern: bridge.and_then(|value| value.synthetic_pattern.clone()),
         requested_stereo_layout: bridge.and_then(|value| value.requested_stereo_layout.clone()),
         stereo_layout: bridge
             .and_then(|value| value.stereo_layout.as_deref())
@@ -3639,6 +3656,7 @@ mod tests {
     #[test]
     fn java_camera_metadata_marks_mono_missing_pose_fallback() {
         let bridge = JavaCameraFrameMetadata {
+            source: None,
             source_label: Some("Camera2 7 back".to_string()),
             camera_id: Some("7".to_string()),
             lens_facing: Some("back".to_string()),
@@ -3675,6 +3693,10 @@ mod tests {
             pose_source: Some("missing".to_string()),
             pose_coordinate_convention: None,
             lens_pose_reference_label: None,
+            diagnostic_source: None,
+            synthetic_projection_profile: None,
+            projection_geometry_profile: None,
+            synthetic_pattern: None,
             extrinsics: None,
             missing_intrinsics: Some(false),
             missing_pose: Some(true),

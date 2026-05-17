@@ -68,6 +68,7 @@ Recommended strict target:
 ```text
 source mode: broker-synthetic
 pattern: diagnostic-grid or motion-bar
+projection profile: camera-matched for camera-shape parity, full-frame-diagnostic for projection-space coverage
 width/height: 1280x1280
 bitrate: 6000000
 left/right ports: 8879 / 8880
@@ -78,6 +79,22 @@ requested source fps: 50 when testing camera-realistic cadence
 
 Record observed packet, decode, texture-update, and render cadence. The
 requested source fps is not proof; the observed cadence is the result.
+
+Synthetic source geometry is explicit:
+
+- `head-anchored-virtual-camera` is the backwards-compatible diagnostic mode.
+  It models a synthetic camera with a public 60 degree vertical field of view.
+- `camera-matched` keeps synthetic pixels but asks the broker to attach the
+  selected Camera2 intrinsics and pose. Use it when broker-synthetic should
+  have the same projected shape as the direct camera path.
+- `full-frame-diagnostic` treats the synthetic raster as projection-surface
+  diagnostic content. Use it when testing full-frame orientation, borders, and
+  projection-area separation rather than camera-shaped projection.
+
+All three profiles must still respect the two-area render convention: the
+submitted XR surface can be full size, while the camera/projection content is
+visible only inside the projection area and the surrounding matte/border remains
+under the selected invalid-region policy.
 
 ## Projection Area Pass
 
@@ -158,6 +175,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -MakepadXrActivity <xr-activity> `
   -BrokerH264SourceMode broker-synthetic `
   -BrokerH264SyntheticPattern diagnostic-grid `
+  -BrokerH264SyntheticProjectionProfile camera-matched `
   -ProjectionBorderPolicy solid-red `
   -ProcessingLayer blur `
   -BlurRadiusPx 2.0

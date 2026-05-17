@@ -26,6 +26,8 @@ param(
     [int]$BrokerH264LeftStreamPort = 8879,
     [int]$BrokerH264RightStreamPort = 8880,
     [string]$BrokerH264SyntheticPattern = "diagnostic-grid",
+    [ValidateSet("head-anchored-virtual-camera", "camera-matched", "full-frame-diagnostic")]
+    [string]$BrokerH264SyntheticProjectionProfile = "head-anchored-virtual-camera",
     [string]$BrokerH264LeftCameraId = "",
     [string]$BrokerH264RightCameraId = "",
     [int]$BrokerH264Width = 1280,
@@ -126,6 +128,7 @@ function Set-MakepadBrokerH264Profile {
         "debug.rustyxr.makepad.broker.h264.right.stream.port" = $BrokerH264RightStreamPort
         "debug.rustyxr.makepad.broker.h264.source.mode" = $sourceMode
         "debug.rustyxr.makepad.broker.h264.synthetic.pattern" = $BrokerH264SyntheticPattern
+        "debug.rustyxr.makepad.broker.h264.synthetic.projection.profile" = $BrokerH264SyntheticProjectionProfile
         "debug.rustyxr.makepad.broker.h264.left.camera.id" = $BrokerH264LeftCameraId
         "debug.rustyxr.makepad.broker.h264.right.camera.id" = $BrokerH264RightCameraId
         "debug.rustyxr.makepad.broker.h264.width" = $BrokerH264Width
@@ -558,6 +561,7 @@ $summary = [ordered]@{
     useBrokerH264Synthetic = [bool]$UseBrokerH264Synthetic
     useBrokerH264Camera = [bool]$UseBrokerH264Camera
     brokerH264SourceMode = if ($UseBrokerH264Camera) { "broker-camera" } elseif ($UseBrokerH264Synthetic) { "broker-synthetic" } else { "disabled" }
+    brokerH264SyntheticProjectionProfile = $BrokerH264SyntheticProjectionProfile
     projectionBorderPolicy = $ProjectionBorderPolicy
     nativePassthroughRequested = [bool]($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0)
     projectionAreaOpacity = $ProjectionAreaOpacity

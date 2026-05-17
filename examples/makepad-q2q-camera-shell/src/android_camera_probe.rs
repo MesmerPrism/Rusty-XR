@@ -327,6 +327,74 @@ pub fn broker_synthetic_projection_plan_from_xr_views(
     })
 }
 
+pub fn broker_full_frame_projection_plan_from_xr_views(
+    left_camera_id: &str,
+    right_camera_id: &str,
+    width: u32,
+    height: u32,
+    views: XrDisplayViews,
+) -> Option<StereoProjectionPlan> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let tracking = tracking_basis_from_xr_views(views)?;
+    let aspect = fov_aspect(views.left).unwrap_or(PROJECTION_SOURCE_ASPECT);
+    let surface = head_anchored_preview_surface_corners(
+        tracking,
+        PROJECTION_PREVIEW_FOV_Y_DEGREES,
+        PROJECTION_TARGET_DEPTH_METERS,
+        aspect,
+        PROJECTION_RAW_OVERSCAN,
+    )
+    .ok()?;
+    let left_eye_basis = eye_basis_from_xr_view(views.left)?;
+    let right_eye_basis = eye_basis_from_xr_view(views.right)?;
+    let left_surface_to_screen = surface_to_eye_screen_uv_homography(
+        surface,
+        left_eye_basis,
+        views.left.angle_left.tan(),
+        views.left.angle_right.tan(),
+        views.left.angle_down.tan(),
+        views.left.angle_up.tan(),
+    )
+    .ok()?;
+    let right_surface_to_screen = surface_to_eye_screen_uv_homography(
+        surface,
+        right_eye_basis,
+        views.right.angle_left.tan(),
+        views.right.angle_right.tan(),
+        views.right.angle_down.tan(),
+        views.right.angle_up.tan(),
+    )
+    .ok()?;
+    let left_screen_to_surface_h = invert_homography(left_surface_to_screen)?;
+    let right_screen_to_surface_h = invert_homography(right_surface_to_screen)?;
+
+    Some(StereoProjectionPlan {
+        left_source_index: 0,
+        right_source_index: 1,
+        left_camera_id: left_camera_id.to_string(),
+        right_camera_id: right_camera_id.to_string(),
+        left_facing: "synthetic",
+        right_facing: "synthetic",
+        width,
+        height,
+        projection_metadata_ready: true,
+        pose_source: "projection-surface",
+        source_eye_mapping: "left-right",
+        coordinate_chain: "broker-synthetic-full-frame-projection-surface-to-openxr-view",
+        fallback_reason: "none",
+        left_surface_to_camera_h: IDENTITY_HOMOGRAPHY,
+        right_surface_to_camera_h: IDENTITY_HOMOGRAPHY,
+        left_screen_to_camera_h: left_screen_to_surface_h,
+        right_screen_to_camera_h: right_screen_to_surface_h,
+        left_screen_to_surface_h,
+        right_screen_to_surface_h,
+        projection_homography_ready: true,
+        runtime_xr_view_state_ready: true,
+    })
+}
+
 fn synthetic_broker_intrinsics(width: u32, height: u32) -> Option<CameraIntrinsics> {
     let width_f = width as f32;
     let height_f = height as f32;
