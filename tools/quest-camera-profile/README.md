@@ -33,6 +33,12 @@ ports, pass `-RestartBrokerBeforeBrokerModes` to
 `Invoke-RawCameraStackAlignmentSuite.ps1`. It restarts the broker console before
 each broker lane and writes `broker-restarts\` snapshots, which keeps stale
 unbounded stream sockets from looking like black-frame receiver failures.
+For deterministic projection work, pass
+`-BrokerH264SourceMode broker-synthetic -BrokerH264SyntheticPattern diagnostic-grid`.
+The suite forwards the same broker source parameters into the Vulkan/HWB,
+GL/OES, and Makepad broker lanes so the screen-space analyzer can report both
+the hard solid-red footprint and the projection-stage rows found in each lane's
+logcat.
 
 ## Camera Readiness Preflight
 

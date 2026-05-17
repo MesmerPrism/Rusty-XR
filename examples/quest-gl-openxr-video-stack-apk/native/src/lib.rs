@@ -441,6 +441,7 @@ mod android {
         fn glUniform1f(location: c_int, v0: f32);
         fn glUniform2f(location: c_int, v0: f32, v1: f32);
         fn glUniform3f(location: c_int, v0: f32, v1: f32, v2: f32);
+        fn glUniformMatrix4fv(location: c_int, count: c_int, transpose: u8, value: *const f32);
         fn glGenBuffers(n: c_int, buffers: *mut u32);
         fn glDeleteBuffers(n: c_int, buffers: *const u32);
         fn glBindBuffer(target: u32, buffer: u32);
@@ -538,16 +539,24 @@ mod android {
         let processing_layer = processing_layer_from_activity(&app);
         let blur_radius_px = blur_radius_px_from_activity(&app);
         let projection_area_offset_y_uv = projection_area_offset_y_uv_from_activity(&app);
+        let projection_area_scale = projection_area_scale_from_activity(&app);
+        let projection_area_radius = projection_area_radius_from_activity(&app);
+        let projection_area_corner_radius_uv = projection_area_corner_radius_uv_from_activity(&app);
         let projection_area_opacity = projection_area_opacity_from_activity(&app);
         let projection_border_opacity = projection_border_opacity_from_activity(&app);
         let projection_uses_source_alpha = projection_border_policy
             .needs_source_alpha(projection_area_opacity, projection_border_opacity);
         log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetYUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3}",
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3}",
             projection_border_policy.stable_id(),
             processing_layer.stable_id(),
             blur_radius_px,
             projection_area_offset_y_uv,
+            projection_area_scale[0],
+            projection_area_scale[1],
+            projection_area_radius[0],
+            projection_area_radius[1],
+            projection_area_corner_radius_uv,
             projection_area_opacity,
             projection_border_opacity
         ));
@@ -696,7 +705,11 @@ mod android {
                     probe.update_textures(&egl, frame_count);
                 }
                 let projection_plan = surface_texture_oes_probe.as_ref().and_then(|probe| {
-                    probe.projection_plan_from_xr_views(&views, projection_area_offset_y_uv)
+                    probe.projection_plan_from_xr_views(
+                        &views,
+                        projection_area_offset_y_uv,
+                        projection_area_scale,
+                    )
                 });
                 render_eye_swapchains(
                     &egl,
@@ -710,6 +723,10 @@ mod android {
                     projection_border_policy,
                     processing_layer,
                     blur_radius_px,
+                    projection_area_offset_y_uv,
+                    projection_area_scale,
+                    projection_area_radius,
+                    projection_area_corner_radius_uv,
                     projection_area_opacity,
                     projection_border_opacity,
                 )?;
@@ -1045,6 +1062,10 @@ mod android {
         projection_border_policy: OesProjectionBorderPolicy,
         processing_layer: OesProcessingLayer,
         blur_radius_px: f32,
+        projection_area_offset_y_uv: f32,
+        projection_area_scale: [f32; 2],
+        projection_area_radius: [f32; 2],
+        projection_area_corner_radius_uv: f32,
         projection_area_opacity: f32,
         projection_border_opacity: f32,
     ) -> Result<(), String> {
@@ -1074,9 +1095,15 @@ mod android {
             {
                 if let Some(source) = probe.updated_eye_texture(eye.view_index) {
                     let eye_projection = projection_plan.and_then(|plan| plan.eye(eye.view_index));
+                    let source_transform = eye_projection
+                        .map(|projection| {
+                            projection.source_transform_for_sample(source.transform_matrix)
+                        })
+                        .unwrap_or(source.transform_matrix);
                     match fbo.render_external_oes(
                         texture,
                         source.texture,
+                        source_transform,
                         eye.width,
                         eye.height,
                         renderer,
@@ -1084,6 +1111,10 @@ mod android {
                         projection_border_policy,
                         processing_layer,
                         blur_radius_px,
+                        projection_area_offset_y_uv,
+                        projection_area_scale,
+                        projection_area_radius,
+                        projection_area_corner_radius_uv,
                         projection_area_opacity,
                         projection_border_opacity,
                     ) {
@@ -1183,9 +1214,14 @@ mod android {
         screen_to_camera_h0_location: c_int,
         screen_to_camera_h1_location: c_int,
         screen_to_camera_h2_location: c_int,
+        source_transform_location: c_int,
         projection_border_policy_location: c_int,
         processing_layer_location: c_int,
         blur_radius_px_location: c_int,
+        projection_area_offset_y_uv_location: c_int,
+        projection_area_scale_location: c_int,
+        projection_area_radius_location: c_int,
+        projection_area_corner_radius_uv_location: c_int,
         projection_area_opacity_location: c_int,
         projection_border_opacity_location: c_int,
         source_texel_size_location: c_int,
@@ -1213,9 +1249,14 @@ uniform samplerExternalOES u_source;
 uniform vec3 u_screen_to_camera_h0;
 uniform vec3 u_screen_to_camera_h1;
 uniform vec3 u_screen_to_camera_h2;
+uniform mat4 u_source_transform;
 uniform int u_projection_border_policy;
 uniform int u_processing_layer;
 uniform float u_blur_radius_px;
+uniform float u_projection_area_offset_y_uv;
+uniform vec2 u_projection_area_scale;
+uniform vec2 u_projection_area_radius;
+uniform float u_projection_area_corner_radius_uv;
 uniform float u_projection_area_opacity;
 uniform float u_projection_border_opacity;
 uniform vec2 u_source_texel_size;
@@ -1228,8 +1269,15 @@ vec4 invalid_projection_color() {
     return vec4(1.0, 0.0, 0.0, clamp(u_projection_border_opacity, 0.0, 1.0));
 }
 float projection_area_distance(vec2 uv) {
-    vec2 half_size = vec2(0.47, 0.36);
-    float corner_radius = 0.08;
+    vec2 half_size = vec2(
+        clamp(u_projection_area_radius.x, 0.05, 0.50),
+        clamp(u_projection_area_radius.y, 0.05, 0.50)
+    );
+    float corner_radius = clamp(
+        u_projection_area_corner_radius_uv,
+        0.0,
+        min(half_size.x, half_size.y) - 0.001
+    );
     vec2 q = abs(uv - vec2(0.5)) - (half_size - vec2(corner_radius));
     float outside = length(max(q, vec2(0.0)));
     float inside = min(max(q.x, q.y), 0.0);
@@ -1237,8 +1285,10 @@ float projection_area_distance(vec2 uv) {
     return clamp(1.0 + signed_distance / max(min(half_size.x, half_size.y), 0.001), 0.0, 2.0);
 }
 vec4 camera_sample(vec2 uv) {
+    vec4 transformed = u_source_transform * vec4(clamp(uv, vec2(0.0), vec2(1.0)), 0.0, 1.0);
+    vec2 texture_uv = clamp(transformed.xy, vec2(0.0), vec2(1.0));
     return vec4(
-        texture(u_source, clamp(uv, vec2(0.0), vec2(1.0))).rgb,
+        texture(u_source, texture_uv).rgb,
         clamp(u_projection_area_opacity, 0.0, 1.0)
     );
 }
@@ -1266,7 +1316,11 @@ vec4 blurred_camera_sample(vec2 uv) {
     );
 }
 void main() {
-    if (projection_area_distance(v_uv) > 1.0) {
+    vec2 projection_scale = max(u_projection_area_scale, vec2(0.05));
+    vec2 projection_area_uv =
+        (v_uv - vec2(0.5)) * projection_scale + vec2(0.5) -
+        vec2(0.0, clamp(u_projection_area_offset_y_uv, -0.5, 0.5));
+    if (projection_area_distance(projection_area_uv) > 1.0) {
         out_color = invalid_projection_color();
         return;
     }
@@ -1313,9 +1367,14 @@ void main() {
                     uniform_location(program, "u_screen_to_camera_h0")?,
                     uniform_location(program, "u_screen_to_camera_h1")?,
                     uniform_location(program, "u_screen_to_camera_h2")?,
+                    uniform_location(program, "u_source_transform")?,
                     uniform_location(program, "u_projection_border_policy")?,
                     uniform_location(program, "u_processing_layer")?,
                     uniform_location(program, "u_blur_radius_px")?,
+                    uniform_location(program, "u_projection_area_offset_y_uv")?,
+                    uniform_location(program, "u_projection_area_scale")?,
+                    uniform_location(program, "u_projection_area_radius")?,
+                    uniform_location(program, "u_projection_area_corner_radius_uv")?,
                     uniform_location(program, "u_projection_area_opacity")?,
                     uniform_location(program, "u_projection_border_opacity")?,
                     uniform_location(program, "u_source_texel_size")?,
@@ -1326,9 +1385,14 @@ void main() {
                 screen_to_camera_h0_location,
                 screen_to_camera_h1_location,
                 screen_to_camera_h2_location,
+                source_transform_location,
                 projection_border_policy_location,
                 processing_layer_location,
                 blur_radius_px_location,
+                projection_area_offset_y_uv_location,
+                projection_area_scale_location,
+                projection_area_radius_location,
+                projection_area_corner_radius_uv_location,
                 projection_area_opacity_location,
                 projection_border_opacity_location,
                 source_texel_size_location,
@@ -1372,9 +1436,14 @@ void main() {
                 screen_to_camera_h0_location,
                 screen_to_camera_h1_location,
                 screen_to_camera_h2_location,
+                source_transform_location,
                 projection_border_policy_location,
                 processing_layer_location,
                 blur_radius_px_location,
+                projection_area_offset_y_uv_location,
+                projection_area_scale_location,
+                projection_area_radius_location,
+                projection_area_corner_radius_uv_location,
                 projection_area_opacity_location,
                 projection_border_opacity_location,
                 source_texel_size_location,
@@ -1385,9 +1454,14 @@ void main() {
             &mut self,
             source_oes_texture: u32,
             screen_to_camera_h: [[f32; 3]; 3],
+            source_transform: [f32; 16],
             projection_border_policy: OesProjectionBorderPolicy,
             processing_layer: OesProcessingLayer,
             blur_radius_px: f32,
+            projection_area_offset_y_uv: f32,
+            projection_area_scale: [f32; 2],
+            projection_area_radius: [f32; 2],
+            projection_area_corner_radius_uv: f32,
             projection_area_opacity: f32,
             projection_border_opacity: f32,
             source_texel_size: [f32; 2],
@@ -1397,6 +1471,12 @@ void main() {
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_EXTERNAL_OES, source_oes_texture);
                 glUniform1i(self.sampler_location, 0);
+                glUniformMatrix4fv(
+                    self.source_transform_location,
+                    1,
+                    0,
+                    source_transform.as_ptr(),
+                );
                 glUniform1i(
                     self.projection_border_policy_location,
                     projection_border_policy.shader_id(),
@@ -1405,6 +1485,24 @@ void main() {
                 glUniform1f(
                     self.blur_radius_px_location,
                     blur_radius_px.clamp(0.0, 16.0),
+                );
+                glUniform1f(
+                    self.projection_area_offset_y_uv_location,
+                    projection_area_offset_y_uv.clamp(-0.5, 0.5),
+                );
+                glUniform2f(
+                    self.projection_area_scale_location,
+                    projection_area_scale[0].clamp(0.05, 4.0),
+                    projection_area_scale[1].clamp(0.05, 4.0),
+                );
+                glUniform2f(
+                    self.projection_area_radius_location,
+                    projection_area_radius[0].clamp(0.05, 0.5),
+                    projection_area_radius[1].clamp(0.05, 0.5),
+                );
+                glUniform1f(
+                    self.projection_area_corner_radius_uv_location,
+                    projection_area_corner_radius_uv.clamp(0.0, 0.5),
                 );
                 glUniform1f(
                     self.projection_area_opacity_location,
@@ -1712,6 +1810,7 @@ void main() {
             &mut self,
             target_texture: u32,
             source_oes_texture: u32,
+            source_transform: [f32; 16],
             width: u32,
             height: u32,
             renderer: &mut OesCopyRenderer,
@@ -1719,6 +1818,10 @@ void main() {
             projection_border_policy: OesProjectionBorderPolicy,
             processing_layer: OesProcessingLayer,
             blur_radius_px: f32,
+            projection_area_offset_y_uv: f32,
+            projection_area_scale: [f32; 2],
+            projection_area_radius: [f32; 2],
+            projection_area_corner_radius_uv: f32,
             projection_area_opacity: f32,
             projection_border_opacity: f32,
         ) -> Result<GlFramebufferCompleteness, String> {
@@ -1752,9 +1855,14 @@ void main() {
                     projection
                         .map(|projection| projection.screen_to_camera_h)
                         .unwrap_or_else(identity_homography),
+                    source_transform,
                     projection_border_policy,
                     processing_layer,
                     blur_radius_px,
+                    projection_area_offset_y_uv,
+                    projection_area_scale,
+                    projection_area_radius,
+                    projection_area_corner_radius_uv,
                     projection_area_opacity,
                     projection_border_opacity,
                     [
@@ -1809,6 +1917,7 @@ void main() {
         textures: Vec<u32>,
         java_vm: JavaVM,
         consumed_frame_available_counts: [u64; VIEW_COUNT],
+        latest_transform_matrices: [[f32; 16]; VIEW_COUNT],
         update_rate_start: Instant,
         last_report_sequence: u64,
         projection_metadata: [Option<OesProjectionMetadata>; VIEW_COUNT],
@@ -1852,6 +1961,7 @@ void main() {
         queued_pts_us: Option<i64>,
         surface_timestamp_ns: Option<i64>,
         transform_hash: Option<String>,
+        transform_matrix: [f32; 16],
         update_tex_image_count: u64,
     }
 
@@ -1862,6 +1972,9 @@ void main() {
         pose_source: String,
         pose_coordinate_convention: String,
         synthetic_pattern: String,
+        stimulus_raster_orientation: String,
+        stimulus_upright_marker: String,
+        stimulus_orientation_default: bool,
         projection_metadata_ready: bool,
         delivered_width: u32,
         delivered_height: u32,
@@ -1899,6 +2012,21 @@ void main() {
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown")
                 .to_string();
+            let stimulus_raster_orientation = object
+                .get("stimulusRasterOrientation")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unspecified")
+                .to_string();
+            let stimulus_upright_marker = object
+                .get("stimulusUprightMarker")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unspecified")
+                .to_string();
+            let stimulus_orientation_default = !object.contains_key("stimulusRasterOrientation")
+                || object
+                    .get("stimulusOrientationDefault")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
             let projection_metadata_ready = object
                 .get("projectionMetadataReady")
                 .and_then(serde_json::Value::as_bool)
@@ -1913,6 +2041,9 @@ void main() {
                 pose_source,
                 pose_coordinate_convention,
                 synthetic_pattern,
+                stimulus_raster_orientation,
+                stimulus_upright_marker,
+                stimulus_orientation_default,
                 projection_metadata_ready,
                 delivered_width,
                 delivered_height,
@@ -1923,6 +2054,13 @@ void main() {
 
         fn is_synthetic(&self) -> bool {
             self.source == "broker_app.synthetic_h264_stream"
+        }
+
+        fn has_explicit_top_left_stimulus_orientation(&self) -> bool {
+            self.is_synthetic()
+                && !self.stimulus_orientation_default
+                && self.stimulus_raster_orientation == "top-left-origin-y-down"
+                && self.stimulus_upright_marker == "color-bars-top"
         }
 
         fn has_camera2_projection(&self) -> bool {
@@ -2031,6 +2169,17 @@ void main() {
         screen_to_camera_h: [[f32; 3]; 3],
         source_label: String,
         source_eye: String,
+        use_surface_texture_transform: bool,
+    }
+
+    impl OesEyeProjection {
+        fn source_transform_for_sample(&self, surface_texture_transform: [f32; 16]) -> [f32; 16] {
+            if self.use_surface_texture_transform {
+                surface_texture_transform
+            } else {
+                identity_texture_transform()
+            }
+        }
     }
 
     impl SurfaceTextureOesProbe {
@@ -2227,6 +2376,7 @@ void main() {
                 textures,
                 java_vm,
                 consumed_frame_available_counts: [0; VIEW_COUNT],
+                latest_transform_matrices: [identity_texture_transform(); VIEW_COUNT],
                 update_rate_start: Instant::now(),
                 last_report_sequence: 0,
                 projection_metadata: std::array::from_fn(|_| None),
@@ -2252,6 +2402,7 @@ void main() {
                     .saturating_sub(1);
                 match self.update_surface_texture(egl, view_index) {
                     Ok((timestamp_ns, transform_hash, transform_matrix)) => {
+                        self.latest_transform_matrices[view_index] = transform_matrix;
                         if let Some(eye) = self.status.eyes.get_mut(view_index) {
                             eye.record_update(
                                 frame_count,
@@ -2340,6 +2491,11 @@ void main() {
                 queued_pts_us: eye.latest_queued_pts_us,
                 surface_timestamp_ns: eye.latest_surface_texture_timestamp_ns,
                 transform_hash: eye.latest_transform_matrix_hash.clone(),
+                transform_matrix: self
+                    .latest_transform_matrices
+                    .get(view_index)
+                    .copied()
+                    .unwrap_or_else(identity_texture_transform),
                 update_tex_image_count: eye.update_tex_image_count,
             })
         }
@@ -2358,6 +2514,7 @@ void main() {
             &self,
             views: &[xr::View],
             projection_area_offset_y_uv: f32,
+            projection_area_scale: [f32; 2],
         ) -> Option<OesProjectionPlan> {
             let left = self.projection_metadata[0].as_ref()?;
             let right = self.projection_metadata[1].as_ref()?;
@@ -2378,6 +2535,7 @@ void main() {
                     height,
                     views,
                     projection_area_offset_y_uv,
+                    projection_area_scale,
                 )
             } else if left.has_camera2_projection() && right.has_camera2_projection() {
                 camera2_projection_plan_from_xr_views(
@@ -2387,6 +2545,7 @@ void main() {
                     height,
                     views,
                     projection_area_offset_y_uv,
+                    projection_area_scale,
                 )
             } else {
                 None
@@ -2505,7 +2664,7 @@ void main() {
                 return;
             };
             log_info(format!(
-                "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={}",
+                "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={}",
                 view_index,
                 metadata.source,
                 metadata.camera_id,
@@ -2513,6 +2672,9 @@ void main() {
                 metadata.delivered_width,
                 metadata.delivered_height,
                 metadata.synthetic_pattern,
+                metadata.stimulus_raster_orientation,
+                metadata.stimulus_upright_marker,
+                metadata.stimulus_orientation_default,
             ));
             if let Some(slot) = self.projection_metadata.get_mut(view_index) {
                 *slot = Some(metadata);
@@ -2527,6 +2689,7 @@ void main() {
         height: u32,
         views: &[xr::View],
         projection_area_offset_y_uv: f32,
+        projection_area_scale: [f32; 2],
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
@@ -2569,21 +2732,25 @@ void main() {
             right_view.fov.angle_up.tan(),
         )
         .ok()?;
-        let left_screen_to_surface_h = screen_to_domain_with_visual_y_offset(
+        let left_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
             invert_homography(left_surface_to_screen)?,
             projection_area_offset_y_uv,
+            projection_area_scale,
         );
-        let right_screen_to_surface_h = screen_to_domain_with_visual_y_offset(
+        let right_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
             invert_homography(right_surface_to_screen)?,
             projection_area_offset_y_uv,
+            projection_area_scale,
         );
-        let left_screen_to_camera_h = screen_to_domain_with_visual_y_offset(
+        let left_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
             screen_to_camera_uv_homography(left_surface_to_screen, surface_to_camera).ok()?,
             projection_area_offset_y_uv,
+            projection_area_scale,
         );
-        let right_screen_to_camera_h = screen_to_domain_with_visual_y_offset(
+        let right_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
             screen_to_camera_uv_homography(right_surface_to_screen, surface_to_camera).ok()?,
             projection_area_offset_y_uv,
+            projection_area_scale,
         );
         let left_source_label = projection_source_label(left_metadata, width, height);
         let right_source_label = projection_source_label(right_metadata, width, height);
@@ -2596,6 +2763,8 @@ void main() {
                 screen_to_camera_h: left_screen_to_camera_h,
                 source_label: left_source_label,
                 source_eye: "left".to_string(),
+                use_surface_texture_transform: !left_metadata
+                    .has_explicit_top_left_stimulus_orientation(),
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
@@ -2604,6 +2773,8 @@ void main() {
                 screen_to_camera_h: right_screen_to_camera_h,
                 source_label: right_source_label,
                 source_eye: "right".to_string(),
+                use_surface_texture_transform: !right_metadata
+                    .has_explicit_top_left_stimulus_orientation(),
             },
         })
     }
@@ -2615,6 +2786,7 @@ void main() {
         height: u32,
         views: &[xr::View],
         projection_area_offset_y_uv: f32,
+        projection_area_scale: [f32; 2],
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
@@ -2671,22 +2843,26 @@ void main() {
             right_view.fov.angle_up.tan(),
         )
         .ok()?;
-        let left_screen_to_surface_h = screen_to_domain_with_visual_y_offset(
+        let left_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
             invert_homography(left_surface_to_screen)?,
             projection_area_offset_y_uv,
+            projection_area_scale,
         );
-        let right_screen_to_surface_h = screen_to_domain_with_visual_y_offset(
+        let right_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
             invert_homography(right_surface_to_screen)?,
             projection_area_offset_y_uv,
+            projection_area_scale,
         );
-        let left_screen_to_camera_h = screen_to_domain_with_visual_y_offset(
+        let left_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
             screen_to_camera_uv_homography(left_surface_to_screen, left_surface_to_camera).ok()?,
             projection_area_offset_y_uv,
+            projection_area_scale,
         );
-        let right_screen_to_camera_h = screen_to_domain_with_visual_y_offset(
+        let right_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
             screen_to_camera_uv_homography(right_surface_to_screen, right_surface_to_camera)
                 .ok()?,
             projection_area_offset_y_uv,
+            projection_area_scale,
         );
         let left_source_label = projection_source_label(left_metadata, width, height);
         let right_source_label = projection_source_label(right_metadata, width, height);
@@ -2699,6 +2875,7 @@ void main() {
                 screen_to_camera_h: left_screen_to_camera_h,
                 source_label: left_source_label,
                 source_eye: "left".to_string(),
+                use_surface_texture_transform: true,
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
@@ -2707,6 +2884,7 @@ void main() {
                 screen_to_camera_h: right_screen_to_camera_h,
                 source_label: right_source_label,
                 source_eye: "right".to_string(),
+                use_surface_texture_transform: true,
             },
         })
     }
@@ -3039,11 +3217,18 @@ void main() {
         }
         let key = env.new_string(key).ok()?;
         let key_object = JObject::from(key);
+        let extras = env
+            .call_method(&intent, "getExtras", "()Landroid/os/Bundle;", &[])
+            .and_then(|value| value.l())
+            .ok()?;
+        if extras.is_null() {
+            return None;
+        }
         let value = env
             .call_method(
-                &intent,
-                "getStringExtra",
-                "(Ljava/lang/String;)Ljava/lang/String;",
+                &extras,
+                "get",
+                "(Ljava/lang/String;)Ljava/lang/Object;",
                 &[JValue::Object(&key_object)],
             )
             .and_then(|value| value.l())
@@ -3051,7 +3236,14 @@ void main() {
         if value.is_null() {
             return None;
         }
-        env.get_string(&JString::from(value))
+        let value_string = env
+            .call_method(&value, "toString", "()Ljava/lang/String;", &[])
+            .and_then(|value| value.l())
+            .ok()?;
+        if value_string.is_null() {
+            return None;
+        }
+        env.get_string(&JString::from(value_string))
             .map(|value| value.to_string_lossy().into_owned())
             .ok()
     }
@@ -3137,6 +3329,111 @@ void main() {
             .filter(|value| value.is_finite())
             .unwrap_or(0.0)
             .clamp(-0.5, 0.5)
+    }
+
+    fn projection_area_scale_from_activity(app: &android_activity::AndroidApp) -> [f32; 2] {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return [1.0, 1.0];
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return [1.0, 1.0];
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        let uniform_scale =
+            activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaScaleUv")
+                .or_else(|| {
+                    activity_string_extra(
+                        &mut env,
+                        &activity,
+                        "rustyxr.cameraProjectionAreaScaleUv",
+                    )
+                })
+                .and_then(|value| value.parse::<f32>().ok())
+                .filter(|value| value.is_finite())
+                .unwrap_or(1.0)
+                .clamp(0.05, 4.0);
+        let scale_x = activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaScaleX")
+            .or_else(|| {
+                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAreaScaleX")
+            })
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(uniform_scale)
+            .clamp(0.05, 4.0);
+        let scale_y = activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaScaleY")
+            .or_else(|| {
+                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAreaScaleY")
+            })
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(uniform_scale)
+            .clamp(0.05, 4.0);
+        [scale_x, scale_y]
+    }
+
+    fn projection_area_radius_from_activity(app: &android_activity::AndroidApp) -> [f32; 2] {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return [0.47, 0.36];
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return [0.47, 0.36];
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        let radius_x =
+            activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaRadiusXUv")
+                .or_else(|| {
+                    activity_string_extra(
+                        &mut env,
+                        &activity,
+                        "rustyxr.cameraProjectionAreaRadiusXUv",
+                    )
+                })
+                .and_then(|value| value.parse::<f32>().ok())
+                .filter(|value| value.is_finite())
+                .unwrap_or(0.47)
+                .clamp(0.05, 0.5);
+        let radius_y =
+            activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaRadiusYUv")
+                .or_else(|| {
+                    activity_string_extra(
+                        &mut env,
+                        &activity,
+                        "rustyxr.cameraProjectionAreaRadiusYUv",
+                    )
+                })
+                .and_then(|value| value.parse::<f32>().ok())
+                .filter(|value| value.is_finite())
+                .unwrap_or(0.36)
+                .clamp(0.05, 0.5);
+        [radius_x, radius_y]
+    }
+
+    fn projection_area_corner_radius_uv_from_activity(app: &android_activity::AndroidApp) -> f32 {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return 0.08;
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return 0.08;
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaCornerRadiusUv")
+            .or_else(|| {
+                activity_string_extra(
+                    &mut env,
+                    &activity,
+                    "rustyxr.cameraProjectionAreaCornerRadiusUv",
+                )
+            })
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(0.08)
+            .clamp(0.0, 0.5)
     }
 
     fn projection_area_opacity_from_activity(app: &android_activity::AndroidApp) -> f32 {
@@ -3614,13 +3911,28 @@ void main() {
         [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
     }
 
-    fn screen_to_domain_with_visual_y_offset(
+    fn identity_texture_transform() -> [f32; 16] {
+        [
+            1.0, 0.0, 0.0, 0.0, //
+            0.0, 1.0, 0.0, 0.0, //
+            0.0, 0.0, 1.0, 0.0, //
+            0.0, 0.0, 0.0, 1.0,
+        ]
+    }
+
+    fn screen_to_domain_with_visual_adjustment(
         mut rows: [[f32; 3]; 3],
         offset_y_uv: f32,
+        scale_uv: [f32; 2],
     ) -> [[f32; 3]; 3] {
-        let input_y_offset = -offset_y_uv.clamp(-0.5, 0.5);
+        let scale_x = scale_uv[0].clamp(0.05, 4.0);
+        let scale_y = scale_uv[1].clamp(0.05, 4.0);
+        let input_x_offset = 0.5 - 0.5 * scale_x;
+        let input_y_offset = 0.5 - 0.5 * scale_y - offset_y_uv.clamp(-0.5, 0.5);
         for row in &mut rows {
-            row[2] += row[1] * input_y_offset;
+            row[2] += row[0] * input_x_offset + row[1] * input_y_offset;
+            row[0] *= scale_x;
+            row[1] *= scale_y;
         }
         rows
     }

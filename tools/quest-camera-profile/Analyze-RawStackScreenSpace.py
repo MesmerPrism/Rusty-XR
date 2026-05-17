@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 from collections import deque
 from pathlib import Path
@@ -17,18 +18,78 @@ from PIL import Image, ImageDraw, ImageFont
 
 SCHEMA_VERSION = "rusty.xr.raw-stack-screen-space.v1"
 ROW_SAMPLE_FRACTIONS = (0.10, 0.25, 0.50, 0.75, 0.90)
+HOMOGRAPHY_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9_]*H)=([-+0-9.eE,]+)")
+STAGE_KEYS = {
+    "surface_to_camera": ("leftSurfaceToCameraH", "rightSurfaceToCameraH"),
+    "surface_to_screen": ("leftSurfaceToScreenH", "rightSurfaceToScreenH"),
+    "screen_to_surface": ("leftScreenToSurfaceH", "rightScreenToSurfaceH"),
+    "screen_to_camera": ("leftScreenToCameraH", "rightScreenToCameraH"),
+}
+SOURCE_FIELD_KEYS = (
+    "source",
+    "sourceMode",
+    "source_mode",
+    "brokerH264SourceMode",
+    "sourceBindingMode",
+    "syntheticPattern",
+    "synthetic_pattern",
+    "pattern",
+    "coordinateChain",
+    "coordinate_chain",
+    "poseSource",
+    "pose_source",
+    "projectionUvCorrection",
+    "cpuUploadPath",
+    "renderPath",
+    "cameraTier",
+    "activeTier",
+    "acquisition",
+    "transport",
+    "projectionMode",
+    "alignedProjection",
+    "projectionMetadataReady",
+    "projectionHomographyReady",
+    "runtimeXrViewStateReady",
+    "pairedLeftRightGpuBuffers",
+    "stimulusRasterOrientation",
+    "stimulusOrigin",
+    "stimulusYAxis",
+    "stimulusUprightMarker",
+    "stimulusOrientationDefault",
+)
+
+
+def filesystem_path(path: Path | str) -> str:
+    text = str(path)
+    if os.name != "nt" or text.startswith("\\\\?\\"):
+        return text
+    resolved = str(Path(text).resolve())
+    if resolved.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + resolved[2:]
+    return "\\\\?\\" + resolved
+
+
+def read_text(path: Path, encoding: str = "utf-8", errors: str = "strict") -> str:
+    with open(filesystem_path(path), "r", encoding=encoding, errors=errors) as handle:
+        return handle.read()
+
+
+def write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(filesystem_path(path), "w", encoding=encoding) as handle:
+        handle.write(text)
 
 
 def read_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8-sig"))
+    return json.loads(read_text(path, encoding="utf-8-sig"))
 
 
 def write_json(path: Path, value: Any) -> None:
-    path.write_text(json.dumps(value, indent=2, sort_keys=True), encoding="utf-8")
+    write_text(path, json.dumps(value, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def load_rgb(path: Path) -> np.ndarray:
-    return np.asarray(Image.open(path).convert("RGB"), dtype=np.uint8)
+    return np.asarray(Image.open(filesystem_path(path)).convert("RGB"), dtype=np.uint8)
 
 
 def red_invalid_mask(rgb: np.ndarray) -> np.ndarray:
@@ -53,6 +114,24 @@ def visible_content_mask(rgb: np.ndarray) -> np.ndarray:
     luma = (values[..., 0] * 299 + values[..., 1] * 587 + values[..., 2] * 114) // 1000
     saturation = max_channel - min_channel
     return (max_channel >= 28) | ((luma >= 18) & (saturation >= 12))
+
+
+def read_text_auto(path: Path) -> str:
+    with open(filesystem_path(path), "rb") as handle:
+        data = handle.read()
+    if data.startswith(b"\xff\xfe"):
+        return data.decode("utf-16-le", errors="replace")
+    if data.startswith(b"\xfe\xff"):
+        return data.decode("utf-16-be", errors="replace")
+
+    sample = data[:4096]
+    if sample and sample.count(b"\x00") > len(sample) // 8:
+        try:
+            return data.decode("utf-16-le", errors="replace")
+        except UnicodeError:
+            pass
+
+    return data.decode("utf-8", errors="replace")
 
 
 def downscale_bool(mask: np.ndarray, max_side: int = 720) -> tuple[np.ndarray, float]:
@@ -135,6 +214,63 @@ def row_span(mask: np.ndarray, y: int) -> dict[str, Any]:
     }
 
 
+def orientation_marker_summary(rgb: np.ndarray, bbox: list[int]) -> dict[str, Any]:
+    x, y, width, height = bbox
+    if width <= 0 or height <= 0:
+        return {"status": "blocked", "reason": "empty-bbox"}
+
+    crop = rgb[y : y + height, x : x + width].astype(np.int16)
+    if crop.size == 0:
+        return {"status": "blocked", "reason": "empty-crop"}
+
+    marker_width = max(16, int(round(width * 0.24)))
+    band_height = max(16, int(round(height * 0.24)))
+    top = crop[:band_height, :marker_width]
+    bottom = crop[max(0, height - band_height) : height, :marker_width]
+    if top.size == 0 or bottom.size == 0:
+        return {"status": "blocked", "reason": "empty-marker-band"}
+
+    def green_fraction(region: np.ndarray) -> float:
+        red = region[..., 0]
+        green = region[..., 1]
+        blue = region[..., 2]
+        mask = (green >= 145) & (red <= 120) & (blue <= 150) & ((green - np.maximum(red, blue)) >= 35)
+        return float(mask.mean())
+
+    def red_fraction(region: np.ndarray) -> float:
+        red = region[..., 0]
+        green = region[..., 1]
+        blue = region[..., 2]
+        mask = (red >= 140) & (green <= 105) & (blue <= 105) & ((red - np.maximum(green, blue)) >= 45)
+        return float(mask.mean())
+
+    top_green = green_fraction(top)
+    bottom_green = green_fraction(bottom)
+    top_red = red_fraction(top)
+    bottom_red = red_fraction(bottom)
+    # The diagnostic-grid color bars intentionally include red in the upper band,
+    # so red alone cannot distinguish upright from inverted. The green TOP
+    # marker is the stable directional signal; bottom red is a presence check
+    # for the paired BOT marker.
+    upright = top_green >= 0.004 and bottom_red >= 0.004 and top_green > bottom_green * 1.5
+    inverted = bottom_green >= 0.004 and top_red >= 0.004 and bottom_green > top_green * 1.5
+    if upright:
+        status = "upright"
+    elif inverted:
+        status = "inverted"
+    else:
+        status = "ambiguous"
+    return {
+        "status": status,
+        "expected": "top-left-origin-y-down/color-bars-top",
+        "marker_region_fraction": [float(marker_width / width), float(band_height / height)],
+        "top_green_fraction": top_green,
+        "bottom_green_fraction": bottom_green,
+        "top_red_fraction": top_red,
+        "bottom_red_fraction": bottom_red,
+    }
+
+
 def summarize_eye(
     rgb: np.ndarray,
     eye: str,
@@ -163,6 +299,16 @@ def summarize_eye(
     component = None
     if red_fraction >= 0.05:
         component = largest_component(candidate, min_area_fraction, max_area_fraction)
+    if expected_solid_red and component is None:
+        return {
+            "eye": eye,
+            "status": "blocked",
+            "reason": "strict-solid-red-projection-component-not-detected",
+            "segmentation_strategy": "solid-red-invalid-region",
+            "red_fraction": red_fraction,
+            "visible_fraction": float(visible.mean()),
+            "eye_rect_px": [x_offset, 0, rgb.shape[1], rgb.shape[0]],
+        }
     if component is None:
         candidate = visible & ~red
         strategy = "visible-content-envelope"
@@ -221,6 +367,7 @@ def summarize_eye(
         "center_offset_px": [float(cx - center_x), float(cy - center_y)],
         "center_offset_fraction": [float((cx - center_x) / rgb.shape[1]), float((cy - center_y) / rgb.shape[0])],
         "row_spans": row_spans,
+        "orientation_marker": orientation_marker_summary(rgb, [x, y, width, height]),
     }
 
 
@@ -258,6 +405,76 @@ def find_validation_for_run(path: Path) -> dict[str, Any] | None:
         except Exception:
             return None
     return None
+
+
+def find_log_for_run(path: Path) -> Path | None:
+    patterns = [
+        "*-logcat.txt",
+        "logcat.txt",
+        "**/*-logcat.txt",
+        "**/logcat.txt",
+        "**/*logcat*.txt",
+    ]
+    for pattern in patterns:
+        matches = sorted(candidate for candidate in path.glob(pattern) if candidate.is_file())
+        if matches:
+            return matches[0]
+    return None
+
+
+def parse_scalar_fields(text: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for key in SOURCE_FIELD_KEYS:
+        matches = re.findall(rf"\b{re.escape(key)}=([^\s,|]+)", text)
+        if matches:
+            fields[key] = matches[-1]
+    return fields
+
+
+def pick_source_fields(value: dict[str, Any]) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for key in SOURCE_FIELD_KEYS:
+        if key in value and value[key] is not None:
+            fields[key] = str(value[key])
+    return fields
+
+
+def parse_homography_values(values_text: str) -> list[float] | None:
+    values = [float(part) for part in values_text.split(",") if part]
+    if len(values) != 9 or not all(math.isfinite(value) for value in values):
+        return None
+    return values
+
+
+def extract_projection_evidence(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    text = read_text_auto(path)
+    homographies: dict[str, list[float]] = {}
+    for name, values_text in HOMOGRAPHY_RE.findall(text):
+        values = parse_homography_values(values_text)
+        if values is not None:
+            homographies[name] = values
+
+    stages: dict[str, Any] = {}
+    for stage, (left_key, right_key) in STAGE_KEYS.items():
+        stages[stage] = {
+            "left_key": left_key,
+            "right_key": right_key,
+            "left_present": left_key in homographies,
+            "right_present": right_key in homographies,
+        }
+        if left_key in homographies:
+            stages[stage]["left_h"] = homographies[left_key]
+        if right_key in homographies:
+            stages[stage]["right_h"] = homographies[right_key]
+
+    return {
+        "log_path": str(path),
+        "source_fields": parse_scalar_fields(text),
+        "available_homography_keys": sorted(homographies),
+        "stages": stages,
+    }
 
 
 def freshness_summary(path: Path) -> dict[str, Any] | None:
@@ -314,7 +531,7 @@ def analyze_image(
 
 
 def draw_overlay(report: dict[str, Any], out_path: Path, title: str) -> None:
-    image = Image.open(report["image_path"]).convert("RGB")
+    image = Image.open(filesystem_path(report["image_path"])).convert("RGB")
     draw = ImageDraw.Draw(image)
     try:
         font = ImageFont.load_default()
@@ -336,7 +553,7 @@ def draw_overlay(report: dict[str, Any], out_path: Path, title: str) -> None:
         draw.line((cx, cy - 12, cx, cy + 12), fill=color, width=3)
         label = f"{eye['eye']} dy={eye['center_offset_px'][1]:.1f}px"
         draw.text((x + 8, max(24, y - 20)), label, fill=color, font=font)
-    image.save(out_path)
+    image.save(filesystem_path(out_path))
 
 
 def make_contact_sheet(items: list[dict[str, Any]], out_path: Path) -> None:
@@ -345,7 +562,7 @@ def make_contact_sheet(items: list[dict[str, Any]], out_path: Path) -> None:
         return
     thumbs = []
     for overlay in overlays:
-        image = Image.open(overlay).convert("RGB")
+        image = Image.open(filesystem_path(overlay)).convert("RGB")
         image.thumbnail((900, 480), Image.Resampling.LANCZOS)
         thumbs.append((overlay, image.copy()))
     width = max(img.width for _, img in thumbs)
@@ -358,7 +575,7 @@ def make_contact_sheet(items: list[dict[str, Any]], out_path: Path) -> None:
         y += 28
         sheet.paste(image, (0, y))
         y += image.height + 4
-    sheet.save(out_path)
+    sheet.save(filesystem_path(out_path))
 
 
 def lane_status_from_validation(validation: dict[str, Any] | None, freshness: dict[str, Any] | None) -> dict[str, Any]:
@@ -406,24 +623,41 @@ def load_suite_context(suite_root: Path) -> dict[str, Any]:
     context: dict[str, Any] = {}
     summary_md = suite_root / "raw-camera-stack-suite-summary.md"
     if summary_md.exists():
-        text = summary_md.read_text(encoding="utf-8", errors="replace")
+        text = read_text(summary_md, encoding="utf-8", errors="replace")
         border = re.search(r"- Border policy:\s+`([^`]+)`", text)
         if border:
             context["projection_border_policy"] = border.group(1)
         layer = re.search(r"- Processing layer:\s+`([^`]+)`", text)
         if layer:
             context["processing_layer"] = layer.group(1)
+    status_path = suite_root / "state-snapshots" / "final" / "broker-status.json"
+    if status_path.exists():
+        try:
+            status = read_json(status_path)
+            manifest = (((status.get("videoLab") or {}).get("latest_encoded_stream_manifest")) or {})
+            fields = pick_source_fields(manifest) if isinstance(manifest, dict) else {}
+            if fields:
+                context["latest_broker_encoded_stream_manifest_fields"] = fields
+                context["latest_broker_status_path"] = str(status_path)
+        except Exception:
+            pass
     return context
 
 
 def build_markdown(report: dict[str, Any]) -> str:
+    if report.get("allow_visible_fallback"):
+        segmentation_note = "visible-content envelope fallback explicitly enabled for lanes without a solid-red mask."
+    elif report.get("projection_border_policy") == "solid-red":
+        segmentation_note = "strict solid-red invalid-fill only; no visible-content fallback."
+    else:
+        segmentation_note = "visible-content envelope fallback allowed for transparent-underlay/operator runs."
     lines = [
         "# Raw Stack Screen-Space Analysis",
         "",
         f"- Suite root: `{report['suite_root']}`",
         "- Coordinate system: screenshot pixels, origin top-left, x right, y down.",
         f"- Projection border policy: `{report.get('projection_border_policy', 'unknown')}`.",
-        "- Segmentation: solid-red invalid-fill when present; otherwise largest visible-content envelope in each eye half.",
+        f"- Segmentation: {segmentation_note}",
         "",
         "| Mode | Status | Image | Left bbox x,y,w,h | Left dy px | Right bbox x,y,w,h | Right dy px | Feed | Freshness |",
         "| --- | --- | --- | --- | ---: | --- | ---: | --- | --- |",
@@ -451,10 +685,80 @@ def build_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "## Projection Evidence",
+            "",
+            "| Mode | Source | Pattern | Aligned | Stage rows present |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+    for lane in report["lanes"]:
+        evidence = lane.get("projection_evidence") or {}
+        fields = evidence.get("source_fields") or {}
+        stages = evidence.get("stages") or {}
+        present = []
+        for name, stage in stages.items():
+            if stage.get("left_present") and stage.get("right_present"):
+                present.append(name)
+        source = (
+            fields.get("brokerH264SourceMode")
+            or fields.get("sourceMode")
+            or fields.get("source_mode")
+            or fields.get("sourceBindingMode")
+            or fields.get("source")
+            or ""
+        )
+        pattern = fields.get("syntheticPattern") or fields.get("synthetic_pattern") or fields.get("pattern") or ""
+        aligned = fields.get("alignedProjection") or fields.get("projectionHomographyReady") or ""
+        lines.append(
+            "| `{mode}` | `{source}` | `{pattern}` | `{aligned}` | `{rows}` |".format(
+                mode=lane.get("mode"),
+                source=source,
+                pattern=pattern,
+                aligned=aligned,
+                rows=", ".join(present),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Stimulus Orientation Markers",
+            "",
+            "| Mode | Raster orientation | Upright marker | Left marker | Right marker | Left top-green/bottom-red | Right top-green/bottom-red |",
+            "| --- | --- | --- | --- | --- | ---: | ---: |",
+        ]
+    )
+    for lane in report["lanes"]:
+        evidence = lane.get("projection_evidence") or {}
+        fields = evidence.get("source_fields") or {}
+        left = next((eye for eye in lane.get("eyes", []) if eye.get("eye") == "left"), {})
+        right = next((eye for eye in lane.get("eyes", []) if eye.get("eye") == "right"), {})
+        left_marker = left.get("orientation_marker") or {}
+        right_marker = right.get("orientation_marker") or {}
+
+        def marker_pair(marker: dict[str, Any]) -> str:
+            if not marker:
+                return ""
+            return f"{marker.get('top_green_fraction', 0.0):.4f}/{marker.get('bottom_red_fraction', 0.0):.4f}"
+
+        lines.append(
+            "| `{mode}` | `{raster}` | `{upright}` | `{left}` | `{right}` | `{left_pair}` | `{right_pair}` |".format(
+                mode=lane.get("mode"),
+                raster=fields.get("stimulusRasterOrientation", ""),
+                upright=fields.get("stimulusUprightMarker", ""),
+                left=left_marker.get("status", ""),
+                right=right_marker.get("status", ""),
+                left_pair=marker_pair(left_marker),
+                right_pair=marker_pair(right_marker),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "## Notes",
             "",
             "- Positive `dy` means the detected projection component is below the vertical center of the eye half.",
             "- Horizontal alignment is recorded but not tuned by this report.",
+            "- Broker synthetic orientation markers are pixel-checked as top-left green `TOP` and bottom-left red `BOT`; explicit stimulus metadata is preferred, and missing metadata is treated as legacy/default orientation.",
             "- Solid-red invalid-fill gives the strictest projection-area mask. If a solid-red run does not contain the red mask, the lane is blocked instead of falling back to a content envelope.",
             "- Visible-content fallback is repeatable for transparent-underlay/operator runs, but it measures a content envelope rather than a strict valid mask.",
         ]
@@ -468,13 +772,18 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--min-area-fraction", type=float, default=0.03)
     parser.add_argument("--max-area-fraction", type=float, default=0.92)
+    parser.add_argument(
+        "--allow-visible-fallback",
+        action="store_true",
+        help="Use visible-content envelope detection when solid-red invalid-fill is absent.",
+    )
     args = parser.parse_args()
 
     suite_root = args.suite_root.resolve()
     out_dir = (args.out_dir or (suite_root / "screen-space-analysis")).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     context = load_suite_context(suite_root)
-    expected_solid_red = context.get("projection_border_policy") == "solid-red"
+    expected_solid_red = context.get("projection_border_policy") == "solid-red" and not args.allow_visible_fallback
 
     lanes = []
     for row in load_suite_rows(suite_root):
@@ -490,7 +799,24 @@ def main() -> int:
         }
         validation = find_validation_for_run(artifact_root)
         freshness = freshness_summary(artifact_root)
+        log_path = find_log_for_run(artifact_root)
         lane.update(lane_status_from_validation(validation, freshness))
+        if log_path:
+            lane["projection_evidence"] = extract_projection_evidence(log_path)
+        if "broker-h264" in mode:
+            manifest_fields = context.get("latest_broker_encoded_stream_manifest_fields") or {}
+            if manifest_fields:
+                if not isinstance(lane.get("projection_evidence"), dict):
+                    lane["projection_evidence"] = {
+                        "log_path": context.get("latest_broker_status_path", ""),
+                        "source_fields": {},
+                        "available_homography_keys": [],
+                        "stages": {},
+                    }
+                evidence = lane["projection_evidence"]
+                fields = evidence.setdefault("source_fields", {})
+                for key, value in manifest_fields.items():
+                    fields.setdefault(key, value)
         if image_path:
             image_report = analyze_image(
                 image_path,
@@ -518,10 +844,11 @@ def main() -> int:
         "out_dir": str(out_dir),
         "projection_border_policy": context.get("projection_border_policy", "unknown"),
         "processing_layer": context.get("processing_layer", "unknown"),
+        "allow_visible_fallback": args.allow_visible_fallback,
         "lanes": lanes,
     }
     write_json(out_dir / "screen-space-report.json", report)
-    (out_dir / "screen-space-summary.md").write_text(build_markdown(report), encoding="utf-8")
+    write_text(out_dir / "screen-space-summary.md", build_markdown(report), encoding="utf-8")
     make_contact_sheet(lanes, out_dir / "screen-space-contact-sheet.png")
     print(out_dir / "screen-space-summary.md")
     return 0

@@ -511,6 +511,17 @@ impl McpServerConfig {
             project_local: true,
         }
     }
+
+    pub fn hzdb_stdio_command(command: impl Into<String>, project_local: bool) -> Self {
+        Self {
+            server_name: String::from("meta-horizon-mcp"),
+            command: command.into(),
+            args: vec![String::from("mcp"), String::from("server")],
+            transport: McpTransport::Stdio,
+            provider: QuestToolProviderKind::HzdbMcp,
+            project_local,
+        }
+    }
 }
 
 /// Agent skill metadata that a Rusty XR tool can reference without copying the
@@ -1238,6 +1249,21 @@ mod tests {
                 String::from("mcp"),
                 String::from("server")
             ]
+        );
+    }
+
+    #[test]
+    fn hzdb_mcp_config_can_use_configured_hzdb_executable() {
+        let config = McpServerConfig::hzdb_stdio_command("<mqdh-hzdb-executable>", false);
+
+        assert_eq!(config.server_name, "meta-horizon-mcp");
+        assert_eq!(config.command, "<mqdh-hzdb-executable>");
+        assert_eq!(config.transport, McpTransport::Stdio);
+        assert_eq!(config.provider, QuestToolProviderKind::HzdbMcp);
+        assert!(!config.project_local);
+        assert_eq!(
+            config.args,
+            vec![String::from("mcp"), String::from("server")]
         );
     }
 

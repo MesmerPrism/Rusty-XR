@@ -53,8 +53,8 @@ The relevant build scripts are:
 - `examples/quest-minimal-apk/tools/Build-QuestMinimalApk.ps1`
 - `examples/quest-broker-shell-helper/tools/Build-BrokerShellHelper.ps1`
 
-These scripts do not depend on the Unity engine. They use Unity's
-`AndroidPlayer` folder as a convenient source for Android tooling:
+These scripts do not depend on the Unity engine. They now prefer standalone
+Android SDK/JDK/NDK roots for Android tooling:
 
 - Android SDK
 - Android NDK
@@ -67,8 +67,12 @@ These scripts do not depend on the Unity engine. They use Unity's
 
 They currently assume Windows-oriented details:
 
-- `UNITY_ANDROID_PLAYER_ROOT` or `ANDROID_PLAYER_ROOT`
-- `Program Files/Unity/.../AndroidPlayer` discovery
+- `RUSTY_XR_ANDROID_SDK_ROOT`, `RUSTY_XR_ANDROID_NDK_ROOT`, and
+  `RUSTY_XR_ANDROID_JDK_ROOT`, or the standard `ANDROID_*` / `JAVA_HOME`
+  variables
+- explicit `UNITY_ANDROID_PLAYER_ROOT`, `ANDROID_PLAYER_ROOT`, or
+  `-AndroidPlayerRoot` only for compatibility with a deliberately selected
+  Unity AndroidPlayer install
 - `windows-x86_64` NDK prebuilt toolchain paths
 - `.exe`, `.bat`, and `.cmd` tool names
 - `%LOCALAPPDATA%` debug keystore folders

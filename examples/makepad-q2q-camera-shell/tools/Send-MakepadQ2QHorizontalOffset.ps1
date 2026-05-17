@@ -19,6 +19,9 @@ param(
     [double]$ProjectionAreaVerticalUv = [double]::NaN,
     [double]$ProjectionAreaScaleX = [double]::NaN,
     [double]$ProjectionAreaScaleY = [double]::NaN,
+    [double]$ProjectionAreaRadiusXUv = [double]::NaN,
+    [double]$ProjectionAreaRadiusYUv = [double]::NaN,
+    [double]$ProjectionAreaCornerRadiusUv = [double]::NaN,
     [double]$ProjectionAreaKeystoneX = [double]::NaN,
     [double]$ProjectionAreaBowX = [double]::NaN,
     [switch]$Reset
@@ -81,6 +84,9 @@ $properties = [ordered]@{
     ProjectionAreaVerticalUv = "debug.rustyxr.makepad.projection.area.offset.vertical.uv"
     ProjectionAreaScaleX = "debug.rustyxr.makepad.projection.area.scale.x"
     ProjectionAreaScaleY = "debug.rustyxr.makepad.projection.area.scale.y"
+    ProjectionAreaRadiusXUv = "debug.rustyxr.makepad.projection.area.radius.x.uv"
+    ProjectionAreaRadiusYUv = "debug.rustyxr.makepad.projection.area.radius.y.uv"
+    ProjectionAreaCornerRadiusUv = "debug.rustyxr.makepad.projection.area.corner.radius.uv"
     ProjectionAreaKeystoneX = "debug.rustyxr.makepad.projection.area.keystone.x"
     ProjectionAreaBowX = "debug.rustyxr.makepad.projection.area.bow.x"
 }
@@ -102,6 +108,9 @@ if ($Reset) {
     $ProjectionAreaVerticalUv = 0.0
     $ProjectionAreaScaleX = 1.0
     $ProjectionAreaScaleY = 1.0
+    $ProjectionAreaRadiusXUv = 0.5
+    $ProjectionAreaRadiusYUv = 0.5
+    $ProjectionAreaCornerRadiusUv = 0.0
     $ProjectionAreaKeystoneX = 0.0
     $ProjectionAreaBowX = 0.0
 }
@@ -126,6 +135,9 @@ Assert-Range -Name "ProjectionAreaRightUv" -Value $ProjectionAreaRightUv -Min -0
 Assert-Range -Name "ProjectionAreaVerticalUv" -Value $ProjectionAreaVerticalUv -Min -0.5 -Max 0.5
 Assert-Range -Name "ProjectionAreaScaleX" -Value $ProjectionAreaScaleX -Min 0.5 -Max 1.5
 Assert-Range -Name "ProjectionAreaScaleY" -Value $ProjectionAreaScaleY -Min 0.5 -Max 1.5
+Assert-Range -Name "ProjectionAreaRadiusXUv" -Value $ProjectionAreaRadiusXUv -Min 0.05 -Max 0.5
+Assert-Range -Name "ProjectionAreaRadiusYUv" -Value $ProjectionAreaRadiusYUv -Min 0.05 -Max 0.5
+Assert-Range -Name "ProjectionAreaCornerRadiusUv" -Value $ProjectionAreaCornerRadiusUv -Min 0.0 -Max 0.5
 Assert-Range -Name "ProjectionAreaKeystoneX" -Value $ProjectionAreaKeystoneX -Min -0.45 -Max 0.45
 Assert-Range -Name "ProjectionAreaBowX" -Value $ProjectionAreaBowX -Min -0.25 -Max 0.25
 
@@ -178,6 +190,15 @@ if (-not [double]::IsNaN($ProjectionAreaScaleX)) {
 }
 if (-not [double]::IsNaN($ProjectionAreaScaleY)) {
     Set-Prop -Name $properties.ProjectionAreaScaleY -Value $ProjectionAreaScaleY
+}
+if (-not [double]::IsNaN($ProjectionAreaRadiusXUv)) {
+    Set-Prop -Name $properties.ProjectionAreaRadiusXUv -Value $ProjectionAreaRadiusXUv
+}
+if (-not [double]::IsNaN($ProjectionAreaRadiusYUv)) {
+    Set-Prop -Name $properties.ProjectionAreaRadiusYUv -Value $ProjectionAreaRadiusYUv
+}
+if (-not [double]::IsNaN($ProjectionAreaCornerRadiusUv)) {
+    Set-Prop -Name $properties.ProjectionAreaCornerRadiusUv -Value $ProjectionAreaCornerRadiusUv
 }
 if (-not [double]::IsNaN($ProjectionAreaKeystoneX)) {
     Set-Prop -Name $properties.ProjectionAreaKeystoneX -Value $ProjectionAreaKeystoneX

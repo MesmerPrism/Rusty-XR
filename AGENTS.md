@@ -39,6 +39,12 @@ codec/media stack code:
 Start with:
 
 - `README.md`
+- `docs/README.md`
+- `docs/MODULE_CRATE_MAP.md`
+- `docs/EXAMPLES_MATRIX.md`
+- `docs/API_CLI_MCP_ENTRYPOINTS.md`
+- `docs/PUBLIC_EXTRACTION_WORKFLOW.md`
+- `docs/VALIDATION.md`
 - `docs/IMPLEMENTATION_PLAN.md`
 - `docs/ANDROID_QUEST_APK_BUILDING.md`
 - `docs/RUSTY_XR_COMPANION_INTEGRATION.md`

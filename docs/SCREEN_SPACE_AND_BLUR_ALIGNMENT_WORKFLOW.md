@@ -156,6 +156,8 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -MakepadPackageName <makepad-package> `
   -MakepadLauncherActivity <launcher-activity> `
   -MakepadXrActivity <xr-activity> `
+  -BrokerH264SourceMode broker-synthetic `
+  -BrokerH264SyntheticPattern diagnostic-grid `
   -ProjectionBorderPolicy solid-red `
   -ProcessingLayer blur `
   -BlurRadiusPx 2.0
@@ -201,6 +203,11 @@ camera projection area is below the center of that eye's screenshot half.
 If solid-red invalid fill is not present in a `solid-red` lane, the analyzer
 marks the lane ambiguous. Visible-content fallback is reserved for transparent
 underlay/operator runs and must not be treated as a strict valid-mask footprint.
+When logcat evidence is present in the lane artifact, the analyzer also records
+the latest source fields and available projection-stage rows
+(`screen_to_surface`, `surface_to_camera`, and `screen_to_camera`) so
+broker-synthetic tri-stack packets can be compared without re-opening the raw
+logs by hand.
 
 Do not treat MediaProjection, ADB screenshots, or browser event logs as
 submitted per-eye render-target proof. They are useful witnesses, but they need

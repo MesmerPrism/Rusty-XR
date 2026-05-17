@@ -36,7 +36,10 @@ fn main() {
             process_id: Some(1234),
             source: String::from("provider.foreground"),
         }),
-        mcp: Some(McpServerConfig::hzdb_stdio_npx()),
+        mcp: Some(McpServerConfig::hzdb_stdio_command(
+            "<mqdh-hzdb-executable>",
+            false,
+        )),
         notes: vec![String::from(
             "Side-effecting provider operations should be operator-gated.",
         )],

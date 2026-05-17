@@ -42,6 +42,11 @@ param(
     [string]$ProcessingLayer = "raw",
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionAreaOffsetYUv = 0.0,
+    [double]$ProjectionAreaScaleX = 1.0,
+    [double]$ProjectionAreaScaleY = 1.0,
+    [double]$ProjectionAreaRadiusXUv = 0.5,
+    [double]$ProjectionAreaRadiusYUv = 0.5,
+    [double]$ProjectionAreaCornerRadiusUv = 0.0,
     [double]$ProjectionAreaOpacity = 1.0,
     [double]$ProjectionBorderOpacity = 1.0,
     [switch]$EnableNativePassthrough
@@ -110,13 +115,11 @@ function Set-MakepadBrokerH264Profile {
     if ($UseBrokerH264Synthetic -and $UseBrokerH264Camera) {
         throw "Use only one broker H.264 source switch: -UseBrokerH264Synthetic or -UseBrokerH264Camera."
     }
-    if (-not ($UseBrokerH264Synthetic -or $UseBrokerH264Camera)) {
-        return
-    }
 
-    $sourceMode = if ($UseBrokerH264Camera) { "broker-camera" } else { "broker-synthetic" }
+    $brokerRequested = [bool]($UseBrokerH264Synthetic -or $UseBrokerH264Camera)
+    $sourceMode = if ($UseBrokerH264Camera) { "broker-camera" } elseif ($UseBrokerH264Synthetic) { "broker-synthetic" } else { "disabled" }
     $props = [ordered]@{
-        "debug.rustyxr.makepad.broker.h264.enabled" = "true"
+        "debug.rustyxr.makepad.broker.h264.enabled" = if ($brokerRequested) { "true" } else { "false" }
         "debug.rustyxr.makepad.broker.h264.host" = $BrokerH264Host
         "debug.rustyxr.makepad.broker.h264.broker.port" = $BrokerH264BrokerPort
         "debug.rustyxr.makepad.broker.h264.stream.port" = $BrokerH264LeftStreamPort
@@ -133,7 +136,7 @@ function Set-MakepadBrokerH264Profile {
         "debug.rustyxr.makepad.broker.h264.frame.rate.hz" = $BrokerH264FrameRateHz
         "debug.rustyxr.makepad.broker.h264.stream.timeout.ms" = $BrokerH264StreamTimeoutMs
         "debug.rustyxr.makepad.broker.h264.decode.timeout.ms" = $BrokerH264DecodeTimeoutMs
-        "debug.rustyxr.makepad.broker.h264.live.stream" = "true"
+        "debug.rustyxr.makepad.broker.h264.live.stream" = if ($brokerRequested) { "true" } else { "false" }
     }
 
     foreach ($entry in $props.GetEnumerator()) {
@@ -150,6 +153,12 @@ function Set-MakepadBrokerH264Profile {
     }
     $readback | ConvertTo-Json -Depth 3 |
         Set-Content -Path (Join-Path $OutDir "broker-h264-props.json") -Encoding UTF8
+
+    if (-not $brokerRequested) {
+        $readback | ConvertTo-Json -Depth 3 |
+            Set-Content -Path (Join-Path $OutDir "broker-h264-disabled-props.json") -Encoding UTF8
+        return
+    }
 
     if ($UseBrokerH264Synthetic) {
         $readback | ConvertTo-Json -Depth 3 |
@@ -168,6 +177,11 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
         "debug.rustyxr.makepad.projection.area.offset.vertical.uv" = (Format-InvariantDouble -Value $ProjectionAreaOffsetYUv)
+        "debug.rustyxr.makepad.projection.area.scale.x" = (Format-InvariantDouble -Value $ProjectionAreaScaleX)
+        "debug.rustyxr.makepad.projection.area.scale.y" = (Format-InvariantDouble -Value $ProjectionAreaScaleY)
+        "debug.rustyxr.makepad.projection.area.radius.x.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusXUv)
+        "debug.rustyxr.makepad.projection.area.radius.y.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusYUv)
+        "debug.rustyxr.makepad.projection.area.corner.radius.uv" = (Format-InvariantDouble -Value $ProjectionAreaCornerRadiusUv)
     }
 
     foreach ($entry in $props.GetEnumerator()) {

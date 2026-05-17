@@ -55,9 +55,9 @@ python tools\schema\check_android_build_manifest.py examples\quest-minimal-apk\b
 ## Android Toolchain Resolution
 
 The custom Rusty XR APK PowerShell builders share
-`tools/android/Resolve-AndroidToolchain.ps1`. They still accept
-`-AndroidPlayerRoot` for a Unity Android player root, but they can also use
-split roots:
+`tools/android/Resolve-AndroidToolchain.ps1`. Prefer split SDK, NDK, and JDK
+roots. `-AndroidPlayerRoot` remains available only as an explicit compatibility
+option for machines that deliberately use Unity's bundled Android tools:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Build-QuestCompositeLayerApk.ps1 -AndroidSdkRoot <sdk-root> -AndroidNdkRoot <ndk-root> -JdkRoot <jdk-root> -OpenXrLoaderPath <path-to-libopenxr_loader.so>
@@ -65,7 +65,9 @@ powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\to
 
 Environment fallbacks are `RUSTY_XR_ANDROID_SDK_ROOT`,
 `RUSTY_XR_ANDROID_NDK_ROOT`, `RUSTY_XR_ANDROID_JDK_ROOT`, `ANDROID_SDK_ROOT`,
-`ANDROID_NDK_ROOT`, and `JAVA_HOME`. The resolver validates that SDK
+`ANDROID_NDK_ROOT`, and `JAVA_HOME`. Explicit Unity compatibility fallbacks are
+`UNITY_ANDROID_PLAYER_ROOT` and `ANDROID_PLAYER_ROOT`; the resolver does not
+scan installed Unity editors automatically. The resolver validates that SDK
 `build-tools` and `platforms` exist, that the NDK has an LLVM toolchain when a
 native build needs it, and that the selected JDK contains the required tools and
 can run `javac`. Use this custom-script route when testing the public custom

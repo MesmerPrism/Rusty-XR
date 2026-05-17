@@ -16,6 +16,8 @@ Sources:
   <https://github.com/meta-quest/agentic-tools/blob/main/docs/hzdb.md>
 - Meta XR Unity MCP Extension:
   <https://developers.meta.com/horizon/documentation/unity/unity-mcp-extension/>
+- Meta Horizon OS `hzdb` / MCP setup:
+  <https://developers.meta.com/horizon/documentation/unity/ts-mqdh-mcp/>
 - Unity Project Setup Tool:
   <https://developers.meta.com/horizon/documentation/unity/unity-upst-overview/>
 
@@ -38,6 +40,12 @@ optional, but the habit is not: every Kiosk/headset transition should record
 which provider command was used, what device signal it read, whether the target
 state was Rusty Kiosk, a Rusty XR app, or an intentionally opened Meta panel,
 and which fallback command should reproduce the observation.
+
+On developer machines that use Meta Quest Developer Hub, MQDH may provide the
+`hzdb` executable and the Codex MCP route. Treat that as operator/tooling state:
+record the MCP server name, provider route, provider version, and tool-count
+probe in the run evidence or local graph inventory. Do not encode a local MQDH
+install path in public Rusty XR contracts.
 
 ## Already Present
 
@@ -157,6 +165,13 @@ core dependency:
 npx -y @meta-quest/hzdb --version
 ```
 
+If MQDH is installed, an operator tool may instead probe the MQDH-bundled
+`hzdb` executable or the configured Codex MCP server. The normalized result
+should say which route was used: `mqdh-bundled`, `npx`, `global-path`,
+`companion-managed`, or `unknown`. Provider snapshots can model direct MQDH or
+managed executable routes with `McpServerConfig::hzdb_stdio_command(...)`
+without storing local paths in public examples.
+
 Record the result as a `QuestDevelopmentProviderSnapshot` with capabilities
 for `device`, `app`, `files`, `log`, `capture`, `perf`, `docs`, `asset`, and
 `mcp` groups when present. Keep ADB as the fallback provider for basic device,
@@ -223,6 +238,15 @@ Support project-local MCP descriptors without making MCP the only path:
 }
 ```
 
+For OpenAI Codex installations configured through MQDH, the local TOML shape is
+equivalent to:
+
+```toml
+[mcp_servers.meta-horizon-mcp]
+command = "<mqdh-hzdb-executable>"
+args = ["mcp", "server"]
+```
+
 Rusty XR should expose or consume this as an optional provider named
 `meta.quest.hzdb` or `meta-horizon-mcp`. The safer architecture is:
 
@@ -263,6 +287,8 @@ without guessing from one screenshot or one log line.
 During headset runs:
 
 - record provider kind and version
+- record MCP server name, registration route, and tool-count probe when MCP is
+  involved
 - record device health before a run
 - record foreground app before and after launch
 - attach broker clock/status evidence when the broker is available, especially
@@ -318,7 +344,8 @@ signals are reliable enough for the custom environment path.
 1. Wire the new `rusty-xr-quest-diagnostics` provider models into JSON report
    output in Companion.
 2. Add a Companion `hzdb probe` or provider-status command that emits
-   `QuestDevelopmentProviderSnapshot`.
+   `QuestDevelopmentProviderSnapshot`, including MQDH/Codex MCP route when
+   detected.
 3. Make Rusty Kiosk run manifests include provider version, command goal,
    intent label, foreground before/after, broker clock/status, and fallback
    command.
@@ -327,5 +354,6 @@ signals are reliable enough for the custom environment path.
 5. Add provider-neutral app foreground/info/path and device health commands.
 6. Attach `PerfTraceSession` and `PerfMetric` rows to Quest render and
    streaming diagnostics reports.
-7. Add project-local MCP config generation as a dry-run-first operation.
+7. Add project-local MCP config generation or inventory as a dry-run-first
+   operation.
 8. Gate MCP and CLI side effects using `ProviderOperationSafety`.

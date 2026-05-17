@@ -45,6 +45,13 @@ managed kiosk
 The contracts live in `rusty-xr-contracts::home` and are re-exported from the
 crate root.
 
+`KioskCommandRunRecord` is the run-level envelope for provider evidence. Use it
+when a Rust API, broker HTTP/WebSocket API, Companion CLI, shell helper, direct
+ADB fallback, `hzdb` CLI, `hzdb` MCP server, or manual operator note observes or
+moves kiosk state. It records the command goal, surface intent, primary
+provider evidence, fallback evidence, before/after control-plane status,
+outcome, issue codes, and notes.
+
 ## Contract Groups
 
 - `HomePanelDescriptor`: describes a broker page, local applet, cooperating app
@@ -56,6 +63,8 @@ crate root.
 - `SettingsShortcutDescriptor`: describes a documented settings front door.
 - `FocusRecoveryEvent`: records bounded recovery actions after focus loss is
   observed.
+- `KioskCommandRunRecord`: records one comparable API, CLI, MCP, fallback, or
+  manual command run with before/after control-plane evidence.
 
 The helper boundary is explicit. A panel that declares helper-only commands such
 as `launcher.force_stop`, `guardian.configure_mode`, or `system.get_foreground`
@@ -68,6 +77,8 @@ unexpected Meta shell transition, Rusty Kiosk run records should include:
 
 - command goal and provider kind (`hzdb`, ADB, Companion, broker, helper, or
   manual)
+- MCP server name, registration route, and provider version when the provider
+  path is MCP-backed, for example a Codex `meta-horizon-mcp` server
 - broker `/status`, `/clock/now`, `/clock/health`, and `clock_epoch_id` when
   available
 - foreground app or panel before and after the operation
@@ -80,6 +91,9 @@ The command taxonomy, safety gates, and `hzdb`/ADB fallback table live in
 [META_QUEST_HZDB_PROVIDER_PLAN.md](META_QUEST_HZDB_PROVIDER_PLAN.md). Rusty
 Kiosk should use that provider plan as a core part of learning which Quest
 signals are reliable enough for a custom Rusty XR development environment.
+Local graph inventories, when available, should link the configured MCP server
+to the executable and `tools/list` count so run records can distinguish "MCP is
+configured" from "the current agent has hot-loaded the tools."
 
 ## Camera Readiness Gate
 
@@ -117,6 +131,7 @@ Run the synthetic manifest example:
 
 ```powershell
 cargo run -p rusty-xr-contracts --example developer_home_manifest --features serde
+cargo run -p rusty-xr-contracts --example kiosk_command_run_record --features serde
 ```
 
 The example emits a manifest with launcher, system, clock, and diagnostics
@@ -135,6 +150,8 @@ its normal status payload:
 - WebSocket command `kiosk.get_status` returns the same object.
 - stream `kiosk:control_plane` is broadcast when shell-helper or experiment
   control state changes.
+- API, CLI, MCP, and fallback tools should emit
+  `rusty.xr.kiosk.command_run_record.v1` records for comparable run evidence.
 
 The current implementation reports `BrokerPanel2d` or
 `BrokerPanelWithShellHelper`. It intentionally reports
@@ -150,6 +167,7 @@ The hand-reviewed schema exporter includes:
 - `home-launcher-entry.schema.json`
 - `home-settings-shortcut.schema.json`
 - `home-kiosk-control-plane-status.schema.json`
+- `home-kiosk-command-run-record.schema.json`
 - `home-focus-recovery-event.schema.json`
 
 Run:

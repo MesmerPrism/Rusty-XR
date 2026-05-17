@@ -1199,6 +1199,10 @@ def schemas() -> dict[str, dict]:
         "KioskCommandProvider",
         ["Broker", "ShellHelper", "Adb", "HzdbCli", "HzdbMcp", "Companion", "Manual", "Unknown"],
     )
+    kiosk_command_outcome = enum(
+        "KioskCommandOutcome",
+        ["NotStarted", "Succeeded", "Failed", "Blocked", "Skipped", "TimedOut", "Unknown"],
+    )
     kiosk_command_evidence = obj(
         "KioskCommandEvidence",
         {
@@ -1236,6 +1240,22 @@ def schemas() -> dict[str, dict]:
             "clock_epoch_id": nullable_string(),
             "latest_command": {"oneOf": [kiosk_command_evidence, {"type": "null"}]},
             "limitations": array(string()),
+        },
+    )
+    kiosk_command_run_record = obj(
+        "KioskCommandRunRecord",
+        {
+            "schema": {"const": "rusty.xr.kiosk.command_run_record.v1"},
+            "run_id": string(),
+            "command_goal": string(),
+            "surface_intent": kiosk_surface_intent,
+            "primary": kiosk_command_evidence,
+            "fallback": {"oneOf": [kiosk_command_evidence, {"type": "null"}]},
+            "status_before": {"oneOf": [kiosk_control_plane_status, {"type": "null"}]},
+            "status_after": {"oneOf": [kiosk_control_plane_status, {"type": "null"}]},
+            "outcome": kiosk_command_outcome,
+            "issue_codes": array(string()),
+            "notes": array(string()),
         },
     )
     home_focus_recovery_action = enum(
@@ -1835,6 +1855,7 @@ def schemas() -> dict[str, dict]:
         "home-launcher-entry.schema.json": home_launcher_entry,
         "home-settings-shortcut.schema.json": home_settings_shortcut,
         "home-kiosk-control-plane-status.schema.json": kiosk_control_plane_status,
+        "home-kiosk-command-run-record.schema.json": kiosk_command_run_record,
         "home-focus-recovery-event.schema.json": home_focus_recovery_event,
         "effect-stack-descriptor.schema.json": effect_stack_descriptor,
         "effect-stack-comparison-report.schema.json": effect_stack_comparison_report,

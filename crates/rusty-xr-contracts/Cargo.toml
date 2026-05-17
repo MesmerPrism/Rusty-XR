@@ -47,6 +47,11 @@ path = "examples/developer_home_manifest.rs"
 required-features = ["serde"]
 
 [[example]]
+name = "kiosk_command_run_record"
+path = "examples/kiosk_command_run_record.rs"
+required-features = ["serde"]
+
+[[example]]
 name = "effect_stack_diagnostic_manifest"
 path = "examples/effect_stack_diagnostic_manifest.rs"
 required-features = ["serde"]

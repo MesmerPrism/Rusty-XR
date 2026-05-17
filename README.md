@@ -25,6 +25,18 @@ or an MDM/device-owner kiosk implementation.
 
 ## Workspace
 
+For the current public documentation map, start with
+[docs/README.md](docs/README.md). The short route for agents and contributors
+is:
+
+- [Module and crate map](docs/MODULE_CRATE_MAP.md)
+- [Examples matrix](docs/EXAMPLES_MATRIX.md)
+- [API, CLI, and MCP entrypoints](docs/API_CLI_MCP_ENTRYPOINTS.md)
+- [Public extraction workflow](docs/PUBLIC_EXTRACTION_WORKFLOW.md)
+- [Validation commands](docs/VALIDATION.md)
+- [Feature and adapter policy](docs/FEATURE_AND_ADAPTER_POLICY.md)
+- [Serialization and schema policy](docs/SERIALIZATION_AND_SCHEMA_POLICY.md)
+
 Initial crate layout:
 
 - `rusty-xr-contracts`: shared XR data contracts.
@@ -240,8 +252,10 @@ cargo run -p rusty-xr-contracts --example meta_passthrough_style_catalog --featu
 cargo run -p rusty-xr-contracts --example audio_reactive_passthrough_style --features serde
 cargo run -p rusty-xr-contracts --example visual_strobe_profiles --features serde
 cargo run -p rusty-xr-contracts --example developer_home_manifest --features serde
+cargo run -p rusty-xr-contracts --example kiosk_command_run_record --features serde
 cargo run -p rusty-xr-contracts --example effect_stack_diagnostic_manifest --features serde
 cargo run -p rusty-xr-particles --example dynamic_mesh_coordinates
+cargo run -p rusty-xr-particles --example mesh_fixture_manifest --features serde
 cargo run -p rusty-xr-particles --example hand_mesh_dynamic_collider
 cargo run -p rusty-xr-particles --example hand_mesh_sdf_attraction
 cargo run -p rusty-xr-particles --example billboard_performance_patterns

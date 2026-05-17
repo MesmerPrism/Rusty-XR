@@ -35,44 +35,6 @@ function Invoke-Tool {
     }
 }
 
-function Find-AndroidPlayerRoot {
-    param([string]$RequestedRoot)
-
-    if (-not [string]::IsNullOrWhiteSpace($RequestedRoot)) {
-        $resolved = (Resolve-Path $RequestedRoot).Path
-        if ((Test-Path (Join-Path $resolved 'SDK')) -and
-            (Test-Path (Join-Path $resolved 'OpenJDK'))) {
-            return $resolved
-        }
-
-        throw "AndroidPlayerRoot does not contain SDK and OpenJDK: $resolved"
-    }
-
-    foreach ($envName in @('UNITY_ANDROID_PLAYER_ROOT', 'ANDROID_PLAYER_ROOT')) {
-        $value = [Environment]::GetEnvironmentVariable($envName)
-        if (-not [string]::IsNullOrWhiteSpace($value) -and (Test-Path $value)) {
-            return Find-AndroidPlayerRoot -RequestedRoot $value
-        }
-    }
-
-    $unityRoot = Join-Path $env:ProgramFiles 'Unity\Hub\Editor'
-    if (Test-Path $unityRoot) {
-        $candidate = Get-ChildItem -LiteralPath $unityRoot -Directory |
-            ForEach-Object { Join-Path $_.FullName 'Editor\Data\PlaybackEngines\AndroidPlayer' } |
-            Where-Object {
-                (Test-Path (Join-Path $_ 'SDK')) -and
-                (Test-Path (Join-Path $_ 'OpenJDK'))
-            } |
-            Sort-Object -Descending |
-            Select-Object -First 1
-        if ($null -ne $candidate) {
-            return $candidate
-        }
-    }
-
-    throw 'Could not find Android tooling. Pass -AndroidPlayerRoot or set UNITY_ANDROID_PLAYER_ROOT.'
-}
-
 function Get-LatestDirectory {
     param(
         [string]$Parent,

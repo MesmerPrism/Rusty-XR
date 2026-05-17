@@ -21,6 +21,10 @@ pub const KIOSK_CONTROL_PLANE_STATUS_SCHEMA: &str = "rusty.xr.kiosk.control_plan
 /// Versioned schema id for the command evidence embedded in control-plane snapshots.
 pub const KIOSK_COMMAND_EVIDENCE_SCHEMA: &str = "rusty.xr.kiosk.command_evidence.v1";
 
+/// Versioned schema id for run records that tie API, CLI, MCP, and fallback
+/// command paths to before/after kiosk state.
+pub const KIOSK_COMMAND_RUN_RECORD_SCHEMA: &str = "rusty.xr.kiosk.command_run_record.v1";
+
 /// High-level mode for a Rusty Kiosk, developer-home, or broker surface.
 ///
 /// These are product and routing modes, not platform privileges. A normal app
@@ -626,6 +630,37 @@ pub enum KioskCommandProvider {
     Unknown,
 }
 
+/// Normalized result for one observed Rusty Kiosk command run.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum KioskCommandOutcome {
+    /// The run was planned or recorded before a command was attempted.
+    #[default]
+    NotStarted,
+    /// The requested observation or state transition succeeded.
+    Succeeded,
+    /// The command path ran but did not produce the requested state.
+    Failed,
+    /// The command was blocked by a safety gate, missing provider, or operator policy.
+    Blocked,
+    /// The run was intentionally skipped.
+    Skipped,
+    /// The command path timed out before enough evidence was collected.
+    TimedOut,
+    /// The outcome was not captured.
+    Unknown,
+}
+
+impl KioskCommandOutcome {
+    pub const fn is_success(self) -> bool {
+        matches!(self, Self::Succeeded)
+    }
+
+    pub const fn is_terminal(self) -> bool {
+        !matches!(self, Self::NotStarted)
+    }
+}
+
 /// Evidence for the latest command path used to observe or move the kiosk state.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -714,6 +749,123 @@ impl KioskCommandEvidence {
                 .as_ref()
                 .map(|clock_epoch_id| stable_id(clock_epoch_id))
                 .unwrap_or(true)
+            && self.notes.iter().all(|note| non_empty(note))
+    }
+}
+
+/// Public run record for one kiosk/provider operation.
+///
+/// This is the portable envelope that lets a Rust API, broker HTTP/WebSocket
+/// API, Companion CLI, `hzdb` CLI, `hzdb` MCP server, shell helper, direct ADB
+/// fallback, or manual operator note report the same command goal and before/
+/// after evidence without leaking package identities or local artifact paths.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KioskCommandRunRecord {
+    pub schema: String,
+    pub run_id: String,
+    pub command_goal: String,
+    pub surface_intent: KioskSurfaceIntent,
+    pub primary: KioskCommandEvidence,
+    pub fallback: Option<KioskCommandEvidence>,
+    pub status_before: Option<KioskControlPlaneStatus>,
+    pub status_after: Option<KioskControlPlaneStatus>,
+    pub outcome: KioskCommandOutcome,
+    pub issue_codes: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+impl KioskCommandRunRecord {
+    pub fn new(
+        run_id: impl Into<String>,
+        command_goal: impl Into<String>,
+        primary: KioskCommandEvidence,
+    ) -> Self {
+        Self {
+            schema: KIOSK_COMMAND_RUN_RECORD_SCHEMA.to_string(),
+            run_id: run_id.into(),
+            command_goal: command_goal.into(),
+            surface_intent: KioskSurfaceIntent::UnknownSurface,
+            primary,
+            fallback: None,
+            status_before: None,
+            status_after: None,
+            outcome: KioskCommandOutcome::NotStarted,
+            issue_codes: Vec::new(),
+            notes: Vec::new(),
+        }
+    }
+
+    pub const fn with_surface_intent(mut self, intent: KioskSurfaceIntent) -> Self {
+        self.surface_intent = intent;
+        self
+    }
+
+    pub fn with_fallback(mut self, fallback: KioskCommandEvidence) -> Self {
+        self.fallback = Some(fallback);
+        self
+    }
+
+    pub fn with_status_before(mut self, status: KioskControlPlaneStatus) -> Self {
+        self.status_before = Some(status);
+        self
+    }
+
+    pub fn with_status_after(mut self, status: KioskControlPlaneStatus) -> Self {
+        self.status_after = Some(status);
+        self
+    }
+
+    pub const fn with_outcome(mut self, outcome: KioskCommandOutcome) -> Self {
+        self.outcome = outcome;
+        self
+    }
+
+    pub fn with_issue_code(mut self, issue_code: impl Into<String>) -> Self {
+        self.issue_codes.push(issue_code.into());
+        self
+    }
+
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
+
+    pub fn providers_used(&self) -> Vec<KioskCommandProvider> {
+        let mut providers = vec![self.primary.provider];
+        if let Some(fallback) = &self.fallback {
+            if fallback.provider != self.primary.provider {
+                providers.push(fallback.provider);
+            }
+        }
+        providers
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == KIOSK_COMMAND_RUN_RECORD_SCHEMA
+            && stable_id(&self.run_id)
+            && stable_id(&self.command_goal)
+            && self.primary.command_goal == self.command_goal
+            && self.primary.is_valid()
+            && self
+                .fallback
+                .as_ref()
+                .map(|fallback| fallback.command_goal == self.command_goal && fallback.is_valid())
+                .unwrap_or(true)
+            && self
+                .status_before
+                .as_ref()
+                .map(KioskControlPlaneStatus::is_valid)
+                .unwrap_or(true)
+            && self
+                .status_after
+                .as_ref()
+                .map(KioskControlPlaneStatus::is_valid)
+                .unwrap_or(true)
+            && self
+                .issue_codes
+                .iter()
+                .all(|issue_code| stable_id(issue_code))
             && self.notes.iter().all(|note| non_empty(note))
     }
 }
@@ -1145,6 +1297,50 @@ mod tests {
     }
 
     #[test]
+    fn kiosk_command_run_record_keeps_provider_fallback_and_status_evidence() {
+        let primary = KioskCommandEvidence::new("surface.current", KioskCommandProvider::HzdbMcp)
+            .with_preferred_command("mcp:meta-horizon/app.foreground")
+            .with_foreground_before("unknown")
+            .with_foreground_after("org.example.rustyxr.broker/.MainActivity")
+            .with_clock_epoch_id("clock.epoch.demo")
+            .with_note("read_only_status_probe");
+        let fallback = KioskCommandEvidence::new("surface.current", KioskCommandProvider::Broker)
+            .with_preferred_command("GET /kiosk/status")
+            .with_fallback_command("adb shell dumpsys window")
+            .with_foreground_after("org.example.rustyxr.broker/.MainActivity")
+            .with_clock_epoch_id("clock.epoch.demo");
+        let before = KioskControlPlaneStatus::broker_panel_2d()
+            .with_surface_intent(KioskSurfaceIntent::UnknownSurface);
+        let after = KioskControlPlaneStatus::broker_panel_2d()
+            .with_surface_intent(KioskSurfaceIntent::RustyKioskDefault)
+            .with_clock_epoch_id("clock.epoch.demo")
+            .with_latest_command(fallback.clone());
+
+        let record = KioskCommandRunRecord::new("run-001", "surface.current", primary)
+            .with_surface_intent(KioskSurfaceIntent::RustyKioskDefault)
+            .with_fallback(fallback)
+            .with_status_before(before)
+            .with_status_after(after)
+            .with_outcome(KioskCommandOutcome::Succeeded)
+            .with_note("broker status matched foreground evidence");
+
+        assert!(record.is_valid());
+        assert!(record.outcome.is_success());
+        assert_eq!(
+            record.providers_used(),
+            vec![KioskCommandProvider::HzdbMcp, KioskCommandProvider::Broker]
+        );
+    }
+
+    #[test]
+    fn kiosk_command_run_record_rejects_mismatched_command_goal() {
+        let primary = KioskCommandEvidence::new("surface.current", KioskCommandProvider::Broker);
+        let record = KioskCommandRunRecord::new("run-001", "target.launch", primary);
+
+        assert!(!record.is_valid());
+    }
+
+    #[test]
     fn kiosk_control_plane_requires_helper_for_supervised_phase() {
         let status = KioskControlPlaneStatus::broker_panel_2d()
             .with_shell_helper_connected(true)
@@ -1222,5 +1418,23 @@ mod tests {
         assert_eq!(decoded, status);
         assert!(decoded.is_custom_immersive_home_active());
         assert!(decoded.is_full_control_plane_ready());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn kiosk_command_run_record_round_trips_with_serde() {
+        let primary = KioskCommandEvidence::new("surface.current", KioskCommandProvider::HzdbCli)
+            .with_preferred_command("hzdb app foreground --json");
+        let record = KioskCommandRunRecord::new("run-001", "surface.current", primary)
+            .with_surface_intent(KioskSurfaceIntent::RustyKioskDefault)
+            .with_status_after(KioskControlPlaneStatus::broker_panel_2d())
+            .with_outcome(KioskCommandOutcome::Succeeded);
+
+        let encoded = serde_json::to_string(&record).expect("record should serialize");
+        let decoded: KioskCommandRunRecord =
+            serde_json::from_str(&encoded).expect("record should deserialize");
+
+        assert_eq!(decoded, record);
+        assert!(decoded.is_valid());
     }
 }

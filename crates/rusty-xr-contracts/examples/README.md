@@ -104,6 +104,23 @@ The example does not build an APK, start ADB, launch another app, intercept
 system buttons, or provide kiosk lock-down. It demonstrates the contract shape
 documented in `docs/QUEST_DEVELOPER_HOME_MENU.md`.
 
+## Kiosk Command Run Record
+
+`kiosk_command_run_record.rs` emits one public run record for a Rusty Kiosk
+surface check. The record ties the command goal, preferred MCP provider,
+broker API fallback, ADB fallback note, foreground evidence, clock epoch, and
+before/after control-plane status into one JSON shape.
+
+Run it with:
+
+```powershell
+cargo run -p rusty-xr-contracts --example kiosk_command_run_record --features serde
+```
+
+The example does not start `hzdb`, ADB, MCP, a broker, or a headset. It
+demonstrates the common evidence envelope that provider adapters and operator
+tools should emit.
+
 ## Effect Stack Diagnostic Manifest
 
 `effect_stack_diagnostic_manifest.rs` emits a generic multi-pass visual

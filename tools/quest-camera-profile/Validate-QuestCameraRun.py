@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 
@@ -62,8 +63,29 @@ NATIVE_ACQUISITION_RE = re.compile(
 )
 
 
+def filesystem_path(path: Path | str) -> str:
+    text = str(path)
+    if os.name != "nt" or text.startswith("\\\\?\\"):
+        return text
+    resolved = str(Path(text).resolve())
+    if resolved.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + resolved[2:]
+    return "\\\\?\\" + resolved
+
+
+def read_bytes(path: Path) -> bytes:
+    with open(filesystem_path(path), "rb") as handle:
+        return handle.read()
+
+
+def write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
+    os.makedirs(filesystem_path(path.parent), exist_ok=True)
+    with open(filesystem_path(path), "w", encoding=encoding) as handle:
+        handle.write(text)
+
+
 def load_rgb(path: Path) -> np.ndarray:
-    return np.asarray(Image.open(path).convert("RGB"), dtype=np.float32) / 255.0
+    return np.asarray(Image.open(filesystem_path(path)).convert("RGB"), dtype=np.float32) / 255.0
 
 
 def crop(img: np.ndarray, roi: tuple[int, int, int, int]) -> np.ndarray:
@@ -81,7 +103,7 @@ def luma(rgb: np.ndarray) -> np.ndarray:
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
+    with open(filesystem_path(path), "rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
@@ -389,7 +411,7 @@ def summarize_native_side_frames(text: str) -> dict:
 
 
 def read_text_auto(path: Path) -> str:
-    data = path.read_bytes()
+    data = read_bytes(path)
     if data.startswith(b"\xff\xfe"):
         return data.decode("utf-16-le", errors="replace")
     if data.startswith(b"\xfe\xff"):
@@ -483,7 +505,7 @@ def main() -> int:
     }
     if sequence:
         report["sequence"] = sequence
-    args.out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    write_text(args.out, json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
     return 0
 

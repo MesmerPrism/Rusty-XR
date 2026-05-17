@@ -271,6 +271,8 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -Install `
   -EnableStayAwakeGuard `
   -RestartBrokerBeforeBrokerModes `
+  -BrokerH264SourceMode broker-synthetic `
+  -BrokerH264SyntheticPattern diagnostic-grid `
   -ProjectionBorderPolicy passthrough-underlay `
   -ProcessingLayer blur `
   -BlurRadiusPx 2.0
@@ -287,6 +289,12 @@ Use `-RestartBrokerBeforeBrokerModes` when multiple live broker-camera lanes
 reuse the same H.264 ports in one suite. The switch restarts the broker console
 before each broker lane and records `broker-restarts\` snapshots so stale
 unbounded stream sockets do not masquerade as camera/projection failures.
+Set `-BrokerH264SourceMode broker-synthetic` for the deterministic
+broker-managed source lane. The suite forwards the same synthetic pattern,
+stream ports, resolution, bitrate, requested FPS, capture duration, and max
+packet settings into the Vulkan/HWB, GL/OES, and Makepad broker modes, so
+their projection rows and screen-space masks can be compared before physical
+camera variables are reintroduced.
 
 After a solid-red suite run, measure each lane in the captured screenshot
 coordinate system:
@@ -301,6 +309,10 @@ screen pixels. In `solid-red` runs, the analyzer requires the red
 projection-area mask; if it is missing, the lane is marked ambiguous instead of
 falling back to visible-content segmentation. Use the vertical offset values to
 compare each lane against the eye-half center before changing projection knobs.
+When lane logcat is available, the report also lists source/mode fields and the
+projection-stage rows found in that lane. Use those rows as the input to
+`tools\quest-stereo-alignment\Compare-HomographyStages.py` when the footprint
+diff suggests a coordinate-chain mismatch.
 
 ## Diagnostic Loop
 

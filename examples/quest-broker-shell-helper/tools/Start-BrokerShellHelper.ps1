@@ -57,44 +57,6 @@ $repoRoot = (Resolve-Path (Join-Path $exampleRoot '..\..')).Path
 $helperJar = Join-Path $exampleRoot 'build\outputs\rusty-xr-broker-shell-helper.jar'
 $deviceJar = '/data/local/tmp/rusty-xr-broker-shell-helper.jar'
 
-function Find-AndroidPlayerRoot {
-    param([string]$RequestedRoot)
-
-    if (-not [string]::IsNullOrWhiteSpace($RequestedRoot)) {
-        $resolved = (Resolve-Path $RequestedRoot).Path
-        if ((Test-Path (Join-Path $resolved 'SDK')) -and
-            (Test-Path (Join-Path $resolved 'OpenJDK'))) {
-            return $resolved
-        }
-
-        throw "AndroidPlayerRoot does not contain SDK and OpenJDK: $resolved"
-    }
-
-    foreach ($envName in @('UNITY_ANDROID_PLAYER_ROOT', 'ANDROID_PLAYER_ROOT')) {
-        $value = [Environment]::GetEnvironmentVariable($envName)
-        if (-not [string]::IsNullOrWhiteSpace($value) -and (Test-Path $value)) {
-            return Find-AndroidPlayerRoot -RequestedRoot $value
-        }
-    }
-
-    $unityRoot = Join-Path $env:ProgramFiles 'Unity\Hub\Editor'
-    if (Test-Path $unityRoot) {
-        $candidate = Get-ChildItem -LiteralPath $unityRoot -Directory |
-            ForEach-Object { Join-Path $_.FullName 'Editor\Data\PlaybackEngines\AndroidPlayer' } |
-            Where-Object {
-                (Test-Path (Join-Path $_ 'SDK')) -and
-                (Test-Path (Join-Path $_ 'OpenJDK'))
-            } |
-            Sort-Object -Descending |
-            Select-Object -First 1
-        if ($null -ne $candidate) {
-            return $candidate
-        }
-    }
-
-    throw 'Could not find Android tooling. Pass -AndroidPlayerRoot or set UNITY_ANDROID_PLAYER_ROOT.'
-}
-
 function Resolve-Adb {
     param(
         [string]$RequestedAdb,
@@ -105,6 +67,11 @@ function Resolve-Adb {
 
     if (-not [string]::IsNullOrWhiteSpace($RequestedAdb)) {
         return (Resolve-Path $RequestedAdb).Path
+    }
+
+    $envAdb = [Environment]::GetEnvironmentVariable('RUSTY_XR_ADB')
+    if (-not [string]::IsNullOrWhiteSpace($envAdb) -and (Test-Path -LiteralPath $envAdb)) {
+        return (Resolve-Path -LiteralPath $envAdb).Path
     }
 
     $toolchain = Resolve-RustyXrAndroidToolchain -AndroidPlayerRoot $RequestedAndroidRoot -AndroidSdkRoot $RequestedAndroidSdkRoot -JdkRoot $RequestedJdkRoot
