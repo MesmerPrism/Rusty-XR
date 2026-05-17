@@ -8,6 +8,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.FileInputStream;
@@ -274,7 +275,7 @@ final class BrokerQ2QRelayClientSession {
         socket.setTcpNoDelay(true);
         socket.connect(new InetSocketAddress(lane.relayHost, lane.relayPort), lane.connectTimeoutMs);
         if (lane.tls) {
-            SSLSocketFactory factory = sslSocketFactory(lane.caFile, lane.insecureTls);
+            SSLSocketFactory factory = sslSocketFactory(lane.caFile, lane.caPem, lane.insecureTls);
             String serverName = lane.serverName.length() > 0 ? lane.serverName : lane.relayHost;
             SSLSocket sslSocket = (SSLSocket) factory.createSocket(socket, serverName, lane.relayPort, true);
             if (!lane.insecureTls) {
@@ -313,18 +314,22 @@ final class BrokerQ2QRelayClientSession {
         return new RelayConnection(socket, input, output, ack);
     }
 
-    private static SSLSocketFactory sslSocketFactory(String caFile, boolean insecureTls) throws Exception {
+    private static SSLSocketFactory sslSocketFactory(String caFile, String caPem, boolean insecureTls) throws Exception {
         SSLContext context = SSLContext.getInstance("TLS");
         if (insecureTls) {
             context.init(null, new TrustManager[] { new InsecureTrustManager() }, null);
             return context.getSocketFactory();
         }
-        if (caFile == null || caFile.trim().length() == 0) {
+        boolean hasCaPem = caPem != null && caPem.trim().length() > 0;
+        boolean hasCaFile = caFile != null && caFile.trim().length() > 0;
+        if (!hasCaPem && !hasCaFile) {
             return (SSLSocketFactory) SSLSocketFactory.getDefault();
         }
 
         CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
-        FileInputStream input = new FileInputStream(caFile);
+        InputStream input = hasCaPem
+            ? new ByteArrayInputStream(caPem.getBytes(StandardCharsets.UTF_8))
+            : new FileInputStream(caFile);
         Certificate certificate;
         try {
             certificate = certificateFactory.generateCertificate(input);
@@ -660,6 +665,7 @@ final class BrokerQ2QRelayClientSession {
         final boolean tls;
         final boolean insecureTls;
         final String caFile;
+        final String caPem;
         final String serverName;
         final String token;
         final String label;
@@ -725,6 +731,7 @@ final class BrokerQ2QRelayClientSession {
             this.tls = params.optBoolean("tls", true);
             this.insecureTls = params.optBoolean("insecure_tls", false);
             this.caFile = params.optString("ca_file", "").trim();
+            this.caPem = params.optString("ca_pem", "").trim();
             this.serverName = params.optString("server_name", params.optString("relay_server_name", relayHost)).trim();
             this.token = readToken(params);
             this.label = params.optString("label", "quest-native-" + role + "-" + eye).trim();
@@ -773,6 +780,7 @@ final class BrokerQ2QRelayClientSession {
             json.put("tls", tls);
             json.put("server_name", serverName);
             json.put("ca_file", caFile);
+            json.put("ca_pem_present", caPem.length() > 0);
             json.put("token_present", token != null && token.length() > 0);
             if (includeToken) {
                 json.put("token", token);
