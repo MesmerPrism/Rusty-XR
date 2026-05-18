@@ -132,6 +132,12 @@ Reusable camera contracts and math helpers, including camera metadata,
 intrinsics, extrinsics, stereo frame descriptors, and projection-related
 utilities.
 
+The active coordinate-space ledger for camera projection, environment-depth
+particles, synthetic source geometry, and blur gating is documented in
+[PROJECTION_COORDINATE_SPACE_LEDGER.md](PROJECTION_COORDINATE_SPACE_LEDGER.md).
+Future camera/projection work should name the domain it reads or writes before
+adding renderer tuning.
+
 The custom stereo temporal reprojection plan is tracked in
 [CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md](CUSTOM_STEREO_CAMERA_TEMPORAL_REPROJECTION.md).
 The first public slices now include data-only temporal policy/state/metric
@@ -210,6 +216,9 @@ particle map is the current real-time environment-mapping path: accepted depth
 samples are spatially binned in OpenXR local space, confidence-merged by cell,
 actively corrected from high-confidence visible free-space observations, and
 drawn as small alpha-clipped opaque default-disc particles.
+This world-space-first path is also the reference baseline for the coordinate
+ledger: runtime depth samples become app reference-space points first, then
+render through the current per-eye OpenXR views.
 
 ### SDF Model
 

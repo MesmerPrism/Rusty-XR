@@ -9,44 +9,49 @@ cannot travel from broker raster to screenshot with the same orientation,
 target footprint, and clipping semantics across Vulkan/HWB, GL/OES, and
 Makepad CPU-YUV, then camera-feed and passthrough runs are not yet diagnostic.
 
+The coordinate domain and source-of-truth rules live in
+[PROJECTION_COORDINATE_SPACE_LEDGER.md](PROJECTION_COORDINATE_SPACE_LEDGER.md).
+Treat that ledger as the contract scaffold for this plan. Blur, physical
+passthrough, and downstream effects remain blocked until the ledger fields are
+logged or intentionally marked unavailable for each active lane.
+
 ## Current Finding
 
-The current broker-synthetic camera-matched evidence is not aligned. The
-diagnostic split colors show near-zero true source-invalid sampling, so the
-main issue is not runaway invalid UV reads. The issue is that the renderers
-choose different camera-source footprints inside their submitted per-eye
-surfaces.
+Latest evidence is from the 2026-05-19 broker-synthetic runs after the
+projection-coordinate contract scaffold was added to the analyzer and the
+HWB/GL/Makepad lanes were made to log the same source-geometry fields.
 
-Observed valid-content coverage relative to the visible render surface:
+`full-frame-diagnostic` is now a contract-quality failure, not a metadata
+failure: all three lanes report `ready` contracts, full valid coverage, source
+size `1280 x 1280`, explicit source UV rect, and all four homography stages.
+The remaining full-frame issues are measured behavior:
 
-| Lane | Width | Height | Area | Current interpretation |
+| Lane | Avg center Y | Orientation | Current interpretation |
+| --- | ---: | --- | --- |
+| `vulkan-hwb-broker-h264-raw` | `+0.033` | Upright | Full content, but the submitted projection sits lower than the other lanes. |
+| `gles-oes-broker-h264-raw` | `-0.006` | Upright | Closest current full-frame center reference. |
+| `makepad-cpuyuv-broker-h264-raw` | `-0.034` | Inverted | Full content, but vertically high and flipped relative to explicit top-left source metadata. |
+
+`camera-matched` now has clean source-contract coverage across the three lanes.
+The previous HWB crop/smaller-footprint diagnosis has been superseded by the
+new run: all three lanes show full visible projection coverage and center parity
+is inside tolerance. The remaining camera-matched contract gap is intentional:
+the expected source-valid footprint is still produced by the analyzer from
+`screen_to_camera` rows, not authored by the renderer as an explicit expected
+box/mask.
+
+Camera-matched source-domain model evidence:
+
+| Lane | Avg center Y | Source-valid IoU | Source-invalid fraction | Orientation |
 | --- | ---: | ---: | ---: | --- |
-| `gles-oes-broker-h264-raw` | ~0.825 | ~0.790 | ~0.652 | Current target: largest camera-matched footprint, upright markers |
-| `vulkan-hwb-broker-h264-raw` | ~0.672 | ~0.634 | ~0.426 | Source-domain clipping: the lower checkerboard row and left/right edge markers are visibly lost, even though the run used full-feed launch overrides |
-| `makepad-cpuyuv-broker-h264-raw` | ~0.680 | ~0.647 | ~0.440 | Projection-footprint scale issue: the whole stimulus is visible and upright, but it lands in a smaller/lower screen-space footprint than OES |
+| `vulkan-hwb-broker-h264-raw` | `-0.000` | `0.494` | `0.279` | Upright |
+| `gles-oes-broker-h264-raw` | `-0.007` | `0.494` | `0.270` | Upright |
+| `makepad-cpuyuv-broker-h264-raw` | `-0.004` | `0.269` | `0.442` | One eye ambiguous, one upright |
 
-The full-frame diagnostic profile renders upright with full valid coverage in
-all three lanes. That narrows the blocker to camera-matched source-to-projection
-mapping and projection-area normalization, not the broker stimulus generator or
-H.264 decoder globally.
-
-The current visual diagnosis is lane-specific:
-
-- HWB is a source-domain crop/clipping bug. The screenshot shows the bottom
-  checkerboard row fully gone and the outer source markers at the left and right
-  edges nearly gone. That is different from a simple downscale: the stimulus is
-  not wholly visible inside a smaller rectangle.
-- Makepad is not showing that crop class in the current broker-synthetic run.
-  It shows the full diagnostic raster, including the top and bottom orientation
-  bands, but the whole raster is mapped to a smaller screen-space footprint than
-  OES. Treat it as a projection scale/window normalization issue.
-
-Earlier analyzer output under-reported Makepad height because the diagnostic
-stimulus is multi-band. The checkerboard and top color/header band are separate
-dense components, and the old analyzer boxed only the largest connected
-component. The analyzer now reports the dense valid-content union and draws the
-largest component separately when it differs from the union. The real parity
-failure remains: Makepad and HWB still cover less of the OES target footprint.
+The next synthetic milestone is therefore not another scale guess. It is to
+make each renderer log a renderer-authored expected source-valid footprint for
+camera-matched runs, then compare that footprint against the analyzer model and
+observed diagnostic colors.
 
 ## Coordinate Contract
 
@@ -65,6 +70,15 @@ For `camera-matched`, the source raster may be synthetic, but its metadata must
 still describe the selected camera-shaped projection. For
 `full-frame-diagnostic`, the raster is diagnostic projection-surface content and
 must not be interpreted as camera-shaped footage.
+
+Each analyzed run emits or preserves the projection-coordinate contract
+described by the ledger in `projection-coordinate-contracts.jsonl`, with a
+compact `projection-coordinate-contract-summary.json` beside the screen-space
+summary. The contract joins source size, resolved geometry profile, metadata
+state, valid source UV rect, projection profile, OpenXR view source,
+homography-stage tokens, mask policy, screenshot evidence, and explicit gaps.
+Analyzer boxes are evidence, not replacements for the run manifest and
+transform logs.
 
 ## Diagnostic Color Semantics
 
@@ -143,22 +157,17 @@ Trace these fields in order:
 5. generated `screen_to_camera` homography rows;
 6. shader decision between intended mask and invalid-source fill.
 
-The old `fast075` launch hypothesis is no longer sufficient for the current
-evidence. The camera-matched run used `cameraProjectionScale=1`,
-`cameraProjectionAreaScaleUv=1`, `cameraProjectionAreaRadiusXUv=0.5`,
-`cameraProjectionAreaRadiusYUv=0.5`, and `cameraProjectionAreaCornerRadiusUv=0`,
-yet the source raster still loses edge content. The active HWB bug is therefore
-in the camera-matched source-domain mapping, most likely around
-`projected_camera_matched_display_eye_homography`,
-`screen_to_camera`, `camera_raw_overlay_overscan`,
-`camera_preview_fov_y_degrees`, or `content_uv_scale`, rather than the
-projection-area mask alone.
+The old `fast075` launch hypothesis and the earlier HWB source-crop diagnosis
+are superseded by the 2026-05-19 camera-matched sweep. HWB now has full visible
+coverage and center parity, so the next HWB work is not a projection-area scale
+tune. It is to log a renderer-authored camera-matched expected source-valid
+footprint and compare it with the analyzer's `screen_to_camera` model.
 
 ### GL/OES
 
-OES is the current synthetic camera-matched coverage target. Keep it as the
-reference only while it remains upright and close to the largest plausible
-camera-source footprint.
+OES is the current synthetic camera-matched orientation reference. Keep it as a
+reference only while it remains upright and its renderer-authored expected
+source footprint agrees with the analyzer model.
 
 Trace these fields:
 
@@ -179,50 +188,42 @@ Trace these fields in order:
    `projection_area_content_uv` in the Makepad shader;
 6. final valid content bbox and orientation marker classification.
 
-The first hypothesis is that Makepad applies a source Y transform that is
-correct for one coordinate domain but wrong after camera-matched
-`screen_to_camera` mapping. Full-frame being upright means this is not a global
-decoder flip.
-
-The current camera-matched broker evidence supersedes that first hypothesis for
-the scale question: Makepad's stimulus is upright and complete, but its
-projection footprint is smaller than OES. The next Makepad trace should compare
-`screen_to_head_surface_uv`, `projection_depth_meters`,
-`projection_preview_fov_y_degrees`, `projection_raw_overscan`, and the
-`projection_area_screen_uv` scale against the OES footprint. Do not tune
-`contentUvScale=1.6000` as if it were active scale evidence until it is either
-wired into the shader path or renamed as inactive/log-only state.
+The full-frame sweep shows a Makepad-specific vertical inversion even though
+the stream metadata is explicit and the contract is `ready`. The camera-matched
+sweep is mostly upright but has one ambiguous eye marker and a lower
+source-valid IoU than HWB/OES. The next Makepad trace should therefore separate
+two questions: source Y orientation in full-frame mode, and camera-matched
+expected-footprint authorship. Do not tune `contentUvScale=1.6000` as if it were
+active scale evidence until it is either wired into the shader path or renamed
+as inactive/log-only state.
 
 ## Iteration Order
 
-1. Add analyzer language that treats current camera-matched evidence as
-   geometry parity failure, not a pass.
-2. Replace alignment-suite HWB runtime profiles with explicit full-feed
-   alignment profiles and keep `fast075` only as a compatibility/performance
-   alias.
-3. Re-run full-frame synthetic across the three broker lanes and normalize
-   render-surface placement first.
-4. Re-run camera-matched synthetic across the three broker lanes and make valid
-   content bbox width, height, area, center, and orientation agree within a
-   small tolerance.
-5. Only then switch from `raw` to `blur` while keeping geometry unchanged.
-6. Only after raw and blur synthetic gates pass, use live camera frames and
-   passthrough-underlay comparison.
+1. Keep the projection-coordinate contract gate in place for every synthetic
+   run.
+2. Add renderer-authored expected source-valid footprint fields for
+   camera-matched mode, instead of relying on analyzer-derived boxes.
+3. Fix Makepad full-frame vertical inversion before treating its per-eye path as
+   a reference.
+4. Normalize full-frame vertical placement across HWB, GL/OES, and Makepad
+   after orientation is correct.
+5. Re-run camera-matched synthetic and require center, orientation, and
+   renderer-authored expected footprint agreement.
+6. Only after raw synthetic gates pass, use live camera frames,
+   passthrough-underlay comparison, and then blur while keeping geometry
+   unchanged.
 
 ## Next Headset Sweep
 
-Run the next synthetic camera-matched sweep as two independent probes:
+Run the next synthetic sweep as two independent probes:
 
-- HWB source-crop probe: keep projection-area radius/corner at full square and
-  vary only HWB source-domain controls (`cameraProjectionScale`,
-  `cameraPreviewFovYDegrees`, or `cameraRawOverlayOverscan`) until the outer
-  source markers and bottom checkerboard row are visible. The acceptance signal
-  is full source-raster visibility, not merely a larger content bbox.
-- Makepad footprint-scale probe: keep source sampling and orientation fixed and
-  vary only `makepad_projection_area_scale_x/y`. Because scale is applied before
-  the area mask, values below `1.0` should enlarge the visible footprint. A first
-  estimate from the current OES target is about `0.82` for both axes, but it must
-  be verified by screenshot and pixel analysis.
+- Renderer-authored expected footprint probe: each lane logs the expected
+  camera-matched source-valid footprint in display-eye screen UV, with a source
+  label and homography stage that generated it.
+- Makepad full-frame orientation probe: keep full-frame source mapping and
+  projection scale fixed, vary only the active Y-orientation decision if needed,
+  and require top/bottom markers to agree with
+  `top-left-origin-y-down` / `color-bars-top`.
 
 Do not start blur alignment until both probes pass against the same
 camera-matched synthetic stimulus.
@@ -328,6 +329,7 @@ Current architecture risks to fix:
    render surface, expected source-domain footprint, intended mask, and true
    invalid-source fill.
 
-Next structural target: add a compact `projection-coordinate-contract` record
-per lane that joins launch request, resolved app config, stream metadata,
-shader mapping fields, and analyzer measurements into one JSON object.
+Current structural target: make fresh `full-frame-diagnostic` and
+`camera-matched` runs pass the compact `projection-coordinate-contract` gate in
+all three broker lanes before using direct Camera2 or passthrough-underlay runs
+as physical-world witnesses.

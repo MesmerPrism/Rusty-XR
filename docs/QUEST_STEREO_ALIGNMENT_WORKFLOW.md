@@ -14,6 +14,10 @@ For the current screen-space and blur alignment sequence, start with
 It supersedes older one-off projection/effect comparison ordering by keeping
 raw projection area, border policy, synthetic stimuli, public blur, and later
 physical-screen passthrough checks as separate phases.
+For coordinate-space ownership, source-of-truth priority, and the required
+three-lane projection-coordinate contract, read
+[PROJECTION_COORDINATE_SPACE_LEDGER.md](PROJECTION_COORDINATE_SPACE_LEDGER.md)
+before tuning a renderer.
 
 ## Source Boundaries
 
@@ -76,7 +80,10 @@ The manifest should record public-safe values only:
    visual warp. Compare `screen_to_surface`, `surface_to_camera`, and
    `screen_to_camera` separately so the first divergent coordinate stage is
    explicit.
-8. Update `docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md` with the next slice
+8. Confirm the run has a projection-coordinate contract or an explicit note for
+   every unavailable ledger field before moving from raw projection into blur
+   or physical passthrough evidence.
+9. Update `docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md` with the next slice
    row before changing code again.
 
 For physical laptop-screen runs, serve

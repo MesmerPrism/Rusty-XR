@@ -49,6 +49,8 @@ impl MatrixStepStatus {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ProjectionStageKind {
+    /// Submitted surface/content UV to display-eye screen UV.
+    SurfaceToScreen,
     /// Display-eye screen UV to submitted surface/content UV.
     #[default]
     ScreenToSurface,

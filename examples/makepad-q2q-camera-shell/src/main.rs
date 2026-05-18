@@ -2724,6 +2724,8 @@ impl App {
         pair.fallback_reason = plan.fallback_reason.to_string();
         pair.left_surface_to_camera_h = plan.left_surface_to_camera_h;
         pair.right_surface_to_camera_h = plan.right_surface_to_camera_h;
+        pair.left_surface_to_screen_h = plan.left_surface_to_screen_h;
+        pair.right_surface_to_screen_h = plan.right_surface_to_screen_h;
         pair.left_screen_to_camera_h = plan.left_screen_to_camera_h;
         pair.right_screen_to_camera_h = plan.right_screen_to_camera_h;
         pair.left_screen_to_surface_h = plan.left_screen_to_surface_h;
@@ -2798,6 +2800,8 @@ impl App {
         pair.fallback_reason = plan.fallback_reason;
         pair.left_surface_to_camera_h = plan.left_surface_to_camera_h;
         pair.right_surface_to_camera_h = plan.right_surface_to_camera_h;
+        pair.left_surface_to_screen_h = plan.left_surface_to_screen_h;
+        pair.right_surface_to_screen_h = plan.right_surface_to_screen_h;
         pair.left_screen_to_camera_h = plan.left_screen_to_camera_h;
         pair.right_screen_to_camera_h = plan.right_screen_to_camera_h;
         pair.left_screen_to_surface_h = plan.left_screen_to_surface_h;
@@ -4993,6 +4997,8 @@ struct MakepadCameraPair {
     fallback_reason: String,
     left_surface_to_camera_h: [[f32; 3]; 3],
     right_surface_to_camera_h: [[f32; 3]; 3],
+    left_surface_to_screen_h: [[f32; 3]; 3],
+    right_surface_to_screen_h: [[f32; 3]; 3],
     left_screen_to_camera_h: [[f32; 3]; 3],
     right_screen_to_camera_h: [[f32; 3]; 3],
     left_screen_to_surface_h: [[f32; 3]; 3],
@@ -5034,6 +5040,8 @@ impl MakepadCameraPair {
             fallback_reason: "waiting_for_broker_h264_stream_header".to_string(),
             left_surface_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             right_surface_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            left_surface_to_screen_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            right_surface_to_screen_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             left_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             right_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             left_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
@@ -5077,6 +5085,8 @@ impl MakepadCameraPair {
             fallback_reason: plan.fallback_reason.clone(),
             left_surface_to_camera_h: plan.left_surface_to_camera_h,
             right_surface_to_camera_h: plan.right_surface_to_camera_h,
+            left_surface_to_screen_h: plan.left_surface_to_screen_h,
+            right_surface_to_screen_h: plan.right_surface_to_screen_h,
             left_screen_to_camera_h: plan.left_screen_to_camera_h,
             right_screen_to_camera_h: plan.right_screen_to_camera_h,
             left_screen_to_surface_h: plan.left_screen_to_surface_h,
@@ -5151,6 +5161,8 @@ impl MakepadCameraPair {
             fallback_reason: "camera2 stereo projection metadata was not correlated".to_string(),
             left_surface_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             right_surface_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            left_surface_to_screen_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            right_surface_to_screen_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             left_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             right_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             left_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
@@ -5185,6 +5197,8 @@ struct Camera2StereoPlan {
     fallback_reason: String,
     left_surface_to_camera_h: [[f32; 3]; 3],
     right_surface_to_camera_h: [[f32; 3]; 3],
+    left_surface_to_screen_h: [[f32; 3]; 3],
+    right_surface_to_screen_h: [[f32; 3]; 3],
     left_screen_to_camera_h: [[f32; 3]; 3],
     right_screen_to_camera_h: [[f32; 3]; 3],
     left_screen_to_surface_h: [[f32; 3]; 3],
@@ -5216,6 +5230,8 @@ impl From<android_camera_probe::StereoProjectionPlan> for Camera2StereoPlan {
             fallback_reason: plan.fallback_reason.to_string(),
             left_surface_to_camera_h: plan.left_surface_to_camera_h,
             right_surface_to_camera_h: plan.right_surface_to_camera_h,
+            left_surface_to_screen_h: plan.left_surface_to_screen_h,
+            right_surface_to_screen_h: plan.right_surface_to_screen_h,
             left_screen_to_camera_h: plan.left_screen_to_camera_h,
             right_screen_to_camera_h: plan.right_screen_to_camera_h,
             left_screen_to_surface_h: plan.left_screen_to_surface_h,
@@ -5317,7 +5333,7 @@ fn homography_token(rows: [[f32; 3]; 3]) -> String {
 
 fn projection_homography_marker_fields(pair: &MakepadCameraPair) -> String {
     format!(
-        "projectionHomographyReady={} runtimeXrViewStateReady={} sourceBindingMode={} displayLeftCameraId={} displayRightCameraId={} makepadLeftCameraId={} makepadRightCameraId={} projectionAreaTransformStage=pre_homography_screen_uv projectionAreaWarpParity=diagnostic_only leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} {}",
+        "projectionHomographyReady={} runtimeXrViewStateReady={} sourceBindingMode={} displayLeftCameraId={} displayRightCameraId={} makepadLeftCameraId={} makepadRightCameraId={} projectionAreaTransformStage=pre_homography_screen_uv projectionAreaWarpParity=diagnostic_only contentUvRect=0,0,1,1 cpuUploadRect=0,0,{},{} cpuUploadStride=not-exposed leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} {}",
         pair.projection_homography_ready,
         pair.runtime_xr_view_state_ready,
         pair.source_binding_mode,
@@ -5325,8 +5341,12 @@ fn projection_homography_marker_fields(pair: &MakepadCameraPair) -> String {
         marker_token(pair.right.camera_id.as_deref().unwrap_or("unknown")),
         marker_token(pair.left.camera_id.as_deref().unwrap_or("unknown")),
         marker_token(pair.right.camera_id.as_deref().unwrap_or("unknown")),
+        pair.left.width,
+        pair.left.height,
         homography_token(pair.left_surface_to_camera_h),
         homography_token(pair.right_surface_to_camera_h),
+        homography_token(pair.left_surface_to_screen_h),
+        homography_token(pair.right_surface_to_screen_h),
         homography_token(pair.left_screen_to_camera_h),
         homography_token(pair.right_screen_to_camera_h),
         homography_token(pair.left_screen_to_surface_h),
@@ -5382,6 +5402,8 @@ mod tests {
             fallback_reason: "none".to_string(),
             left_surface_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             right_surface_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            left_surface_to_screen_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            right_surface_to_screen_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             left_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             right_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             left_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,

@@ -57,6 +57,8 @@ pub struct XrDisplayViews {
 struct ProjectionHomographies {
     left_surface_to_camera_h: [[f32; 3]; 3],
     right_surface_to_camera_h: [[f32; 3]; 3],
+    left_surface_to_screen_h: [[f32; 3]; 3],
+    right_surface_to_screen_h: [[f32; 3]; 3],
     left_screen_to_camera_h: [[f32; 3]; 3],
     right_screen_to_camera_h: [[f32; 3]; 3],
     left_screen_to_surface_h: [[f32; 3]; 3],
@@ -68,6 +70,8 @@ impl ProjectionHomographies {
         Self {
             left_surface_to_camera_h: IDENTITY_HOMOGRAPHY,
             right_surface_to_camera_h: IDENTITY_HOMOGRAPHY,
+            left_surface_to_screen_h: IDENTITY_HOMOGRAPHY,
+            right_surface_to_screen_h: IDENTITY_HOMOGRAPHY,
             left_screen_to_camera_h: IDENTITY_HOMOGRAPHY,
             right_screen_to_camera_h: IDENTITY_HOMOGRAPHY,
             left_screen_to_surface_h: IDENTITY_HOMOGRAPHY,
@@ -103,6 +107,8 @@ pub struct StereoProjectionPlan {
     pub fallback_reason: &'static str,
     pub left_surface_to_camera_h: [[f32; 3]; 3],
     pub right_surface_to_camera_h: [[f32; 3]; 3],
+    pub left_surface_to_screen_h: [[f32; 3]; 3],
+    pub right_surface_to_screen_h: [[f32; 3]; 3],
     pub left_screen_to_camera_h: [[f32; 3]; 3],
     pub right_screen_to_camera_h: [[f32; 3]; 3],
     pub left_screen_to_surface_h: [[f32; 3]; 3],
@@ -150,6 +156,8 @@ impl StereoProjectionPlan {
             },
             left_surface_to_camera_h: homographies.left_surface_to_camera_h,
             right_surface_to_camera_h: homographies.right_surface_to_camera_h,
+            left_surface_to_screen_h: homographies.left_surface_to_screen_h,
+            right_surface_to_screen_h: homographies.right_surface_to_screen_h,
             left_screen_to_camera_h: homographies.left_screen_to_camera_h,
             right_screen_to_camera_h: homographies.right_screen_to_camera_h,
             left_screen_to_surface_h: homographies.left_screen_to_surface_h,
@@ -195,6 +203,8 @@ impl StereoProjectionPlan {
             fallback_reason: "none",
             left_surface_to_camera_h: homographies.left_surface_to_camera_h,
             right_surface_to_camera_h: homographies.right_surface_to_camera_h,
+            left_surface_to_screen_h: homographies.left_surface_to_screen_h,
+            right_surface_to_screen_h: homographies.right_surface_to_screen_h,
             left_screen_to_camera_h: homographies.left_screen_to_camera_h,
             right_screen_to_camera_h: homographies.right_screen_to_camera_h,
             left_screen_to_surface_h: homographies.left_screen_to_surface_h,
@@ -228,7 +238,7 @@ pub fn update_stereo_projection_from_xr_views(views: XrDisplayViews) -> bool {
     }
     if !XR_VIEW_PROJECTION_MARKER_EMITTED.swap(true, Ordering::AcqRel) {
         emit_stereo_projection_marker(&format!(
-            "phase=xr-view-projection status=ok runtimeXrViewStateReady=true projectionMappingReady={} alignedProjection=false poseSource={} sourceEyeMapping={} coordinateChain={} displayLeftCameraId={} displayRightCameraId={} projectionHomographyReady={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=runtime_openxr_view_screen_to_camera_homography fallbackReason={}",
+            "phase=xr-view-projection status=ok runtimeXrViewStateReady=true projectionMappingReady={} alignedProjection=false poseSource={} sourceEyeMapping={} coordinateChain={} displayLeftCameraId={} displayRightCameraId={} projectionHomographyReady={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=runtime_openxr_view_screen_to_camera_homography fallbackReason={}",
             plan.projection_homography_ready,
             plan.pose_source,
             plan.source_eye_mapping,
@@ -236,6 +246,8 @@ pub fn update_stereo_projection_from_xr_views(views: XrDisplayViews) -> bool {
             marker_token(&plan.left_camera_id),
             marker_token(&plan.right_camera_id),
             plan.projection_homography_ready,
+            homography_token(plan.left_surface_to_screen_h),
+            homography_token(plan.right_surface_to_screen_h),
             homography_token(plan.left_screen_to_camera_h),
             homography_token(plan.right_screen_to_camera_h),
             homography_token(plan.left_screen_to_surface_h),
@@ -318,6 +330,8 @@ pub fn broker_synthetic_projection_plan_from_xr_views(
         fallback_reason: "none",
         left_surface_to_camera_h: surface_to_camera,
         right_surface_to_camera_h: surface_to_camera,
+        left_surface_to_screen_h: left_surface_to_screen,
+        right_surface_to_screen_h: right_surface_to_screen,
         left_screen_to_camera_h,
         right_screen_to_camera_h,
         left_screen_to_surface_h,
@@ -386,6 +400,8 @@ pub fn broker_full_frame_projection_plan_from_xr_views(
         fallback_reason: "none",
         left_surface_to_camera_h: IDENTITY_HOMOGRAPHY,
         right_surface_to_camera_h: IDENTITY_HOMOGRAPHY,
+        left_surface_to_screen_h: left_surface_to_screen,
+        right_surface_to_screen_h: right_surface_to_screen,
         left_screen_to_camera_h: left_screen_to_surface_h,
         right_screen_to_camera_h: right_screen_to_surface_h,
         left_screen_to_surface_h,
@@ -636,7 +652,7 @@ fn stereo_projection_metadata_line(
 ) -> String {
     match stereo_plan {
         Some(plan) => format!(
-            "phase=metadata status=ok sourceCount={} leftSourceIndex={} rightSourceIndex={} leftCameraId={} rightCameraId={} leftFacing={} rightFacing={} width={} height={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionHomographyReady={} leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=screen_to_camera_homography_camera2_intrinsics_pose_display_eye sourceSelection=pose-x-ordered-camera2 fallbackReason={}",
+            "phase=metadata status=ok sourceCount={} leftSourceIndex={} rightSourceIndex={} leftCameraId={} rightCameraId={} leftFacing={} rightFacing={} width={} height={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionHomographyReady={} leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=screen_to_camera_homography_camera2_intrinsics_pose_display_eye sourceSelection=pose-x-ordered-camera2 fallbackReason={}",
             sources.len(),
             plan.left_source_index,
             plan.right_source_index,
@@ -654,6 +670,8 @@ fn stereo_projection_metadata_line(
             plan.projection_homography_ready,
             homography_token(plan.left_surface_to_camera_h),
             homography_token(plan.right_surface_to_camera_h),
+            homography_token(plan.left_surface_to_screen_h),
+            homography_token(plan.right_surface_to_screen_h),
             homography_token(plan.left_screen_to_camera_h),
             homography_token(plan.right_screen_to_camera_h),
             homography_token(plan.left_screen_to_surface_h),
@@ -1252,6 +1270,8 @@ fn stereo_projection_homographies(
     Some(ProjectionHomographies {
         left_surface_to_camera_h: display_left_surface_to_camera_h,
         right_surface_to_camera_h: display_right_surface_to_camera_h,
+        left_surface_to_screen_h: left_surface_to_screen,
+        right_surface_to_screen_h: right_surface_to_screen,
         left_screen_to_camera_h,
         right_screen_to_camera_h,
         left_screen_to_surface_h,
@@ -1332,6 +1352,8 @@ fn stereo_projection_homographies_from_xr_views(
     Some(ProjectionHomographies {
         left_surface_to_camera_h: display_left_surface_to_camera_h,
         right_surface_to_camera_h: display_right_surface_to_camera_h,
+        left_surface_to_screen_h: left_surface_to_screen,
+        right_surface_to_screen_h: right_surface_to_screen,
         left_screen_to_camera_h,
         right_screen_to_camera_h,
         left_screen_to_surface_h,

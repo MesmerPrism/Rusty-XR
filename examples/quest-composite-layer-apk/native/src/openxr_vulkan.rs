@@ -8,8 +8,8 @@ use crate::{
     diagnostic_hud_snapshot, gpu_probe_counters, latest_headset_camera_frame,
     latest_headset_camera_gpu_frame, latest_headset_stereo_camera_gpu_frame, log_error, log_info,
     runtime_config, EnvironmentDepthMode, HandParticleMode, HeadsetCameraFrame,
-    HeadsetCameraGpuFrame, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
-    OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
+    HeadsetCameraFrameDiagnostics, HeadsetCameraGpuFrame, OpenXrColorFormatMode,
+    OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
 };
 use android_activity::{InputStatus, MainEvent, PollEvent};
 use ash::vk::{self, Handle};
@@ -3030,16 +3030,26 @@ unsafe fn run_vulkan(
                                 .unwrap_or_else(|| {
                                     "projectionHomographyReady=false projectionAreaTransformStage=none projectionAreaWarpParity=reference_unwarped_screen_uv".to_string()
                                 });
+                            let projection_source_metadata_fields =
+                                projection_source_metadata_marker_fields(
+                                    &stereo_frame.left.diagnostics,
+                                    &stereo_frame.right.diagnostics,
+                                    stereo_frame.left.width,
+                                    stereo_frame.left.height,
+                                    stereo_frame.right.width,
+                                    stereo_frame.right.height,
+                                );
                             let orientation_accepted =
                                 controls.left_texture_transform.is_explicit_visual_check()
                                     && controls.right_texture_transform.is_explicit_visual_check();
                             log_info(format!(
-                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
+                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
                                 stereo_frame.index,
                                 frame_count,
                                 session_focused,
                                 aligned_projection,
                                 projection_homography_fields,
+                                projection_source_metadata_fields,
                                 pose_source,
                                 pose_reference,
                                 pose_convention,
@@ -6104,6 +6114,214 @@ fn projected_homography_marker_fields(homographies: &ProjectedStereoHomographies
         homography_token(homographies.right.screen_to_surface),
         homography_token(homographies.left.surface_to_screen),
         homography_token(homographies.right.surface_to_screen),
+    )
+}
+
+fn marker_token(value: Option<&str>, fallback: &str) -> String {
+    value
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback)
+        .replace(char::is_whitespace, "_")
+}
+
+fn marker_bool(value: Option<bool>, fallback: bool) -> &'static str {
+    if value.unwrap_or(fallback) {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+fn marker_f32(value: Option<f32>, fallback: f32) -> String {
+    format!("{:.6}", value.unwrap_or(fallback))
+}
+
+fn projection_source_metadata_marker_fields(
+    left: &HeadsetCameraFrameDiagnostics,
+    right: &HeadsetCameraFrameDiagnostics,
+    left_width: u32,
+    left_height: u32,
+    right_width: u32,
+    right_height: u32,
+) -> String {
+    let source = marker_token(
+        left.source.as_deref().or(right.source.as_deref()),
+        "unknown",
+    );
+    let source_mode = if source.contains("synthetic") {
+        "broker-synthetic"
+    } else if source.contains("broker") {
+        "broker-h264"
+    } else {
+        "direct-camera2"
+    };
+    let geometry_profile = marker_token(
+        left.projection_geometry_profile
+            .as_deref()
+            .or(left.synthetic_projection_profile.as_deref())
+            .or(right.projection_geometry_profile.as_deref())
+            .or(right.synthetic_projection_profile.as_deref()),
+        "unknown",
+    );
+    let synthetic_pattern = marker_token(
+        left.synthetic_pattern
+            .as_deref()
+            .or(right.synthetic_pattern.as_deref()),
+        "unknown",
+    );
+    let orientation_kind = marker_token(
+        left.orientation_kind
+            .as_deref()
+            .or(right.orientation_kind.as_deref()),
+        "unknown",
+    );
+    let raster_orientation = marker_token(
+        left.raster_orientation
+            .as_deref()
+            .or(left.stimulus_raster_orientation.as_deref())
+            .or(right.raster_orientation.as_deref())
+            .or(right.stimulus_raster_orientation.as_deref()),
+        "unspecified",
+    );
+    let upright_marker = marker_token(
+        left.upright_marker
+            .as_deref()
+            .or(left.stimulus_upright_marker.as_deref())
+            .or(right.upright_marker.as_deref())
+            .or(right.stimulus_upright_marker.as_deref()),
+        "unspecified",
+    );
+    let orientation_metadata_source = marker_token(
+        left.orientation_metadata_source
+            .as_deref()
+            .or(right.orientation_metadata_source.as_deref()),
+        "missing",
+    );
+    let content_kind = marker_token(
+        left.content_kind
+            .as_deref()
+            .or(right.content_kind.as_deref()),
+        "camera-frame",
+    );
+    let content_coordinate_space = marker_token(
+        left.content_coordinate_space
+            .as_deref()
+            .or(right.content_coordinate_space.as_deref()),
+        "normalized-uv",
+    );
+    let content_origin = marker_token(
+        left.content_origin
+            .as_deref()
+            .or(right.content_origin.as_deref()),
+        "top-left",
+    );
+    let content_x_axis = marker_token(
+        left.content_x_axis
+            .as_deref()
+            .or(right.content_x_axis.as_deref()),
+        "right",
+    );
+    let content_y_axis = marker_token(
+        left.content_y_axis
+            .as_deref()
+            .or(right.content_y_axis.as_deref()),
+        "down",
+    );
+    let content_mapping_intent = marker_token(
+        left.content_mapping_intent
+            .as_deref()
+            .or(right.content_mapping_intent.as_deref()),
+        "map-full-frame-content-to-projection-area",
+    );
+    let content_geometry_source = marker_token(
+        left.content_geometry_metadata_source
+            .as_deref()
+            .or(right.content_geometry_metadata_source.as_deref()),
+        "missing",
+    );
+    let left_content_width = left.content_width.unwrap_or(left_width);
+    let left_content_height = left.content_height.unwrap_or(left_height);
+    let right_content_width = right.content_width.unwrap_or(right_width);
+    let right_content_height = right.content_height.unwrap_or(right_height);
+    let content_width = left_content_width.max(right_content_width);
+    let content_height = left_content_height.max(right_content_height);
+    let content_aspect = marker_f32(
+        left.content_aspect_ratio.or(right.content_aspect_ratio),
+        if content_height > 0 {
+            content_width as f32 / content_height as f32
+        } else {
+            1.0
+        },
+    );
+    let display_aspect = marker_f32(
+        left.desired_display_aspect_ratio
+            .or(right.desired_display_aspect_ratio),
+        if content_height > 0 {
+            content_width as f32 / content_height as f32
+        } else {
+            1.0
+        },
+    );
+    let projection_aspect = marker_f32(
+        left.desired_projection_aspect_ratio
+            .or(right.desired_projection_aspect_ratio),
+        if content_height > 0 {
+            content_width as f32 / content_height as f32
+        } else {
+            1.0
+        },
+    );
+    format!(
+        "projectionMetadataReady=true source={} sourceMode={} brokerH264SourceMode={} sourceBindingMode=broker-h264-stream-header-{} brokerH264SyntheticProjectionProfile={} projection_profile={} geometry_profile={} syntheticPattern={} pattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={} desiredDisplayAspectRatio={} desiredProjectionAspectRatio={} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} contentUvRect=0,0,1,1 leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftContentWidth={} leftContentHeight={} rightContentWidth={} rightContentHeight={} leftContentUvRect=0,0,1,1 rightContentUvRect=0,0,1,1",
+        source,
+        source_mode,
+        source_mode,
+        geometry_profile,
+        geometry_profile,
+        geometry_profile,
+        geometry_profile,
+        synthetic_pattern,
+        synthetic_pattern,
+        orientation_kind,
+        raster_orientation,
+        upright_marker,
+        orientation_metadata_source,
+        marker_bool(
+            left.orientation_default.or(right.orientation_default),
+            orientation_kind == "unknown",
+        ),
+        raster_orientation,
+        upright_marker,
+        marker_bool(
+            left.stimulus_orientation_default
+                .or(right.stimulus_orientation_default),
+            raster_orientation == "unspecified",
+        ),
+        content_kind,
+        content_width,
+        content_height,
+        content_aspect,
+        display_aspect,
+        projection_aspect,
+        content_coordinate_space,
+        content_origin,
+        content_x_axis,
+        content_y_axis,
+        content_mapping_intent,
+        content_geometry_source,
+        marker_bool(
+            left.content_geometry_default
+                .or(right.content_geometry_default),
+            content_geometry_source == "missing",
+        ),
+        left_width,
+        left_height,
+        right_width,
+        right_height,
+        left_content_width,
+        left_content_height,
+        right_content_width,
+        right_content_height,
     )
 }
 

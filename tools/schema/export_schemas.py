@@ -1448,7 +1448,7 @@ def schemas() -> dict[str, dict]:
     )
     projection_stage_kind = enum(
         "ProjectionStageKind",
-        ["ScreenToSurface", "SurfaceToCamera", "ScreenToCamera"],
+        ["SurfaceToScreen", "ScreenToSurface", "SurfaceToCamera", "ScreenToCamera"],
     )
     projection_guide_domain = enum(
         "ProjectionGuideDomain",

@@ -16,6 +16,10 @@ samples are reconstructed into the OpenXR local reference space, retained in a
 GPU buffer, and rendered as metric billboards through the current eye poses.
 It is not a fullscreen color pass.
 
+For the shared coordinate vocabulary that relates this world-space-first path
+to direct per-eye camera projection and later blur diagnostics, see
+[PROJECTION_COORDINATE_SPACE_LEDGER.md](PROJECTION_COORDINATE_SPACE_LEDGER.md).
+
 ## Retained Overlay Limitation
 
 The `particle-overlay` mode is still sourced from a regular view-sampled depth

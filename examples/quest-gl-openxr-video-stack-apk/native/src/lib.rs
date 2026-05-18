@@ -2762,6 +2762,7 @@ void main() {
     #[derive(Clone, Debug)]
     struct OesEyeProjection {
         eye: Eye,
+        surface_to_screen_h: [[f32; 3]; 3],
         screen_to_surface_h: [[f32; 3]; 3],
         surface_to_camera_h: [[f32; 3]; 3],
         screen_to_camera_h: [[f32; 3]; 3],
@@ -3401,6 +3402,7 @@ void main() {
         Some(OesProjectionPlan {
             left: OesEyeProjection {
                 eye: Eye::Left,
+                surface_to_screen_h: left_surface_to_screen,
                 screen_to_surface_h: left_screen_to_surface_h,
                 surface_to_camera_h: surface_to_camera,
                 screen_to_camera_h: left_screen_to_camera_h,
@@ -3412,6 +3414,7 @@ void main() {
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
+                surface_to_screen_h: right_surface_to_screen,
                 screen_to_surface_h: right_screen_to_surface_h,
                 surface_to_camera_h: surface_to_camera,
                 screen_to_camera_h: right_screen_to_camera_h,
@@ -3482,6 +3485,7 @@ void main() {
         Some(OesProjectionPlan {
             left: OesEyeProjection {
                 eye: Eye::Left,
+                surface_to_screen_h: left_surface_to_screen,
                 screen_to_surface_h: left_screen_to_surface_h,
                 surface_to_camera_h: identity,
                 screen_to_camera_h: left_screen_to_surface_h,
@@ -3492,6 +3496,7 @@ void main() {
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
+                surface_to_screen_h: right_surface_to_screen,
                 screen_to_surface_h: right_screen_to_surface_h,
                 surface_to_camera_h: identity,
                 screen_to_camera_h: right_screen_to_surface_h,
@@ -3594,6 +3599,7 @@ void main() {
         Some(OesProjectionPlan {
             left: OesEyeProjection {
                 eye: Eye::Left,
+                surface_to_screen_h: left_surface_to_screen,
                 screen_to_surface_h: left_screen_to_surface_h,
                 surface_to_camera_h: left_surface_to_camera,
                 screen_to_camera_h: left_screen_to_camera_h,
@@ -3604,6 +3610,7 @@ void main() {
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
+                surface_to_screen_h: right_surface_to_screen,
                 screen_to_surface_h: right_screen_to_surface_h,
                 surface_to_camera_h: right_surface_to_camera,
                 screen_to_camera_h: right_screen_to_camera_h,
@@ -3628,16 +3635,39 @@ void main() {
             "camera2_stream_header"
         };
         format!(
-            "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:pattern={}:size={}x{}",
+            "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:contentUvRect=0,0,1,1",
             metadata_label,
             metadata.source,
             metadata.camera_id,
             metadata.pose_source,
             metadata.pose_coordinate_convention,
             metadata.projection_geometry_profile,
+            metadata.projection_geometry_profile,
             metadata.synthetic_pattern,
             width,
-            height
+            height,
+            metadata.projection_metadata_ready,
+            metadata.orientation_kind,
+            metadata.raster_orientation,
+            metadata.upright_marker,
+            metadata.orientation_metadata_source,
+            metadata.orientation_default,
+            metadata.stimulus_raster_orientation,
+            metadata.stimulus_upright_marker,
+            metadata.stimulus_orientation_default,
+            metadata.content_kind,
+            metadata.content_width,
+            metadata.content_height,
+            metadata.content_aspect_ratio,
+            metadata.desired_display_aspect_ratio,
+            metadata.desired_projection_aspect_ratio,
+            metadata.content_coordinate_space,
+            metadata.content_origin,
+            metadata.content_x_axis,
+            metadata.content_y_axis,
+            metadata.content_mapping_intent,
+            metadata.content_geometry_metadata_source,
+            metadata.content_geometry_default,
         )
     }
 
@@ -4533,6 +4563,10 @@ void main() {
             .map(|projection| {
                 [
                     (
+                        ProjectionStageKind::SurfaceToScreen,
+                        projection.surface_to_screen_h,
+                    ),
+                    (
                         ProjectionStageKind::ScreenToSurface,
                         projection.screen_to_surface_h,
                     ),
@@ -4547,6 +4581,7 @@ void main() {
                 ]
             })
             .unwrap_or([
+                (ProjectionStageKind::SurfaceToScreen, identity),
                 (ProjectionStageKind::ScreenToSurface, identity),
                 (ProjectionStageKind::SurfaceToCamera, identity),
                 (ProjectionStageKind::ScreenToCamera, identity),

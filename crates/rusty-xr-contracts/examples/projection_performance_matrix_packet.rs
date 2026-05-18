@@ -24,6 +24,11 @@ fn main() {
     .with_effect_or_guide_layer(MatrixStepStatus::NotApplicable)
     .with_performance_budget(MatrixStepStatus::Passed)
     .with_stage_token(
+        ProjectionStageTokenRow::new("reference", Eye::Left, ProjectionStageKind::SurfaceToScreen)
+            .with_rows(rows(0.0))
+            .with_source("run-log"),
+    )
+    .with_stage_token(
         ProjectionStageTokenRow::new("reference", Eye::Left, ProjectionStageKind::ScreenToSurface)
             .with_rows(rows(0.0))
             .with_source("run-log"),

@@ -18,6 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 SCHEMA_VERSION = "rusty.xr.raw-stack-screen-space.v1"
 PROJECTION_MAPPING_SCHEMA_VERSION = "rusty.xr.projection-mapping-run-record.v1"
+PROJECTION_COORDINATE_CONTRACT_SCHEMA_VERSION = "rusty.xr.projection-coordinate-contract.v1"
 ROW_SAMPLE_FRACTIONS = (0.10, 0.25, 0.50, 0.75, 0.90)
 CROSS_LANE_WIDTH_TOLERANCE = 0.035
 CROSS_LANE_HEIGHT_TOLERANCE = 0.035
@@ -26,6 +27,13 @@ CROSS_LANE_CENTER_TOLERANCE = 0.030
 HOMOGRAPHY_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9_]*H)=([-+0-9.eE,]+)")
 FIELD_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9_]*)=([^\s|]+)")
 PROJECTION_STAGE_ROW_RE = re.compile(r"projection stage row (\{.*\})")
+SURFACE_TEXTURE_TRANSFORM_RE = re.compile(r"SurfaceTexture OES transform matrix (\{.*\})")
+COMMA_VALUE_FIELD_KEYS = {
+    "contentUvRect",
+    "leftContentUvRect",
+    "rightContentUvRect",
+    "cpuUploadRect",
+}
 STAGE_KEYS = {
     "surface_to_camera": ("leftSurfaceToCameraH", "rightSurfaceToCameraH"),
     "surface_to_screen": ("leftSurfaceToScreenH", "rightSurfaceToScreenH"),
@@ -42,6 +50,8 @@ SOURCE_FIELD_KEYS = (
     "brokerH264SourceMode",
     "sourceBindingMode",
     "brokerH264SyntheticProjectionProfile",
+    "projection_profile",
+    "geometry_profile",
     "content_mapping",
     "contentMapping",
     "syntheticPattern",
@@ -53,6 +63,10 @@ SOURCE_FIELD_KEYS = (
     "pose_source",
     "projectionUvCorrection",
     "cpuUploadPath",
+    "cpuUploadRect",
+    "cpuUploadStride",
+    "rowStride",
+    "yRowStride",
     "renderPath",
     "cameraTier",
     "activeTier",
@@ -102,6 +116,10 @@ SOURCE_FIELD_KEYS = (
     "contentKind",
     "contentWidth",
     "contentHeight",
+    "leftWidth",
+    "leftHeight",
+    "rightWidth",
+    "rightHeight",
     "contentAspectRatio",
     "desiredDisplayAspectRatio",
     "desiredProjectionAspectRatio",
@@ -763,6 +781,42 @@ def find_image_for_run(path: Path) -> Path | None:
     return None
 
 
+def selected_attempt_root(path: Path, image_path: Path | None) -> Path:
+    if image_path is None:
+        return path
+    base = Path(str(path).removeprefix("\\\\?\\"))
+    image = Path(str(image_path).removeprefix("\\\\?\\"))
+    try:
+        relative_parts = image.resolve().relative_to(base.resolve()).parts
+    except ValueError:
+        return path
+    for index, part in enumerate(relative_parts):
+        if part in {"screenshots", "freshness-frames"}:
+            if index == 0:
+                return path
+            return base.joinpath(*relative_parts[:index])
+    return path
+
+
+def find_log_for_selected_image(path: Path, image_path: Path | None) -> Path | None:
+    attempt_root = selected_attempt_root(path, image_path)
+    if attempt_root != path:
+        patterns = [
+            "*-logcat.txt",
+            "logcat.txt",
+            "*logcat*.txt",
+            "**/*-logcat.txt",
+            "**/logcat.txt",
+            "**/*logcat*.txt",
+        ]
+        search_root = long_path(attempt_root)
+        for pattern in patterns:
+            matches = sorted(candidate for candidate in search_root.glob(pattern) if candidate.is_file())
+            if matches:
+                return matches[0]
+    return find_log_for_run(path)
+
+
 def find_validation_for_run(path: Path) -> dict[str, Any] | None:
     matches = sorted(long_path(path).glob("**/*-validation.json"))
     if matches:
@@ -855,9 +909,32 @@ def merge_mapping_fields(source_fields: dict[str, str], marker_records: list[dic
 def parse_scalar_fields(text: str) -> dict[str, str]:
     fields: dict[str, str] = {}
     for key in SOURCE_FIELD_KEYS:
-        matches = re.findall(rf"\b{re.escape(key)}=([^\s,|]+)", text)
+        value_pattern = r"([^\s|]+)" if key in COMMA_VALUE_FIELD_KEYS else r"([^\s,|]+)"
+        matches = re.findall(rf"\b{re.escape(key)}={value_pattern}", text)
         if matches:
             fields[key] = matches[-1]
+    return fields
+
+
+def source_descriptor_fields(source: Any) -> dict[str, str]:
+    if source is None:
+        return {}
+    descriptor = str(source)
+    fields: dict[str, str] = {"source": descriptor}
+    for key in SOURCE_FIELD_KEYS:
+        if key == "source":
+            continue
+        match = re.search(rf"(?:^|[:\s]){re.escape(key)}=([^:\s|\"'}}\]]+)", descriptor)
+        if match:
+            fields[key] = match.group(1).rstrip(",;")
+    size = parse_size_pair(descriptor)
+    if size:
+        fields.setdefault("contentWidth", str(size[0]))
+        fields.setdefault("contentHeight", str(size[1]))
+    if "projection_profile" in fields:
+        fields.setdefault("brokerH264SyntheticProjectionProfile", fields["projection_profile"])
+    if "pattern" in fields:
+        fields.setdefault("syntheticPattern", fields["pattern"])
     return fields
 
 
@@ -993,11 +1070,69 @@ def extract_projection_stage_rows(text: str) -> dict[str, list[float]]:
     return homographies
 
 
+def extract_projection_stage_source_fields(text: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for match in PROJECTION_STAGE_ROW_RE.finditer(text):
+        try:
+            record = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            continue
+        source_fields = source_descriptor_fields(record.get("source"))
+        if source_fields:
+            fields.update(source_fields)
+    return fields
+
+
+def extract_surface_texture_transform_records(text: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for match in SURFACE_TEXTURE_TRANSFORM_RE.finditer(text):
+        try:
+            record = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def latest_surface_texture_transform_fields(records: list[dict[str, Any]]) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    if not records:
+        return fields
+    fields["surfaceTextureTransform"] = "logged"
+    latest_by_eye: dict[str, dict[str, Any]] = {}
+    for record in records:
+        eye = str(record.get("source_eye") or record.get("eye") or "").strip().lower()
+        if eye not in {"left", "right"}:
+            view_index = record.get("view_index")
+            if view_index == 0:
+                eye = "left"
+            elif view_index == 1:
+                eye = "right"
+        if eye in {"left", "right"}:
+            latest_by_eye[eye] = record
+    for eye, record in latest_by_eye.items():
+        prefix = "left" if eye == "left" else "right"
+        matrix = record.get("transform_matrix")
+        if isinstance(matrix, list):
+            fields[f"{prefix}SurfaceTextureTransform"] = ",".join(str(value) for value in matrix)
+        value_hash = record.get("transform_matrix_hash")
+        if value_hash is not None:
+            fields[f"{prefix}SurfaceTextureTransformHash"] = str(value_hash)
+        timestamp = record.get("surface_texture_timestamp_ns")
+        if timestamp is not None:
+            fields[f"{prefix}SurfaceTextureTimestampNs"] = str(timestamp)
+    return fields
+
+
 def extract_projection_evidence(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     text = read_text_auto(path)
     source_fields = parse_scalar_fields(text)
+    source_fields.update(extract_projection_stage_source_fields(text))
+    surface_texture_transforms = extract_surface_texture_transform_records(text)
+    source_fields.update(latest_surface_texture_transform_fields(surface_texture_transforms))
     marker_records = extract_projection_marker_records(text)
     homographies: dict[str, list[float]] = {}
     for name, values_text in HOMOGRAPHY_RE.findall(text):
@@ -1019,12 +1154,19 @@ def extract_projection_evidence(path: Path) -> dict[str, Any] | None:
         if right_key in homographies:
             stages[stage]["right_h"] = homographies[right_key]
 
+    if all(stage["left_present"] and stage["right_present"] for stage in stages.values()):
+        source_fields.setdefault("projectionHomographyReady", "true")
+        source_fields.setdefault("projectionMappingReady", "true")
+    if "OpenXR GLES OES stream projection metadata" in text and "ready=true" in text:
+        source_fields.setdefault("projectionMetadataReady", "true")
+
     return {
         "log_path": str(path),
         "source_fields": source_fields,
         "selected_mapping_fields": merge_mapping_fields(source_fields, marker_records),
         "latest_phase_fields": latest_phase_fields(marker_records),
         "marker_record_count": len(marker_records),
+        "surface_texture_transform_count": len(surface_texture_transforms),
         "available_homography_keys": sorted(homographies),
         "stages": stages,
     }
@@ -1352,6 +1494,57 @@ def parse_float_list(value: Any) -> list[float] | None:
     return values
 
 
+def parse_uv_rect(value: Any) -> list[float] | None:
+    values = parse_float_list(value)
+    if values is None or len(values) != 4:
+        return None
+    return values
+
+
+def first_field(fields: dict[str, str], *keys: str) -> str | None:
+    for key in keys:
+        value = fields.get(key)
+        if value is not None and str(value) != "":
+            return str(value)
+    return None
+
+
+def descriptor_field(fields: dict[str, str], *keys: str) -> str | None:
+    text_values = [
+        fields.get("source"),
+        fields.get("pose_source"),
+        fields.get("poseSource"),
+        fields.get("coordinateChain"),
+        fields.get("coordinate_chain"),
+    ]
+    for text in text_values:
+        if text is None:
+            continue
+        descriptor = str(text)
+        for key in keys:
+            match = re.search(rf"(?:^|[:\s]){re.escape(key)}=([^:\s|\"'}}\]]+)", descriptor)
+            if match:
+                return match.group(1)
+    return None
+
+
+def number_field(fields: dict[str, str], *keys: str) -> int | float | None:
+    return parse_number_value(first_field(fields, *keys))
+
+
+def bool_field(fields: dict[str, str], *keys: str) -> bool | None:
+    return parse_bool_value(first_field(fields, *keys))
+
+
+def parse_size_pair(value: Any) -> tuple[int, int] | None:
+    if value is None:
+        return None
+    match = re.search(r"(\d{2,5})x(\d{2,5})", str(value))
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
 def prefixed_eye_field(fields: dict[str, str], eye: str, generic_key: str) -> str | None:
     prefix = "left" if eye == "left" else "right"
     eye_key = prefix + generic_key[:1].upper() + generic_key[1:]
@@ -1394,7 +1587,10 @@ def content_record(fields: dict[str, str], eye: str) -> dict[str, Any]:
         "origin": prefixed_eye_field(fields, eye, "contentOrigin"),
         "x_axis": prefixed_eye_field(fields, eye, "contentXAxis"),
         "y_axis": prefixed_eye_field(fields, eye, "contentYAxis"),
-        "uv_rect": parse_float_list(prefixed_eye_field(fields, eye, "contentUvRect")),
+        "uv_rect": parse_uv_rect(
+            prefixed_eye_field(fields, eye, "contentUvRect")
+            or descriptor_field(fields, "contentUvRect", "content_uv_rect")
+        ),
         "mapping_intent": prefixed_eye_field(fields, eye, "contentMappingIntent"),
         "metadata_source": prefixed_eye_field(fields, eye, "contentGeometryMetadataSource"),
         "metadata_default": parse_bool_value(prefixed_eye_field(fields, eye, "contentGeometryDefault")),
@@ -2003,6 +2199,510 @@ def summarize_projection_mapping_records(records: list[dict[str, Any]]) -> dict[
     }
 
 
+def infer_lane_architecture(mode: str, fields: dict[str, str]) -> str:
+    if mode.startswith("vulkan-hwb"):
+        return "vulkan-hardware-buffer"
+    if mode.startswith("gles-oes"):
+        return "opengles-oes-surface-texture"
+    if mode.startswith("makepad-cpuyuv"):
+        return "makepad-cpu-yuv"
+    return first_field(fields, "renderPath", "renderer", "cameraTier") or "unknown"
+
+
+def infer_source_transport(mode: str, fields: dict[str, str]) -> str:
+    if "broker-h264" in mode:
+        decode_mode = first_field(fields, "brokerH264DecodeOutputMode")
+        if decode_mode:
+            return f"broker-h264-{decode_mode}"
+        if mode.startswith("makepad"):
+            return "broker-h264-cpu-yuv"
+        if mode.startswith("gles"):
+            return "broker-h264-oes"
+        return "broker-h264-hardware-buffer"
+    if "direct-camera2" in mode:
+        if mode.startswith("gles"):
+            return "direct-camera2-oes"
+        if mode.startswith("makepad"):
+            return "direct-camera2-cpu-yuv"
+        return "direct-camera2-hardware-buffer"
+    return first_field(fields, "transport", "acquisition", "videoSource") or "unknown"
+
+
+def infer_source_mode(mode: str, fields: dict[str, str]) -> str:
+    explicit = first_field(fields, "brokerH264SourceMode", "sourceMode", "source_mode")
+    if explicit:
+        return explicit
+    if "direct-camera2" in mode:
+        return "direct-camera2"
+    if "broker-h264" in mode:
+        return "broker-h264"
+    return first_field(fields, "sourceBindingMode", "source") or "unknown"
+
+
+def infer_geometry_profile(mode: str, fields: dict[str, str]) -> str:
+    explicit = first_field(
+        fields,
+        "brokerH264SyntheticProjectionProfile",
+        "syntheticProjectionProfile",
+        "projection_profile",
+        "geometryProfile",
+        "projectionProfile",
+    )
+    if explicit is None:
+        explicit = descriptor_field(fields, "projection_profile", "geometry_profile")
+    if explicit:
+        return explicit
+    combined = " ".join(
+        str(value)
+        for value in (
+            mode,
+            first_field(fields, "sourceBindingMode"),
+            first_field(fields, "coordinateChain", "coordinate_chain"),
+            first_field(fields, "content_mapping", "contentMapping"),
+            first_field(fields, "source"),
+        )
+        if value
+    ).lower()
+    if "full-frame" in combined:
+        return "full-frame-diagnostic"
+    if "camera-matched" in combined:
+        return "camera-matched"
+    if "direct-camera2" in mode:
+        return "physical-camera"
+    if "broker-synthetic" in infer_source_mode(mode, fields).lower():
+        return "broker-synthetic-unspecified"
+    return "unknown"
+
+
+def infer_source_format(mode: str, fields: dict[str, str]) -> str:
+    explicit = first_field(fields, "sourceFormat", "format", "imageFormat", "pixelFormat")
+    if explicit:
+        return explicit
+    if "broker-h264" in mode:
+        return "h264"
+    if mode.startswith("makepad"):
+        return "camera-yuv-or-decoded-yuv"
+    if mode.startswith("gles"):
+        return "oes-external-texture"
+    if mode.startswith("vulkan"):
+        return "hardware-buffer"
+    return "unknown"
+
+
+def source_size_record(mode: str, fields: dict[str, str]) -> dict[str, Any]:
+    requested_width = number_field(fields, "brokerH264Width", "cameraWidth", "directCamera2OesWidth", "leftWidth")
+    requested_height = number_field(fields, "brokerH264Height", "cameraHeight", "directCamera2OesHeight", "leftHeight")
+    resolved_width = number_field(
+        fields,
+        "contentWidth",
+        "leftContentWidth",
+        "leftWidth",
+        "rightWidth",
+        "brokerH264Width",
+        "cameraWidth",
+        "directCamera2OesWidth",
+    )
+    resolved_height = number_field(
+        fields,
+        "contentHeight",
+        "leftContentHeight",
+        "leftHeight",
+        "rightHeight",
+        "brokerH264Height",
+        "cameraHeight",
+        "directCamera2OesHeight",
+    )
+    if resolved_width is None or resolved_height is None:
+        parsed = parse_size_pair(first_field(fields, "source", "pose_source", "coordinateChain", "coordinate_chain"))
+        if parsed:
+            resolved_width = resolved_width if resolved_width is not None else parsed[0]
+            resolved_height = resolved_height if resolved_height is not None else parsed[1]
+    if requested_width is None:
+        requested_width = resolved_width
+    if requested_height is None:
+        requested_height = resolved_height
+    return {
+        "requested_width": requested_width,
+        "requested_height": requested_height,
+        "resolved_width": resolved_width,
+        "resolved_height": resolved_height,
+    }
+
+
+def texture_or_upload_record(mode: str, fields: dict[str, str]) -> dict[str, Any]:
+    values = {
+        "path": infer_source_transport(mode, fields),
+        "cpu_upload_path": first_field(fields, "cpuUploadPath"),
+        "diagnostic_uv_transform": first_field(fields, "diagnosticUvTransform"),
+        "source_sample_y_flip": number_field(fields, "sourceSampleYFlip"),
+        "texture_transform_source": first_field(
+            fields,
+            "cameraTextureTransformSource",
+            "leftCameraTextureTransformSource",
+            "rightCameraTextureTransformSource",
+        ),
+        "texture_transform_reason": first_field(
+            fields,
+            "cameraTextureTransformReason",
+            "leftCameraTextureTransformReason",
+            "rightCameraTextureTransformReason",
+        ),
+        "flip_x": bool_field(fields, "cameraTextureFlipX"),
+        "flip_y": bool_field(fields, "cameraTextureFlipY"),
+        "mirror": bool_field(fields, "cameraTextureMirror"),
+        "rotation": first_field(fields, "cameraTextureRotation"),
+        "import_image_layout": first_field(fields, "cameraImportImageLayout"),
+        "sampler_binding_mode": first_field(fields, "cameraSamplerBindingMode"),
+    }
+    if mode.startswith("gles-oes"):
+        values["surface_texture_transform_state"] = first_field(
+            fields,
+            "surfaceTextureTransform",
+            "oesSurfaceTextureTransform",
+            "cameraSurfaceTextureTransform",
+        ) or "not-logged"
+        values["left_surface_texture_transform_hash"] = first_field(fields, "leftSurfaceTextureTransformHash")
+        values["right_surface_texture_transform_hash"] = first_field(fields, "rightSurfaceTextureTransformHash")
+        values["left_surface_texture_transform"] = parse_float_list(
+            first_field(fields, "leftSurfaceTextureTransform")
+        )
+        values["right_surface_texture_transform"] = parse_float_list(
+            first_field(fields, "rightSurfaceTextureTransform")
+        )
+    if mode.startswith("makepad"):
+        values["cpu_upload_rect_or_stride_state"] = first_field(
+            fields,
+            "cpuUploadRect",
+            "cpuUploadStride",
+            "rowStride",
+            "yRowStride",
+        ) or "not-logged"
+    return {key: value for key, value in values.items() if value is not None}
+
+
+def source_record(mode: str, fields: dict[str, str]) -> dict[str, Any]:
+    size = source_size_record(mode, fields)
+    values = {
+        **size,
+        "format": infer_source_format(mode, fields),
+        "source_descriptor": first_field(fields, "source"),
+        "synthetic_pattern": first_field(fields, "brokerH264SyntheticPattern", "syntheticPattern", "synthetic_pattern", "pattern"),
+        "source_eye_mapping": first_field(fields, "cameraSourceEyeMapping"),
+        "left_camera_id": first_field(fields, "brokerH264LeftCameraId", "directCamera2OesLeftCameraId"),
+        "right_camera_id": first_field(fields, "brokerH264RightCameraId", "directCamera2OesRightCameraId"),
+        "timestamp_domain": first_field(fields, "timestampDomain", "poseSource", "pose_source"),
+        "content_by_eye": {
+            "left": content_record(fields, "left"),
+            "right": content_record(fields, "right"),
+        },
+    }
+    return {key: value for key, value in values.items() if value not in ({}, None)}
+
+
+def metadata_record(fields: dict[str, str]) -> dict[str, Any]:
+    left_content = content_record(fields, "left")
+    right_content = content_record(fields, "right")
+    uv_rect = left_content.get("uv_rect") or right_content.get("uv_rect")
+    orientation_state = "explicit"
+    if bool_field(fields, "orientationDefault", "stimulusOrientationDefault") is True:
+        orientation_state = "defaulted"
+    elif not first_field(fields, "orientationKind", "rasterOrientation", "stimulusRasterOrientation"):
+        orientation_state = "missing"
+    content_state = "explicit"
+    if left_content.get("metadata_default") is True or right_content.get("metadata_default") is True:
+        content_state = "defaulted"
+    elif not (left_content or right_content):
+        content_state = "missing"
+    return {
+        "source": first_field(
+            fields,
+            "contentGeometryMetadataSource",
+            "leftContentGeometryMetadataSource",
+            "rightContentGeometryMetadataSource",
+            "source",
+        ),
+        "projection_metadata_ready": bool_field(fields, "projectionMetadataReady"),
+        "projection_mapping_ready": bool_field(fields, "projectionMappingReady"),
+        "projection_homography_ready": bool_field(fields, "projectionHomographyReady"),
+        "visible_camera_projection_ready": bool_field(fields, "visibleCameraProjectionReady"),
+        "intrinsics_state": first_field(fields, "cameraIntrinsicsState", "intrinsicsState") or "not-logged",
+        "extrinsics_state": first_field(fields, "cameraExtrinsicsState", "extrinsicsState", "poseSource", "pose_source")
+        or "not-logged",
+        "orientation_state": orientation_state,
+        "content_geometry_state": content_state,
+        "valid_source_uv_rect": uv_rect,
+        "fallback_reason": first_field(
+            fields,
+            "contentGeometryFallbackReason",
+            "orientationFallbackReason",
+        ),
+    }
+
+
+def transform_contract(stages: dict[str, Any]) -> dict[str, Any]:
+    transforms: dict[str, Any] = {}
+    for name in STAGE_KEYS:
+        stage = stages.get(name) if isinstance(stages, dict) else None
+        if not isinstance(stage, dict):
+            transforms[name] = {
+                "left": {"present": False},
+                "right": {"present": False},
+            }
+            continue
+        transforms[name] = {
+            "left": {
+                "present": bool(stage.get("left_present")),
+                "row_token": stage.get("left_key"),
+                "rows": stage.get("left_h"),
+            },
+            "right": {
+                "present": bool(stage.get("right_present")),
+                "row_token": stage.get("right_key"),
+                "rows": stage.get("right_h"),
+            },
+        }
+    return transforms
+
+
+def common_projection_record(fields: dict[str, str], stages: dict[str, Any]) -> dict[str, Any]:
+    projection = app_projection_record(fields, stages, "left")
+    projection.pop("eye_homography_rows", None)
+    projection.pop("homography_stages", None)
+    projection.update(
+        {
+            "preview_fov_y_degrees": number_field(fields, "cameraPreviewFovYDegrees"),
+            "projection_fov_y_degrees": number_field(fields, "cameraProjectionFovYDegrees"),
+            "raw_overlay_overscan": number_field(fields, "cameraRawOverlayOverscan"),
+            "full_view_overlay_overscan": number_field(fields, "cameraFullViewOverlayOverscan"),
+        }
+    )
+    return {key: value for key, value in projection.items() if value is not None}
+
+
+def openxr_record(fields: dict[str, str]) -> dict[str, Any]:
+    runtime_ready = bool_field(fields, "runtimeXrViewStateReady")
+    pose_source = first_field(fields, "poseSource", "pose_source")
+    values = {
+        "runtime_xr_view_state_ready": runtime_ready,
+        "pose_source": pose_source,
+        "reference_space": first_field(fields, "referenceSpace", "openxrReferenceSpace") or "not-logged",
+        "display_time_source": first_field(fields, "displayTimeSource", "predictedDisplayTimeSource") or "not-logged",
+        "view_pose_fov_source": "xrLocateViews" if runtime_ready or (pose_source and "openxr" in pose_source.lower()) else "not-logged",
+        "xr_render_scale": number_field(fields, "xrRenderScale"),
+        "fixed_foveation_level": number_field(fields, "xrFixedFoveationLevel"),
+    }
+    return {key: value for key, value in values.items() if value is not None}
+
+
+def analysis_by_eye(lane: dict[str, Any], mapping_by_eye: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    by_eye: dict[str, Any] = {}
+    for eye_report in lane.get("eyes", []):
+        eye = eye_report.get("eye")
+        if eye not in {"left", "right"}:
+            continue
+        mapping = mapping_by_eye.get(eye, {})
+        by_eye[eye] = {
+            "screenshot": observed_screenshot_record(eye_report),
+            "expected": mapping.get("expected_screenshot"),
+            "verdict": mapping.get("verdict"),
+            "orientation_marker": eye_report.get("orientation_marker"),
+        }
+    return by_eye
+
+
+def projection_coordinate_gaps(
+    mode: str,
+    lane: dict[str, Any],
+    fields: dict[str, str],
+    stages: dict[str, Any],
+    geometry_profile: str,
+    source: dict[str, Any],
+    metadata: dict[str, Any],
+    texture_upload: dict[str, Any],
+    analysis: dict[str, Any],
+) -> list[str]:
+    gaps: list[str] = []
+    if lane.get("status") != "passed":
+        gaps.append("screenshot-footprint-not-segmented")
+    if source.get("resolved_width") is None or source.get("resolved_height") is None:
+        gaps.append("source-dimensions-not-logged")
+    if geometry_profile in {"unknown", "broker-synthetic-unspecified"}:
+        gaps.append("geometry-profile-not-explicit")
+    if "broker-synthetic" in infer_source_mode(mode, fields).lower() and geometry_profile == "broker-synthetic-unspecified":
+        gaps.append("broker-synthetic-profile-not-logged")
+    if metadata.get("projection_metadata_ready") is not True:
+        gaps.append("projection-metadata-not-confirmed-ready")
+    if metadata.get("projection_homography_ready") is not True:
+        gaps.append("projection-homography-not-confirmed-ready")
+    if metadata.get("valid_source_uv_rect") is None:
+        gaps.append("valid-source-uv-rect-not-logged")
+    if metadata.get("orientation_state") != "explicit" and "broker" in mode:
+        gaps.append("synthetic-orientation-metadata-not-explicit")
+    for stage_name in STAGE_KEYS:
+        stage = stages.get(stage_name) if isinstance(stages, dict) else None
+        if not isinstance(stage, dict) or not (stage.get("left_present") and stage.get("right_present")):
+            gaps.append(f"{stage_name}-rows-not-logged-for-both-eyes")
+    if mode.startswith("gles-oes") and texture_upload.get("surface_texture_transform_state") == "not-logged":
+        gaps.append("oes-surface-texture-transform-not-logged")
+    if mode.startswith("makepad") and texture_upload.get("cpu_upload_rect_or_stride_state") == "not-logged":
+        gaps.append("makepad-cpu-upload-rect-or-stride-not-logged")
+    if (bool_field(fields, "runtimeXrViewStateReady") is not True) and (
+        "openxr" in str(first_field(fields, "poseSource", "pose_source", "coordinateChain") or "").lower()
+    ):
+        gaps.append("openxr-view-state-not-confirmed-ready")
+    for eye, eye_analysis in analysis.items():
+        marker = eye_analysis.get("orientation_marker") or {}
+        if marker.get("status") == "ambiguous" and "direct-camera2" in mode:
+            gaps.append(f"{eye}-physical-camera-orientation-marker-ambiguous")
+        expected = eye_analysis.get("expected") or {}
+        if expected.get("model_check_only"):
+            gaps.append(f"{eye}-expected-source-footprint-is-analyzer-model-check")
+    return sorted(set(gaps))
+
+
+def contract_status_from_gaps(gaps: list[str]) -> str:
+    blocking = {
+        "screenshot-footprint-not-segmented",
+        "source-dimensions-not-logged",
+        "geometry-profile-not-explicit",
+        "broker-synthetic-profile-not-logged",
+        "projection-metadata-not-confirmed-ready",
+        "projection-homography-not-confirmed-ready",
+    }
+    if any(gap in blocking for gap in gaps):
+        return "blocked"
+    if gaps:
+        return "needs-evidence"
+    return "ready"
+
+
+def build_projection_coordinate_contracts(
+    report: dict[str, Any],
+    mapping_records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    records_by_mode_eye: dict[str, dict[str, dict[str, Any]]] = {}
+    for record in mapping_records:
+        mode = str(record.get("mode") or "unknown")
+        eye = str(record.get("eye") or "unknown")
+        records_by_mode_eye.setdefault(mode, {})[eye] = record
+
+    contracts: list[dict[str, Any]] = []
+    for lane in report.get("lanes", []):
+        mode = str(lane.get("mode") or "unknown")
+        evidence = lane.get("projection_evidence") or {}
+        fields = evidence.get("selected_mapping_fields") or evidence.get("source_fields") or {}
+        if not isinstance(fields, dict):
+            fields = {}
+        stages = evidence.get("stages") or {}
+        if not isinstance(stages, dict):
+            stages = {}
+        geometry_profile = infer_geometry_profile(mode, fields)
+        source = source_record(mode, fields)
+        metadata = metadata_record(fields)
+        texture_upload = texture_or_upload_record(mode, fields)
+        analysis = analysis_by_eye(lane, records_by_mode_eye.get(mode, {}))
+        gaps = projection_coordinate_gaps(
+            mode,
+            lane,
+            fields,
+            stages,
+            geometry_profile,
+            source,
+            metadata,
+            texture_upload,
+            analysis,
+        )
+        contracts.append(
+            {
+                "schema_version": PROJECTION_COORDINATE_CONTRACT_SCHEMA_VERSION,
+                "suite_root": report.get("suite_root"),
+                "mode": mode,
+                "status": contract_status_from_gaps(gaps),
+                "lane": {
+                    "architecture": infer_lane_architecture(mode, fields),
+                    "source_mode": infer_source_mode(mode, fields),
+                    "source_transport": infer_source_transport(mode, fields),
+                    "geometry_profile": geometry_profile,
+                    "render_path": first_field(fields, "renderPath", "renderer"),
+                },
+                "run_request": {
+                    "artifact_root": lane.get("artifact_root"),
+                    "image_path": lane.get("image_path"),
+                    "log_path": evidence.get("log_path"),
+                    "run_manifest_path": first_field(fields, "runManifestPath"),
+                    "projection_border_policy": first_field(fields, "projectionBorderPolicy")
+                    or report.get("projection_border_policy"),
+                    "processing_layer": first_field(fields, "processingLayer") or report.get("processing_layer"),
+                    "allow_visible_fallback": report.get("allow_visible_fallback"),
+                },
+                "source": source,
+                "metadata": metadata,
+                "texture_or_upload": texture_upload,
+                "projection": common_projection_record(fields, stages),
+                "openxr": openxr_record(fields),
+                "transforms": transform_contract(stages),
+                "mask_and_processing": {
+                    "invalid_region_policy": first_field(fields, "projectionInvalidFillPolicy")
+                    or first_field(fields, "projectionBorderPolicy")
+                    or report.get("projection_border_policy"),
+                    "projection_area_opacity": number_field(fields, "projectionAreaOpacity", "cameraProjectionAreaOpacity"),
+                    "projection_border_opacity": number_field(
+                        fields, "projectionBorderOpacity", "cameraProjectionBorderOpacity"
+                    ),
+                    "native_passthrough_requested": bool_field(fields, "nativePassthroughRequested"),
+                    "passthrough_underlay": bool_field(fields, "passthroughUnderlay"),
+                    "processing_layer": first_field(fields, "processingLayer") or report.get("processing_layer"),
+                    "blur_disabled_for_coordinate_gate": (
+                        (first_field(fields, "processingLayer") or report.get("processing_layer")) == "raw"
+                    ),
+                },
+                "analysis": {
+                    "capture_method": "hzdb-or-suite-screencap",
+                    "freshness_status": lane.get("freshness_status"),
+                    "camera_feed_status": lane.get("camera_feed_status"),
+                    "overlay_path": lane.get("overlay_path"),
+                    "by_eye": analysis,
+                },
+                "gaps": gaps,
+            }
+        )
+    return contracts
+
+
+def summarize_projection_coordinate_contracts(contracts: list[dict[str, Any]]) -> dict[str, Any]:
+    status_counts: dict[str, int] = {}
+    gap_counts: dict[str, int] = {}
+    modes: dict[str, Any] = {}
+    for contract in contracts:
+        status = str(contract.get("status") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        mode = str(contract.get("mode") or "unknown")
+        gaps = [str(gap) for gap in contract.get("gaps") or []]
+        for gap in gaps:
+            gap_counts[gap] = gap_counts.get(gap, 0) + 1
+        lane = contract.get("lane") or {}
+        source = contract.get("source") or {}
+        modes[mode] = {
+            "status": status,
+            "architecture": lane.get("architecture"),
+            "source_mode": lane.get("source_mode"),
+            "geometry_profile": lane.get("geometry_profile"),
+            "resolved_source_size": [
+                source.get("resolved_width"),
+                source.get("resolved_height"),
+            ],
+            "gap_count": len(gaps),
+            "gaps": gaps,
+        }
+    return {
+        "schema_version": PROJECTION_COORDINATE_CONTRACT_SCHEMA_VERSION,
+        "record_count": len(contracts),
+        "status_counts": status_counts,
+        "gap_counts": gap_counts,
+        "modes": modes,
+    }
+
+
 def lane_status_from_validation(validation: dict[str, Any] | None, freshness: dict[str, Any] | None) -> dict[str, Any]:
     result: dict[str, Any] = {
         "camera_feed_status": "unknown",
@@ -2267,6 +2967,42 @@ def build_markdown(report: dict[str, Any]) -> str:
                 edges=mode_summary.get("masked_edge_counts", {}),
             )
         )
+    contract_summary = report.get("projection_coordinate_contract_summary") or {}
+    contract_modes = contract_summary.get("modes") or {}
+    lines.extend(
+        [
+            "",
+            "## Projection Coordinate Contracts",
+            "",
+            f"- Schema: `{PROJECTION_COORDINATE_CONTRACT_SCHEMA_VERSION}`.",
+            f"- Records: `{contract_summary.get('record_count', 0)}`.",
+            f"- Status counts: `{contract_summary.get('status_counts', {})}`.",
+            "",
+            "| Mode | Status | Architecture | Source mode | Geometry profile | Resolved source WxH | Gap count | Key gaps |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | --- |",
+        ]
+    )
+    for mode, contract in contract_modes.items():
+        size = contract.get("resolved_source_size") or []
+        size_text = ""
+        if len(size) == 2 and size[0] is not None and size[1] is not None:
+            size_text = f"{size[0]} x {size[1]}"
+        gaps = contract.get("gaps") or []
+        key_gaps = ", ".join(str(gap) for gap in gaps[:4])
+        if len(gaps) > 4:
+            key_gaps += f", +{len(gaps) - 4} more"
+        lines.append(
+            "| `{mode}` | `{status}` | `{architecture}` | `{source_mode}` | `{geometry_profile}` | {size} | {gap_count} | `{gaps}` |".format(
+                mode=mode,
+                status=contract.get("status", ""),
+                architecture=contract.get("architecture", ""),
+                source_mode=contract.get("source_mode", ""),
+                geometry_profile=contract.get("geometry_profile", ""),
+                size=size_text,
+                gap_count=contract.get("gap_count", 0),
+                gaps=key_gaps,
+            )
+        )
     parity_checks = mapping_summary.get("parity_checks") or []
     if parity_checks:
         lines.extend(
@@ -2306,6 +3042,7 @@ def build_markdown(report: dict[str, Any]) -> str:
             "- Overlay colors: cyan/yellow are the observed full stimulus envelope for left/right eyes, purple is the visible render surface, green is a model source-valid footprint derived from `screen_to_camera` rows, orange is the projection footprint record, and blue marks the largest single component when it differs from the union. Coincident same-orientation sides are drawn as color stripes; simple crossings are not striped.",
             "- Broker synthetic orientation markers are pixel-checked as top-left green `TOP` and bottom-left red `BOT`; explicit stimulus metadata is preferred, and missing metadata is recorded as a default/fallback condition.",
             "- Projection mapping records connect content metadata, app projection fields, homography availability, model checks, observed screenshot bbox, and a conservative verdict.",
+            "- Projection coordinate contracts summarize each lane's source geometry, metadata readiness, texture/upload path, OpenXR state, transform rows, capture evidence, and explicit gaps.",
             "- Cross-lane parity compares measured valid-content footprint, center, and orientation across lanes in the same suite. A parity failure means the evidence is usable but not aligned.",
             "- When `screen_to_camera` homography rows are available, the analyzer derives a model source-valid footprint by inverting that homography and projecting the source UV rect through the detected render-surface bbox. This is not yet a renderer-authored expected projection target.",
             "- Render surface and valid projection coverage are reported separately: the render surface is the visible diagnostic/camera layer envelope, while valid projection coverage is the camera/stimulus area inside it.",
@@ -2353,7 +3090,7 @@ def main() -> int:
         }
         validation = find_validation_for_run(artifact_root)
         freshness = freshness_summary(artifact_root)
-        log_path = find_log_for_run(artifact_root)
+        log_path = find_log_for_selected_image(artifact_root, image_path)
         lane.update(lane_status_from_validation(validation, freshness))
         if log_path:
             lane["projection_evidence"] = extract_projection_evidence(log_path)
@@ -2432,11 +3169,16 @@ def main() -> int:
         "lanes": lanes,
     }
     mapping_records = build_projection_mapping_records(report)
+    coordinate_contracts = build_projection_coordinate_contracts(report, mapping_records)
     report["projection_mapping_schema_version"] = PROJECTION_MAPPING_SCHEMA_VERSION
     report["projection_mapping_summary"] = summarize_projection_mapping_records(mapping_records)
+    report["projection_coordinate_contract_schema_version"] = PROJECTION_COORDINATE_CONTRACT_SCHEMA_VERSION
+    report["projection_coordinate_contract_summary"] = summarize_projection_coordinate_contracts(coordinate_contracts)
     write_json(out_dir / "screen-space-report.json", report)
     write_jsonl(out_dir / "projection-mapping-run-records.jsonl", mapping_records)
     write_json(out_dir / "projection-mapping-summary.json", report["projection_mapping_summary"])
+    write_jsonl(out_dir / "projection-coordinate-contracts.jsonl", coordinate_contracts)
+    write_json(out_dir / "projection-coordinate-contract-summary.json", report["projection_coordinate_contract_summary"])
     write_text(out_dir / "screen-space-summary.md", build_markdown(report), encoding="utf-8")
     make_contact_sheet(lanes, out_dir / "screen-space-contact-sheet.png")
     print(out_dir / "screen-space-summary.md")

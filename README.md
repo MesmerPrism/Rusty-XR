@@ -321,6 +321,9 @@ The current ordered projection-area and public diagnostic blur workflow,
 including broker-synthetic `diagnostic-grid` / `motion-bar` inputs and the
 later Brave physical-screen stimulus pass, is documented in
 [docs/SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md](docs/SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md).
+The coordinate-space ledger that must pass before more blur work is documented
+in
+[docs/PROJECTION_COORDINATE_SPACE_LEDGER.md](docs/PROJECTION_COORDINATE_SPACE_LEDGER.md).
 Browser-based physical-screen stimulus tooling for camera and final-display
 capture alignment runs lives in
 [tools/quest-visual-stimulus/README.md](tools/quest-visual-stimulus/README.md).

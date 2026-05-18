@@ -14,6 +14,12 @@ The active synthetic-first coordinate gate is tracked in
 Use that plan before starting physical camera or passthrough-underlay
 alignment.
 
+The coordinate-space source of truth is
+[PROJECTION_COORDINATE_SPACE_LEDGER.md](PROJECTION_COORDINATE_SPACE_LEDGER.md).
+That ledger is the first gate for this workflow: raw source geometry and
+coordinate contracts must be coherent across Vulkan/HWB, GL/OES, and Makepad
+CPU-YUV before this document's blur-quality phase resumes.
+
 ## Scope
 
 This workflow owns:
@@ -36,6 +42,10 @@ This workflow owns:
 This workflow does not own downstream color remaps, displacement, product
 effects, private tuning constants, generated APK identities, or local artifact
 payloads.
+
+Blur parameters are never coordinate fixes. If a raw projection lane has
+source-footprint, crop, mask, or homography disagreement, fix that disagreement
+in the coordinate/source-geometry gate before measuring blur quality.
 
 ## Lane Set
 
