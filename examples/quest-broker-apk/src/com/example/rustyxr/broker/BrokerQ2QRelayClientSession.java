@@ -43,19 +43,20 @@ final class BrokerQ2QRelayClientSession {
     private static final String ACK_SCHEMA = "rusty.xr.q2q.relay.ack.v1";
     private static final String STATUS_SCHEMA = "rusty.xr.broker.q2q_relay.status.v1";
     private static final String START_SCHEMA = "rusty.xr.broker.q2q_relay.start.v1";
+    private static final String DEFAULT_CHANNEL = "media";
     private static final int DEFAULT_RELAY_PORT = 9443;
     private static final int DEFAULT_SENDER_LEFT_SOURCE_PORT = 8879;
     private static final int DEFAULT_SENDER_RIGHT_SOURCE_PORT = 8880;
     private static final int DEFAULT_RECEIVER_LEFT_LOCAL_PORT = 8979;
     private static final int DEFAULT_RECEIVER_RIGHT_LOCAL_PORT = 8980;
     private static final int DEFAULT_CONNECT_TIMEOUT_MS = 15000;
-    private static final int DEFAULT_LOCAL_ACCEPT_TIMEOUT_MS = 120000;
-    private static final int DEFAULT_SOURCE_ACCEPT_TIMEOUT_MS = 120000;
-    private static final int DEFAULT_CAPTURE_MS = 60000;
+    private static final int DEFAULT_LOCAL_ACCEPT_TIMEOUT_MS = 0;
+    private static final int DEFAULT_SOURCE_ACCEPT_TIMEOUT_MS = 0;
+    private static final int DEFAULT_CAPTURE_MS = 0;
     private static final int DEFAULT_MAX_PACKETS = 0;
-    private static final int DEFAULT_WIDTH = 720;
-    private static final int DEFAULT_HEIGHT = 480;
-    private static final int MAX_TIMEOUT_MS = 120000;
+    private static final int DEFAULT_WIDTH = 1280;
+    private static final int DEFAULT_HEIGHT = 1280;
+    private static final int MAX_TIMEOUT_MS = 6 * 60 * 60 * 1000;
     private static final int MAX_HELLO_BYTES = 16 * 1024;
     private static final int BUFFER_BYTES = 64 * 1024;
 
@@ -292,6 +293,7 @@ final class BrokerQ2QRelayClientSession {
         JSONObject hello = new JSONObject();
         hello.put("schema", HELLO_SCHEMA);
         hello.put("role", lane.role);
+        hello.put("channel", lane.channel);
         hello.put("session_id", lane.sessionId);
         hello.put("eye", lane.eye);
         hello.put("token", lane.token);
@@ -310,6 +312,7 @@ final class BrokerQ2QRelayClientSession {
             throw new IllegalStateException("Relay rejected registration: " + ack.optString("message", "not ok"));
         }
         Log.i(TAG, "Q2Q relay registered lane=" + lane.laneId + " role=" + lane.role +
+            " channel=" + lane.channel +
             " session=" + lane.sessionId + " eye=" + lane.eye);
         return new RelayConnection(socket, input, output, ack);
     }
@@ -602,7 +605,23 @@ final class BrokerQ2QRelayClientSession {
     }
 
     private static int timeoutMs(JSONObject params, String key, int defaultValue) {
-        return clamp(params.optInt(key, defaultValue), 100, MAX_TIMEOUT_MS);
+        return timeoutMs(params, key, defaultValue, false);
+    }
+
+    private static int timeoutMs(JSONObject params, String key, int defaultValue, boolean allowInfinite) {
+        int value = params.optInt(key, defaultValue);
+        if (allowInfinite && value <= 0) {
+            return 0;
+        }
+        return clamp(value, 100, MAX_TIMEOUT_MS);
+    }
+
+    private static String normalizeChannel(String value) {
+        String channel = value != null ? value.trim().toLowerCase(Locale.US) : "";
+        if ("control".equals(channel) || "agent-control".equals(channel) || "coordination".equals(channel)) {
+            return "control";
+        }
+        return DEFAULT_CHANNEL;
     }
 
     private static void shutdownOutput(Socket socket) {
@@ -658,6 +677,7 @@ final class BrokerQ2QRelayClientSession {
     private static final class Lane {
         final String laneId;
         final String role;
+        final String channel;
         final String sessionId;
         final String eye;
         final String relayHost;
@@ -709,7 +729,7 @@ final class BrokerQ2QRelayClientSession {
                 0,
                 bindHost,
                 receiverLocalPort(params, eye),
-                timeoutMs(params, "local_accept_timeout_ms", DEFAULT_LOCAL_ACCEPT_TIMEOUT_MS));
+                timeoutMs(params, "local_accept_timeout_ms", DEFAULT_LOCAL_ACCEPT_TIMEOUT_MS, true));
         }
 
         private Lane(
@@ -724,6 +744,7 @@ final class BrokerQ2QRelayClientSession {
             int localAcceptTimeoutMs) throws Exception {
             this.laneId = "q2q-" + role + "-" + eye + "-" + System.currentTimeMillis() + "-" + NEXT_LANE_ID.getAndIncrement();
             this.role = role;
+            this.channel = normalizeChannel(params.optString("channel", DEFAULT_CHANNEL));
             this.sessionId = sessionId;
             this.eye = eye;
             this.relayHost = requiredString(params, "relay_host");
@@ -772,6 +793,7 @@ final class BrokerQ2QRelayClientSession {
             json.put("schema", "rusty.xr.broker.q2q_relay.lane.v1");
             json.put("lane_id", laneId);
             json.put("role", role);
+            json.put("channel", channel);
             json.put("session_id", sessionId);
             json.put("eye", eye);
             json.put("state", state);

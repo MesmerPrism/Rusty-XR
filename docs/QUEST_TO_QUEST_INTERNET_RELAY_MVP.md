@@ -48,7 +48,12 @@ Receiver Quest broker + composite
 ```
 
 The relay does not parse media frames. It only authenticates a simple
-newline-delimited JSON hello and forwards the binary stream.
+newline-delimited JSON hello and forwards bytes. The hello now includes an
+optional `channel` field:
+
+- `media` is the default and remains compatible with older clients.
+- `control` is reserved for agent coordination messages and is paired
+  separately from media lanes by `(channel, session_id, eye)`.
 
 ### Quest-Native Target Topology
 
@@ -131,6 +136,44 @@ python .\tools\video\q2q_relay.py receive `
 
 Repeat for the right eye with the matching stream/listen ports.
 
+Send one agent coordination message over the sidecar control channel:
+
+```powershell
+python .\tools\video\q2q_relay.py control-send `
+  --relay-host relay.example.net `
+  --relay-port 9443 `
+  --tls `
+  --cafile .\relay-cert.pem `
+  --session q2q-control-001 `
+  --token-file .\relay-token.txt `
+  --message-json '{"type":"ready","site":"sender"}'
+```
+
+Receive control-channel messages:
+
+```powershell
+python .\tools\video\q2q_relay.py control-receive `
+  --relay-host relay.example.net `
+  --relay-port 9443 `
+  --tls `
+  --cafile .\relay-cert.pem `
+  --session q2q-control-001 `
+  --token-file .\relay-token.txt `
+  --max-messages 1
+```
+
+## Timing Defaults
+
+For setup rehearsals, prefer one explicit session budget over separate ad hoc
+short timers. Native media commands should use unbounded media (`capture_ms=0`
+and `max_packets=0`) when the operators will stop manually, or use one
+session duration that is applied consistently to media capture, receiver
+accept, source accept, decode, and bridge/proxy waits.
+
+The Python relay server defaults to a four-hour peer wait so the first side can
+arm without expiring before the second side is ready. Reduce this for hardened
+public sessions after the live process is reliable.
+
 ## Security And Privacy
 
 - Use a fresh high-entropy token per test session.
@@ -139,8 +182,8 @@ Repeat for the right eye with the matching stream/listen ports.
   `--allow-remote-file` when the tester IPs are known. Use firewall-level
   allowlisting on the relay host when available.
 - Do not log raw media payloads.
-- Keep relay logs to metadata: session id, eye, peer role, byte counts, close
-  reasons, and timing.
+- Keep relay logs to metadata: channel, session id, eye, peer role, byte
+  counts, close reasons, and timing.
 - Make camera streaming explicit to both operators.
 - Stop immediately if the tester reports discomfort, overheating, frozen
   display, or a privacy concern.
@@ -159,9 +202,11 @@ Treat the relay as a transport pass only until the receiver scorecard shows:
 - `gpuImportFailure=0`
 - multiple visible non-identical screenshots
 
-The first internet profile should use reduced quality (`720x720` or `960x960`,
-bounded duration, moderate bitrate) before moving back to high-quality
-`1280x1280` stereo streams.
+The current tester-kit defaults request high-quality `1280x1280`, 60 Hz,
+multi-megabit stereo streams to match the app-visible camera capability when
+the device exposes it. If the relay or network cannot carry that load, lower
+resolution, frame rate, or bitrate deliberately and record the selected camera
+size/fps from the broker status.
 
 Track bridge-mode and Quest-native results separately. A PC bridge pass proves
 relay and receiver pieces, but it is not a direct Quest-to-Quest pass until

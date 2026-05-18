@@ -85,10 +85,10 @@ final class BrokerAppCameraH264StreamSession {
     private static final int DEFAULT_HEIGHT = 480;
     private static final int DEFAULT_CAPTURE_MS = 900;
     private static final int MAX_CAPTURE_MS = 3000;
-    private static final int MAX_LIVE_CAPTURE_MS = 60000;
+    private static final int MAX_LIVE_CAPTURE_MS = 6 * 60 * 60 * 1000;
     private static final int DEFAULT_MAX_PACKETS = 12;
     private static final int MAX_PACKETS = 30;
-    private static final int MAX_LIVE_PACKETS = 2400;
+    private static final int MAX_LIVE_PACKETS = 6 * 60 * 60 * 120;
     private static final int DEFAULT_BITRATE_BPS = 1_000_000;
     private static final int MIN_RUNTIME_BITRATE_BPS = 100_000;
     private static final int MAX_RUNTIME_BITRATE_BPS = 20_000_000;
@@ -98,7 +98,7 @@ final class BrokerAppCameraH264StreamSession {
     private static final int OPEN_TIMEOUT_MS = 4000;
     private static final int SESSION_TIMEOUT_MS = 4000;
     private static final int DEFAULT_STREAM_ACCEPT_TIMEOUT_MS = 15000;
-    private static final int MAX_STREAM_ACCEPT_TIMEOUT_MS = 120000;
+    private static final int MAX_STREAM_ACCEPT_TIMEOUT_MS = 6 * 60 * 60 * 1000;
     private static final float SYNTHETIC_PROJECTION_FOV_Y_DEGREES = 60.0f;
     private static final int ENCODER_DRAIN_TIMEOUT_US = 10000;
     private static final int BINARY_STREAM_MAX_PACKET_BYTES = 1024 * 1024;
@@ -106,7 +106,7 @@ final class BrokerAppCameraH264StreamSession {
     private static final int MAX_CODEC_CONFIG_PACKETS = 8;
     private static final int DEFAULT_LIVE_WRITER_QUEUE_DEPTH = 48;
     private static final int MAX_LIVE_WRITER_QUEUE_DEPTH = 512;
-    private static final int MAX_SYNTHETIC_FRAME_COUNT = 2400;
+    private static final int MAX_SYNTHETIC_FRAME_COUNT = 6 * 60 * 60 * 120;
     private static final int WRITER_QUEUE_POLL_MS = 100;
     private static final int WRITER_JOIN_TIMEOUT_MS = 5000;
     private static final String MIME_H264 = "video/avc";
@@ -192,10 +192,11 @@ final class BrokerAppCameraH264StreamSession {
             params != null ? params.optInt("writer_queue_depth", DEFAULT_LIVE_WRITER_QUEUE_DEPTH) : DEFAULT_LIVE_WRITER_QUEUE_DEPTH,
             1,
             MAX_LIVE_WRITER_QUEUE_DEPTH);
-        final int acceptTimeoutMs = clamp(
-            params != null ? params.optInt("accept_timeout_ms", DEFAULT_STREAM_ACCEPT_TIMEOUT_MS) : DEFAULT_STREAM_ACCEPT_TIMEOUT_MS,
-            100,
-            MAX_STREAM_ACCEPT_TIMEOUT_MS);
+        final int requestedAcceptTimeoutMs =
+            params != null ? params.optInt("accept_timeout_ms", DEFAULT_STREAM_ACCEPT_TIMEOUT_MS) : DEFAULT_STREAM_ACCEPT_TIMEOUT_MS;
+        final int acceptTimeoutMs = requestedAcceptTimeoutMs <= 0
+            ? 0
+            : clamp(requestedAcceptTimeoutMs, 100, MAX_STREAM_ACCEPT_TIMEOUT_MS);
         final int bitrateBps = clamp(params != null ? params.optInt("bitrate_bps", DEFAULT_BITRATE_BPS) : DEFAULT_BITRATE_BPS, 100_000, 20_000_000);
         final int frameRateHz = clamp(
             params != null ? params.optInt("frame_rate_hz", DEFAULT_FRAME_RATE_HZ) : DEFAULT_FRAME_RATE_HZ,

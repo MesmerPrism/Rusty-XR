@@ -26,10 +26,12 @@ from typing import Any
 HELLO_SCHEMA = "rusty.xr.q2q.relay.hello.v1"
 ACK_SCHEMA = "rusty.xr.q2q.relay.ack.v1"
 EVENT_SCHEMA = "rusty.xr.q2q.relay.event.v1"
+CONTROL_MESSAGE_SCHEMA = "rusty.xr.q2q.relay.control_message.v1"
 BUFFER_SIZE = 64 * 1024
 MAX_HELLO_BYTES = 16 * 1024
 VALID_ROLES = {"sender", "receiver"}
 VALID_EYES = {"left", "right", "mono"}
+VALID_CHANNELS = {"media", "control"}
 
 
 def now_ns() -> int:
@@ -135,9 +137,10 @@ def load_remote_allowlist(args: argparse.Namespace) -> list[ipaddress._BaseNetwo
 
 
 class EventLogger:
-    def __init__(self, log_path: str = "") -> None:
+    def __init__(self, log_path: str = "", *, echo: bool = True) -> None:
         self._lock = threading.Lock()
         self._handle = None
+        self._echo = echo
         if log_path:
             path = Path(log_path)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,7 +162,8 @@ class EventLogger:
         payload.update(fields)
         line = json.dumps(payload, sort_keys=True)
         with self._lock:
-            print(line, flush=True)
+            if self._echo:
+                print(line, flush=True)
             if self._handle is not None:
                 self._handle.write(line + "\n")
                 self._handle.flush()
@@ -168,6 +172,7 @@ class EventLogger:
 @dataclass
 class Peer:
     role: str
+    channel: str
     session_id: str
     eye: str
     label: str
@@ -179,6 +184,7 @@ class Peer:
 
 @dataclass
 class Lane:
+    channel: str
     session_id: str
     eye: str
     sender: Peer | None = None
@@ -205,7 +211,7 @@ class RelayServer:
         self.ssl_context = ssl_context
         self.allowed_remotes = allowed_remotes or []
         self._lock = threading.Lock()
-        self._lanes: dict[tuple[str, str], Lane] = {}
+        self._lanes: dict[tuple[str, str, str], Lane] = {}
         self._stop = threading.Event()
 
     def serve_forever(self) -> None:
@@ -262,13 +268,15 @@ class RelayServer:
                 sock = self.ssl_context.wrap_socket(raw_sock, server_side=True)
             hello = read_json_line(sock)
             role = str(hello.get("role", "")).strip().lower()
+            channel = str(hello.get("channel", "media")).strip().lower()
             session_id = str(hello.get("session_id", "")).strip()
             eye = str(hello.get("eye", "")).strip().lower()
             token = str(hello.get("token", ""))
             label = str(hello.get("label", "")).strip()
-            self._validate_hello(role, session_id, eye, token)
+            self._validate_hello(role, channel, session_id, eye, token)
             peer = Peer(
                 role=role,
+                channel=channel,
                 session_id=session_id,
                 eye=eye,
                 label=label,
@@ -282,6 +290,7 @@ class RelayServer:
                 True,
                 "registered",
                 role=role,
+                channel=channel,
                 session_id=session_id,
                 eye=eye,
             )
@@ -290,6 +299,7 @@ class RelayServer:
                 self.logger.emit(
                     "peer_wait_timeout",
                     role=peer.role,
+                    channel=peer.channel,
                     session_id=peer.session_id,
                     eye=peer.eye,
                     address=peer.address,
@@ -306,9 +316,11 @@ class RelayServer:
             if peer is not None:
                 peer.done.set()
 
-    def _validate_hello(self, role: str, session_id: str, eye: str, token: str) -> None:
+    def _validate_hello(self, role: str, channel: str, session_id: str, eye: str, token: str) -> None:
         if role not in VALID_ROLES:
             raise ValueError(f"role must be one of {sorted(VALID_ROLES)}")
+        if channel not in VALID_CHANNELS:
+            raise ValueError(f"channel must be one of {sorted(VALID_CHANNELS)}")
         if not session_id:
             raise ValueError("session_id is required")
         if eye not in VALID_EYES:
@@ -320,16 +332,17 @@ class RelayServer:
 
     def _register(self, peer: Peer) -> None:
         with self._lock:
-            key = (peer.session_id, peer.eye)
+            key = (peer.channel, peer.session_id, peer.eye)
             lane = self._lanes.get(key)
             if lane is None:
-                lane = Lane(peer.session_id, peer.eye)
+                lane = Lane(peer.channel, peer.session_id, peer.eye)
                 self._lanes[key] = lane
             existing = getattr(lane, peer.role)
             if existing is not None:
                 self.logger.emit(
                     "peer_replaced",
                     role=peer.role,
+                    channel=peer.channel,
                     session_id=peer.session_id,
                     eye=peer.eye,
                     old_address=existing.address,
@@ -341,6 +354,7 @@ class RelayServer:
             self.logger.emit(
                 "peer_registered",
                 role=peer.role,
+                channel=peer.channel,
                 session_id=peer.session_id,
                 eye=peer.eye,
                 address=peer.address,
@@ -352,7 +366,7 @@ class RelayServer:
 
     def _unregister(self, peer: Peer) -> None:
         with self._lock:
-            key = (peer.session_id, peer.eye)
+            key = (peer.channel, peer.session_id, peer.eye)
             lane = self._lanes.get(key)
             if lane is None:
                 return
@@ -371,6 +385,7 @@ class RelayServer:
         error = ""
         self.logger.emit(
             "lane_started",
+            channel=lane.channel,
             session_id=lane.session_id,
             eye=lane.eye,
             sender_address=sender.address,
@@ -382,6 +397,7 @@ class RelayServer:
             error = str(exc)
             self.logger.emit(
                 "lane_error",
+                channel=lane.channel,
                 session_id=lane.session_id,
                 eye=lane.eye,
                 error=error,
@@ -393,12 +409,13 @@ class RelayServer:
             receiver.done.set()
             completed = now_ns()
             with self._lock:
-                key = (lane.session_id, lane.eye)
+                key = (lane.channel, lane.session_id, lane.eye)
                 current = self._lanes.get(key)
                 if current is lane:
                     self._lanes.pop(key, None)
             self.logger.emit(
                 "lane_closed",
+                channel=lane.channel,
                 session_id=lane.session_id,
                 eye=lane.eye,
                 bytes_forwarded=bytes_forwarded,
@@ -438,6 +455,7 @@ def connect_relay(args: argparse.Namespace, role: str) -> socket.socket:
     hello = {
         "schema": HELLO_SCHEMA,
         "role": role,
+        "channel": getattr(args, "channel", "media"),
         "session_id": args.session,
         "eye": args.eye,
         "token": load_token(args),
@@ -461,7 +479,13 @@ def run_sender(args: argparse.Namespace) -> int:
     bytes_forwarded = 0
     try:
         relay = connect_relay(args, "sender")
-        logger.emit("sender_relay_connected", relay_host=args.relay_host, relay_port=args.relay_port, eye=args.eye)
+        logger.emit(
+            "sender_relay_connected",
+            channel=args.channel,
+            relay_host=args.relay_host,
+            relay_port=args.relay_port,
+            eye=args.eye,
+        )
         source = connect_tcp(args.source_host, args.source_port, args.connect_timeout_s)
         source.settimeout(None)
         logger.emit("sender_source_connected", source_host=args.source_host, source_port=args.source_port, eye=args.eye)
@@ -470,6 +494,7 @@ def run_sender(args: argparse.Namespace) -> int:
             relay.shutdown(socket.SHUT_WR)
         logger.emit(
             "sender_closed",
+            channel=args.channel,
             session_id=args.session,
             eye=args.eye,
             bytes_forwarded=bytes_forwarded,
@@ -496,6 +521,7 @@ def run_receiver(args: argparse.Namespace) -> int:
             listener.settimeout(args.accept_timeout_s)
             logger.emit(
                 "receiver_listening",
+                channel=args.channel,
                 listen_host=args.listen_host,
                 listen_port=args.listen_port,
                 eye=args.eye,
@@ -505,10 +531,17 @@ def run_receiver(args: argparse.Namespace) -> int:
             local_client.settimeout(None)
             logger.emit("receiver_local_client_connected", address=f"{address[0]}:{address[1]}", eye=args.eye)
         relay = connect_relay(args, "receiver")
-        logger.emit("receiver_relay_connected", relay_host=args.relay_host, relay_port=args.relay_port, eye=args.eye)
+        logger.emit(
+            "receiver_relay_connected",
+            channel=args.channel,
+            relay_host=args.relay_host,
+            relay_port=args.relay_port,
+            eye=args.eye,
+        )
         bytes_forwarded = copy_stream(relay, local_client)
         logger.emit(
             "receiver_closed",
+            channel=args.channel,
             session_id=args.session,
             eye=args.eye,
             bytes_forwarded=bytes_forwarded,
@@ -559,6 +592,7 @@ def run_self_test() -> int:
         token_file="",
         eye="left",
         label="self-test",
+        channel="media",
         tls=False,
         cafile="",
         insecure_tls=False,
@@ -622,6 +656,7 @@ def add_common_client_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--relay-port", required=True, type=int)
     parser.add_argument("--session", required=True, help="Shared session id.")
     parser.add_argument("--eye", required=True, choices=sorted(VALID_EYES))
+    parser.add_argument("--channel", default="media", choices=sorted(VALID_CHANNELS))
     parser.add_argument("--token", default="", help="Shared relay token. Prefer --token-file for real sessions.")
     parser.add_argument("--token-file", default="", help="File containing the shared relay token.")
     parser.add_argument("--label", default="", help="Operator-facing label included in relay logs.")
@@ -633,6 +668,82 @@ def add_common_client_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--log-jsonl", default="", help="Optional JSONL event log path.")
 
 
+def add_common_control_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--relay-host", required=True)
+    parser.add_argument("--relay-port", required=True, type=int)
+    parser.add_argument("--session", required=True, help="Shared session id.")
+    parser.add_argument("--eye", default="mono", choices=sorted(VALID_EYES))
+    parser.add_argument("--channel", default="control", choices=sorted(VALID_CHANNELS))
+    parser.add_argument("--token", default="", help="Shared relay token. Prefer --token-file for real sessions.")
+    parser.add_argument("--token-file", default="", help="File containing the shared relay token.")
+    parser.add_argument("--label", default="", help="Operator-facing label included in relay logs.")
+    parser.add_argument("--connect-timeout-s", type=float, default=20.0)
+    parser.add_argument("--tls", action="store_true", help="Use TLS when connecting to the relay.")
+    parser.add_argument("--cafile", default="", help="CA bundle or self-signed relay certificate.")
+    parser.add_argument("--server-name", default="", help="TLS server name override.")
+    parser.add_argument("--insecure-tls", action="store_true", help="Disable TLS certificate verification for lab-only tests.")
+    parser.add_argument("--log-jsonl", default="", help="Optional JSONL event log path.")
+
+
+def run_control_send(args: argparse.Namespace) -> int:
+    logger = EventLogger(args.log_jsonl, echo=False)
+    relay: socket.socket | None = None
+    try:
+        relay = connect_relay(args, "sender")
+        logger.emit("control_sender_relay_connected", channel=args.channel, session_id=args.session, eye=args.eye)
+        if args.message_json:
+            messages = [json.loads(args.message_json)]
+        elif args.message:
+            messages = [{"schema": CONTROL_MESSAGE_SCHEMA, "message": args.message}]
+        else:
+            messages = []
+            for line in sys.stdin:
+                text = line.strip()
+                if text:
+                    try:
+                        messages.append(json.loads(text))
+                    except json.JSONDecodeError:
+                        messages.append({"schema": CONTROL_MESSAGE_SCHEMA, "message": text})
+        for index, message in enumerate(messages):
+            if not isinstance(message, dict):
+                message = {"schema": CONTROL_MESSAGE_SCHEMA, "value": message}
+            message.setdefault("schema", CONTROL_MESSAGE_SCHEMA)
+            message.setdefault("session_id", args.session)
+            message.setdefault("eye", args.eye)
+            message.setdefault("sequence", index)
+            message.setdefault("unix_ns", now_ns())
+            relay.sendall(json_line(message))
+            logger.emit("control_message_sent", session_id=args.session, eye=args.eye, sequence=index)
+        with contextlib.suppress(Exception):
+            relay.shutdown(socket.SHUT_WR)
+        return 0
+    finally:
+        close_socket(relay)
+        logger.close()
+
+
+def run_control_receive(args: argparse.Namespace) -> int:
+    logger = EventLogger(args.log_jsonl, echo=False)
+    relay: socket.socket | None = None
+    try:
+        relay = connect_relay(args, "receiver")
+        logger.emit("control_receiver_relay_connected", channel=args.channel, session_id=args.session, eye=args.eye)
+        received = 0
+        with relay.makefile("rb") as handle:
+            while args.max_messages <= 0 or received < args.max_messages:
+                line = handle.readline()
+                if not line:
+                    break
+                sys.stdout.write(line.decode("utf-8", errors="replace"))
+                sys.stdout.flush()
+                received += 1
+        logger.emit("control_receiver_closed", session_id=args.session, eye=args.eye, messages=received)
+        return 0
+    finally:
+        close_socket(relay)
+        logger.close()
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -642,7 +753,7 @@ def main(argv: list[str]) -> int:
     server.add_argument("--port", type=int, default=9443)
     server.add_argument("--token", default="", help="Shared relay token. Prefer --token-file for real sessions.")
     server.add_argument("--token-file", default="", help="File containing the shared relay token.")
-    server.add_argument("--peer-wait-timeout-s", type=float, default=300.0)
+    server.add_argument("--peer-wait-timeout-s", type=float, default=14400.0)
     server.add_argument("--certfile", default="", help="TLS certificate. If omitted, the server runs cleartext.")
     server.add_argument("--keyfile", default="", help="TLS private key.")
     server.add_argument(
@@ -669,6 +780,15 @@ def main(argv: list[str]) -> int:
     receiver.add_argument("--listen-host", default="0.0.0.0")
     receiver.add_argument("--listen-port", required=True, type=int)
     receiver.add_argument("--accept-timeout-s", type=float, default=120.0)
+
+    control_send = subparsers.add_parser("control-send", help="Send NDJSON control messages through the relay control channel.")
+    add_common_control_args(control_send)
+    control_send.add_argument("--message", default="", help="Send one plain-text control message.")
+    control_send.add_argument("--message-json", default="", help="Send one JSON control message object.")
+
+    control_receive = subparsers.add_parser("control-receive", help="Receive NDJSON control messages from the relay control channel.")
+    add_common_control_args(control_receive)
+    control_receive.add_argument("--max-messages", type=int, default=0, help="Stop after this many messages; 0 means until EOF.")
 
     subparsers.add_parser("self-test", help="Run an in-process loopback smoke test.")
 
@@ -703,6 +823,10 @@ def main(argv: list[str]) -> int:
         return run_sender(args)
     if args.command == "receive":
         return run_receiver(args)
+    if args.command == "control-send":
+        return run_control_send(args)
+    if args.command == "control-receive":
+        return run_control_receive(args)
     parser.error(f"Unhandled command {args.command}")
     return 2
 
