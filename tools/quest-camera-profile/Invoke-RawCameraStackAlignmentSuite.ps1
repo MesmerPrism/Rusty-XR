@@ -34,7 +34,7 @@ param(
     [string]$BrokerPackageName = "com.example.rustyxr.broker",
     [string]$BrokerActivityName = ".MainActivity",
     [int]$BrokerRestartSettleSeconds = 8,
-    [ValidateSet("solid-red", "passthrough-underlay")]
+    [ValidateSet("solid-red", "diagnostic-split", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("raw", "blur")]
     [string]$ProcessingLayer = "raw",
@@ -49,9 +49,15 @@ param(
     [double]$GlesBrokerProjectionAreaOffsetYUv = [double]::NaN,
     [double]$MakepadDirectProjectionAreaOffsetYUv = [double]::NaN,
     [double]$MakepadBrokerProjectionAreaOffsetYUv = [double]::NaN,
+    [double]$FullFrameBrokerProjectionAreaOffsetYUv = [double]::NaN,
+    [double]$VulkanFullFrameBrokerProjectionAreaOffsetYUv = [double]::NaN,
+    [double]$GlesFullFrameBrokerProjectionAreaOffsetYUv = [double]::NaN,
+    [double]$MakepadFullFrameBrokerProjectionAreaOffsetYUv = [double]::NaN,
     [double]$ProjectionAreaScaleUv = 1.0,
     [double]$GlesProjectionAreaScaleUv = [double]::NaN,
     [double]$MakepadProjectionAreaScaleUv = [double]::NaN,
+    [double]$MakepadProjectionAreaScaleX = [double]::NaN,
+    [double]$MakepadProjectionAreaScaleY = [double]::NaN,
     [double]$VulkanProjectionAreaScaleUv = [double]::NaN,
     [double]$VulkanDirectProjectionAreaScaleUv = [double]::NaN,
     [double]$VulkanBrokerProjectionAreaScaleUv = [double]::NaN,
@@ -59,12 +65,31 @@ param(
     [double]$GlesBrokerProjectionAreaScaleUv = [double]::NaN,
     [double]$MakepadDirectProjectionAreaScaleUv = [double]::NaN,
     [double]$MakepadBrokerProjectionAreaScaleUv = [double]::NaN,
+    [double]$MakepadDirectProjectionAreaScaleX = [double]::NaN,
+    [double]$MakepadDirectProjectionAreaScaleY = [double]::NaN,
+    [double]$MakepadBrokerProjectionAreaScaleX = [double]::NaN,
+    [double]$MakepadBrokerProjectionAreaScaleY = [double]::NaN,
     [double]$VulkanCameraProjectionScale = 1.0,
     [double]$VulkanDirectCameraProjectionScale = [double]::NaN,
     [double]$VulkanBrokerCameraProjectionScale = [double]::NaN,
+    [double]$VulkanCameraPreviewFovYDegrees = [double]::NaN,
+    [double]$VulkanDirectCameraPreviewFovYDegrees = [double]::NaN,
+    [double]$VulkanBrokerCameraPreviewFovYDegrees = [double]::NaN,
+    [double]$VulkanCameraRawOverlayOverscan = [double]::NaN,
+    [double]$VulkanDirectCameraRawOverlayOverscan = [double]::NaN,
+    [double]$VulkanBrokerCameraRawOverlayOverscan = [double]::NaN,
+    [double]$VulkanCameraFullViewOverlayOverscan = [double]::NaN,
+    [double]$VulkanDirectCameraFullViewOverlayOverscan = [double]::NaN,
+    [double]$VulkanBrokerCameraFullViewOverlayOverscan = [double]::NaN,
     [double]$VulkanXrRenderScale = 1.0,
     [double]$VulkanDirectXrRenderScale = [double]::NaN,
     [double]$VulkanBrokerXrRenderScale = [double]::NaN,
+    [double]$MakepadProjectionScale = 1.0,
+    [double]$MakepadDirectProjectionScale = [double]::NaN,
+    [double]$MakepadBrokerProjectionScale = [double]::NaN,
+    [double]$MakepadXrRenderScale = 1.0,
+    [double]$MakepadDirectXrRenderScale = [double]::NaN,
+    [double]$MakepadBrokerXrRenderScale = [double]::NaN,
     [double]$VulkanProjectionAreaRadiusXUv = 0.5,
     [double]$VulkanProjectionAreaRadiusYUv = 0.5,
     [double]$VulkanProjectionAreaCornerRadiusUv = 0.0,
@@ -76,6 +101,11 @@ param(
     [double]$MakepadProjectionAreaCornerRadiusUv = 0.0,
     [double]$ProjectionAreaOpacity = 1.0,
     [double]$ProjectionBorderOpacity = 1.0,
+    [string]$GlesCameraColorMatrix = "1;0;0;0;1;0;0;0;1",
+    [string]$GlesCameraColorOffset = "0;0;0",
+    [double]$GlesCameraColorContrast = 1.0,
+    [double]$GlesCameraColorBrightness = 0.0,
+    [double]$GlesCameraColorSaturation = 1.0,
     [switch]$EnableNativePassthroughUnderlay,
     [switch]$EnableStayAwakeGuard,
     [switch]$RestoreStayAwakeGuard,
@@ -381,6 +411,14 @@ function Format-InvariantDouble {
     return $Value.ToString("0.######", [Globalization.CultureInfo]::InvariantCulture)
 }
 
+function Format-OptionalInvariantDouble {
+    param([double]$Value)
+    if ([double]::IsNaN($Value)) {
+        return "app default"
+    }
+    return (Format-InvariantDouble -Value $Value)
+}
+
 function Resolve-ProjectionAreaOffsetYUv {
     param([double]$RendererValue)
     if ([double]::IsNaN($RendererValue)) {
@@ -398,6 +436,23 @@ function Resolve-ModeProjectionAreaOffsetYUv {
         return $ModeValue
     }
     return (Resolve-ProjectionAreaOffsetYUv -RendererValue $RendererValue)
+}
+
+function Resolve-BrokerModeProjectionAreaOffsetYUv {
+    param(
+        [double]$RendererValue,
+        [double]$ModeValue,
+        [double]$FullFrameRendererValue
+    )
+    if ($BrokerH264SyntheticProjectionProfile -eq "full-frame-diagnostic") {
+        if (-not [double]::IsNaN($FullFrameRendererValue)) {
+            return $FullFrameRendererValue
+        }
+        if (-not [double]::IsNaN($FullFrameBrokerProjectionAreaOffsetYUv)) {
+            return $FullFrameBrokerProjectionAreaOffsetYUv
+        }
+    }
+    return (Resolve-ModeProjectionAreaOffsetYUv -RendererValue $RendererValue -ModeValue $ModeValue)
 }
 
 function Resolve-ProjectionAreaScaleUv {
@@ -419,6 +474,21 @@ function Resolve-ModeProjectionAreaScaleUv {
     return (Resolve-ProjectionAreaScaleUv -RendererValue $RendererValue)
 }
 
+function Resolve-MakepadProjectionAreaScaleAxis {
+    param(
+        [double]$RendererValue,
+        [double]$ModeValue,
+        [double]$FallbackScaleUv
+    )
+    if (-not [double]::IsNaN($ModeValue)) {
+        return $ModeValue
+    }
+    if (-not [double]::IsNaN($RendererValue)) {
+        return $RendererValue
+    }
+    return $FallbackScaleUv
+}
+
 function Resolve-VulkanCameraProjectionScale {
     param([double]$ModeValue)
     if (-not [double]::IsNaN($ModeValue)) {
@@ -435,6 +505,22 @@ function Resolve-VulkanXrRenderScale {
     return $VulkanXrRenderScale
 }
 
+function Resolve-MakepadProjectionScale {
+    param([double]$ModeValue)
+    if (-not [double]::IsNaN($ModeValue)) {
+        return $ModeValue
+    }
+    return $MakepadProjectionScale
+}
+
+function Resolve-MakepadXrRenderScale {
+    param([double]$ModeValue)
+    if (-not [double]::IsNaN($ModeValue)) {
+        return $ModeValue
+    }
+    return $MakepadXrRenderScale
+}
+
 function Resolve-VulkanProjectionAreaScaleUv {
     param([double]$ModeValue)
     if (-not [double]::IsNaN($ModeValue)) {
@@ -443,12 +529,29 @@ function Resolve-VulkanProjectionAreaScaleUv {
     return (Resolve-ProjectionAreaScaleUv -RendererValue $VulkanProjectionAreaScaleUv)
 }
 
+function Resolve-VulkanOptionalDouble {
+    param(
+        [double]$RendererValue,
+        [double]$ModeValue
+    )
+    if (-not [double]::IsNaN($ModeValue)) {
+        return $ModeValue
+    }
+    if (-not [double]::IsNaN($RendererValue)) {
+        return $RendererValue
+    }
+    return [double]::NaN
+}
+
 function Get-VulkanProjectionBorderOverride {
     param(
         [double]$OffsetYUv = (Resolve-ProjectionAreaOffsetYUv -RendererValue $VulkanProjectionAreaOffsetYUv),
         [double]$CameraProjectionScale = $VulkanCameraProjectionScale,
         [double]$XrRenderScale = $VulkanXrRenderScale,
-        [double]$ProjectionAreaScaleUv = (Resolve-ProjectionAreaScaleUv -RendererValue $VulkanProjectionAreaScaleUv)
+        [double]$ProjectionAreaScaleUv = (Resolve-ProjectionAreaScaleUv -RendererValue $VulkanProjectionAreaScaleUv),
+        [double]$CameraPreviewFovYDegrees = [double]::NaN,
+        [double]$CameraRawOverlayOverscan = [double]::NaN,
+        [double]$CameraFullViewOverlayOverscan = [double]::NaN
     )
     $blurRadius = Format-InvariantDouble -Value $BlurRadiusPx
     $offsetY = Format-InvariantDouble -Value $OffsetYUv
@@ -460,7 +563,26 @@ function Get-VulkanProjectionBorderOverride {
     $areaCornerRadius = Format-InvariantDouble -Value $VulkanProjectionAreaCornerRadiusUv
     $areaOpacity = Format-InvariantDouble -Value $ProjectionAreaOpacity
     $borderOpacity = Format-InvariantDouble -Value $ProjectionBorderOpacity
-    $commonOverride = "rustyxr.xrRenderScale=$xrRenderScale,rustyxr.cameraProjectionScale=$projectionScale,rustyxr.cameraProjectionAreaScaleUv=$projectionAreaScaleUv,rustyxr.cameraProjectionAreaOffsetYUv=$offsetY,rustyxr.cameraProjectionAreaRadiusXUv=$areaRadiusX,rustyxr.cameraProjectionAreaRadiusYUv=$areaRadiusY,rustyxr.cameraProjectionAreaCornerRadiusUv=$areaCornerRadius,rustyxr.cameraProjectionAreaOpacity=$areaOpacity,rustyxr.cameraProjectionBorderOpacity=$borderOpacity"
+    $commonValues = [System.Collections.Generic.List[string]]::new()
+    $commonValues.Add("rustyxr.xrRenderScale=$xrRenderScale")
+    $commonValues.Add("rustyxr.cameraProjectionScale=$projectionScale")
+    $commonValues.Add("rustyxr.cameraProjectionAreaScaleUv=$projectionAreaScaleUv")
+    $commonValues.Add("rustyxr.cameraProjectionAreaOffsetYUv=$offsetY")
+    $commonValues.Add("rustyxr.cameraProjectionAreaRadiusXUv=$areaRadiusX")
+    $commonValues.Add("rustyxr.cameraProjectionAreaRadiusYUv=$areaRadiusY")
+    $commonValues.Add("rustyxr.cameraProjectionAreaCornerRadiusUv=$areaCornerRadius")
+    $commonValues.Add("rustyxr.cameraProjectionAreaOpacity=$areaOpacity")
+    $commonValues.Add("rustyxr.cameraProjectionBorderOpacity=$borderOpacity")
+    if (-not [double]::IsNaN($CameraPreviewFovYDegrees)) {
+        $commonValues.Add(("rustyxr.cameraPreviewFovYDegrees={0}" -f (Format-InvariantDouble -Value $CameraPreviewFovYDegrees)))
+    }
+    if (-not [double]::IsNaN($CameraRawOverlayOverscan)) {
+        $commonValues.Add(("rustyxr.cameraRawOverlayOverscan={0}" -f (Format-InvariantDouble -Value $CameraRawOverlayOverscan)))
+    }
+    if (-not [double]::IsNaN($CameraFullViewOverlayOverscan)) {
+        $commonValues.Add(("rustyxr.cameraFullViewOverlayOverscan={0}" -f (Format-InvariantDouble -Value $CameraFullViewOverlayOverscan)))
+    }
+    $commonOverride = $commonValues.ToArray() -join ","
     $passthroughOverride = if ($EnableNativePassthroughUnderlay -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0) {
         "rustyxr.openxrPassthroughProbe=underlay"
     }
@@ -492,7 +614,10 @@ function Get-GlesProjectionBorderOverride {
     $cornerRadius = Format-InvariantDouble -Value $GlesProjectionAreaCornerRadiusUv
     $areaOpacity = Format-InvariantDouble -Value $ProjectionAreaOpacity
     $borderOpacity = Format-InvariantDouble -Value $ProjectionBorderOpacity
-    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,rustyxr.processingLayer=$ProcessingLayer,rustyxr.cameraBlurRadiusPx=$blurRadius,rustyxr.projectionAreaOffsetYUv=$offsetY,rustyxr.projectionAreaScaleUv=$scaleUv,rustyxr.projectionAreaRadiusXUv=$areaRadiusX,rustyxr.projectionAreaRadiusYUv=$areaRadiusY,rustyxr.projectionAreaCornerRadiusUv=$cornerRadius,rustyxr.projectionAreaOpacity=$areaOpacity,rustyxr.projectionBorderOpacity=$borderOpacity"
+    $colorContrast = Format-InvariantDouble -Value $GlesCameraColorContrast
+    $colorBrightness = Format-InvariantDouble -Value $GlesCameraColorBrightness
+    $colorSaturation = Format-InvariantDouble -Value $GlesCameraColorSaturation
+    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,rustyxr.processingLayer=$ProcessingLayer,rustyxr.cameraBlurRadiusPx=$blurRadius,rustyxr.projectionAreaOffsetYUv=$offsetY,rustyxr.projectionAreaScaleUv=$scaleUv,rustyxr.projectionAreaRadiusXUv=$areaRadiusX,rustyxr.projectionAreaRadiusYUv=$areaRadiusY,rustyxr.projectionAreaCornerRadiusUv=$cornerRadius,rustyxr.projectionAreaOpacity=$areaOpacity,rustyxr.projectionBorderOpacity=$borderOpacity,rustyxr.cameraColorMatrix=$GlesCameraColorMatrix,rustyxr.cameraColorOffset=$GlesCameraColorOffset,rustyxr.cameraColorContrast=$colorContrast,rustyxr.cameraColorBrightness=$colorBrightness,rustyxr.cameraColorSaturation=$colorSaturation"
 }
 
 function Get-BrokerH264Override {
@@ -510,7 +635,8 @@ function Get-BrokerH264Override {
     $values.Add("rustyxr.brokerH264BitrateBps=$BrokerH264BitrateBps")
     $values.Add("rustyxr.brokerH264LiveStream=true")
     $values.Add("rustyxr.brokerH264LiveDecode=true")
-    if ($BrokerH264SourceMode -eq "broker-camera") {
+    if ($BrokerH264SourceMode -eq "broker-camera" -or
+        ($BrokerH264SourceMode -eq "broker-synthetic" -and $BrokerH264SyntheticProjectionProfile -eq "camera-matched")) {
         $values.Add("rustyxr.brokerH264LeftCameraId=$BrokerH264LeftCameraId")
         $values.Add("rustyxr.brokerH264RightCameraId=$BrokerH264RightCameraId")
     }
@@ -631,7 +757,11 @@ function Invoke-MakepadMode {
         [string]$Architecture,
         [string]$BrokerSourceMode = "",
         [double]$OffsetYUv = (Resolve-ProjectionAreaOffsetYUv -RendererValue $MakepadProjectionAreaOffsetYUv),
-        [double]$ScaleUv = (Resolve-ProjectionAreaScaleUv -RendererValue $MakepadProjectionAreaScaleUv)
+        [double]$ScaleUv = (Resolve-ProjectionAreaScaleUv -RendererValue $MakepadProjectionAreaScaleUv),
+        [double]$ScaleX = [double]::NaN,
+        [double]$ScaleY = [double]::NaN,
+        [double]$ProjectionScale = $MakepadProjectionScale,
+        [double]$XrRenderScale = $MakepadXrRenderScale
     )
 
     if (-not $MakepadApk -or -not $MakepadPackageName -or -not $MakepadLauncherActivity -or -not $MakepadXrActivity) {
@@ -642,6 +772,8 @@ function Invoke-MakepadMode {
     New-Item -ItemType Directory -Force -Path $modeRoot | Out-Null
     Save-StateSnapshot -Label "before-$ModeId"
     $stateBefore = Get-StateSnapshotSummary -Label "before-$ModeId"
+    $resolvedScaleX = if ([double]::IsNaN($ScaleX)) { $ScaleUv } else { $ScaleX }
+    $resolvedScaleY = if ([double]::IsNaN($ScaleY)) { $ScaleUv } else { $ScaleY }
 
     $argList = [System.Collections.Generic.List[string]]::new()
     $argList.Add("-Serial")
@@ -668,12 +800,16 @@ function Invoke-MakepadMode {
     $argList.Add($ProcessingLayer)
     $argList.Add("-BlurRadiusPx")
     $argList.Add((Format-InvariantDouble -Value $BlurRadiusPx))
+    $argList.Add("-ProjectionScale")
+    $argList.Add((Format-InvariantDouble -Value $ProjectionScale))
+    $argList.Add("-XrRenderScale")
+    $argList.Add((Format-InvariantDouble -Value $XrRenderScale))
     $argList.Add("-ProjectionAreaOffsetYUv")
     $argList.Add((Format-InvariantDouble -Value $OffsetYUv))
     $argList.Add("-ProjectionAreaScaleX")
-    $argList.Add((Format-InvariantDouble -Value $ScaleUv))
+    $argList.Add((Format-InvariantDouble -Value $resolvedScaleX))
     $argList.Add("-ProjectionAreaScaleY")
-    $argList.Add((Format-InvariantDouble -Value $ScaleUv))
+    $argList.Add((Format-InvariantDouble -Value $resolvedScaleY))
     $argList.Add("-ProjectionAreaRadiusXUv")
     $argList.Add((Format-InvariantDouble -Value $MakepadProjectionAreaRadiusXUv))
     $argList.Add("-ProjectionAreaRadiusYUv")
@@ -777,35 +913,42 @@ foreach ($modeId in $Mode) {
             $projectionScale = Resolve-VulkanCameraProjectionScale -ModeValue $VulkanDirectCameraProjectionScale
             $xrRenderScale = Resolve-VulkanXrRenderScale -ModeValue $VulkanDirectXrRenderScale
             $projectionAreaScaleUv = Resolve-VulkanProjectionAreaScaleUv -ModeValue $VulkanDirectProjectionAreaScaleUv
+            $previewFovY = Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraPreviewFovYDegrees -ModeValue $VulkanDirectCameraPreviewFovYDegrees
+            $rawOverlayOverscan = Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraRawOverlayOverscan -ModeValue $VulkanDirectCameraRawOverlayOverscan
+            $fullViewOverlayOverscan = Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraFullViewOverlayOverscan -ModeValue $VulkanDirectCameraFullViewOverlayOverscan
             Invoke-QuestProfileMode `
                 -ModeId $modeId `
                 -Architecture "Camera2 -> ImageReader PRIVATE / HardwareBuffer -> Vulkan/OpenXR raw projection" `
                 -Catalog $compositeCatalog `
                 -AppId "rusty-xr-quest-composite-layer" `
                 -DeviceProfile "xr-composite-comparison-level-5" `
-                -RuntimeProfile "camera-stereo-gpu-composite-fast075" `
+                -RuntimeProfile "camera-stereo-gpu-composite-full-feed-alignment" `
                 -Apk $CompositeApk `
                 -InstallKey "composite" `
-                -Override (Join-OverrideValues -Values @("rustyxr.cameraTargetFps=50", (Get-VulkanProjectionBorderOverride -OffsetYUv $offsetYUv -CameraProjectionScale $projectionScale -XrRenderScale $xrRenderScale -ProjectionAreaScaleUv $projectionAreaScaleUv)))
+                -Override (Join-OverrideValues -Values @("rustyxr.cameraTargetFps=50", (Get-VulkanProjectionBorderOverride -OffsetYUv $offsetYUv -CameraProjectionScale $projectionScale -XrRenderScale $xrRenderScale -ProjectionAreaScaleUv $projectionAreaScaleUv -CameraPreviewFovYDegrees $previewFovY -CameraRawOverlayOverscan $rawOverlayOverscan -CameraFullViewOverlayOverscan $fullViewOverlayOverscan)))
         }
         "vulkan-hwb-broker-h264-raw" {
             $sourceLabel = if ($BrokerH264SourceMode -eq "broker-synthetic") { "Broker synthetic H.264" } else { "Broker Camera2 -> H.264" }
-            $offsetYUv = Resolve-ModeProjectionAreaOffsetYUv `
+            $offsetYUv = Resolve-BrokerModeProjectionAreaOffsetYUv `
                 -RendererValue $VulkanProjectionAreaOffsetYUv `
-                -ModeValue $VulkanBrokerProjectionAreaOffsetYUv
+                -ModeValue $VulkanBrokerProjectionAreaOffsetYUv `
+                -FullFrameRendererValue $VulkanFullFrameBrokerProjectionAreaOffsetYUv
             $projectionScale = Resolve-VulkanCameraProjectionScale -ModeValue $VulkanBrokerCameraProjectionScale
             $xrRenderScale = Resolve-VulkanXrRenderScale -ModeValue $VulkanBrokerXrRenderScale
             $projectionAreaScaleUv = Resolve-VulkanProjectionAreaScaleUv -ModeValue $VulkanBrokerProjectionAreaScaleUv
+            $previewFovY = Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraPreviewFovYDegrees -ModeValue $VulkanBrokerCameraPreviewFovYDegrees
+            $rawOverlayOverscan = Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraRawOverlayOverscan -ModeValue $VulkanBrokerCameraRawOverlayOverscan
+            $fullViewOverlayOverscan = Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraFullViewOverlayOverscan -ModeValue $VulkanBrokerCameraFullViewOverlayOverscan
             Invoke-QuestProfileMode `
                 -ModeId $modeId `
                 -Architecture "$sourceLabel -> MediaCodec HardwareBuffer -> Vulkan/OpenXR raw projection" `
                 -Catalog $compositeCatalog `
                 -AppId "rusty-xr-quest-composite-layer" `
                 -DeviceProfile "xr-composite-comparison-level-5" `
-                -RuntimeProfile "broker-h264-stereo-live-openxr-projection-fast075-probe" `
+                -RuntimeProfile "broker-h264-stereo-live-openxr-projection-full-feed-alignment" `
                 -Apk $CompositeApk `
                 -InstallKey "composite" `
-                -Override (Join-OverrideValues -Values @((Get-BrokerH264Override), (Get-VulkanProjectionBorderOverride -OffsetYUv $offsetYUv -CameraProjectionScale $projectionScale -XrRenderScale $xrRenderScale -ProjectionAreaScaleUv $projectionAreaScaleUv)))
+                -Override (Join-OverrideValues -Values @((Get-BrokerH264Override), (Get-VulkanProjectionBorderOverride -OffsetYUv $offsetYUv -CameraProjectionScale $projectionScale -XrRenderScale $xrRenderScale -ProjectionAreaScaleUv $projectionAreaScaleUv -CameraPreviewFovYDegrees $previewFovY -CameraRawOverlayOverscan $rawOverlayOverscan -CameraFullViewOverlayOverscan $fullViewOverlayOverscan)))
         }
         "gles-oes-direct-camera2-raw" {
             $offsetYUv = Resolve-ModeProjectionAreaOffsetYUv `
@@ -828,9 +971,10 @@ foreach ($modeId in $Mode) {
         "gles-oes-broker-h264-raw" {
             $sourceLabel = if ($BrokerH264SourceMode -eq "broker-synthetic") { "Broker synthetic H.264" } else { "Broker Camera2 -> H.264" }
             $runtimeProfile = if ($BrokerH264SourceMode -eq "broker-synthetic") { "gles-broker-synthetic-h264-oes-projection" } else { "gles-broker-camera-h264-oes-projection" }
-            $offsetYUv = Resolve-ModeProjectionAreaOffsetYUv `
+            $offsetYUv = Resolve-BrokerModeProjectionAreaOffsetYUv `
                 -RendererValue $GlesProjectionAreaOffsetYUv `
-                -ModeValue $GlesBrokerProjectionAreaOffsetYUv
+                -ModeValue $GlesBrokerProjectionAreaOffsetYUv `
+                -FullFrameRendererValue $GlesFullFrameBrokerProjectionAreaOffsetYUv
             $scaleUv = Resolve-ModeProjectionAreaScaleUv `
                 -RendererValue $GlesProjectionAreaScaleUv `
                 -ModeValue $GlesBrokerProjectionAreaScaleUv
@@ -852,26 +996,55 @@ foreach ($modeId in $Mode) {
             $scaleUv = Resolve-ModeProjectionAreaScaleUv `
                 -RendererValue $MakepadProjectionAreaScaleUv `
                 -ModeValue $MakepadDirectProjectionAreaScaleUv
+            $scaleX = Resolve-MakepadProjectionAreaScaleAxis `
+                -RendererValue $MakepadProjectionAreaScaleX `
+                -ModeValue $MakepadDirectProjectionAreaScaleX `
+                -FallbackScaleUv $scaleUv
+            $scaleY = Resolve-MakepadProjectionAreaScaleAxis `
+                -RendererValue $MakepadProjectionAreaScaleY `
+                -ModeValue $MakepadDirectProjectionAreaScaleY `
+                -FallbackScaleUv $scaleUv
+            $projectionScale = Resolve-MakepadProjectionScale -ModeValue $MakepadDirectProjectionScale
+            $xrRenderScale = Resolve-MakepadXrRenderScale -ModeValue $MakepadDirectXrRenderScale
             Invoke-MakepadMode `
                 -ModeId $modeId `
                 -Architecture "Camera2 -> CPU YUV planes -> Makepad textures/OpenXR raw projection" `
                 -OffsetYUv $offsetYUv `
-                -ScaleUv $scaleUv
+                -ScaleUv $scaleUv `
+                -ScaleX $scaleX `
+                -ScaleY $scaleY `
+                -ProjectionScale $projectionScale `
+                -XrRenderScale $xrRenderScale
         }
         "makepad-cpuyuv-broker-h264-raw" {
             $sourceLabel = if ($BrokerH264SourceMode -eq "broker-synthetic") { "Broker synthetic H.264" } else { "Broker Camera2 -> H.264" }
-            $offsetYUv = Resolve-ModeProjectionAreaOffsetYUv `
+            $offsetYUv = Resolve-BrokerModeProjectionAreaOffsetYUv `
                 -RendererValue $MakepadProjectionAreaOffsetYUv `
-                -ModeValue $MakepadBrokerProjectionAreaOffsetYUv
+                -ModeValue $MakepadBrokerProjectionAreaOffsetYUv `
+                -FullFrameRendererValue $MakepadFullFrameBrokerProjectionAreaOffsetYUv
             $scaleUv = Resolve-ModeProjectionAreaScaleUv `
                 -RendererValue $MakepadProjectionAreaScaleUv `
                 -ModeValue $MakepadBrokerProjectionAreaScaleUv
+            $scaleX = Resolve-MakepadProjectionAreaScaleAxis `
+                -RendererValue $MakepadProjectionAreaScaleX `
+                -ModeValue $MakepadBrokerProjectionAreaScaleX `
+                -FallbackScaleUv $scaleUv
+            $scaleY = Resolve-MakepadProjectionAreaScaleAxis `
+                -RendererValue $MakepadProjectionAreaScaleY `
+                -ModeValue $MakepadBrokerProjectionAreaScaleY `
+                -FallbackScaleUv $scaleUv
+            $projectionScale = Resolve-MakepadProjectionScale -ModeValue $MakepadBrokerProjectionScale
+            $xrRenderScale = Resolve-MakepadXrRenderScale -ModeValue $MakepadBrokerXrRenderScale
             Invoke-MakepadMode `
                 -ModeId $modeId `
                 -Architecture "$sourceLabel -> MediaCodec CPU YUV planes -> Makepad textures/OpenXR raw projection" `
                 -BrokerSourceMode $BrokerH264SourceMode `
                 -OffsetYUv $offsetYUv `
-                -ScaleUv $scaleUv
+                -ScaleUv $scaleUv `
+                -ScaleX $scaleX `
+                -ScaleY $scaleY `
+                -ProjectionScale $projectionScale `
+                -XrRenderScale $xrRenderScale
         }
     }
 }
@@ -903,12 +1076,34 @@ $lines.Add(("- GL/OES direct projection area offset Y UV: ``{0}``" -f (Format-In
 $lines.Add(("- GL/OES broker projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaOffsetYUv -RendererValue $GlesProjectionAreaOffsetYUv -ModeValue $GlesBrokerProjectionAreaOffsetYUv))))
 $lines.Add(("- Makepad CPU-YUV direct projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaOffsetYUv -RendererValue $MakepadProjectionAreaOffsetYUv -ModeValue $MakepadDirectProjectionAreaOffsetYUv))))
 $lines.Add(("- Makepad CPU-YUV broker projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaOffsetYUv -RendererValue $MakepadProjectionAreaOffsetYUv -ModeValue $MakepadBrokerProjectionAreaOffsetYUv))))
+$fullFrameBrokerOffsetLabel = if ([double]::IsNaN($FullFrameBrokerProjectionAreaOffsetYUv)) {
+    "not set"
+}
+else {
+    Format-InvariantDouble -Value $FullFrameBrokerProjectionAreaOffsetYUv
+}
+$lines.Add(("- Full-frame diagnostic broker projection area offset Y UV: ``{0}``" -f $fullFrameBrokerOffsetLabel))
+$lines.Add(("- Vulkan/HWB full-frame broker projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-BrokerModeProjectionAreaOffsetYUv -RendererValue $VulkanProjectionAreaOffsetYUv -ModeValue $VulkanBrokerProjectionAreaOffsetYUv -FullFrameRendererValue $VulkanFullFrameBrokerProjectionAreaOffsetYUv))))
+$lines.Add(("- GL/OES full-frame broker projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-BrokerModeProjectionAreaOffsetYUv -RendererValue $GlesProjectionAreaOffsetYUv -ModeValue $GlesBrokerProjectionAreaOffsetYUv -FullFrameRendererValue $GlesFullFrameBrokerProjectionAreaOffsetYUv))))
+$lines.Add(("- Makepad CPU-YUV full-frame broker projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-BrokerModeProjectionAreaOffsetYUv -RendererValue $MakepadProjectionAreaOffsetYUv -ModeValue $MakepadBrokerProjectionAreaOffsetYUv -FullFrameRendererValue $MakepadFullFrameBrokerProjectionAreaOffsetYUv))))
 $lines.Add(("- Projection area scale UV: ``{0}``" -f (Format-InvariantDouble -Value $ProjectionAreaScaleUv)))
 $lines.Add(("- GL/OES direct projection area scale UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaScaleUv -RendererValue $GlesProjectionAreaScaleUv -ModeValue $GlesDirectProjectionAreaScaleUv))))
 $lines.Add(("- GL/OES broker projection area scale UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaScaleUv -RendererValue $GlesProjectionAreaScaleUv -ModeValue $GlesBrokerProjectionAreaScaleUv))))
 $lines.Add(("- Makepad CPU-YUV direct projection area scale UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaScaleUv -RendererValue $MakepadProjectionAreaScaleUv -ModeValue $MakepadDirectProjectionAreaScaleUv))))
 $lines.Add(("- Makepad CPU-YUV broker projection area scale UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaScaleUv -RendererValue $MakepadProjectionAreaScaleUv -ModeValue $MakepadBrokerProjectionAreaScaleUv))))
-$lines.Add(("- Vulkan/HWB camera projection scale: ``{0}``" -f (Format-InvariantDouble -Value $VulkanCameraProjectionScale)))
+$makepadDirectScaleUv = Resolve-ModeProjectionAreaScaleUv -RendererValue $MakepadProjectionAreaScaleUv -ModeValue $MakepadDirectProjectionAreaScaleUv
+$makepadBrokerScaleUv = Resolve-ModeProjectionAreaScaleUv -RendererValue $MakepadProjectionAreaScaleUv -ModeValue $MakepadBrokerProjectionAreaScaleUv
+$lines.Add(("- Makepad CPU-YUV direct projection area scale X/Y: ``{0}``, ``{1}``" -f (Format-InvariantDouble -Value (Resolve-MakepadProjectionAreaScaleAxis -RendererValue $MakepadProjectionAreaScaleX -ModeValue $MakepadDirectProjectionAreaScaleX -FallbackScaleUv $makepadDirectScaleUv)), (Format-InvariantDouble -Value (Resolve-MakepadProjectionAreaScaleAxis -RendererValue $MakepadProjectionAreaScaleY -ModeValue $MakepadDirectProjectionAreaScaleY -FallbackScaleUv $makepadDirectScaleUv))))
+$lines.Add(("- Makepad CPU-YUV broker projection area scale X/Y: ``{0}``, ``{1}``" -f (Format-InvariantDouble -Value (Resolve-MakepadProjectionAreaScaleAxis -RendererValue $MakepadProjectionAreaScaleX -ModeValue $MakepadBrokerProjectionAreaScaleX -FallbackScaleUv $makepadBrokerScaleUv)), (Format-InvariantDouble -Value (Resolve-MakepadProjectionAreaScaleAxis -RendererValue $MakepadProjectionAreaScaleY -ModeValue $MakepadBrokerProjectionAreaScaleY -FallbackScaleUv $makepadBrokerScaleUv))))
+$lines.Add(("- Makepad CPU-YUV direct projection scale: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-MakepadProjectionScale -ModeValue $MakepadDirectProjectionScale))))
+$lines.Add(("- Makepad CPU-YUV broker projection scale: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-MakepadProjectionScale -ModeValue $MakepadBrokerProjectionScale))))
+$lines.Add(("- Makepad CPU-YUV direct XR render scale: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-MakepadXrRenderScale -ModeValue $MakepadDirectXrRenderScale))))
+$lines.Add(("- Makepad CPU-YUV broker XR render scale: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-MakepadXrRenderScale -ModeValue $MakepadBrokerXrRenderScale))))
+$lines.Add(("- Vulkan/HWB camera projection scale default: ``{0}``" -f (Format-InvariantDouble -Value $VulkanCameraProjectionScale)))
+$lines.Add(("- Vulkan/HWB direct camera projection scale: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-VulkanCameraProjectionScale -ModeValue $VulkanDirectCameraProjectionScale))))
+$lines.Add(("- Vulkan/HWB broker camera projection scale: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-VulkanCameraProjectionScale -ModeValue $VulkanBrokerCameraProjectionScale))))
+$lines.Add(("- Vulkan/HWB direct preview FOV Y / raw overscan / full-view overscan: ``{0}``, ``{1}``, ``{2}``" -f (Format-OptionalInvariantDouble -Value (Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraPreviewFovYDegrees -ModeValue $VulkanDirectCameraPreviewFovYDegrees)), (Format-OptionalInvariantDouble -Value (Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraRawOverlayOverscan -ModeValue $VulkanDirectCameraRawOverlayOverscan)), (Format-OptionalInvariantDouble -Value (Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraFullViewOverlayOverscan -ModeValue $VulkanDirectCameraFullViewOverlayOverscan))))
+$lines.Add(("- Vulkan/HWB broker preview FOV Y / raw overscan / full-view overscan: ``{0}``, ``{1}``, ``{2}``" -f (Format-OptionalInvariantDouble -Value (Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraPreviewFovYDegrees -ModeValue $VulkanBrokerCameraPreviewFovYDegrees)), (Format-OptionalInvariantDouble -Value (Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraRawOverlayOverscan -ModeValue $VulkanBrokerCameraRawOverlayOverscan)), (Format-OptionalInvariantDouble -Value (Resolve-VulkanOptionalDouble -RendererValue $VulkanCameraFullViewOverlayOverscan -ModeValue $VulkanBrokerCameraFullViewOverlayOverscan))))
 $lines.Add(("- Vulkan/HWB direct projection area scale UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-VulkanProjectionAreaScaleUv -ModeValue $VulkanDirectProjectionAreaScaleUv))))
 $lines.Add(("- Vulkan/HWB broker projection area scale UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-VulkanProjectionAreaScaleUv -ModeValue $VulkanBrokerProjectionAreaScaleUv))))
 $lines.Add(("- Vulkan/HWB direct XR render scale: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-VulkanXrRenderScale -ModeValue $VulkanDirectXrRenderScale))))
@@ -920,6 +1115,9 @@ $lines.Add(("- Makepad CPU-YUV projection area mask radius UV: ``{0}``, ``{1}``"
 $lines.Add(("- Makepad CPU-YUV projection area corner radius UV: ``{0}``" -f (Format-InvariantDouble -Value $MakepadProjectionAreaCornerRadiusUv)))
 $lines.Add(("- Projection area opacity: ``{0}``" -f (Format-InvariantDouble -Value $ProjectionAreaOpacity)))
 $lines.Add(("- Projection border opacity: ``{0}``" -f (Format-InvariantDouble -Value $ProjectionBorderOpacity)))
+$lines.Add(("- GL/OES camera color matrix: ``{0}``" -f $GlesCameraColorMatrix))
+$lines.Add(("- GL/OES camera color offset: ``{0}``" -f $GlesCameraColorOffset))
+$lines.Add(("- GL/OES camera color contrast/brightness/saturation: ``{0}``, ``{1}``, ``{2}``" -f (Format-InvariantDouble -Value $GlesCameraColorContrast), (Format-InvariantDouble -Value $GlesCameraColorBrightness), (Format-InvariantDouble -Value $GlesCameraColorSaturation)))
 $lines.Add(("- Native passthrough underlay requested: ``{0}``" -f [bool]$EnableNativePassthroughUnderlay))
 $lines.Add(("- Vulkan/HWB border override: ``{0}``" -f (Get-VulkanProjectionBorderOverride)))
 $lines.Add(("- GL/OES border override: ``{0}``" -f (Get-GlesProjectionBorderOverride)))
@@ -983,7 +1181,7 @@ if ($stateIssueRows.Count -gt 0) {
     }
 }
 $lines.Add("")
-$lines.Add("Use solid-red borders for image-derived footprint work and passthrough-underlay borders for operator alignment against native passthrough.")
+$lines.Add("Use diagnostic-split or solid-red borders for image-derived footprint work and passthrough-underlay borders for operator alignment against native passthrough.")
 $lines | Set-Content -Path $summaryMd -Encoding UTF8
 
 Write-Host "Raw camera stack suite summary:"

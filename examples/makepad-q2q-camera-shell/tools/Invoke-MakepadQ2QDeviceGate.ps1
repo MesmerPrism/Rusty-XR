@@ -38,11 +38,13 @@ param(
     [int]$BrokerH264FrameRateHz = 50,
     [int]$BrokerH264StreamTimeoutMs = 60000,
     [int]$BrokerH264DecodeTimeoutMs = 20000,
-    [ValidateSet("solid-red", "passthrough-underlay")]
+    [ValidateSet("solid-red", "diagnostic-split", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("raw", "blur")]
     [string]$ProcessingLayer = "raw",
     [double]$BlurRadiusPx = 2.0,
+    [double]$ProjectionScale = 1.0,
+    [double]$XrRenderScale = 1.0,
     [double]$ProjectionAreaOffsetYUv = 0.0,
     [double]$ProjectionAreaScaleX = 1.0,
     [double]$ProjectionAreaScaleY = 1.0,
@@ -179,6 +181,8 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.projection.area.opacity" = (Format-InvariantDouble -Value $ProjectionAreaOpacity)
         "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
+        "debug.rustyxr.projection.scale" = (Format-InvariantDouble -Value $ProjectionScale)
+        "debug.rustyxr.xr.render.scale" = (Format-InvariantDouble -Value $XrRenderScale)
         "debug.rustyxr.makepad.projection.area.offset.vertical.uv" = (Format-InvariantDouble -Value $ProjectionAreaOffsetYUv)
         "debug.rustyxr.makepad.projection.area.scale.x" = (Format-InvariantDouble -Value $ProjectionAreaScaleX)
         "debug.rustyxr.makepad.projection.area.scale.y" = (Format-InvariantDouble -Value $ProjectionAreaScaleY)

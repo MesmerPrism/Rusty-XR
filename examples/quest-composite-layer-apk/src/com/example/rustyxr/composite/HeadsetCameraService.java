@@ -98,6 +98,10 @@ public final class HeadsetCameraService extends Service {
     private static final String TIER_GPU_PROJECTED = "gpu-projected";
     private static final String CAMERA2_POSE_CONVENTION =
         "android-camera2-lens-pose-reference-from-camera";
+    private static final String STREAM_RASTER_ORIENTATION_SCHEMA = "rusty.xr.stream_raster_orientation.v1";
+    private static final String STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN = "top-left-origin-y-down";
+    private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
+    private static final String CONTENT_MAPPING_CAMERA_PROJECTION = "map-raster-through-camera-projection";
 
     private HandlerThread cameraThread;
     private Handler cameraHandler;
@@ -1708,6 +1712,13 @@ public final class HeadsetCameraService extends Service {
         builder.append(",\"deliveredWidth\":").append(image.getWidth());
         builder.append(",\"deliveredHeight\":").append(image.getHeight());
         builder.append(",\"timestampNs\":").append(image.getTimestamp());
+        appendCameraFrameSemantics(
+            builder,
+            "camera-frame",
+            image.getWidth(),
+            image.getHeight(),
+            CONTENT_MAPPING_CAMERA_PROJECTION,
+            "headset-camera-service-camera2");
         appendFpsTelemetry(builder, requestedCameraFpsRange(), monoAppliedAeFpsRange, monoDeliveryStats);
         if (sensorOrientation != null) {
             builder.append(",\"sensorOrientationDegrees\":").append(sensorOrientation.intValue());
@@ -1800,6 +1811,13 @@ public final class HeadsetCameraService extends Service {
         builder.append(",\"deliveredWidth\":").append(image.getWidth());
         builder.append(",\"deliveredHeight\":").append(image.getHeight());
         builder.append(",\"timestampNs\":").append(image.getTimestamp());
+        appendCameraFrameSemantics(
+            builder,
+            "camera-frame",
+            image.getWidth(),
+            image.getHeight(),
+            CONTENT_MAPPING_CAMERA_PROJECTION,
+            "headset-camera-service-stereo-camera2");
         Range<Integer> appliedRange = leftEye ? leftAppliedAeFpsRange : rightAppliedAeFpsRange;
         if (appliedRange == null && logicalStereoAppliedAeFpsRange != null) {
             appliedRange = logicalStereoAppliedAeFpsRange;
@@ -2201,6 +2219,54 @@ public final class HeadsetCameraService extends Service {
             builder.append(floatJson(values[i]));
         }
         builder.append(']');
+    }
+
+    private static void appendCameraFrameSemantics(
+        StringBuilder builder,
+        String contentKind,
+        int width,
+        int height,
+        String mappingIntent,
+        String metadataSource) {
+        float aspectRatio = width > 0 && height > 0 ? (float) width / (float) height : 1.0f;
+        builder.append(',');
+        appendJsonString(builder, "rasterOrientationSchema", STREAM_RASTER_ORIENTATION_SCHEMA);
+        builder.append(',');
+        appendJsonString(builder, "orientationKind", "camera-frame");
+        builder.append(',');
+        appendJsonString(builder, "rasterOrientation", STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN);
+        builder.append(',');
+        appendJsonString(builder, "rasterOrigin", "top-left");
+        builder.append(',');
+        appendJsonString(builder, "rasterYAxis", "down");
+        builder.append(',');
+        appendJsonString(builder, "uprightMarker", "camera-native-upright");
+        builder.append(',');
+        appendJsonString(builder, "orientationMetadataSource", metadataSource);
+        builder.append(",\"orientationDefault\":false");
+        builder.append(',');
+        appendJsonString(builder, "contentGeometrySchema", STREAM_CONTENT_GEOMETRY_SCHEMA);
+        builder.append(',');
+        appendJsonString(builder, "contentKind", contentKind);
+        builder.append(",\"contentWidth\":").append(Math.max(0, width));
+        builder.append(",\"contentHeight\":").append(Math.max(0, height));
+        builder.append(",\"contentAspectRatio\":").append(floatJson(aspectRatio));
+        builder.append(",\"desiredDisplayAspectRatio\":").append(floatJson(aspectRatio));
+        builder.append(",\"desiredProjectionAspectRatio\":").append(floatJson(aspectRatio));
+        builder.append(',');
+        appendJsonString(builder, "contentCoordinateSpace", "normalized-uv");
+        builder.append(',');
+        appendJsonString(builder, "contentOrigin", "top-left");
+        builder.append(',');
+        appendJsonString(builder, "contentXAxis", "right");
+        builder.append(',');
+        appendJsonString(builder, "contentYAxis", "down");
+        builder.append(",\"contentUvRect\":{\"left\":0.0,\"top\":0.0,\"right\":1.0,\"bottom\":1.0}");
+        builder.append(',');
+        appendJsonString(builder, "contentMappingIntent", mappingIntent);
+        builder.append(',');
+        appendJsonString(builder, "contentGeometryMetadataSource", metadataSource);
+        builder.append(",\"contentGeometryDefault\":false");
     }
 
     private static String floatJson(float value) {

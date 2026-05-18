@@ -717,12 +717,12 @@ impl Default for RuntimeConfig {
             stereo_layout: StereoMediaLayout::Mono,
             camera_projection_fov_y_degrees: 92.0,
             camera_preview_fov_y_degrees: 60.0,
-            camera_projection_scale: 0.75,
+            camera_projection_scale: 1.0,
             camera_projection_area_scale_uv: 1.0,
             camera_projection_area_offset_y_uv: 0.0,
-            camera_projection_area_radius_x_uv: 0.47,
-            camera_projection_area_radius_y_uv: 0.36,
-            camera_projection_area_corner_radius_uv: 0.08,
+            camera_projection_area_radius_x_uv: 0.5,
+            camera_projection_area_radius_y_uv: 0.5,
+            camera_projection_area_corner_radius_uv: 0.0,
             camera_projection_area_opacity: 1.0,
             camera_projection_border_opacity: 1.0,
             camera_raw_overlay_overscan: 1.06,
@@ -761,7 +761,7 @@ impl Default for RuntimeConfig {
             camera_frame_adoption_max_hold_ms: 80.0,
             orientation_diagnostic_mode: CameraOrientationDiagnosticMode::Off,
             visual_release_accepted: false,
-            xr_render_scale: 0.75,
+            xr_render_scale: 1.0,
             xr_display_refresh_hz: 72.0,
             xr_fixed_foveation_level: 0,
             xr_color_format_mode: OpenXrColorFormatMode::default(),
@@ -983,7 +983,7 @@ impl RuntimeConfig {
             self.camera_blur_radius_px.clamp(0.0, 16.0),
             self.camera_projection_area_opacity.clamp(0.0, 1.0),
             self.camera_projection_border_opacity.clamp(0.0, 1.0),
-            0.0,
+            self.camera_projection_area_offset_y_uv.clamp(-0.5, 0.5),
         ]
     }
 
@@ -2655,6 +2655,7 @@ fn parse_f32_list(value: &str, expected_len: usize) -> Option<Vec<f32>> {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct JavaCameraFrameMetadata {
     source: Option<String>,
     source_label: Option<String>,
@@ -2683,6 +2684,28 @@ struct JavaCameraFrameMetadata {
     synthetic_projection_profile: Option<String>,
     projection_geometry_profile: Option<String>,
     synthetic_pattern: Option<String>,
+    raster_orientation_schema: Option<String>,
+    orientation_kind: Option<String>,
+    raster_orientation: Option<String>,
+    raster_origin: Option<String>,
+    raster_y_axis: Option<String>,
+    upright_marker: Option<String>,
+    orientation_metadata_source: Option<String>,
+    orientation_default: Option<bool>,
+    content_geometry_schema: Option<String>,
+    content_kind: Option<String>,
+    content_width: Option<u32>,
+    content_height: Option<u32>,
+    content_aspect_ratio: Option<f32>,
+    desired_display_aspect_ratio: Option<f32>,
+    desired_projection_aspect_ratio: Option<f32>,
+    content_coordinate_space: Option<String>,
+    content_origin: Option<String>,
+    content_x_axis: Option<String>,
+    content_y_axis: Option<String>,
+    content_mapping_intent: Option<String>,
+    content_geometry_metadata_source: Option<String>,
+    content_geometry_default: Option<bool>,
     extrinsics: Option<JavaCameraExtrinsics>,
     missing_intrinsics: Option<bool>,
     missing_pose: Option<bool>,
@@ -3702,6 +3725,7 @@ mod tests {
             missing_pose: Some(true),
             mono_fallback: Some(true),
             fallback_reason: Some("missing camera pose; diagnostic flat camera copy".to_string()),
+            ..Default::default()
         };
 
         let (metadata, diagnostics) = public_camera_metadata(Some(&bridge), 5, 640, 480, 123);

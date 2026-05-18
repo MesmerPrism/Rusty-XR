@@ -156,11 +156,17 @@ For visual camera/parity gates, add a short screenshot freshness sequence:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
   -Serial <serial> `
-  -RuntimeProfile camera-stereo-gpu-composite-fast075 `
+  -RuntimeProfile camera-stereo-gpu-composite-full-feed-alignment `
+  -Override 'rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.cameraProjectionAreaScaleUv=1,rustyxr.cameraProjectionAreaRadiusXUv=0.5,rustyxr.cameraProjectionAreaRadiusYUv=0.5,rustyxr.cameraProjectionAreaCornerRadiusUv=0' `
   -CaptureHzdbScreencap `
   -FreshnessFrames 6 `
   -FreshnessIntervalMs 1000
 ```
+
+Use the `fast075` profiles only for compatibility or performance comparisons.
+Coordinate-alignment work should use the full-feed raw-stack suite or the
+`*-full-feed-alignment` HWB profiles so missing launch extras cannot silently
+return to the older clipped `0.75` geometry.
 
 The generated freshness summary records per-frame SHA-256 hashes and flags
 duplicate hash groups. A byte-identical sequence is a run-quality warning:

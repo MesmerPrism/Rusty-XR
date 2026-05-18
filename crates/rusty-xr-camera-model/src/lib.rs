@@ -198,7 +198,7 @@ impl CameraProjectionProfile {
     pub const QUEST_RAW_CAMERA_COMPOSITE: Self = Self {
         camera_fov_y_degrees: 92.0,
         preview_fov_y_degrees: 60.0,
-        projection_scale: 0.75,
+        projection_scale: 1.0,
         raw_overlay_overscan: 1.06,
         full_view_overlay_overscan: 2.10,
         edge_fade: 0.12,
@@ -209,7 +209,7 @@ impl CameraProjectionProfile {
         Self {
             camera_fov_y_degrees: finite_positive_or(self.camera_fov_y_degrees, 92.0),
             preview_fov_y_degrees: finite_positive_or(self.preview_fov_y_degrees, 60.0),
-            projection_scale: finite_positive_or(self.projection_scale, 0.75),
+            projection_scale: finite_positive_or(self.projection_scale, 1.0),
             raw_overlay_overscan: finite_positive_or(self.raw_overlay_overscan, 1.0).max(1.0),
             full_view_overlay_overscan: finite_positive_or(self.full_view_overlay_overscan, 1.0)
                 .max(1.0),

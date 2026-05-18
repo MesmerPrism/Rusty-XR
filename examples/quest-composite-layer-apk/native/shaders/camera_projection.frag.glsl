@@ -66,6 +66,7 @@ const int CAMERA_FLAG_RAW_PROJECTION_DYNAMIC_BORDER = 1048576;
 const int CAMERA_FLAG_RAW_PROJECTION_WARM_BORDER = 2097152;
 const int CAMERA_FLAG_RAW_PROJECTION_CYCLING_BORDER = 4194304;
 const int CAMERA_FLAG_PROJECTION_AREA_DIAGNOSTIC = 8388608;
+const int CAMERA_FLAG_FULL_FRAME_STIMULUS_MAPPING = 16777216;
 
 vec3 clamp01(vec3 color) {
     return clamp(color, vec3(0.0), vec3(1.0));
@@ -394,6 +395,14 @@ vec2 camera_texel_size(int source_eye) {
 #endif
     vec2 dims = vec2(float(max(size.x, 1)), float(max(size.y, 1)));
     return 1.0 / dims;
+}
+
+vec2 projection_area_content_uv(vec2 area_uv) {
+    vec2 half_size = vec2(
+        clamp(pc.area_params.x, 0.05, 0.50),
+        clamp(pc.area_params.y, 0.05, 0.50)
+    );
+    return (area_uv - (vec2(0.5) - half_size)) / max(half_size * 2.0, vec2(0.001));
 }
 
 vec3 sample_source_eye_blur_raw(int source_eye, vec2 camera_uv, float radius_px) {
@@ -974,9 +983,15 @@ void main() {
     float content_uv_scale = max(pc.params.z, 1.0);
     float projection_area_opacity = clamp(pc.effect_params.y, 0.0, 1.0);
     float projection_border_opacity = clamp(pc.effect_params.z, 0.0, 1.0);
+    float projection_area_offset_y = clamp(pc.effect_params.w, -0.5, 0.5);
     float projection_area_scale = clamp(pc.area_params.w, 0.05, 4.0);
-    vec2 projection_screen_uv =
+    bool full_frame_stimulus_mapping =
+        (packed_flags & CAMERA_FLAG_FULL_FRAME_STIMULUS_MAPPING) != 0;
+    vec2 projection_screen_uv_base =
         (v_surface_uv - vec2(0.5)) * projection_area_scale + vec2(0.5);
+    vec2 projection_screen_uv = full_frame_stimulus_mapping
+        ? projection_screen_uv_base - vec2(0.0, projection_area_offset_y)
+        : projection_screen_uv_base;
 
     vec2 local_uv = vec2(0.5) + ((v_surface_uv - vec2(0.5)) / overscan);
     bool content_surface_valid = true;
@@ -989,23 +1004,30 @@ void main() {
     vec2 content_uv = projected
         ? projected_content_uv
         : (v_surface_uv - vec2(0.5)) * content_uv_scale + vec2(0.5);
-    vec2 sample_content_uv = projected ? content_uv : clamp(local_uv, vec2(0.0), vec2(1.0));
-    vec2 projection_uv = projected ? projection_screen_uv : sample_content_uv;
+    vec2 full_frame_content_uv = projection_area_content_uv(projection_screen_uv);
+    vec2 sample_content_uv = full_frame_stimulus_mapping
+        ? full_frame_content_uv
+        : (projected ? content_uv : clamp(local_uv, vec2(0.0), vec2(1.0)));
+    vec2 projection_uv = full_frame_stimulus_mapping
+        ? full_frame_content_uv
+        : (projected ? projection_screen_uv : sample_content_uv);
 
     bool projection_valid = false;
     vec2 raw_projected_uv = projected_camera_uv(
         projection_uv,
         eye,
         transform_flags,
-        projected,
+        projected && !full_frame_stimulus_mapping,
         projection_valid
     );
-    projection_valid = projection_valid && content_surface_valid;
+    projection_valid =
+        projection_valid && (full_frame_stimulus_mapping || content_surface_valid);
     float coverage = projection_coverage(raw_projected_uv, projection_valid, max(edge_fade, 0.012));
+    vec2 projection_area_domain_uv = projection_screen_uv;
 
     if ((packed_flags & CAMERA_FLAG_PROJECTION_AREA_DIAGNOSTIC) != 0) {
         out_color = vec4(resolve_projection_area_diagnostic(
-            sample_content_uv,
+            projection_area_domain_uv,
             raw_projected_uv,
             projection_valid,
             content_surface_valid,
@@ -1051,15 +1073,27 @@ void main() {
     bool raw_projection_solid_red = raw_projection_invalid_fill && raw_projection_perimeter_fill;
     bool raw_projection_blur = raw_projection_soft_border && raw_projection_strong_border;
     bool raw_projection_area_mask = raw_projection_solid_red || passthrough_underlay_alpha;
-    bool projection_area_inside = resolve_camera_oval_distance(sample_content_uv) <= 1.0;
+    float projection_area_distance = resolve_camera_oval_distance(projection_area_domain_uv);
+    bool projection_area_inside = projection_area_distance <= 1.0;
     bool masked_projection_valid = projection_valid && (!raw_projection_area_mask || projection_area_inside);
+    vec3 diagnostic_intended_mask_color = vec3(0.36, 0.0, 0.28);
+    vec3 diagnostic_source_invalid_color = vec3(1.0, 0.0, 0.0);
+    vec3 diagnostic_guide_color = eye == 0 ? vec3(0.0, 0.95, 1.0) : vec3(1.0, 0.86, 0.0);
+    bool diagnostic_intended_mask = raw_projection_area_mask && !projection_area_inside;
+    bool diagnostic_source_invalid = raw_projection_area_mask && projection_area_inside && !projection_valid;
+    vec3 raw_projection_diagnostic_color = diagnostic_intended_mask
+        ? diagnostic_intended_mask_color
+        : diagnostic_source_invalid_color;
+    float projection_area_guide = raw_projection_area_mask
+        ? 1.0 - smoothstep(0.0, 0.018, abs(projection_area_distance - 1.0))
+        : 0.0;
     vec3 color = center_color;
     if (raw_projection_blur) {
         color = masked_projection_valid
             ? sample_source_eye_blur_raw(source_eye, raw_projected_uv, pc.effect_params.x)
-            : (raw_projection_solid_red ? vec3(1.0, 0.0, 0.0) : center_color);
+            : (raw_projection_solid_red ? raw_projection_diagnostic_color : center_color);
     } else if (raw_projection_solid_red) {
-        color = masked_projection_valid ? center_color : vec3(1.0, 0.0, 0.0);
+        color = masked_projection_valid ? center_color : raw_projection_diagnostic_color;
     } else if (raw_projection_cycling_border) {
         color = resolve_raw_projection_soft_border(
             sample_content_uv,
@@ -1219,7 +1253,14 @@ void main() {
     }
     vec3 final_color = color * surface_edge_dim * source_edge_dim;
     if (raw_projection_solid_red && !masked_projection_valid) {
-        final_color = vec3(1.0, 0.0, 0.0);
+        final_color = raw_projection_diagnostic_color;
+    }
+    if (raw_projection_solid_red) {
+        final_color = mix(
+            final_color,
+            diagnostic_guide_color,
+            clamp(projection_area_guide * projection_border_opacity, 0.0, 1.0)
+        );
     }
     out_color = vec4(clamp01(final_color), out_alpha);
 }

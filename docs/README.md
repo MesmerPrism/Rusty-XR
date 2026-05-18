@@ -89,6 +89,9 @@ before reading chronological plans or investigation logs.
   camera profiles and reusable run tooling.
 - [Screen-space and blur alignment workflow](SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md):
   public diagnostic blur and projection-area workflow.
+- [Synthetic projection coordinate alignment plan](SYNTHETIC_PROJECTION_COORDINATE_ALIGNMENT_PLAN.md):
+  active synthetic-first gate before blur, live camera, or passthrough
+  alignment.
 
 ## Plans, Investigations, And History
 

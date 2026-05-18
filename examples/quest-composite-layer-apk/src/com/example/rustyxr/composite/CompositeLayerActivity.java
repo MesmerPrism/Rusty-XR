@@ -47,12 +47,12 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final boolean DEFAULT_CAMERA_ALLOW_CPU_FALLBACK = true;
     private static final float DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES = 92.0f;
     private static final float DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES = 60.0f;
-    private static final float DEFAULT_CAMERA_PROJECTION_SCALE = 0.75f;
+    private static final float DEFAULT_CAMERA_PROJECTION_SCALE = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_SCALE_UV = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_Y_UV = 0.0f;
-    private static final float DEFAULT_CAMERA_PROJECTION_AREA_RADIUS_X_UV = 0.47f;
-    private static final float DEFAULT_CAMERA_PROJECTION_AREA_RADIUS_Y_UV = 0.36f;
-    private static final float DEFAULT_CAMERA_PROJECTION_AREA_CORNER_RADIUS_UV = 0.08f;
+    private static final float DEFAULT_CAMERA_PROJECTION_AREA_RADIUS_X_UV = 0.5f;
+    private static final float DEFAULT_CAMERA_PROJECTION_AREA_RADIUS_Y_UV = 0.5f;
+    private static final float DEFAULT_CAMERA_PROJECTION_AREA_CORNER_RADIUS_UV = 0.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_OPACITY = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_BORDER_OPACITY = 1.0f;
     private static final float DEFAULT_CAMERA_RAW_OVERLAY_OVERSCAN = 1.06f;
@@ -92,7 +92,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final String DEFAULT_CAMERA_TEXTURE_TRANSFORM_REASON = "unspecified";
     private static final String DEFAULT_CAMERA_SOURCE_EYE_MAPPING = "left-right";
     private static final String DEFAULT_CAMERA_ORIENTATION_DIAGNOSTIC_MODE = "off";
-    private static final float DEFAULT_XR_RENDER_SCALE = 0.75f;
+    private static final float DEFAULT_XR_RENDER_SCALE = 1.0f;
     private static final int DEFAULT_XR_FIXED_FOVEATION_LEVEL = 0;
     private static final String DEFAULT_XR_COLOR_FORMAT = "rgba8-srgb";
     private static final String DEFAULT_ENVIRONMENT_DEPTH_MODE = "off";

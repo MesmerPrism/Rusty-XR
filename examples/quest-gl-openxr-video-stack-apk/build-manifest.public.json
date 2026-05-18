@@ -23,7 +23,8 @@
     ],
     "features": [
       "android.hardware.vr.headtracking",
-      "oculus.software.handtracking"
+      "oculus.software.handtracking",
+      "com.oculus.feature.PASSTHROUGH"
     ]
   },
   "sourceInputs": [
@@ -145,6 +146,7 @@
     "surface-texture",
     "external-oes-output-surface",
     "broker-h264-mediacodec-oes-decode",
+    "native-passthrough-underlay",
     "render-thread-update-tex-image",
     "static-stereo-diagnostic-grids",
     "quest-openxr-gles-feasibility-status",

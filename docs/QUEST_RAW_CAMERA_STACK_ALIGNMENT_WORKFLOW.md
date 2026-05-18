@@ -116,8 +116,8 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -Catalog .\examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
-  -RuntimeProfile camera-stereo-gpu-composite-fast075 `
-  -Override rustyxr.cameraTargetFps=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off `
+  -RuntimeProfile camera-stereo-gpu-composite-full-feed-alignment `
+  -Override rustyxr.cameraTargetFps=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.cameraProjectionAreaScaleUv=1,rustyxr.cameraProjectionAreaRadiusXUv=0.5,rustyxr.cameraProjectionAreaRadiusYUv=0.5,rustyxr.cameraProjectionAreaCornerRadiusUv=0 `
   -FreshnessFrames 6
 ```
 
@@ -129,8 +129,8 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -Catalog .\examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
-  -RuntimeProfile broker-h264-stereo-live-openxr-projection-fast075-probe `
-  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off `
+  -RuntimeProfile broker-h264-stereo-live-openxr-projection-full-feed-alignment `
+  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.cameraProjectionAreaScaleUv=1,rustyxr.cameraProjectionAreaRadiusXUv=0.5,rustyxr.cameraProjectionAreaRadiusYUv=0.5,rustyxr.cameraProjectionAreaCornerRadiusUv=0 `
   -FreshnessFrames 6
 ```
 

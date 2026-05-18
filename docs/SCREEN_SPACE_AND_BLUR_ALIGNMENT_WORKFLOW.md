@@ -9,6 +9,11 @@ return to their custom effect stacks only after the public raw lanes agree on
 screen-space coverage, invalid-region policy, stereo orientation, and the
 generic blur diagnostic.
 
+The active synthetic-first coordinate gate is tracked in
+[SYNTHETIC_PROJECTION_COORDINATE_ALIGNMENT_PLAN.md](SYNTHETIC_PROJECTION_COORDINATE_ALIGNMENT_PLAN.md).
+Use that plan before starting physical camera or passthrough-underlay
+alignment.
+
 ## Scope
 
 This workflow owns:
@@ -160,6 +165,11 @@ stale/repeated frames.
 The suite-level `-ProjectionAreaOffsetYUv` parameter forwards the same
 screen-space vertical sweep intent to each renderer through its native key. Use
 it only after the raw hard-mask evidence is valid.
+
+For alignment runs, do not launch `fast075` HWB profiles. Those names belong to
+older performance comparisons and can hide a `cameraProjectionScale=0.75`
+footprint. Use the full-feed alignment profiles selected by the suite and keep
+any deliberate scale reduction explicit in the command summary.
 
 Prefer the full-suite runner for comparable public runs:
 

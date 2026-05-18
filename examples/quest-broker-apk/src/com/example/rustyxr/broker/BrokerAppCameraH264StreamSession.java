@@ -59,9 +59,23 @@ final class BrokerAppCameraH264StreamSession {
     private static final String SYNTHETIC_PROJECTION_PROFILE_HEAD_ANCHORED = "head-anchored-virtual-camera";
     private static final String SYNTHETIC_PROJECTION_PROFILE_CAMERA_MATCHED = "camera-matched";
     private static final String SYNTHETIC_PROJECTION_PROFILE_FULL_FRAME = "full-frame-diagnostic";
+    private static final String STREAM_RASTER_ORIENTATION_SCHEMA = "rusty.xr.stream_raster_orientation.v1";
+    private static final String STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN = "top-left-origin-y-down";
+    private static final String STREAM_RASTER_ORIGIN_TOP_LEFT = "top-left";
+    private static final String STREAM_RASTER_Y_AXIS_DOWN = "down";
+    private static final String CAMERA_FRAME_UPRIGHT_MARKER = "camera-native-upright";
     private static final String SYNTHETIC_STIMULUS_ORIENTATION_SCHEMA = "rusty.xr.synthetic_stimulus_orientation.v1";
     private static final String SYNTHETIC_STIMULUS_RASTER_ORIENTATION = "top-left-origin-y-down";
     private static final String SYNTHETIC_STIMULUS_UPRIGHT_MARKER = "color-bars-top";
+    private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
+    private static final String CONTENT_COORDINATE_SPACE_NORMALIZED_UV = "normalized-uv";
+    private static final String CONTENT_ORIGIN_TOP_LEFT = "top-left";
+    private static final String CONTENT_X_AXIS_RIGHT = "right";
+    private static final String CONTENT_Y_AXIS_DOWN = "down";
+    private static final String CONTENT_MAPPING_CAMERA_PROJECTION = "map-raster-through-camera-projection";
+    private static final String CONTENT_MAPPING_SYNTHETIC_CAMERA_MATCHED = "map-stimulus-raster-through-camera-projection";
+    private static final String CONTENT_MAPPING_SYNTHETIC_FULL_FRAME = "map-full-frame-stimulus-to-projection-area";
+    private static final String CONTENT_MAPPING_SYNTHETIC_HEAD_ANCHORED = "fit-stimulus-raster-in-head-anchored-projection-area";
     private static final String MAGIC = "RXYRVID1";
     private static final int SCHEMA_VERSION = 3;
     private static final int CODEC_H264 = 1;
@@ -140,6 +154,25 @@ final class BrokerAppCameraH264StreamSession {
         final int hostPort = clamp(params != null ? params.optInt("host_port", DEFAULT_HOST_PORT) : DEFAULT_HOST_PORT, 1, 65535);
         final int preferredWidth = clamp(params != null ? params.optInt("preferred_width", DEFAULT_WIDTH) : DEFAULT_WIDTH, 16, 4096);
         final int preferredHeight = clamp(params != null ? params.optInt("preferred_height", DEFAULT_HEIGHT) : DEFAULT_HEIGHT, 16, 4096);
+        final int requestedContentWidth = clamp(
+            optIntAny(params, preferredWidth, "content_width", "stimulus_width", "stimulusWidth"),
+            16,
+            4096);
+        final int requestedContentHeight = clamp(
+            optIntAny(params, preferredHeight, "content_height", "stimulus_height", "stimulusHeight"),
+            16,
+            4096);
+        final double requestedDisplayAspectRatio = normalizeAspectRatio(
+            optDoubleAny(
+                params,
+                aspectRatio(requestedContentWidth, requestedContentHeight),
+                "desired_display_aspect_ratio",
+                "desired_projection_aspect_ratio",
+                "desired_aspect_ratio",
+                "stimulus_aspect_ratio",
+                "content_aspect_ratio"),
+            requestedContentWidth,
+            requestedContentHeight);
         final boolean liveStream = params != null && params.optBoolean("live_stream", false);
         final int requestedCaptureMs = params != null ? params.optInt("capture_ms", DEFAULT_CAPTURE_MS) : DEFAULT_CAPTURE_MS;
         final int requestedMaxPackets = params != null ? params.optInt("max_packets", DEFAULT_MAX_PACKETS) : DEFAULT_MAX_PACKETS;
@@ -224,6 +257,9 @@ final class BrokerAppCameraH264StreamSession {
         start.put("camera_id", requestedCameraId);
         start.put("preferred_width", preferredWidth);
         start.put("preferred_height", preferredHeight);
+        start.put("requested_content_width", requestedContentWidth);
+        start.put("requested_content_height", requestedContentHeight);
+        start.put("requested_desired_display_aspect_ratio", requestedDisplayAspectRatio);
         start.put("capture_ms", captureMs);
         start.put("max_packets", maxPackets);
         start.put("writer_queue_depth", writerQueueDepth);
@@ -251,7 +287,7 @@ final class BrokerAppCameraH264StreamSession {
             }
             Size syntheticSize = syntheticReferenceSelection != null
                 ? syntheticReferenceSelection.size
-                : new Size(preferredWidth, preferredHeight);
+                : new Size(requestedContentWidth, requestedContentHeight);
             start.put("selected_camera_id", "synthetic:" + syntheticPattern);
             start.put("selected_width", syntheticSize.getWidth());
             start.put("selected_height", syntheticSize.getHeight());
@@ -267,6 +303,14 @@ final class BrokerAppCameraH264StreamSession {
             start.put("synthetic_side_marker", syntheticSideMarker);
             start.put("synthetic_projection_profile", syntheticProjectionProfile);
             start.put("projection_geometry_profile", syntheticProjectionProfile);
+            putStreamContentGeometryFields(
+                start,
+                "synthetic-stimulus",
+                syntheticSize.getWidth(),
+                syntheticSize.getHeight(),
+                requestedDisplayAspectRatio,
+                contentMappingIntentForSyntheticProfile(syntheticProjectionProfile),
+                "broker-synthetic-start-command");
             if (syntheticReferenceSelection != null) {
                 start.put("synthetic_geometry_reference_camera_id", syntheticReferenceSelection.cameraId);
                 start.put("synthetic_geometry_reference_width", syntheticReferenceSelection.size.getWidth());
@@ -281,13 +325,15 @@ final class BrokerAppCameraH264StreamSession {
                     syntheticReferenceSelection,
                     syntheticSize,
                     syntheticPattern,
-                    syntheticSideMarker);
+                    syntheticSideMarker,
+                    requestedDisplayAspectRatio);
             } else if (SYNTHETIC_PROJECTION_PROFILE_CAMERA_MATCHED.equals(syntheticProjectionProfile)) {
                 projectionMetadata = buildHeadAnchoredSyntheticProjectionMetadata(
                     syntheticSize,
                     syntheticPattern,
                     syntheticSideMarker,
-                    SYNTHETIC_PROJECTION_PROFILE_HEAD_ANCHORED);
+                    SYNTHETIC_PROJECTION_PROFILE_HEAD_ANCHORED,
+                    requestedDisplayAspectRatio);
                 projectionMetadata.put(
                     "syntheticProjectionProfileRequested",
                     SYNTHETIC_PROJECTION_PROFILE_CAMERA_MATCHED);
@@ -304,7 +350,8 @@ final class BrokerAppCameraH264StreamSession {
                     syntheticSize,
                     syntheticPattern,
                     syntheticSideMarker,
-                    syntheticProjectionProfile);
+                    syntheticProjectionProfile,
+                    requestedDisplayAspectRatio);
             }
             start.put("projection_metadata", projectionMetadata);
         }
@@ -322,6 +369,14 @@ final class BrokerAppCameraH264StreamSession {
                     putCameraSourceSelectionFields(start, selection, cameraPermissionState);
                     start.put("camera_source_capabilities", buildCameraSourceCapabilities(selection, cameraPermissionState));
                     start.put("projection_metadata", buildProjectionMetadata(selection));
+                    putStreamContentGeometryFields(
+                        start,
+                        "camera-frame",
+                        selection.size.getWidth(),
+                        selection.size.getHeight(),
+                        aspectRatio(selection.size.getWidth(), selection.size.getHeight()),
+                        CONTENT_MAPPING_CAMERA_PROJECTION,
+                        "broker-camera2-start-command");
                 }
             }
         } catch (Exception ex) {
@@ -351,7 +406,10 @@ final class BrokerAppCameraH264StreamSession {
                     syntheticSource,
                     syntheticPattern,
                     syntheticSideMarker,
-                    syntheticProjectionProfile);
+                    syntheticProjectionProfile,
+                    requestedContentWidth,
+                    requestedContentHeight,
+                    requestedDisplayAspectRatio);
             }
         }, "RustyXrAppCameraH264Stream");
         thread.start();
@@ -593,7 +651,10 @@ final class BrokerAppCameraH264StreamSession {
         boolean syntheticSource,
         String syntheticPattern,
         String syntheticSideMarker,
-        String syntheticProjectionProfile) {
+        String syntheticProjectionProfile,
+        int requestedContentWidth,
+        int requestedContentHeight,
+        double requestedDisplayAspectRatio) {
         long encodeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
         long encodeEndElapsedNs = encodeStartElapsedNs;
         StreamWriteStats writeStats = new StreamWriteStats(0L, 0L, 0L, 0L);
@@ -627,13 +688,14 @@ final class BrokerAppCameraH264StreamSession {
                 }
                 size = syntheticReferenceSelection != null
                     ? syntheticReferenceSelection.size
-                    : new Size(preferredWidth, preferredHeight);
+                    : new Size(requestedContentWidth, requestedContentHeight);
                 if (syntheticReferenceSelection != null) {
                     streamProjectionMetadata = buildCameraMatchedSyntheticProjectionMetadata(
                         syntheticReferenceSelection,
                         size,
                         syntheticPattern,
-                        syntheticSideMarker);
+                        syntheticSideMarker,
+                        requestedDisplayAspectRatio);
                 } else {
                     streamProjectionMetadata = buildHeadAnchoredSyntheticProjectionMetadata(
                         size,
@@ -641,7 +703,8 @@ final class BrokerAppCameraH264StreamSession {
                         syntheticSideMarker,
                         SYNTHETIC_PROJECTION_PROFILE_CAMERA_MATCHED.equals(syntheticProjectionProfile)
                             ? SYNTHETIC_PROJECTION_PROFILE_HEAD_ANCHORED
-                            : syntheticProjectionProfile);
+                            : syntheticProjectionProfile,
+                        requestedDisplayAspectRatio);
                     if (SYNTHETIC_PROJECTION_PROFILE_CAMERA_MATCHED.equals(syntheticProjectionProfile)) {
                         streamProjectionMetadata.put(
                             "syntheticProjectionProfileRequested",
@@ -2078,6 +2141,19 @@ final class BrokerAppCameraH264StreamSession {
         metadata.put("selectionScore", selection.score);
         metadata.put("deliveredWidth", selection.size.getWidth());
         metadata.put("deliveredHeight", selection.size.getHeight());
+        putStreamRasterOrientationFields(
+            metadata,
+            "camera-frame",
+            CAMERA_FRAME_UPRIGHT_MARKER,
+            "broker-camera2-h264-encoder");
+        putStreamContentGeometryFields(
+            metadata,
+            "camera-frame",
+            selection.size.getWidth(),
+            selection.size.getHeight(),
+            aspectRatio(selection.size.getWidth(), selection.size.getHeight()),
+            CONTENT_MAPPING_CAMERA_PROJECTION,
+            "broker-camera2-h264-encoder");
 
         Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
         metadata.put("lensFacing", lensFacingLabel(facing));
@@ -2152,7 +2228,8 @@ final class BrokerAppCameraH264StreamSession {
         Size size,
         String syntheticPattern,
         String syntheticSideMarker,
-        String syntheticProjectionProfile) throws Exception {
+        String syntheticProjectionProfile,
+        double desiredDisplayAspectRatio) throws Exception {
         String projectionProfile = normalizeSyntheticProjectionProfile(syntheticProjectionProfile);
         if (SYNTHETIC_PROJECTION_PROFILE_CAMERA_MATCHED.equals(projectionProfile)) {
             try {
@@ -2172,13 +2249,15 @@ final class BrokerAppCameraH264StreamSession {
                     selection,
                     size,
                     syntheticPattern,
-                    syntheticSideMarker);
+                    syntheticSideMarker,
+                    desiredDisplayAspectRatio);
             } catch (Exception ex) {
                 JSONObject fallback = buildHeadAnchoredSyntheticProjectionMetadata(
                     size,
                     syntheticPattern,
                     syntheticSideMarker,
-                    SYNTHETIC_PROJECTION_PROFILE_HEAD_ANCHORED);
+                    SYNTHETIC_PROJECTION_PROFILE_HEAD_ANCHORED,
+                    desiredDisplayAspectRatio);
                 fallback.put("syntheticProjectionProfileRequested", SYNTHETIC_PROJECTION_PROFILE_CAMERA_MATCHED);
                 fallback.put("syntheticProjectionProfileFallbackReason", ex.getClass().getSimpleName() + ": " + safeMessage(ex));
                 return fallback;
@@ -2188,14 +2267,16 @@ final class BrokerAppCameraH264StreamSession {
             size,
             syntheticPattern,
             syntheticSideMarker,
-            projectionProfile);
+            projectionProfile,
+            desiredDisplayAspectRatio);
     }
 
     private static JSONObject buildCameraMatchedSyntheticProjectionMetadata(
         CameraSelection selection,
         Size syntheticSize,
         String syntheticPattern,
-        String syntheticSideMarker) throws Exception {
+        String syntheticSideMarker,
+        double desiredDisplayAspectRatio) throws Exception {
         String pattern = normalizeSyntheticPattern(syntheticPattern);
         String sideMarker = normalizeSyntheticSideMarker(syntheticSideMarker);
         JSONObject metadata = buildProjectionMetadata(selection);
@@ -2211,6 +2292,14 @@ final class BrokerAppCameraH264StreamSession {
         metadata.put("syntheticGeometryReferenceCameraId", selection.cameraId);
         metadata.put("syntheticGeometryReferenceSource", "AndroidCamera2");
         putSyntheticStimulusOrientationFields(metadata);
+        putStreamContentGeometryFields(
+            metadata,
+            "synthetic-stimulus",
+            syntheticSize != null ? syntheticSize.getWidth() : selection.size.getWidth(),
+            syntheticSize != null ? syntheticSize.getHeight() : selection.size.getHeight(),
+            desiredDisplayAspectRatio,
+            CONTENT_MAPPING_SYNTHETIC_CAMERA_MATCHED,
+            "broker-synthetic-camera-matched-canvas");
         return metadata;
     }
 
@@ -2218,7 +2307,8 @@ final class BrokerAppCameraH264StreamSession {
         Size size,
         String syntheticPattern,
         String syntheticSideMarker,
-        String syntheticProjectionProfile) throws Exception {
+        String syntheticProjectionProfile,
+        double desiredDisplayAspectRatio) throws Exception {
         String pattern = normalizeSyntheticPattern(syntheticPattern);
         String sideMarker = normalizeSyntheticSideMarker(syntheticSideMarker);
         String projectionProfile = normalizeSyntheticProjectionProfile(syntheticProjectionProfile);
@@ -2276,16 +2366,78 @@ final class BrokerAppCameraH264StreamSession {
         metadata.put("projectionGeometryProfile", projectionProfile);
         metadata.put("syntheticProjectionFovYDegrees", SYNTHETIC_PROJECTION_FOV_Y_DEGREES);
         putSyntheticStimulusOrientationFields(metadata);
+        putStreamContentGeometryFields(
+            metadata,
+            "synthetic-stimulus",
+            width,
+            height,
+            desiredDisplayAspectRatio,
+            contentMappingIntentForSyntheticProfile(projectionProfile),
+            "broker-synthetic-canvas");
         return metadata;
     }
 
+    private static void putStreamRasterOrientationFields(
+        JSONObject target,
+        String orientationKind,
+        String uprightMarker,
+        String metadataSource) throws Exception {
+        target.put("rasterOrientationSchema", STREAM_RASTER_ORIENTATION_SCHEMA);
+        target.put("orientationKind", orientationKind);
+        target.put("rasterOrientation", STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN);
+        target.put("rasterOrigin", STREAM_RASTER_ORIGIN_TOP_LEFT);
+        target.put("rasterYAxis", STREAM_RASTER_Y_AXIS_DOWN);
+        target.put("uprightMarker", uprightMarker);
+        target.put("orientationMetadataSource", metadataSource);
+        target.put("orientationDefault", false);
+    }
+
     private static void putSyntheticStimulusOrientationFields(JSONObject target) throws Exception {
+        putStreamRasterOrientationFields(
+            target,
+            "synthetic-stimulus",
+            SYNTHETIC_STIMULUS_UPRIGHT_MARKER,
+            "broker-synthetic-canvas");
         target.put("stimulusOrientationSchema", SYNTHETIC_STIMULUS_ORIENTATION_SCHEMA);
         target.put("stimulusRasterOrientation", SYNTHETIC_STIMULUS_RASTER_ORIENTATION);
         target.put("stimulusOrigin", "top-left");
         target.put("stimulusYAxis", "down");
         target.put("stimulusUprightMarker", SYNTHETIC_STIMULUS_UPRIGHT_MARKER);
         target.put("stimulusOrientationDefault", false);
+    }
+
+    private static void putStreamContentGeometryFields(
+        JSONObject target,
+        String contentKind,
+        int contentWidth,
+        int contentHeight,
+        double desiredDisplayAspectRatio,
+        String mappingIntent,
+        String metadataSource) throws Exception {
+        int width = Math.max(0, contentWidth);
+        int height = Math.max(0, contentHeight);
+        double contentAspectRatio = aspectRatio(width, height);
+        double desiredAspectRatio = normalizeAspectRatio(desiredDisplayAspectRatio, width, height);
+        JSONObject uvRect = new JSONObject();
+        uvRect.put("left", 0.0);
+        uvRect.put("top", 0.0);
+        uvRect.put("right", 1.0);
+        uvRect.put("bottom", 1.0);
+        target.put("contentGeometrySchema", STREAM_CONTENT_GEOMETRY_SCHEMA);
+        target.put("contentKind", contentKind);
+        target.put("contentWidth", width);
+        target.put("contentHeight", height);
+        target.put("contentAspectRatio", contentAspectRatio);
+        target.put("desiredDisplayAspectRatio", desiredAspectRatio);
+        target.put("desiredProjectionAspectRatio", desiredAspectRatio);
+        target.put("contentCoordinateSpace", CONTENT_COORDINATE_SPACE_NORMALIZED_UV);
+        target.put("contentOrigin", CONTENT_ORIGIN_TOP_LEFT);
+        target.put("contentXAxis", CONTENT_X_AXIS_RIGHT);
+        target.put("contentYAxis", CONTENT_Y_AXIS_DOWN);
+        target.put("contentUvRect", uvRect);
+        target.put("contentMappingIntent", mappingIntent);
+        target.put("contentGeometryMetadataSource", metadataSource);
+        target.put("contentGeometryDefault", false);
     }
 
     private static void drawSyntheticEncoderFrame(
@@ -3137,6 +3289,17 @@ final class BrokerAppCameraH264StreamSession {
         return SYNTHETIC_PROJECTION_PROFILE_HEAD_ANCHORED;
     }
 
+    private static String contentMappingIntentForSyntheticProfile(String value) {
+        String profile = normalizeSyntheticProjectionProfile(value);
+        if (SYNTHETIC_PROJECTION_PROFILE_CAMERA_MATCHED.equals(profile)) {
+            return CONTENT_MAPPING_SYNTHETIC_CAMERA_MATCHED;
+        }
+        if (SYNTHETIC_PROJECTION_PROFILE_FULL_FRAME.equals(profile)) {
+            return CONTENT_MAPPING_SYNTHETIC_FULL_FRAME;
+        }
+        return CONTENT_MAPPING_SYNTHETIC_HEAD_ANCHORED;
+    }
+
     private static String normalizeSyntheticSideMarker(String value) {
         if (value == null || value.trim().length() == 0) {
             return "none";
@@ -3183,6 +3346,44 @@ final class BrokerAppCameraH264StreamSession {
 
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private static int optIntAny(JSONObject params, int fallback, String... keys) {
+        if (params == null || keys == null) {
+            return fallback;
+        }
+        for (String key : keys) {
+            if (key != null && params.has(key)) {
+                return params.optInt(key, fallback);
+            }
+        }
+        return fallback;
+    }
+
+    private static double optDoubleAny(JSONObject params, double fallback, String... keys) {
+        if (params == null || keys == null) {
+            return fallback;
+        }
+        for (String key : keys) {
+            if (key != null && params.has(key)) {
+                double value = params.optDouble(key, fallback);
+                if (!Double.isNaN(value) && !Double.isInfinite(value) && value > 0.0) {
+                    return value;
+                }
+            }
+        }
+        return fallback;
+    }
+
+    private static double aspectRatio(int width, int height) {
+        return width > 0 && height > 0 ? width / (double) height : 1.0;
+    }
+
+    private static double normalizeAspectRatio(double requested, int width, int height) {
+        if (!Double.isNaN(requested) && !Double.isInfinite(requested) && requested > 0.0) {
+            return requested;
+        }
+        return aspectRatio(width, height);
     }
 
     private static void joinWriterThread(Thread writerThread, Socket client) {

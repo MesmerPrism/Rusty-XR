@@ -42,9 +42,9 @@ mod android {
     };
     use rusty_xr_quest_diagnostics::{
         EglGlesContextStatus, FrameRateSummary, GlFramebufferCompleteness,
-        OpenXrGlesFeasibilityState, OpenXrGlesGraphicsRequirements, OpenXrGlesSwapchainFormat,
-        OpenXrGlesViewStatus, SurfaceTextureOesEyeStatus, SurfaceTextureOesIngestState,
-        SurfaceTextureOesIngestStatus, OPENXR_GLES_EXTENSION,
+        OpenXrGlesExtensionStatus, OpenXrGlesFeasibilityState, OpenXrGlesGraphicsRequirements,
+        OpenXrGlesSwapchainFormat, OpenXrGlesViewStatus, SurfaceTextureOesEyeStatus,
+        SurfaceTextureOesIngestState, SurfaceTextureOesIngestStatus, OPENXR_GLES_EXTENSION,
     };
     use std::{
         ffi::{CStr, CString},
@@ -123,6 +123,7 @@ mod android {
     enum OesProjectionBorderPolicy {
         #[default]
         SolidRed,
+        DiagnosticSplit,
         PassthroughUnderlay,
     }
 
@@ -130,6 +131,9 @@ mod android {
         fn parse(value: &str) -> Option<Self> {
             match value.trim().to_ascii_lowercase().as_str() {
                 "" | "solid-red" | "red" | "diagnostic-red" | "opaque-red" => Some(Self::SolidRed),
+                "diagnostic-split" | "split-diagnostic" | "semantic-diagnostic" => {
+                    Some(Self::DiagnosticSplit)
+                }
                 "passthrough-underlay"
                 | "transparent-underlay"
                 | "transparent"
@@ -142,6 +146,7 @@ mod android {
         const fn stable_id(self) -> &'static str {
             match self {
                 Self::SolidRed => "solid-red",
+                Self::DiagnosticSplit => "diagnostic-split",
                 Self::PassthroughUnderlay => "passthrough-underlay",
             }
         }
@@ -149,6 +154,7 @@ mod android {
         const fn shader_id(self) -> c_int {
             match self {
                 Self::SolidRed => 0,
+                Self::DiagnosticSplit => 2,
                 Self::PassthroughUnderlay => 1,
             }
         }
@@ -170,7 +176,31 @@ mod android {
         const fn clear_color(self) -> (f32, f32, f32, f32) {
             match self {
                 Self::SolidRed => (1.0, 0.0, 0.0, 1.0),
+                Self::DiagnosticSplit => (0.36, 0.0, 0.28, 1.0),
                 Self::PassthroughUnderlay => (0.0, 0.0, 0.0, 0.0),
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    enum OesContentMappingMode {
+        #[default]
+        CameraProjection,
+        FullFrameStimulusToProjectionArea,
+    }
+
+    impl OesContentMappingMode {
+        const fn shader_id(self) -> c_int {
+            match self {
+                Self::CameraProjection => 0,
+                Self::FullFrameStimulusToProjectionArea => 1,
+            }
+        }
+
+        const fn stable_id(self) -> &'static str {
+            match self {
+                Self::CameraProjection => "camera-projection-homography",
+                Self::FullFrameStimulusToProjectionArea => "full-frame-stimulus-to-projection-area",
             }
         }
     }
@@ -477,6 +507,19 @@ mod android {
     fn run(app: android_activity::AndroidApp) -> Result<(), String> {
         let mut status = OpenXrGlesFeasibilityStatus::new();
         log_status(&status);
+        let projection_border_policy = projection_border_policy_from_activity(&app);
+        let processing_layer = processing_layer_from_activity(&app);
+        let blur_radius_px = blur_radius_px_from_activity(&app);
+        let projection_area_offset_y_uv = projection_area_offset_y_uv_from_activity(&app);
+        let projection_area_scale = projection_area_scale_from_activity(&app);
+        let projection_area_radius = projection_area_radius_from_activity(&app);
+        let projection_area_corner_radius_uv = projection_area_corner_radius_uv_from_activity(&app);
+        let projection_area_opacity = projection_area_opacity_from_activity(&app);
+        let projection_border_opacity = projection_border_opacity_from_activity(&app);
+        let camera_color_controls = camera_color_controls_from_activity(&app);
+        let projection_uses_source_alpha = projection_border_policy
+            .needs_source_alpha(projection_area_opacity, projection_border_opacity);
+        let native_passthrough_underlay_requested = projection_uses_source_alpha;
 
         let entry = unsafe { xr::Entry::load().map_err(|error| format!("load OpenXR: {error}"))? };
         initialize_android_loader(&entry, &app)?;
@@ -485,10 +528,15 @@ mod android {
             .map_err(|error| format!("enumerate OpenXR extensions: {error}"))?;
         status.state = OpenXrGlesFeasibilityState::ExtensionsEnumerated;
         status.required_extensions[0].available = available_extensions.khr_opengl_es_enable;
+        status.required_extensions.push(
+            OpenXrGlesExtensionStatus::optional("XR_FB_passthrough")
+                .with_available(available_extensions.fb_passthrough),
+        );
         log_info(format!(
-            "Rusty XR OpenXR GLES extensions androidCreateInstance={} openGles={} displayRefresh={}",
+            "Rusty XR OpenXR GLES extensions androidCreateInstance={} openGles={} fbPassthrough={} displayRefresh={}",
             available_extensions.khr_android_create_instance,
             available_extensions.khr_opengl_es_enable,
+            available_extensions.fb_passthrough,
             available_extensions.fb_display_refresh_rate
         ));
         log_status(&status);
@@ -505,6 +553,19 @@ mod android {
         let mut enabled_extensions = xr::ExtensionSet::default();
         enabled_extensions.khr_android_create_instance = true;
         enabled_extensions.khr_opengl_es_enable = true;
+        if native_passthrough_underlay_requested && available_extensions.fb_passthrough {
+            enabled_extensions.fb_passthrough = true;
+        } else if native_passthrough_underlay_requested {
+            status
+                .issue_codes
+                .push(String::from("missing.XR_FB_passthrough"));
+            status.notes.push(String::from(
+                "native passthrough underlay was requested, but XR_FB_passthrough was not available before instance creation",
+            ));
+            log_error(
+                "Rusty XR OpenXR GLES native passthrough underlay requested but XR_FB_passthrough is unavailable",
+            );
+        }
 
         let xr_instance = unsafe {
             create_android_instance(
@@ -535,19 +596,8 @@ mod android {
         let system = xr_instance
             .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
             .map_err(|error| format!("get HMD system: {error}"))?;
-        let projection_border_policy = projection_border_policy_from_activity(&app);
-        let processing_layer = processing_layer_from_activity(&app);
-        let blur_radius_px = blur_radius_px_from_activity(&app);
-        let projection_area_offset_y_uv = projection_area_offset_y_uv_from_activity(&app);
-        let projection_area_scale = projection_area_scale_from_activity(&app);
-        let projection_area_radius = projection_area_radius_from_activity(&app);
-        let projection_area_corner_radius_uv = projection_area_corner_radius_uv_from_activity(&app);
-        let projection_area_opacity = projection_area_opacity_from_activity(&app);
-        let projection_border_opacity = projection_border_opacity_from_activity(&app);
-        let projection_uses_source_alpha = projection_border_policy
-            .needs_source_alpha(projection_area_opacity, projection_border_opacity);
         log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3}",
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
             projection_border_policy.stable_id(),
             processing_layer.stable_id(),
             blur_radius_px,
@@ -558,7 +608,14 @@ mod android {
             projection_area_radius[1],
             projection_area_corner_radius_uv,
             projection_area_opacity,
-            projection_border_opacity
+            projection_border_opacity,
+            native_passthrough_underlay_requested,
+            enabled_extensions.fb_passthrough,
+            camera_color_controls.matrix,
+            camera_color_controls.offset,
+            camera_color_controls.contrast,
+            camera_color_controls.brightness,
+            camera_color_controls.saturation
         ));
         let environment_blend_mode = select_environment_blend_mode(
             &xr_instance,
@@ -601,6 +658,33 @@ mod android {
         };
         status.state = OpenXrGlesFeasibilityState::SessionReady;
         log_status(&status);
+        let native_passthrough_underlay = if native_passthrough_underlay_requested {
+            match create_openxr_gles_passthrough_underlay(&xr_instance, &session) {
+                Ok(underlay) => {
+                    status.notes.push(String::from(
+                        "nativePassthroughUnderlay=true; passthrough is submitted as XR_FB_passthrough below the projection layer with OPAQUE environment blend",
+                    ));
+                    log_info(
+                        "Rusty XR OpenXR GLES native passthrough underlay active via XR_FB_passthrough",
+                    );
+                    Some(underlay)
+                }
+                Err(error) => {
+                    status
+                        .issue_codes
+                        .push(String::from("create.XR_FB_passthrough.failed"));
+                    status.notes.push(format!(
+                        "nativePassthroughUnderlay=false; XR_FB_passthrough create/start failed: {error}"
+                    ));
+                    log_error(format!(
+                        "Rusty XR OpenXR GLES native passthrough underlay failed: {error}"
+                    ));
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         let stage = session
             .create_reference_space(xr::ReferenceSpaceType::LOCAL, xr::Posef::IDENTITY)
@@ -729,6 +813,7 @@ mod android {
                     projection_area_corner_radius_uv,
                     projection_area_opacity,
                     projection_border_opacity,
+                    camera_color_controls,
                 )?;
 
                 for (index, eye) in swapchains.iter().enumerate() {
@@ -772,11 +857,30 @@ mod android {
                     })
                     .space(&stage)
                     .views(&projection_views);
+                let passthrough_layer = native_passthrough_underlay.as_ref().map(|underlay| {
+                    xr::sys::CompositionLayerPassthroughFB {
+                        ty: xr::sys::CompositionLayerPassthroughFB::TYPE,
+                        next: ptr::null(),
+                        flags: xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA,
+                        space: xr::sys::Space::NULL,
+                        layer_handle: underlay.layer,
+                    }
+                });
+                let mut layers: Vec<&xr::CompositionLayerBase<xr::OpenGlEs>> =
+                    Vec::with_capacity(1 + usize::from(passthrough_layer.is_some()));
+                if let Some(passthrough_layer) = passthrough_layer.as_ref() {
+                    let layer_base: &xr::CompositionLayerBase<xr::OpenGlEs> = unsafe {
+                        &*(passthrough_layer as *const xr::sys::CompositionLayerPassthroughFB
+                            as *const xr::CompositionLayerBase<xr::OpenGlEs>)
+                    };
+                    layers.push(layer_base);
+                }
+                layers.push(&layer);
                 frame_stream
                     .end(
                         frame_state.predicted_display_time,
                         environment_blend_mode,
-                        &[&layer],
+                        &layers,
                     )
                     .map_err(|error| format!("end OpenXR frame: {error}"))?;
             }
@@ -904,6 +1008,153 @@ mod android {
             return Err(format!("{operation} failed: {result:?}"));
         }
         Ok(())
+    }
+
+    struct OpenXrGlesPassthroughUnderlay {
+        fb_passthrough: xr::raw::PassthroughFB,
+        passthrough: xr::sys::PassthroughFB,
+        layer: xr::sys::PassthroughLayerFB,
+    }
+
+    impl Drop for OpenXrGlesPassthroughUnderlay {
+        fn drop(&mut self) {
+            unsafe {
+                if self.layer != xr::sys::PassthroughLayerFB::NULL {
+                    let pause_result = (self.fb_passthrough.passthrough_layer_pause)(self.layer);
+                    if pause_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                        log_error(format!(
+                            "Rusty XR OpenXR GLES passthrough layer pause during drop failed result={pause_result:?}"
+                        ));
+                    }
+                    let destroy_result =
+                        (self.fb_passthrough.destroy_passthrough_layer)(self.layer);
+                    if destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                        log_error(format!(
+                            "Rusty XR OpenXR GLES passthrough layer destroy failed result={destroy_result:?}"
+                        ));
+                    }
+                    self.layer = xr::sys::PassthroughLayerFB::NULL;
+                }
+                if self.passthrough != xr::sys::PassthroughFB::NULL {
+                    let pause_result = (self.fb_passthrough.passthrough_pause)(self.passthrough);
+                    if pause_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                        log_error(format!(
+                            "Rusty XR OpenXR GLES passthrough pause during drop failed result={pause_result:?}"
+                        ));
+                    }
+                    let destroy_result =
+                        (self.fb_passthrough.destroy_passthrough)(self.passthrough);
+                    if destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                        log_error(format!(
+                            "Rusty XR OpenXR GLES passthrough destroy failed result={destroy_result:?}"
+                        ));
+                    }
+                    self.passthrough = xr::sys::PassthroughFB::NULL;
+                }
+            }
+        }
+    }
+
+    fn create_openxr_gles_passthrough_underlay(
+        instance: &xr::Instance,
+        session: &xr::Session<xr::OpenGlEs>,
+    ) -> Result<OpenXrGlesPassthroughUnderlay, String> {
+        let fb_passthrough = *instance
+            .exts()
+            .fb_passthrough
+            .as_ref()
+            .ok_or_else(|| "XR_FB_passthrough function table is unavailable".to_string())?;
+        let flags = xr::PassthroughFlagsFB::EMPTY;
+        let passthrough_info = xr::sys::PassthroughCreateInfoFB {
+            ty: xr::sys::PassthroughCreateInfoFB::TYPE,
+            next: ptr::null(),
+            flags,
+        };
+        let mut passthrough = xr::sys::PassthroughFB::NULL;
+        let result = unsafe {
+            (fb_passthrough.create_passthrough)(
+                session.as_raw(),
+                &passthrough_info,
+                &mut passthrough,
+            )
+        };
+        ensure_xr_success(result, "xrCreatePassthroughFB")?;
+
+        let layer_info = xr::sys::PassthroughLayerCreateInfoFB {
+            ty: xr::sys::PassthroughLayerCreateInfoFB::TYPE,
+            next: ptr::null(),
+            passthrough,
+            flags,
+            purpose: xr::PassthroughLayerPurposeFB::RECONSTRUCTION,
+        };
+        let mut layer = xr::sys::PassthroughLayerFB::NULL;
+        let result = unsafe {
+            (fb_passthrough.create_passthrough_layer)(session.as_raw(), &layer_info, &mut layer)
+        };
+        if let Err(error) = ensure_xr_success(result, "xrCreatePassthroughLayerFB") {
+            let destroy_result = unsafe { (fb_passthrough.destroy_passthrough)(passthrough) };
+            if destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                log_error(format!(
+                    "Rusty XR OpenXR GLES passthrough cleanup after layer create failed result={destroy_result:?}"
+                ));
+            }
+            return Err(error);
+        }
+
+        let result = unsafe { (fb_passthrough.passthrough_start)(passthrough) };
+        if let Err(error) = ensure_xr_success(result, "xrPassthroughStartFB") {
+            unsafe {
+                let layer_destroy_result = (fb_passthrough.destroy_passthrough_layer)(layer);
+                if layer_destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR OpenXR GLES passthrough layer cleanup after start failed result={layer_destroy_result:?}"
+                    ));
+                }
+                let passthrough_destroy_result = (fb_passthrough.destroy_passthrough)(passthrough);
+                if passthrough_destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR OpenXR GLES passthrough cleanup after start failed result={passthrough_destroy_result:?}"
+                    ));
+                }
+            }
+            return Err(error);
+        }
+
+        let result = unsafe { (fb_passthrough.passthrough_layer_resume)(layer) };
+        if let Err(error) = ensure_xr_success(result, "xrPassthroughLayerResumeFB") {
+            unsafe {
+                let passthrough_pause_result = (fb_passthrough.passthrough_pause)(passthrough);
+                if passthrough_pause_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR OpenXR GLES passthrough pause cleanup after layer resume failed result={passthrough_pause_result:?}"
+                    ));
+                }
+                let layer_destroy_result = (fb_passthrough.destroy_passthrough_layer)(layer);
+                if layer_destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR OpenXR GLES passthrough layer cleanup after resume failed result={layer_destroy_result:?}"
+                    ));
+                }
+                let passthrough_destroy_result = (fb_passthrough.destroy_passthrough)(passthrough);
+                if passthrough_destroy_result.into_raw() < xr::sys::Result::SUCCESS.into_raw() {
+                    log_error(format!(
+                        "Rusty XR OpenXR GLES passthrough cleanup after resume failed result={passthrough_destroy_result:?}"
+                    ));
+                }
+            }
+            return Err(error);
+        }
+
+        log_info(format!(
+            "Rusty XR OpenXR GLES passthrough started purpose={:?}",
+            xr::PassthroughLayerPurposeFB::RECONSTRUCTION
+        ));
+
+        Ok(OpenXrGlesPassthroughUnderlay {
+            fb_passthrough,
+            passthrough,
+            layer,
+        })
     }
 
     fn select_environment_blend_mode(
@@ -1068,6 +1319,7 @@ mod android {
         projection_area_corner_radius_uv: f32,
         projection_area_opacity: f32,
         projection_border_opacity: f32,
+        camera_color_controls: OesColorControls,
     ) -> Result<(), String> {
         egl.make_current()?;
         for eye in swapchains {
@@ -1106,6 +1358,7 @@ mod android {
                         source_transform,
                         eye.width,
                         eye.height,
+                        eye.view_index,
                         renderer,
                         eye_projection,
                         projection_border_policy,
@@ -1117,6 +1370,7 @@ mod android {
                         projection_area_corner_radius_uv,
                         projection_area_opacity,
                         projection_border_opacity,
+                        camera_color_controls,
                     ) {
                         Ok(fbo_status) => {
                             render_path = if eye_projection.is_some() {
@@ -1207,6 +1461,27 @@ mod android {
         pattern: &'static str,
     }
 
+    #[derive(Clone, Copy, Debug)]
+    struct OesColorControls {
+        matrix: [[f32; 3]; 3],
+        offset: [f32; 3],
+        contrast: f32,
+        brightness: f32,
+        saturation: f32,
+    }
+
+    impl Default for OesColorControls {
+        fn default() -> Self {
+            Self {
+                matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                offset: [0.0, 0.0, 0.0],
+                contrast: 1.0,
+                brightness: 0.0,
+                saturation: 1.0,
+            }
+        }
+    }
+
     struct OesCopyRenderer {
         program: u32,
         vertex_buffer: u32,
@@ -1215,6 +1490,8 @@ mod android {
         screen_to_camera_h1_location: c_int,
         screen_to_camera_h2_location: c_int,
         source_transform_location: c_int,
+        eye_index_location: c_int,
+        content_mapping_mode_location: c_int,
         projection_border_policy_location: c_int,
         processing_layer_location: c_int,
         blur_radius_px_location: c_int,
@@ -1225,6 +1502,11 @@ mod android {
         projection_area_opacity_location: c_int,
         projection_border_opacity_location: c_int,
         source_texel_size_location: c_int,
+        color_matrix_r0_location: c_int,
+        color_matrix_r1_location: c_int,
+        color_matrix_r2_location: c_int,
+        color_offset_location: c_int,
+        color_adjust_location: c_int,
     }
 
     impl OesCopyRenderer {
@@ -1250,6 +1532,8 @@ uniform vec3 u_screen_to_camera_h0;
 uniform vec3 u_screen_to_camera_h1;
 uniform vec3 u_screen_to_camera_h2;
 uniform mat4 u_source_transform;
+uniform int u_eye_index;
+uniform int u_content_mapping_mode;
 uniform int u_projection_border_policy;
 uniform int u_processing_layer;
 uniform float u_blur_radius_px;
@@ -1260,13 +1544,30 @@ uniform float u_projection_area_corner_radius_uv;
 uniform float u_projection_area_opacity;
 uniform float u_projection_border_opacity;
 uniform vec2 u_source_texel_size;
+uniform vec3 u_color_matrix_r0;
+uniform vec3 u_color_matrix_r1;
+uniform vec3 u_color_matrix_r2;
+uniform vec3 u_color_offset;
+uniform vec3 u_color_adjust;
 in vec2 v_uv;
 out vec4 out_color;
-vec4 invalid_projection_color() {
+vec4 intended_projection_mask_color() {
+    if (u_projection_border_policy == 1) {
+        return vec4(0.0, 0.0, 0.0, 0.0);
+    }
+    if (u_projection_border_policy == 2) {
+        return vec4(0.36, 0.0, 0.28, clamp(u_projection_border_opacity, 0.0, 1.0));
+    }
+    return vec4(1.0, 0.0, 0.0, clamp(u_projection_border_opacity, 0.0, 1.0));
+}
+vec4 source_invalid_color() {
     if (u_projection_border_policy == 1) {
         return vec4(0.0, 0.0, 0.0, 0.0);
     }
     return vec4(1.0, 0.0, 0.0, clamp(u_projection_border_opacity, 0.0, 1.0));
+}
+vec3 projection_guide_color() {
+    return u_eye_index == 0 ? vec3(0.0, 0.95, 1.0) : vec3(1.0, 0.86, 0.0);
 }
 float projection_area_distance(vec2 uv) {
     vec2 half_size = vec2(
@@ -1284,11 +1585,28 @@ float projection_area_distance(vec2 uv) {
     float signed_distance = outside + inside - corner_radius;
     return clamp(1.0 + signed_distance / max(min(half_size.x, half_size.y), 0.001), 0.0, 2.0);
 }
+vec2 projection_area_content_uv(vec2 area_uv) {
+    vec2 half_size = vec2(
+        clamp(u_projection_area_radius.x, 0.05, 0.50),
+        clamp(u_projection_area_radius.y, 0.05, 0.50)
+    );
+    return (area_uv - (vec2(0.5) - half_size)) / max(half_size * 2.0, vec2(0.001));
+}
 vec4 camera_sample(vec2 uv) {
     vec4 transformed = u_source_transform * vec4(clamp(uv, vec2(0.0), vec2(1.0)), 0.0, 1.0);
     vec2 texture_uv = clamp(transformed.xy, vec2(0.0), vec2(1.0));
+    vec3 source_rgb = texture(u_source, texture_uv).rgb;
+    vec3 adjusted_rgb = vec3(
+        dot(u_color_matrix_r0, source_rgb),
+        dot(u_color_matrix_r1, source_rgb),
+        dot(u_color_matrix_r2, source_rgb)
+    ) + u_color_offset;
+    float luma = dot(adjusted_rgb, vec3(0.2126, 0.7152, 0.0722));
+    adjusted_rgb = mix(vec3(luma), adjusted_rgb, max(u_color_adjust.z, 0.0));
+    adjusted_rgb = (adjusted_rgb - vec3(0.5)) * max(u_color_adjust.x, 0.0) +
+        vec3(0.5 + u_color_adjust.y);
     return vec4(
-        texture(u_source, texture_uv).rgb,
+        clamp(adjusted_rgb, vec3(0.0), vec3(1.0)),
         clamp(u_projection_area_opacity, 0.0, 1.0)
     );
 }
@@ -1320,28 +1638,38 @@ void main() {
     vec2 projection_area_uv =
         (v_uv - vec2(0.5)) * projection_scale + vec2(0.5) -
         vec2(0.0, clamp(u_projection_area_offset_y_uv, -0.5, 0.5));
-    if (projection_area_distance(projection_area_uv) > 1.0) {
-        out_color = invalid_projection_color();
+    float area_distance = projection_area_distance(projection_area_uv);
+    if (area_distance > 1.0) {
+        out_color = intended_projection_mask_color();
         return;
     }
-    vec3 input_uv = vec3(v_uv, 1.0);
-    vec3 camera_uv_h = vec3(
-        dot(u_screen_to_camera_h0, input_uv),
-        dot(u_screen_to_camera_h1, input_uv),
-        dot(u_screen_to_camera_h2, input_uv)
-    );
-    if (abs(camera_uv_h.z) < 0.00001) {
-        out_color = invalid_projection_color();
-        return;
+    vec2 camera_uv = vec2(0.0);
+    if (u_content_mapping_mode == 1) {
+        camera_uv = projection_area_content_uv(projection_area_uv);
+    } else {
+        vec3 input_uv = vec3(v_uv, 1.0);
+        vec3 camera_uv_h = vec3(
+            dot(u_screen_to_camera_h0, input_uv),
+            dot(u_screen_to_camera_h1, input_uv),
+            dot(u_screen_to_camera_h2, input_uv)
+        );
+        if (abs(camera_uv_h.z) < 0.00001) {
+            out_color = source_invalid_color();
+            return;
+        }
+        camera_uv = camera_uv_h.xy / camera_uv_h.z;
     }
-    vec2 camera_uv = camera_uv_h.xy / camera_uv_h.z;
     if (camera_uv.x < 0.0 || camera_uv.x > 1.0 || camera_uv.y < 0.0 || camera_uv.y > 1.0) {
-        out_color = invalid_projection_color();
+        out_color = source_invalid_color();
         return;
     }
     out_color = u_processing_layer == 1
         ? blurred_camera_sample(camera_uv)
         : camera_sample(camera_uv);
+    if (u_projection_border_policy == 2) {
+        float border_guide = 1.0 - smoothstep(0.000, 0.018, abs(area_distance - 1.0));
+        out_color.rgb = mix(out_color.rgb, projection_guide_color(), clamp(border_guide, 0.0, 1.0));
+    }
 }"#,
             ) {
                 Ok(shader) => shader,
@@ -1368,6 +1696,8 @@ void main() {
                     uniform_location(program, "u_screen_to_camera_h1")?,
                     uniform_location(program, "u_screen_to_camera_h2")?,
                     uniform_location(program, "u_source_transform")?,
+                    uniform_location(program, "u_eye_index")?,
+                    uniform_location(program, "u_content_mapping_mode")?,
                     uniform_location(program, "u_projection_border_policy")?,
                     uniform_location(program, "u_processing_layer")?,
                     uniform_location(program, "u_blur_radius_px")?,
@@ -1378,6 +1708,11 @@ void main() {
                     uniform_location(program, "u_projection_area_opacity")?,
                     uniform_location(program, "u_projection_border_opacity")?,
                     uniform_location(program, "u_source_texel_size")?,
+                    uniform_location(program, "u_color_matrix_r0")?,
+                    uniform_location(program, "u_color_matrix_r1")?,
+                    uniform_location(program, "u_color_matrix_r2")?,
+                    uniform_location(program, "u_color_offset")?,
+                    uniform_location(program, "u_color_adjust")?,
                 ))
             })();
             let (
@@ -1386,6 +1721,8 @@ void main() {
                 screen_to_camera_h1_location,
                 screen_to_camera_h2_location,
                 source_transform_location,
+                eye_index_location,
+                content_mapping_mode_location,
                 projection_border_policy_location,
                 processing_layer_location,
                 blur_radius_px_location,
@@ -1396,6 +1733,11 @@ void main() {
                 projection_area_opacity_location,
                 projection_border_opacity_location,
                 source_texel_size_location,
+                color_matrix_r0_location,
+                color_matrix_r1_location,
+                color_matrix_r2_location,
+                color_offset_location,
+                color_adjust_location,
             ) = match uniform_locations {
                 Ok(locations) => locations,
                 Err(error) => {
@@ -1437,6 +1779,8 @@ void main() {
                 screen_to_camera_h1_location,
                 screen_to_camera_h2_location,
                 source_transform_location,
+                eye_index_location,
+                content_mapping_mode_location,
                 projection_border_policy_location,
                 processing_layer_location,
                 blur_radius_px_location,
@@ -1447,12 +1791,19 @@ void main() {
                 projection_area_opacity_location,
                 projection_border_opacity_location,
                 source_texel_size_location,
+                color_matrix_r0_location,
+                color_matrix_r1_location,
+                color_matrix_r2_location,
+                color_offset_location,
+                color_adjust_location,
             })
         }
 
         fn render(
             &mut self,
             source_oes_texture: u32,
+            eye_index: usize,
+            content_mapping_mode: OesContentMappingMode,
             screen_to_camera_h: [[f32; 3]; 3],
             source_transform: [f32; 16],
             projection_border_policy: OesProjectionBorderPolicy,
@@ -1465,6 +1816,7 @@ void main() {
             projection_area_opacity: f32,
             projection_border_opacity: f32,
             source_texel_size: [f32; 2],
+            color_controls: OesColorControls,
         ) -> Result<(), String> {
             unsafe {
                 glUseProgram(self.program);
@@ -1476,6 +1828,11 @@ void main() {
                     1,
                     0,
                     source_transform.as_ptr(),
+                );
+                glUniform1i(self.eye_index_location, eye_index as c_int);
+                glUniform1i(
+                    self.content_mapping_mode_location,
+                    content_mapping_mode.shader_id(),
                 );
                 glUniform1i(
                     self.projection_border_policy_location,
@@ -1516,6 +1873,36 @@ void main() {
                     self.source_texel_size_location,
                     source_texel_size[0],
                     source_texel_size[1],
+                );
+                glUniform3f(
+                    self.color_matrix_r0_location,
+                    color_controls.matrix[0][0],
+                    color_controls.matrix[0][1],
+                    color_controls.matrix[0][2],
+                );
+                glUniform3f(
+                    self.color_matrix_r1_location,
+                    color_controls.matrix[1][0],
+                    color_controls.matrix[1][1],
+                    color_controls.matrix[1][2],
+                );
+                glUniform3f(
+                    self.color_matrix_r2_location,
+                    color_controls.matrix[2][0],
+                    color_controls.matrix[2][1],
+                    color_controls.matrix[2][2],
+                );
+                glUniform3f(
+                    self.color_offset_location,
+                    color_controls.offset[0].clamp(-1.0, 1.0),
+                    color_controls.offset[1].clamp(-1.0, 1.0),
+                    color_controls.offset[2].clamp(-1.0, 1.0),
+                );
+                glUniform3f(
+                    self.color_adjust_location,
+                    color_controls.contrast.clamp(0.0, 4.0),
+                    color_controls.brightness.clamp(-1.0, 1.0),
+                    color_controls.saturation.clamp(0.0, 4.0),
                 );
                 glUniform3f(
                     self.screen_to_camera_h0_location,
@@ -1813,6 +2200,7 @@ void main() {
             source_transform: [f32; 16],
             width: u32,
             height: u32,
+            view_index: usize,
             renderer: &mut OesCopyRenderer,
             projection: Option<&OesEyeProjection>,
             projection_border_policy: OesProjectionBorderPolicy,
@@ -1824,6 +2212,7 @@ void main() {
             projection_area_corner_radius_uv: f32,
             projection_area_opacity: f32,
             projection_border_opacity: f32,
+            camera_color_controls: OesColorControls,
         ) -> Result<GlFramebufferCompleteness, String> {
             unsafe {
                 glBindFramebuffer(GL_FRAMEBUFFER, self.id);
@@ -1852,6 +2241,10 @@ void main() {
                 glClear(GL_COLOR_BUFFER_BIT);
                 renderer.render(
                     source_oes_texture,
+                    view_index,
+                    projection
+                        .map(|projection| projection.content_mapping_mode)
+                        .unwrap_or_default(),
                     projection
                         .map(|projection| projection.screen_to_camera_h)
                         .unwrap_or_else(identity_homography),
@@ -1869,6 +2262,7 @@ void main() {
                         1.0 / DEFAULT_OES_SURFACE_WIDTH.max(1) as f32,
                         1.0 / DEFAULT_OES_SURFACE_HEIGHT.max(1) as f32,
                     ],
+                    camera_color_controls,
                 )?;
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 Ok(fbo_status)
@@ -1974,9 +2368,27 @@ void main() {
         synthetic_projection_profile: String,
         projection_geometry_profile: String,
         synthetic_pattern: String,
+        orientation_kind: String,
+        raster_orientation: String,
+        upright_marker: String,
+        orientation_metadata_source: String,
+        orientation_default: bool,
         stimulus_raster_orientation: String,
         stimulus_upright_marker: String,
         stimulus_orientation_default: bool,
+        content_kind: String,
+        content_width: u32,
+        content_height: u32,
+        content_aspect_ratio: f32,
+        desired_display_aspect_ratio: f32,
+        desired_projection_aspect_ratio: f32,
+        content_coordinate_space: String,
+        content_origin: String,
+        content_x_axis: String,
+        content_y_axis: String,
+        content_mapping_intent: String,
+        content_geometry_metadata_source: String,
+        content_geometry_default: bool,
         projection_metadata_ready: bool,
         delivered_width: u32,
         delivered_height: u32,
@@ -2026,6 +2438,52 @@ void main() {
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown")
                 .to_string();
+            let orientation_kind = json_string_any(object, &["orientationKind"])
+                .unwrap_or("unknown")
+                .to_string();
+            let raster_orientation = json_string_any(
+                object,
+                &[
+                    "rasterOrientation",
+                    "frameRasterOrientation",
+                    "stimulusRasterOrientation",
+                ],
+            )
+            .unwrap_or("unspecified")
+            .to_string();
+            let upright_marker = json_string_any(
+                object,
+                &[
+                    "uprightMarker",
+                    "frameUprightMarker",
+                    "stimulusUprightMarker",
+                ],
+            )
+            .unwrap_or("unspecified")
+            .to_string();
+            let orientation_metadata_source = json_string_any(
+                object,
+                &[
+                    "orientationMetadataSource",
+                    "frameOrientationMetadataSource",
+                    "stimulusOrientationMetadataSource",
+                ],
+            )
+            .unwrap_or("missing")
+            .to_string();
+            let explicit_orientation_metadata = object.contains_key("rasterOrientation")
+                || object.contains_key("frameRasterOrientation")
+                || object.contains_key("stimulusRasterOrientation");
+            let orientation_default = !explicit_orientation_metadata
+                || json_bool_any(
+                    object,
+                    &[
+                        "orientationDefault",
+                        "frameOrientationDefault",
+                        "stimulusOrientationDefault",
+                    ],
+                )
+                .unwrap_or(false);
             let stimulus_raster_orientation = object
                 .get("stimulusRasterOrientation")
                 .and_then(serde_json::Value::as_str)
@@ -2047,6 +2505,59 @@ void main() {
                 .unwrap_or(false);
             let delivered_width = json_u32(object.get("deliveredWidth")).unwrap_or(0);
             let delivered_height = json_u32(object.get("deliveredHeight")).unwrap_or(0);
+            let explicit_content_geometry = object.contains_key("contentGeometrySchema")
+                || object.contains_key("contentWidth")
+                || object.contains_key("contentHeight")
+                || object.contains_key("contentMappingIntent");
+            let content_kind = json_string_any(object, &["contentKind", "stimulusKind"])
+                .unwrap_or("unknown")
+                .to_string();
+            let content_width =
+                json_u32_any(object, &["contentWidth", "stimulusWidth"]).unwrap_or(delivered_width);
+            let content_height = json_u32_any(object, &["contentHeight", "stimulusHeight"])
+                .unwrap_or(delivered_height);
+            let content_aspect_ratio =
+                json_f32_any(object, &["contentAspectRatio", "stimulusAspectRatio"])
+                    .unwrap_or_else(|| aspect_ratio_u32(content_width, content_height));
+            let desired_display_aspect_ratio = json_f32_any(
+                object,
+                &[
+                    "desiredDisplayAspectRatio",
+                    "desiredProjectionAspectRatio",
+                    "desiredAspectRatio",
+                ],
+            )
+            .unwrap_or(content_aspect_ratio);
+            let desired_projection_aspect_ratio = json_f32_any(
+                object,
+                &[
+                    "desiredProjectionAspectRatio",
+                    "desiredDisplayAspectRatio",
+                    "desiredAspectRatio",
+                ],
+            )
+            .unwrap_or(desired_display_aspect_ratio);
+            let content_coordinate_space = json_string_any(object, &["contentCoordinateSpace"])
+                .unwrap_or("normalized-uv")
+                .to_string();
+            let content_origin = json_string_any(object, &["contentOrigin", "stimulusOrigin"])
+                .unwrap_or("top-left")
+                .to_string();
+            let content_x_axis = json_string_any(object, &["contentXAxis"])
+                .unwrap_or("right")
+                .to_string();
+            let content_y_axis = json_string_any(object, &["contentYAxis", "stimulusYAxis"])
+                .unwrap_or("down")
+                .to_string();
+            let content_mapping_intent = json_string_any(object, &["contentMappingIntent"])
+                .unwrap_or("unspecified")
+                .to_string();
+            let content_geometry_metadata_source =
+                json_string_any(object, &["contentGeometryMetadataSource"])
+                    .unwrap_or("missing")
+                    .to_string();
+            let content_geometry_default = !explicit_content_geometry
+                || json_bool_any(object, &["contentGeometryDefault"]).unwrap_or(false);
             let intrinsics = parse_camera_intrinsics(object, delivered_width, delivered_height);
             let extrinsics = parse_camera2_extrinsics(object);
             Ok(Self {
@@ -2057,9 +2568,27 @@ void main() {
                 synthetic_projection_profile,
                 projection_geometry_profile,
                 synthetic_pattern,
+                orientation_kind,
+                raster_orientation,
+                upright_marker,
+                orientation_metadata_source,
+                orientation_default,
                 stimulus_raster_orientation,
                 stimulus_upright_marker,
                 stimulus_orientation_default,
+                content_kind,
+                content_width,
+                content_height,
+                content_aspect_ratio,
+                desired_display_aspect_ratio,
+                desired_projection_aspect_ratio,
+                content_coordinate_space,
+                content_origin,
+                content_x_axis,
+                content_y_axis,
+                content_mapping_intent,
+                content_geometry_metadata_source,
+                content_geometry_default,
                 projection_metadata_ready,
                 delivered_width,
                 delivered_height,
@@ -2107,9 +2636,49 @@ void main() {
             .and_then(|value| u32::try_from(value).ok())
     }
 
+    fn json_u32_any(
+        object: &serde_json::Map<String, serde_json::Value>,
+        keys: &[&str],
+    ) -> Option<u32> {
+        keys.iter().find_map(|key| json_u32(object.get(*key)))
+    }
+
+    fn json_string_any<'a>(
+        object: &'a serde_json::Map<String, serde_json::Value>,
+        keys: &[&str],
+    ) -> Option<&'a str> {
+        keys.iter()
+            .find_map(|key| object.get(*key).and_then(serde_json::Value::as_str))
+    }
+
+    fn json_bool_any(
+        object: &serde_json::Map<String, serde_json::Value>,
+        keys: &[&str],
+    ) -> Option<bool> {
+        keys.iter()
+            .find_map(|key| object.get(*key).and_then(serde_json::Value::as_bool))
+    }
+
     fn json_f32(value: Option<&serde_json::Value>) -> Option<f32> {
         let value = value.and_then(serde_json::Value::as_f64)? as f32;
         value.is_finite().then_some(value)
+    }
+
+    fn json_f32_any(
+        object: &serde_json::Map<String, serde_json::Value>,
+        keys: &[&str],
+    ) -> Option<f32> {
+        keys.iter()
+            .find_map(|key| json_f32(object.get(*key)))
+            .filter(|value| value.is_finite() && *value > 0.0)
+    }
+
+    fn aspect_ratio_u32(width: u32, height: u32) -> f32 {
+        if width > 0 && height > 0 {
+            width as f32 / height as f32
+        } else {
+            1.0
+        }
     }
 
     fn json_object_size(value: Option<&serde_json::Value>) -> Option<ImageSize> {
@@ -2199,6 +2768,7 @@ void main() {
         source_label: String,
         source_eye: String,
         use_surface_texture_transform: bool,
+        content_mapping_mode: OesContentMappingMode,
     }
 
     impl OesEyeProjection {
@@ -2719,7 +3289,7 @@ void main() {
                 return;
             };
             log_info(format!(
-                "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={}",
+                "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentSize={}x{} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={}",
                 view_index,
                 metadata.source,
                 metadata.camera_id,
@@ -2727,9 +3297,27 @@ void main() {
                 metadata.delivered_width,
                 metadata.delivered_height,
                 metadata.synthetic_pattern,
+                metadata.orientation_kind,
+                metadata.raster_orientation,
+                metadata.upright_marker,
+                metadata.orientation_metadata_source,
+                metadata.orientation_default,
                 metadata.stimulus_raster_orientation,
                 metadata.stimulus_upright_marker,
                 metadata.stimulus_orientation_default,
+                metadata.content_kind,
+                metadata.content_width,
+                metadata.content_height,
+                metadata.content_aspect_ratio,
+                metadata.desired_display_aspect_ratio,
+                metadata.desired_projection_aspect_ratio,
+                metadata.content_coordinate_space,
+                metadata.content_origin,
+                metadata.content_x_axis,
+                metadata.content_y_axis,
+                metadata.content_mapping_intent,
+                metadata.content_geometry_metadata_source,
+                metadata.content_geometry_default,
             ));
             if let Some(slot) = self.projection_metadata.get_mut(view_index) {
                 *slot = Some(metadata);
@@ -2820,6 +3408,7 @@ void main() {
                 source_eye: "left".to_string(),
                 use_surface_texture_transform: !left_metadata
                     .has_explicit_top_left_stimulus_orientation(),
+                content_mapping_mode: OesContentMappingMode::CameraProjection,
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
@@ -2830,6 +3419,7 @@ void main() {
                 source_eye: "right".to_string(),
                 use_surface_texture_transform: !right_metadata
                     .has_explicit_top_left_stimulus_orientation(),
+                content_mapping_mode: OesContentMappingMode::CameraProjection,
             },
         })
     }
@@ -2897,8 +3487,8 @@ void main() {
                 screen_to_camera_h: left_screen_to_surface_h,
                 source_label: left_source_label,
                 source_eye: "left".to_string(),
-                use_surface_texture_transform: !left_metadata
-                    .has_explicit_top_left_stimulus_orientation(),
+                use_surface_texture_transform: true,
+                content_mapping_mode: OesContentMappingMode::FullFrameStimulusToProjectionArea,
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
@@ -2907,8 +3497,8 @@ void main() {
                 screen_to_camera_h: right_screen_to_surface_h,
                 source_label: right_source_label,
                 source_eye: "right".to_string(),
-                use_surface_texture_transform: !right_metadata
-                    .has_explicit_top_left_stimulus_orientation(),
+                use_surface_texture_transform: true,
+                content_mapping_mode: OesContentMappingMode::FullFrameStimulusToProjectionArea,
             },
         })
     }
@@ -3010,6 +3600,7 @@ void main() {
                 source_label: left_source_label,
                 source_eye: "left".to_string(),
                 use_surface_texture_transform: true,
+                content_mapping_mode: OesContentMappingMode::CameraProjection,
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
@@ -3019,6 +3610,7 @@ void main() {
                 source_label: right_source_label,
                 source_eye: "right".to_string(),
                 use_surface_texture_transform: true,
+                content_mapping_mode: OesContentMappingMode::CameraProjection,
             },
         })
     }
@@ -3611,6 +4203,84 @@ void main() {
             .clamp(0.0, 1.0)
     }
 
+    fn camera_color_controls_from_activity(app: &android_activity::AndroidApp) -> OesColorControls {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return OesColorControls::default();
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return OesColorControls::default();
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        let defaults = OesColorControls::default();
+        let matrix = activity_string_extra(&mut env, &activity, "rustyxr.cameraColorMatrix")
+            .as_deref()
+            .map(parse_color_matrix)
+            .unwrap_or(defaults.matrix);
+        let offset = activity_string_extra(&mut env, &activity, "rustyxr.cameraColorOffset")
+            .as_deref()
+            .map(parse_color_offset)
+            .unwrap_or(defaults.offset);
+        let contrast = activity_string_extra(&mut env, &activity, "rustyxr.cameraColorContrast")
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(defaults.contrast)
+            .clamp(0.0, 4.0);
+        let brightness =
+            activity_string_extra(&mut env, &activity, "rustyxr.cameraColorBrightness")
+                .and_then(|value| value.parse::<f32>().ok())
+                .filter(|value| value.is_finite())
+                .unwrap_or(defaults.brightness)
+                .clamp(-1.0, 1.0);
+        let saturation =
+            activity_string_extra(&mut env, &activity, "rustyxr.cameraColorSaturation")
+                .and_then(|value| value.parse::<f32>().ok())
+                .filter(|value| value.is_finite())
+                .unwrap_or(defaults.saturation)
+                .clamp(0.0, 4.0);
+        OesColorControls {
+            matrix,
+            offset,
+            contrast,
+            brightness,
+            saturation,
+        }
+    }
+
+    fn parse_color_components(value: &str) -> Vec<f32> {
+        value
+            .split([';', ',', ' '])
+            .filter(|item| !item.trim().is_empty())
+            .filter_map(|item| item.trim().parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .collect()
+    }
+
+    fn parse_color_matrix(value: &str) -> [[f32; 3]; 3] {
+        let values = parse_color_components(value);
+        if values.len() != 9 {
+            return OesColorControls::default().matrix;
+        }
+        [
+            [values[0], values[1], values[2]],
+            [values[3], values[4], values[5]],
+            [values[6], values[7], values[8]],
+        ]
+    }
+
+    fn parse_color_offset(value: &str) -> [f32; 3] {
+        let values = parse_color_components(value);
+        if values.len() != 3 {
+            return OesColorControls::default().offset;
+        }
+        [
+            values[0].clamp(-1.0, 1.0),
+            values[1].clamp(-1.0, 1.0),
+            values[2].clamp(-1.0, 1.0),
+        ]
+    }
+
     fn jni_error(env: &mut JNIEnv<'_>, context: &str, error: impl std::fmt::Display) -> String {
         if env.exception_check().unwrap_or(false) {
             let _ = env.exception_describe();
@@ -3884,8 +4554,10 @@ void main() {
         let source_label = projection
             .map(|projection| {
                 format!(
-                    "{}:source_eye={}:frame={frame_count}:source_sequence={source_sequence}",
-                    projection.source_label, projection.source_eye
+                    "{}:source_eye={}:content_mapping={}:frame={frame_count}:source_sequence={source_sequence}",
+                    projection.source_label,
+                    projection.source_eye,
+                    projection.content_mapping_mode.stable_id()
                 )
             })
             .unwrap_or_else(|| {
@@ -3934,8 +4606,13 @@ void main() {
         frame_count: u64,
         source_sequence: u64,
     ) -> ProjectionFootprintSummary {
-        let (active_fraction, bbox_fraction) =
-            projection_valid_footprint(projection.screen_to_camera_h);
+        let (active_fraction, bbox_fraction) = if projection.content_mapping_mode
+            == OesContentMappingMode::FullFrameStimulusToProjectionArea
+        {
+            (1.0, [0.0, 0.0, 1.0, 1.0])
+        } else {
+            projection_valid_footprint(projection.screen_to_camera_h)
+        };
         let mut footprint = ProjectionFootprintSummary::new(
             "rusty_xr_gl_oes",
             format!("public_projected_camera_uv_{}", eye_label(projection.eye)),
@@ -3946,11 +4623,17 @@ void main() {
         .with_guide_domain(ProjectionGuideDomain::ScreenCamera)
         .with_explicit_valid_mask(false)
         .with_note(format!(
-            "Metadata-derived camera-UV valid footprint from broker stream-header and OpenXR view state at frame {frame_count}, source sequence {source_sequence}."
+            "Metadata-derived camera-UV valid footprint from broker stream-header and OpenXR view state at frame {frame_count}, source sequence {source_sequence}; contentMappingMode={}."
+            , projection.content_mapping_mode.stable_id()
         ));
 
         for row in [0.0_f32, 0.5, 1.0] {
-            footprint = if let Some((x0, x1)) =
+            footprint = if projection.content_mapping_mode
+                == OesContentMappingMode::FullFrameStimulusToProjectionArea
+            {
+                footprint
+                    .with_row_span(ProjectionFootprintRowSpan::new(row, 1.0).with_span(0.0, 1.0))
+            } else if let Some((x0, x1)) =
                 row_span_for_valid_camera_uv(projection.screen_to_camera_h, row)
             {
                 footprint.with_row_span(
@@ -4088,7 +4771,7 @@ void main() {
     }
 
     fn select_color_format(formats: &[u32]) -> Option<u32> {
-        [GL_SRGB8_ALPHA8, GL_RGBA8, GL_RGB10_A2, GL_RGBA]
+        [GL_RGBA8, GL_SRGB8_ALPHA8, GL_RGB10_A2, GL_RGBA]
             .into_iter()
             .find(|preferred| formats.contains(preferred))
             .or_else(|| formats.first().copied())

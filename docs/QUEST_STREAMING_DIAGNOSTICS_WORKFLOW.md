@@ -217,10 +217,12 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
   -WarmupSeconds 35
 ```
 
-Use the `fast075` profile as the renderer-parity run. It keeps the same broker
-capture ID pair, MediaCodec decode, and GPU-import path; uses square
-`1280x1280` broker frames and frame-order live stereo pairing; and swaps the
-projection draw to the fast public raw-projection shader at render scale `0.75`.
+Use the `fast075` profile only as a performance/compatibility renderer-parity
+run. It keeps the same broker capture ID pair, MediaCodec decode, and GPU-import
+path; uses square `1280x1280` broker frames and frame-order live stereo pairing;
+and swaps the projection draw to the fast public raw-projection shader at render
+scale `0.75`. Do not use it for coordinate-alignment gates; use the full-feed
+alignment profiles or the raw-stack alignment suite instead.
 
 For longer timing windows, override capture and packet limits in the launch:
 

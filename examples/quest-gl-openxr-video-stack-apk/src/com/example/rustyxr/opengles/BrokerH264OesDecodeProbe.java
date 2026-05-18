@@ -237,15 +237,16 @@ public final class BrokerH264OesDecodeProbe {
                     ? syntheticPattern
                     : SYNTHETIC_PATTERN;
             this.syntheticProjectionProfile =
-                syntheticProjectionProfile != null && syntheticProjectionProfile.length() > 0
-                    ? syntheticProjectionProfile
-                    : SYNTHETIC_PROJECTION_PROFILE;
+                BrokerH264OesDecodeProbe.normalizeSyntheticProjectionProfile(syntheticProjectionProfile);
+            boolean cameraMatchedSynthetic =
+                SOURCE_MODE_BROKER_SYNTHETIC.equals(this.sourceMode) &&
+                "camera-matched".equals(this.syntheticProjectionProfile);
             this.leftCameraId = leftCameraId != null && leftCameraId.length() > 0
                 ? leftCameraId
-                : "synthetic-left";
+                : (cameraMatchedSynthetic ? "" : "synthetic-left");
             this.rightCameraId = rightCameraId != null && rightCameraId.length() > 0
                 ? rightCameraId
-                : "synthetic-right";
+                : (cameraMatchedSynthetic ? "" : "synthetic-right");
         }
 
         static Config fromActivity(
@@ -283,6 +284,25 @@ public final class BrokerH264OesDecodeProbe {
         boolean startBrokerSyntheticStream() {
             return SOURCE_MODE_BROKER_SYNTHETIC.equals(sourceMode);
         }
+    }
+
+    private static String normalizeSyntheticProjectionProfile(String value) {
+        if (value == null || value.trim().length() == 0) {
+            return SYNTHETIC_PROJECTION_PROFILE;
+        }
+        String normalized = value.trim().toLowerCase(Locale.US).replace('_', '-');
+        if ("camera-matched".equals(normalized) || "camera-matched-synthetic".equals(normalized)) {
+            return "camera-matched";
+        }
+        if ("full-frame".equals(normalized) ||
+            "full-frame-diagnostic".equals(normalized) ||
+            "projection-space-diagnostic".equals(normalized)) {
+            return "full-frame-diagnostic";
+        }
+        if (SYNTHETIC_PROJECTION_PROFILE.equals(normalized)) {
+            return SYNTHETIC_PROJECTION_PROFILE;
+        }
+        return SYNTHETIC_PROJECTION_PROFILE;
     }
 
     private static JSONObject probeReport(

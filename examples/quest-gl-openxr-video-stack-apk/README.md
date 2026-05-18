@@ -24,6 +24,9 @@ Current scope:
 - select `rustyxr.projectionBorderPolicy=solid-red` for an opaque red
   outside-projection hard mask or `passthrough-underlay` for the same region as
   transparent alpha with source-alpha blending;
+- when source alpha is requested and `XR_FB_passthrough` is available, submit a
+  native passthrough underlay below the projection layer while keeping the
+  Quest-required OpenXR environment blend mode at `OPAQUE`;
 - log `OpenXrGlesFeasibilityStatus` and `SurfaceTextureOesIngestStatus` JSON.
 
 It does not include effect passes yet. Its physical camera paths are direct
@@ -131,19 +134,22 @@ projection-area footprint checks. Use
 against a native passthrough underlay. Both policies use the same hard public
 projection-area mask over the full submitted eye surface: solid-red fills the
 outside-projection region, while passthrough-underlay writes transparent alpha
-there and requests OpenXR source-alpha blending. The visible transparent
-background still depends on whether the runtime/app is submitting passthrough
-behind the projection layer. A black outside region in a `solid-red` run is not
-valid footprint evidence; rerun after checking the launch extras and shader
-logs.
+there, requests OpenXR source-alpha blending, and asks the app to submit a
+native `XR_FB_passthrough` layer behind the projection layer. On Quest this
+still uses `XR_ENVIRONMENT_BLEND_MODE_OPAQUE`; the passthrough evidence is the
+presence of the submitted native passthrough layer, not an `ALPHA_BLEND`
+environment blend mode. If the runtime does not expose `XR_FB_passthrough` or
+the passthrough layer cannot be created, transparent regions can still resolve
+to the black compositor background and the feasibility status will include a
+passthrough issue code. A black outside region in a `solid-red` run is not valid
+footprint evidence; rerun after checking the launch extras and shader logs.
 Use `rustyxr.projectionAreaOffsetYUv=<value>` for controlled vertical
 projection-area centering sweeps after the hard-mask border is proven.
 Use `rustyxr.projectionAreaOpacity=<0..1>` to fade valid projected OES camera
 pixels and `rustyxr.projectionBorderOpacity=<0..1>` to fade the solid-red
 outside-projection region independently. Opacity below `1.0` requests
-source-alpha composition for the projection layer; whether transparent pixels
-show native passthrough or a black compositor background depends on the active
-runtime composition setup.
+source-alpha composition for the projection layer and the same optional native
+passthrough underlay path.
 Set `rustyxr.processingLayer=blur` and `rustyxr.cameraBlurRadiusPx=<px>` to run
 the same valid projected camera samples through the public 9-tap diagnostic blur
 layer. Leave `rustyxr.processingLayer=raw` for projection-only checks.

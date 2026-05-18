@@ -2909,13 +2909,11 @@ unsafe fn run_vulkan(
                             let explicit_visual_check =
                                 controls.left_texture_transform.is_explicit_visual_check()
                                     && controls.right_texture_transform.is_explicit_visual_check();
-                            let accepted_flat_visual_check =
-                                !projection_active
-                                    && config.visual_release_accepted
-                                    && explicit_visual_check;
-                            let orientation_accepted =
-                                explicit_visual_check
-                                    && (projection_active || accepted_flat_visual_check);
+                            let accepted_flat_visual_check = !projection_active
+                                && config.visual_release_accepted
+                                && explicit_visual_check;
+                            let orientation_accepted = explicit_visual_check
+                                && (projection_active || accepted_flat_visual_check);
                             let pose_source = stereo_frame
                                 .left
                                 .diagnostics
@@ -5090,10 +5088,9 @@ impl GpuCameraRenderer {
             };
         let projection_active = projection_homographies.is_some();
         let uniforms = uniforms.with_border_cycle_phase(config, frame_count);
-        let accepted_flat_visual_check =
-            config.visual_release_accepted
-                && controls.left_texture_transform.is_explicit_visual_check()
-                && controls.right_texture_transform.is_explicit_visual_check();
+        let accepted_flat_visual_check = config.visual_release_accepted
+            && controls.left_texture_transform.is_explicit_visual_check()
+            && controls.right_texture_transform.is_explicit_visual_check();
         if config.camera_tier == CameraCompositeTier::GpuProjected
             && !projection_active
             && !accepted_flat_visual_check
@@ -5505,6 +5502,13 @@ impl CameraProjectionPush {
             config.camera_raw_overlay_overscan,
         )
         .unwrap_or(1.0);
+        let full_frame_mapping_flags = if homographies.left.full_frame_stimulus_mapping
+            && homographies.right.full_frame_stimulus_mapping
+        {
+            crate::camera_color_pipeline::CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING
+        } else {
+            0
+        };
         let mut push = Self {
             params: [
                 -config.camera_raw_overlay_overscan.max(1.0),
@@ -5513,7 +5517,8 @@ impl CameraProjectionPush {
                 (controls.packed_shader_flags()
                     | config.camera_color_mode.shader_bit()
                     | config.camera_feed_pipeline_mode.shader_bit()
-                    | config.camera_projection_effect_mode.shader_bit()) as f32,
+                    | config.camera_projection_effect_mode.shader_bit()
+                    | full_frame_mapping_flags) as f32,
             ],
             color_adjust: config.camera_color_adjust_push(),
             effect_params: config.camera_effect_params_push(),
@@ -5551,6 +5556,7 @@ struct DisplayEyeProjectionMapping {
     screen_to_camera: [[f32; 3]; 3],
     screen_to_surface: [[f32; 3]; 3],
     surface_to_screen: [[f32; 3]; 3],
+    full_frame_stimulus_mapping: bool,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -6242,6 +6248,7 @@ fn projected_display_eye_homography(
         screen_to_camera,
         screen_to_surface,
         surface_to_screen,
+        full_frame_stimulus_mapping: false,
     })
 }
 
@@ -6291,6 +6298,7 @@ fn projected_full_frame_display_eye_homography(
         screen_to_camera: screen_to_surface,
         screen_to_surface,
         surface_to_screen,
+        full_frame_stimulus_mapping: true,
     })
 }
 

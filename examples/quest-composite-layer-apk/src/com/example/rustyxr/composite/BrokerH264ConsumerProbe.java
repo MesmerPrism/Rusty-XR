@@ -3375,11 +3375,32 @@ final class BrokerH264ConsumerProbe implements Runnable {
             copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticProjectionProfileFallbackReason");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticGeometryReferenceCameraId");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticGeometryReferenceSource");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "rasterOrientationSchema");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "orientationKind");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "rasterOrientation");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "rasterOrigin");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "rasterYAxis");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "uprightMarker");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "orientationMetadataSource");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusOrientationSchema");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusRasterOrientation");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusOrigin");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusYAxis");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusUprightMarker");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentGeometrySchema");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentKind");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentWidth");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentHeight");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentAspectRatio");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "desiredDisplayAspectRatio");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "desiredProjectionAspectRatio");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentCoordinateSpace");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentOrigin");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentXAxis");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentYAxis");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentUvRect");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentMappingIntent");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentGeometryMetadataSource");
             if (hasStreamProjectionMetadata && streamProjectionMetadata.has("diagnosticSource")) {
                 metadata.put("diagnosticSource", streamProjectionMetadata.optBoolean("diagnosticSource", false));
             }
@@ -3387,6 +3408,16 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 metadata.put(
                     "stimulusOrientationDefault",
                     streamProjectionMetadata.optBoolean("stimulusOrientationDefault", false));
+            }
+            if (hasStreamProjectionMetadata && streamProjectionMetadata.has("orientationDefault")) {
+                metadata.put(
+                    "orientationDefault",
+                    streamProjectionMetadata.optBoolean("orientationDefault", false));
+            }
+            if (hasStreamProjectionMetadata && streamProjectionMetadata.has("contentGeometryDefault")) {
+                metadata.put(
+                    "contentGeometryDefault",
+                    streamProjectionMetadata.optBoolean("contentGeometryDefault", false));
             }
             if (intrinsics != null) {
                 metadata.put("intrinsics", new JSONObject(intrinsics.toString()));
@@ -3428,6 +3459,15 @@ final class BrokerH264ConsumerProbe implements Runnable {
         String key) throws Exception {
         if (source != null && source.has(key)) {
             target.put(key, source.optString(key, ""));
+        }
+    }
+
+    private static void copyOptionalStreamValue(
+        JSONObject source,
+        JSONObject target,
+        String key) throws Exception {
+        if (source != null && source.has(key)) {
+            target.put(key, source.get(key));
         }
     }
 
