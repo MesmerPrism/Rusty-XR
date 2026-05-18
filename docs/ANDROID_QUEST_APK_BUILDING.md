@@ -73,14 +73,29 @@ native build needs it, and that the selected JDK contains the required tools and
 can run `javac`. Use this custom-script route when testing the public custom
 OpenXR/Vulkan examples and their explicit diagnostics.
 
-The Makepad comparison example should continue using `cargo makepad android`
-with its Makepad SDK path. That route answers a different question: whether the
-Makepad packager, generated Android activities, lifecycle, and renderer surface
-match the custom Rusty XR path on Quest.
+The Makepad comparison example should continue using Makepad's Android packager
+instead of the custom Rusty XR APK scripts. That route answers a different
+question: whether the Makepad packager, generated Android activities,
+lifecycle, and renderer surface match the custom Rusty XR path on Quest.
+
+Prefer the example wrapper for local Makepad evidence builds:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 -SdkPath <host-matched-sdk>
+```
+
+The wrapper performs host/profile-aware preflight before invoking cargo. WSL or
+Linux-host builds need an SDK with Linux NDK prebuilts and bare Linux tool
+names. Windows-host builds need a Windows SDK with Windows NDK prebuilts and
+`.exe` / `.bat` / `.cmd` tools; pass `-UseWindowsHost` for that lane. Do not
+reuse a Windows SDK path from WSL just because the directory is reachable, and
+do not reuse a Linux SDK path for a Windows host build.
 
 For the public Makepad comparison example, run the Makepad build from
 `examples/makepad-q2q-camera-shell` and pass Android options before the
-`build`/`run` subcommand. The tested command shape is:
+`build`/`run` subcommand. Direct `cargo makepad` remains useful for upstream or
+portable Makepad workflows, but the caller is responsible for passing a
+host-matched SDK path. The tested command shape is:
 
 ```powershell
 cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" build -p rusty-xr-makepad-q2q-camera-shell --release

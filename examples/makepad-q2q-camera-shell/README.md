@@ -90,11 +90,25 @@ Install the Android toolchain into a local cache that is not committed:
 cargo makepad android --abi=aarch64 --sdk-path <local-makepad-android-sdk> install-toolchain
 ```
 
-Build the Quest APK from this example directory:
+Build the Quest APK from this example directory with a host-matched Android
+SDK:
 
 ```powershell
 cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" build -p rusty-xr-makepad-q2q-camera-shell --release
 ```
+
+For local evidence builds, prefer the wrapper because it preflights the selected
+SDK before cargo runs:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
+  -SdkPath <host-matched-sdk>
+```
+
+Use `-UseWindowsHost` when the selected SDK is a Windows-host SDK. Without that
+switch, the wrapper expects a WSL/Linux-host SDK and a Linux NDK prebuilt. A
+path being reachable from WSL is not enough; the SDK must contain tools for the
+host that runs `cargo-makepad`.
 
 For projection-footprint alignment work, build a distinct alignment APK rather
 than reusing the Q2Q package identity:

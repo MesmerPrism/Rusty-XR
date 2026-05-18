@@ -109,6 +109,26 @@ cargo makepad android build -p rusty-xr-q2q-sender --release
 or the equivalent `run` command when Makepad's profile supports install and
 launch for a connected Quest.
 
+## Current Host-Aware Packaging State
+
+The maintained Rusty XR Makepad fork has moved the packaging path toward
+runtime SDK resolution. Packaging should inspect the selected `--sdk-path`
+instead of treating installer URL constants as the build truth:
+
+- resolve the installed Android platform from the SDK, or honor
+  `ANDROID_PLATFORM`;
+- resolve installed build-tools from the SDK, or honor
+  `ANDROID_BUILD_TOOLS_VERSION`;
+- choose the NDK host prebuilt for the build host, such as `windows-x86_64` on
+  Windows and `linux-x86_64` on Linux/WSL;
+- use host-correct tool names, including Windows suffixes only on Windows.
+
+Installer defaults are a separate concern. If `install-toolchain` downloads a
+Makepad-managed SDK, the URL set, directory names, Android platform,
+build-tools version, and NDK version must be updated together. A half-upgraded
+installer default can still leave packaging broken even when the selected SDK
+itself is valid.
+
 ## Compatibility Principles
 
 Keep the migration layered. Do not move all platform code into Rusty XR core.
