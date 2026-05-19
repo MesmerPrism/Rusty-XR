@@ -54,6 +54,7 @@ For source changes in this example, run:
 
 ```powershell
 cargo check --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml
+cargo check --locked --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml
 python tools\docs\check_links.py --repo-root .
 python tools\schema\check_android_build_manifest.py examples\makepad-q2q-camera-shell\build-manifest.public.json
 ```
@@ -66,10 +67,12 @@ For Android build validation, use `cargo-makepad` from the maintained Makepad
 fork and keep the generated `target/` output uncommitted.
 
 The Makepad revision in this example's `Cargo.lock` controls Rust dependency
-resolution, but Android APK generation uses the installed `cargo-makepad`
-binary. After changing the maintained Makepad fork, refresh that installed
-tool from the same checkout before rebuilding an APK; otherwise generated Java
-and native packaging code can lag behind the pinned Rust revision.
+resolution. Keep `cargo check --locked` passing and commit intentional lockfile
+updates when the maintained fork branch moves. Android APK generation uses the
+installed `cargo-makepad` binary; after changing the maintained Makepad fork,
+refresh that installed tool from the same checkout before rebuilding an APK so
+generated Java and native packaging code do not lag behind the pinned Rust
+revision.
 
 For broker-synthetic H.264 validation, the guarded device gate should report
 stream-header metadata for both eyes, prepared decode state, CPU-YUV texture

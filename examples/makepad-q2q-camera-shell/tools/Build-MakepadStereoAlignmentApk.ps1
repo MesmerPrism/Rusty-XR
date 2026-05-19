@@ -7,6 +7,7 @@ param(
     [string]$DisplaySourceEyeMapping = "display-left-from-left-source",
     [string]$WslDistro,
     [string]$MakepadSourceRoot,
+    [switch]$PatchMakepadXrFromSource,
     [switch]$UseWindowsHost
 )
 
@@ -297,7 +298,7 @@ if ($UseWindowsHost) {
     $env:ANDROID_BUILD_TOOLS_VERSION = $sdkProfile.BuildToolsVersion
     $env:MAKEPAD_ANDROID_SDK = $sdkProfile.SdkRoot
     try {
-        if ($MakepadSourceRoot) {
+        if ($MakepadSourceRoot -and $PatchMakepadXrFromSource) {
             $patchCargoHome = Join-Path ([System.IO.Path]::GetTempPath()) "rusty-xr-makepad-cargo-$([guid]::NewGuid().ToString('N'))"
             New-Item -ItemType Directory -Force -Path $patchCargoHome | Out-Null
             Set-Content -Path (Join-Path $patchCargoHome "config.toml") `
@@ -368,7 +369,7 @@ $sdkPathWsl = Convert-ToWslPath -Path $SdkPath
 $javaHomeWsl = Convert-ToWslPath -Path $sdkProfile.JavaHome
 $wslPatchCargoHome = $null
 $wslPatchConfigBase64 = $null
-if ($MakepadSourceRoot) {
+if ($MakepadSourceRoot -and $PatchMakepadXrFromSource) {
     $wslPatchCargoHome = "/tmp/rusty-xr-makepad-cargo-$([guid]::NewGuid().ToString('N'))"
     $patchConfigText = New-MakepadPatchConfigText -SourceRoot $MakepadSourceRoot -Wsl
     $wslPatchConfigBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($patchConfigText))

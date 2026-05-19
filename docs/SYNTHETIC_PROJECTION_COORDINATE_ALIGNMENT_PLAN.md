@@ -21,24 +21,29 @@ Latest evidence is from the 2026-05-19 broker-synthetic runs after the
 projection-coordinate contract scaffold was added to the analyzer and the
 HWB/GL/Makepad lanes were made to log the same source-geometry fields.
 
-`full-frame-diagnostic` is now a contract-quality failure, not a metadata
-failure: all three lanes report `ready` contracts, full valid coverage, source
-size `1280 x 1280`, explicit source UV rect, and all four homography stages.
-The remaining full-frame issues are measured behavior:
+The three requested gates are now handled for the synthetic broker lanes:
+
+- renderer-authored expected source-valid footprint fields are present and
+  preferred over analyzer-derived boxes;
+- Makepad full-frame Y orientation is upright after separating source-raster
+  convention from Makepad CPU-YUV sampler-origin convention;
+- full-frame vertical placement parity passes after the analyzer uses the
+  full-frame visible stimulus envelope instead of a single dense component.
+
+The current full-frame result is:
 
 | Lane | Avg center Y | Orientation | Current interpretation |
 | --- | ---: | --- | --- |
-| `vulkan-hwb-broker-h264-raw` | `+0.033` | Upright | Full content, but the submitted projection sits lower than the other lanes. |
-| `gles-oes-broker-h264-raw` | `-0.006` | Upright | Closest current full-frame center reference. |
-| `makepad-cpuyuv-broker-h264-raw` | `-0.034` | Inverted | Full content, but vertically high and flipped relative to explicit top-left source metadata. |
+| `vulkan-hwb-broker-h264-raw` | `+0.012` | Upright | Full visible envelope, renderer-authored footprint IoU `1.000`. |
+| `gles-oes-broker-h264-raw` | `-0.006` | Upright | Full visible envelope, renderer-authored footprint IoU `1.000`. |
+| `makepad-cpuyuv-broker-h264-raw` | `+0.013` | Upright | Full visible envelope, renderer-authored footprint IoU `1.000`; CPU-YUV sampler-origin conversion is explicit. |
 
 `camera-matched` now has clean source-contract coverage across the three lanes.
 The previous HWB crop/smaller-footprint diagnosis has been superseded by the
 new run: all three lanes show full visible projection coverage and center parity
-is inside tolerance. The remaining camera-matched contract gap is intentional:
-the expected source-valid footprint is still produced by the analyzer from
-`screen_to_camera` rows, not authored by the renderer as an explicit expected
-box/mask.
+is inside tolerance. Its expected source-valid footprint is now renderer
+authored, while the analyzer-derived `screen_to_camera` footprint remains an
+evidence/model check only.
 
 Camera-matched source-domain model evidence:
 
@@ -49,9 +54,9 @@ Camera-matched source-domain model evidence:
 | `makepad-cpuyuv-broker-h264-raw` | `-0.004` | `0.269` | `0.442` | One eye ambiguous, one upright |
 
 The next synthetic milestone is therefore not another scale guess. It is to
-make each renderer log a renderer-authored expected source-valid footprint for
-camera-matched runs, then compare that footprint against the analyzer model and
-observed diagnostic colors.
+carry the same source/texture/surface/screen contract into live direct/broker
+Camera2, passthrough-underlay witness runs, and depth/world-space reference
+checks while keeping blur disabled.
 
 ## Coordinate Contract
 
@@ -188,25 +193,27 @@ Trace these fields in order:
    `projection_area_content_uv` in the Makepad shader;
 6. final valid content bbox and orientation marker classification.
 
-The full-frame sweep shows a Makepad-specific vertical inversion even though
-the stream metadata is explicit and the contract is `ready`. The camera-matched
-sweep is mostly upright but has one ambiguous eye marker and a lower
-source-valid IoU than HWB/OES. The next Makepad trace should therefore separate
-two questions: source Y orientation in full-frame mode, and camera-matched
-expected-footprint authorship. Do not tune `contentUvScale=1.6000` as if it were
-active scale evidence until it is either wired into the shader path or renamed
-as inactive/log-only state.
+The full-frame sweep showed a Makepad-specific vertical inversion even though
+the stream metadata was explicit and the contract was `ready`. The fix keeps
+the two layer boundaries separate: broker top-left raster metadata is applied
+in the projection plan, while Makepad CPU-YUV sampler-origin conversion is
+logged as `sourceSampleYFlip=1.0` with a sampler-origin reason. The follow-up
+full-frame run is upright; the camera-matched run no longer reports inverted
+markers, though one eye can still be ambiguous because the camera-matched valid
+footprint intentionally masks much of the marker area. Do not re-label this as
+a manual flip, and do not tune `contentUvScale=1.6000` as active scale evidence
+until it is either wired into the shader path or renamed inactive/log-only.
 
 ## Iteration Order
 
 1. Keep the projection-coordinate contract gate in place for every synthetic
    run.
-2. Add renderer-authored expected source-valid footprint fields for
-   camera-matched mode, instead of relying on analyzer-derived boxes.
-3. Fix Makepad full-frame vertical inversion before treating its per-eye path as
-   a reference.
-4. Normalize full-frame vertical placement across HWB, GL/OES, and Makepad
-   after orientation is correct.
+2. Keep renderer-authored expected source-valid footprint fields mandatory for
+   camera-matched mode; analyzer-derived boxes are evidence only.
+3. Keep Makepad's raster convention and CPU-YUV sampler convention separately
+   logged so the Y issue cannot recur as a hidden manual flip.
+4. Use full-frame visible-envelope measurement for full-frame placement parity;
+   dense-component boxes remain screenshot evidence, not geometry truth.
 5. Re-run camera-matched synthetic and require center, orientation, and
    renderer-authored expected footprint agreement.
 6. Only after raw synthetic gates pass, use live camera frames,
@@ -220,10 +227,12 @@ Run the next synthetic sweep as two independent probes:
 - Renderer-authored expected footprint probe: each lane logs the expected
   camera-matched source-valid footprint in display-eye screen UV, with a source
   label and homography stage that generated it.
-- Makepad full-frame orientation probe: keep full-frame source mapping and
-  projection scale fixed, vary only the active Y-orientation decision if needed,
-  and require top/bottom markers to agree with
-  `top-left-origin-y-down` / `color-bars-top`.
+- Makepad convention probe: require both `sourceRasterOriginPolicy` and
+  `sourceSampleYFlipReason` so source-raster correction and CPU-YUV sampler
+  origin conversion remain different stages.
+- Full-frame envelope probe: require full-frame visible stimulus envelopes to
+  match across HWB, GL/OES, and Makepad before treating dense-component
+  differences as geometry findings.
 
 Do not start blur alignment until both probes pass against the same
 camera-matched synthetic stimulus.

@@ -5,9 +5,9 @@ param(
     [string]$CompositeApk = "",
     [string]$GlesApk = "",
     [string]$MakepadApk = "",
-    [string]$MakepadPackageName = "",
-    [string]$MakepadLauncherActivity = "",
-    [string]$MakepadXrActivity = "",
+    [string]$MakepadPackageName = "com.example.rustyxr.makepad.alignment",
+    [string]$MakepadLauncherActivity = ".MakepadApp",
+    [string]$MakepadXrActivity = ".MakepadAppXr",
     [string]$RunRoot = "artifacts\raw-stack-suite",
     [string[]]$Mode = @(),
     [switch]$Install,
@@ -765,7 +765,7 @@ function Invoke-MakepadMode {
     )
 
     if (-not $MakepadApk -or -not $MakepadPackageName -or -not $MakepadLauncherActivity -or -not $MakepadXrActivity) {
-        throw "Makepad modes require -MakepadApk, -MakepadPackageName, -MakepadLauncherActivity, and -MakepadXrActivity."
+        throw "Makepad modes require -MakepadApk. The public example package/activity defaults are built in; override them only for a differently packaged APK."
     }
 
     $modeRoot = Join-Path $sessionRoot $ModeId

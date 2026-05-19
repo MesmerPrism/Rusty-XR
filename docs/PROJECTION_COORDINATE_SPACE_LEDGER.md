@@ -63,23 +63,31 @@ homography stages first.
 
 ## Current Evidence Snapshot
 
-Latest synthetic evidence, captured on 2026-05-19, has this status:
+Latest completed synthetic evidence on 2026-05-19 has this status:
 
+- `camera-matched`: all three broker lanes now emit renderer-authored expected
+  source-valid footprints with
+  `expectedSourceValidFootprintSource=renderer-authored`. The analyzer projects
+  those display-eye screen-UV rectangles into screenshot pixels and keeps its
+  `screen_to_camera` derivation only as a model comparison.
 - `full-frame-diagnostic`: all three broker lanes have `ready`
-  projection-coordinate contracts with explicit source size, valid source UV
-  rect, metadata readiness, and all four homography stages. The remaining
-  failures are measured rendering differences: HWB is vertically low, Makepad
-  is vertically high and inverted, and GL/OES is closest to the current center
-  reference.
-- `camera-matched`: all three broker lanes have complete source contracts and
-  full visible projection coverage. Center parity is inside tolerance. The
-  remaining gap is that expected camera-matched source footprints are
-  analyzer-derived from `screen_to_camera` rows rather than emitted by each
-  renderer as an authored expected box/mask.
+  projection-coordinate contracts, explicit source size, valid source UV rect,
+  metadata readiness, all four homography stages, upright orientation, full
+  valid coverage, and cross-lane footprint parity.
+- Makepad's recurring Y issue is resolved as two named conventions, not as a
+  hidden manual flip: broker top-left raster metadata is applied at the
+  projection-plan/source-raster boundary, and Makepad CPU-YUV then converts the
+  top-left raster into the backend sampler origin with
+  `sourceSampleYFlip=1.0` and a sampler-origin reason.
+- The previous full-frame center-Y failure was an analyzer measurement problem:
+  the strict dense-component union under-measured HWB's darker top diagnostic
+  band. Full-frame diagnostics now use the renderer-authored full-frame intent
+  to measure the visible stimulus envelope rather than a single dense
+  checkerboard component.
 
-Do not treat this as blur-ready. The next raw-coordinate work is to add
-renderer-authored expected footprints for camera-matched runs and fix Makepad's
-full-frame Y orientation before physical passthrough/depth witnesses are used.
+Do not treat this as blur-ready. The next raw-coordinate work is to promote the
+same contract to live direct/broker Camera2 frames, native passthrough-underlay
+witnesses, and depth/world-space checks before physical blur alignment resumes.
 
 ## Coordinate Domains
 
@@ -95,7 +103,7 @@ The same term must not mean different things in different lanes.
 | Content surface UV | Rusty XR projection model | Normalized coordinates on the intended camera/content surface. | Log content rect, content aspect, projection profile, and any overscan or scale. |
 | Full submitted surface UV | Renderer/OpenXR swapchain image | Normalized coordinates over the full submitted eye surface or layer image. | Log full surface size, viewport, scissor, matte/border policy, and full-to-content mapping. |
 | Projection-area UV | Rusty XR projection-area mask | Normalized intended visible camera area inside the submitted surface. | Log projection-area center, radius/scale, corner radius, opacity, and invalid-region policy. |
-| Display-eye screen UV | Final per-eye submitted image before screenshot | Normalized screen-space domain per eye. | Log `surface_to_screen`, `screen_to_surface`, expected box, observed box, and per-eye tokens. |
+| Display-eye screen UV | Final per-eye submitted image before screenshot | Normalized screen-space domain per eye. | Log `surface_to_screen`, `screen_to_surface`, renderer-authored expected source-valid box, observed box, and per-eye tokens. |
 | OpenXR view tangent space | OpenXR view pose/FOV | Eye-local rays derived from `XrView.pose` and `XrView.fov`. | Log display time, reference space, per-eye pose, and FOV angles. |
 | OpenXR app reference space | App-chosen `LOCAL`, `STAGE`, or other reference space | Meters, runtime-defined origin for the chosen reference space. | Log reference-space type, pose composition, and any head-anchored surface pose. |
 | Environment-depth UV | `XR_META_environment_depth` swapchain image | Normalized depth-image coordinates per depth view. | Log depth image index, near/far meters, depth view pose/FOV, timestamp when available, and hand-removal state if used. |
@@ -212,8 +220,11 @@ Trace these before changing a visual parameter:
 - shader branch between intended mask and invalid-source fill
 
 Current diagnostic posture: if the outer source markers or bottom checkerboard
-row disappear while `full-frame-diagnostic` is upright/full, treat HWB as a
-source-domain crop or clipping probe before changing blur.
+row disappear while `full-frame-diagnostic` is upright/full, first distinguish
+an analyzer segmentation artifact from a source-domain crop/import issue.
+Nonblack/visible envelope parity and renderer-authored expected footprints are
+the tie-breakers; do not tune HWB projection-area offsets from a single dense
+component bbox.
 
 ### GL/OES
 
@@ -244,10 +255,13 @@ Trace these before changing scale:
 - `projection_area_screen_uv`
 - `projection_area_mask`
 
-Current diagnostic posture: if the whole stimulus is visible but lands in a
-smaller footprint than OES, treat Makepad as a projection scale/window
-normalization probe. Do not tune inactive or compatibility-only log fields
-until the active shader path consumes them.
+Current diagnostic posture: Makepad's active shader uses top-left/y-down
+display-screen UV for `projection_area_screen_uv` and `screen_to_camera`.
+Broker top-left raster handling belongs in the projection plan for homography
+modes, while Makepad CPU-YUV sampler-origin conversion belongs in the texture
+sampling decision and is logged as `sourceSampleYFlip=1.0` with a
+sampler-origin reason. Do not collapse these into a generic "manual Y flip";
+that label hides the layer boundary that previously let the bug recur.
 
 ## Projection Coordinate Contract
 
@@ -307,7 +321,7 @@ The schema name is currently `rusty.xr.projection-coordinate-contract.v1`.
     "screenshot_method": "adb-hzdb-or-mediaprojection",
     "freshness": "fresh-or-stale",
     "observed_box": "analyzer-output-reference",
-    "expected_box": "manifest-or-transform-derived"
+    "expected_box": "renderer-authored-display-eye-screen-uv"
   }
 }
 ```
@@ -323,8 +337,9 @@ Before accepting a coordinate run:
 - Intended outside-projection mask, true invalid-source fill, guide/border
   lines, and actual source content use distinguishable colors.
 - `full-frame-diagnostic` is upright/full in all active lanes.
-- `camera-matched` explains its source footprint in metadata, not analyzer
-  inference.
+- `camera-matched` explains its source footprint in renderer-authored
+  display-eye screen UV, with analyzer inference retained only as a model
+  comparison.
 - HWB, OES, and Makepad all log the same stage names even if their backend
   texture paths differ.
 - Screenshot analysis records observed pixels but does not override the

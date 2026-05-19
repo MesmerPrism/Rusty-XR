@@ -265,9 +265,6 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -CompositeApk <composite-apk> `
   -GlesApk <gles-apk> `
   -MakepadApk <makepad-apk> `
-  -MakepadPackageName <makepad-package> `
-  -MakepadLauncherActivity <launcher-activity> `
-  -MakepadXrActivity <xr-activity> `
   -Install `
   -EnableStayAwakeGuard `
   -RestartBrokerBeforeBrokerModes `
@@ -278,6 +275,11 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -ProcessingLayer blur `
   -BlurRadiusPx 2.0
 ```
+
+The public Makepad example defaults to package
+`com.example.rustyxr.makepad.alignment`, launcher `.MakepadApp`, and XR
+activity `.MakepadAppXr`; pass the Makepad identity flags only for a
+differently packaged APK.
 
 Use `solid-red` for image-derived border checks and `passthrough-underlay` for
 manual alignment with native passthrough. Leave `-ProcessingLayer raw` for

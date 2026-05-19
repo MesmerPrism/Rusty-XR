@@ -42,7 +42,14 @@ synthetic raster should act as projection-surface diagnostic content.
 The suite forwards the same broker source parameters into the Vulkan/HWB,
 GL/OES, and Makepad broker lanes so the screen-space analyzer can report both
 the hard solid-red footprint and the projection-stage rows found in each lane's
-logcat.
+logcat. For camera-matched projection runs, the analyzer prefers
+renderer-authored `leftExpectedSourceValidScreenUvRect` and
+`rightExpectedSourceValidScreenUvRect` fields when present; its own
+`screen_to_camera` footprint remains a model comparison, not the coordinate
+source of truth. For `full-frame-diagnostic`, the analyzer uses the
+renderer-authored full-frame intent to measure the visible stimulus envelope,
+so backend color/decoder differences do not turn a disconnected top diagnostic
+band into a false vertical-placement failure.
 
 ## Camera Readiness Preflight
 

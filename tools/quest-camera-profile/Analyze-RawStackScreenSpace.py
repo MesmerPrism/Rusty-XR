@@ -32,6 +32,10 @@ COMMA_VALUE_FIELD_KEYS = {
     "contentUvRect",
     "leftContentUvRect",
     "rightContentUvRect",
+    "leftExpectedSourceValidScreenUvRect",
+    "rightExpectedSourceValidScreenUvRect",
+    "leftExpectedSourceValidScreenUvRectRaw",
+    "rightExpectedSourceValidScreenUvRectRaw",
     "cpuUploadRect",
 }
 STAGE_KEYS = {
@@ -112,7 +116,11 @@ SOURCE_FIELD_KEYS = (
     "orientationDefault",
     "orientationFallbackReason",
     "sourceSampleYFlip",
+    "sourceSampleYFlipReason",
     "diagnosticUvTransform",
+    "displayScreenUvNormalization",
+    "displayScreenUvOrigin",
+    "rendererSurfaceUvOrigin",
     "contentKind",
     "contentWidth",
     "contentHeight",
@@ -160,6 +168,15 @@ SOURCE_FIELD_KEYS = (
     "rightContentGeometryMetadataSource",
     "leftContentGeometryDefault",
     "rightContentGeometryDefault",
+    "expectedSourceValidFootprintSource",
+    "expectedSourceValidFootprintStage",
+    "expectedSourceValidFootprintCoordinateSpace",
+    "expectedSourceValidFootprintMethod",
+    "expectedSourceValidFootprintRectSemantics",
+    "leftExpectedSourceValidScreenUvRect",
+    "rightExpectedSourceValidScreenUvRect",
+    "leftExpectedSourceValidScreenUvRectRaw",
+    "rightExpectedSourceValidScreenUvRectRaw",
 )
 PHASE_PRIORITY = (
     "source-sampling",
@@ -349,6 +366,23 @@ def connected_components(mask: np.ndarray, min_area_fraction: float, max_area_fr
             components.append(component)
 
     return sorted(components, key=lambda item: item["area_px"], reverse=True)
+
+
+def mask_bbox_component(mask: np.ndarray, min_area: int = 8) -> dict[str, Any] | None:
+    ys, xs = np.where(mask)
+    if ys.size == 0:
+        return None
+    if ys.size < min_area:
+        return None
+    min_x = int(xs.min())
+    max_x = int(xs.max())
+    min_y = int(ys.min())
+    max_y = int(ys.max())
+    return {
+        "area_px": int(ys.size),
+        "bbox_px": [min_x, min_y, int(max_x - min_x + 1), int(max_y - min_y + 1)],
+        "centroid_px": [float(xs.mean()), float(ys.mean())],
+    }
 
 
 def largest_component(mask: np.ndarray, min_area_fraction: float, max_area_fraction: float) -> dict[str, Any] | None:
@@ -576,6 +610,7 @@ def summarize_eye(
     min_area_fraction: float,
     max_area_fraction: float,
     expected_solid_red: bool,
+    prefer_full_frame_envelope: bool,
 ) -> dict[str, Any]:
     legacy_red = red_invalid_mask(rgb)
     intended_mask = intended_projection_mask(rgb)
@@ -638,12 +673,21 @@ def summarize_eye(
             "eye_rect_px": [x_offset, 0, rgb.shape[1], rgb.shape[0]],
         }
 
-    render_surface_component = largest_component(
-        visible,
-        max(0.005, min_area_fraction * 0.5),
-        0.98,
+    visible_envelope_component = mask_bbox_component(visible, max(200, int(visible.size * 0.00005)))
+    render_surface_component = (
+        visible_envelope_component
+        if prefer_full_frame_envelope
+        else largest_component(
+            visible,
+            max(0.005, min_area_fraction * 0.5),
+            0.98,
+        )
     )
-    render_surface_strategy = "visible-render-surface-envelope"
+    render_surface_strategy = (
+        "visible-render-surface-mask-bbox"
+        if prefer_full_frame_envelope and render_surface_component is not None
+        else "visible-render-surface-envelope"
+    )
     if render_surface_component is None:
         render_surface_component = component
         render_surface_strategy = "valid-projection-envelope-as-render-surface"
@@ -663,6 +707,15 @@ def summarize_eye(
             stimulus_candidates[0],
         )
     measured_component = stimulus_component or content_component
+    measured_strategy_suffix = "stimulus-envelope-union"
+    if prefer_full_frame_envelope:
+        stimulus_envelope_component = mask_bbox_component(
+            stimulus_candidate,
+            max(200, int(stimulus_candidate.size * 0.00005)),
+        )
+        if stimulus_envelope_component is not None:
+            measured_component = stimulus_envelope_component
+            measured_strategy_suffix = "full-frame-stimulus-mask-bbox"
     x, y, width, height = measured_component["bbox_px"]
     cx, cy = measured_component["centroid_px"]
     full_bbox = [x_offset + x, y, width, height]
@@ -722,7 +775,7 @@ def summarize_eye(
         "orientation_marker": orientation_marker_summary(rgb, [x, y, width, height]),
         "projection_footprint": {
             "status": "measured",
-            "segmentation_strategy": f"{strategy}-stimulus-envelope-union",
+            "segmentation_strategy": f"{strategy}-{measured_strategy_suffix}",
             "component_count": int(measured_component.get("component_count", 1)),
             "largest_component_bbox_px": component_bbox_record(
                 largest_component_record,
@@ -1207,6 +1260,7 @@ def analyze_image(
     min_area_fraction: float,
     max_area_fraction: float,
     expected_solid_red: bool,
+    prefer_full_frame_envelope: bool,
 ) -> dict[str, Any]:
     rgb = load_rgb(path)
     height, width = rgb.shape[:2]
@@ -1218,9 +1272,30 @@ def analyze_image(
         "image_size_px": [width, height],
         "coordinate_system": "screenshot pixels, origin top-left, x right, y down",
         "expected_solid_red_mask": expected_solid_red,
+        "prefer_full_frame_envelope": prefer_full_frame_envelope,
         "eyes": [
-            summarize_eye(left, "left", 0, width, height, min_area_fraction, max_area_fraction, expected_solid_red),
-            summarize_eye(right, "right", half, width, height, min_area_fraction, max_area_fraction, expected_solid_red),
+            summarize_eye(
+                left,
+                "left",
+                0,
+                width,
+                height,
+                min_area_fraction,
+                max_area_fraction,
+                expected_solid_red,
+                prefer_full_frame_envelope,
+            ),
+            summarize_eye(
+                right,
+                "right",
+                half,
+                width,
+                height,
+                min_area_fraction,
+                max_area_fraction,
+                expected_solid_red,
+                prefer_full_frame_envelope,
+            ),
         ],
     }
 
@@ -1509,6 +1584,41 @@ def first_field(fields: dict[str, str], *keys: str) -> str | None:
     return None
 
 
+def uv_rect_is_full_frame(rect: list[float] | None, tolerance: float = 0.0025) -> bool:
+    if rect is None or len(rect) < 4:
+        return False
+    return (
+        abs(float(rect[0])) <= tolerance
+        and abs(float(rect[1])) <= tolerance
+        and abs(float(rect[2]) - 1.0) <= tolerance
+        and abs(float(rect[3]) - 1.0) <= tolerance
+    )
+
+
+def prefer_full_frame_envelope_measurement(fields: dict[str, str]) -> bool:
+    profile = first_field(
+        fields,
+        "brokerH264SyntheticProjectionProfile",
+        "projection_profile",
+        "geometry_profile",
+        "projectionGeometryProfile",
+    )
+    if profile == "full-frame-diagnostic":
+        return True
+    if first_field(fields, "contentMappingIntent") == "map-full-frame-stimulus-to-projection-area":
+        return True
+    return uv_rect_is_full_frame(
+        parse_uv_rect(
+            first_field(
+                fields,
+                "leftExpectedSourceValidScreenUvRect",
+                "rightExpectedSourceValidScreenUvRect",
+                "contentUvRect",
+            )
+        )
+    )
+
+
 def descriptor_field(fields: dict[str, str], *keys: str) -> str | None:
     text_values = [
         fields.get("source"),
@@ -1662,6 +1772,21 @@ def app_projection_record(fields: dict[str, str], stages: dict[str, Any], eye: s
         "passthrough_underlay": parse_bool_value(fields.get("passthroughUnderlay")),
         "projection_border_policy": fields.get("projectionBorderPolicy"),
         "projection_invalid_fill_policy": fields.get("projectionInvalidFillPolicy"),
+        "expected_source_valid_footprint_source": fields.get("expectedSourceValidFootprintSource"),
+        "expected_source_valid_footprint_stage": fields.get("expectedSourceValidFootprintStage"),
+        "expected_source_valid_footprint_coordinate_space": fields.get(
+            "expectedSourceValidFootprintCoordinateSpace"
+        ),
+        "expected_source_valid_footprint_method": fields.get("expectedSourceValidFootprintMethod"),
+        "expected_source_valid_footprint_rect_semantics": fields.get(
+            "expectedSourceValidFootprintRectSemantics"
+        ),
+        "expected_source_valid_screen_uv_rect": parse_uv_rect(
+            prefixed_eye_field(fields, eye, "expectedSourceValidScreenUvRect")
+        ),
+        "expected_source_valid_screen_uv_rect_raw": parse_uv_rect(
+            prefixed_eye_field(fields, eye, "expectedSourceValidScreenUvRectRaw")
+        ),
         "projection_area_opacity": parse_number_value(
             fields.get("projectionAreaOpacity") or fields.get("cameraProjectionAreaOpacity")
         ),
@@ -1759,6 +1884,101 @@ def bbox_iou(a: list[float] | list[int] | None, b: list[float] | list[int] | Non
     if union <= 0:
         return None
     return float(inter / union)
+
+
+def clipped_unit_rect(value: list[float] | None) -> list[float] | None:
+    if not isinstance(value, list) or len(value) != 4:
+        return None
+    x, y, width, height = [float(v) for v in value]
+    if not all(math.isfinite(v) for v in (x, y, width, height)):
+        return None
+    x0 = max(0.0, min(1.0, x))
+    y0 = max(0.0, min(1.0, y))
+    x1 = max(0.0, min(1.0, x + max(width, 0.0)))
+    y1 = max(0.0, min(1.0, y + max(height, 0.0)))
+    return [x0, y0, max(0.0, x1 - x0), max(0.0, y1 - y0)]
+
+
+def screen_uv_rect_to_screenshot_px(
+    render_bbox: list[float] | list[int] | None,
+    screen_uv_rect: list[float] | None,
+) -> list[float] | None:
+    rect = clipped_unit_rect(screen_uv_rect)
+    if rect is None or not isinstance(render_bbox, list) or len(render_bbox) != 4:
+        return None
+    rx, ry, rw, rh = [float(v) for v in render_bbox]
+    if rw <= 0.0 or rh <= 0.0:
+        return None
+    return [
+        rx + rect[0] * rw,
+        ry + rect[1] * rh,
+        rect[2] * rw,
+        rect[3] * rh,
+    ]
+
+
+def rect_delta(a: list[float] | None, b: list[float] | list[int] | None) -> list[float] | None:
+    if not isinstance(a, list) or not isinstance(b, list) or len(a) != 4 or len(b) != 4:
+        return None
+    return [float(b[index]) - float(a[index]) for index in range(4)]
+
+
+def authored_source_valid_footprint_record(
+    eye_report: dict[str, Any],
+    app_projection: dict[str, Any],
+    analyzer_model: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    source = app_projection.get("expected_source_valid_footprint_source")
+    rect = app_projection.get("expected_source_valid_screen_uv_rect")
+    if not source or not isinstance(rect, list) or len(rect) != 4:
+        return None
+    observed = observed_screenshot_record(eye_report)
+    render_surface = observed.get("render_surface_footprint") or {}
+    render_bbox = render_surface.get("bbox_px")
+    observed_bbox = observed.get("valid_projection_bbox_px") or observed.get("bbox_px")
+    clipped = clipped_unit_rect([float(v) for v in rect])
+    expected_px = screen_uv_rect_to_screenshot_px(render_bbox, clipped)
+    model_rect = None
+    model_iou = None
+    if isinstance(analyzer_model, dict):
+        model_rect = analyzer_model.get("source_domain_screen_uv_bbox_clipped")
+        model_iou = bbox_iou(clipped, model_rect)
+    return {
+        "status": "renderer-authored-source-valid-footprint" if expected_px else "blocked",
+        "reason": None if expected_px else "render-surface-bbox-required-for-renderer-authored-rect",
+        "coordinate_note": "Renderer-authored source-valid footprint in display-eye screen UV; analyzer only projects it into screenshot pixels and compares it with observed evidence.",
+        "renderer_authored": True,
+        "expected_source_valid_footprint_source": source,
+        "expected_source_valid_footprint_stage": app_projection.get("expected_source_valid_footprint_stage"),
+        "expected_source_valid_footprint_coordinate_space": app_projection.get(
+            "expected_source_valid_footprint_coordinate_space"
+        ),
+        "expected_source_valid_footprint_method": app_projection.get(
+            "expected_source_valid_footprint_method"
+        ),
+        "expected_source_valid_footprint_rect_semantics": app_projection.get(
+            "expected_source_valid_footprint_rect_semantics"
+        ),
+        "source_domain_uv_rect": [0.0, 0.0, 1.0, 1.0],
+        "source_domain_screen_uv_bbox_raw": app_projection.get(
+            "expected_source_valid_screen_uv_rect_raw"
+        ),
+        "source_domain_screen_uv_bbox_clipped": clipped,
+        "rect_px": expected_px,
+        "rect_iou_with_observed": bbox_iou(expected_px, observed_bbox),
+        "observed_rect_delta_px": rect_delta(expected_px, observed_bbox),
+        "analyzer_model_check": (
+            {
+                "status": analyzer_model.get("status"),
+                "source_domain_screen_uv_bbox_clipped": model_rect,
+                "renderer_authored_vs_model_iou": model_iou,
+                "rect_iou_with_observed": analyzer_model.get("rect_iou_with_observed"),
+                "coordinate_note": analyzer_model.get("coordinate_note"),
+            }
+            if isinstance(analyzer_model, dict)
+            else None
+        ),
+    }
 
 
 def expected_source_domain_from_homography(
@@ -1900,12 +2120,18 @@ def expected_screenshot_record(
         "coordinate_system": "screenshot pixels, origin top-left, x right, y down",
     }
     homography_expected = expected_source_domain_from_homography(eye_report, app_projection)
-    if homography_expected:
-        expected.update(homography_expected)
-        if homography_expected.get("rect_px"):
+    authored_expected = authored_source_valid_footprint_record(
+        eye_report,
+        app_projection,
+        homography_expected,
+    )
+    selected_expected = authored_expected or homography_expected
+    if selected_expected:
+        expected.update(selected_expected)
+        if selected_expected.get("rect_px"):
             expected["center_px"] = [
-                float(homography_expected["rect_px"][0] + homography_expected["rect_px"][2] * 0.5),
-                float(homography_expected["rect_px"][1] + homography_expected["rect_px"][3] * 0.5),
+                float(selected_expected["rect_px"][0] + selected_expected["rect_px"][2] * 0.5),
+                float(selected_expected["rect_px"][1] + selected_expected["rect_px"][3] * 0.5),
             ]
     return expected
 
@@ -1934,7 +2160,7 @@ def projection_mapping_verdict(
     expected_status = expected.get("status")
     if expected_status in {None, "center-only-until-renderer-emits-explicit-target-rect"}:
         issues.append("expected-source-domain-rect-not-measured")
-    elif expected_status == "measured-full-frame-projection-area":
+    elif expected_status in {"measured-full-frame-projection-area", "renderer-authored-source-valid-footprint"}:
         iou = expected.get("rect_iou_with_observed")
         if iou is not None and iou < 0.55:
             issues.append("expected-vs-observed-source-domain-rect-low-overlap")
@@ -2147,7 +2373,11 @@ def summarize_projection_mapping_records(records: list[dict[str, Any]]) -> dict[
             for edge in coverage.get("estimated_masked_edges") or coverage.get("estimated_clipped_edges") or []:
                 edge_counts[edge] = edge_counts.get(edge, 0) + 1
         expected = record.get("expected_screenshot") or {}
-        if expected.get("status") in {"measured-from-screen-to-camera-homography", "measured-full-frame-projection-area"}:
+        if expected.get("status") in {
+            "measured-from-screen-to-camera-homography",
+            "measured-full-frame-projection-area",
+            "renderer-authored-source-valid-footprint",
+        }:
             mode_summary["expected_source_domain_measured"] += 1
             iou = expected.get("rect_iou_with_observed")
             if iou is not None:
@@ -2335,6 +2565,10 @@ def texture_or_upload_record(mode: str, fields: dict[str, str]) -> dict[str, Any
         "cpu_upload_path": first_field(fields, "cpuUploadPath"),
         "diagnostic_uv_transform": first_field(fields, "diagnosticUvTransform"),
         "source_sample_y_flip": number_field(fields, "sourceSampleYFlip"),
+        "source_sample_y_flip_reason": first_field(fields, "sourceSampleYFlipReason"),
+        "display_screen_uv_normalization": first_field(fields, "displayScreenUvNormalization"),
+        "display_screen_uv_origin": first_field(fields, "displayScreenUvOrigin"),
+        "renderer_surface_uv_origin": first_field(fields, "rendererSurfaceUvOrigin"),
         "texture_transform_source": first_field(
             fields,
             "cameraTextureTransformSource",
@@ -2932,7 +3166,7 @@ def build_markdown(report: dict[str, Any]) -> str:
             f"- Records: `{mapping_summary.get('record_count', 0)}`.",
             f"- Verdict counts: `{mapping_summary.get('verdict_counts', {})}`.",
             "",
-            "| Mode | Verdicts | Orientation defaults | Content defaults | Inverted markers | Avg valid WxH / area | Model source-valid rects / IoU | Source-invalid / intended-mask avg | Masked edges |",
+            "| Mode | Verdicts | Orientation defaults | Content defaults | Inverted markers | Avg valid WxH / area | Expected source-valid rects / IoU | Source-invalid / intended-mask avg | Masked edges |",
             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
         ]
     )
@@ -3038,13 +3272,13 @@ def build_markdown(report: dict[str, Any]) -> str:
             "",
             "- Positive `dy` means the detected projection component is below the vertical center of the eye half.",
             "- Horizontal alignment is recorded but not tuned by this report.",
-            "- The main per-eye content box is the union of dense valid stimulus components, so multi-band diagnostics are not reduced to only their largest checkerboard component.",
-            "- Overlay colors: cyan/yellow are the observed full stimulus envelope for left/right eyes, purple is the visible render surface, green is a model source-valid footprint derived from `screen_to_camera` rows, orange is the projection footprint record, and blue marks the largest single component when it differs from the union. Coincident same-orientation sides are drawn as color stripes; simple crossings are not striped.",
+            "- The main per-eye content box is the union of dense valid stimulus components. For renderer-authored full-frame diagnostics, it is the visible stimulus-envelope bbox so disconnected top/bottom diagnostic bands are still part of the full-frame footprint.",
+            "- Overlay colors: cyan/yellow are the observed full stimulus envelope for left/right eyes, purple is the visible render surface, green is the expected source-valid footprint (renderer-authored when available, otherwise analyzer model), orange is the projection footprint record, and blue marks the largest single component when it differs from the union. Coincident same-orientation sides are drawn as color stripes; simple crossings are not striped.",
             "- Broker synthetic orientation markers are pixel-checked as top-left green `TOP` and bottom-left red `BOT`; explicit stimulus metadata is preferred, and missing metadata is recorded as a default/fallback condition.",
             "- Projection mapping records connect content metadata, app projection fields, homography availability, model checks, observed screenshot bbox, and a conservative verdict.",
             "- Projection coordinate contracts summarize each lane's source geometry, metadata readiness, texture/upload path, OpenXR state, transform rows, capture evidence, and explicit gaps.",
             "- Cross-lane parity compares measured valid-content footprint, center, and orientation across lanes in the same suite. A parity failure means the evidence is usable but not aligned.",
-            "- When `screen_to_camera` homography rows are available, the analyzer derives a model source-valid footprint by inverting that homography and projecting the source UV rect through the detected render-surface bbox. This is not yet a renderer-authored expected projection target.",
+            "- When renderer-authored expected source-valid fields are present, the analyzer projects them into screenshot pixels and keeps the `screen_to_camera` derivation only as a model check. Without those fields, the analyzer still derives a model source-valid footprint by inverting `screen_to_camera`; that fallback is evidence, not an expected projection target.",
             "- Render surface and valid projection coverage are reported separately: the render surface is the visible diagnostic/camera layer envelope, while valid projection coverage is the camera/stimulus area inside it.",
             "- In split diagnostic runs, intended outside-projection mask and true source-UV/mapping failure are different colors. In older solid-red runs, red may still conflate both cases.",
             "- If a diagnostic-mask run does not contain the expected mask/background signal, the lane is blocked instead of silently treating the full visible envelope as a strict projection measurement.",
@@ -3129,11 +3363,14 @@ def main() -> int:
                 for key, value in manifest_fields.items():
                     selected_fields.setdefault(key, value)
         if image_path:
+            evidence = lane.get("projection_evidence") or {}
+            fields = evidence.get("selected_mapping_fields") or evidence.get("source_fields") or {}
             image_report = analyze_image(
                 image_path,
                 args.min_area_fraction,
                 args.max_area_fraction,
                 expected_solid_red,
+                prefer_full_frame_envelope_measurement(fields) if isinstance(fields, dict) else False,
             )
             lane.update(image_report)
             if all(eye.get("status") == "passed" for eye in image_report["eyes"]):
@@ -3146,8 +3383,6 @@ def main() -> int:
             lane_dir.mkdir(parents=True, exist_ok=True)
             overlay = lane_dir / "screen-space-overlay.png"
             overlay_expected: dict[str, dict[str, Any]] = {}
-            evidence = lane.get("projection_evidence") or {}
-            fields = evidence.get("selected_mapping_fields") or evidence.get("source_fields") or {}
             stages = evidence.get("stages") or {}
             if isinstance(fields, dict) and isinstance(stages, dict):
                 for eye_report in image_report["eyes"]:

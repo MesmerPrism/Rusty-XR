@@ -88,6 +88,7 @@ const TARGET_PROJECTION_AREA_CORNER_RADIUS_UV: f32 = 0.0;
 const TARGET_PROJECTION_AREA_KEYSTONE_X: f32 = 0.0;
 const TARGET_PROJECTION_AREA_BOW_X: f32 = 0.0;
 const TARGET_PROJECTION_AREA_OPACITY: f32 = 1.0;
+const SOURCE_VALID_FOOTPRINT_GRID: usize = 64;
 const TARGET_DISPLAY_EYE_OFFSET_METERS: f32 = 0.032;
 const TARGET_DISPLAY_FOV_Y_DEGREES: f32 = 92.0;
 const TARGET_DISPLAY_ASPECT: f32 = 1.0;
@@ -99,7 +100,7 @@ const FRAME_RASTER_BOTTOM_LEFT_Y_UP: &str = "bottom-left-origin-y-up";
 const IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY: [[f32; 3]; 3] =
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
-const MAKEPAD_REV: &str = "1d7174d6";
+const MAKEPAD_REV: &str = "2952b07c";
 const DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-right-source";
 const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
@@ -766,7 +767,8 @@ script_mod! {
         }
 
         pixel: fn() {
-            let full_view_uv = clamp(self.v_uv, vec2(0.0, 0.0), vec2(1.0, 1.0));
+            let renderer_surface_uv = clamp(self.v_uv, vec2(0.0, 0.0), vec2(1.0, 1.0));
+            let full_view_uv = renderer_surface_uv;
             let proof_guide = 0.0;
             let eye_selector = self.source_eye_selector();
             let display_eye_selector = self.active_eye_is_right();
@@ -2647,7 +2649,7 @@ impl App {
             && right_metadata.is_full_frame_diagnostic_synthetic();
         let camera_matched = left_metadata.is_camera_matched_synthetic()
             && right_metadata.is_camera_matched_synthetic();
-        let Some(plan) = (if full_frame_diagnostic {
+        let Some(mut plan) = (if full_frame_diagnostic {
             android_camera_probe::broker_full_frame_projection_plan_from_xr_views(
                 &left_metadata.camera_id,
                 &right_metadata.camera_id,
@@ -2701,6 +2703,11 @@ impl App {
         }) else {
             return false;
         };
+        if !full_frame_diagnostic
+            && broker_pair_has_top_left_raster_orientation(left_metadata, right_metadata)
+        {
+            plan.apply_top_left_raster_source_uv("broker-h264-explicit-top-left-raster");
+        }
         let source_binding_mode = if camera_matched {
             "broker-h264-stream-header-camera-matched"
         } else if full_frame_diagnostic {
@@ -4097,7 +4104,16 @@ impl App {
                 0.0
             };
         let source_sample_transform = if source_sample_y_flip >= 0.5 {
-            "texture-y-flip-to-match-raster-metadata"
+            "texture-coordinate-origin-convention"
+        } else if broker_h264_enabled
+            && orientation_decision.raster_orientation == FRAME_RASTER_TOP_LEFT_Y_DOWN
+            && pair.source_binding_mode.contains("full-frame-diagnostic")
+        {
+            "display-screen-uv-direct-to-top-left-raster"
+        } else if broker_h264_enabled
+            && orientation_decision.raster_orientation == FRAME_RASTER_TOP_LEFT_Y_DOWN
+        {
+            "projection-plan-source-raster-origin-convention"
         } else {
             "identity-y-to-match-raster-metadata"
         };
@@ -4175,7 +4191,7 @@ impl App {
             direct_camera2_content_geometry_marker_fields(pair.left.width, pair.left.height)
         };
         Self::emit_stereo_projection_marker(&format!(
-            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} projectionContentMappingMode={} diagnosticUvTransform={} {}",
+            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} diagnosticUvTransform={} sourceRasterYMappingStage={} displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-display-screen-uv rendererSurfaceUvOrigin=top-left-origin-y-down {}",
             broker_h264_enabled,
             explicit_top_left_broker_stimulus,
             marker_token(&orientation_decision.orientation_kind),
@@ -4185,11 +4201,13 @@ impl App {
             orientation_decision.orientation_default,
             marker_token(&orientation_decision.fallback_reason),
             source_sample_y_flip,
+            marker_token(&orientation_decision.source_sample_y_flip_reason),
             if projection_content_mapping_mode >= 0.5 {
                 "full-frame-stimulus-to-projection-area"
             } else {
                 "camera-projection-homography"
             },
+            source_sample_transform,
             source_sample_transform,
             content_geometry_fields,
         ));
@@ -4771,6 +4789,7 @@ impl BrokerH264ProjectionMetadata {
 #[derive(Clone, Debug)]
 struct FrameOrientationDecision {
     source_sample_y_flip: f32,
+    source_sample_y_flip_reason: String,
     orientation_kind: String,
     raster_orientation: String,
     upright_marker: String,
@@ -4783,8 +4802,10 @@ impl FrameOrientationDecision {
     fn direct_camera2() -> Self {
         Self {
             source_sample_y_flip: 1.0,
+            source_sample_y_flip_reason:
+                "direct-camera2-top-left-raster-to-makepad-cpu-yuv-sampler-origin".to_string(),
             orientation_kind: "camera-frame".to_string(),
-            raster_orientation: FRAME_RASTER_BOTTOM_LEFT_Y_UP.to_string(),
+            raster_orientation: FRAME_RASTER_TOP_LEFT_Y_DOWN.to_string(),
             upright_marker: "camera-native-upright".to_string(),
             metadata_source: "makepad-direct-camera2-import".to_string(),
             orientation_default: false,
@@ -4794,7 +4815,9 @@ impl FrameOrientationDecision {
 
     fn fallback(reason: &str) -> Self {
         Self {
-            source_sample_y_flip: 0.0,
+            source_sample_y_flip: 1.0,
+            source_sample_y_flip_reason:
+                "fallback-assumes-top-left-raster-to-makepad-cpu-yuv-sampler-origin".to_string(),
             orientation_kind: "default-fallback".to_string(),
             raster_orientation: FRAME_RASTER_TOP_LEFT_Y_DOWN.to_string(),
             upright_marker: "unspecified".to_string(),
@@ -4815,12 +4838,22 @@ impl FrameOrientationDecision {
             return Self::fallback("broker-h264-left-right-raster-orientation-mismatch");
         }
         let source_sample_y_flip = match left.raster_orientation.as_str() {
-            FRAME_RASTER_TOP_LEFT_Y_DOWN => 0.0,
-            FRAME_RASTER_BOTTOM_LEFT_Y_UP => 1.0,
+            FRAME_RASTER_TOP_LEFT_Y_DOWN => 1.0,
+            FRAME_RASTER_BOTTOM_LEFT_Y_UP => 0.0,
             _ => return Self::fallback("broker-h264-unsupported-raster-orientation"),
+        };
+        let source_sample_y_flip_reason = match left.raster_orientation.as_str() {
+            FRAME_RASTER_TOP_LEFT_Y_DOWN => {
+                "broker-top-left-raster-to-makepad-cpu-yuv-sampler-origin"
+            }
+            FRAME_RASTER_BOTTOM_LEFT_Y_UP => {
+                "broker-bottom-left-raster-matches-makepad-cpu-yuv-sampler-origin"
+            }
+            _ => "broker-raster-unsupported",
         };
         Self {
             source_sample_y_flip,
+            source_sample_y_flip_reason: source_sample_y_flip_reason.to_string(),
             orientation_kind: if left.orientation_kind == right.orientation_kind {
                 left.orientation_kind.clone()
             } else {
@@ -4894,6 +4927,16 @@ fn broker_pair_pose_source(
     } else {
         format!("{}+{}", left.pose_source, right.pose_source)
     }
+}
+
+fn broker_pair_has_top_left_raster_orientation(
+    left: &BrokerH264ProjectionMetadata,
+    right: &BrokerH264ProjectionMetadata,
+) -> bool {
+    left.has_explicit_raster_orientation()
+        && right.has_explicit_raster_orientation()
+        && left.raster_orientation == FRAME_RASTER_TOP_LEFT_Y_DOWN
+        && right.raster_orientation == FRAME_RASTER_TOP_LEFT_Y_DOWN
 }
 
 fn broker_pair_content_geometry_marker_fields(
@@ -5211,6 +5254,39 @@ impl Camera2StereoPlan {
     fn size(&self) -> (usize, usize) {
         (self.width as usize, self.height as usize)
     }
+
+    fn apply_top_left_raster_source_uv(&mut self, reason: &str) {
+        self.left_surface_to_camera_h =
+            camera_model_uv_to_top_left_raster_uv(self.left_surface_to_camera_h);
+        self.right_surface_to_camera_h =
+            camera_model_uv_to_top_left_raster_uv(self.right_surface_to_camera_h);
+        self.left_screen_to_camera_h =
+            camera_model_uv_to_top_left_raster_uv(self.left_screen_to_camera_h);
+        self.right_screen_to_camera_h =
+            camera_model_uv_to_top_left_raster_uv(self.right_screen_to_camera_h);
+        if !self
+            .coordinate_chain
+            .contains("makepad-cpu-yuv-top-left-raster-source-uv")
+        {
+            self.coordinate_chain = format!(
+                "{}/makepad-cpu-yuv-top-left-raster-source-uv:{}",
+                self.coordinate_chain,
+                marker_token(reason)
+            );
+        }
+    }
+}
+
+fn camera_model_uv_to_top_left_raster_uv(rows: [[f32; 3]; 3]) -> [[f32; 3]; 3] {
+    [
+        rows[0],
+        [
+            rows[2][0] - rows[1][0],
+            rows[2][1] - rows[1][1],
+            rows[2][2] - rows[1][2],
+        ],
+        rows[2],
+    ]
 }
 
 #[cfg(target_os = "android")]
@@ -5331,9 +5407,87 @@ fn homography_token(rows: [[f32; 3]; 3]) -> String {
         .join(",")
 }
 
+fn screen_uv_rect_token(rect: [f32; 4]) -> String {
+    format!(
+        "{:.6},{:.6},{:.6},{:.6}",
+        rect[0], rect[1], rect[2], rect[3]
+    )
+}
+
+fn apply_homography(rows: [[f32; 3]; 3], x: f32, y: f32) -> Option<(f32, f32)> {
+    let w = rows[2][0] * x + rows[2][1] * y + rows[2][2];
+    if !w.is_finite() || w.abs() <= 1.0e-6 {
+        return None;
+    }
+    let u = (rows[0][0] * x + rows[0][1] * y + rows[0][2]) / w;
+    let v = (rows[1][0] * x + rows[1][1] * y + rows[1][2]) / w;
+    (u.is_finite() && v.is_finite()).then_some((u, v))
+}
+
+fn screen_uv_maps_to_source_uv(rows: [[f32; 3]; 3], x: f32, y: f32) -> bool {
+    apply_homography(rows, x, y)
+        .map(|(u, v)| (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v))
+        .unwrap_or(false)
+}
+
+fn expected_source_valid_screen_uv_rect(
+    screen_to_camera_h: [[f32; 3]; 3],
+    full_frame_stimulus_mapping: bool,
+) -> [f32; 4] {
+    if full_frame_stimulus_mapping {
+        return [0.0, 0.0, 1.0, 1.0];
+    }
+    let mut valid_count = 0_usize;
+    let mut min_x = 1.0_f32;
+    let mut min_y = 1.0_f32;
+    let mut max_x = 0.0_f32;
+    let mut max_y = 0.0_f32;
+    let step = 1.0 / SOURCE_VALID_FOOTPRINT_GRID as f32;
+    for iy in 0..SOURCE_VALID_FOOTPRINT_GRID {
+        for ix in 0..SOURCE_VALID_FOOTPRINT_GRID {
+            let x = (ix as f32 + 0.5) * step;
+            let y = (iy as f32 + 0.5) * step;
+            if screen_uv_maps_to_source_uv(screen_to_camera_h, x, y) {
+                valid_count += 1;
+                min_x = min_x.min((x - step * 0.5).clamp(0.0, 1.0));
+                min_y = min_y.min((y - step * 0.5).clamp(0.0, 1.0));
+                max_x = max_x.max((x + step * 0.5).clamp(0.0, 1.0));
+                max_y = max_y.max((y + step * 0.5).clamp(0.0, 1.0));
+            }
+        }
+    }
+    if valid_count == 0 {
+        [0.0, 0.0, 0.0, 0.0]
+    } else {
+        [
+            min_x,
+            min_y,
+            (max_x - min_x).max(0.0),
+            (max_y - min_y).max(0.0),
+        ]
+    }
+}
+
+fn expected_source_valid_footprint_marker_fields(pair: &MakepadCameraPair) -> String {
+    let full_frame_stimulus_mapping = pair.source_binding_mode.contains("full-frame-diagnostic");
+    let left_rect = expected_source_valid_screen_uv_rect(
+        pair.left_screen_to_camera_h,
+        full_frame_stimulus_mapping,
+    );
+    let right_rect = expected_source_valid_screen_uv_rect(
+        pair.right_screen_to_camera_h,
+        full_frame_stimulus_mapping,
+    );
+    format!(
+        "expectedSourceValidFootprintSource=renderer-authored expectedSourceValidFootprintStage=screen_to_camera_source_uv_bounds expectedSourceValidFootprintCoordinateSpace=display-eye-screen-uv expectedSourceValidFootprintMethod=renderer-grid-sampled-source-uv-validity expectedSourceValidFootprintRectSemantics=xywh leftExpectedSourceValidScreenUvRect={} rightExpectedSourceValidScreenUvRect={}",
+        screen_uv_rect_token(left_rect),
+        screen_uv_rect_token(right_rect),
+    )
+}
+
 fn projection_homography_marker_fields(pair: &MakepadCameraPair) -> String {
     format!(
-        "projectionHomographyReady={} runtimeXrViewStateReady={} sourceBindingMode={} displayLeftCameraId={} displayRightCameraId={} makepadLeftCameraId={} makepadRightCameraId={} projectionAreaTransformStage=pre_homography_screen_uv projectionAreaWarpParity=diagnostic_only contentUvRect=0,0,1,1 cpuUploadRect=0,0,{},{} cpuUploadStride=not-exposed leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} {}",
+        "projectionHomographyReady={} runtimeXrViewStateReady={} sourceBindingMode={} displayLeftCameraId={} displayRightCameraId={} makepadLeftCameraId={} makepadRightCameraId={} sourceRasterOriginPolicy=explicit-broker-raster-or-camera2-import sourceRasterUvCorrectionStage=projection-plan-for-broker-top-left-raster projectionAreaTransformStage=pre_homography_screen_uv projectionAreaWarpParity=diagnostic_only contentUvRect=0,0,1,1 cpuUploadRect=0,0,{},{} cpuUploadStride=not-exposed leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} {} {}",
         pair.projection_homography_ready,
         pair.runtime_xr_view_state_ready,
         pair.source_binding_mode,
@@ -5351,6 +5505,7 @@ fn projection_homography_marker_fields(pair: &MakepadCameraPair) -> String {
         homography_token(pair.right_screen_to_camera_h),
         homography_token(pair.left_screen_to_surface_h),
         homography_token(pair.right_screen_to_surface_h),
+        expected_source_valid_footprint_marker_fields(pair),
         makepad_projection_target_marker_fields()
     )
 }
@@ -5615,7 +5770,7 @@ fn makepad_projection_target_marker_fields() -> String {
         0.5,
     );
     format!(
-        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} processingLayer={} blurRadiusPx={:.2} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4}",
+        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} processingLayer={} blurRadiusPx={:.2} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} rendererSurfaceUvOrigin=top-left-origin-y-down displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-display-screen-uv",
         native_passthrough,
         policy.stable_id(),
         policy.stable_id(),

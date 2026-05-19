@@ -4589,8 +4589,9 @@ void main() {
         let source_label = projection
             .map(|projection| {
                 format!(
-                    "{}:source_eye={}:content_mapping={}:frame={frame_count}:source_sequence={source_sequence}",
+                    "{} {} source_eye={}:content_mapping={}:frame={frame_count}:source_sequence={source_sequence}",
                     projection.source_label,
+                    expected_source_valid_footprint_fields(projection),
                     projection.source_eye,
                     projection.content_mapping_mode.stable_id()
                 )
@@ -4679,6 +4680,40 @@ void main() {
             };
         }
         footprint
+    }
+
+    fn screen_uv_rect_token(rect: [f32; 4]) -> String {
+        format!(
+            "{:.6},{:.6},{:.6},{:.6}",
+            rect[0], rect[1], rect[2], rect[3]
+        )
+    }
+
+    fn expected_source_valid_screen_uv_rect(projection: &OesEyeProjection) -> [f32; 4] {
+        if projection.content_mapping_mode
+            == OesContentMappingMode::FullFrameStimulusToProjectionArea
+        {
+            return [0.0, 0.0, 1.0, 1.0];
+        }
+        let (_, bbox) = projection_valid_footprint(projection.screen_to_camera_h);
+        [
+            bbox[0],
+            bbox[1],
+            (bbox[2] - bbox[0]).max(0.0),
+            (bbox[3] - bbox[1]).max(0.0),
+        ]
+    }
+
+    fn expected_source_valid_footprint_fields(projection: &OesEyeProjection) -> String {
+        let rect = screen_uv_rect_token(expected_source_valid_screen_uv_rect(projection));
+        let eye_prefix = match projection.eye {
+            Eye::Left => "left",
+            Eye::Right => "right",
+            Eye::Mono => "mono",
+        };
+        format!(
+                "expectedSourceValidFootprintSource=renderer-authored expectedSourceValidFootprintStage=screen_to_camera_source_uv_bounds expectedSourceValidFootprintCoordinateSpace=display-eye-screen-uv expectedSourceValidFootprintMethod=renderer-grid-sampled-source-uv-validity expectedSourceValidFootprintRectSemantics=xywh {eye_prefix}ExpectedSourceValidScreenUvRect={rect}"
+        )
     }
 
     fn projection_valid_footprint(rows: [[f32; 3]; 3]) -> (f32, [f32; 4]) {

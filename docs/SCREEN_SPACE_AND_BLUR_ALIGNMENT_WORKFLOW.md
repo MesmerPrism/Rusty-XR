@@ -145,7 +145,10 @@ is useful when the operator needs to see the exact projected-camera window
 against Meta passthrough while retaining a hard red outline/matte.
 
 If a lane appears vertically or horizontally offset, record it as a projection
-space finding. Do not compensate with downstream visual-effect parameters.
+space finding only after the renderer-authored expected footprint, visible
+stimulus envelope, and dense diagnostic component evidence agree. Full-frame
+diagnostic runs must not treat a disconnected top/bottom band as a renderer
+placement failure. Do not compensate with downstream visual-effect parameters.
 
 ## Blur Pass
 
@@ -190,9 +193,6 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -CompositeApk <composite-apk> `
   -GlesApk <gles-apk> `
   -MakepadApk <makepad-apk> `
-  -MakepadPackageName <makepad-package> `
-  -MakepadLauncherActivity <launcher-activity> `
-  -MakepadXrActivity <xr-activity> `
   -BrokerH264SourceMode broker-synthetic `
   -BrokerH264SyntheticPattern diagnostic-grid `
   -BrokerH264SyntheticProjectionProfile camera-matched `
@@ -200,6 +200,10 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -ProcessingLayer blur `
   -BlurRadiusPx 2.0
 ```
+
+The suite already knows the public Makepad example identity:
+`com.example.rustyxr.makepad.alignment`, `.MakepadApp`, and `.MakepadAppXr`.
+Override those only when testing a differently packaged APK.
 
 Reserve shared device, ADB, build, foreground, and broker-port resources with
 the local coordination system before running headset-bound commands. The suite

@@ -5,12 +5,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Apk,
 
-    [Parameter(Mandatory = $true)]
-    [string]$PackageName,
-    [Parameter(Mandatory = $true)]
-    [string]$LauncherActivity,
-    [Parameter(Mandatory = $true)]
-    [string]$XrActivity,
+    [string]$PackageName = "com.example.rustyxr.makepad.alignment",
+    [string]$LauncherActivity = ".MakepadApp",
+    [string]$XrActivity = ".MakepadAppXr",
     [string]$OutDir = "",
     [int]$StartupTimeoutSeconds = 30,
     [int]$SampleSeconds = 90,

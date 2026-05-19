@@ -58,6 +58,7 @@ const XR_ENVIRONMENT_DEPTH_PARTICLE_SOURCE_VIEW_COUNT: u32 = 1;
 const XR_ENVIRONMENT_DEPTH_PARTICLE_DISCONTINUITY_METERS: f32 = 0.28;
 const XR_ENVIRONMENT_DEPTH_PARTICLE_HALF_SIZE_MIN_METERS: f32 = 0.002;
 const XR_ENVIRONMENT_DEPTH_PARTICLE_HALF_SIZE_MAX_METERS: f32 = 0.004;
+const SOURCE_VALID_FOOTPRINT_GRID: usize = 64;
 const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_CELL_METERS: f32 = 0.06;
 const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_PROBE_COUNT: u32 = 8;
 const XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_FADE_START_FRAMES: u32 = 720;
@@ -6081,6 +6082,74 @@ fn homography_token(rows: [[f32; 3]; 3]) -> String {
         .join(",")
 }
 
+fn screen_uv_rect_token(rect: [f32; 4]) -> String {
+    format!(
+        "{:.6},{:.6},{:.6},{:.6}",
+        rect[0], rect[1], rect[2], rect[3]
+    )
+}
+
+fn apply_homography(rows: [[f32; 3]; 3], x: f32, y: f32) -> Option<(f32, f32)> {
+    let w = rows[2][0] * x + rows[2][1] * y + rows[2][2];
+    if !w.is_finite() || w.abs() <= 1.0e-6 {
+        return None;
+    }
+    let u = (rows[0][0] * x + rows[0][1] * y + rows[0][2]) / w;
+    let v = (rows[1][0] * x + rows[1][1] * y + rows[1][2]) / w;
+    (u.is_finite() && v.is_finite()).then_some((u, v))
+}
+
+fn screen_uv_maps_to_source_uv(rows: [[f32; 3]; 3], x: f32, y: f32) -> bool {
+    apply_homography(rows, x, y)
+        .map(|(u, v)| (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v))
+        .unwrap_or(false)
+}
+
+fn expected_source_valid_screen_uv_rect(mapping: &DisplayEyeProjectionMapping) -> [f32; 4] {
+    if mapping.full_frame_stimulus_mapping {
+        return [0.0, 0.0, 1.0, 1.0];
+    }
+    let mut valid_count = 0_usize;
+    let mut min_x = 1.0_f32;
+    let mut min_y = 1.0_f32;
+    let mut max_x = 0.0_f32;
+    let mut max_y = 0.0_f32;
+    let step = 1.0 / SOURCE_VALID_FOOTPRINT_GRID as f32;
+    for iy in 0..SOURCE_VALID_FOOTPRINT_GRID {
+        for ix in 0..SOURCE_VALID_FOOTPRINT_GRID {
+            let x = (ix as f32 + 0.5) * step;
+            let y = (iy as f32 + 0.5) * step;
+            if screen_uv_maps_to_source_uv(mapping.screen_to_camera, x, y) {
+                valid_count += 1;
+                min_x = min_x.min((x - step * 0.5).clamp(0.0, 1.0));
+                min_y = min_y.min((y - step * 0.5).clamp(0.0, 1.0));
+                max_x = max_x.max((x + step * 0.5).clamp(0.0, 1.0));
+                max_y = max_y.max((y + step * 0.5).clamp(0.0, 1.0));
+            }
+        }
+    }
+    if valid_count == 0 {
+        [0.0, 0.0, 0.0, 0.0]
+    } else {
+        [
+            min_x,
+            min_y,
+            (max_x - min_x).max(0.0),
+            (max_y - min_y).max(0.0),
+        ]
+    }
+}
+
+fn expected_source_valid_footprint_marker_fields(
+    homographies: &ProjectedStereoHomographies,
+) -> String {
+    format!(
+        "expectedSourceValidFootprintSource=renderer-authored expectedSourceValidFootprintStage=screen_to_camera_source_uv_bounds expectedSourceValidFootprintCoordinateSpace=display-eye-screen-uv expectedSourceValidFootprintMethod=renderer-grid-sampled-source-uv-validity expectedSourceValidFootprintRectSemantics=xywh leftExpectedSourceValidScreenUvRect={} rightExpectedSourceValidScreenUvRect={}",
+        screen_uv_rect_token(expected_source_valid_screen_uv_rect(&homographies.left)),
+        screen_uv_rect_token(expected_source_valid_screen_uv_rect(&homographies.right)),
+    )
+}
+
 fn screen_to_domain_with_visual_y_offset(
     mut rows: [[f32; 3]; 3],
     offset_y_uv: f32,
@@ -6105,7 +6174,7 @@ fn domain_to_screen_with_visual_y_offset(
 
 fn projected_homography_marker_fields(homographies: &ProjectedStereoHomographies) -> String {
     format!(
-        "projectionHomographyReady=true projectionAreaTransformStage=screen_space_y_offset projectionAreaWarpParity=reference_unwarped_screen_uv leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={}",
+        "projectionHomographyReady=true projectionAreaTransformStage=screen_space_y_offset projectionAreaWarpParity=reference_unwarped_screen_uv leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} {}",
         homography_token(homographies.left.surface_to_camera),
         homography_token(homographies.right.surface_to_camera),
         homography_token(homographies.left.screen_to_camera),
@@ -6114,6 +6183,7 @@ fn projected_homography_marker_fields(homographies: &ProjectedStereoHomographies
         homography_token(homographies.right.screen_to_surface),
         homography_token(homographies.left.surface_to_screen),
         homography_token(homographies.right.surface_to_screen),
+        expected_source_valid_footprint_marker_fields(homographies),
     )
 }
 
