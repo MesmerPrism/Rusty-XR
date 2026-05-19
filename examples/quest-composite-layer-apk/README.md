@@ -739,6 +739,13 @@ client/layer confirmed the extension exposure path, but did not fix stale
 native acquisition; the always-on client mode can add runtime camera-compute
 load. Use `warmup` as the lighter probe when testing whether passthrough-client
 state affects camera availability.
+The Vulkan/OpenXR path enables `XR_FB_passthrough` whenever the runtime
+advertises it, and logs the startup decision as `Rusty XR OpenXR passthrough
+extension plan ...`. Underlay witnesses are only valid when that line reports
+`available=true`, `enabled=true`, and `requestedAtStartup=true`, followed by
+`Rusty XR OpenXR passthrough started mode=Underlay`. This startup check is part
+of the projection contract because OpenXR instance extensions cannot be enabled
+after the native activity has already created the instance.
 
 ## Live Passthrough Hotload
 
@@ -884,6 +891,13 @@ the native passthrough layer with `rustyxr.projectionLayerVisible=false` when
 isolating passthrough from projection-layer rendering. ADB screenshots may still
 show protected compositor passthrough as black even when it is visible in the
 headset.
+For Vulkan/HWB underlay debugging, prefer an HZDB screenshot when available and
+cross-check logcat for `passthrough started mode=Underlay`; standard Android
+screencaps can be black or missing for protected compositor content and should
+not by themselves invalidate the underlay witness. For physical-target
+alignment, use the center cross as the primary signal. Native passthrough can
+curve or warp monitor borders near the periphery in ways that the raw custom
+projection should not try to reproduce.
 
 For Windows screen-stream validation, start a Windows media receiver and
 reverse the TCP port before launching with MediaProjection enabled:

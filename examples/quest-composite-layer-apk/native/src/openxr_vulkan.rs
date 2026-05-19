@@ -91,6 +91,20 @@ const OSC_OVERLAY_FONT_ATLAS_BYTES: &[u8] = include_bytes!(concat!(
     "/osc_diagnostics_font_atlas_u32.bin"
 ));
 
+type OpenXrVulkanGetInstanceProcAddr =
+    unsafe extern "system" fn(
+        *const std::ffi::c_void,
+        *const std::ffi::c_char,
+    ) -> Option<unsafe extern "system" fn()>;
+
+fn openxr_vulkan_get_instance_proc_addr(vk_entry: &ash::Entry) -> OpenXrVulkanGetInstanceProcAddr {
+    unsafe {
+        std::mem::transmute::<vk::PFN_vkGetInstanceProcAddr, OpenXrVulkanGetInstanceProcAddr>(
+            vk_entry.static_fn().get_instance_proc_addr,
+        )
+    }
+}
+
 fn effective_camera_import_cache_limit(limit: usize) -> usize {
     limit.clamp(2, GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX)
 }
@@ -112,24 +126,33 @@ pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
     if available_extensions.fb_display_refresh_rate {
         enabled_extensions.fb_display_refresh_rate = true;
     }
-    let depth_requested = runtime_config().environment_depth_mode.enabled();
+    let startup_config = runtime_config();
+    let depth_requested = startup_config.environment_depth_mode.enabled();
     if available_extensions.meta_environment_depth {
         enabled_extensions.meta_environment_depth = true;
     } else if depth_requested {
-        log_info("Rusty XR OpenXR environment-depth extension unavailable".to_string());
+        log_info("Rusty XR OpenXR environment-depth extension unavailable");
     }
-    let passthrough_probe_requested = runtime_config().openxr_passthrough_probe.enabled();
-    if available_extensions.fb_passthrough && passthrough_probe_requested {
+    let passthrough_probe_requested = startup_config.openxr_passthrough_probe.enabled();
+    if available_extensions.fb_passthrough {
         enabled_extensions.fb_passthrough = true;
         if available_extensions.meta_passthrough_color_lut {
             enabled_extensions.meta_passthrough_color_lut = true;
-        } else {
-            log_info("Rusty XR OpenXR passthrough color LUT extension unavailable".to_string());
+        } else if passthrough_probe_requested {
+            log_info("Rusty XR OpenXR passthrough color LUT extension unavailable");
         }
     } else if passthrough_probe_requested {
-        log_info("Rusty XR OpenXR passthrough extension unavailable".to_string());
+        log_info("Rusty XR OpenXR passthrough extension unavailable");
     }
-    let hand_mesh_particles_requested = runtime_config().hand_particle_mode.uses_openxr_hand_mesh();
+    log_info(format!(
+        "Rusty XR OpenXR passthrough extension plan available={} enabled={} requestedAtStartup={} colorLutAvailable={} colorLutEnabled={}",
+        available_extensions.fb_passthrough,
+        enabled_extensions.fb_passthrough,
+        passthrough_probe_requested,
+        available_extensions.meta_passthrough_color_lut,
+        enabled_extensions.meta_passthrough_color_lut
+    ));
+    let hand_mesh_particles_requested = startup_config.hand_particle_mode.uses_openxr_hand_mesh();
     if hand_mesh_particles_requested
         && available_extensions.ext_hand_tracking
         && available_extensions.fb_hand_tracking_mesh
@@ -978,7 +1001,7 @@ impl OpenXrEnvironmentDepthProbe {
 
     fn report_status_if_due(&mut self, frame_count: u64, last_acquire_ms: f64, acquired: bool) {
         if frame_count != self.start_frame
-            && frame_count % 120 != 0
+            && !frame_count.is_multiple_of(120)
             && !(acquired && self.total_acquired == 1)
         {
             return;
@@ -1465,7 +1488,7 @@ impl OpenXrPassthroughProbe {
                 self.last_style_signature = Some(signature);
                 if flicker_state.is_none()
                     || self.lut_flicker.switches <= 1
-                    || frame_count % 120 == 0
+                    || frame_count.is_multiple_of(120)
                 {
                     log_info(format!(
                         "Rusty XR OpenXR passthrough style applied mode={} opacity={} edge={:?} bcs=({},{},{}) colorPhase={} colorAmplitude={} lutResolution={} lutWeight={} lutFlickerHz={} flickerState={}",
@@ -2108,7 +2131,7 @@ unsafe fn run_vulkan(
         let raw = xr_instance
             .create_vulkan_instance(
                 system,
-                std::mem::transmute(vk_entry.static_fn().get_instance_proc_addr),
+                openxr_vulkan_get_instance_proc_addr(&vk_entry),
                 &vk::InstanceCreateInfo::default().application_info(&vk_app_info) as *const _
                     as *const _,
             )
@@ -2207,7 +2230,7 @@ unsafe fn run_vulkan(
         let raw = xr_instance
             .create_vulkan_device(
                 system,
-                std::mem::transmute(vk_entry.static_fn().get_instance_proc_addr),
+                openxr_vulkan_get_instance_proc_addr(&vk_entry),
                 vk_physical_device.as_raw() as _,
                 &device_info as *const _ as *const _,
             )
@@ -2490,7 +2513,7 @@ unsafe fn run_vulkan(
             && view_state_flags.contains(xr::ViewStateFlags::ORIENTATION_VALID)
             && view_state_flags.contains(xr::ViewStateFlags::POSITION_VALID);
         if !views_valid {
-            if frame_count == 0 || frame_count % 120 == 0 {
+            if frame_count.is_multiple_of(120) {
                 log_info(format!(
                     "Rusty XR skipped composition frame {} because OpenXR view pose is not valid yet viewFlags={:?} referenceFromViewFlags={:?}",
                     frame_count, view_state_flags, reference_from_view.location_flags
@@ -2579,7 +2602,7 @@ unsafe fn run_vulkan(
                     }
                     Ok(false) => {}
                     Err(error) => {
-                        if frame_count == 0 || frame_count % 120 == 0 {
+                        if frame_count.is_multiple_of(120) {
                             log_error(format!(
                                 "Rusty XR environment depth visualizer prepare failed: {error}"
                             ));
@@ -2603,7 +2626,7 @@ unsafe fn run_vulkan(
         if config.camera_tier == CameraCompositeTier::GpuProjected {
             if let Some(stereo_frame) = latest_headset_stereo_camera_gpu_frame() {
                 if last_logged_gpu_frame_index != Some(stereo_frame.index)
-                    && (stereo_frame.index == 0 || stereo_frame.index % 120 == 0)
+                    && stereo_frame.index.is_multiple_of(120)
                 {
                     let pose_source = stereo_frame
                         .left
@@ -2658,7 +2681,7 @@ unsafe fn run_vulkan(
                     ));
                     last_logged_gpu_frame_index = Some(stereo_frame.index);
                 }
-            } else if frame_count == 0 || frame_count % 120 == 0 {
+            } else if frame_count.is_multiple_of(120) {
                 let (success, failure, cache_size) = gpu_probe_counters();
                 log_info(format!(
                     "Rusty XR GPU projected camera path requestedTier={} activeTier=gpu-buffer-probe alignedProjection=false waiting for paired left/right Camera2 PRIVATE buffers; success={} failure={} descriptorProbeCacheSize={} allowCpuFallback=false",
@@ -2671,7 +2694,7 @@ unsafe fn run_vulkan(
         } else if config.camera_tier == CameraCompositeTier::GpuBufferProbe {
             if let Some(gpu_frame) = latest_headset_camera_gpu_frame() {
                 if last_logged_gpu_frame_index != Some(gpu_frame.index)
-                    && (gpu_frame.index == 0 || gpu_frame.index % 120 == 0)
+                    && gpu_frame.index.is_multiple_of(120)
                 {
                     let (_, _, cache_size) = gpu_probe_counters();
                     log_info(format!(
@@ -2730,7 +2753,7 @@ unsafe fn run_vulkan(
                     ));
                     last_logged_gpu_frame_index = Some(gpu_frame.index);
                 }
-            } else if frame_count == 0 || frame_count % 120 == 0 {
+            } else if frame_count.is_multiple_of(120) {
                 let (success, failure, cache_size) = gpu_probe_counters();
                 log_info(format!(
                     "Rusty XR GPU camera path requestedTier={} activeTier=gpu-buffer-probe alignedProjection=false waiting for Camera2 PRIVATE buffer; success={} failure={} descriptorProbeCacheSize={} allowCpuFallback={}",
@@ -2776,7 +2799,7 @@ unsafe fn run_vulkan(
                                 width: copy_resolution.width,
                                 height: copy_resolution.height,
                             });
-                            if camera_frame.index == 0 || camera_frame.index % 30 == 0 {
+                            if camera_frame.index.is_multiple_of(30) {
                                 let projection = projection_readiness(&camera_frame);
                                 log_info(format!(
                                 "Rusty XR uploaded diagnostic flat camera copy frame {} requestedTier={} activeTier=cpu-diagnostic-flat-copy source={} cameraId={} lensFacing={} score={} delivered={}x{} copy={}x{} centeredIn={}x{} ts={} uploadCadenceHz~{} metadataIntrinsics={} intrinsicsDomain={} deliveredDomain={} metadataPose={} stereoLayout={:?} monoFallback={} fallbackReason={} projectionCheck={}",
@@ -2907,7 +2930,7 @@ unsafe fn run_vulkan(
                         let camera_cadence_metrics =
                             camera_render_cadence.record(stereo_frame.index);
                         if last_logged_prepared_stereo_frame_index != Some(stereo_frame.index)
-                            && (stereo_frame.index == 0 || stereo_frame.index % 120 == 0)
+                            && stereo_frame.index.is_multiple_of(120)
                         {
                             let explicit_visual_check =
                                 controls.left_texture_transform.is_explicit_visual_check()
@@ -3000,7 +3023,7 @@ unsafe fn run_vulkan(
                             ));
                             last_logged_prepared_stereo_frame_index = Some(stereo_frame.index);
                         }
-                        if projection_active && (frame_count == 0 || frame_count % 120 == 0) {
+                        if projection_active && frame_count.is_multiple_of(120) {
                             let pose_source = stereo_frame
                                 .left
                                 .diagnostics
@@ -3127,7 +3150,7 @@ unsafe fn run_vulkan(
                         ));
                     }
                     Ok(None) => {
-                        if frame_count == 0 || frame_count % 120 == 0 {
+                        if frame_count.is_multiple_of(120) {
                             log_error(format!(
                                 "Rusty XR GPU stereo camera import unavailable requestedTier={} activeTier=gpu-buffer-probe alignedProjection=false fallbackReason={}",
                                 config.camera_tier.stable_id(),
@@ -3139,7 +3162,7 @@ unsafe fn run_vulkan(
                         }
                     }
                     Err(error) => {
-                        if frame_count == 0 || frame_count % 120 == 0 {
+                        if frame_count.is_multiple_of(120) {
                             log_error(format!(
                                 "Rusty XR GPU stereo camera import failed requestedTier={} activeTier=gpu-buffer-probe alignedProjection=false importFailure={} fallbackReason={}",
                                 config.camera_tier.stable_id(),
@@ -3163,7 +3186,7 @@ unsafe fn run_vulkan(
                     Ok(Some(import_index)) => {
                         if last_logged_prepared_gpu_frame_index.is_none()
                             || last_logged_prepared_gpu_frame_index != Some(gpu_frame.index)
-                                && gpu_frame.index % 120 == 0
+                                && gpu_frame.index.is_multiple_of(120)
                         {
                             let projection = gpu_projection_readiness(&gpu_frame);
                             log_info(format!(
@@ -3187,7 +3210,7 @@ unsafe fn run_vulkan(
                         prepared_gpu_camera = Some((gpu_frame, import_index));
                     }
                     Ok(None) => {
-                        if frame_count == 0 || frame_count % 120 == 0 {
+                        if frame_count.is_multiple_of(120) {
                             log_error(format!(
                                 "Rusty XR GPU camera import unavailable requestedTier={} activeTier=gpu-buffer-probe alignedProjection=false fallbackReason={}",
                                 config.camera_tier.stable_id(),
@@ -3199,7 +3222,7 @@ unsafe fn run_vulkan(
                         }
                     }
                     Err(error) => {
-                        if frame_count == 0 || frame_count % 120 == 0 {
+                        if frame_count.is_multiple_of(120) {
                             log_error(format!(
                                 "Rusty XR GPU camera import failed requestedTier={} activeTier=gpu-buffer-probe alignedProjection=false importFailure={} fallbackReason={}",
                                 config.camera_tier.stable_id(),
@@ -3476,7 +3499,7 @@ unsafe fn run_vulkan(
             probe.tick(frame_count);
         }
         frame_pacing_window_frames += 1;
-        if frame_count == 1 || frame_count % 120 == 0 {
+        if frame_count == 1 || frame_count.is_multiple_of(120) {
             let config = runtime_config();
             let (gpu_success, gpu_failure, gpu_cache_size) = gpu_probe_counters();
             let active_display_refresh_hz = if xr_instance.exts().fb_display_refresh_rate.is_some()
@@ -3582,6 +3605,7 @@ unsafe fn run_vulkan(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn ensure_swapchain<'a>(
     xr_instance: &xr::Instance,
     session: &xr::Session<xr::Vulkan>,
@@ -4537,7 +4561,7 @@ fn sanitized_render_scale(scale: f32) -> f32 {
 fn should_throttle_camera_upload(last_timestamp_ns: Option<i64>, timestamp_ns: i64) -> bool {
     last_timestamp_ns
         .and_then(|last_timestamp_ns| timestamp_ns.checked_sub(last_timestamp_ns))
-        .map(|delta_ns| delta_ns >= 0 && delta_ns < CAMERA_CPU_UPLOAD_MIN_INTERVAL_NS)
+        .map(|delta_ns| (0..CAMERA_CPU_UPLOAD_MIN_INTERVAL_NS).contains(&delta_ns))
         .unwrap_or(false)
 }
 
@@ -5062,6 +5086,7 @@ impl GpuCameraRenderer {
         device.cmd_draw(cmd, 3, 1, 0, 0);
     }
 
+    #[allow(clippy::too_many_arguments)]
     unsafe fn record_draw_stereo(
         &self,
         device: &ash::Device,
@@ -5618,6 +5643,7 @@ struct CameraRenderCadenceFrame {
     projection_render_hz: f64,
 }
 
+#[derive(Default)]
 struct CameraRenderCadenceStats {
     started: Option<Instant>,
     render_frame_count: u64,
@@ -5626,20 +5652,6 @@ struct CameraRenderCadenceStats {
     last_camera_frame_index: Option<u64>,
     current_consecutive_render_frames: u64,
     max_consecutive_render_frames_per_camera_frame: u64,
-}
-
-impl Default for CameraRenderCadenceStats {
-    fn default() -> Self {
-        Self {
-            started: None,
-            render_frame_count: 0,
-            distinct_frame_count: 0,
-            repeated_render_frame_count: 0,
-            last_camera_frame_index: None,
-            current_consecutive_render_frames: 0,
-            max_consecutive_render_frames_per_camera_frame: 0,
-        }
-    }
 }
 
 impl CameraRenderCadenceStats {
@@ -5816,6 +5828,7 @@ struct TemporalProjectionDiagnostics {
 }
 
 impl TemporalProjectionDiagnostics {
+    #[allow(clippy::too_many_arguments)]
     fn update(
         &mut self,
         homographies: Option<&ProjectedStereoHomographies>,
@@ -6182,9 +6195,10 @@ fn domain_to_screen_with_visual_offset(
 ) -> [[f32; 3]; 3] {
     let output_x_offset = offset_x_uv.clamp(-0.5, 0.5);
     let output_y_offset = offset_y_uv.clamp(-0.5, 0.5);
-    for column in 0..3 {
-        rows[0][column] += rows[2][column] * output_x_offset;
-        rows[1][column] += rows[2][column] * output_y_offset;
+    let projective_row = rows[2];
+    for (column, projective_value) in projective_row.into_iter().enumerate() {
+        rows[0][column] += projective_value * output_x_offset;
+        rows[1][column] += projective_value * output_y_offset;
     }
     rows
 }
@@ -7015,7 +7029,7 @@ fn align_uniform_stride(value: vk::DeviceSize, alignment: vk::DeviceSize) -> vk:
     if alignment <= 1 {
         value
     } else {
-        ((value + alignment - 1) / alignment) * alignment
+        value.div_ceil(alignment) * alignment
     }
 }
 
@@ -7043,6 +7057,7 @@ unsafe fn update_camera_projection_uniforms(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn import_camera_hardware_buffer(
     device: &ash::Device,
     memory_properties: &vk::PhysicalDeviceMemoryProperties,
@@ -7270,7 +7285,7 @@ unsafe fn create_gpu_camera_pipeline(
 }
 
 fn spirv_words(bytes: &[u8]) -> Result<Vec<u32>, String> {
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return Err("SPIR-V bytecode length is not word-aligned".to_string());
     }
     Ok(bytes
@@ -7404,19 +7419,19 @@ fn handle_android_main_event(
         }
         MainEvent::InitWindow { .. } => {
             log_info("Rusty XR Android native window initialized");
-            if let Some(state) = foreground.as_deref_mut() {
+            if let Some(state) = foreground.as_mut() {
                 state.has_window = true;
             }
         }
         MainEvent::TerminateWindow { .. } => {
             log_info("Rusty XR Android native window terminated");
-            if let Some(state) = foreground.as_deref_mut() {
+            if let Some(state) = foreground.as_mut() {
                 state.has_window = false;
             }
         }
         MainEvent::Destroy => {
             log_info("Rusty XR Android activity destroy requested");
-            if let Some(state) = foreground.as_deref_mut() {
+            if let Some(state) = foreground.as_mut() {
                 state.destroyed = true;
             }
             if let Some(running) = running {
@@ -7425,25 +7440,25 @@ fn handle_android_main_event(
         }
         MainEvent::Pause => {
             log_info("Rusty XR Android activity paused");
-            if let Some(state) = foreground.as_deref_mut() {
+            if let Some(state) = foreground.as_mut() {
                 state.resumed = false;
             }
         }
         MainEvent::Resume { .. } => {
             log_info("Rusty XR Android activity resumed");
-            if let Some(state) = foreground.as_deref_mut() {
+            if let Some(state) = foreground.as_mut() {
                 state.resumed = true;
             }
         }
         MainEvent::GainedFocus => {
             log_info("Rusty XR Android activity gained focus");
-            if let Some(state) = foreground.as_deref_mut() {
+            if let Some(state) = foreground.as_mut() {
                 state.focused = true;
             }
         }
         MainEvent::LostFocus => {
             log_info("Rusty XR Android activity lost focus");
-            if let Some(state) = foreground.as_deref_mut() {
+            if let Some(state) = foreground.as_mut() {
                 state.focused = false;
             }
         }
@@ -7527,6 +7542,7 @@ impl OscDiagnosticsOverlay {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     unsafe fn record_draw(
         &mut self,
         device: &ash::Device,
@@ -7614,7 +7630,7 @@ impl OscDiagnosticsOverlay {
                     cell_px,
                     draw: draw_stats,
                 };
-                if frame_count == 1 || frame_count % 120 == 0 {
+                if frame_count == 1 || frame_count.is_multiple_of(120) {
                     log_info(format!(
                         "Rusty XR diagnostic HUD CPU frame={} totalMs={:.3} setupMs={:.3} surfaceMs={:.3} layoutMs={:.3} buildProjectMs={:.3} uploadMs={:.3} cmdMs={:.3} instances={} rects={} textRuns={} glyphs={} approxCellPx={:.1}x{:.1}",
                         frame_count,
@@ -9795,7 +9811,7 @@ impl EnvironmentDepthVisualizer {
         }
         self.last_particle_capture_time_ns = Some(frame.capture_time_ns);
 
-        if frame.frame_count == 0 || frame.frame_count % 120 == 0 {
+        if frame.frame_count.is_multiple_of(120) {
             if scene_particle_map {
                 log_info(format!(
                     "Rusty XR environment depth scene particle map update frame={} captureTimeNs={} candidateSamples={} particleCapacity={} sampleStridePixels={} cellMeters={} hashProbeCount={} staleFadeStartFrames={} staleRetireFrames={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} mergePolicy=spatial-cell-confidence-weighted invalidSamplePolicy=preserve-existing-cells activeCorrectionPolicy=visible-free-space-ray-clear activeCorrectionConfidenceThreshold={} activeCorrectionStepMeters={} activeCorrectionMaxSteps={} activeCorrectionSurfaceKeepMeters={} occlusionPolicy=preserve-behind-current-depth depthColorMaxMeters={}",
@@ -9831,6 +9847,7 @@ impl EnvironmentDepthVisualizer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     unsafe fn record_draw(
         &mut self,
         device: &ash::Device,
@@ -9967,7 +9984,7 @@ impl EnvironmentDepthVisualizer {
             drawn_frames = drawn_frames.saturating_add(1);
             last_vertex_count = vertex_count;
         }
-        if frame.frame_count == 0 || frame.frame_count % 120 == 0 {
+        if frame.frame_count.is_multiple_of(120) {
             log_environment_depth_world_space_contract(frame, mode, resolution, last_vertex_count);
             log_info(format!(
                 "Rusty XR environment depth visualizer draw frame={} swapchainIndex={} captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} grayscale=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader depthMeshOverlay={} depthMeshDistanceColorMaxMeters={} depthMeshCellMeters={} depthMeshDiscontinuityMeters={} depthMeshProjection=local-space-depth-surface depthMeshRasterization={} depthMeshGridStridePixels={} depthMeshVertexCount={} depthMeshHistoryFramesDrawn={} depthMeshHistoryMaxAgeMs={} passthroughVisible={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth",
@@ -10003,7 +10020,7 @@ impl EnvironmentDepthVisualizer {
                 mesh_overlay || particle_overlay
             ));
         }
-        if mesh_overlay && (frame.frame_count == 0 || frame.frame_count % 120 == 0) {
+        if mesh_overlay && frame.frame_count.is_multiple_of(120) {
             log_info(format!(
                 "Rusty XR environment depth mesh overlay draw frame={} swapchainIndex={} cellMeters={} discontinuityMeters={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} depthVisualTextureTransform={} depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader projection=local-space-depth-surface rasterization=world-space-generated-grid gridStridePixels={} generatedVertexCount={} historyFramesDrawn={} historyMaxAgeMs={} dominantSurfaceGrid=true screenUvGrid=false passthroughVisible=true",
                 frame.frame_count,
@@ -10024,7 +10041,7 @@ impl EnvironmentDepthVisualizer {
                 XR_ENVIRONMENT_DEPTH_MESH_HISTORY_MAX_AGE_NS / 1_000_000
             ));
         }
-        if scene_particle_map && (frame.frame_count == 0 || frame.frame_count % 120 == 0) {
+        if scene_particle_map && frame.frame_count.is_multiple_of(120) {
             log_info(format!(
                 "Rusty XR environment depth scene particle map draw frame={} swapchainIndex={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} projection=local-space-scene-particle-map rasterization=metric-billboard-particles depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader particleCapacity={} particleVertexCount={} sampleStridePixels={} particleHalfSizeMeters={}..{} particleMask=default-disc particleOpacity=alpha-clipped-opaque cellMeters={} hashProbeCount={} staleFadeStartFrames={} staleRetireFrames={} confidenceSource=depth-discontinuity confidenceThresholdMeters={} mapPolicy=spatial-hash-local-cells invalidSamplePolicy=preserve-existing-cells activeCorrectionPolicy=visible-free-space-ray-clear activeCorrectionConfidenceThreshold={} activeCorrectionStepMeters={} activeCorrectionMaxSteps={} activeCorrectionSurfaceKeepMeters={} occlusionPolicy=preserve-behind-current-depth passthroughVisible=true",
                 frame.frame_count,
@@ -10051,7 +10068,7 @@ impl EnvironmentDepthVisualizer {
                 XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_MAX_STEPS,
                 XR_ENVIRONMENT_DEPTH_SCENE_PARTICLE_ACTIVE_CORRECTION_SURFACE_KEEP_METERS
             ));
-        } else if particle_overlay && (frame.frame_count == 0 || frame.frame_count % 120 == 0) {
+        } else if particle_overlay && frame.frame_count.is_multiple_of(120) {
             log_info(format!(
                 "Rusty XR environment depth particle overlay draw frame={} swapchainIndex={} distanceColorMaxMeters={} distanceColorSource=environment-depth-meters captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} projection=local-space-retained-particles rasterization=metric-billboard-particles depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader particleCapacity={} particleVertexCount={} sampleStridePixels={} particleHalfSizeMeters={}..{} particleMask=default-disc particleOpacity=alpha-clipped-opaque confidenceSource=depth-discontinuity confidenceThresholdMeters={} passthroughVisible=true",
                 frame.frame_count,

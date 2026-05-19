@@ -127,6 +127,10 @@ pub(crate) struct HeadsetCameraFrameDiagnostics {
     pub(crate) pose_source: Option<String>,
     pub(crate) pose_coordinate_convention: Option<String>,
     pub(crate) lens_pose_reference_label: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "retained in the camera contract for analyzer-side source metadata"
+    )]
     pub(crate) diagnostic_source: Option<bool>,
     pub(crate) synthetic_projection_profile: Option<String>,
     pub(crate) projection_geometry_profile: Option<String>,
@@ -1460,7 +1464,7 @@ fn store_headset_camera_frame(
             diagnostics: diagnostics.clone(),
             rgba,
         });
-        if index == 0 || index % 30 == 0 {
+        if index.is_multiple_of(30) {
             #[cfg(target_os = "android")]
             log_info(format!(
                 "Rusty XR received headset camera frame {} source={} cameraId={} size={}x{} ts={} lensFacing={} lensRank={} score={} transport={} requestedTier={} activeTier={} stereoLayout={:?} requestedStereoLayout={} intrinsics={} pose={} poseSource={} fallbackReason={}",
@@ -1560,7 +1564,7 @@ fn store_headset_camera_gpu_frame(
             #[cfg(target_os = "android")]
             hardware_buffer: gpu_buffer.hardware_buffer,
         });
-        if index == 0 || index % 120 == 0 {
+        if index.is_multiple_of(120) {
             let _status = CameraProjectionStatus::fallback(
                 diagnostics.requested_tier,
                 CameraCompositeTier::GpuBufferProbe,
@@ -1744,7 +1748,7 @@ fn store_headset_stereo_camera_gpu_frame(
             midpoint_timestamp_ns,
         });
 
-        if index == 0 || index % 120 == 0 {
+        if index.is_multiple_of(120) {
             let _avg_delta = if state.stereo_paired_count > 0 {
                 state.stereo_pair_delta_total_ns / state.stereo_paired_count
             } else {

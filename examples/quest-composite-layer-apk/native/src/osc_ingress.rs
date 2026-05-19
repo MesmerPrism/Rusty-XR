@@ -150,10 +150,9 @@ pub(crate) fn ingress_snapshot() -> OscIngressSnapshot {
         .get_or_init(|| Mutex::new(OscIngressSnapshot::default()))
         .lock()
         .map(|snapshot| snapshot.clone())
-        .unwrap_or_else(|_| {
-            let mut snapshot = OscIngressSnapshot::default();
-            snapshot.last_error = Some("snapshot lock failed".to_string());
-            snapshot
+        .unwrap_or_else(|_| OscIngressSnapshot {
+            last_error: Some("snapshot lock failed".to_string()),
+            ..OscIngressSnapshot::default()
         })
 }
 
@@ -229,7 +228,7 @@ fn listen_loop(bind_addr: String, max_packet_bytes: usize, running: Arc<AtomicBo
                     snapshot.last_packet_summary = Some(truncate_for_overlay(&summary, 160));
                     snapshot.last_error = None;
                 });
-                if packet_count <= 5 || packet_count % 60 == 0 {
+                if packet_count <= 5 || packet_count.is_multiple_of(60) {
                     log_info(format!(
                         "Rusty XR OSC packet received count={} peer={} bytes={} {}",
                         packet_count, received.peer_addr, received.byte_len, summary

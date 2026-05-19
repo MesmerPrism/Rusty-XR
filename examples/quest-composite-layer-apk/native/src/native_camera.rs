@@ -665,7 +665,7 @@ impl NativeStereoContext {
                 self.right_received_count.fetch_add(1, Ordering::Relaxed) + 1
             }
         };
-        if side_count <= 5 || side_count % 30 == 0 {
+        if side_count <= 5 || side_count.is_multiple_of(30) {
             log_info(format!(
                 "Rusty XR native ACamera side frame side={} count={} ts={} cameraId={} readerMaxImages={}",
                 match side {
@@ -776,7 +776,7 @@ impl NativeStereoContext {
         let pair_index = self.pair_index.fetch_add(1, Ordering::Relaxed);
         if !self.logged_first_pair.swap(true, Ordering::Relaxed)
             || pair_index < 5
-            || pair_index % 30 == 0
+            || pair_index.is_multiple_of(30)
         {
             log_info(format!(
                 "Rusty XR native ACamera publishing stereo pair index={} leftTs={} rightTs={} deltaNs={} leftId={} rightId={} size={}x{} leftReceived={} rightReceived={} readerMaxImages={}",

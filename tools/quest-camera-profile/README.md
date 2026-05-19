@@ -112,6 +112,10 @@ a missing/black opacity-zero reference is owned by projection-area mapping
 because the underlay witness did not expose the physical target. Large
 single-marker deltas can remain analyzer evidence when the correlation result
 is stable, especially when the physical screen shows duplicated target content.
+For native passthrough comparisons, the green center cross is the primary
+alignment signal. Full-frame border/correlation evidence is secondary because
+the native compositor can warp the screen perimeter in ways that a raw custom
+Camera2 projection is not expected to reproduce.
 
 ## Camera Readiness Preflight
 

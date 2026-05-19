@@ -243,6 +243,19 @@ screen-space analyzer after each geometry change.
 Transparent GL/OES pixels show compositor background unless a runtime
 passthrough underlay is active for that app. Treat that as a composition
 configuration difference, not a projection-area difference.
+For Vulkan/HWB, `openxrPassthroughProbe=underlay` must be visible to the native
+runtime before the OpenXR instance is created, because `XR_FB_passthrough` is an
+instance extension. A valid HWB underlay witness logs an OpenXR passthrough
+extension plan with `available=true`, `enabled=true`, and
+`requestedAtStartup=true`, then logs `passthrough started mode=Underlay`. If the
+custom projection renders but an opacity-zero native-underlay witness is
+black/HUD-only, first check this startup-extension path before changing
+projection geometry.
+When comparing a physical target against native passthrough, use a clean
+center-cross feature as the primary alignment target. The native passthrough
+compositor can apply additional peripheral warp, so curved monitor borders or
+edge residuals are expected witness semantics unless the center target is also
+misaligned.
 
 ## Full Public Suite
 

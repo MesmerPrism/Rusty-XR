@@ -163,6 +163,9 @@ public final class CompositeLayerActivity extends NativeActivity {
     @Override
     protected void onCreate(Bundle bundle) {
         Log.i(TAG, "CompositeLayerActivity onCreate before NativeActivity");
+        boolean cameraEnabled = shouldStartHeadsetCamera();
+        boolean mediaProjectionEnabled = shouldRequestMediaProjection();
+        sendRuntimeConfig(cameraEnabled, mediaProjectionEnabled);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(bundle);
         Log.i(TAG, "CompositeLayerActivity onCreate after NativeActivity");
@@ -180,10 +183,6 @@ public final class CompositeLayerActivity extends NativeActivity {
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[] { Manifest.permission.POST_NOTIFICATIONS }, NOTIFICATION_PERMISSION_REQUEST);
         }
-
-        boolean cameraEnabled = shouldStartHeadsetCamera();
-        boolean mediaProjectionEnabled = shouldRequestMediaProjection();
-        sendRuntimeConfig(cameraEnabled, mediaProjectionEnabled);
 
         if (cameraEnabled) {
             long cameraStartDelay = cameraStartDelayMs();

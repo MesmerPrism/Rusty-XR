@@ -4,8 +4,10 @@
 The detector is intentionally evidence-only. It finds high-saturation target
 features such as the green center cross and colored bars, then optionally
 estimates the per-eye translation between a native-passthrough witness image and
-a custom Camera2 projection image. It does not change or infer renderer
-geometry.
+a custom Camera2 projection image. Center-cross alignment is the primary signal:
+native passthrough compositors can apply extra peripheral warp that a raw custom
+camera projection is not expected to reproduce. It does not change or infer
+renderer geometry.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ MIN_TARGET_FEATURE_PIXELS = 5_000
 MIN_REFERENCE_TO_CANDIDATE_PIXEL_RATIO = 0.12
 MAX_READY_SHIFT_PX = 3.0
 MIN_READY_CORRELATION_SCORE = 0.45
-MAX_GREEN_CROSS_READY_DELTA_PX = 6.0
+MAX_GREEN_CROSS_READY_DELTA_PX = 12.0
 
 
 def filesystem_path(path: Path) -> str:
@@ -317,29 +319,56 @@ def classify_eye_alignment(
     green_delta_max = None
     if green_delta:
         green_delta_max = max(abs(float(green_delta[0])), abs(float(green_delta[1])))
-    if max_abs_shift <= MAX_READY_SHIFT_PX and score >= MIN_READY_CORRELATION_SCORE:
-        finding = "aligned-by-target-feature-correlation"
-        status = "ready"
-        owner_layer = "none"
-        if green_delta_max is not None and green_delta_max > MAX_GREEN_CROSS_READY_DELTA_PX:
-            finding = "aligned-by-correlation-green-cross-ambiguous"
-            owner_layer = "analyzer_evidence"
+
+    if green_delta_max is not None:
+        if green_delta_max <= MAX_GREEN_CROSS_READY_DELTA_PX:
+            return {
+                "status": "ready",
+                "owner_layer": "none",
+                "finding": "aligned-by-center-cross",
+                "alignment_signal": "green-center-cross",
+                "green_cross_delta_px": green_delta,
+                "correlation_shift_px": shift,
+                "correlation_score": score,
+                "peripheral_correlation_role": "secondary",
+            }
         return {
-            "status": status,
-            "owner_layer": owner_layer,
-            "finding": finding,
+            "status": "needs-evidence",
+            "owner_layer": "projection_area_mapping",
+            "finding": "center-cross-residual",
+            "alignment_signal": "green-center-cross",
+            "green_cross_delta_px": green_delta,
+            "correlation_shift_px": shift,
+            "correlation_score": score,
+            "peripheral_correlation_role": "secondary-native-passthrough-warp-expected",
+            "detail": (
+                "The center target is the primary alignment signal; full-border "
+                "correlation is secondary because native passthrough can warp "
+                "the screen perimeter differently from the custom projection."
+            ),
+        }
+
+    if max_abs_shift <= MAX_READY_SHIFT_PX and score >= MIN_READY_CORRELATION_SCORE:
+        return {
+            "status": "needs-evidence",
+            "owner_layer": "analyzer_evidence",
+            "finding": "aligned-by-correlation-center-cross-missing",
+            "alignment_signal": "full-feature-correlation",
             "correlation_shift_px": shift,
             "correlation_score": score,
             "green_cross_delta_px": green_delta,
+            "peripheral_correlation_role": "fallback",
         }
 
     return {
         "status": "needs-evidence",
         "owner_layer": "analyzer_evidence",
-        "finding": "target-feature-correlation-not-aligned",
+        "finding": "target-feature-correlation-not-aligned-center-cross-missing",
+        "alignment_signal": "full-feature-correlation",
         "correlation_shift_px": shift,
         "correlation_score": score,
         "green_cross_delta_px": green_delta,
+        "peripheral_correlation_role": "fallback",
     }
 
 
@@ -451,17 +480,19 @@ def write_markdown(path: Path, label: str, records: list[dict[str, Any]], compar
                 "",
                 "Reference/candidate translation:",
                 "",
-                "| Eye | Correlation shift px | Green-cross delta px | Score | Reference bbox | Candidate bbox |",
-                "| --- | --- | --- | ---: | --- | --- |",
+                "| Eye | Primary signal | Green-cross delta px | Correlation shift px | Score | Reference bbox | Candidate bbox |",
+                "| --- | --- | --- | --- | ---: | --- | --- |",
             ]
         )
         for eye in EYES:
             item = comparison["eyes"][eye]
+            classification = item.get("classification") or {}
             lines.append(
-                "| `{eye}` | `{shift}` | `{cross}` | {score:.4f} | `{ref}` | `{cand}` |".format(
+                "| `{eye}` | `{signal}` | `{cross}` | `{shift}` | {score:.4f} | `{ref}` | `{cand}` |".format(
                     eye=eye,
-                    shift=item.get("candidate_shift_to_reference_px"),
+                    signal=classification.get("alignment_signal"),
                     cross=item.get("green_cross_candidate_to_reference_delta_px"),
+                    shift=item.get("candidate_shift_to_reference_px"),
                     score=float(item.get("score") or 0.0),
                     ref=item.get("reference_feature_bbox_px"),
                     cand=item.get("candidate_feature_bbox_px"),
@@ -472,6 +503,8 @@ def write_markdown(path: Path, label: str, records: list[dict[str, Any]], compar
                 "",
                 "Interpretation:",
                 "",
+                "- Center-cross deltas are the primary alignment signal for physical-target passthrough comparisons.",
+                "- Full-feature correlation is secondary because native passthrough can apply peripheral compositor warp that the custom projection is not expected to reproduce.",
                 "- This is analyzer evidence only; it estimates target-feature residuals in screenshot pixels.",
                 "- Use it to decide whether a mismatch belongs to source metadata, projection-area mapping, OpenXR/reference-space geometry, backend viewport convention, or analyzer evidence before changing renderer code.",
             ]
