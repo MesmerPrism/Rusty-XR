@@ -798,6 +798,11 @@ mod android {
                         projection_area_scale,
                     )
                 });
+                let openxr_projection_fields = openxr_projection_contract_fields(
+                    "LOCAL",
+                    frame_state.predicted_display_time,
+                    &views,
+                );
                 render_eye_swapchains(
                     &egl,
                     &mut fbo,
@@ -817,6 +822,7 @@ mod android {
                     projection_area_opacity,
                     projection_border_opacity,
                     camera_color_controls,
+                    &openxr_projection_fields,
                 )?;
 
                 for (index, eye) in swapchains.iter().enumerate() {
@@ -1323,6 +1329,7 @@ mod android {
         projection_area_opacity: f32,
         projection_border_opacity: f32,
         camera_color_controls: OesColorControls,
+        openxr_projection_fields: &str,
     ) -> Result<(), String> {
         egl.make_current()?;
         for eye in swapchains {
@@ -1398,6 +1405,7 @@ mod android {
                                     frame_count,
                                     source.source_sequence,
                                     eye_projection,
+                                    openxr_projection_fields,
                                 );
                             }
                             fbo_status
@@ -4587,6 +4595,7 @@ void main() {
         frame_count: u64,
         source_sequence: u64,
         projection: Option<&OesEyeProjection>,
+        openxr_projection_fields: &str,
     ) {
         let Some(eye) = eye_from_view_index(view_index) else {
             return;
@@ -4634,6 +4643,7 @@ void main() {
                     "{OES_COPY_RENDER_PATH}:frame={frame_count}:source_sequence={source_sequence}"
                 )
             });
+        let source_label = format!("{source_label} {openxr_projection_fields}");
         for (stage, rows) in stage_rows {
             let row = ProjectionStageTokenRow::new("rusty_xr_gl_oes", eye, stage)
                 .with_rows(rows)
@@ -4719,6 +4729,58 @@ void main() {
         format!(
             "{:.6},{:.6},{:.6},{:.6}",
             rect[0], rect[1], rect[2], rect[3]
+        )
+    }
+
+    fn vec4_token(values: [f32; 4]) -> String {
+        format!(
+            "[{:.6},{:.6},{:.6},{:.6}]",
+            values[0], values[1], values[2], values[3]
+        )
+    }
+
+    fn fov_tangents(fov: xr::Fovf) -> [f32; 4] {
+        [
+            fov.angle_left.tan(),
+            fov.angle_right.tan(),
+            fov.angle_up.tan(),
+            fov.angle_down.tan(),
+        ]
+    }
+
+    fn pose_position(pose: xr::Posef) -> [f32; 4] {
+        [pose.position.x, pose.position.y, pose.position.z, 1.0]
+    }
+
+    fn pose_orientation(pose: xr::Posef) -> [f32; 4] {
+        [
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w,
+        ]
+    }
+
+    fn openxr_projection_contract_fields(
+        openxr_reference_space: &str,
+        predicted_display_time: xr::Time,
+        views: &[xr::View],
+    ) -> String {
+        let Some(left) = views.first() else {
+            return format!(
+                "referenceSpace=app-reference-space openxrReferenceSpace={openxr_reference_space} displayTimeSource=not-logged predictedDisplayTimeSource=not-logged predictedDisplayTimeNs=not-logged viewPoseFovSource=not-logged"
+            );
+        };
+        let right = views.get(1).unwrap_or(left);
+        format!(
+            "referenceSpace=app-reference-space openxrReferenceSpace={openxr_reference_space} displayTimeSource=predicted-display-time predictedDisplayTimeSource=predicted-display-time predictedDisplayTimeNs={} viewPoseFovSource=xrLocateViews leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
+            predicted_display_time.as_nanos(),
+            vec4_token(fov_tangents(left.fov)),
+            vec4_token(fov_tangents(right.fov)),
+            vec4_token(pose_position(left.pose)),
+            vec4_token(pose_position(right.pose)),
+            vec4_token(pose_orientation(left.pose)),
+            vec4_token(pose_orientation(right.pose))
         )
     }
 

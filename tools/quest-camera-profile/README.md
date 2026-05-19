@@ -60,12 +60,39 @@ python .\tools\quest-camera-profile\Build-DepthWorldSpaceContract.py `
 ```
 
 When comparing the depth path to live Camera2 or a passthrough-underlay witness,
-pass the relevant `projection-coordinate-contract-summary.json` files with
-`--camera-contract-summary` and `--passthrough-contract-summary`. The depth
-artifact records the intended chain
+pass the relevant `projection-coordinate-contracts.jsonl` files with
+`--camera-contracts` and `--passthrough-contracts`. The depth artifact records
+the intended chain
 `depth UV -> depth view ray -> app reference-space point -> render-eye screen`,
 while screenshot or passthrough evidence remains a witness rather than the
 coordinate source of truth.
+
+After projection and depth artifacts exist, build the joined comparison matrix
+from the JSONL records:
+
+```powershell
+python .\tools\quest-camera-profile\Build-ProjectionDepthComparison.py `
+  --camera-contracts .\artifacts\<live-direct>\projection-coordinate-contracts.jsonl `
+  --camera-contracts .\artifacts\<live-broker>\projection-coordinate-contracts.jsonl `
+  --passthrough-contracts .\artifacts\<passthrough>\projection-coordinate-contracts.jsonl `
+  --depth-contracts .\artifacts\<depth>\depth-world-space-contracts.jsonl `
+  --out-dir .\artifacts\<joined-comparison>
+```
+
+The joined artifact writes JSONL, JSON, and Markdown summaries by lane and eye.
+It assigns every gap to the ledger owners: source metadata, texture/upload
+convention, projection-area mapping, OpenXR reference-space geometry, backend
+viewport convention, or analyzer evidence.
+
+Projection rows are joinable with the depth/world-space lane only when they
+carry the OpenXR contract fields emitted by the renderers:
+`referenceSpace=app-reference-space`, `openxrReferenceSpace=<runtime-label>`,
+`displayTimeSource=predicted-display-time`, `predictedDisplayTimeNs`,
+`viewPoseFovSource`, and per-eye `left/rightRenderFovTangents`,
+`left/rightRenderPosition`, and `left/rightRenderOrientation`. The depth
+world-space contract records the matching `displayTimeNs` used for environment
+depth acquire. Missing fields remain owned by OpenXR reference-space geometry,
+not by the analyzer or blur pipeline.
 
 ## Camera Readiness Preflight
 
@@ -119,6 +146,9 @@ That mode is an active operator-owned guard. It preserves `Virtual proximity
 state: CLOSE`, re-applies `svc power stayon true`, wakes the display when power
 readback drifts, and keeps reporting the repair counters through
 `shellHelper.diagnostics.proximity_watchdog` until the shell helper is stopped.
+When coordinating shared local resources, record that guard as non-exclusive
+keep-awake/vitals state; reserve the headset and ADB only for active installs,
+launches, screenshots, log capture, or validation actions.
 
 The raw-stack suite also checks passive readiness before each mode. A mode is
 recorded as failed before launch when ADB is not in `device` state, wakefulness

@@ -51,6 +51,57 @@ pub struct XrDisplayEyeView {
 pub struct XrDisplayViews {
     pub left: XrDisplayEyeView,
     pub right: XrDisplayEyeView,
+    pub predicted_display_time_ns: i64,
+    pub reference_space: &'static str,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct XrProjectionContract {
+    pub reference_space: &'static str,
+    pub openxr_reference_space: &'static str,
+    pub display_time_source: &'static str,
+    pub predicted_display_time_ns: Option<i64>,
+    pub view_pose_fov_source: &'static str,
+    pub left_render_fov_tangents: Option<[f32; 4]>,
+    pub right_render_fov_tangents: Option<[f32; 4]>,
+    pub left_render_position: Option<[f32; 4]>,
+    pub right_render_position: Option<[f32; 4]>,
+    pub left_render_orientation: Option<[f32; 4]>,
+    pub right_render_orientation: Option<[f32; 4]>,
+}
+
+impl XrProjectionContract {
+    fn missing() -> Self {
+        Self {
+            reference_space: "not-logged",
+            openxr_reference_space: "not-logged",
+            display_time_source: "not-logged",
+            predicted_display_time_ns: None,
+            view_pose_fov_source: "not-logged",
+            left_render_fov_tangents: None,
+            right_render_fov_tangents: None,
+            left_render_position: None,
+            right_render_position: None,
+            left_render_orientation: None,
+            right_render_orientation: None,
+        }
+    }
+
+    fn from_views(views: XrDisplayViews) -> Self {
+        Self {
+            reference_space: "app-reference-space",
+            openxr_reference_space: views.reference_space,
+            display_time_source: "predicted-display-time",
+            predicted_display_time_ns: Some(views.predicted_display_time_ns),
+            view_pose_fov_source: "makepad-xr-XrUpdateEvent",
+            left_render_fov_tangents: Some(fov_tangents(views.left)),
+            right_render_fov_tangents: Some(fov_tangents(views.right)),
+            left_render_position: Some(position_vec4(views.left)),
+            right_render_position: Some(position_vec4(views.right)),
+            left_render_orientation: Some(orientation_vec4(views.left)),
+            right_render_orientation: Some(orientation_vec4(views.right)),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -115,6 +166,7 @@ pub struct StereoProjectionPlan {
     pub right_screen_to_surface_h: [[f32; 3]; 3],
     pub projection_homography_ready: bool,
     pub runtime_xr_view_state_ready: bool,
+    pub openxr_contract: XrProjectionContract,
 }
 
 #[derive(Clone, Debug)]
@@ -204,6 +256,7 @@ impl StereoProjectionPlan {
             right_screen_to_surface_h: homographies.right_screen_to_surface_h,
             projection_homography_ready,
             runtime_xr_view_state_ready: false,
+            openxr_contract: XrProjectionContract::missing(),
         }
     }
 
@@ -251,6 +304,7 @@ impl StereoProjectionPlan {
             right_screen_to_surface_h: homographies.right_screen_to_surface_h,
             projection_homography_ready: projection_metadata_ready,
             runtime_xr_view_state_ready: true,
+            openxr_contract: XrProjectionContract::from_views(views),
         })
     }
 }
@@ -303,6 +357,7 @@ pub fn broker_physical_projection_plan_from_xr_views(
         right_screen_to_surface_h: homographies.right_screen_to_surface_h,
         projection_homography_ready: true,
         runtime_xr_view_state_ready: true,
+        openxr_contract: XrProjectionContract::from_views(views),
     })
 }
 
@@ -322,7 +377,7 @@ pub fn update_stereo_projection_from_xr_views(views: XrDisplayViews) -> bool {
     }
     if !XR_VIEW_PROJECTION_MARKER_EMITTED.swap(true, Ordering::AcqRel) {
         emit_stereo_projection_marker(&format!(
-            "phase=xr-view-projection status=ok runtimeXrViewStateReady=true projectionMappingReady={} alignedProjection=false poseSource={} sourceEyeMapping={} coordinateChain={} displayLeftCameraId={} displayRightCameraId={} projectionHomographyReady={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=runtime_openxr_view_screen_to_camera_homography fallbackReason={}",
+            "phase=xr-view-projection status=ok runtimeXrViewStateReady=true projectionMappingReady={} alignedProjection=false poseSource={} sourceEyeMapping={} coordinateChain={} displayLeftCameraId={} displayRightCameraId={} projectionHomographyReady={} {} leftSurfaceToScreenH={} rightSurfaceToScreenH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} projectionUvCorrection=runtime_openxr_view_screen_to_camera_homography fallbackReason={}",
             plan.projection_homography_ready,
             plan.pose_source,
             plan.source_eye_mapping,
@@ -330,6 +385,7 @@ pub fn update_stereo_projection_from_xr_views(views: XrDisplayViews) -> bool {
             marker_token(&plan.left_camera_id),
             marker_token(&plan.right_camera_id),
             plan.projection_homography_ready,
+            openxr_contract_marker_fields(plan.openxr_contract),
             homography_token(plan.left_surface_to_screen_h),
             homography_token(plan.right_surface_to_screen_h),
             homography_token(plan.left_screen_to_camera_h),
@@ -422,6 +478,7 @@ pub fn broker_synthetic_projection_plan_from_xr_views(
         right_screen_to_surface_h,
         projection_homography_ready: true,
         runtime_xr_view_state_ready: true,
+        openxr_contract: XrProjectionContract::from_views(views),
     })
 }
 
@@ -492,6 +549,7 @@ pub fn broker_full_frame_projection_plan_from_xr_views(
         right_screen_to_surface_h,
         projection_homography_ready: true,
         runtime_xr_view_state_ready: true,
+        openxr_contract: XrProjectionContract::from_views(views),
     })
 }
 
@@ -1516,6 +1574,28 @@ fn fov_aspect(view: XrDisplayEyeView) -> Option<f32> {
     }
 }
 
+fn fov_tangents(view: XrDisplayEyeView) -> [f32; 4] {
+    [
+        view.angle_left.tan(),
+        view.angle_right.tan(),
+        view.angle_up.tan(),
+        view.angle_down.tan(),
+    ]
+}
+
+fn position_vec4(view: XrDisplayEyeView) -> [f32; 4] {
+    [view.position[0], view.position[1], view.position[2], 1.0]
+}
+
+fn orientation_vec4(view: XrDisplayEyeView) -> [f32; 4] {
+    [
+        view.orientation[0],
+        view.orientation[1],
+        view.orientation[2],
+        view.orientation[3],
+    ]
+}
+
 fn display_eye_basis(x_offset_meters: f32) -> Option<CameraBasis> {
     CameraBasis::new(
         Vec3::new(x_offset_meters, 0.0, 0.0),
@@ -1836,6 +1916,43 @@ fn homography_token(rows: [[f32; 3]; 3]) -> String {
         .map(|value| format!("{value:.6}"))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn vec4_token(values: [f32; 4]) -> String {
+    format!(
+        "[{:.6},{:.6},{:.6},{:.6}]",
+        values[0], values[1], values[2], values[3]
+    )
+}
+
+fn optional_vec4_token(values: Option<[f32; 4]>) -> String {
+    values
+        .map(vec4_token)
+        .unwrap_or_else(|| "not-logged".to_string())
+}
+
+fn optional_i64_token(value: Option<i64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "not-logged".to_string())
+}
+
+fn openxr_contract_marker_fields(contract: XrProjectionContract) -> String {
+    format!(
+        "referenceSpace={} openxrReferenceSpace={} displayTimeSource={} predictedDisplayTimeSource={} predictedDisplayTimeNs={} viewPoseFovSource={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
+        marker_token(contract.reference_space),
+        marker_token(contract.openxr_reference_space),
+        marker_token(contract.display_time_source),
+        marker_token(contract.display_time_source),
+        optional_i64_token(contract.predicted_display_time_ns),
+        marker_token(contract.view_pose_fov_source),
+        optional_vec4_token(contract.left_render_fov_tangents),
+        optional_vec4_token(contract.right_render_fov_tangents),
+        optional_vec4_token(contract.left_render_position),
+        optional_vec4_token(contract.right_render_position),
+        optional_vec4_token(contract.left_render_orientation),
+        optional_vec4_token(contract.right_render_orientation),
+    )
 }
 
 fn marker_token(value: &str) -> String {

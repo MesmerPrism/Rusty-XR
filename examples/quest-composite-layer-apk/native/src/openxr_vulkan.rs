@@ -766,6 +766,7 @@ struct EnvironmentDepthVisualFrame {
     near_z: f32,
     far_z: f32,
     capture_time_ns: i64,
+    display_time_ns: i64,
     left_fov_tangents: [f32; 4],
     right_fov_tangents: [f32; 4],
     left_render_fov_tangents: [f32; 4],
@@ -928,6 +929,7 @@ impl OpenXrEnvironmentDepthProbe {
                 near_z: image.near_z,
                 far_z: image.far_z,
                 capture_time_ns,
+                display_time_ns: display_time.as_nanos(),
                 left_fov_tangents: fov_tangents(image.views[0].fov),
                 right_fov_tangents: fov_tangents(image.views[1].fov),
                 left_render_fov_tangents: fov_tangents(left_render_fov),
@@ -3040,17 +3042,23 @@ unsafe fn run_vulkan(
                                     stereo_frame.right.width,
                                     stereo_frame.right.height,
                                 );
+                            let openxr_contract_fields = projection_openxr_contract_fields(
+                                reference_space_label,
+                                frame_state.predicted_display_time,
+                                &views,
+                            );
                             let orientation_accepted =
                                 controls.left_texture_transform.is_explicit_visual_check()
                                     && controls.right_texture_transform.is_explicit_visual_check();
                             log_info(format!(
-                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
+                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} {} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
                                 stereo_frame.index,
                                 frame_count,
                                 session_focused,
                                 aligned_projection,
                                 projection_homography_fields,
                                 projection_source_metadata_fields,
+                                openxr_contract_fields,
                                 pose_source,
                                 pose_reference,
                                 pose_convention,
@@ -10241,7 +10249,7 @@ fn log_environment_depth_world_space_contract(
     vertex_count: u32,
 ) {
     log_info(format!(
-        "Rusty XR environment depth world-space contract schema=rusty.xr.depth_world_space_contract.v1 status=ready sourceKind=runtime-environment-depth mode={} renderPath={} sampleIdentityPolicy={} depthUvOrigin=normalized-depth-image depthToRayOwner=XrEnvironmentDepthImageViewMETA.fov metricDepthOwner=near-far-depth-buffer-to-meters referencePointOwner=depth-view-pose-composed-into-app-reference-space renderEyeOwner=current-openxr-view-pose-fov chain=depth-uv>depth-view-ray>metric-depth-view-point>app-reference-space-point>render-eye-view>screen depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} swapchainIndex={} nearZ={} farZ={} captureTimeNs={} depthVisualTextureTransform={} depthPoseSource=view-space-composed leftDepthFovTangents={} rightDepthFovTangents={} leftDepthPosition={} rightDepthPosition={} leftDepthOrientation={} rightDepthOrientation={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={} renderTarget={}x{} vertexCount={} projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader passthroughVisible={} confidenceSource=depth-discontinuity-or-none confidencePayload=false",
+        "Rusty XR environment depth world-space contract schema=rusty.xr.depth_world_space_contract.v1 status=ready sourceKind=runtime-environment-depth mode={} renderPath={} sampleIdentityPolicy={} depthUvOrigin=normalized-depth-image depthToRayOwner=XrEnvironmentDepthImageViewMETA.fov metricDepthOwner=near-far-depth-buffer-to-meters referencePointOwner=depth-view-pose-composed-into-app-reference-space renderEyeOwner=current-openxr-view-pose-fov chain=depth-uv>depth-view-ray>metric-depth-view-point>app-reference-space-point>render-eye-view>screen depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} swapchainIndex={} nearZ={} farZ={} captureTimeNs={} displayTimeSource=predicted-display-time displayTimeNs={} depthVisualTextureTransform={} depthPoseSource=view-space-composed leftDepthFovTangents={} rightDepthFovTangents={} leftDepthPosition={} rightDepthPosition={} leftDepthOrientation={} rightDepthOrientation={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={} renderTarget={}x{} vertexCount={} projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader passthroughVisible={} confidenceSource=depth-discontinuity-or-none confidencePayload=false",
         mode.stable_id(),
         environment_depth_world_space_render_path(mode),
         environment_depth_sample_identity_policy(mode),
@@ -10252,6 +10260,7 @@ fn log_environment_depth_world_space_contract(
         frame.near_z,
         frame.far_z,
         frame.capture_time_ns,
+        frame.display_time_ns,
         XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL,
         format_vec4(frame.left_fov_tangents),
         format_vec4(frame.right_fov_tangents),
@@ -10276,6 +10285,31 @@ fn format_vec4(values: [f32; 4]) -> String {
     format!(
         "[{:.6},{:.6},{:.6},{:.6}]",
         values[0], values[1], values[2], values[3]
+    )
+}
+
+fn projection_openxr_contract_fields(
+    openxr_reference_space: &str,
+    predicted_display_time: xr::Time,
+    views: &[xr::View],
+) -> String {
+    let Some(left) = views.first() else {
+        return format!(
+            "referenceSpace=app-reference-space openxrReferenceSpace={} displayTimeSource=not-logged predictedDisplayTimeSource=not-logged predictedDisplayTimeNs=not-logged viewPoseFovSource=not-logged",
+            marker_token(Some(openxr_reference_space), "unknown")
+        );
+    };
+    let right = views.get(1).unwrap_or(left);
+    format!(
+        "referenceSpace=app-reference-space openxrReferenceSpace={} displayTimeSource=predicted-display-time predictedDisplayTimeSource=predicted-display-time predictedDisplayTimeNs={} viewPoseFovSource=xrLocateViews leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
+        marker_token(Some(openxr_reference_space), "unknown"),
+        predicted_display_time.as_nanos(),
+        format_vec4(fov_tangents(left.fov)),
+        format_vec4(fov_tangents(right.fov)),
+        format_vec4(pose_position(left.pose)),
+        format_vec4(pose_position(right.pose)),
+        format_vec4(pose_orientation(left.pose)),
+        format_vec4(pose_orientation(right.pose))
     )
 }
 

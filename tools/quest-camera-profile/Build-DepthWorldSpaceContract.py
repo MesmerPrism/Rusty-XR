@@ -230,6 +230,7 @@ def build_contract(fields: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
     required = {
         "depth-texture-size": depth_size,
         "near-z": near_z,
+        "display-time": parse_int(fields.get("displayTimeNs")),
         "left-depth-pose": left_depth_pose,
         "right-depth-pose": right_depth_pose,
         "left-depth-fov": left_depth_fov,
@@ -263,6 +264,8 @@ def build_contract(fields: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
             "far_z_infinite": far_z_infinite,
         },
         "runtime_capture_time_ns": parse_int(fields.get("captureTimeNs")),
+        "runtime_display_time_ns": parse_int(fields.get("displayTimeNs")),
+        "display_time_source": fields.get("displayTimeSource", "predicted-display-time"),
         "layer_count": parse_int(fields.get("depthTextureLayers")) or 0,
         "left_depth_view": {
             "eye": "Left",

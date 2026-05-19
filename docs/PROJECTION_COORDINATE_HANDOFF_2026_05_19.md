@@ -91,13 +91,20 @@ Analyzer and suite semantics:
   signs at their owning boundaries.
 - The device workflow now distinguishes passive state watching from an active
   power/proximity watchdog. Long camera matrices should explicitly start and
-  stop the active watchdog.
+  stop the active watchdog. If a local coordination board is used, the watchdog
+  should be visible as non-exclusive keep-awake state, while actual installs,
+  launches, screenshots, and ADB/log capture remain exclusive device work.
 
 ## Current Known Gaps
 
-- The depth/world-space contract has been captured, but the next agent still
-  needs a run-level comparison artifact that joins depth contract records with
-  live Camera2 projection contracts and passthrough witness screenshots.
+- A joined projection/depth comparator now exists at
+  `tools/quest-camera-profile/Build-ProjectionDepthComparison.py`. A patched
+  on-device comparison closed the OpenXR/reference-space logging gap for the
+  live broker Camera2 lanes: projection rows now carry reference space, display
+  time, and per-eye render pose/FOV, and the broker rows join as `ready` against
+  a ready depth/world-space baseline. Direct Camera2 and opacity-zero
+  passthrough witness rows still report `needs-evidence` from analyzer-only
+  physical-target orientation ambiguity.
 - Direct Camera2 physical-target runs can be visually useful while still
   reporting evidence ambiguity, because a real room target does not provide the
   same synthetic marker certainty as broker synthetic.
@@ -116,15 +123,17 @@ Analyzer and suite semantics:
    docs above, and inspect the latest local evidence index if one exists.
 2. Keep the synthetic broker gates as regression tests. Run them only to catch
    regressions before changing live/depth behavior.
-3. Build a physical/depth comparison matrix with blur disabled:
-   direct Camera2, broker Camera2, passthrough-underlay witness, and
-   environment-depth particles.
+3. Keep the fresh physical/depth comparison matrix as the current baseline:
+   broker Camera2 joins cleanly with depth/world-space, while direct Camera2
+   and passthrough-underlay remain physical witnesses with analyzer-evidence
+   ambiguity.
 4. For every lane, preserve the same fields: source size, crop or valid rect,
    texture/upload transform, source UV, projection-area UV, screen UV,
    renderer-authored expected footprint, OpenXR view pose/FOV, and screenshot
    evidence.
-5. Join projection-coordinate contracts with depth-world-space contracts into a
-   single comparison artifact. The first divergent named stage owns the fix.
+5. When collecting the next physical pass, join projection-coordinate contracts
+   with depth-world-space contracts into a single comparison artifact. The first
+   divergent named stage owns the fix.
 6. Only after live Camera2, passthrough witness, and depth/world-space evidence
    agree under the same contract should the blur workflow resume.
 
@@ -132,6 +141,10 @@ Analyzer and suite semantics:
 
 Add these before the next long remote or physical-camera session:
 
+- projection-coordinate contract rows must retain OpenXR app/reference space,
+  display time, and per-eye render pose/FOV so live Camera2 can be compared to
+  the depth/world-space baseline without assigning the gap to missing runtime
+  geometry evidence;
 - per-frame left/right frame id, source timestamp, encoder input timestamp,
   relay receive/send timestamp where relevant, decoder output timestamp, and
   render-adoption timestamp;
@@ -145,4 +158,3 @@ Add these before the next long remote or physical-camera session:
   separate boxes;
 - power/proximity/watchdog state snapshots before every mode, plus a clear flag
   for passive watcher versus active enforcer.
-

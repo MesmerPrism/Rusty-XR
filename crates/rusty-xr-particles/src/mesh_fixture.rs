@@ -505,7 +505,7 @@ pub fn build_fixture_icosphere_mesh(config: FixtureIcosphereMeshConfig) -> Trian
         FixtureIcosphereMeshConfig::default().radius_meters
     };
     for vertex in &mut vertices {
-        *vertex = *vertex * radius;
+        *vertex *= radius;
     }
     TriangleMeshSurface::new(vertices, triangles)
 }

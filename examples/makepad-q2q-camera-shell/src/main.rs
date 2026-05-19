@@ -1104,6 +1104,7 @@ pub struct App {
     #[rust]
     projection_area_opacity: f32,
     #[rust]
+    #[allow(dead_code)]
     projection_content_mapping_mode: f32,
     #[rust]
     cadence_next_frame: Option<NextFrame>,
@@ -1508,6 +1509,7 @@ impl MakepadStereoCameraPanel {
         texture
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn set_camera_textures(
         &mut self,
         cx: &mut Cx,
@@ -2570,6 +2572,7 @@ impl App {
         let state = update.state.as_ref();
         let left = state.left_eye_view;
         let right = state.right_eye_view;
+        let predicted_display_time_ns = (state.time * 1_000_000_000.0).round() as i64;
         let views = android_camera_probe::XrDisplayViews {
             left: android_camera_probe::XrDisplayEyeView {
                 position: [
@@ -2607,6 +2610,8 @@ impl App {
                 angle_down: right.fov.angle_down,
                 valid: right.valid,
             },
+            predicted_display_time_ns,
+            reference_space: "makepad-platform-local-space",
         };
         let updated = if Self::broker_h264_enabled() {
             self.refresh_broker_h264_projection_plan(views)
@@ -2772,6 +2777,7 @@ impl App {
         pair.right_screen_to_surface_h = plan.right_screen_to_surface_h;
         pair.projection_homography_ready = plan.projection_homography_ready;
         pair.runtime_xr_view_state_ready = plan.runtime_xr_view_state_ready;
+        pair.openxr_contract = plan.openxr_contract.clone();
         if !self.broker_h264_projection_plan_logged {
             self.broker_h264_projection_plan_logged = true;
             Self::emit_stereo_projection_marker(&format!(
@@ -2850,6 +2856,7 @@ impl App {
         pair.right_screen_to_surface_h = plan.right_screen_to_surface_h;
         pair.projection_homography_ready = plan.projection_homography_ready;
         pair.runtime_xr_view_state_ready = plan.runtime_xr_view_state_ready;
+        pair.openxr_contract = plan.openxr_contract.clone();
     }
 
     fn horizontal_alignment_tuning() -> HorizontalAlignmentTuning {
@@ -4429,8 +4436,10 @@ fn collect_makepad_camera_choices(inputs: &VideoInputsEvent) -> Vec<MakepadCamer
         .iter()
         .enumerate()
         .flat_map(|(source_index, desc)| {
-            desc.formats.iter().filter_map(move |format| {
-                (format.pixel_format == VideoPixelFormat::YUV420).then(|| {
+            desc.formats
+                .iter()
+                .filter(|format| format.pixel_format == VideoPixelFormat::YUV420)
+                .map(move |format| {
                     MakepadCameraChoice::new(
                         source_index,
                         desc.input_id,
@@ -4439,7 +4448,6 @@ fn collect_makepad_camera_choices(inputs: &VideoInputsEvent) -> Vec<MakepadCamer
                         camera_id_from_makepad_desc_name(&desc.name),
                     )
                 })
-            })
         })
         .collect()
 }
@@ -4456,6 +4464,13 @@ struct MakepadCameraChoice {
     frame_rate: Option<f64>,
     pixel_format: VideoPixelFormat,
 }
+
+type MakepadCameraPairScore = (i32, i64, i64, i64, i64);
+type MakepadCameraPairCandidate = (
+    MakepadCameraChoice,
+    MakepadCameraChoice,
+    MakepadCameraPairScore,
+);
 
 impl MakepadCameraChoice {
     fn new(
@@ -4550,6 +4565,7 @@ impl StereoEye {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 struct BrokerH264ProjectionMetadata {
     camera_id: String,
     source: String,
@@ -4591,6 +4607,7 @@ struct BrokerH264ProjectionMetadata {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 struct BrokerH264Intrinsics {
     fx: f32,
     fy: f32,
@@ -4600,12 +4617,14 @@ struct BrokerH264Intrinsics {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 struct BrokerH264Extrinsics {
     translation: [f32; 3],
     rotation: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 struct BrokerH264PixelDomain {
     width: u32,
     height: u32,
@@ -4848,21 +4867,25 @@ impl BrokerH264ProjectionMetadata {
         !self.orientation_default && self.raster_orientation != "unspecified"
     }
 
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     fn synthetic_profile_is(&self, expected: &str) -> bool {
         self.synthetic_projection_profile == expected
             || self.projection_geometry_profile == expected
     }
 
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     fn is_camera_matched_synthetic(&self) -> bool {
         self.source == "broker_app.synthetic_h264_stream"
             && self.synthetic_profile_is("camera-matched")
     }
 
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     fn is_full_frame_diagnostic_synthetic(&self) -> bool {
         self.source == "broker_app.synthetic_h264_stream"
             && self.synthetic_profile_is("full-frame-diagnostic")
     }
 
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     fn has_physical_projection_geometry(&self) -> bool {
         self.projection_metadata_ready
             && self.intrinsics.is_some()
@@ -5084,6 +5107,7 @@ fn broker_pair_pose_source(
     }
 }
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn broker_pair_has_top_left_raster_orientation(
     left: &BrokerH264ProjectionMetadata,
     right: &BrokerH264ProjectionMetadata,
@@ -5184,6 +5208,56 @@ impl MakepadCameraYuvTextures {
 }
 
 #[derive(Clone)]
+struct MakepadOpenXrProjectionContract {
+    reference_space: String,
+    openxr_reference_space: String,
+    display_time_source: String,
+    predicted_display_time_ns: Option<i64>,
+    view_pose_fov_source: String,
+    left_render_fov_tangents: Option<[f32; 4]>,
+    right_render_fov_tangents: Option<[f32; 4]>,
+    left_render_position: Option<[f32; 4]>,
+    right_render_position: Option<[f32; 4]>,
+    left_render_orientation: Option<[f32; 4]>,
+    right_render_orientation: Option<[f32; 4]>,
+}
+
+impl MakepadOpenXrProjectionContract {
+    fn missing() -> Self {
+        Self {
+            reference_space: "not-logged".to_string(),
+            openxr_reference_space: "not-logged".to_string(),
+            display_time_source: "not-logged".to_string(),
+            predicted_display_time_ns: None,
+            view_pose_fov_source: "not-logged".to_string(),
+            left_render_fov_tangents: None,
+            right_render_fov_tangents: None,
+            left_render_position: None,
+            right_render_position: None,
+            left_render_orientation: None,
+            right_render_orientation: None,
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    fn from_android(contract: android_camera_probe::XrProjectionContract) -> Self {
+        Self {
+            reference_space: contract.reference_space.to_string(),
+            openxr_reference_space: contract.openxr_reference_space.to_string(),
+            display_time_source: contract.display_time_source.to_string(),
+            predicted_display_time_ns: contract.predicted_display_time_ns,
+            view_pose_fov_source: contract.view_pose_fov_source.to_string(),
+            left_render_fov_tangents: contract.left_render_fov_tangents,
+            right_render_fov_tangents: contract.right_render_fov_tangents,
+            left_render_position: contract.left_render_position,
+            right_render_position: contract.right_render_position,
+            left_render_orientation: contract.left_render_orientation,
+            right_render_orientation: contract.right_render_orientation,
+        }
+    }
+}
+
+#[derive(Clone)]
 struct MakepadCameraPair {
     left: MakepadCameraChoice,
     right: MakepadCameraChoice,
@@ -5203,6 +5277,7 @@ struct MakepadCameraPair {
     right_screen_to_surface_h: [[f32; 3]; 3],
     projection_homography_ready: bool,
     runtime_xr_view_state_ready: bool,
+    openxr_contract: MakepadOpenXrProjectionContract,
 }
 
 impl MakepadCameraPair {
@@ -5246,6 +5321,7 @@ impl MakepadCameraPair {
             right_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             projection_homography_ready: false,
             runtime_xr_view_state_ready: false,
+            openxr_contract: MakepadOpenXrProjectionContract::missing(),
         }
     }
 
@@ -5291,15 +5367,12 @@ impl MakepadCameraPair {
             right_screen_to_surface_h: plan.right_screen_to_surface_h,
             projection_homography_ready: plan.projection_homography_ready,
             runtime_xr_view_state_ready: plan.runtime_xr_view_state_ready,
+            openxr_contract: plan.openxr_contract.clone(),
         })
     }
 
     fn from_best_available_pair(choices: &[MakepadCameraChoice]) -> Option<Self> {
-        let mut best: Option<(
-            MakepadCameraChoice,
-            MakepadCameraChoice,
-            (i32, i64, i64, i64, i64),
-        )> = None;
+        let mut best: Option<MakepadCameraPairCandidate> = None;
 
         for left in choices {
             for right in choices {
@@ -5367,6 +5440,7 @@ impl MakepadCameraPair {
             right_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             projection_homography_ready: false,
             runtime_xr_view_state_ready: false,
+            openxr_contract: MakepadOpenXrProjectionContract::missing(),
         })
     }
 
@@ -5403,6 +5477,7 @@ struct Camera2StereoPlan {
     right_screen_to_surface_h: [[f32; 3]; 3],
     projection_homography_ready: bool,
     runtime_xr_view_state_ready: bool,
+    openxr_contract: MakepadOpenXrProjectionContract,
 }
 
 impl Camera2StereoPlan {
@@ -5410,6 +5485,7 @@ impl Camera2StereoPlan {
         (self.width as usize, self.height as usize)
     }
 
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     fn apply_top_left_raster_source_uv(&mut self, reason: &str) {
         self.left_surface_to_camera_h =
             camera_model_uv_to_top_left_raster_uv(self.left_surface_to_camera_h);
@@ -5432,6 +5508,7 @@ impl Camera2StereoPlan {
     }
 }
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn camera_model_uv_to_top_left_raster_uv(rows: [[f32; 3]; 3]) -> [[f32; 3]; 3] {
     [
         rows[0],
@@ -5469,6 +5546,7 @@ impl From<android_camera_probe::StereoProjectionPlan> for Camera2StereoPlan {
             right_screen_to_surface_h: plan.right_screen_to_surface_h,
             projection_homography_ready: plan.projection_homography_ready,
             runtime_xr_view_state_ready: plan.runtime_xr_view_state_ready,
+            openxr_contract: MakepadOpenXrProjectionContract::from_android(plan.openxr_contract),
         }
     }
 }
@@ -5562,6 +5640,43 @@ fn homography_token(rows: [[f32; 3]; 3]) -> String {
         .join(",")
 }
 
+fn vec4_token(values: [f32; 4]) -> String {
+    format!(
+        "[{:.6},{:.6},{:.6},{:.6}]",
+        values[0], values[1], values[2], values[3]
+    )
+}
+
+fn optional_vec4_token(values: Option<[f32; 4]>) -> String {
+    values
+        .map(vec4_token)
+        .unwrap_or_else(|| "not-logged".to_string())
+}
+
+fn optional_i64_token(value: Option<i64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "not-logged".to_string())
+}
+
+fn openxr_contract_marker_fields(contract: &MakepadOpenXrProjectionContract) -> String {
+    format!(
+        "referenceSpace={} openxrReferenceSpace={} displayTimeSource={} predictedDisplayTimeSource={} predictedDisplayTimeNs={} viewPoseFovSource={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
+        marker_token(&contract.reference_space),
+        marker_token(&contract.openxr_reference_space),
+        marker_token(&contract.display_time_source),
+        marker_token(&contract.display_time_source),
+        optional_i64_token(contract.predicted_display_time_ns),
+        marker_token(&contract.view_pose_fov_source),
+        optional_vec4_token(contract.left_render_fov_tangents),
+        optional_vec4_token(contract.right_render_fov_tangents),
+        optional_vec4_token(contract.left_render_position),
+        optional_vec4_token(contract.right_render_position),
+        optional_vec4_token(contract.left_render_orientation),
+        optional_vec4_token(contract.right_render_orientation),
+    )
+}
+
 fn screen_uv_rect_token(rect: [f32; 4]) -> String {
     format!(
         "{:.6},{:.6},{:.6},{:.6}",
@@ -5642,7 +5757,7 @@ fn expected_source_valid_footprint_marker_fields(pair: &MakepadCameraPair) -> St
 
 fn projection_homography_marker_fields(pair: &MakepadCameraPair) -> String {
     format!(
-        "projectionHomographyReady={} runtimeXrViewStateReady={} sourceBindingMode={} displayLeftCameraId={} displayRightCameraId={} makepadLeftCameraId={} makepadRightCameraId={} sourceRasterOriginPolicy=explicit-broker-raster-or-camera2-import sourceRasterUvCorrectionStage=projection-plan-for-broker-top-left-raster projectionAreaTransformStage=pre_homography_screen_uv projectionAreaWarpParity=diagnostic_only contentUvRect=0,0,1,1 cpuUploadRect=0,0,{},{} cpuUploadStride=not-exposed leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} {} {}",
+        "projectionHomographyReady={} runtimeXrViewStateReady={} sourceBindingMode={} displayLeftCameraId={} displayRightCameraId={} makepadLeftCameraId={} makepadRightCameraId={} sourceRasterOriginPolicy=explicit-broker-raster-or-camera2-import sourceRasterUvCorrectionStage=projection-plan-for-broker-top-left-raster projectionAreaTransformStage=pre_homography_screen_uv projectionAreaWarpParity=diagnostic_only contentUvRect=0,0,1,1 cpuUploadRect=0,0,{},{} cpuUploadStride=not-exposed {} leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} {} {}",
         pair.projection_homography_ready,
         pair.runtime_xr_view_state_ready,
         pair.source_binding_mode,
@@ -5652,6 +5767,7 @@ fn projection_homography_marker_fields(pair: &MakepadCameraPair) -> String {
         marker_token(pair.right.camera_id.as_deref().unwrap_or("unknown")),
         pair.left.width,
         pair.left.height,
+        openxr_contract_marker_fields(&pair.openxr_contract),
         homography_token(pair.left_surface_to_camera_h),
         homography_token(pair.right_surface_to_camera_h),
         homography_token(pair.left_surface_to_screen_h),
@@ -5720,6 +5836,7 @@ mod tests {
             right_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             projection_homography_ready: true,
             runtime_xr_view_state_ready: true,
+            openxr_contract: MakepadOpenXrProjectionContract::missing(),
         }
     }
 

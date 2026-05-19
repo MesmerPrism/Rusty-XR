@@ -208,9 +208,9 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -BlurRadiusPx 2.0
 ```
 
-The suite already knows the public Makepad example identity:
-`com.example.rustyxr.makepad.alignment`, `.MakepadApp`, and `.MakepadAppXr`.
-Override those only when testing a differently packaged APK.
+The suite already knows the public Makepad example package and generated
+launcher/XR activities. Override those only when testing a differently packaged
+APK.
 
 Reserve shared device, ADB, build, foreground, and broker-port resources with
 the local coordination system before running headset-bound commands. The suite

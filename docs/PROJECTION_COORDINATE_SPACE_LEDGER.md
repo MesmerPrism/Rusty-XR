@@ -102,10 +102,16 @@ Later 2026-05-19 work promoted the same contract beyond synthetic evidence:
 - suite-level projection-area signs are stable: positive X moves right and
   positive Y moves down in display/screenshot coordinates.
 
-Do not treat this as blur-ready. The next raw-coordinate work is to join the
-live Camera2 projection contracts, passthrough-underlay witness evidence, and
-depth/world-space contract records into one comparison artifact. If they
-disagree, the first named divergent stage owns the fix.
+Do not treat this as blur-ready. A patched 2026-05-19 device comparison now
+shows the depth/world-space records ready and keeps passthrough as a physical
+witness. The live broker Camera2 lanes across HWB, GL/OES, and Makepad carry
+the app reference-space role, renderer OpenXR reference-space label, predicted
+display time, and per-eye render pose/FOV values, and they join as `ready`
+against the depth baseline. The remaining direct Camera2 and passthrough
+witness rows are owned by analyzer evidence: the physical target does not give
+synthetic marker certainty for left/right orientation. That is not a
+texture/upload, projection-area, OpenXR reference-space, or backend viewport
+fix by itself.
 
 ## Coordinate Domains
 
@@ -251,6 +257,23 @@ Quest log runs can be collapsed into
 python .\tools\quest-camera-profile\Build-DepthWorldSpaceContract.py <run-root>
 ```
 
+After live Camera2, passthrough-underlay, and depth runs have emitted JSONL
+contracts, join them into a lane/eye comparison artifact with:
+
+```powershell
+python .\tools\quest-camera-profile\Build-ProjectionDepthComparison.py `
+  --camera-contracts <live-direct-projection-coordinate-contracts.jsonl> `
+  --camera-contracts <live-broker-projection-coordinate-contracts.jsonl> `
+  --passthrough-contracts <passthrough-projection-coordinate-contracts.jsonl> `
+  --depth-contracts <depth-world-space-contracts.jsonl> `
+  --out-dir <joined-comparison-output>
+```
+
+The joined artifact keeps passthrough as a physical witness and assigns every
+gap to one owner layer: source metadata, texture/upload convention,
+projection-area mapping, OpenXR reference-space geometry, backend viewport
+convention, or analyzer evidence.
+
 The accepted depth contract must name the owner of each stage:
 
 - `DepthUvToDepthViewRay`: runtime depth-view FOV.
@@ -363,9 +386,23 @@ The schema name is currently `rusty.xr.projection-coordinate-contract.v1`.
     "projection_area_scale_uv": 1.0
   },
   "openxr": {
-    "reference_space": "LOCAL-or-STAGE",
+    "reference_space": "app-reference-space",
+    "openxr_reference_space": "LOCAL-or-STAGE",
     "display_time_source": "predicted-display-time",
-    "view_pose_fov_source": "xrLocateViews"
+    "predicted_display_time_ns": 123456789,
+    "view_pose_fov_source": "xrLocateViews",
+    "render_views": {
+      "left": {
+        "fov_tangents": [-1.0, 1.0, 1.0, -1.0],
+        "position": [-0.03, 1.5, 0.0, 1.0],
+        "orientation": [0.0, 0.0, 0.0, 1.0]
+      },
+      "right": {
+        "fov_tangents": [-1.0, 1.0, 1.0, -1.0],
+        "position": [0.03, 1.5, 0.0, 1.0],
+        "orientation": [0.0, 0.0, 0.0, 1.0]
+      }
+    }
   },
   "transforms": {
     "surface_to_screen": "logged-row-token",

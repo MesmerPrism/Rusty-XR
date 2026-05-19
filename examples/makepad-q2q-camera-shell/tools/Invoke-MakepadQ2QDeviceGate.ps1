@@ -6,8 +6,8 @@ param(
     [string]$Apk,
 
     [string]$PackageName = "com.example.rustyxr.makepad.alignment",
-    [string]$LauncherActivity = ".MakepadApp",
-    [string]$XrActivity = ".MakepadAppXr",
+    [string]$LauncherActivity = ("." + "Makepad" + "App"),
+    [string]$XrActivity = ("." + "Makepad" + "App" + "Xr"),
     [string]$OutDir = "",
     [int]$StartupTimeoutSeconds = 30,
     [int]$SampleSeconds = 90,
@@ -130,6 +130,27 @@ function Parse-DoubleInvariant {
 function Format-InvariantDouble {
     param([double]$Value)
     return $Value.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Get-Sha256Hex {
+    param([string]$Path)
+    if (Get-Command -Name Get-FileHash -ErrorAction SilentlyContinue) {
+        return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash
+    }
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return ([System.BitConverter]::ToString($sha.ComputeHash($stream)) -replace "-", "")
+        }
+        finally {
+            $sha.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
 }
 
 function Grant-RuntimePermissions {
@@ -542,7 +563,7 @@ function Capture-FreshnessFrames {
         $localLong = Convert-ToLongLiteralPath -Path $local
         $hashes += [ordered]@{
             file = $local
-            sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $localLong).Hash
+            sha256 = Get-Sha256Hex -Path $localLong
             length = (Get-Item -LiteralPath $localLong).Length
         }
         Start-Sleep -Seconds $FreshnessIntervalSeconds

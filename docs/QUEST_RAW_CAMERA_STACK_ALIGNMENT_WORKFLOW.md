@@ -284,7 +284,10 @@ dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- bro
 
 That is an explicit active guard, separate from passive state snapshots. Stop
 the helper before restoring normal proximity or treating a later run as
-unmanaged headset evidence.
+unmanaged headset evidence. When a shared local coordination board is in use,
+record this guard as non-exclusive keep-awake/vitals state; it should not block
+another operator from reserving the headset and ADB for an intentional install,
+launch, screenshot, logcat, or validation action.
 
 Example:
 
@@ -307,9 +310,9 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 ```
 
 The public Makepad example defaults to package
-`com.example.rustyxr.makepad.alignment`, launcher `.MakepadApp`, and XR
-activity `.MakepadAppXr`; pass the Makepad identity flags only for a
-differently packaged APK.
+`com.example.rustyxr.makepad.alignment` and its generated launcher/XR
+activities; pass the Makepad identity flags only for a differently packaged
+APK.
 
 Use `solid-red` for image-derived border checks and `passthrough-underlay` for
 manual alignment with native passthrough. Leave `-ProcessingLayer raw` for

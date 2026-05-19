@@ -37,6 +37,12 @@ COMMA_VALUE_FIELD_KEYS = {
     "leftExpectedSourceValidScreenUvRectRaw",
     "rightExpectedSourceValidScreenUvRectRaw",
     "cpuUploadRect",
+    "leftRenderFovTangents",
+    "rightRenderFovTangents",
+    "leftRenderPosition",
+    "rightRenderPosition",
+    "leftRenderOrientation",
+    "rightRenderOrientation",
 }
 STAGE_KEYS = {
     "surface_to_camera": ("leftSurfaceToCameraH", "rightSurfaceToCameraH"),
@@ -69,6 +75,18 @@ SOURCE_FIELD_KEYS = (
     "coordinate_chain",
     "poseSource",
     "pose_source",
+    "referenceSpace",
+    "openxrReferenceSpace",
+    "displayTimeSource",
+    "predictedDisplayTimeSource",
+    "predictedDisplayTimeNs",
+    "viewPoseFovSource",
+    "leftRenderFovTangents",
+    "rightRenderFovTangents",
+    "leftRenderPosition",
+    "rightRenderPosition",
+    "leftRenderOrientation",
+    "rightRenderOrientation",
     "projectionUvCorrection",
     "cpuUploadPath",
     "cpuUploadRect",
@@ -1010,7 +1028,10 @@ def source_descriptor_fields(source: Any) -> dict[str, str]:
     for key in SOURCE_FIELD_KEYS:
         if key == "source":
             continue
-        match = re.search(rf"(?:^|[:\s]){re.escape(key)}=([^:\s|\"'}}\]]+)", descriptor)
+        match = re.search(
+            rf"(?:^|[:\s]){re.escape(key)}=((?:\[[^\]]*\])|[^:\s|\"'}}\]]+)",
+            descriptor,
+        )
         if match:
             fields[key] = match.group(1).rstrip(",;")
     size = parse_size_pair(descriptor)
@@ -1103,7 +1124,10 @@ def pick_source_fields(value: dict[str, Any]) -> dict[str, str]:
 
 
 def parse_homography_values(values_text: str) -> list[float] | None:
-    values = [float(part) for part in values_text.split(",") if part]
+    try:
+        values = [float(part) for part in values_text.split(",") if part]
+    except ValueError:
+        return None
     if len(values) != 9 or not all(math.isfinite(value) for value in values):
         return None
     return values
@@ -1596,8 +1620,10 @@ def parse_number_value(value: Any) -> int | float | None:
 def parse_float_list(value: Any) -> list[float] | None:
     if value is None:
         return None
+    text = str(value).strip()
+    text = text.strip("[]")
     try:
-        values = [float(part) for part in str(value).split(",") if part != ""]
+        values = [float(part) for part in text.split(",") if part != ""]
     except ValueError:
         return None
     if not values or not all(math.isfinite(item) for item in values):
@@ -1721,6 +1747,13 @@ def number_field(fields: dict[str, str], *keys: str) -> int | float | None:
 
 def bool_field(fields: dict[str, str], *keys: str) -> bool | None:
     return parse_bool_value(first_field(fields, *keys))
+
+
+def vec4_field(fields: dict[str, str], *keys: str) -> list[float] | None:
+    values = parse_float_list(first_field(fields, *keys))
+    if values is None or len(values) != 4:
+        return None
+    return values
 
 
 def parse_size_pair(value: Any) -> tuple[int, int] | None:
@@ -2810,12 +2843,33 @@ def common_projection_record(fields: dict[str, str], stages: dict[str, Any]) -> 
 def openxr_record(fields: dict[str, str]) -> dict[str, Any]:
     runtime_ready = bool_field(fields, "runtimeXrViewStateReady")
     pose_source = first_field(fields, "poseSource", "pose_source")
+    view_pose_fov_source = first_field(fields, "viewPoseFovSource")
+    if view_pose_fov_source is None:
+        view_pose_fov_source = (
+            "xrLocateViews"
+            if runtime_ready or (pose_source and "openxr" in pose_source.lower())
+            else "not-logged"
+        )
     values = {
         "runtime_xr_view_state_ready": runtime_ready,
         "pose_source": pose_source,
         "reference_space": first_field(fields, "referenceSpace", "openxrReferenceSpace") or "not-logged",
+        "openxr_reference_space": first_field(fields, "openxrReferenceSpace") or "not-logged",
         "display_time_source": first_field(fields, "displayTimeSource", "predictedDisplayTimeSource") or "not-logged",
-        "view_pose_fov_source": "xrLocateViews" if runtime_ready or (pose_source and "openxr" in pose_source.lower()) else "not-logged",
+        "predicted_display_time_ns": number_field(fields, "predictedDisplayTimeNs"),
+        "view_pose_fov_source": view_pose_fov_source,
+        "render_views": {
+            "left": {
+                "fov_tangents": vec4_field(fields, "leftRenderFovTangents"),
+                "position": vec4_field(fields, "leftRenderPosition"),
+                "orientation": vec4_field(fields, "leftRenderOrientation"),
+            },
+            "right": {
+                "fov_tangents": vec4_field(fields, "rightRenderFovTangents"),
+                "position": vec4_field(fields, "rightRenderPosition"),
+                "orientation": vec4_field(fields, "rightRenderOrientation"),
+            },
+        },
         "xr_render_scale": number_field(fields, "xrRenderScale"),
         "fixed_foveation_level": number_field(fields, "xrFixedFoveationLevel"),
     }
@@ -2878,6 +2932,26 @@ def projection_coordinate_gaps(
         "openxr" in str(first_field(fields, "poseSource", "pose_source", "coordinateChain") or "").lower()
     ):
         gaps.append("openxr-view-state-not-confirmed-ready")
+    openxr = openxr_record(fields)
+    if openxr.get("reference_space") in (None, "", "unknown", "not-logged"):
+        gaps.append("openxr-reference-space-not-logged")
+    if openxr.get("openxr_reference_space") in (None, "", "unknown", "not-logged"):
+        gaps.append("openxr-reference-space-label-not-logged")
+    if openxr.get("display_time_source") in (None, "", "unknown", "not-logged"):
+        gaps.append("openxr-display-time-source-not-logged")
+    if openxr.get("predicted_display_time_ns") is None:
+        gaps.append("openxr-predicted-display-time-not-logged")
+    if openxr.get("view_pose_fov_source") in (None, "", "unknown", "not-logged"):
+        gaps.append("openxr-render-view-pose-fov-source-not-logged")
+    render_views = openxr.get("render_views") or {}
+    for eye in ("left", "right"):
+        render_view = render_views.get(eye) or {}
+        if (
+            render_view.get("fov_tangents") is None
+            or render_view.get("position") is None
+            or render_view.get("orientation") is None
+        ):
+            gaps.append(f"{eye}-openxr-render-view-pose-fov-not-logged")
     for eye, eye_analysis in analysis.items():
         marker = eye_analysis.get("orientation_marker") or {}
         if marker.get("status") == "ambiguous" and "direct-camera2" in mode:
