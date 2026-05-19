@@ -126,6 +126,12 @@ For coordinate alignment, resolve disputes in this order:
 Analyzer output can falsify a run. It must not become the coordinate source of
 truth unless the manifest, runtime logs, and transform logs already agree.
 
+The detailed rule for comparing the reference-space quad path to the direct
+per-eye shader path is tracked in
+[WORLD_SPACE_QUAD_DIRECT_SHADER_RECONCILIATION.md](WORLD_SPACE_QUAD_DIRECT_SHADER_RECONCILIATION.md).
+Use that document when deciding whether a mismatch is a real architecture
+convention, a projection-plan error, or analyzer-only evidence.
+
 ## Core Transform Chains
 
 ### World-Space Plane Preview
@@ -180,6 +186,12 @@ world-space surface is hidden. Every lane must log the named stages:
 If the stages disagree, fix the first divergent stage. Do not compensate for a
 bad source rect with a projection-area scale, or for a bad projection area with
 a source crop.
+
+The accepted equivalence conditions are listed in
+[WORLD_SPACE_QUAD_DIRECT_SHADER_RECONCILIATION.md](WORLD_SPACE_QUAD_DIRECT_SHADER_RECONCILIATION.md).
+In short, the direct shader is the quad path only when it uses the same
+reference-space surface, source-camera model, texture/upload convention,
+projection-area mask, backend viewport convention, and render-eye pose/FOV.
 
 ### Environment-Depth Particles
 

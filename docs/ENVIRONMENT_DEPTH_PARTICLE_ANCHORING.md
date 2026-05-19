@@ -19,6 +19,9 @@ It is not a fullscreen color pass.
 For the shared coordinate vocabulary that relates this world-space-first path
 to direct per-eye camera projection and later blur diagnostics, see
 [PROJECTION_COORDINATE_SPACE_LEDGER.md](PROJECTION_COORDINATE_SPACE_LEDGER.md).
+For the explicit equivalence rules between a reference-space camera quad and
+the collapsed direct per-eye shader path, see
+[WORLD_SPACE_QUAD_DIRECT_SHADER_RECONCILIATION.md](WORLD_SPACE_QUAD_DIRECT_SHADER_RECONCILIATION.md).
 
 The public contract artifact for this path is
 `rusty.xr.depth_world_space_contract.v1`. It records:

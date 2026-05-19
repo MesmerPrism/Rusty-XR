@@ -95,6 +95,9 @@ before reading chronological plans or investigation logs.
 - [Environment depth particle anchoring](ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md):
   world-space depth mesh, retained particle, and scene particle-map contract
   before camera/depth comparison.
+- [World-space quad and direct shader reconciliation](WORLD_SPACE_QUAD_DIRECT_SHADER_RECONCILIATION.md):
+  equivalence rules for the reference-space quad path and collapsed per-eye
+  shader path.
 - [Synthetic projection coordinate alignment plan](SYNTHETIC_PROJECTION_COORDINATE_ALIGNMENT_PLAN.md):
   active synthetic-first gate before blur, live camera, or passthrough
   alignment.
