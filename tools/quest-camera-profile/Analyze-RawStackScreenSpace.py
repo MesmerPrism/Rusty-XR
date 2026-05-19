@@ -278,17 +278,22 @@ def visible_content_mask(rgb: np.ndarray) -> np.ndarray:
     return (max_channel >= 28) | ((luma >= 18) & (saturation >= 12))
 
 
-def stimulus_envelope_mask(rgb: np.ndarray, intended_mask: np.ndarray) -> np.ndarray:
-    """Return the visible stimulus/projection envelope.
+def stimulus_envelope_mask(
+    rgb: np.ndarray,
+    legacy_red_mask: np.ndarray,
+    intended_mask: np.ndarray,
+) -> np.ndarray:
+    """Return the visible source-content envelope.
 
-    The diagnostic stimulus intentionally contains saturated cyan, yellow, and
-    red color bars. Those colors are also useful for guide lines and legacy
-    invalid-fill detection, so the strict valid-content mask can under-measure
-    the stimulus footprint. For footprint parity, keep source color bars and
-    labels and exclude only the deliberate outside-projection matte.
+    The diagnostic stimulus is split into color bars, labels, luma bands, and a
+    checkerboard. A largest connected-component proxy can collapse to only the
+    checkerboard, while a raw visible envelope can grow to the whole red/purple
+    outside-projection matte. Keep the non-matte source-content pieces and let
+    their bbox define the visual source-content envelope; render-surface and
+    full-frame projection-area measurements are recorded separately.
     """
 
-    return visible_content_mask(rgb) & ~intended_mask
+    return visible_content_mask(rgb) & ~(legacy_red_mask | intended_mask)
 
 
 def read_text_auto(path: Path) -> str:
@@ -628,7 +633,11 @@ def summarize_eye(
     intended_mask_fraction = float(intended_mask.mean())
     guide_fraction = float(guide_mask.mean())
     visible = visible_content_mask(rgb)
-    stimulus_candidate = stimulus_envelope_mask(rgb, intended_mask)
+    stimulus_candidate = stimulus_envelope_mask(
+        rgb,
+        legacy_red,
+        intended_mask,
+    )
     diagnostic_fill_present = float(diagnostic_fill.mean()) >= 0.001
     if expected_solid_red and not diagnostic_fill_present:
         return {
@@ -713,20 +722,28 @@ def summarize_eye(
             stimulus_candidates,
             stimulus_candidates[0],
         )
-    measured_component = stimulus_component or content_component
+    source_content_component = stimulus_component or content_component
+    source_content_component_record = component_bbox_record(
+        source_content_component,
+        x_offset,
+        rgb.shape[1],
+        rgb.shape[0],
+    )
+    measured_component = source_content_component
     measured_strategy_suffix = "stimulus-envelope-union"
     if prefer_full_frame_envelope:
         stimulus_envelope_component = mask_bbox_component(
-            stimulus_candidate,
-            max(200, int(stimulus_candidate.size * 0.00005)),
+            visible,
+            max(200, int(visible.size * 0.00005)),
         )
         if stimulus_envelope_component is not None:
             measured_component = stimulus_envelope_component
-            measured_strategy_suffix = "full-frame-stimulus-mask-bbox"
+            measured_strategy_suffix = "full-frame-visible-surface-bbox"
     x, y, width, height = measured_component["bbox_px"]
     cx, cy = measured_component["centroid_px"]
     full_bbox = [x_offset + x, y, width, height]
     full_centroid = [x_offset + cx, cy]
+    measured_component_record = component_bbox_record(measured_component, x_offset, rgb.shape[1], rgb.shape[0])
     component_mask = np.zeros(stimulus_candidate.shape, dtype=bool)
     component_mask[y : y + height, x : x + width] = stimulus_candidate[y : y + height, x : x + width]
     row_spans = []
@@ -757,8 +774,8 @@ def summarize_eye(
         "active_fraction": float(measured_component["area_px"] / max(rgb.shape[0] * rgb.shape[1], 1)),
         "valid_projection_bbox_px": full_bbox,
         "valid_projection_bbox_eye_px": [x, y, width, height],
-        "source_content_bbox_px": full_bbox,
-        "source_content_bbox_eye_px": [x, y, width, height],
+        "source_content_bbox_px": source_content_component_record["bbox_px"],
+        "source_content_bbox_eye_px": source_content_component_record["bbox_eye_px"],
         "strict_valid_content_bbox_px": component_bbox_record(
             content_component,
             x_offset,
@@ -784,6 +801,12 @@ def summarize_eye(
             "status": "measured",
             "segmentation_strategy": f"{strategy}-{measured_strategy_suffix}",
             "component_count": int(measured_component.get("component_count", 1)),
+            "source_content_envelope_bbox_px": source_content_component_record["bbox_px"],
+            "source_content_envelope_bbox_eye_px": source_content_component_record["bbox_eye_px"],
+            "source_content_envelope_bbox_fraction": source_content_component_record["bbox_fraction"],
+            "stimulus_envelope_bbox_px": source_content_component_record["bbox_px"],
+            "stimulus_envelope_bbox_eye_px": source_content_component_record["bbox_eye_px"],
+            "stimulus_envelope_bbox_fraction": source_content_component_record["bbox_fraction"],
             "largest_component_bbox_px": component_bbox_record(
                 largest_component_record,
                 x_offset,
@@ -794,7 +817,7 @@ def summarize_eye(
             "dense_component_bboxes_eye_px": [
                 item["bbox_px"] for item in (stimulus_dense_components if stimulus_component else dense_components)
             ],
-            **component_bbox_record(measured_component, x_offset, rgb.shape[1], rgb.shape[0]),
+            **measured_component_record,
         },
         "strict_valid_content_footprint": {
             "status": "measured",
@@ -1424,10 +1447,10 @@ def draw_overlay(
     colors = {"left": (0, 255, 255), "right": (255, 230, 0)}
     model_source_color = (0, 255, 80)
     surface_color = (180, 0, 255)
-    largest_color = (0, 110, 255)
+    source_content_envelope_color = (0, 110, 255)
     projection_record_color = (255, 128, 0)
     draw.text((16, 16), title, fill=(255, 255, 255), font=font)
-    legend = "observed L/R=cyan/yellow  surface=purple  model source-valid=green  projection=orange  largest=blue  stripes=coincident sides"
+    legend = "observed L/R=cyan/yellow  surface=purple  model source-valid=green  projection=orange  source content=blue  stripes=coincident sides"
     draw.text((16, 32), legend, fill=(230, 230, 230), font=font)
     for eye in report["eyes"]:
         color = colors.get(eye["eye"], (255, 255, 255))
@@ -1462,15 +1485,17 @@ def draw_overlay(
                     "width_px": 5,
                 }
             )
-        largest = projection.get("largest_component_bbox_px")
-        if isinstance(largest, list) and len(largest) == 4 and largest != projection.get("bbox_px"):
-            lx, ly, lw, lh = largest
+        source_content_envelope = projection.get("source_content_envelope_bbox_px") or projection.get(
+            "stimulus_envelope_bbox_px"
+        )
+        if isinstance(source_content_envelope, list) and len(source_content_envelope) == 4:
+            lx, ly, lw, lh = source_content_envelope
             overlay_rects.append(
                 {
                     "eye": eye["eye"],
-                    "role": "largest",
+                    "role": "source-content-envelope",
                     "bbox_px": [lx, ly, lw, lh],
-                    "color": largest_color,
+                    "color": source_content_envelope_color,
                     "width_px": 4,
                 }
             )
@@ -3302,8 +3327,8 @@ def build_markdown(report: dict[str, Any]) -> str:
             "",
             "- Positive `dy` means the detected projection component is below the vertical center of the eye half.",
             "- Horizontal alignment is recorded but not tuned by this report.",
-            "- The main per-eye content box is the union of dense valid stimulus components. For renderer-authored full-frame diagnostics, it is the visible stimulus-envelope bbox so disconnected top/bottom diagnostic bands are still part of the full-frame footprint.",
-            "- Overlay colors: cyan/yellow are the observed full stimulus envelope for left/right eyes, purple is the visible render surface, green is the expected source-valid footprint (renderer-authored when available, otherwise analyzer model), orange is the projection footprint record, and blue marks the largest single component when it differs from the union. Coincident same-orientation sides are drawn as color stripes; simple crossings are not striped.",
+            "- The main per-eye projection box is the union of dense valid stimulus components. For renderer-authored full-frame diagnostics, the projection box can use the visible full-frame surface so disconnected diagnostic bands are still part of the full-frame measurement.",
+            "- Overlay colors: cyan/yellow are the observed full stimulus envelope for left/right eyes, purple is the visible render surface, green is the expected source-valid footprint (renderer-authored when available, otherwise analyzer model), orange is the projection footprint record, and blue marks the source-content envelope excluding red/purple diagnostic matte. The largest single connected component remains in JSON evidence only so split synthetic stimuli do not draw a misleading checkerboard-sized blue box. Coincident same-orientation sides are drawn as color stripes; simple crossings are not striped.",
             "- Broker synthetic orientation markers are pixel-checked as top-left green `TOP` and bottom-left red `BOT`; explicit stimulus metadata is preferred, and missing metadata is recorded as a default/fallback condition.",
             "- Projection mapping records connect content metadata, app projection fields, homography availability, model checks, observed screenshot bbox, and a conservative verdict.",
             "- Projection coordinate contracts summarize each lane's source geometry, metadata readiness, texture/upload path, OpenXR state, transform rows, capture evidence, and explicit gaps.",
