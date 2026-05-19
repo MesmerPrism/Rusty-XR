@@ -32,6 +32,8 @@ param(
     [int]$ScreenrecordTimeLimit = 1,
     [switch]$ProximityWatchdog,
     [switch]$StopProximityWatchdog,
+    [switch]$ProximityWatchdogUntilStopped,
+    [switch]$ProximityWatchdogEnsureStayAwake,
     [int]$ProximityWatchdogDurationMs = 28800000,
     [int]$ProximityWatchdogHoldDurationMs = 28800000,
     [int]$ProximityWatchdogIntervalMs = 5000,
@@ -178,6 +180,12 @@ if ($ProximityWatchdog) {
         '--proximity-watchdog-hold-duration-ms', $ProximityWatchdogHoldDurationMs.ToString(),
         '--proximity-watchdog-interval-ms', $ProximityWatchdogIntervalMs.ToString()
     )
+    if ($ProximityWatchdogUntilStopped) {
+        $helperArgs += '--proximity-watchdog-until-stopped'
+    }
+    if ($ProximityWatchdogEnsureStayAwake) {
+        $helperArgs += '--proximity-watchdog-ensure-stay-awake'
+    }
 }
 if ($StopProximityWatchdog) {
     $helperArgs += '--stop-proximity-watchdog'

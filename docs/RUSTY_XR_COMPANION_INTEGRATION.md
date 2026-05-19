@@ -234,7 +234,7 @@ dotnet run --project .\src\RustyXr.Companion.Cli -- catalog verify --path ..\Rus
 dotnet run --project .\src\RustyXr.Companion.Cli -- osc send --host <quest-lan-ip> --port 9000 --address /rusty-xr/drive/radius --arg float:0.75
 dotnet run --project .\src\RustyXr.Companion.Cli -- broker compare --quest-host <quest-lan-ip> --serial <serial> --out .\artifacts\broker-compare --json
 dotnet run --project .\src\RustyXr.Companion.Cli -- broker bio-simulate --serial <serial> --out .\artifacts\broker-bio-sim --json
-dotnet run --project .\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root ..\Rusty-XR --proximity-watchdog --json
+dotnet run --project .\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root ..\Rusty-XR --proximity-watchdog --proximity-watchdog-until-stopped --proximity-watchdog-ensure-stay-awake --json
 dotnet run --project .\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root ..\Rusty-XR --focus-guardian --focus-guardian-mode toggle_broker_target --json
 dotnet run --project .\src\RustyXr.Companion.Cli -- broker shell-helper stop --serial <serial> --rusty-xr-root ..\Rusty-XR --no-build --json
 ```
@@ -242,8 +242,10 @@ dotnet run --project .\src\RustyXr.Companion.Cli -- broker shell-helper stop --s
 Optional shell-helper watchdogs run only when an authorized ADB host starts the
 helper. The proximity watchdog is designed to coexist with the external
 Companion watchdog by only reapplying the virtual-close state when readback is
-not already `CLOSE`; normal proximity restoration remains a separate operator
-action after the helper is stopped. The focus guardian is a reactive
+not already `CLOSE`. In awake-watchdog mode it can also reapply `svc power
+stayon true` and send `KEYCODE_WAKEUP` when `dumpsys power` shows the headset
+has left the awake/display-on state. Normal proximity restoration remains a
+separate operator action after the helper is stopped. The focus guardian is a reactive
 experiment-mode helper: it polls broker experiment-control state, applies
 whitelisted public runtime properties, and can relaunch a target app or the
 broker console after Meta shell takes focus. It is not a pre-emptive system

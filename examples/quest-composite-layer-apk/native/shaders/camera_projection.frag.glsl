@@ -32,6 +32,7 @@ layout(push_constant) uniform CameraProjectionPush {
     vec4 color_adjust;
     vec4 effect_params;
     vec4 area_params;
+    vec4 area_offset_params;
     vec4 left_h0;
     vec4 left_h1;
     vec4 left_h2;
@@ -983,14 +984,14 @@ void main() {
     float content_uv_scale = max(pc.params.z, 1.0);
     float projection_area_opacity = clamp(pc.effect_params.y, 0.0, 1.0);
     float projection_border_opacity = clamp(pc.effect_params.z, 0.0, 1.0);
-    float projection_area_offset_y = clamp(pc.effect_params.w, -0.5, 0.5);
+    vec2 projection_area_offset = clamp(pc.area_offset_params.xy, vec2(-0.5), vec2(0.5));
     float projection_area_scale = clamp(pc.area_params.w, 0.05, 4.0);
     bool full_frame_stimulus_mapping =
         (packed_flags & CAMERA_FLAG_FULL_FRAME_STIMULUS_MAPPING) != 0;
     vec2 projection_screen_uv_base =
         (v_surface_uv - vec2(0.5)) * projection_area_scale + vec2(0.5);
     vec2 projection_screen_uv = full_frame_stimulus_mapping
-        ? projection_screen_uv_base - vec2(0.0, projection_area_offset_y)
+        ? projection_screen_uv_base - projection_area_offset
         : projection_screen_uv_base;
 
     vec2 local_uv = vec2(0.5) + ((v_surface_uv - vec2(0.5)) / overscan);

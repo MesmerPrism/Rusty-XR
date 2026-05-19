@@ -42,6 +42,9 @@ param(
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionScale = 1.0,
     [double]$XrRenderScale = 1.0,
+    [double]$ProjectionAreaOffsetXUv = 0.0,
+    [double]$ProjectionAreaOffsetLeftUv = [double]::NaN,
+    [double]$ProjectionAreaOffsetRightUv = [double]::NaN,
     [double]$ProjectionAreaOffsetYUv = 0.0,
     [double]$ProjectionAreaScaleX = 1.0,
     [double]$ProjectionAreaScaleY = 1.0,
@@ -66,6 +69,38 @@ function Save-Adb {
         [string]$Path
     )
     Invoke-Adb -Arguments $Arguments 2>&1 | Set-Content -Path $Path -Encoding UTF8
+}
+
+function Convert-ToLongLiteralPath {
+    param([string]$Path)
+    if ([System.IO.Path]::DirectorySeparatorChar -ne '\') {
+        return $Path
+    }
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    if ($fullPath.StartsWith("\\?\")) {
+        return $fullPath
+    }
+    if ($fullPath.StartsWith("\\")) {
+        return "\\?\UNC\" + $fullPath.Substring(2)
+    }
+    return "\\?\" + $fullPath
+}
+
+function Receive-AdbFile {
+    param(
+        [string]$Remote,
+        [string]$Local
+    )
+    $tempPath = Join-Path ([System.IO.Path]::GetTempPath()) ("rustyxr-makepad-{0}.tmp" -f [guid]::NewGuid())
+    try {
+        Invoke-Adb -Arguments @("pull", $Remote, $tempPath) | Out-Null
+        Move-Item -LiteralPath $tempPath -Destination (Convert-ToLongLiteralPath -Path $Local) -Force
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempPath) {
+            Remove-Item -LiteralPath $tempPath -Force
+        }
+    }
 }
 
 function Activity-Component {
@@ -170,6 +205,11 @@ function Set-MakepadBrokerH264Profile {
 
 function Set-MakepadProjectionTargetProfile {
     $nativePassthrough = if ($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0) { "true" } else { "false" }
+    # The public suite-level X offset uses screenshot/display-screen semantics:
+    # positive X moves the projection area right. Makepad's native left/right
+    # projection properties predate that contract and use the opposite sign.
+    $offsetLeftUv = if ([double]::IsNaN($ProjectionAreaOffsetLeftUv)) { -$ProjectionAreaOffsetXUv } else { $ProjectionAreaOffsetLeftUv }
+    $offsetRightUv = if ([double]::IsNaN($ProjectionAreaOffsetRightUv)) { -$ProjectionAreaOffsetXUv } else { $ProjectionAreaOffsetRightUv }
     $props = [ordered]@{
         "debug.rustyxr.makepad.projection.border.policy" = $ProjectionBorderPolicy
         "debug.rustyxr.makepad.native.passthrough.enabled" = $nativePassthrough
@@ -180,6 +220,8 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
         "debug.rustyxr.projection.scale" = (Format-InvariantDouble -Value $ProjectionScale)
         "debug.rustyxr.xr.render.scale" = (Format-InvariantDouble -Value $XrRenderScale)
+        "debug.rustyxr.makepad.projection.area.offset.left.uv" = (Format-InvariantDouble -Value $offsetLeftUv)
+        "debug.rustyxr.makepad.projection.area.offset.right.uv" = (Format-InvariantDouble -Value $offsetRightUv)
         "debug.rustyxr.makepad.projection.area.offset.vertical.uv" = (Format-InvariantDouble -Value $ProjectionAreaOffsetYUv)
         "debug.rustyxr.makepad.projection.area.scale.x" = (Format-InvariantDouble -Value $ProjectionAreaScaleX)
         "debug.rustyxr.makepad.projection.area.scale.y" = (Format-InvariantDouble -Value $ProjectionAreaScaleY)
@@ -495,12 +537,13 @@ function Capture-FreshnessFrames {
         $remote = "/sdcard/rusty_xr_makepad_${Label}_$i.png"
         $local = Join-Path $shotDir ("{0}-frame-{1:D2}.png" -f $Label, $i)
         Invoke-Adb -Arguments @("shell", "screencap", "-p", $remote) | Out-Null
-        Invoke-Adb -Arguments @("pull", $remote, $local) | Out-Null
+        Receive-AdbFile -Remote $remote -Local $local
         Invoke-Adb -Arguments @("shell", "rm", $remote) | Out-Null
+        $localLong = Convert-ToLongLiteralPath -Path $local
         $hashes += [ordered]@{
             file = $local
-            sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $local).Hash
-            length = (Get-Item -LiteralPath $local).Length
+            sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $localLong).Hash
+            length = (Get-Item -LiteralPath $localLong).Length
         }
         Start-Sleep -Seconds $FreshnessIntervalSeconds
     }

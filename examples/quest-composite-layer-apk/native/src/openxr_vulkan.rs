@@ -5304,6 +5304,7 @@ struct CameraProjectionPush {
     color_adjust: [f32; 4],
     effect_params: [f32; 4],
     area_params: [f32; 4],
+    area_offset_params: [f32; 4],
     left_h0: [f32; 4],
     left_h1: [f32; 4],
     left_h2: [f32; 4],
@@ -5433,6 +5434,7 @@ impl CameraProjectionPush {
             color_adjust: config.camera_color_adjust_push(),
             effect_params: config.camera_effect_params_push(),
             area_params: config.camera_area_params_push(),
+            area_offset_params: config.camera_area_offset_params_push(),
             left_h0: [1.0, 0.0, 0.0, 0.0],
             left_h1: [0.0, 1.0, 0.0, 0.0],
             left_h2: [0.0, 0.0, 1.0, 0.0],
@@ -5471,6 +5473,7 @@ impl CameraProjectionPush {
             color_adjust: config.camera_color_adjust_push(),
             effect_params: config.camera_effect_params_push(),
             area_params: config.camera_area_params_push(),
+            area_offset_params: config.camera_area_offset_params_push(),
             left_h0: [1.0, 0.0, 0.0, 0.0],
             left_h1: [0.0, 1.0, 0.0, 0.0],
             left_h2: [0.0, 0.0, 1.0, 0.0],
@@ -5534,6 +5537,7 @@ impl CameraProjectionPush {
             color_adjust: config.camera_color_adjust_push(),
             effect_params: config.camera_effect_params_push(),
             area_params: config.camera_area_params_push(),
+            area_offset_params: config.camera_area_offset_params_push(),
             left_h0: [1.0, 0.0, 0.0, 0.0],
             left_h1: [0.0, 1.0, 0.0, 0.0],
             left_h2: [0.0, 0.0, 1.0, 0.0],
@@ -6150,23 +6154,28 @@ fn expected_source_valid_footprint_marker_fields(
     )
 }
 
-fn screen_to_domain_with_visual_y_offset(
+fn screen_to_domain_with_visual_offset(
     mut rows: [[f32; 3]; 3],
+    offset_x_uv: f32,
     offset_y_uv: f32,
 ) -> [[f32; 3]; 3] {
+    let input_x_offset = -offset_x_uv.clamp(-0.5, 0.5);
     let input_y_offset = -offset_y_uv.clamp(-0.5, 0.5);
     for row in &mut rows {
-        row[2] += row[1] * input_y_offset;
+        row[2] += row[0] * input_x_offset + row[1] * input_y_offset;
     }
     rows
 }
 
-fn domain_to_screen_with_visual_y_offset(
+fn domain_to_screen_with_visual_offset(
     mut rows: [[f32; 3]; 3],
+    offset_x_uv: f32,
     offset_y_uv: f32,
 ) -> [[f32; 3]; 3] {
+    let output_x_offset = offset_x_uv.clamp(-0.5, 0.5);
     let output_y_offset = offset_y_uv.clamp(-0.5, 0.5);
     for column in 0..3 {
+        rows[0][column] += rows[2][column] * output_x_offset;
         rows[1][column] += rows[2][column] * output_y_offset;
     }
     rows
@@ -6174,7 +6183,7 @@ fn domain_to_screen_with_visual_y_offset(
 
 fn projected_homography_marker_fields(homographies: &ProjectedStereoHomographies) -> String {
     format!(
-        "projectionHomographyReady=true projectionAreaTransformStage=screen_space_y_offset projectionAreaWarpParity=reference_unwarped_screen_uv leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} {}",
+        "projectionHomographyReady=true projectionAreaTransformStage=screen_space_xy_offset projectionAreaWarpParity=reference_unwarped_screen_uv leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} {}",
         homography_token(homographies.left.surface_to_camera),
         homography_token(homographies.right.surface_to_camera),
         homography_token(homographies.left.screen_to_camera),
@@ -6523,14 +6532,20 @@ fn projected_display_eye_homography(
     // feed as if a real quad had supplied rasterized surface coordinates.
     // The mode remains visible in logs/catalogs so a future mesh-quad backend
     // can be A/B tested without changing launch profiles.
+    let offset_x_uv = config.camera_projection_area_offset_x_uv;
     let offset_y_uv = config.camera_projection_area_offset_y_uv;
-    let screen_to_surface =
-        screen_to_domain_with_visual_y_offset(invert_homography(surface_to_screen)?, offset_y_uv);
-    let screen_to_camera = screen_to_domain_with_visual_y_offset(
-        screen_to_camera_uv_homography(surface_to_screen, surface_to_camera).ok()?,
+    let screen_to_surface = screen_to_domain_with_visual_offset(
+        invert_homography(surface_to_screen)?,
+        offset_x_uv,
         offset_y_uv,
     );
-    let surface_to_screen = domain_to_screen_with_visual_y_offset(surface_to_screen, offset_y_uv);
+    let screen_to_camera = screen_to_domain_with_visual_offset(
+        screen_to_camera_uv_homography(surface_to_screen, surface_to_camera).ok()?,
+        offset_x_uv,
+        offset_y_uv,
+    );
+    let surface_to_screen =
+        domain_to_screen_with_visual_offset(surface_to_screen, offset_x_uv, offset_y_uv);
     Some(DisplayEyeProjectionMapping {
         surface_to_camera,
         screen_to_camera,
@@ -6577,10 +6592,15 @@ fn projected_full_frame_display_eye_homography(
         display_view.fov.angle_up.tan(),
     )
     .ok()?;
+    let offset_x_uv = config.camera_projection_area_offset_x_uv;
     let offset_y_uv = config.camera_projection_area_offset_y_uv;
-    let screen_to_surface =
-        screen_to_domain_with_visual_y_offset(invert_homography(surface_to_screen)?, offset_y_uv);
-    let surface_to_screen = domain_to_screen_with_visual_y_offset(surface_to_screen, offset_y_uv);
+    let screen_to_surface = screen_to_domain_with_visual_offset(
+        invert_homography(surface_to_screen)?,
+        offset_x_uv,
+        offset_y_uv,
+    );
+    let surface_to_screen =
+        domain_to_screen_with_visual_offset(surface_to_screen, offset_x_uv, offset_y_uv);
     Some(DisplayEyeProjectionMapping {
         surface_to_camera: identity_homography(),
         screen_to_camera: screen_to_surface,

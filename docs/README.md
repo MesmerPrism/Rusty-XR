@@ -115,6 +115,8 @@ architecture.
   SurfaceTexture/OES and multilayer diagnostics plan.
 - [Quest-to-Quest online streaming roadmap](QUEST_TO_QUEST_ONLINE_STREAMING_ROADMAP.md):
   staged online streaming roadmap.
+- [Quest-to-Quest native relay session, 2026-05-19](QUEST_TO_QUEST_NATIVE_RELAY_SESSION_2026_05_19.md):
+  public-safe two-way native relay retrospective and next-run diagnostic plan.
 - [Makepad Android build compatibility plan](MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md):
   Makepad packaging and hotload compatibility plan.
 - [Makepad stereo comparison iteration](MAKEPAD_STEREO_COMPARISON_ITERATION.md):

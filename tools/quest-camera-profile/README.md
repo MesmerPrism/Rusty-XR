@@ -108,6 +108,24 @@ timeout sleep can still occur. Use the raw-stack suite's
 logs the prior value and runs `svc power stayon true`. This is a power-management
 guard, not a proximity-sensor override.
 
+For unattended camera sessions, use the explicit broker shell-helper watchdog
+instead of relying on passive status refresh:
+
+```powershell
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root . --proximity-watchdog --proximity-watchdog-until-stopped --proximity-watchdog-ensure-stay-awake --json
+```
+
+That mode is an active operator-owned guard. It preserves `Virtual proximity
+state: CLOSE`, re-applies `svc power stayon true`, wakes the display when power
+readback drifts, and keeps reporting the repair counters through
+`shellHelper.diagnostics.proximity_watchdog` until the shell helper is stopped.
+
+The raw-stack suite also checks passive readiness before each mode. A mode is
+recorded as failed before launch when ADB is not in `device` state, wakefulness
+is unavailable or not `Awake`, or VR power state is unavailable, unmounted,
+standby, or waiting for sleep. `-ContinueOnError` keeps the summary moving, but
+it does not turn that preflight failure into valid camera evidence.
+
 Use a direct Camera2/HWB profile first when proving camera readiness, then
 advance to broker-camera or codec profiles. Accept a run only when camera-frame
 progression, visible ROIs or operator witness, projection status, and import
@@ -233,7 +251,9 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | --- | --- | --- |
 | `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-blur-solid-red-unorm`, `raw-projection-blur-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, or `raw-projection-cycling-border-unorm`. |
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `display-screen-homography` or `quad-surface`. |
+| `rustyxr.cameraProjectionAreaOffsetXUv` | float | Optional Vulkan/HWB horizontal projection-area sweep knob for screen-space centering diagnostics. |
 | `rustyxr.cameraProjectionAreaOffsetYUv` | float | Optional Vulkan/HWB vertical projection-area sweep knob for screen-space centering diagnostics. |
+| `rustyxr.projectionAreaOffsetXUv` | float | Optional GL/OES horizontal projection-area sweep knob for screen-space centering diagnostics. |
 | `rustyxr.projectionAreaOffsetYUv` | float | Optional GL/OES vertical projection-area sweep knob for screen-space centering diagnostics. |
 | `rustyxr.cameraProjectionAreaOpacity` | float | Vulkan/HWB valid projection-window alpha, clamped to `0..1`. |
 | `rustyxr.cameraProjectionBorderOpacity` | float | Vulkan/HWB solid border alpha, clamped to `0..1`. |
@@ -243,6 +263,12 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in pixels for blur projection presets. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
 | `rustyxr.openxrPassthroughProbe` | string | Keeps native passthrough checks separate from camera projection: `off`, `warmup`, `client`, or `underlay`. |
+
+Projection-area offset keys share the suite-level screen contract: positive X
+moves the projection area right and positive Y moves it down in screenshot /
+display-screen coordinates. Any renderer-specific sign convention should be
+normalized by the renderer profile or launch wrapper before these keys reach
+the app-specific backend.
 
 The app-parsed runtime config log is the authority for whether a switch was
 actually applied. It reports the requested preset and the resolved feed,

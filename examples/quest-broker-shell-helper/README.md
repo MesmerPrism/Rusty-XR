@@ -31,11 +31,16 @@ counters. With `--emit-screenrecord-video`, it runs the shell-only Android
 `screenrecord --output-format=h264 -` display capture path, chunks stdout H.264
 bytes into the same framing, and reports the same broker metadata/metric shape.
 Frame bytes are still kept off the broker JSON/WebSocket path.
-With `--proximity-watchdog`, it also runs a bounded shell-side proximity
-watchdog that reads `dumpsys vrpowermanager` and re-broadcasts
+With `--proximity-watchdog`, it also runs a shell-side proximity watchdog that
+reads `dumpsys vrpowermanager` and re-broadcasts
 `com.oculus.vrpowermanager.prox_close` only when the virtual proximity state is
-not already `CLOSE`. The helper never broadcasts `automation_disable`; stop the
-watchdog first when intentionally returning to normal wear-sensor behavior.
+not already `CLOSE`. Add `--proximity-watchdog-until-stopped` for autonomous
+sessions that should run until an explicit stop request, and add
+`--proximity-watchdog-ensure-stay-awake` when the helper should also reapply
+`svc power stayon true` and send `KEYCODE_WAKEUP` if `dumpsys power` shows the
+headset has left the awake/display-on state. The helper never broadcasts
+`automation_disable`; stop the watchdog first when intentionally returning to
+normal wear-sensor behavior.
 With `--focus-guardian`, it runs a bounded focus-recovery loop. The helper polls
 the broker's `experiment.get_control` command, applies only whitelisted
 `debug.rustyxr.*` runtime properties from that control state, samples
@@ -75,7 +80,7 @@ powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\to
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -EmitSyntheticVideoBinary -BinaryVideoPackets 3 -BinaryVideoPacketBytes 1024
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -EmitMediaCodecSyntheticVideo -EncodedVideoFrames 4 -EncodedVideoWidth 320 -EncodedVideoHeight 180
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -EmitScreenrecordVideo -EncodedVideoWidth 320 -EncodedVideoHeight 180 -EncodedVideoBitrate 500000 -ScreenrecordTimeLimit 1 -BinaryVideoPackets 30 -BinaryVideoPacketBytes 16384
-powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -ProximityWatchdog
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -ProximityWatchdog -ProximityWatchdogUntilStopped -ProximityWatchdogEnsureStayAwake
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -FocusGuardian -FocusGuardianMode toggle_broker_target
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -FocusGuardian -FocusGuardianMode launch_target_guard
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -Disconnect -StopProximityWatchdog -StopFocusGuardian
@@ -93,7 +98,7 @@ dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- bro
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper binary-probe --serial <serial> --rusty-xr-root . --json
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper binary-probe --serial <serial> --rusty-xr-root . --mediacodec-synthetic --encoded-video-frames 4 --encoded-video-width 320 --encoded-video-height 180 --json
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper binary-probe --serial <serial> --rusty-xr-root . --screenrecord-source --encoded-video-width 320 --encoded-video-height 180 --encoded-video-bitrate 500000 --screenrecord-time-limit 1 --json
-dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root . --proximity-watchdog --json
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root . --proximity-watchdog --proximity-watchdog-until-stopped --proximity-watchdog-ensure-stay-awake --json
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root . --focus-guardian --focus-guardian-mode toggle_broker_target --json
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root . --focus-guardian --focus-guardian-mode launch_target_guard --json
 dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper status --serial <serial> --json
@@ -159,17 +164,22 @@ Expected result:
   the same binary framing
 - when the proximity watchdog is enabled, `GET http://127.0.0.1:8765/status`
   shows `shellHelper.diagnostics.proximity_watchdog`; reapply counts increase
-  only when the helper observes a non-`CLOSE` virtual proximity state
+  only when the helper observes a non-`CLOSE` virtual proximity state. With
+  stay-awake enforcement enabled, the same status object also reports
+  wakefulness, display power state, `mStayOn`, wake reapply count, and
+  stay-awake reapply count.
 - `GET http://127.0.0.1:8765/status` shows `shellHelper.connected=true`
 
 ## Proximity Watchdog Coordination
 
 The shell-side watchdog is intentionally idempotent with the external Companion
-watchdog. Both treat `Virtual proximity state: CLOSE` as the desired state, and
-neither path sends `automation_disable` while preserving a hold. If the external
-watchdog repairs the state first, the shell helper only observes `CLOSE`; if the
-shell helper repairs it first, the external watchdog's next passive readback
-also observes `CLOSE`.
+watchdog. Both treat `Virtual proximity state: CLOSE` as the desired proximity
+state, and neither path sends `automation_disable` while preserving a hold. The
+shell helper can additionally enforce the power side of the same awake contract
+by reapplying `svc power stayon true` and `KEYCODE_WAKEUP`. If the external
+watchdog repairs a state first, the shell helper only observes the desired
+state; if the shell helper repairs it first, the external watchdog's next
+passive readback also observes the desired state.
 
 The stop path writes a device-local stop marker for the shell helper and reports
 the helper disconnected. Restoring normal wear-sensor behavior is a separate

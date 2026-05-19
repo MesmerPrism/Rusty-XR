@@ -103,6 +103,24 @@ the receiver broker reads outbound TLS relay sockets into device-local
 existing-stream inputs for the composite. Agent PCs should coordinate through
 ADB, broker commands, screenshots, logcat, and scorecard extraction only.
 
+## 2026-05-19 Native Relay Update
+
+The first two-way Quest-native relay session moved live Camera2 H.264 payload
+in both directions through broker-owned outbound TLS relay clients. Side A to
+Side B copied tens of megabytes per eye before a connection reset. Side B to
+Side A copied more than one hundred megabytes per eye over roughly two minutes,
+with relay and receiver broker byte counters agreeing exactly.
+
+This promotes the online relay milestone from "relay reachable" to "native
+two-way payload proven." It does not yet prove stable long-session quality or
+frame-level stereo sync. The next gating work is diagnostic: per-eye packet and
+frame counters, media PTS ranges, accepted stereo-pair counters, inter-eye skew
+fields, relay exception close accounting, and direction-specific control
+sessions so agent messages cannot replace each other's control receivers.
+
+The public-safe retrospective and next-run checklist live in
+[Quest-to-Quest native relay session, 2026-05-19](QUEST_TO_QUEST_NATIVE_RELAY_SESSION_2026_05_19.md).
+
 ## Target Shape
 
 The online target should remain native Quest-to-Quest streaming. Browser and

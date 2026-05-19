@@ -101,6 +101,8 @@ public final class Helper {
         "com.oculus.vrpowermanager.prox_close";
     private static final int VR_POWER_MANAGER_DUMPSYS_MAX_BYTES = 128 * 1024;
     private static final int VR_POWER_MANAGER_COMMAND_TIMEOUT_SECONDS = 5;
+    private static final int POWER_DUMPSYS_MAX_BYTES = 128 * 1024;
+    private static final int POWER_COMMAND_TIMEOUT_SECONDS = 5;
     private static final int PROXIMITY_WATCHDOG_DEFAULT_DURATION_MS = 28_800_000;
     private static final int PROXIMITY_WATCHDOG_DEFAULT_HOLD_MS = 28_800_000;
     private static final int PROXIMITY_WATCHDOG_DEFAULT_INTERVAL_MS = 5_000;
@@ -129,6 +131,12 @@ public final class Helper {
         Pattern.compile("Virtual proximity state:\\s*(\\S+)");
     private static final Pattern VR_POWER_MANAGER_HEADSET_STATE_PATTERN =
         Pattern.compile("^\\s*State:\\s*(.+)$", Pattern.MULTILINE);
+    private static final Pattern POWER_WAKEFULNESS_PATTERN =
+        Pattern.compile("mWakefulness=(\\S+)");
+    private static final Pattern POWER_STAY_ON_PATTERN =
+        Pattern.compile("mStayOn=(true|false)");
+    private static final Pattern POWER_DISPLAY_STATE_PATTERN =
+        Pattern.compile("Display Power:\\s*state=(\\S+)");
     private static final Pattern CURRENT_FOCUS_COMPONENT_PATTERN =
         Pattern.compile("mCurrentFocus=.*?\\s([A-Za-z0-9_.$]+)/(\\S+)");
     private static final Pattern FOCUSED_APP_COMPONENT_PATTERN =
@@ -224,6 +232,8 @@ public final class Helper {
         if (options.proximityWatchdog || options.stopProximityWatchdog) {
             capabilities.put("shell.proximity_watchdog.v1");
             capabilities.put("shell.proximity_watchdog.stop_file");
+            capabilities.put("shell.proximity_watchdog.until_stopped");
+            capabilities.put("shell.proximity_watchdog.stay_awake");
         }
         if (options.focusGuardian || options.stopFocusGuardian) {
             capabilities.put("shell.focus_guardian.v1");
@@ -281,6 +291,12 @@ public final class Helper {
                         "initial_report",
                         "",
                         "",
+                        "",
+                        "",
+                        false,
+                        0,
+                        0,
+                        0,
                         0,
                         0,
                         0,
@@ -1404,8 +1420,14 @@ public final class Helper {
         int reapplyCount = 0;
         int readFailureCount = 0;
         int broadcastFailureCount = 0;
+        int powerReadFailureCount = 0;
+        int stayAwakeApplyCount = 0;
+        int wakeApplyCount = 0;
         String lastVirtualState = "";
         String lastHeadsetState = "";
+        String lastWakefulness = "";
+        String lastDisplayPowerState = "";
+        boolean lastStayOn = false;
         String lastAction = "started";
         String lastError = "";
         sendProximityWatchdogHeartbeat(
@@ -1415,16 +1437,65 @@ public final class Helper {
             lastAction,
             lastVirtualState,
             lastHeadsetState,
+            lastWakefulness,
+            lastDisplayPowerState,
+            lastStayOn,
             reapplyCount,
             readFailureCount,
             broadcastFailureCount,
+            powerReadFailureCount,
+            stayAwakeApplyCount,
+            wakeApplyCount,
             Math.max(0L, deadlineElapsedMs - SystemClock.elapsedRealtime()),
             lastError);
 
-        while (SystemClock.elapsedRealtime() < deadlineElapsedMs) {
+        while (options.proximityWatchdogUntilStopped || SystemClock.elapsedRealtime() < deadlineElapsedMs) {
             if (stopFile.exists()) {
                 lastAction = "stopped";
                 break;
+            }
+
+            lastAction = "";
+            lastError = "";
+            if (options.proximityWatchdogEnsureStayAwake) {
+                PowerReadback power = readPowerState();
+                lastWakefulness = power.wakefulness;
+                lastDisplayPowerState = power.displayPowerState;
+                lastStayOn = power.stayOn;
+                if (!power.available) {
+                    powerReadFailureCount++;
+                    lastAction = "power_read_failed";
+                    lastError = power.error;
+                } else {
+                    if (!power.stayOn) {
+                        CommandCapture stayOn = enableStayAwake();
+                        if (stayOn.exitCode == 0 && !stayOn.timedOut) {
+                            stayAwakeApplyCount++;
+                            lastAction = "reapplied_stay_awake";
+                            lastError = "";
+                        } else {
+                            powerReadFailureCount++;
+                            lastAction = "stay_awake_apply_failed";
+                            lastError = stayOn.timedOut
+                                ? "svc power stayon timed out"
+                                : "svc power stayon exit=" + stayOn.exitCode + " " + stayOn.output.trim();
+                        }
+                    }
+                    if (shouldWakeDevice(power)) {
+                        CommandCapture wake = wakeDevice();
+                        if (wake.exitCode == 0 && !wake.timedOut) {
+                            wakeApplyCount++;
+                            lastAction = "reapplied_wake";
+                            lastError = "";
+                        } else {
+                            powerReadFailureCount++;
+                            lastAction = "wake_apply_failed";
+                            lastError = wake.timedOut
+                                ? "input keyevent wakeup timed out"
+                                : "input keyevent wakeup exit=" + wake.exitCode + " " + wake.output.trim();
+                        }
+                    }
+                }
             }
 
             ProximityReadback readback = readProximityState();
@@ -1432,11 +1503,13 @@ public final class Helper {
             lastHeadsetState = readback.headsetState;
             if (!readback.available) {
                 readFailureCount++;
-                lastAction = "read_failed";
+                lastAction = "proximity_read_failed";
                 lastError = readback.error;
             } else if ("CLOSE".equalsIgnoreCase(readback.virtualState)) {
-                lastAction = "observed_close";
-                lastError = "";
+                if (lastAction.length() == 0 || "started".equals(lastAction)) {
+                    lastAction = "observed_close";
+                    lastError = "";
+                }
             } else {
                 CommandCapture broadcast = broadcastProxClose(options.proximityWatchdogHoldDurationMs);
                 if (broadcast.exitCode == 0 && !broadcast.timedOut) {
@@ -1459,13 +1532,21 @@ public final class Helper {
                 lastAction,
                 lastVirtualState,
                 lastHeadsetState,
+                lastWakefulness,
+                lastDisplayPowerState,
+                lastStayOn,
                 reapplyCount,
                 readFailureCount,
                 broadcastFailureCount,
+                powerReadFailureCount,
+                stayAwakeApplyCount,
+                wakeApplyCount,
                 Math.max(0L, deadlineElapsedMs - SystemClock.elapsedRealtime()),
                 lastError);
 
-            long remainingMs = deadlineElapsedMs - SystemClock.elapsedRealtime();
+            long remainingMs = options.proximityWatchdogUntilStopped
+                ? options.proximityWatchdogIntervalMs
+                : deadlineElapsedMs - SystemClock.elapsedRealtime();
             if (remainingMs <= 0L) {
                 break;
             }
@@ -1479,9 +1560,15 @@ public final class Helper {
             lastAction,
             lastVirtualState,
             lastHeadsetState,
+            lastWakefulness,
+            lastDisplayPowerState,
+            lastStayOn,
             reapplyCount,
             readFailureCount,
             broadcastFailureCount,
+            powerReadFailureCount,
+            stayAwakeApplyCount,
+            wakeApplyCount,
             0L,
             lastError);
     }
@@ -1493,9 +1580,15 @@ public final class Helper {
             String lastAction,
             String virtualState,
             String headsetState,
+            String wakefulness,
+            String displayPowerState,
+            boolean stayOn,
             int reapplyCount,
             int readFailureCount,
             int broadcastFailureCount,
+            int powerReadFailureCount,
+            int stayAwakeApplyCount,
+            int wakeApplyCount,
             long remainingMs,
             String lastError) throws Exception {
         JSONObject report = new JSONObject();
@@ -1506,6 +1599,8 @@ public final class Helper {
         capabilities.put("shell.uid.report");
         capabilities.put("shell.proximity_watchdog.v1");
         capabilities.put("shell.proximity_watchdog.stop_file");
+        capabilities.put("shell.proximity_watchdog.until_stopped");
+        capabilities.put("shell.proximity_watchdog.stay_awake");
         report.put("capabilities", capabilities);
         JSONArray activeStreams = new JSONArray();
         if (active) {
@@ -1521,9 +1616,15 @@ public final class Helper {
                 lastAction,
                 virtualState,
                 headsetState,
+                wakefulness,
+                displayPowerState,
+                stayOn,
                 reapplyCount,
                 readFailureCount,
                 broadcastFailureCount,
+                powerReadFailureCount,
+                stayAwakeApplyCount,
+                wakeApplyCount,
                 remainingMs,
                 lastError));
         report.put("diagnostics", diagnostics);
@@ -1541,9 +1642,15 @@ public final class Helper {
             String lastAction,
             String virtualState,
             String headsetState,
+            String wakefulness,
+            String displayPowerState,
+            boolean stayOn,
             int reapplyCount,
             int readFailureCount,
             int broadcastFailureCount,
+            int powerReadFailureCount,
+            int stayAwakeApplyCount,
+            int wakeApplyCount,
             long remainingMs,
             String lastError) throws Exception {
         JSONObject status = new JSONObject();
@@ -1551,19 +1658,27 @@ public final class Helper {
         status.put("enabled", options.proximityWatchdog);
         status.put("active", active);
         status.put("stop_requested", options.stopProximityWatchdog);
+        status.put("until_stopped", options.proximityWatchdogUntilStopped);
+        status.put("ensure_stay_awake", options.proximityWatchdogEnsureStayAwake);
         status.put("duration_ms", options.proximityWatchdogDurationMs);
         status.put("hold_duration_ms", options.proximityWatchdogHoldDurationMs);
         status.put("interval_ms", options.proximityWatchdogIntervalMs);
-        status.put("remaining_ms", Math.max(0L, remainingMs));
+        status.put("remaining_ms", options.proximityWatchdogUntilStopped ? -1L : Math.max(0L, remainingMs));
         status.put("last_action", lastAction != null ? lastAction : "");
         status.put("virtual_proximity_state", virtualState != null ? virtualState : "");
         status.put("headset_state", headsetState != null ? headsetState : "");
+        status.put("wakefulness", wakefulness != null ? wakefulness : "");
+        status.put("display_power_state", displayPowerState != null ? displayPowerState : "");
+        status.put("stay_on", stayOn);
         status.put("reapply_count", reapplyCount);
         status.put("read_failure_count", readFailureCount);
         status.put("broadcast_failure_count", broadcastFailureCount);
+        status.put("power_read_failure_count", powerReadFailureCount);
+        status.put("stay_awake_apply_count", stayAwakeApplyCount);
+        status.put("wake_apply_count", wakeApplyCount);
         status.put("stop_file", PROXIMITY_WATCHDOG_STOP_FILE);
         status.put("log_file", PROXIMITY_WATCHDOG_LOG_FILE);
-        status.put("non_interference_rule", "only_reapply_when_virtual_state_is_not_close");
+        status.put("non_interference_rule", "only_reapply_proximity_when_virtual_state_is_not_close");
         status.put("last_error", lastError != null ? lastError : "");
         return status;
     }
@@ -2510,6 +2625,60 @@ public final class Helper {
         }
     }
 
+    private static PowerReadback readPowerState() {
+        try {
+            CommandCapture capture = runBoundedCommand(
+                new String[] { "dumpsys", "power" },
+                POWER_DUMPSYS_MAX_BYTES,
+                POWER_COMMAND_TIMEOUT_SECONDS);
+            if (capture.exitCode != 0 || capture.timedOut) {
+                String error = capture.timedOut
+                    ? "dumpsys power timed out"
+                    : "dumpsys power exit=" + capture.exitCode + " " + capture.output.trim();
+                return new PowerReadback(false, "", false, "", error);
+            }
+
+            String wakefulness = matchFirst(POWER_WAKEFULNESS_PATTERN, capture.output);
+            String stayOn = matchFirst(POWER_STAY_ON_PATTERN, capture.output);
+            String displayPowerState = matchFirst(POWER_DISPLAY_STATE_PATTERN, capture.output);
+            if (wakefulness.length() == 0 && stayOn.length() == 0 && displayPowerState.length() == 0) {
+                return new PowerReadback(false, "", false, "", "Power state missing from dumpsys power");
+            }
+            return new PowerReadback(
+                true,
+                wakefulness,
+                "true".equalsIgnoreCase(stayOn),
+                displayPowerState,
+                "");
+        } catch (Exception ex) {
+            return new PowerReadback(false, "", false, "", exceptionSummary(ex));
+        }
+    }
+
+    private static boolean shouldWakeDevice(PowerReadback power) {
+        if (!power.available) {
+            return false;
+        }
+        return (power.wakefulness.length() > 0 && !"Awake".equalsIgnoreCase(power.wakefulness)) ||
+            (power.displayPowerState.length() > 0 &&
+                !"ON".equalsIgnoreCase(power.displayPowerState) &&
+                !"ON_SUSPEND".equalsIgnoreCase(power.displayPowerState));
+    }
+
+    private static CommandCapture enableStayAwake() throws Exception {
+        return runBoundedCommand(
+            new String[] { "svc", "power", "stayon", "true" },
+            16 * 1024,
+            POWER_COMMAND_TIMEOUT_SECONDS);
+    }
+
+    private static CommandCapture wakeDevice() throws Exception {
+        return runBoundedCommand(
+            new String[] { "input", "keyevent", "224" },
+            16 * 1024,
+            POWER_COMMAND_TIMEOUT_SECONDS);
+    }
+
     private static CommandCapture broadcastProxClose(long durationMs) throws Exception {
         return runBoundedCommand(
             new String[] {
@@ -3175,6 +3344,27 @@ public final class Helper {
         }
     }
 
+    private static final class PowerReadback {
+        final boolean available;
+        final String wakefulness;
+        final boolean stayOn;
+        final String displayPowerState;
+        final String error;
+
+        PowerReadback(
+                boolean available,
+                String wakefulness,
+                boolean stayOn,
+                String displayPowerState,
+                String error) {
+            this.available = available;
+            this.wakefulness = wakefulness != null ? wakefulness : "";
+            this.stayOn = stayOn;
+            this.displayPowerState = displayPowerState != null ? displayPowerState : "";
+            this.error = error != null ? error : "";
+        }
+    }
+
     private static final class ForegroundReadback {
         final boolean available;
         final String packageName;
@@ -3224,6 +3414,8 @@ public final class Helper {
         final int screenrecordTimeLimitSeconds;
         final boolean proximityWatchdog;
         final boolean stopProximityWatchdog;
+        final boolean proximityWatchdogUntilStopped;
+        final boolean proximityWatchdogEnsureStayAwake;
         final int proximityWatchdogDurationMs;
         final int proximityWatchdogHoldDurationMs;
         final int proximityWatchdogIntervalMs;
@@ -3261,6 +3453,8 @@ public final class Helper {
                 int screenrecordTimeLimitSeconds,
                 boolean proximityWatchdog,
                 boolean stopProximityWatchdog,
+                boolean proximityWatchdogUntilStopped,
+                boolean proximityWatchdogEnsureStayAwake,
                 int proximityWatchdogDurationMs,
                 int proximityWatchdogHoldDurationMs,
                 int proximityWatchdogIntervalMs,
@@ -3296,6 +3490,8 @@ public final class Helper {
             this.screenrecordTimeLimitSeconds = screenrecordTimeLimitSeconds;
             this.proximityWatchdog = proximityWatchdog;
             this.stopProximityWatchdog = stopProximityWatchdog;
+            this.proximityWatchdogUntilStopped = proximityWatchdogUntilStopped;
+            this.proximityWatchdogEnsureStayAwake = proximityWatchdogEnsureStayAwake;
             this.proximityWatchdogDurationMs = proximityWatchdogDurationMs;
             this.proximityWatchdogHoldDurationMs = proximityWatchdogHoldDurationMs;
             this.proximityWatchdogIntervalMs = proximityWatchdogIntervalMs;
@@ -3338,6 +3534,8 @@ public final class Helper {
             int screenrecordTimeLimitSeconds = SCREENRECORD_DEFAULT_SECONDS;
             boolean proximityWatchdog = false;
             boolean stopProximityWatchdog = false;
+            boolean proximityWatchdogUntilStopped = false;
+            boolean proximityWatchdogEnsureStayAwake = false;
             int proximityWatchdogDurationMs = PROXIMITY_WATCHDOG_DEFAULT_DURATION_MS;
             int proximityWatchdogHoldDurationMs = PROXIMITY_WATCHDOG_DEFAULT_HOLD_MS;
             int proximityWatchdogIntervalMs = PROXIMITY_WATCHDOG_DEFAULT_INTERVAL_MS;
@@ -3402,6 +3600,10 @@ public final class Helper {
                     proximityWatchdog = true;
                 } else if ("--stop-proximity-watchdog".equals(arg)) {
                     stopProximityWatchdog = true;
+                } else if ("--proximity-watchdog-until-stopped".equals(arg)) {
+                    proximityWatchdogUntilStopped = true;
+                } else if ("--proximity-watchdog-ensure-stay-awake".equals(arg)) {
+                    proximityWatchdogEnsureStayAwake = true;
                 } else if ("--proximity-watchdog-duration-ms".equals(arg) && i + 1 < args.length) {
                     proximityWatchdogDurationMs = parsePositiveBounded(
                         "--proximity-watchdog-duration-ms",
@@ -3488,6 +3690,8 @@ public final class Helper {
                 screenrecordTimeLimitSeconds,
                 proximityWatchdog,
                 stopProximityWatchdog,
+                proximityWatchdogUntilStopped,
+                proximityWatchdogEnsureStayAwake,
                 proximityWatchdogDurationMs,
                 proximityWatchdogHoldDurationMs,
                 proximityWatchdogIntervalMs,
@@ -3625,6 +3829,10 @@ public final class Helper {
             System.out.println("                        keep a shell-side proximity hold watchdog active");
             System.out.println("  --stop-proximity-watchdog");
             System.out.println("                        request any active shell-side proximity watchdog to stop");
+            System.out.println("  --proximity-watchdog-until-stopped");
+            System.out.println("                        run until --stop-proximity-watchdog creates the stop file");
+            System.out.println("  --proximity-watchdog-ensure-stay-awake");
+            System.out.println("                        also reapply svc power stayon and send KEYCODE_WAKEUP when needed");
             System.out.println("  --proximity-watchdog-duration-ms <ms>");
             System.out.println("                        watchdog process lifetime; default 28800000");
             System.out.println("  --proximity-watchdog-hold-duration-ms <ms>");

@@ -93,7 +93,10 @@ SOURCE_FIELD_KEYS = (
     "contentUvScale",
     "projectionAreaTransformStage",
     "projectionAreaWarpParity",
+    "projectionAreaOffsetXUv",
     "projectionAreaOffsetYUv",
+    "projectionAreaLeftUv",
+    "projectionAreaRightUv",
     "projectionAreaVerticalUv",
     "projectionAreaScaleX",
     "projectionAreaScaleY",
@@ -844,7 +847,8 @@ def summarize_eye(
 
 
 def find_image_for_run(path: Path) -> Path | None:
-    if not path.exists():
+    search_root = long_path(path)
+    if not search_root.exists():
         return None
     patterns = [
         "*-hzdb-screencap.png",
@@ -856,7 +860,6 @@ def find_image_for_run(path: Path) -> Path | None:
         "**/*-screencap.png",
         "**/frame-00.png",
     ]
-    search_root = long_path(path)
     for pattern in patterns:
         matches = sorted(search_root.glob(pattern))
         if matches:
@@ -1043,11 +1046,12 @@ def parse_override_fields(value: Any) -> dict[str, str]:
 
 
 def find_run_manifest(path: Path) -> Path | None:
-    if not path.exists():
+    search_root = long_path(path)
+    if not search_root.exists():
         return None
-    if path.is_file() and path.name == "run-manifest.json":
-        return path
-    candidates = sorted(long_path(path).glob("**/run-manifest.json"))
+    if search_root.is_file() and search_root.name == "run-manifest.json":
+        return search_root
+    candidates = sorted(search_root.glob("**/run-manifest.json"))
     return candidates[-1] if candidates else None
 
 
@@ -1209,7 +1213,7 @@ def latest_surface_texture_transform_fields(records: list[dict[str, Any]]) -> di
 
 
 def extract_projection_evidence(path: Path) -> dict[str, Any] | None:
-    if not path.exists():
+    if not long_path(path).exists():
         return None
     text = read_text_auto(path)
     source_fields = parse_scalar_fields(text)
@@ -1639,7 +1643,36 @@ def uv_rect_is_full_frame(rect: list[float] | None, tolerance: float = 0.0025) -
     )
 
 
+def projection_area_uses_default_footprint(fields: dict[str, str], tolerance: float = 0.0025) -> bool:
+    offset_x = parse_number_value(
+        first_field(
+            fields,
+            "projectionAreaOffsetXUv",
+            "cameraProjectionAreaOffsetXUv",
+            "projectionAreaLeftUv",
+            "projectionAreaRightUv",
+        )
+    )
+    offset_y = parse_number_value(
+        first_field(fields, "projectionAreaOffsetYUv", "projectionAreaVerticalUv", "cameraProjectionAreaOffsetYUv")
+    )
+    radius_x = parse_number_value(first_field(fields, "projectionAreaRadiusXUv", "cameraProjectionAreaRadiusXUv"))
+    radius_y = parse_number_value(first_field(fields, "projectionAreaRadiusYUv", "cameraProjectionAreaRadiusYUv"))
+    scale_x = parse_number_value(first_field(fields, "projectionAreaScaleX", "projectionAreaScaleUv"))
+    scale_y = parse_number_value(first_field(fields, "projectionAreaScaleY", "projectionAreaScaleUv"))
+    return (
+        (offset_x is None or abs(float(offset_x)) <= tolerance)
+        and (offset_y is None or abs(float(offset_y)) <= tolerance)
+        and (radius_x is None or abs(float(radius_x) - 0.5) <= tolerance)
+        and (radius_y is None or abs(float(radius_y) - 0.5) <= tolerance)
+        and (scale_x is None or abs(float(scale_x) - 1.0) <= tolerance)
+        and (scale_y is None or abs(float(scale_y) - 1.0) <= tolerance)
+    )
+
+
 def prefer_full_frame_envelope_measurement(fields: dict[str, str]) -> bool:
+    if not projection_area_uses_default_footprint(fields):
+        return False
     profile = first_field(
         fields,
         "brokerH264SyntheticProjectionProfile",
@@ -1771,6 +1804,11 @@ def orientation_record(fields: dict[str, str], marker: dict[str, Any] | None) ->
 
 
 def app_projection_record(fields: dict[str, str], stages: dict[str, Any], eye: str) -> dict[str, Any]:
+    projection_area_offset_x_value = (
+        fields.get("projectionAreaOffsetXUv")
+        or fields.get("cameraProjectionAreaOffsetXUv")
+        or (fields.get("projectionAreaLeftUv") if eye == "left" else fields.get("projectionAreaRightUv"))
+    )
     values = {
         "coordinate_chain": fields.get("coordinateChain") or fields.get("coordinate_chain"),
         "projection_mode": fields.get("projectionMode"),
@@ -1793,6 +1831,7 @@ def app_projection_record(fields: dict[str, str], stages: dict[str, Any], eye: s
         "content_uv_scale": parse_number_value(fields.get("contentUvScale")),
         "projection_area_transform_stage": fields.get("projectionAreaTransformStage"),
         "projection_area_warp_parity": fields.get("projectionAreaWarpParity"),
+        "projection_area_offset_x_uv": parse_number_value(projection_area_offset_x_value),
         "projection_area_offset_y_uv": parse_number_value(
             fields.get("projectionAreaOffsetYUv")
             or fields.get("projectionAreaVerticalUv")

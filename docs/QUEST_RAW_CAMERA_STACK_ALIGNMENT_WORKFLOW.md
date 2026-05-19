@@ -54,8 +54,12 @@ Launch/profile behavior:
 - projection border policy: `solid-red` for automated segmentation or
   `passthrough-underlay` for operator alignment against native passthrough;
 - projection-area offset sweep values such as
-  `rustyxr.cameraProjectionAreaOffsetYUv`, `rustyxr.projectionAreaOffsetYUv`,
-  or `debug.rustyxr.makepad.projection.area.offset.vertical.uv`;
+  `rustyxr.cameraProjectionAreaOffsetXUv`,
+  `rustyxr.cameraProjectionAreaOffsetYUv`, `rustyxr.projectionAreaOffsetXUv`,
+  `rustyxr.projectionAreaOffsetYUv`,
+  `debug.rustyxr.makepad.projection.area.offset.left.uv`,
+  `debug.rustyxr.makepad.projection.area.offset.right.uv`, or
+  `debug.rustyxr.makepad.projection.area.offset.vertical.uv`;
 - independent projection-area and border opacity values such as
   `rustyxr.cameraProjectionAreaOpacity`,
   `rustyxr.cameraProjectionBorderOpacity`, `rustyxr.projectionAreaOpacity`,
@@ -224,9 +228,13 @@ The suite applies the same policy to every public lane:
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
 | Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.processing.layer=blur` plus `debug.rustyxr.makepad.blur.radius.px` |
 
-Use `-ProjectionAreaOffsetYUv <value>` on the suite to run repeatable vertical
-centering sweeps. Record the observed direction per renderer before deciding on
-a final lane-specific offset.
+Use `-ProjectionAreaOffsetXUv <value>` and `-ProjectionAreaOffsetYUv <value>`
+on the suite to run repeatable centering sweeps. The suite-level contract uses
+screen/screenshot coordinates: positive X moves the projection area right and
+positive Y moves it down. Renderer-specific sign or viewport conventions must
+be normalized at the renderer/profile boundary before the app is launched.
+Treat these values as projection-area placement controls; do not hide
+source-crop, texture-origin, or analyzer problems behind them.
 Use `-ProjectionAreaOpacity` for the projection-window fade and
 `-ProjectionBorderOpacity` for the non-projection area/border fade. Opacity
 changes must not move the camera projection area; rerun the solid-red
@@ -249,8 +257,12 @@ activity is not the reliable XR presentation gate.
 The suite writes passive `state-snapshots\` before and after each mode. These
 snapshots record ADB state, `dumpsys power`, `stay_on_while_plugged_in`, focus,
 windows, VR power-manager state, and broker status/clock endpoints where
-available. The suite summary includes a state-transition audit when a mode
-changes wakefulness or VR power state. Use that audit to distinguish
+available. A mode preflight now requires ADB `device`, Android wakefulness
+`Awake`, and a mounted VR power state before the renderer is launched; if that
+readiness check fails, the mode is recorded as failed instead of collecting
+camera evidence against a stale or unreachable headset. The suite summary
+includes a state-transition audit when a mode changes wakefulness, VR power
+state, virtual proximity state, or ADB state. Use that audit to distinguish
 camera-readiness failures from normal timeout sleep, focus loss, broker state
 changes, or a headset transition into screen-awake/camera-unready state. Do not
 treat proximity settings alone as proof that the headset cannot enter a
@@ -262,6 +274,17 @@ place unless `-RestoreStayAwakeGuard` is also passed. A value such as
 `mStayOn=false` or `stay_on_while_plugged_in=0` means the stay-awake guard is
 off; it is not a keep-awake setting. This guard is separate from proximity
 state and should not be described as a proximity override.
+For autonomous camera sessions where off-face proximity, stay-awake, and wake
+state all need active enforcement until an operator stops it, start the broker
+shell-helper watchdog before the matrix:
+
+```powershell
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <quest-serial> --rusty-xr-root . --proximity-watchdog --proximity-watchdog-until-stopped --proximity-watchdog-ensure-stay-awake --json
+```
+
+That is an explicit active guard, separate from passive state snapshots. Stop
+the helper before restoring normal proximity or treating a later run as
+unmanaged headset evidence.
 
 Example:
 
@@ -292,8 +315,12 @@ Use `solid-red` for image-derived border checks and `passthrough-underlay` for
 manual alignment with native passthrough. Leave `-ProcessingLayer raw` for
 projection-only checks, and switch to `blur` only when comparing camera-sample
 processing behavior across the lanes.
-Use `-ProjectionAreaOffsetYUv <value>` for controlled vertical-centering sweeps
-without changing horizontal alignment.
+Use `-ProjectionAreaOffsetXUv <value>` and `-ProjectionAreaOffsetYUv <value>`
+for controlled centering sweeps. Positive X and positive Y are defined in
+display/screenshot coordinates: right and down. Use renderer-specific overrides
+only when a lane has a documented OpenXR layer or viewport placement
+convention that requires a different value; sign normalization belongs in the
+renderer/profile boundary, not in the analyzer or source-content detection.
 
 Use `-RestartBrokerBeforeBrokerModes` when multiple live broker-camera lanes
 reuse the same H.264 ports in one suite. The switch restarts the broker console

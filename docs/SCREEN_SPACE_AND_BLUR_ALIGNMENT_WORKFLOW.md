@@ -175,9 +175,13 @@ stale/repeated frames.
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
 | Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.projection.area.opacity` | `debug.rustyxr.makepad.projection.border.opacity` | `debug.rustyxr.makepad.processing.layer=blur`, plus `debug.rustyxr.makepad.blur.radius.px` |
 
-The suite-level `-ProjectionAreaOffsetYUv` parameter forwards the same
-screen-space vertical sweep intent to each renderer through its native key. Use
-it only after the raw hard-mask evidence is valid.
+The suite-level `-ProjectionAreaOffsetXUv` and `-ProjectionAreaOffsetYUv`
+parameters forward the same screen-space sweep intent to each renderer through
+its native key. Positive X moves the projection area right and positive Y moves
+it down in screenshot/display-screen coordinates. Use them only after the raw
+hard-mask evidence is valid. If a lane needs a renderer-specific offset,
+document the owning layer and keep the adjustment out of source-content
+detection, texture-origin conversion, and blur processing.
 
 For alignment runs, do not launch `fast075` HWB profiles. Those names belong to
 older performance comparisons and can hide a `cameraProjectionScale=0.75`
