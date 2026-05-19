@@ -274,6 +274,12 @@ $sdkProfile = Assert-MakepadAndroidSdkProfile -SdkPath $SdkPath -HostKind $hostK
 $SdkPath = $sdkProfile.SdkRoot
 Write-Host ("Makepad Android SDK profile: host={0} sdk={1} platform={2} buildTools={3} compilerApi={4} java={5} ndkPrebuilt={6}" -f `
     $sdkProfile.HostKind, $sdkProfile.SdkRoot, $sdkProfile.Platform, $sdkProfile.BuildToolsVersion, $sdkProfile.CompilerApi, $sdkProfile.JavaHome, $sdkProfile.NdkPrebuiltRoot)
+if ($MakepadSourceRoot) {
+    Write-Host ("Makepad packager: source-built cargo-makepad from {0}; app dependency patching={1}" -f `
+        (Resolve-Path -LiteralPath $MakepadSourceRoot).Path, [bool]$PatchMakepadXrFromSource)
+} else {
+    Write-Host "Makepad packager: installed cargo-makepad from the active Cargo environment"
+}
 
 if ($UseWindowsHost) {
     Push-Location $exampleRoot

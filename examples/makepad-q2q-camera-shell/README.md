@@ -23,9 +23,11 @@ fork-patch policy are documented in
 - Uses `cargo-makepad android --variant=quest`.
 - Uses the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging`. The exact Makepad revision for this
-  example is pinned in `Cargo.lock`. The APK generator is the installed
-  `cargo-makepad` binary, so refresh that binary from the same fork checkout
-  after Makepad-side Android bridge or packaging changes.
+  example is pinned in `Cargo.lock`. Local evidence builds should run the
+  wrapper with `-MakepadSourceRoot <makepad-fork-checkout>` so the packager
+  itself comes from the maintained fork checkout. App dependency patching is a
+  separate opt-in switch, `-PatchMakepadXrFromSource`, for the narrower case
+  where an app build must consume uncommitted Makepad dependency changes.
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
@@ -98,11 +100,13 @@ cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-
 ```
 
 For local evidence builds, prefer the wrapper because it preflights the selected
-SDK before cargo runs:
+SDK before cargo runs and can run the maintained fork's `cargo-makepad` tool
+without rewriting this example's app dependencies:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
-  -SdkPath <host-matched-sdk>
+  -SdkPath <host-matched-sdk> `
+  -MakepadSourceRoot <makepad-fork-checkout>
 ```
 
 Use `-UseWindowsHost` when the selected SDK is a Windows-host SDK. Without that
@@ -176,6 +180,14 @@ This example is not a root-workspace member. Use
 `cargo check --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml` from
 the repository root, or plain `cargo check` from this directory; do not use
 `cargo check -p rusty-xr-makepad-q2q-camera-shell` from the root workspace.
+Treat that as the host-side Rust validation gate for parser, metadata, and
+projection-math changes. Do not use a plain
+`cargo check --target aarch64-linux-android` as the Android acceptance gate for
+this Makepad lane; it can stop at Makepad's generated Android entrypoint model
+and does not exercise the actual packager. Android acceptance is a successful
+wrapper build through `Build-MakepadStereoAlignmentApk.ps1`, preferably with
+`-MakepadSourceRoot <makepad-fork-checkout>` when Makepad-side packaging or
+bridge code matters.
 
 Keep the Makepad options before `build` or `run` and use `--key=value` for
 paths and package/app values. Before treating an APK as fresh evidence, remove

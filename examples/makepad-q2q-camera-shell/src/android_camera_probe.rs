@@ -117,6 +117,46 @@ pub struct StereoProjectionPlan {
     pub runtime_xr_view_state_ready: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct BrokerProjectionSource {
+    pub camera_id: String,
+    pub intrinsics_fx: f32,
+    pub intrinsics_fy: f32,
+    pub intrinsics_cx: f32,
+    pub intrinsics_cy: f32,
+    pub intrinsics_skew: f32,
+    pub intrinsics_domain_width: u32,
+    pub intrinsics_domain_height: u32,
+    pub pose_translation: [f32; 3],
+    pub pose_rotation: [f32; 4],
+}
+
+impl BrokerProjectionSource {
+    fn camera_source(&self) -> Option<CameraSource> {
+        let camera_id_c = CString::new(self.camera_id.clone()).ok()?;
+        let intrinsics_width = self.intrinsics_domain_width.max(1);
+        let intrinsics_height = self.intrinsics_domain_height.max(1);
+        Some(CameraSource {
+            camera_id_c,
+            lens_facing: ACAMERA_LENS_FACING_BACK,
+            logical_multi_camera: false,
+            physical_camera_ids: Vec::new(),
+            sensor_sync_type: None,
+            private_sizes: Vec::new(),
+            intrinsics: Some(NativeIntrinsics {
+                fx: self.intrinsics_fx,
+                fy: self.intrinsics_fy,
+                cx: self.intrinsics_cx,
+                cy: self.intrinsics_cy,
+                skew: self.intrinsics_skew,
+            }),
+            active_array_size: Some((intrinsics_width, intrinsics_height)),
+            pose_translation: Some(self.pose_translation),
+            pose_rotation: Some(self.pose_rotation),
+        })
+    }
+}
+
 impl StereoProjectionPlan {
     fn from_sources(sources: &StereoProjectionSources) -> Self {
         let left = &sources.left;
@@ -220,6 +260,50 @@ pub fn latest_stereo_projection_plan() -> Option<StereoProjectionPlan> {
         .lock()
         .ok()
         .and_then(|plan| plan.clone())
+}
+
+pub fn broker_physical_projection_plan_from_xr_views(
+    left_source: BrokerProjectionSource,
+    right_source: BrokerProjectionSource,
+    width: u32,
+    height: u32,
+    views: XrDisplayViews,
+) -> Option<StereoProjectionPlan> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let left_camera_id = left_source.camera_id.clone();
+    let right_camera_id = right_source.camera_id.clone();
+    let left = left_source.camera_source()?;
+    let right = right_source.camera_source()?;
+    let homographies =
+        stereo_projection_homographies_from_xr_views(&left, &right, width, height, views)?;
+
+    Some(StereoProjectionPlan {
+        left_source_index: 0,
+        right_source_index: 1,
+        left_camera_id,
+        right_camera_id,
+        left_facing: "back",
+        right_facing: "back",
+        width,
+        height,
+        projection_metadata_ready: true,
+        pose_source: "broker-stream-header-platform-openxr-view",
+        source_eye_mapping: display_source_eye_mapping(),
+        coordinate_chain: "broker-h264-physical-camera-stream-header-to-openxr-view",
+        fallback_reason: "none",
+        left_surface_to_camera_h: homographies.left_surface_to_camera_h,
+        right_surface_to_camera_h: homographies.right_surface_to_camera_h,
+        left_surface_to_screen_h: homographies.left_surface_to_screen_h,
+        right_surface_to_screen_h: homographies.right_surface_to_screen_h,
+        left_screen_to_camera_h: homographies.left_screen_to_camera_h,
+        right_screen_to_camera_h: homographies.right_screen_to_camera_h,
+        left_screen_to_surface_h: homographies.left_screen_to_surface_h,
+        right_screen_to_surface_h: homographies.right_screen_to_surface_h,
+        projection_homography_ready: true,
+        runtime_xr_view_state_ready: true,
+    })
 }
 
 pub fn update_stereo_projection_from_xr_views(views: XrDisplayViews) -> bool {

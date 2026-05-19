@@ -81,7 +81,7 @@ lifecycle, and renderer surface match the custom Rusty XR path on Quest.
 Prefer the example wrapper for local Makepad evidence builds:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 -SdkPath <host-matched-sdk>
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 -SdkPath <host-matched-sdk> -MakepadSourceRoot <makepad-fork-checkout>
 ```
 
 The wrapper performs host/profile-aware preflight before invoking cargo. WSL or
@@ -90,6 +90,12 @@ names. Windows-host builds need a Windows SDK with Windows NDK prebuilts and
 `.exe` / `.bat` / `.cmd` tools; pass `-UseWindowsHost` for that lane. Do not
 reuse a Windows SDK path from WSL just because the directory is reachable, and
 do not reuse a Linux SDK path for a Windows host build.
+
+Use `-MakepadSourceRoot` when local evidence depends on the maintained Makepad
+fork's Android packager. That switch selects the fork checkout's
+`tools/cargo_makepad` tool. It does not rewrite this example's app dependency
+lockfile. Only pass `-PatchMakepadXrFromSource` when the app must also consume
+uncommitted Makepad dependency source from the same checkout.
 
 For the public Makepad comparison example, run the Makepad build from
 `examples/makepad-q2q-camera-shell` and pass Android options before the
@@ -128,6 +134,20 @@ cargo check --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml
 
 or by running `cargo check` from the example directory. Do not use root
 `cargo check -p` for this example.
+
+For Makepad Android, split validation into two gates:
+
+1. Host Rust gate: `cargo check --manifest-path
+   examples\makepad-q2q-camera-shell\Cargo.toml` and focused host tests cover
+   parser, metadata, and projection-math changes.
+2. Android/package gate: `Build-MakepadStereoAlignmentApk.ps1`, preferably with
+   `-MakepadSourceRoot <makepad-fork-checkout>`, is the target acceptance gate
+   because it exercises Makepad's generated Android activity model and packager.
+
+A direct `cargo check --target aarch64-linux-android` is not the authoritative
+Makepad Android gate for this example. It may reach Makepad's generated
+Android entrypoint limitation even when the wrapper build and generated APK are
+valid.
 
 For headset gates, prefer
 `examples/makepad-q2q-camera-shell/tools/Invoke-MakepadQ2QDeviceGate.ps1`.

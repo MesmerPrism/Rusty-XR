@@ -95,11 +95,18 @@ Makepad CPU-YUV APK:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
-  -SdkPath <makepad-android-sdk-path>
+  -SdkPath <makepad-android-sdk-path> `
+  -MakepadSourceRoot <makepad-fork-checkout>
 ```
 
-The Makepad build consumes a prepared Android SDK layout for Makepad. The
-Vulkan/HWB and GL/OES APKs consume the OpenXR loader directly.
+The Makepad build consumes a prepared Android SDK layout for Makepad. Pass
+`-MakepadSourceRoot` for evidence runs that must use the maintained fork's
+Android packager; leave app dependency patching off unless an uncommitted
+Makepad dependency change is explicitly under test. Host `cargo check` and
+focused host tests are still useful for Makepad parser/projection code, but
+plain `cargo check --target aarch64-linux-android` is not the Makepad Android
+acceptance gate because it does not exercise the generated activity/packager
+path. The Vulkan/HWB and GL/OES APKs consume the OpenXR loader directly.
 
 ## Single-Lane Launch Recipes
 

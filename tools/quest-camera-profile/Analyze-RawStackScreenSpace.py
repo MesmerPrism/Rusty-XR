@@ -184,6 +184,9 @@ SOURCE_FIELD_KEYS = (
 )
 PHASE_PRIORITY = (
     "source-sampling",
+    "visible-panel-bound",
+    "draw-vars-bound",
+    "texture-updated",
     "complete",
     "broker-h264-projection-plan",
     "projection-plan",

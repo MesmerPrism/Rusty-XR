@@ -2649,6 +2649,9 @@ impl App {
             && right_metadata.is_full_frame_diagnostic_synthetic();
         let camera_matched = left_metadata.is_camera_matched_synthetic()
             && right_metadata.is_camera_matched_synthetic();
+        let physical_camera_projection = !full_frame_diagnostic
+            && left_metadata.has_physical_projection_geometry()
+            && right_metadata.has_physical_projection_geometry();
         let Some(mut plan) = (if full_frame_diagnostic {
             android_camera_probe::broker_full_frame_projection_plan_from_xr_views(
                 &left_metadata.camera_id,
@@ -2658,6 +2661,33 @@ impl App {
                 views,
             )
             .map(Camera2StereoPlan::from)
+        } else if physical_camera_projection {
+            let Some(left_source) = left_metadata.android_projection_source() else {
+                return false;
+            };
+            let Some(right_source) = right_metadata.android_projection_source() else {
+                return false;
+            };
+            android_camera_probe::broker_physical_projection_plan_from_xr_views(
+                left_source,
+                right_source,
+                left_width,
+                left_height,
+                views,
+            )
+            .map(Camera2StereoPlan::from)
+            .map(|mut plan| {
+                let profile = if camera_matched {
+                    "camera-matched"
+                } else {
+                    "physical-camera"
+                };
+                plan.coordinate_chain = format!(
+                    "broker-h264-{profile}-stream-header/{}",
+                    plan.coordinate_chain
+                );
+                plan
+            })
         } else if camera_matched {
             Self::latest_camera2_stereo_plan()
                 .map(|mut plan| {
@@ -2704,6 +2734,7 @@ impl App {
             return false;
         };
         if !full_frame_diagnostic
+            && !physical_camera_projection
             && broker_pair_has_top_left_raster_orientation(left_metadata, right_metadata)
         {
             plan.apply_top_left_raster_source_uv("broker-h264-explicit-top-left-raster");
@@ -2712,6 +2743,8 @@ impl App {
             "broker-h264-stream-header-camera-matched"
         } else if full_frame_diagnostic {
             "broker-h264-stream-header-full-frame-diagnostic"
+        } else if physical_camera_projection {
+            "broker-h264-stream-header-physical-camera"
         } else {
             "broker-h264-stream-header"
         };
@@ -4549,7 +4582,33 @@ struct BrokerH264ProjectionMetadata {
     projection_metadata_ready: bool,
     delivered_width: u32,
     delivered_height: u32,
+    intrinsics: Option<BrokerH264Intrinsics>,
+    intrinsics_domain: Option<BrokerH264PixelDomain>,
+    active_array_domain: Option<BrokerH264PixelDomain>,
+    sensor_pixel_domain: Option<BrokerH264PixelDomain>,
+    extrinsics: Option<BrokerH264Extrinsics>,
     metadata_bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BrokerH264Intrinsics {
+    fx: f32,
+    fy: f32,
+    cx: f32,
+    cy: f32,
+    skew: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BrokerH264Extrinsics {
+    translation: [f32; 3],
+    rotation: [f32; 4],
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BrokerH264PixelDomain {
+    width: u32,
+    height: u32,
 }
 
 impl BrokerH264ProjectionMetadata {
@@ -4721,6 +4780,11 @@ impl BrokerH264ProjectionMetadata {
                 .to_string();
         let content_geometry_default = !explicit_content_geometry
             || json_bool_any(object, &["contentGeometryDefault"]).unwrap_or(false);
+        let intrinsics = parse_broker_intrinsics(object.get("intrinsics"));
+        let intrinsics_domain = parse_broker_pixel_domain(object.get("intrinsicsDomain"));
+        let active_array_domain = parse_broker_pixel_domain(object.get("activeArrayDomain"));
+        let sensor_pixel_domain = parse_broker_pixel_domain(object.get("sensorPixelDomain"));
+        let extrinsics = parse_broker_extrinsics(object.get("extrinsics"));
 
         Ok(Self {
             camera_id,
@@ -4754,6 +4818,11 @@ impl BrokerH264ProjectionMetadata {
             projection_metadata_ready,
             delivered_width,
             delivered_height,
+            intrinsics,
+            intrinsics_domain,
+            active_array_domain,
+            sensor_pixel_domain,
+            extrinsics,
             metadata_bytes: metadata_json.len(),
         })
     }
@@ -4792,6 +4861,40 @@ impl BrokerH264ProjectionMetadata {
     fn is_full_frame_diagnostic_synthetic(&self) -> bool {
         self.source == "broker_app.synthetic_h264_stream"
             && self.synthetic_profile_is("full-frame-diagnostic")
+    }
+
+    fn has_physical_projection_geometry(&self) -> bool {
+        self.projection_metadata_ready
+            && self.intrinsics.is_some()
+            && self.extrinsics.is_some()
+            && (self.projection_geometry_profile == "physical-camera"
+                || self.projection_geometry_profile == "camera-matched")
+    }
+
+    #[cfg(target_os = "android")]
+    fn android_projection_source(&self) -> Option<android_camera_probe::BrokerProjectionSource> {
+        let intrinsics = self.intrinsics?;
+        let domain = self
+            .intrinsics_domain
+            .or(self.active_array_domain)
+            .or(self.sensor_pixel_domain)
+            .unwrap_or(BrokerH264PixelDomain {
+                width: self.delivered_width,
+                height: self.delivered_height,
+            });
+        let extrinsics = self.extrinsics?;
+        Some(android_camera_probe::BrokerProjectionSource {
+            camera_id: self.camera_id.clone(),
+            intrinsics_fx: intrinsics.fx,
+            intrinsics_fy: intrinsics.fy,
+            intrinsics_cx: intrinsics.cx,
+            intrinsics_cy: intrinsics.cy,
+            intrinsics_skew: intrinsics.skew,
+            intrinsics_domain_width: domain.width,
+            intrinsics_domain_height: domain.height,
+            pose_translation: extrinsics.translation,
+            pose_rotation: extrinsics.rotation,
+        })
     }
 }
 
@@ -4917,6 +5020,49 @@ fn json_f64_any(object: &serde_json::Map<String, JsonValue>, keys: &[&str]) -> O
     keys.iter()
         .find_map(|key| object.get(*key).and_then(JsonValue::as_f64))
         .filter(|value| value.is_finite() && *value > 0.0)
+}
+
+fn json_f32_field(object: &serde_json::Map<String, JsonValue>, key: &str) -> Option<f32> {
+    object
+        .get(key)
+        .and_then(JsonValue::as_f64)
+        .filter(|value| value.is_finite())
+        .map(|value| value as f32)
+}
+
+fn parse_broker_intrinsics(value: Option<&JsonValue>) -> Option<BrokerH264Intrinsics> {
+    let object = value?.as_object()?;
+    Some(BrokerH264Intrinsics {
+        fx: json_f32_field(object, "fx")?,
+        fy: json_f32_field(object, "fy")?,
+        cx: json_f32_field(object, "cx")?,
+        cy: json_f32_field(object, "cy")?,
+        skew: json_f32_field(object, "skew").unwrap_or(0.0),
+    })
+}
+
+fn parse_broker_extrinsics(value: Option<&JsonValue>) -> Option<BrokerH264Extrinsics> {
+    let object = value?.as_object()?;
+    Some(BrokerH264Extrinsics {
+        translation: [
+            json_f32_field(object, "px")?,
+            json_f32_field(object, "py")?,
+            json_f32_field(object, "pz")?,
+        ],
+        rotation: [
+            json_f32_field(object, "qx")?,
+            json_f32_field(object, "qy")?,
+            json_f32_field(object, "qz")?,
+            json_f32_field(object, "qw")?,
+        ],
+    })
+}
+
+fn parse_broker_pixel_domain(value: Option<&JsonValue>) -> Option<BrokerH264PixelDomain> {
+    let object = value?.as_object()?;
+    let width = json_u32(object.get("width"))?;
+    let height = json_u32(object.get("height"))?;
+    (width > 0 && height > 0).then_some(BrokerH264PixelDomain { width, height })
 }
 
 fn aspect_ratio_u32(width: u32, height: u32) -> f64 {
@@ -5621,6 +5767,50 @@ mod tests {
         assert_eq!(pair.left.source_index, 1);
         assert_eq!(pair.right.source_index, 0);
         assert!(pair.matches_camera2_plan(&plan));
+    }
+
+    #[test]
+    fn broker_camera_metadata_parses_physical_projection_geometry() {
+        let metadata = BrokerH264ProjectionMetadata::parse(
+            r#"{
+                "source": "broker_app.camera2_h264_stream",
+                "cameraId": "50",
+                "deliveredWidth": 1280,
+                "deliveredHeight": 1280,
+                "projectionGeometryProfile": "physical-camera",
+                "projectionMetadataReady": true,
+                "poseSource": "platform",
+                "poseCoordinateConvention": "android-camera2-lens-pose-reference-from-camera",
+                "intrinsics": {
+                    "fx": 1024.0,
+                    "fy": 1025.0,
+                    "cx": 640.0,
+                    "cy": 641.0,
+                    "skew": 0.5
+                },
+                "intrinsicsDomain": {
+                    "kind": "activeArray",
+                    "width": 4096,
+                    "height": 3072
+                },
+                "extrinsics": {
+                    "px": 0.01,
+                    "py": 0.02,
+                    "pz": 0.03,
+                    "qx": 0.0,
+                    "qy": 0.0,
+                    "qz": 0.0,
+                    "qw": 1.0
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert!(metadata.has_physical_projection_geometry());
+        assert_eq!(metadata.camera_id, "50");
+        assert_eq!(metadata.intrinsics.unwrap().fx, 1024.0);
+        assert_eq!(metadata.intrinsics_domain.unwrap().width, 4096);
+        assert_eq!(metadata.extrinsics.unwrap().rotation[3], 1.0);
     }
 
     #[test]
