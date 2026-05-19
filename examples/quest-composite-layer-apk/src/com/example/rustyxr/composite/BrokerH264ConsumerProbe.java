@@ -63,6 +63,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
     private static final long STEREO_REPLAY_DELIVERY_INTERVAL_NS = 33_333_333L;
     private static final long STEREO_REPLAY_DELIVERY_MAX_SLEEP_MS = 50L;
     private static final long STEREO_PAIR_MAX_DELTA_NS = 25_000_000L;
+    private static final long STEREO_FRAME_SET_MAX_HOLD_NS = 75_000_000L;
+    private static final long STEREO_FRAME_SET_STALE_NS = 250_000_000L;
     private static final int DEFAULT_LIVE_STEREO_PENDING_QUEUE_LIMIT = 8;
     private static final int MAX_LIVE_STEREO_PENDING_QUEUE_LIMIT = 16;
     private static final int MAX_PACKET_BYTES = 1024 * 1024;
@@ -438,6 +440,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("stereo_pair_delta_avg_ns", pair.pairCount > 0 ? pair.deltaTotalNs / pair.pairCount : 0L);
             report.put("stereo_pair_delta_max_ns", pair.deltaMaxNs);
             report.put("stereo_pair_delta_over_target_count", pair.deltaOverTargetCount);
+            putStereoFrameSetGateReport(report, pair);
             putStageTimingReport(report, "", "stereo_pair_native_bridge", pair.nativeBridgeTiming);
             report.put("stereo_left_right_resolution_match", pair.resolutionMismatchCount == 0);
             report.put("stereo_resolution_mismatch_count", pair.resolutionMismatchCount);
@@ -610,6 +613,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("stereo_pair_delta_avg_ns", pair.pairCount > 0 ? pair.deltaTotalNs / pair.pairCount : 0L);
             report.put("stereo_pair_delta_max_ns", pair.deltaMaxNs);
             report.put("stereo_pair_delta_over_target_count", pair.deltaOverTargetCount);
+            putStereoFrameSetGateReport(report, pair);
             putStageTimingReport(report, "", "stereo_pair_native_bridge", pair.nativeBridgeTiming);
             report.put("stereo_left_right_resolution_match", pair.resolutionMismatchCount == 0);
             report.put("stereo_resolution_mismatch_count", pair.resolutionMismatchCount);
@@ -1373,6 +1377,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             progress.put("stereo_live_pair_queue_drop_count", pair.queueDropCount);
             progress.put("stereo_pair_delta_avg_ns", pair.pairCount > 0 ? pair.deltaTotalNs / pair.pairCount : 0L);
             progress.put("stereo_pair_delta_max_ns", pair.deltaMaxNs);
+            putStereoFrameSetGateReport(progress, pair);
             putStageTimingReport(progress, "", "stereo_pair_native_bridge", pair.nativeBridgeTiming);
             progress.put("succeeded", result.decodedFrameCount > 0 || pair.nativeAcceptedCount > 0);
             Log.i(TAG, "Rusty XR broker H.264 consumer probe: " + progress.toString());
@@ -1410,6 +1415,23 @@ final class BrokerH264ConsumerProbe implements Runnable {
         report.put(reportKey(prefix, key + "_count"), timing.count);
         report.put(reportKey(prefix, key + "_avg_ns"), timing.averageNs());
         report.put(reportKey(prefix, key + "_max_ns"), timing.maxNs);
+    }
+
+    private static void putStereoFrameSetGateReport(JSONObject report, StereoPairResult pair) throws Exception {
+        report.put("stereo_frame_set_gate_policy", "latest-valid-complete-set");
+        report.put("stereo_frame_set_join_window_ns", STEREO_PAIR_MAX_DELTA_NS);
+        report.put("stereo_frame_set_max_hold_ns", STEREO_FRAME_SET_MAX_HOLD_NS);
+        report.put("stereo_frame_set_stale_ns", STEREO_FRAME_SET_STALE_NS);
+        report.put("stereo_frame_set_commit_count", pair.frameSetCommitCount);
+        report.put("stereo_frame_set_drop_count", pair.frameSetDropCount);
+        report.put("stereo_frame_set_queue_limit_drop_count", pair.frameSetQueueLimitDropCount);
+        report.put("stereo_frame_set_stale_drop_count", pair.frameSetStaleDropCount);
+        report.put("stereo_frame_set_skew_drop_count", pair.frameSetSkewDropCount);
+        report.put("stereo_frame_set_wait_count", pair.frameSetWaitCount);
+        report.put("stereo_frame_set_latest_queue_age_ns", pair.lastFrameSetQueueAgeNs);
+        report.put("stereo_frame_set_latest_skew_ns", pair.lastFrameSetSkewNs);
+        report.put("stereo_frame_set_latest_left_timestamp_ns", pair.lastFrameSetLeftTimestampNs);
+        report.put("stereo_frame_set_latest_right_timestamp_ns", pair.lastFrameSetRightTimestampNs);
     }
 
     private static boolean outputFramesAllIdentical(DecodeResult decode) {
@@ -1456,6 +1478,11 @@ final class BrokerH264ConsumerProbe implements Runnable {
             DecodedHardwareBufferFrame right = removeNearestFrame(left, remainingRight);
             long deltaNs = Math.abs(left.timestampNs - right.timestampNs);
             result.pairCount++;
+            result.frameSetCommitCount++;
+            result.lastFrameSetQueueAgeNs = 0L;
+            result.lastFrameSetSkewNs = deltaNs;
+            result.lastFrameSetLeftTimestampNs = left.timestampNs;
+            result.lastFrameSetRightTimestampNs = right.timestampNs;
             result.deltaTotalNs += deltaNs;
             result.deltaMaxNs = Math.max(result.deltaMaxNs, deltaNs);
             if (deltaNs > STEREO_PAIR_MAX_DELTA_NS) {
@@ -1682,9 +1709,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             ArrayDeque<DecodedHardwareBufferFrame> queue = "right".equals(eye) ? rightFrames : leftFrames;
             queue.addLast(frame);
             while (queue.size() > queueLimit) {
-                DecodedHardwareBufferFrame dropped = queue.removeFirst();
-                dropped.close();
-                result.queueDropCount++;
+                dropFrame(queue, queue.removeFirst(), "queue-limit");
             }
             deliverAvailablePairs();
         }
@@ -1708,49 +1733,131 @@ final class BrokerH264ConsumerProbe implements Runnable {
             snapshot.deltaMaxNs = result.deltaMaxNs;
             snapshot.deltaOverTargetCount = result.deltaOverTargetCount;
             snapshot.queueDropCount = result.queueDropCount;
+            snapshot.frameSetCommitCount = result.frameSetCommitCount;
+            snapshot.frameSetDropCount = result.frameSetDropCount;
+            snapshot.frameSetQueueLimitDropCount = result.frameSetQueueLimitDropCount;
+            snapshot.frameSetStaleDropCount = result.frameSetStaleDropCount;
+            snapshot.frameSetSkewDropCount = result.frameSetSkewDropCount;
+            snapshot.frameSetWaitCount = result.frameSetWaitCount;
+            snapshot.lastFrameSetQueueAgeNs = result.lastFrameSetQueueAgeNs;
+            snapshot.lastFrameSetSkewNs = result.lastFrameSetSkewNs;
+            snapshot.lastFrameSetLeftTimestampNs = result.lastFrameSetLeftTimestampNs;
+            snapshot.lastFrameSetRightTimestampNs = result.lastFrameSetRightTimestampNs;
             snapshot.nativeBridgeTiming.copyFrom(result.nativeBridgeTiming);
             return snapshot;
         }
 
         private void deliverAvailablePairs() {
-            while (!leftFrames.isEmpty() && !rightFrames.isEmpty()) {
-                DecodedHardwareBufferFrame left;
-                DecodedHardwareBufferFrame right;
-                if (STEREO_PAIRING_FRAME_ORDER.equals(pairingMode)) {
-                    left = leftFrames.removeFirst();
-                    right = rightFrames.removeFirst();
-                    deliverPair(left, right);
-                    continue;
+            while (true) {
+                long nowNs = SystemClock.elapsedRealtimeNanos();
+                dropStaleFrames(nowNs);
+                if (leftFrames.isEmpty() || rightFrames.isEmpty()) {
+                    return;
                 }
-                left = null;
-                right = null;
-                long bestDeltaNs = Long.MAX_VALUE;
-                for (DecodedHardwareBufferFrame leftCandidate : leftFrames) {
-                    for (DecodedHardwareBufferFrame rightCandidate : rightFrames) {
-                        long deltaNs = Math.abs(leftCandidate.timestampNs - rightCandidate.timestampNs);
-                        if (deltaNs < bestDeltaNs) {
-                            bestDeltaNs = deltaNs;
-                            left = leftCandidate;
-                            right = rightCandidate;
+                DecodedHardwareBufferFrame left = null;
+                DecodedHardwareBufferFrame right = null;
+                if (STEREO_PAIRING_FRAME_ORDER.equals(pairingMode)) {
+                    left = leftFrames.peekFirst();
+                    right = rightFrames.peekFirst();
+                } else {
+                    long bestDeltaNs = Long.MAX_VALUE;
+                    for (DecodedHardwareBufferFrame leftCandidate : leftFrames) {
+                        for (DecodedHardwareBufferFrame rightCandidate : rightFrames) {
+                            long deltaNs = Math.abs(leftCandidate.timestampNs - rightCandidate.timestampNs);
+                            if (deltaNs < bestDeltaNs) {
+                                bestDeltaNs = deltaNs;
+                                left = leftCandidate;
+                                right = rightCandidate;
+                            }
                         }
                     }
                 }
                 if (left == null || right == null) {
                     return;
                 }
+                long deltaNs = Math.abs(left.timestampNs - right.timestampNs);
+                if (deltaNs > STEREO_PAIR_MAX_DELTA_NS) {
+                    if (shouldHoldForBetterFrame(left, right, nowNs)) {
+                        result.frameSetWaitCount++;
+                        return;
+                    }
+                    dropOlderSkewFrame(left, right);
+                    continue;
+                }
                 leftFrames.remove(left);
                 rightFrames.remove(right);
-                deliverPair(left, right);
+                deliverPair(left, right, nowNs);
             }
         }
 
-        private void deliverPair(DecodedHardwareBufferFrame left, DecodedHardwareBufferFrame right) {
+        private boolean shouldHoldForBetterFrame(
+            DecodedHardwareBufferFrame left,
+            DecodedHardwareBufferFrame right,
+            long nowNs) {
+            if (leftFrames.size() > 1 || rightFrames.size() > 1) {
+                return false;
+            }
+            long oldestAgeNs = Math.max(
+                Math.max(0L, nowNs - left.retainedElapsedNs),
+                Math.max(0L, nowNs - right.retainedElapsedNs));
+            return oldestAgeNs < STEREO_FRAME_SET_MAX_HOLD_NS;
+        }
+
+        private void dropStaleFrames(long nowNs) {
+            dropStaleFrames(leftFrames, nowNs);
+            dropStaleFrames(rightFrames, nowNs);
+        }
+
+        private void dropStaleFrames(ArrayDeque<DecodedHardwareBufferFrame> queue, long nowNs) {
+            while (!queue.isEmpty()) {
+                DecodedHardwareBufferFrame frame = queue.peekFirst();
+                long ageNs = Math.max(0L, nowNs - frame.retainedElapsedNs);
+                if (ageNs <= STEREO_FRAME_SET_STALE_NS) {
+                    return;
+                }
+                dropFrame(queue, queue.removeFirst(), "stale");
+            }
+        }
+
+        private void dropOlderSkewFrame(DecodedHardwareBufferFrame left, DecodedHardwareBufferFrame right) {
+            if (left.timestampNs <= right.timestampNs) {
+                dropFrame(leftFrames, left, "skew");
+            } else {
+                dropFrame(rightFrames, right, "skew");
+            }
+        }
+
+        private void dropFrame(
+            ArrayDeque<DecodedHardwareBufferFrame> queue,
+            DecodedHardwareBufferFrame frame,
+            String reason) {
+            queue.remove(frame);
+            frame.close();
+            result.frameSetDropCount++;
+            if ("queue-limit".equals(reason)) {
+                result.queueDropCount++;
+                result.frameSetQueueLimitDropCount++;
+            } else if ("stale".equals(reason)) {
+                result.frameSetStaleDropCount++;
+            } else if ("skew".equals(reason)) {
+                result.frameSetSkewDropCount++;
+            }
+        }
+
+        private void deliverPair(DecodedHardwareBufferFrame left, DecodedHardwareBufferFrame right, long nowNs) {
             if (deliveryStartNs == 0L) {
                 deliveryStartNs = SystemClock.elapsedRealtimeNanos();
             }
             long deltaNs = Math.abs(left.timestampNs - right.timestampNs);
             long pairIndex = result.pairCount;
             result.pairCount++;
+            result.frameSetCommitCount++;
+            result.lastFrameSetQueueAgeNs = Math.max(
+                0L,
+                nowNs - Math.max(left.retainedElapsedNs, right.retainedElapsedNs));
+            result.lastFrameSetSkewNs = deltaNs;
+            result.lastFrameSetLeftTimestampNs = left.timestampNs;
+            result.lastFrameSetRightTimestampNs = right.timestampNs;
             result.deltaTotalNs += deltaNs;
             result.deltaMaxNs = Math.max(result.deltaMaxNs, deltaNs);
             if (deltaNs > STEREO_PAIR_MAX_DELTA_NS) {
@@ -3128,6 +3235,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
                     frameWidth,
                     frameHeight,
                     timestampNs,
+                    SystemClock.elapsedRealtimeNanos(),
                     metadata,
                     buffer,
                     buffer.getFormat(),
@@ -3857,6 +3965,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final int width;
         final int height;
         final long timestampNs;
+        final long retainedElapsedNs;
         final String metadataJson;
         HardwareBuffer buffer;
         final int format;
@@ -3868,6 +3977,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             int width,
             int height,
             long timestampNs,
+            long retainedElapsedNs,
             String metadataJson,
             HardwareBuffer buffer,
             int format,
@@ -3877,6 +3987,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             this.width = width;
             this.height = height;
             this.timestampNs = timestampNs;
+            this.retainedElapsedNs = retainedElapsedNs;
             this.metadataJson = metadataJson;
             this.buffer = buffer;
             this.format = format;
@@ -3907,6 +4018,16 @@ final class BrokerH264ConsumerProbe implements Runnable {
         long deltaMaxNs;
         int deltaOverTargetCount;
         int queueDropCount;
+        int frameSetCommitCount;
+        int frameSetDropCount;
+        int frameSetQueueLimitDropCount;
+        int frameSetStaleDropCount;
+        int frameSetSkewDropCount;
+        int frameSetWaitCount;
+        long lastFrameSetQueueAgeNs;
+        long lastFrameSetSkewNs;
+        long lastFrameSetLeftTimestampNs;
+        long lastFrameSetRightTimestampNs;
         final StageTiming nativeBridgeTiming = new StageTiming();
     }
 

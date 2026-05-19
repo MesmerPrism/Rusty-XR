@@ -33,6 +33,17 @@ Run a local smoke test:
 python .\tools\video\q2q_relay.py self-test
 ```
 
+Generate a receiver-first native Q2Q session plan without touching devices:
+
+```powershell
+python .\tools\video\q2q_session_plan.py `
+  --session-root q2q-test-001 `
+  --quality-profile wan-low `
+  --tls `
+  --pretty `
+  --out .\q2q-session-plan.json
+```
+
 Run a relay service on a public host:
 
 ```powershell
@@ -88,3 +99,41 @@ python .\tools\video\q2q_relay.py receive `
 The receiver Quest broker should then proxy from the receiver PC's LAN IP and
 the bridge listen ports into the normal device-local H.264 ports consumed by
 the composite APK.
+
+Direction-specific control inboxes should be used for native two-way runs so
+agents do not replace each other's control receivers:
+
+```powershell
+python .\tools\video\q2q_relay.py control-receive `
+  --relay-host relay.example.net `
+  --relay-port 9443 `
+  --tls `
+  --cafile .\relay-cert.pem `
+  --session q2q-test-001-side-a-control-inbox `
+  --token-file .\relay-token.txt
+
+python .\tools\video\q2q_relay.py control-send `
+  --relay-host relay.example.net `
+  --relay-port 9443 `
+  --tls `
+  --cafile .\relay-cert.pem `
+  --session q2q-test-001-side-b-control-inbox `
+  --token-file .\relay-token.txt `
+  --message-json-file .\receiver-armed.json
+```
+
+Build a compact scorecard after a run from saved relay, broker, and composite
+artifacts:
+
+```powershell
+python .\tools\video\q2q_scorecard.py `
+  --relay-jsonl .\relay-events.jsonl `
+  --broker-status-json .\broker-status-active.json `
+  --composite-log .\composite-logcat.txt `
+  --pretty `
+  --out .\q2q-scorecard.json
+```
+
+The scorecard checks for nonzero relay media bytes, broker packet/keyframe
+counters, frame-set commit or native accepted stereo-pair evidence, and stale or
+skew drop counters when composite progress logs are present.

@@ -328,17 +328,35 @@ Recommended reduced-bitrate starting point for unstable remote networks:
 
 ## Implementation Follow-Ups
 
-- Add frame/PTS counters to `q2q_relay.get_status`.
-- Add a public scorecard parser for relay JSONL plus broker status snapshots.
-- Preserve relay byte counts on exception close paths.
-- Split generated control sessions by inbox direction.
-- Add a one-command native two-way orchestrator that refuses to start senders
+- 2026-05-19 implementation update: `q2q_relay.get_status` now exposes
+  per-lane `stream_stats` parsed from the `RXYRVID1` stream header and packet
+  headers, including packet counts, codec config packets, keyframes, payload
+  bytes, PTS range, and source timestamp range when present.
+- 2026-05-19 implementation update: the live stereo receiver path now reports a
+  `latest-valid-complete-set` frame-set gate with join-window, hold, stale,
+  commit, wait, and drop-reason counters before native stereo texture commit.
+- 2026-05-19 implementation update: the Python relay preserves forwarded byte
+  and chunk counters on exception close paths, so `lane_closed` no longer falls
+  back to zero bytes when forwarding fails after partial media flow.
+- 2026-05-19 implementation update: `q2q_relay.start_sender` accepts
+  `quality_profile` presets `synthetic-low`, `wan-low`, `wan-medium`, and
+  `high`; explicit width, height, bitrate, frame-rate, and queue parameters
+  still override the preset defaults.
+- 2026-05-19 implementation update: `q2q_scorecard.py` builds an offline
+  scorecard from relay JSONL, broker `q2qRelay` status snapshots, and composite
+  progress logs.
+- 2026-05-19 implementation update: `q2q_session_plan.py` generates
+  direction-specific control inboxes and a receiver-first native session plan
+  without touching devices.
+- 2026-05-19 implementation update: `q2q_relay.py control-send` accepts
+  `--message-json-file` for file-based control messages.
+- Add an executing native two-way orchestrator that refuses to start senders
   until both receiver gates are confirmed.
 - Add a `q2q_relay.stop` wrapper that collects final status before stopping
   lanes.
 - Make generated tester-kit PowerShell wrappers forward optional parameters
   only when set, especially optional strings and switches.
-- Add a quality ladder command: synthetic, low-bitrate live, normal live,
-  high-quality live.
+- Add a script-level quality ladder command around the broker presets:
+  synthetic, low-bitrate live, normal live, high-quality live.
 - Label every result as `native`, `bridge`, or `mixed`; do not collapse them
   into one Q2Q pass/fail bucket.

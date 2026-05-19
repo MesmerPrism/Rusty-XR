@@ -528,6 +528,7 @@ def schemas() -> dict[str, dict]:
         [
             "WebSocket",
             "Tcp",
+            "ZeroMq",
             "Udp",
             "AdbForwardedTcp",
             "Quic",
@@ -536,6 +537,14 @@ def schemas() -> dict[str, dict]:
             "ExternalSidecar",
             "MetadataOnly",
         ],
+    )
+    broker_zeromq_pattern = enum(
+        "BrokerZeroMqPattern",
+        ["Pair", "PubSub", "PushPull", "RequestReply", "DealerRouter"],
+    )
+    broker_zeromq_bind_mode = enum(
+        "BrokerZeroMqBindMode",
+        ["Bind", "Connect", "Either"],
     )
     broker_reliability_class = enum(
         "BrokerReliabilityClass",
@@ -641,6 +650,25 @@ def schemas() -> dict[str, dict]:
             "channel_id": nullable_string(),
             "max_datagram_bytes": {"type": ["integer", "null"], "minimum": 1, "maximum": 65507},
             "auth_required": boolean(),
+        },
+    )
+    broker_zeromq_bridge_manifest = obj(
+        "BrokerZeroMqBridgeManifest",
+        {
+            "schema": {"const": "rusty.xr.broker.zeromq_bridge_manifest.v1"},
+            "bridge_id": string(),
+            "endpoint": broker_transport_endpoint,
+            "pattern": broker_zeromq_pattern,
+            "bind_mode": broker_zeromq_bind_mode,
+            "direction": broker_stream_direction,
+            "payload_kind": broker_payload_kind,
+            "payload_schema": string(),
+            "stream_id": nullable_string(),
+            "topic_prefix": nullable_string(),
+            "max_message_bytes": {"type": ["integer", "null"], "minimum": 1, "maximum": 67108864},
+            "high_water_mark": {"type": ["integer", "null"], "minimum": 1},
+            "consent_data_categories": array(string()),
+            "notes": array(string()),
         },
     )
     broker_transport_security_policy = obj(
@@ -1896,6 +1924,7 @@ def schemas() -> dict[str, dict]:
         "broker-transport-security-policy.schema.json": broker_transport_security_policy,
         "broker-transport-session-offer.schema.json": broker_transport_session_offer,
         "broker-transport-session-answer.schema.json": broker_transport_session_answer,
+        "broker-zeromq-bridge-manifest.schema.json": broker_zeromq_bridge_manifest,
         "broker-media-sample-timing.schema.json": broker_media_sample_timing,
         "broker-network-quality-sample.schema.json": broker_network_quality_sample,
         "broker-packet-descriptor.schema.json": broker_packet_descriptor,

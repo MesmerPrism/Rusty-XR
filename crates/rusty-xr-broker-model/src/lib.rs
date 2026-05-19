@@ -5,7 +5,8 @@
 //! video headers, camera/source capabilities, H.264 stream invariants, and
 //! negotiated transport lanes. It also models broker-owned clock snapshots,
 //! stamps, health, and correlation reports. It does not open sockets, depend on
-//! Android, or implement a Unity, Makepad, OpenXR, LSL, OSC, or video backend.
+//! Android, or implement a Unity, Makepad, OpenXR, LSL, OSC, ZeroMQ, or video
+//! backend.
 //!
 //! Enable the `serde` feature when these public contracts need to cross
 //! process boundaries.
@@ -84,6 +85,9 @@ pub const BROKER_TRANSPORT_SESSION_ANSWER_SCHEMA: &str =
 pub const BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA: &str =
     "rusty.xr.broker.transport_security_policy.v1";
 
+/// Versioned JSON schema id for ZeroMQ bridge manifests.
+pub const BROKER_ZEROMQ_BRIDGE_MANIFEST_SCHEMA: &str = "rusty.xr.broker.zeromq_bridge_manifest.v1";
+
 /// Versioned JSON schema id for media sample timing reports.
 pub const BROKER_MEDIA_SAMPLE_TIMING_SCHEMA: &str = "rusty.xr.broker.media_sample_timing.v1";
 
@@ -157,12 +161,16 @@ pub const STREAM_BIO_BREATH: &str = "bio:breath";
 /// Maximum UDP payload accepted by a standard IPv4 datagram.
 pub const MAX_UDP_DATAGRAM_BYTES: u32 = 65_507;
 
+/// Maximum single message size advertised by a ZeroMQ bridge manifest.
+pub const MAX_ZEROMQ_BRIDGE_MESSAGE_BYTES: u32 = 64 * 1024 * 1024;
+
 /// Broker transport families that can carry a stream lane or control path.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrokerTransportKind {
     WebSocket,
     Tcp,
+    ZeroMq,
     Udp,
     AdbForwardedTcp,
     Quic,
@@ -170,6 +178,26 @@ pub enum BrokerTransportKind {
     WebRtcDiagnostic,
     ExternalSidecar,
     MetadataOnly,
+}
+
+/// ZeroMQ socket pattern expected by an external bridge.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerZeroMqPattern {
+    Pair,
+    PubSub,
+    PushPull,
+    RequestReply,
+    DealerRouter,
+}
+
+/// Whether the bridge binds or connects the advertised ZeroMQ endpoint.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerZeroMqBindMode {
+    Bind,
+    Connect,
+    Either,
 }
 
 /// Delivery contract advertised by a broker stream.
@@ -383,6 +411,18 @@ impl BrokerTransportEndpoint {
         }
     }
 
+    pub fn zeromq_tcp(host: impl Into<String>, port: u16) -> Self {
+        Self {
+            transport: BrokerTransportKind::ZeroMq,
+            host: Some(host.into()),
+            port: Some(port),
+            path: None,
+            channel_id: None,
+            max_datagram_bytes: None,
+            auth_required: false,
+        }
+    }
+
     pub fn metadata_only(channel_id: impl Into<String>) -> Self {
         Self {
             transport: BrokerTransportKind::MetadataOnly,
@@ -407,6 +447,14 @@ impl BrokerTransportEndpoint {
                 .as_deref()
                 .map(|path| path.starts_with('/') && !path.trim().is_empty())
                 .unwrap_or(false),
+            BrokerTransportKind::ZeroMq => {
+                self.host
+                    .as_deref()
+                    .map(|host| !host.trim().is_empty())
+                    .unwrap_or(false)
+                    && self.port.map(|port| port > 0).unwrap_or(false)
+                    && self.max_datagram_bytes.is_none()
+            }
             BrokerTransportKind::Tcp
             | BrokerTransportKind::Udp
             | BrokerTransportKind::AdbForwardedTcp
@@ -443,6 +491,121 @@ impl BrokerTransportEndpoint {
                 | BrokerTransportKind::AdbForwardedTcp
                 | BrokerTransportKind::MetadataOnly
         ) || self.host.as_deref().map(is_loopback_host).unwrap_or(false)
+    }
+}
+
+/// Declarative manifest for a ZeroMQ bridge owned by an app or sidecar.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerZeroMqBridgeManifest {
+    pub schema: String,
+    pub bridge_id: String,
+    pub endpoint: BrokerTransportEndpoint,
+    pub pattern: BrokerZeroMqPattern,
+    pub bind_mode: BrokerZeroMqBindMode,
+    pub direction: BrokerStreamDirection,
+    pub payload_kind: BrokerPayloadKind,
+    pub payload_schema: String,
+    pub stream_id: Option<String>,
+    pub topic_prefix: Option<String>,
+    pub max_message_bytes: Option<u32>,
+    pub high_water_mark: Option<u32>,
+    pub consent_data_categories: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+impl BrokerZeroMqBridgeManifest {
+    pub fn new(
+        bridge_id: impl Into<String>,
+        endpoint: BrokerTransportEndpoint,
+        pattern: BrokerZeroMqPattern,
+        direction: BrokerStreamDirection,
+        payload_kind: BrokerPayloadKind,
+        payload_schema: impl Into<String>,
+    ) -> Self {
+        Self {
+            schema: BROKER_ZEROMQ_BRIDGE_MANIFEST_SCHEMA.to_string(),
+            bridge_id: bridge_id.into(),
+            endpoint,
+            pattern,
+            bind_mode: BrokerZeroMqBindMode::Either,
+            direction,
+            payload_kind,
+            payload_schema: payload_schema.into(),
+            stream_id: None,
+            topic_prefix: None,
+            max_message_bytes: None,
+            high_water_mark: None,
+            consent_data_categories: Vec::new(),
+            notes: Vec::new(),
+        }
+    }
+
+    pub const fn with_bind_mode(mut self, bind_mode: BrokerZeroMqBindMode) -> Self {
+        self.bind_mode = bind_mode;
+        self
+    }
+
+    pub fn with_stream_id(mut self, stream_id: impl Into<String>) -> Self {
+        self.stream_id = Some(stream_id.into());
+        self
+    }
+
+    pub fn with_topic_prefix(mut self, topic_prefix: impl Into<String>) -> Self {
+        self.topic_prefix = Some(topic_prefix.into());
+        self
+    }
+
+    pub fn with_max_message_bytes(mut self, max_message_bytes: u32) -> Self {
+        self.max_message_bytes = Some(max_message_bytes.min(MAX_ZEROMQ_BRIDGE_MESSAGE_BYTES));
+        self
+    }
+
+    pub const fn with_high_water_mark(mut self, high_water_mark: u32) -> Self {
+        self.high_water_mark = Some(high_water_mark);
+        self
+    }
+
+    pub fn with_consent_data_category(mut self, category: impl Into<String>) -> Self {
+        self.consent_data_categories.push(category.into());
+        self
+    }
+
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
+
+    pub const fn is_pub_sub(&self) -> bool {
+        matches!(self.pattern, BrokerZeroMqPattern::PubSub)
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema == BROKER_ZEROMQ_BRIDGE_MANIFEST_SCHEMA
+            && non_empty_string(&self.bridge_id)
+            && self.endpoint.transport == BrokerTransportKind::ZeroMq
+            && self.endpoint.is_valid()
+            && non_empty_string(&self.payload_schema)
+            && self
+                .stream_id
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .topic_prefix
+                .as_deref()
+                .map(non_empty_string)
+                .unwrap_or(true)
+            && self
+                .max_message_bytes
+                .map(valid_zeromq_message_size)
+                .unwrap_or(true)
+            && self.high_water_mark.map(|value| value > 0).unwrap_or(true)
+            && self
+                .consent_data_categories
+                .iter()
+                .all(|category| non_empty_string(category))
+            && self.notes.iter().all(|note| non_empty_string(note))
     }
 }
 
@@ -3036,6 +3199,10 @@ fn valid_datagram_size(value: u32) -> bool {
     value > 0 && value <= MAX_UDP_DATAGRAM_BYTES
 }
 
+fn valid_zeromq_message_size(value: u32) -> bool {
+    value > 0 && value <= MAX_ZEROMQ_BRIDGE_MESSAGE_BYTES
+}
+
 fn valid_unit_interval(value: f32) -> bool {
     value.is_finite() && (0.0..=1.0).contains(&value)
 }
@@ -3219,6 +3386,124 @@ mod tests {
 
         assert!(offer.is_valid());
         assert_eq!(offer.schema, BROKER_TRANSPORT_SESSION_OFFER_SCHEMA);
+    }
+
+    #[test]
+    fn zeromq_endpoint_validates_loopback_tcp() {
+        let endpoint = BrokerTransportEndpoint::zeromq_tcp("127.0.0.1", 5555);
+        let invalid = BrokerTransportEndpoint::zeromq_tcp("127.0.0.1", 0);
+        let lan = BrokerTransportEndpoint::zeromq_tcp("192.168.0.20", 5555);
+        let datagram_sized = BrokerTransportEndpoint {
+            max_datagram_bytes: Some(1200),
+            ..endpoint.clone()
+        };
+
+        assert!(endpoint.is_valid());
+        assert!(endpoint.is_loopback());
+        assert!(!invalid.is_valid());
+        assert!(lan.is_valid());
+        assert!(!lan.is_loopback());
+        assert!(!datagram_sized.is_valid());
+    }
+
+    #[test]
+    fn zeromq_bridge_manifest_validates_pattern_and_payload() {
+        let manifest = BrokerZeroMqBridgeManifest::new(
+            "lab-zero-mq-json",
+            BrokerTransportEndpoint::zeromq_tcp("127.0.0.1", 5555),
+            BrokerZeroMqPattern::PubSub,
+            BrokerStreamDirection::ProducerToConsumer,
+            BrokerPayloadKind::Json,
+            BROKER_LATENCY_SAMPLE_SCHEMA,
+        )
+        .with_bind_mode(BrokerZeroMqBindMode::Bind)
+        .with_stream_id(STREAM_LATENCY_SAMPLE)
+        .with_topic_prefix("rustyxr.latency")
+        .with_max_message_bytes(4096)
+        .with_high_water_mark(1000)
+        .with_consent_data_category("clock")
+        .with_note("loopback validation");
+
+        assert!(manifest.is_valid());
+        assert!(manifest.is_pub_sub());
+        assert_eq!(manifest.schema, BROKER_ZEROMQ_BRIDGE_MANIFEST_SCHEMA);
+        assert_eq!(manifest.endpoint.transport, BrokerTransportKind::ZeroMq);
+    }
+
+    #[test]
+    fn zeromq_bridge_manifest_rejects_invalid_descriptors() {
+        let valid_endpoint = BrokerTransportEndpoint::zeromq_tcp("127.0.0.1", 5555);
+        let wrong_transport = BrokerZeroMqBridgeManifest::new(
+            "lab-zero-mq-json",
+            BrokerTransportEndpoint::udp("127.0.0.1", 5555, 1200),
+            BrokerZeroMqPattern::PubSub,
+            BrokerStreamDirection::ProducerToConsumer,
+            BrokerPayloadKind::Json,
+            BROKER_LATENCY_SAMPLE_SCHEMA,
+        );
+        let empty_schema = BrokerZeroMqBridgeManifest::new(
+            "lab-zero-mq-json",
+            valid_endpoint.clone(),
+            BrokerZeroMqPattern::PubSub,
+            BrokerStreamDirection::ProducerToConsumer,
+            BrokerPayloadKind::Json,
+            "",
+        );
+        let empty_topic = BrokerZeroMqBridgeManifest::new(
+            "lab-zero-mq-json",
+            valid_endpoint.clone(),
+            BrokerZeroMqPattern::PubSub,
+            BrokerStreamDirection::ProducerToConsumer,
+            BrokerPayloadKind::Json,
+            BROKER_LATENCY_SAMPLE_SCHEMA,
+        )
+        .with_topic_prefix("");
+        let empty_category = BrokerZeroMqBridgeManifest::new(
+            "lab-zero-mq-json",
+            valid_endpoint.clone(),
+            BrokerZeroMqPattern::PubSub,
+            BrokerStreamDirection::ProducerToConsumer,
+            BrokerPayloadKind::Json,
+            BROKER_LATENCY_SAMPLE_SCHEMA,
+        )
+        .with_consent_data_category("");
+        let empty_note = BrokerZeroMqBridgeManifest::new(
+            "lab-zero-mq-json",
+            valid_endpoint,
+            BrokerZeroMqPattern::PubSub,
+            BrokerStreamDirection::ProducerToConsumer,
+            BrokerPayloadKind::Json,
+            BROKER_LATENCY_SAMPLE_SCHEMA,
+        )
+        .with_note("");
+
+        assert!(!wrong_transport.is_valid());
+        assert!(!empty_schema.is_valid());
+        assert!(!empty_topic.is_valid());
+        assert!(!empty_category.is_valid());
+        assert!(!empty_note.is_valid());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn zeromq_bridge_manifest_serializes_with_serde() {
+        let manifest = BrokerZeroMqBridgeManifest::new(
+            "lab-zero-mq-json",
+            BrokerTransportEndpoint::zeromq_tcp("127.0.0.1", 5555),
+            BrokerZeroMqPattern::RequestReply,
+            BrokerStreamDirection::Bidirectional,
+            BrokerPayloadKind::Json,
+            BROKER_COMMAND_SCHEMA,
+        )
+        .with_bind_mode(BrokerZeroMqBindMode::Connect)
+        .with_stream_id("control:zeromq");
+
+        let json = serde_json::to_string(&manifest).expect("manifest should serialize");
+        let decoded: BrokerZeroMqBridgeManifest =
+            serde_json::from_str(&json).expect("manifest should deserialize");
+
+        assert_eq!(decoded, manifest);
+        assert!(decoded.is_valid());
     }
 
     #[test]

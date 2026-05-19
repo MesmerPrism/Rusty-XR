@@ -59,6 +59,15 @@ final class BrokerQ2QRelayClientSession {
     private static final int MAX_TIMEOUT_MS = 6 * 60 * 60 * 1000;
     private static final int MAX_HELLO_BYTES = 16 * 1024;
     private static final int BUFFER_BYTES = 64 * 1024;
+    private static final byte[] STREAM_MAGIC_BYTES = new byte[] {
+        'R', 'X', 'Y', 'R', 'V', 'I', 'D', '1'
+    };
+    private static final int STREAM_FIXED_HEADER_BYTES = 24;
+    private static final int STREAM_PACKET_HEADER_V1_BYTES = 16;
+    private static final int STREAM_PACKET_HEADER_V2_BYTES = 32;
+    private static final int STREAM_CODEC_H264 = 1;
+    private static final int BUFFER_FLAG_KEY_FRAME = 1;
+    private static final int BUFFER_FLAG_CODEC_CONFIG = 2;
 
     private static final Object LOCK = new Object();
     private static final Map<String, Lane> LANES = new LinkedHashMap<>();
@@ -377,8 +386,12 @@ final class BrokerQ2QRelayClientSession {
             if (read == 0) {
                 continue;
             }
+            lane.bytesRead.addAndGet(read);
+            lane.lastReadElapsedMs = SystemClock.elapsedRealtime();
+            lane.streamStats.observe(buffer, 0, read);
             output.write(buffer, 0, read);
             lane.bytesCopied.addAndGet(read);
+            lane.bytesWritten.addAndGet(read);
             lane.lastByteElapsedMs = SystemClock.elapsedRealtime();
         }
         output.flush();
@@ -392,19 +405,24 @@ final class BrokerQ2QRelayClientSession {
         int sourcePort,
         String sourceMode) throws Exception {
         JSONObject source = new JSONObject();
+        String qualityProfile = normalizeQ2QQualityProfile(
+            params.optString("quality_profile", params.optString("q2q_quality_profile", "")));
+        if (qualityProfile.length() > 0) {
+            source.put("quality_profile", qualityProfile);
+            applyQ2QQualityProfileDefaults(source, qualityProfile);
+        }
         copyIfPresent(params, source, "preferred_width");
         copyIfPresent(params, source, "preferred_height");
         copyIfPresent(params, source, "bitrate_bps");
         copyIfPresent(params, source, "frame_rate_hz");
         copyIfPresent(params, source, "writer_queue_depth");
-        copyIfPresent(params, source, "quality_profile");
         copyIfPresent(params, source, "synthetic_pattern");
         copyIfPresent(params, source, "color_format");
         source.put("session_id", sessionId + "-" + eye + "-source");
         source.put("device_port", sourcePort);
         source.put("host_port", params.optInt(eye + "_source_host_port", sourcePort));
-        source.put("preferred_width", params.optInt("preferred_width", DEFAULT_WIDTH));
-        source.put("preferred_height", params.optInt("preferred_height", DEFAULT_HEIGHT));
+        source.put("preferred_width", params.optInt("preferred_width", source.optInt("preferred_width", DEFAULT_WIDTH)));
+        source.put("preferred_height", params.optInt("preferred_height", source.optInt("preferred_height", DEFAULT_HEIGHT)));
         source.put("capture_ms", params.optInt("capture_ms", DEFAULT_CAPTURE_MS));
         source.put("max_packets", params.optInt("max_packets", DEFAULT_MAX_PACKETS));
         source.put(
@@ -424,6 +442,57 @@ final class BrokerQ2QRelayClientSession {
             }
         }
         return source;
+    }
+
+    private static String normalizeQ2QQualityProfile(String value) {
+        String profile = value != null ? value.trim().toLowerCase(Locale.US).replace('_', '-') : "";
+        if ("low".equals(profile) || "wan-low".equals(profile) || "low-bitrate".equals(profile)) {
+            return "wan-low";
+        }
+        if ("medium".equals(profile) || "wan-medium".equals(profile) || "normal".equals(profile)) {
+            return "wan-medium";
+        }
+        if ("high".equals(profile) || "high-quality".equals(profile)) {
+            return "high";
+        }
+        if ("synthetic".equals(profile) || "synthetic-low".equals(profile)) {
+            return "synthetic-low";
+        }
+        return profile;
+    }
+
+    private static void applyQ2QQualityProfileDefaults(JSONObject source, String profile) throws Exception {
+        if ("synthetic-low".equals(profile)) {
+            source.put("preferred_width", 720);
+            source.put("preferred_height", 720);
+            source.put("bitrate_bps", 1_500_000);
+            source.put("frame_rate_hz", 30);
+            source.put("writer_queue_depth", 24);
+            return;
+        }
+        if ("wan-low".equals(profile)) {
+            source.put("preferred_width", 720);
+            source.put("preferred_height", 720);
+            source.put("bitrate_bps", 2_000_000);
+            source.put("frame_rate_hz", 30);
+            source.put("writer_queue_depth", 24);
+            return;
+        }
+        if ("wan-medium".equals(profile)) {
+            source.put("preferred_width", 960);
+            source.put("preferred_height", 960);
+            source.put("bitrate_bps", 4_000_000);
+            source.put("frame_rate_hz", 30);
+            source.put("writer_queue_depth", 36);
+            return;
+        }
+        if ("high".equals(profile)) {
+            source.put("preferred_width", DEFAULT_WIDTH);
+            source.put("preferred_height", DEFAULT_HEIGHT);
+            source.put("bitrate_bps", 8_000_000);
+            source.put("frame_rate_hz", 60);
+            source.put("writer_queue_depth", 48);
+        }
     }
 
     private static List<String> parseEyes(JSONObject params) throws Exception {
@@ -655,6 +724,40 @@ final class BrokerQ2QRelayClientSession {
         return message != null ? message : "";
     }
 
+    private static String closeInitiator(String reason) {
+        if (reason == null) {
+            return "unknown";
+        }
+        if (reason.indexOf("relay") >= 0) {
+            return "relay";
+        }
+        if (reason.indexOf("source") >= 0) {
+            return "source";
+        }
+        if (reason.indexOf("local") >= 0) {
+            return "local";
+        }
+        return "unknown";
+    }
+
+    private static int readIntBE(byte[] bytes, int offset) {
+        return ((bytes[offset] & 0xff) << 24)
+            | ((bytes[offset + 1] & 0xff) << 16)
+            | ((bytes[offset + 2] & 0xff) << 8)
+            | (bytes[offset + 3] & 0xff);
+    }
+
+    private static long readLongBE(byte[] bytes, int offset) {
+        return ((long) (bytes[offset] & 0xff) << 56)
+            | ((long) (bytes[offset + 1] & 0xff) << 48)
+            | ((long) (bytes[offset + 2] & 0xff) << 40)
+            | ((long) (bytes[offset + 3] & 0xff) << 32)
+            | ((long) (bytes[offset + 4] & 0xff) << 24)
+            | ((long) (bytes[offset + 5] & 0xff) << 16)
+            | ((long) (bytes[offset + 6] & 0xff) << 8)
+            | (long) (bytes[offset + 7] & 0xff);
+    }
+
     private static final class RelayConnection implements Closeable {
         final Socket socket;
         final BufferedInputStream input;
@@ -697,10 +800,16 @@ final class BrokerQ2QRelayClientSession {
         final int localAcceptTimeoutMs;
         final long startedElapsedMs;
         final long startedUnixMs;
+        final AtomicLong bytesRead = new AtomicLong();
         final AtomicLong bytesCopied = new AtomicLong();
+        final AtomicLong bytesWritten = new AtomicLong();
+        final RxyRvidStats streamStats = new RxyRvidStats();
+        volatile long lastReadElapsedMs;
         volatile long lastByteElapsedMs;
         volatile String state = "starting";
         volatile String closeReason = "";
+        volatile String closeClass = "";
+        volatile String closeInitiator = "";
         volatile String error = "";
         volatile boolean stopRequested;
         volatile boolean terminalCounted;
@@ -774,11 +883,16 @@ final class BrokerQ2QRelayClientSession {
         void markClosed(String reason) {
             state = stopRequested ? "stopped" : "closed";
             closeReason = reason;
+            closeClass = stopRequested ? "stopped" : "normal";
+            closeInitiator = BrokerQ2QRelayClientSession.closeInitiator(reason);
             noteClosed(this, false);
         }
 
         void markFailed(Exception ex) {
             state = stopRequested ? "stopped" : "failed";
+            closeReason = stopRequested ? "stop_requested" : "exception";
+            closeClass = ex.getClass().getSimpleName();
+            closeInitiator = "unknown";
             error = ex.getClass().getSimpleName() + ": " + safeMessage(ex);
             Log.w(TAG, "Q2Q relay lane failed lane=" + laneId + " " + error);
             noteClosed(this, !stopRequested);
@@ -817,15 +931,27 @@ final class BrokerQ2QRelayClientSession {
                 json.put("local_port", localPort);
                 json.put("local_accept_timeout_ms", localAcceptTimeoutMs);
             }
+            json.put("bytes_read", bytesRead.get());
             json.put("bytes_copied", bytesCopied.get());
+            json.put("bytes_written", bytesWritten.get());
             json.put("started_unix_ms", startedUnixMs);
             json.put("age_ms", SystemClock.elapsedRealtime() - startedElapsedMs);
+            if (lastReadElapsedMs > 0L) {
+                json.put("last_read_age_ms", SystemClock.elapsedRealtime() - lastReadElapsedMs);
+            }
             if (lastByteElapsedMs > 0L) {
                 json.put("last_byte_age_ms", SystemClock.elapsedRealtime() - lastByteElapsedMs);
             }
             if (closeReason.length() > 0) {
                 json.put("close_reason", closeReason);
             }
+            if (closeClass.length() > 0) {
+                json.put("close_class", closeClass);
+            }
+            if (closeInitiator.length() > 0) {
+                json.put("close_initiator", closeInitiator);
+            }
+            json.put("stream_stats", streamStats.toJson());
             if (error.length() > 0) {
                 json.put("error", error);
             }
@@ -833,6 +959,220 @@ final class BrokerQ2QRelayClientSession {
                 json.put("relay_ack", relayAck);
             }
             return json;
+        }
+    }
+
+    private static final class RxyRvidStats {
+        private static final int STATE_MAGIC = 0;
+        private static final int STATE_FIXED_HEADER = 1;
+        private static final int STATE_METADATA = 2;
+        private static final int STATE_PACKET_HEADER = 3;
+        private static final int STATE_PAYLOAD = 4;
+        private static final int STATE_DONE = 5;
+
+        private final byte[] scratch = new byte[STREAM_PACKET_HEADER_V2_BYTES];
+        private int state = STATE_MAGIC;
+        private int scratchLen;
+        private int metadataRemaining;
+        private int payloadRemaining;
+        private int schemaVersion;
+        private int codecId;
+        private int width;
+        private int height;
+        private int declaredPacketCount;
+        private int headerMetadataBytes;
+        private long packetCount;
+        private long videoPacketCount;
+        private long codecConfigPacketCount;
+        private long keyframePacketCount;
+        private long payloadBytesDeclared;
+        private long payloadBytesObserved;
+        private long firstPtsUs;
+        private long lastPtsUs;
+        private long firstSourceElapsedNs;
+        private long lastSourceElapsedNs;
+        private long firstSourceUnixNs;
+        private long lastSourceUnixNs;
+        private long firstPacketElapsedMs;
+        private long lastPacketElapsedMs;
+        private String parseError = "";
+
+        synchronized void observe(byte[] buffer, int offset, int length) {
+            int position = offset;
+            int end = offset + length;
+            while (position < end && parseError.length() == 0 && state != STATE_DONE) {
+                if (state == STATE_METADATA) {
+                    int skipped = Math.min(metadataRemaining, end - position);
+                    position += skipped;
+                    metadataRemaining -= skipped;
+                    if (metadataRemaining == 0) {
+                        state = STATE_PACKET_HEADER;
+                    }
+                    continue;
+                }
+                if (state == STATE_PAYLOAD) {
+                    int copied = Math.min(payloadRemaining, end - position);
+                    position += copied;
+                    payloadRemaining -= copied;
+                    payloadBytesObserved += copied;
+                    if (payloadRemaining == 0) {
+                        state = declaredPacketCount > 0 && packetCount >= declaredPacketCount
+                            ? STATE_DONE
+                            : STATE_PACKET_HEADER;
+                    }
+                    continue;
+                }
+
+                int needed = neededBytes();
+                int copied = Math.min(needed - scratchLen, end - position);
+                System.arraycopy(buffer, position, scratch, scratchLen, copied);
+                scratchLen += copied;
+                position += copied;
+                if (scratchLen < needed) {
+                    continue;
+                }
+                parseScratch();
+                scratchLen = 0;
+            }
+        }
+
+        synchronized JSONObject toJson() throws Exception {
+            JSONObject json = new JSONObject();
+            json.put("schema", "rusty.xr.broker.q2q_relay.stream_stats.v1");
+            json.put("header_seen", schemaVersion > 0);
+            json.put("schema_version", schemaVersion);
+            json.put("codec_id", codecId);
+            json.put("codec", codecId == STREAM_CODEC_H264 ? "h264" : "");
+            json.put("width", width);
+            json.put("height", height);
+            json.put("declared_packet_count", declaredPacketCount);
+            json.put("header_metadata_bytes", headerMetadataBytes);
+            json.put("packet_count", packetCount);
+            json.put("video_packet_count", videoPacketCount);
+            json.put("codec_config_packet_count", codecConfigPacketCount);
+            json.put("keyframe_packet_count", keyframePacketCount);
+            json.put("payload_bytes_declared", payloadBytesDeclared);
+            json.put("payload_bytes_observed", payloadBytesObserved);
+            if (packetCount > 0) {
+                json.put("first_pts_us", firstPtsUs);
+                json.put("last_pts_us", lastPtsUs);
+                json.put("first_packet_age_ms", SystemClock.elapsedRealtime() - firstPacketElapsedMs);
+                json.put("last_packet_age_ms", SystemClock.elapsedRealtime() - lastPacketElapsedMs);
+            }
+            if (firstSourceElapsedNs > 0L) {
+                json.put("first_source_elapsed_ns", firstSourceElapsedNs);
+                json.put("last_source_elapsed_ns", lastSourceElapsedNs);
+            }
+            if (firstSourceUnixNs > 0L) {
+                json.put("first_source_unix_ns", firstSourceUnixNs);
+                json.put("last_source_unix_ns", lastSourceUnixNs);
+            }
+            if (parseError.length() > 0) {
+                json.put("parse_error", parseError);
+            }
+            return json;
+        }
+
+        private int neededBytes() {
+            if (state == STATE_MAGIC) {
+                return STREAM_MAGIC_BYTES.length;
+            }
+            if (state == STATE_FIXED_HEADER) {
+                return STREAM_FIXED_HEADER_BYTES;
+            }
+            if (state == STATE_PACKET_HEADER) {
+                return schemaVersion >= 2 ? STREAM_PACKET_HEADER_V2_BYTES : STREAM_PACKET_HEADER_V1_BYTES;
+            }
+            return 0;
+        }
+
+        private void parseScratch() {
+            if (state == STATE_MAGIC) {
+                for (int i = 0; i < STREAM_MAGIC_BYTES.length; i++) {
+                    if (scratch[i] != STREAM_MAGIC_BYTES[i]) {
+                        parseError = "stream magic mismatch";
+                        return;
+                    }
+                }
+                state = STATE_FIXED_HEADER;
+                return;
+            }
+            if (state == STATE_FIXED_HEADER) {
+                schemaVersion = readIntBE(scratch, 0);
+                codecId = readIntBE(scratch, 4);
+                width = readIntBE(scratch, 8);
+                height = readIntBE(scratch, 12);
+                declaredPacketCount = readIntBE(scratch, 16);
+                headerMetadataBytes = readIntBE(scratch, 20);
+                if (schemaVersion < 1 || schemaVersion > 3) {
+                    parseError = "unsupported schema version " + schemaVersion;
+                    return;
+                }
+                if (declaredPacketCount < 0 || headerMetadataBytes < 0) {
+                    parseError = "negative packet or metadata count";
+                    return;
+                }
+                metadataRemaining = schemaVersion >= 3 ? headerMetadataBytes : 0;
+                state = metadataRemaining > 0 ? STATE_METADATA : STATE_PACKET_HEADER;
+                return;
+            }
+            if (state == STATE_PACKET_HEADER) {
+                long ptsUs = readLongBE(scratch, 0);
+                int flags = readIntBE(scratch, 8);
+                int payloadSize = readIntBE(scratch, 12);
+                if (payloadSize < 0) {
+                    parseError = "negative packet payload size";
+                    return;
+                }
+                long sourceElapsedNs = 0L;
+                long sourceUnixNs = 0L;
+                if (schemaVersion >= 2) {
+                    sourceElapsedNs = readLongBE(scratch, 16);
+                    sourceUnixNs = readLongBE(scratch, 24);
+                }
+                recordPacketHeader(ptsUs, flags, payloadSize, sourceElapsedNs, sourceUnixNs);
+                payloadRemaining = payloadSize;
+                state = payloadRemaining > 0
+                    ? STATE_PAYLOAD
+                    : (declaredPacketCount > 0 && packetCount >= declaredPacketCount ? STATE_DONE : STATE_PACKET_HEADER);
+            }
+        }
+
+        private void recordPacketHeader(
+            long ptsUs,
+            int flags,
+            int payloadSize,
+            long sourceElapsedNs,
+            long sourceUnixNs) {
+            packetCount++;
+            payloadBytesDeclared += payloadSize;
+            long nowMs = SystemClock.elapsedRealtime();
+            if (packetCount == 1L) {
+                firstPtsUs = ptsUs;
+                firstPacketElapsedMs = nowMs;
+            }
+            lastPtsUs = ptsUs;
+            lastPacketElapsedMs = nowMs;
+            if ((flags & BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                codecConfigPacketCount++;
+            } else {
+                videoPacketCount++;
+            }
+            if ((flags & BUFFER_FLAG_KEY_FRAME) != 0) {
+                keyframePacketCount++;
+            }
+            if (sourceElapsedNs > 0L) {
+                if (firstSourceElapsedNs == 0L) {
+                    firstSourceElapsedNs = sourceElapsedNs;
+                }
+                lastSourceElapsedNs = sourceElapsedNs;
+            }
+            if (sourceUnixNs > 0L) {
+                if (firstSourceUnixNs == 0L) {
+                    firstSourceUnixNs = sourceUnixNs;
+                }
+                lastSourceUnixNs = sourceUnixNs;
+            }
         }
     }
 

@@ -76,15 +76,21 @@ def send_ack(sock: socket.socket, ok: bool, message: str, **extra: Any) -> None:
     sock.sendall(json_line(payload))
 
 
-def copy_stream(input_stream: socket.socket, output_stream: socket.socket) -> int:
-    total = 0
+def copy_stream(input_stream: socket.socket, output_stream: socket.socket, stats: CopyStats | None = None) -> CopyStats:
+    if stats is None:
+        stats = CopyStats()
     while True:
         chunk = input_stream.recv(BUFFER_SIZE)
         if not chunk:
             break
         output_stream.sendall(chunk)
-        total += len(chunk)
-    return total
+        stamp = now_ns()
+        if stats.first_byte_unix_ns == 0:
+            stats.first_byte_unix_ns = stamp
+        stats.last_byte_unix_ns = stamp
+        stats.bytes_forwarded += len(chunk)
+        stats.chunks_forwarded += 1
+    return stats
 
 
 def close_socket(sock: socket.socket | None) -> None:
@@ -180,6 +186,14 @@ class Peer:
     address: str
     connected_unix_ns: int
     done: threading.Event
+
+
+@dataclass
+class CopyStats:
+    bytes_forwarded: int = 0
+    chunks_forwarded: int = 0
+    first_byte_unix_ns: int = 0
+    last_byte_unix_ns: int = 0
 
 
 @dataclass
@@ -381,8 +395,9 @@ class RelayServer:
         if sender is None or receiver is None:
             return
         started = now_ns()
-        bytes_forwarded = 0
+        stats = CopyStats()
         error = ""
+        close_class = "sender_eof"
         self.logger.emit(
             "lane_started",
             channel=lane.channel,
@@ -392,15 +407,19 @@ class RelayServer:
             receiver_address=receiver.address,
         )
         try:
-            bytes_forwarded = copy_stream(sender.sock, receiver.sock)
+            copy_stream(sender.sock, receiver.sock, stats)
         except Exception as exc:
             error = str(exc)
+            close_class = exc.__class__.__name__
             self.logger.emit(
                 "lane_error",
                 channel=lane.channel,
                 session_id=lane.session_id,
                 eye=lane.eye,
                 error=error,
+                error_class=close_class,
+                bytes_forwarded=stats.bytes_forwarded,
+                chunks_forwarded=stats.chunks_forwarded,
             )
         finally:
             close_socket(sender.sock)
@@ -418,8 +437,12 @@ class RelayServer:
                 channel=lane.channel,
                 session_id=lane.session_id,
                 eye=lane.eye,
-                bytes_forwarded=bytes_forwarded,
+                bytes_forwarded=stats.bytes_forwarded,
+                chunks_forwarded=stats.chunks_forwarded,
+                first_byte_unix_ns=stats.first_byte_unix_ns,
+                last_byte_unix_ns=stats.last_byte_unix_ns,
                 duration_ms=(completed - started) / 1_000_000.0,
+                close_class=close_class,
                 error=error,
             )
 
@@ -476,7 +499,7 @@ def run_sender(args: argparse.Namespace) -> int:
     source: socket.socket | None = None
     relay: socket.socket | None = None
     started = now_ns()
-    bytes_forwarded = 0
+    stats = CopyStats()
     try:
         relay = connect_relay(args, "sender")
         logger.emit(
@@ -489,7 +512,7 @@ def run_sender(args: argparse.Namespace) -> int:
         source = connect_tcp(args.source_host, args.source_port, args.connect_timeout_s)
         source.settimeout(None)
         logger.emit("sender_source_connected", source_host=args.source_host, source_port=args.source_port, eye=args.eye)
-        bytes_forwarded = copy_stream(source, relay)
+        copy_stream(source, relay, stats)
         with contextlib.suppress(Exception):
             relay.shutdown(socket.SHUT_WR)
         logger.emit(
@@ -497,7 +520,10 @@ def run_sender(args: argparse.Namespace) -> int:
             channel=args.channel,
             session_id=args.session,
             eye=args.eye,
-            bytes_forwarded=bytes_forwarded,
+            bytes_forwarded=stats.bytes_forwarded,
+            chunks_forwarded=stats.chunks_forwarded,
+            first_byte_unix_ns=stats.first_byte_unix_ns,
+            last_byte_unix_ns=stats.last_byte_unix_ns,
             duration_ms=(now_ns() - started) / 1_000_000.0,
         )
         return 0
@@ -512,7 +538,7 @@ def run_receiver(args: argparse.Namespace) -> int:
     local_client: socket.socket | None = None
     relay: socket.socket | None = None
     started = now_ns()
-    bytes_forwarded = 0
+    stats = CopyStats()
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -538,13 +564,16 @@ def run_receiver(args: argparse.Namespace) -> int:
             relay_port=args.relay_port,
             eye=args.eye,
         )
-        bytes_forwarded = copy_stream(relay, local_client)
+        copy_stream(relay, local_client, stats)
         logger.emit(
             "receiver_closed",
             channel=args.channel,
             session_id=args.session,
             eye=args.eye,
-            bytes_forwarded=bytes_forwarded,
+            bytes_forwarded=stats.bytes_forwarded,
+            chunks_forwarded=stats.chunks_forwarded,
+            first_byte_unix_ns=stats.first_byte_unix_ns,
+            last_byte_unix_ns=stats.last_byte_unix_ns,
             duration_ms=(now_ns() - started) / 1_000_000.0,
         )
         return 0
@@ -685,13 +714,41 @@ def add_common_control_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--log-jsonl", default="", help="Optional JSONL event log path.")
 
 
+def load_control_messages_file(path: str) -> list[dict[str, Any]]:
+    text = Path(path).read_text(encoding="utf-8")
+    stripped = text.strip()
+    if not stripped:
+        return []
+    if stripped.startswith("[") or stripped.startswith("{"):
+        value = json.loads(stripped)
+        if isinstance(value, dict):
+            return [value]
+        if isinstance(value, list):
+            return [item if isinstance(item, dict) else {"schema": CONTROL_MESSAGE_SCHEMA, "value": item} for item in value]
+        return [{"schema": CONTROL_MESSAGE_SCHEMA, "value": value}]
+
+    messages: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        item = line.strip()
+        if not item:
+            continue
+        try:
+            value = json.loads(item)
+            messages.append(value if isinstance(value, dict) else {"schema": CONTROL_MESSAGE_SCHEMA, "value": value})
+        except json.JSONDecodeError:
+            messages.append({"schema": CONTROL_MESSAGE_SCHEMA, "message": item})
+    return messages
+
+
 def run_control_send(args: argparse.Namespace) -> int:
     logger = EventLogger(args.log_jsonl, echo=False)
     relay: socket.socket | None = None
     try:
         relay = connect_relay(args, "sender")
         logger.emit("control_sender_relay_connected", channel=args.channel, session_id=args.session, eye=args.eye)
-        if args.message_json:
+        if args.message_json_file:
+            messages = load_control_messages_file(args.message_json_file)
+        elif args.message_json:
             messages = [json.loads(args.message_json)]
         elif args.message:
             messages = [{"schema": CONTROL_MESSAGE_SCHEMA, "message": args.message}]
@@ -785,6 +842,7 @@ def main(argv: list[str]) -> int:
     add_common_control_args(control_send)
     control_send.add_argument("--message", default="", help="Send one plain-text control message.")
     control_send.add_argument("--message-json", default="", help="Send one JSON control message object.")
+    control_send.add_argument("--message-json-file", default="", help="Send one JSON object, JSON array, or JSONL message file.")
 
     control_receive = subparsers.add_parser("control-receive", help="Receive NDJSON control messages from the relay control channel.")
     add_common_control_args(control_receive)

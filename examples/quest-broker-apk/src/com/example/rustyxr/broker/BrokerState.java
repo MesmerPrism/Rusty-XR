@@ -233,6 +233,9 @@ final class BrokerState {
         capabilities.put("broker.q2q_relay.receiver.v1");
         capabilities.put("broker.q2q_relay.synthetic_h264.v1");
         capabilities.put("broker.q2q_relay.camera_h264.v1");
+        capabilities.put("broker.q2q_relay.stream_stats.v1");
+        capabilities.put("broker.q2q_relay.quality_ladder.v1");
+        capabilities.put("broker.h264.frame_set_gate.v1");
         capabilities.put("broker.lan_control.opt_in.v1");
         capabilities.put("shell_helper.status.v1");
         capabilities.put("broker.transport.session_control.v1");

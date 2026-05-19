@@ -113,10 +113,13 @@ with relay and receiver broker byte counters agreeing exactly.
 
 This promotes the online relay milestone from "relay reachable" to "native
 two-way payload proven." It does not yet prove stable long-session quality or
-frame-level stereo sync. The next gating work is diagnostic: per-eye packet and
-frame counters, media PTS ranges, accepted stereo-pair counters, inter-eye skew
-fields, relay exception close accounting, and direction-specific control
-sessions so agent messages cannot replace each other's control receivers.
+frame-level stereo sync. The first hardening pass adds per-lane `RXYRVID1`
+stream counters to `q2q_relay.get_status`, preserves relay byte counters on
+exception close paths, reports receiver-side complete frame-set gate counters
+before native stereo texture commit, and adds offline scorecard/session-plan
+tools. Remaining gating work is an executing receiver-first orchestrator,
+final-status-before-stop capture, reduced-quality public-relay validation, and
+another measured two-Quest remote run.
 
 The public-safe retrospective and next-run checklist live in
 [Quest-to-Quest native relay session, 2026-05-19](QUEST_TO_QUEST_NATIVE_RELAY_SESSION_2026_05_19.md).
