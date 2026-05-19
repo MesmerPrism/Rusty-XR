@@ -92,6 +92,8 @@ before reading chronological plans or investigation logs.
 - [Projection coordinate space ledger](PROJECTION_COORDINATE_SPACE_LEDGER.md):
   coordinate domains, source-of-truth rules, and three-lane contract before
   blur.
+- [Projection coordinate handoff, 2026-05-19](PROJECTION_COORDINATE_HANDOFF_2026_05_19.md):
+  current status, next-agent plan, and remaining diagnostics before blur.
 - [Environment depth particle anchoring](ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md):
   world-space depth mesh, retained particle, and scene particle-map contract
   before camera/depth comparison.

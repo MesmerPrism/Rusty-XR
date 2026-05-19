@@ -53,10 +53,12 @@ Camera-matched source-domain model evidence:
 | `gles-oes-broker-h264-raw` | `-0.007` | `0.494` | `0.270` | Upright |
 | `makepad-cpuyuv-broker-h264-raw` | `-0.004` | `0.269` | `0.442` | One eye ambiguous, one upright |
 
-The next synthetic milestone is therefore not another scale guess. It is to
-carry the same source/texture/surface/screen contract into live direct/broker
-Camera2, passthrough-underlay witness runs, and depth/world-space reference
-checks while keeping blur disabled.
+The synthetic milestone is frozen as a regression gate. The same
+source/texture/surface/screen contract has since been promoted into live
+direct/broker Camera2, passthrough-underlay witness runs, and a
+depth/world-space contract artifact while keeping blur disabled. The remaining
+work is not another synthetic scale guess; it is to compare those live,
+passthrough, and depth records under the same stage names.
 
 ## Coordinate Contract
 
@@ -204,25 +206,25 @@ footprint intentionally masks much of the marker area. Do not re-label this as
 a manual flip, and do not tune `contentUvScale=1.6000` as active scale evidence
 until it is either wired into the shader path or renamed inactive/log-only.
 
-## Iteration Order
+## Regression And Promotion Order
 
 1. Keep the projection-coordinate contract gate in place for every synthetic
-   run.
+   regression run.
 2. Keep renderer-authored expected source-valid footprint fields mandatory for
    camera-matched mode; analyzer-derived boxes are evidence only.
 3. Keep Makepad's raster convention and CPU-YUV sampler convention separately
    logged so the Y issue cannot recur as a hidden manual flip.
 4. Use full-frame visible-envelope measurement for full-frame placement parity;
    dense-component boxes remain screenshot evidence, not geometry truth.
-5. Re-run camera-matched synthetic and require center, orientation, and
-   renderer-authored expected footprint agreement.
-6. Only after raw synthetic gates pass, use live camera frames,
-   passthrough-underlay comparison, and then blur while keeping geometry
-   unchanged.
+5. Use the frozen synthetic gates to catch regressions before live Camera2,
+   passthrough, or depth/world-space changes.
+6. Compare live Camera2, passthrough-underlay witness, and depth/world-space
+   contract records before resuming blur.
 
-## Next Headset Sweep
+## Synthetic Regression Sweep
 
-Run the next synthetic sweep as two independent probes:
+Run a synthetic sweep as regression evidence when a renderer, analyzer, broker,
+or Makepad wrapper change could affect coordinate mapping:
 
 - Renderer-authored expected footprint probe: each lane logs the expected
   camera-matched source-valid footprint in display-eye screen UV, with a source
@@ -234,7 +236,7 @@ Run the next synthetic sweep as two independent probes:
   match across HWB, GL/OES, and Makepad before treating dense-component
   differences as geometry findings.
 
-Do not start blur alignment until both probes pass against the same
+Do not start blur alignment if these probes regress against the same
 camera-matched synthetic stimulus.
 
 ## Pass Conditions

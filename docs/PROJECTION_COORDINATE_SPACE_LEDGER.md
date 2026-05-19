@@ -85,9 +85,27 @@ Latest completed synthetic evidence on 2026-05-19 has this status:
   to measure the visible stimulus envelope rather than a single dense
   checkerboard component.
 
-Do not treat this as blur-ready. The next raw-coordinate work is to promote the
-same contract to live direct/broker Camera2 frames, native passthrough-underlay
-witnesses, and depth/world-space checks before physical blur alignment resumes.
+Later 2026-05-19 work promoted the same contract beyond synthetic evidence:
+
+- live direct and broker Camera2 now use explicit `physical-camera` geometry
+  instead of synthetic profile fallback;
+- the broker live Camera2 path carries stream-header geometry through HWB,
+  GL/OES, and Makepad, and is the cleanest machine-checkable live source path;
+- opacity-zero, border-visible passthrough-underlay runs were captured as
+  physical witnesses, not coordinate authorities;
+- the depth/particle world-space path now emits
+  `rusty.xr.depth_world_space_contract.v1` records;
+- the world-space quad/direct shader equivalence conditions are documented in
+  the reconciliation artifact;
+- Makepad broker physical/camera-matched scale now comes from stream-header
+  camera geometry, not a synthetic head-anchored preview plan;
+- suite-level projection-area signs are stable: positive X moves right and
+  positive Y moves down in display/screenshot coordinates.
+
+Do not treat this as blur-ready. The next raw-coordinate work is to join the
+live Camera2 projection contracts, passthrough-underlay witness evidence, and
+depth/world-space contract records into one comparison artifact. If they
+disagree, the first named divergent stage owns the fix.
 
 ## Coordinate Domains
 
@@ -413,3 +431,10 @@ The productive division is:
   authorities.
 
 Only after this division is stable should the blur workflow continue.
+
+## Current Handoff
+
+The 2026-05-19 continuation state is summarized in
+[PROJECTION_COORDINATE_HANDOFF_2026_05_19.md](PROJECTION_COORDINATE_HANDOFF_2026_05_19.md).
+Use that document as the next-agent entry point, then return here for the
+coordinate vocabulary and source-of-truth rules.

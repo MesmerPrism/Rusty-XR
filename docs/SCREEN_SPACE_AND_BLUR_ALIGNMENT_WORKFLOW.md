@@ -12,13 +12,16 @@ generic blur diagnostic.
 The active synthetic-first coordinate gate is tracked in
 [SYNTHETIC_PROJECTION_COORDINATE_ALIGNMENT_PLAN.md](SYNTHETIC_PROJECTION_COORDINATE_ALIGNMENT_PLAN.md).
 Use that plan before starting physical camera or passthrough-underlay
-alignment.
+alignment. The current continuation state is tracked in
+[PROJECTION_COORDINATE_HANDOFF_2026_05_19.md](PROJECTION_COORDINATE_HANDOFF_2026_05_19.md).
 
 The coordinate-space source of truth is
 [PROJECTION_COORDINATE_SPACE_LEDGER.md](PROJECTION_COORDINATE_SPACE_LEDGER.md).
 That ledger is the first gate for this workflow: raw source geometry and
 coordinate contracts must be coherent across Vulkan/HWB, GL/OES, and Makepad
-CPU-YUV before this document's blur-quality phase resumes.
+CPU-YUV before this document's blur-quality phase resumes. At this handoff,
+that means live Camera2, passthrough-underlay witness, and depth/world-space
+records must agree under the same named stages before blur is used again.
 
 ## Scope
 
