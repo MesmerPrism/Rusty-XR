@@ -2742,7 +2742,7 @@ impl App {
         if !self.broker_h264_projection_plan_logged {
             self.broker_h264_projection_plan_logged = true;
             Self::emit_stereo_projection_marker(&format!(
-                    "phase=broker-h264-projection-plan status=ok projectionMetadataReady={} runtimeXrViewStateReady={} poseSource={} poseCoordinateConvention={} sourceEyeMapping={} sourceBindingMode={} coordinateChain={} leftCameraId={} rightCameraId={} width={} height={} leftMetadataBytes={} rightMetadataBytes={} leftMetadataSource={} rightMetadataSource={} leftProjectionGeometryProfile={} rightProjectionGeometryProfile={} leftSyntheticPattern={} rightSyntheticPattern={} leftOrientationKind={} rightOrientationKind={} leftRasterOrientation={} rightRasterOrientation={} leftUprightMarker={} rightUprightMarker={} leftOrientationMetadataSource={} rightOrientationMetadataSource={} leftOrientationDefault={} rightOrientationDefault={} leftStimulusRasterOrientation={} rightStimulusRasterOrientation={} leftStimulusUprightMarker={} rightStimulusUprightMarker={} {} {}",
+                    "phase=broker-h264-projection-plan status=ok projectionMetadataReady={} runtimeXrViewStateReady={} poseSource={} poseCoordinateConvention={} sourceEyeMapping={} sourceBindingMode={} coordinateChain={} projection_profile={} geometry_profile={} leftCameraId={} rightCameraId={} width={} height={} leftMetadataBytes={} rightMetadataBytes={} leftMetadataSource={} rightMetadataSource={} leftProjectionGeometryProfile={} rightProjectionGeometryProfile={} leftSyntheticPattern={} rightSyntheticPattern={} leftOrientationKind={} rightOrientationKind={} leftRasterOrientation={} rightRasterOrientation={} leftUprightMarker={} rightUprightMarker={} leftOrientationMetadataSource={} rightOrientationMetadataSource={} leftOrientationDefault={} rightOrientationDefault={} leftStimulusRasterOrientation={} rightStimulusRasterOrientation={} leftStimulusUprightMarker={} rightStimulusUprightMarker={} {} {}",
                 pair.projection_metadata_ready,
                 pair.runtime_xr_view_state_ready,
                 marker_token(&pair.pose_source),
@@ -2750,6 +2750,8 @@ impl App {
                 marker_token(&pair.source_eye_mapping),
                 marker_token(&pair.source_binding_mode),
                 marker_token(&pair.coordinate_chain),
+                marker_token(&left_metadata.synthetic_projection_profile),
+                marker_token(&left_metadata.projection_geometry_profile),
                 marker_token(&plan.left_camera_id),
                 marker_token(&plan.right_camera_id),
                 plan.width,
@@ -3302,7 +3304,7 @@ impl App {
                     };
                 }
                 Self::emit_hardware_buffer_import_marker(&format!(
-                    "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+                    "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} projectionGeometryProfile={} geometry_profile={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
                     side.label(),
                     metadata.metadata_bytes,
                     marker_token(&metadata.camera_id),
@@ -3310,6 +3312,8 @@ impl App {
                     marker_token(&metadata.pose_source),
                     marker_token(&metadata.pose_coordinate_convention),
                     marker_token(&metadata.source),
+                    marker_token(&metadata.projection_geometry_profile),
+                    marker_token(&metadata.projection_geometry_profile),
                     marker_token(&metadata.synthetic_pattern),
                     marker_token(&metadata.orientation_kind),
                     marker_token(&metadata.raster_orientation),
@@ -4575,17 +4579,22 @@ impl BrokerH264ProjectionMetadata {
             .and_then(JsonValue::as_str)
             .unwrap_or("unknown")
             .to_string();
+        let projection_geometry_fallback =
+            if source.contains("camera2") || source.contains("camera") {
+                "physical-camera"
+            } else {
+                "unknown"
+            };
         let synthetic_projection_profile = object
             .get("syntheticProjectionProfile")
-            .or_else(|| object.get("projectionGeometryProfile"))
             .and_then(JsonValue::as_str)
-            .unwrap_or("head-anchored-virtual-camera")
+            .unwrap_or("unknown")
             .to_string();
         let projection_geometry_profile = object
             .get("projectionGeometryProfile")
             .or_else(|| object.get("syntheticProjectionProfile"))
             .and_then(JsonValue::as_str)
-            .unwrap_or(synthetic_projection_profile.as_str())
+            .unwrap_or(projection_geometry_fallback)
             .to_string();
         let synthetic_pattern = object
             .get("syntheticPattern")

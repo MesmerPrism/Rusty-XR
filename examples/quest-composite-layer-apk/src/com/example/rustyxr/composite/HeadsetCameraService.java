@@ -102,6 +102,7 @@ public final class HeadsetCameraService extends Service {
     private static final String STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN = "top-left-origin-y-down";
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
     private static final String CONTENT_MAPPING_CAMERA_PROJECTION = "map-raster-through-camera-projection";
+    private static final String PROJECTION_GEOMETRY_PROFILE_PHYSICAL_CAMERA = "physical-camera";
 
     private HandlerThread cameraThread;
     private Handler cameraHandler;
@@ -2244,6 +2245,8 @@ public final class HeadsetCameraService extends Service {
         builder.append(',');
         appendJsonString(builder, "orientationMetadataSource", metadataSource);
         builder.append(",\"orientationDefault\":false");
+        builder.append(',');
+        appendJsonString(builder, "projectionGeometryProfile", PROJECTION_GEOMETRY_PROFILE_PHYSICAL_CAMERA);
         builder.append(',');
         appendJsonString(builder, "contentGeometrySchema", STREAM_CONTENT_GEOMETRY_SCHEMA);
         builder.append(',');

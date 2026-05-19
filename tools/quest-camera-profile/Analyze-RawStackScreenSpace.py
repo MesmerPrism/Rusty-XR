@@ -54,8 +54,12 @@ SOURCE_FIELD_KEYS = (
     "brokerH264SourceMode",
     "sourceBindingMode",
     "brokerH264SyntheticProjectionProfile",
+    "syntheticProjectionProfile",
     "projection_profile",
     "geometry_profile",
+    "projectionGeometryProfile",
+    "projectionProfile",
+    "geometryProfile",
     "content_mapping",
     "contentMapping",
     "syntheticPattern",
@@ -1584,6 +1588,18 @@ def first_field(fields: dict[str, str], *keys: str) -> str | None:
     return None
 
 
+def first_meaningful_field(fields: dict[str, str], *keys: str) -> str | None:
+    for key in keys:
+        value = fields.get(key)
+        if value is None or str(value) == "":
+            continue
+        text = str(value)
+        if text.strip().lower() in {"unknown", "unspecified", "none", "null"}:
+            continue
+        return text
+    return None
+
+
 def uv_rect_is_full_frame(rect: list[float] | None, tolerance: float = 0.0025) -> bool:
     if rect is None or len(rect) < 4:
         return False
@@ -2470,16 +2486,27 @@ def infer_source_mode(mode: str, fields: dict[str, str]) -> str:
 
 
 def infer_geometry_profile(mode: str, fields: dict[str, str]) -> str:
-    explicit = first_field(
+    explicit = first_meaningful_field(
         fields,
+        "geometry_profile",
+        "projectionGeometryProfile",
+        "geometryProfile",
+        "projection_profile",
+        "projectionProfile",
         "brokerH264SyntheticProjectionProfile",
         "syntheticProjectionProfile",
-        "projection_profile",
-        "geometryProfile",
-        "projectionProfile",
     )
     if explicit is None:
-        explicit = descriptor_field(fields, "projection_profile", "geometry_profile")
+        explicit = descriptor_field(
+            fields,
+            "geometry_profile",
+            "projectionGeometryProfile",
+            "projection_profile",
+            "geometryProfile",
+            "projectionProfile",
+        )
+    if explicit is not None and explicit.strip().lower() in {"unknown", "unspecified", "none", "null"}:
+        explicit = None
     if explicit:
         return explicit
     combined = " ".join(

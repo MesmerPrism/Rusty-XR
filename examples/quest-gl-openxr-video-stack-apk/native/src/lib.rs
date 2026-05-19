@@ -2421,17 +2421,22 @@ void main() {
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown")
                 .to_string();
+            let projection_geometry_fallback =
+                if source.contains("camera2") || source.contains("camera") {
+                    "physical-camera"
+                } else {
+                    "unknown"
+                };
             let synthetic_projection_profile = object
                 .get("syntheticProjectionProfile")
-                .or_else(|| object.get("projectionGeometryProfile"))
                 .and_then(serde_json::Value::as_str)
-                .unwrap_or("head-anchored-virtual-camera")
+                .unwrap_or("unknown")
                 .to_string();
             let projection_geometry_profile = object
                 .get("projectionGeometryProfile")
                 .or_else(|| object.get("syntheticProjectionProfile"))
                 .and_then(serde_json::Value::as_str)
-                .unwrap_or(synthetic_projection_profile.as_str())
+                .unwrap_or(projection_geometry_fallback)
                 .to_string();
             let synthetic_pattern = object
                 .get("syntheticPattern")

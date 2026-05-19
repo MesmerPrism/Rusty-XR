@@ -76,6 +76,7 @@ final class BrokerAppCameraH264StreamSession {
     private static final String CONTENT_MAPPING_SYNTHETIC_CAMERA_MATCHED = "map-stimulus-raster-through-camera-projection";
     private static final String CONTENT_MAPPING_SYNTHETIC_FULL_FRAME = "map-full-frame-stimulus-to-projection-area";
     private static final String CONTENT_MAPPING_SYNTHETIC_HEAD_ANCHORED = "fit-stimulus-raster-in-head-anchored-projection-area";
+    private static final String PROJECTION_GEOMETRY_PROFILE_PHYSICAL_CAMERA = "physical-camera";
     private static final String MAGIC = "RXYRVID1";
     private static final int SCHEMA_VERSION = 3;
     private static final int CODEC_H264 = 1;
@@ -367,6 +368,7 @@ final class BrokerAppCameraH264StreamSession {
                     start.put("selected_width", selection.size.getWidth());
                     start.put("selected_height", selection.size.getHeight());
                     start.put("selection_score", selection.score);
+                    start.put("projection_geometry_profile", PROJECTION_GEOMETRY_PROFILE_PHYSICAL_CAMERA);
                     putCameraSourceSelectionFields(start, selection, cameraPermissionState);
                     start.put("camera_source_capabilities", buildCameraSourceCapabilities(selection, cameraPermissionState));
                     start.put("projection_metadata", buildProjectionMetadata(selection));
@@ -2142,6 +2144,7 @@ final class BrokerAppCameraH264StreamSession {
         metadata.put("selectionScore", selection.score);
         metadata.put("deliveredWidth", selection.size.getWidth());
         metadata.put("deliveredHeight", selection.size.getHeight());
+        metadata.put("projectionGeometryProfile", PROJECTION_GEOMETRY_PROFILE_PHYSICAL_CAMERA);
         putStreamRasterOrientationFields(
             metadata,
             "camera-frame",
