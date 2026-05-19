@@ -51,6 +51,22 @@ renderer-authored full-frame intent to measure the visible stimulus envelope,
 so backend color/decoder differences do not turn a disconnected top diagnostic
 band into a false vertical-placement failure.
 
+For environment-depth particle or mesh profiles, build the world-space contract
+artifact from logcat markers with:
+
+```powershell
+python .\tools\quest-camera-profile\Build-DepthWorldSpaceContract.py `
+  .\artifacts\quest-camera-profile-runs\<run>
+```
+
+When comparing the depth path to live Camera2 or a passthrough-underlay witness,
+pass the relevant `projection-coordinate-contract-summary.json` files with
+`--camera-contract-summary` and `--passthrough-contract-summary`. The depth
+artifact records the intended chain
+`depth UV -> depth view ray -> app reference-space point -> render-eye screen`,
+while screenshot or passthrough evidence remains a witness rather than the
+coordinate source of truth.
+
 ## Camera Readiness Preflight
 
 The runner preserves headset power, stay-awake, and proximity state by default.

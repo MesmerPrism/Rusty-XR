@@ -20,6 +20,34 @@ For the shared coordinate vocabulary that relates this world-space-first path
 to direct per-eye camera projection and later blur diagnostics, see
 [PROJECTION_COORDINATE_SPACE_LEDGER.md](PROJECTION_COORDINATE_SPACE_LEDGER.md).
 
+The public contract artifact for this path is
+`rusty.xr.depth_world_space_contract.v1`. It records:
+
+```text
+depth UV
+-> depth view ray from runtime depth FOV
+-> metric depth-view point through near/far conversion
+-> app reference-space point through depth view pose
+-> current render-eye view
+-> submitted screen
+```
+
+The no-hardware contract example is:
+
+```powershell
+cargo run -p rusty-xr-contracts --example depth_world_space_contract --features serde
+```
+
+Quest log runs that contain `Rusty XR environment depth world-space contract`
+markers can be summarized with:
+
+```powershell
+python .\tools\quest-camera-profile\Build-DepthWorldSpaceContract.py <run-root>
+```
+
+Use that artifact as the world-space baseline before comparing depth particles
+to live Camera2 projection or passthrough-underlay witness runs.
+
 ## Retained Overlay Limitation
 
 The `particle-overlay` mode is still sourced from a regular view-sampled depth
@@ -108,6 +136,7 @@ owns particle lifetime explicitly.
 
 The live path is considered active when logs report:
 
+- `Rusty XR environment depth world-space contract`
 - `environmentDepthActive=true`
 - `depthMeshProjection=local-space-depth-surface`
 - `depthMeshRasterization=retained-local-space-metric-billboard-particles`

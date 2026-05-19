@@ -61,5 +61,10 @@ name = "projection_performance_matrix_packet"
 path = "examples/projection_performance_matrix_packet.rs"
 required-features = ["serde"]
 
+[[example]]
+name = "depth_world_space_contract"
+path = "examples/depth_world_space_contract.rs"
+required-features = ["serde"]
+
 [lints]
 workspace = true

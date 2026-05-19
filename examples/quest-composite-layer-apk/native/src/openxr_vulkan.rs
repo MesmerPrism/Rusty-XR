@@ -9940,6 +9940,7 @@ impl EnvironmentDepthVisualizer {
             last_vertex_count = vertex_count;
         }
         if frame.frame_count == 0 || frame.frame_count % 120 == 0 {
+            log_environment_depth_world_space_contract(frame, mode, resolution, last_vertex_count);
             log_info(format!(
                 "Rusty XR environment depth visualizer draw frame={} swapchainIndex={} captureTimeNs={} renderTarget={}x{} depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} grayscale=linear-d16-meters-infinity-white depthVisualMaxMeters={} depthVisualTextureTransform={} depthPoseSource=view-space-composed projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader depthMeshOverlay={} depthMeshDistanceColorMaxMeters={} depthMeshCellMeters={} depthMeshDiscontinuityMeters={} depthMeshProjection=local-space-depth-surface depthMeshRasterization={} depthMeshGridStridePixels={} depthMeshVertexCount={} depthMeshHistoryFramesDrawn={} depthMeshHistoryMaxAgeMs={} passthroughVisible={} confidenceSource=none confidencePayload=false confidenceStatus=not-exposed-by-XR_META_environment_depth",
                 frame.frame_count,
@@ -10187,6 +10188,75 @@ fn environment_depth_frame_with_current_render_view(
     source_frame.left_render_orientation = current_frame.left_render_orientation;
     source_frame.right_render_orientation = current_frame.right_render_orientation;
     source_frame
+}
+
+fn environment_depth_world_space_render_path(mode: EnvironmentDepthMode) -> &'static str {
+    if mode.scene_particle_map() {
+        "scene-particle-map"
+    } else if mode.particle_overlay() {
+        "retained-metric-particles"
+    } else if mode.mesh_overlay() {
+        "generated-depth-mesh"
+    } else {
+        "fullscreen-depth-visualizer"
+    }
+}
+
+fn environment_depth_sample_identity_policy(mode: EnvironmentDepthMode) -> &'static str {
+    if mode.scene_particle_map() {
+        "reference-space-cell"
+    } else if mode.particle_overlay() {
+        "retained-reference-point"
+    } else if mode.mesh_overlay() {
+        "depth-raster-slot"
+    } else {
+        "not-retained"
+    }
+}
+
+fn log_environment_depth_world_space_contract(
+    frame: EnvironmentDepthVisualFrame,
+    mode: EnvironmentDepthMode,
+    resolution: vk::Extent2D,
+    vertex_count: u32,
+) {
+    log_info(format!(
+        "Rusty XR environment depth world-space contract schema=rusty.xr.depth_world_space_contract.v1 status=ready sourceKind=runtime-environment-depth mode={} renderPath={} sampleIdentityPolicy={} depthUvOrigin=normalized-depth-image depthToRayOwner=XrEnvironmentDepthImageViewMETA.fov metricDepthOwner=near-far-depth-buffer-to-meters referencePointOwner=depth-view-pose-composed-into-app-reference-space renderEyeOwner=current-openxr-view-pose-fov chain=depth-uv>depth-view-ray>metric-depth-view-point>app-reference-space-point>render-eye-view>screen depthTexture={}x{} depthTextureFormat=VK_FORMAT_D16_UNORM depthTextureLayers={} swapchainIndex={} nearZ={} farZ={} captureTimeNs={} depthVisualTextureTransform={} depthPoseSource=view-space-composed leftDepthFovTangents={} rightDepthFovTangents={} leftDepthPosition={} rightDepthPosition={} leftDepthOrientation={} rightDepthOrientation={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={} renderTarget={}x{} vertexCount={} projectionYConvention=vulkan-positive-viewport-y-flipped-in-shader passthroughVisible={} confidenceSource=depth-discontinuity-or-none confidencePayload=false",
+        mode.stable_id(),
+        environment_depth_world_space_render_path(mode),
+        environment_depth_sample_identity_policy(mode),
+        frame.depth_width,
+        frame.depth_height,
+        VIEW_COUNT,
+        frame.swapchain_index,
+        frame.near_z,
+        frame.far_z,
+        frame.capture_time_ns,
+        XR_ENVIRONMENT_DEPTH_VISUAL_TEXTURE_TRANSFORM_LABEL,
+        format_vec4(frame.left_fov_tangents),
+        format_vec4(frame.right_fov_tangents),
+        format_vec4(frame.left_position),
+        format_vec4(frame.right_position),
+        format_vec4(frame.left_orientation),
+        format_vec4(frame.right_orientation),
+        format_vec4(frame.left_render_fov_tangents),
+        format_vec4(frame.right_render_fov_tangents),
+        format_vec4(frame.left_render_position),
+        format_vec4(frame.right_render_position),
+        format_vec4(frame.left_render_orientation),
+        format_vec4(frame.right_render_orientation),
+        resolution.width,
+        resolution.height,
+        vertex_count,
+        mode.mesh_overlay() || mode.particle_overlay()
+    ));
+}
+
+fn format_vec4(values: [f32; 4]) -> String {
+    format!(
+        "[{:.6},{:.6},{:.6},{:.6}]",
+        values[0], values[1], values[2], values[3]
+    )
 }
 
 #[repr(C)]

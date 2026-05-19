@@ -204,6 +204,38 @@ geometry before the final per-eye render whenever possible. Direct per-eye
 camera sampling is a valid optimized path, but it must remain explainable as a
 collapse of the same reference-space geometry.
 
+Depth/world-space runs now have a matching contract artifact. The public schema
+id is `rusty.xr.depth_world_space_contract.v1`, exposed by
+`rusty-xr-contracts::DepthWorldSpaceContract`; the public no-hardware example
+is:
+
+```powershell
+cargo run -p rusty-xr-contracts --example depth_world_space_contract --features serde
+```
+
+Quest log runs can be collapsed into
+`depth-world-space-contracts.jsonl` plus
+`depth-world-space-contract-summary.json` with:
+
+```powershell
+python .\tools\quest-camera-profile\Build-DepthWorldSpaceContract.py <run-root>
+```
+
+The accepted depth contract must name the owner of each stage:
+
+- `DepthUvToDepthViewRay`: runtime depth-view FOV.
+- `DepthViewRayToMetricPoint`: near/far depth conversion to meters.
+- `DepthViewPointToReferenceSpace`: depth view pose composed into app
+  reference space.
+- `ReferenceSpacePointToRenderEye`: current render-eye pose.
+- `RenderEyePointToScreen`: current render-eye FOV and backend projection
+  convention.
+
+Use that record as the world-space baseline when comparing live Camera2 and
+passthrough-underlay evidence. If a direct per-eye shader diverges from the
+world-space path, fix the first named stage that differs; do not add a
+renderer-local offset without naming the stage that owns it.
+
 ## Three-Lane Rules
 
 ### Vulkan/HWB
@@ -346,6 +378,11 @@ Before accepting a coordinate run:
   manifest or transform source of truth.
 - Any physical-camera or passthrough-underlay run names the synthetic run it is
   meant to confirm.
+- Any environment-depth particle or mesh run emits a depth/world-space contract
+  artifact, including depth texture size, near/far range, capture time,
+  depth-view FOV/pose, current render-eye FOV/pose, sample identity policy, and
+  passthrough visibility. Infinite runtime far planes must be represented with
+  an explicit `far_z_infinite` flag, not a fake numeric far clip.
 
 ## How OpenXR Fits
 

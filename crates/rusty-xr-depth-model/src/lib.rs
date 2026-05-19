@@ -12,8 +12,13 @@
 //! diagnostics, manifests, or operator tooling.
 
 pub use rusty_xr_contracts::{
-    ConfidenceFormat, DepthConfidenceSource, DepthFormat, DepthFrameDescriptor, DepthMetricRange,
-    DepthPayloadDescriptor, DepthViewDescriptor, EnvironmentDepthState, ImageSize,
+    depth_view_position_from_uv, reference_space_point_from_depth_uv,
+    render_eye_screen_uv_from_reference_point, ConfidenceFormat, DepthConfidenceSource,
+    DepthFormat, DepthFrameDescriptor, DepthMetricRange, DepthPayloadDescriptor,
+    DepthSampleIdentityPolicy, DepthViewDescriptor, DepthWorldSpaceContract,
+    DepthWorldSpaceMetricRange, DepthWorldSpaceRenderPath, DepthWorldSpaceSourceKind,
+    DepthWorldSpaceStageEvidence, DepthWorldSpaceStageKind, EnvironmentDepthState, ImageSize,
+    DEPTH_WORLD_SPACE_CONTRACT_SCHEMA,
 };
 
 /// Crate version exposed for lightweight smoke checks.

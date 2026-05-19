@@ -46,8 +46,13 @@ pub use camera::{
     VisualProjectionState,
 };
 pub use depth::{
-    ConfidenceFormat, DepthConfidenceSource, DepthFormat, DepthFrameDescriptor, DepthMetricRange,
-    DepthPayloadDescriptor, DepthViewDescriptor, EnvironmentDepthState,
+    depth_view_position_from_uv, reference_space_point_from_depth_uv,
+    render_eye_screen_uv_from_reference_point, ConfidenceFormat, DepthConfidenceSource,
+    DepthFormat, DepthFrameDescriptor, DepthMetricRange, DepthPayloadDescriptor,
+    DepthSampleIdentityPolicy, DepthViewDescriptor, DepthWorldSpaceContract,
+    DepthWorldSpaceMetricRange, DepthWorldSpaceRenderPath, DepthWorldSpaceSourceKind,
+    DepthWorldSpaceStageEvidence, DepthWorldSpaceStageKind, EnvironmentDepthState,
+    DEPTH_WORLD_SPACE_CONTRACT_SCHEMA,
 };
 pub use effect_stack::{
     EffectBufferDescriptor, EffectBufferFormat, EffectDiagnosticLayer, EffectLayerComparison,

@@ -92,6 +92,9 @@ before reading chronological plans or investigation logs.
 - [Projection coordinate space ledger](PROJECTION_COORDINATE_SPACE_LEDGER.md):
   coordinate domains, source-of-truth rules, and three-lane contract before
   blur.
+- [Environment depth particle anchoring](ENVIRONMENT_DEPTH_PARTICLE_ANCHORING.md):
+  world-space depth mesh, retained particle, and scene particle-map contract
+  before camera/depth comparison.
 - [Synthetic projection coordinate alignment plan](SYNTHETIC_PROJECTION_COORDINATE_ALIGNMENT_PLAN.md):
   active synthetic-first gate before blur, live camera, or passthrough
   alignment.

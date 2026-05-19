@@ -1582,6 +1582,111 @@ def schemas() -> dict[str, dict]:
             "notes": array(string()),
         },
     )
+    field_of_view = obj(
+        "FieldOfView",
+        {
+            "angle_left_radians": number(),
+            "angle_right_radians": number(),
+            "angle_up_radians": number(),
+            "angle_down_radians": number(),
+        },
+    )
+    depth_payload_descriptor = obj(
+        "DepthPayloadDescriptor",
+        {
+            "size": image_size(),
+            "byte_len": integer(0),
+            "row_stride_bytes": nullable_integer,
+        },
+    )
+    depth_metric_range = obj(
+        "DepthMetricRange",
+        {
+            "near_z_m": number(),
+            "far_z_m": number(),
+        },
+    )
+    depth_world_space_metric_range = obj(
+        "DepthWorldSpaceMetricRange",
+        {
+            "near_z_m": number(),
+            "far_z_m": {"type": ["number", "null"]},
+            "far_z_infinite": boolean(),
+        },
+    )
+    depth_view_descriptor = obj(
+        "DepthViewDescriptor",
+        {
+            "eye": eye,
+            "pose": pose(),
+            "fov": field_of_view,
+        },
+    )
+    depth_world_space_stage = obj(
+        "DepthWorldSpaceStageEvidence",
+        {
+            "stage": enum(
+                "DepthWorldSpaceStageKind",
+                [
+                    "DepthUvToDepthViewRay",
+                    "DepthViewRayToMetricPoint",
+                    "DepthViewPointToReferenceSpace",
+                    "ReferenceSpacePointToRenderEye",
+                    "RenderEyePointToScreen",
+                ],
+            ),
+            "owner": string(),
+            "evidence": string(),
+        },
+    )
+    depth_world_space_contract = obj(
+        "DepthWorldSpaceContract",
+        {
+            "schema": {"const": "rusty.xr.depth_world_space_contract.v1"},
+            "contract_id": string(),
+            "source_kind": enum(
+                "DepthWorldSpaceSourceKind",
+                ["RuntimeEnvironmentDepth", "Synthetic", "Imported", "Other"],
+            ),
+            "render_path": enum(
+                "DepthWorldSpaceRenderPath",
+                [
+                    "FullscreenDepthVisualizer",
+                    "GeneratedDepthMesh",
+                    "RetainedMetricParticles",
+                    "SceneParticleMap",
+                    "Other",
+                ],
+            ),
+            "depth_payload": depth_payload_descriptor,
+            "depth_format": enum("DepthFormat", ["Float32Meters", "Uint16Millimeters", "Uint16Raw"]),
+            "depth_range": depth_world_space_metric_range,
+            "runtime_capture_time_ns": {"type": ["integer", "null"]},
+            "layer_count": integer(1),
+            "left_depth_view": depth_view_descriptor,
+            "right_depth_view": depth_view_descriptor,
+            "reference_space": string(),
+            "reference_space_units": string(),
+            "depth_uv_origin": string(),
+            "depth_texture_transform": string(),
+            "linearization": string(),
+            "point_reconstruction": string(),
+            "render_eye_view_source": string(),
+            "projection_y_convention": string(),
+            "render_target_size": {"oneOf": [image_size(), {"type": "null"}]},
+            "sample_identity_policy": enum(
+                "DepthSampleIdentityPolicy",
+                [
+                    "DepthRasterSlot",
+                    "RetainedReferencePoint",
+                    "ReferenceSpaceCell",
+                    "NotRetained",
+                ],
+            ),
+            "passthrough_visible": boolean(),
+            "stages": array(depth_world_space_stage),
+        },
+    )
     return {
         "runtime-config.schema.json": obj(
             "RuntimeConfig",
@@ -1677,6 +1782,7 @@ def schemas() -> dict[str, dict]:
                 ),
             },
         ),
+        "depth-world-space-contract.schema.json": depth_world_space_contract,
         "plain-stereo-layer.schema.json": obj(
             "PlainStereoLayer",
             {

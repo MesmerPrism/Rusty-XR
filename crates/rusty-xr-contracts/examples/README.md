@@ -136,3 +136,22 @@ cargo run -p rusty-xr-contracts --example effect_stack_diagnostic_manifest --fea
 The example is data-only. It does not define shader behavior, private visual
 tuning, native texture ownership, or a renderer backend. It demonstrates the
 public diagnostic shape documented in `docs/EFFECT_STACK_DIAGNOSTICS.md`.
+
+## Depth World-Space Contract
+
+`depth_world_space_contract.rs` emits a synthetic environment-depth contract for
+the world-space-first path:
+
+```text
+depth UV -> depth view ray -> app reference-space point -> render-eye screen UV
+```
+
+Run it with:
+
+```powershell
+cargo run -p rusty-xr-contracts --example depth_world_space_contract --features serde
+```
+
+The example does not acquire `XR_META_environment_depth` or submit a renderer
+layer. It demonstrates the public evidence shape that a Quest adapter can emit
+for depth mesh, retained particle, or scene particle-map diagnostics.
