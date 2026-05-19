@@ -94,6 +94,25 @@ world-space contract records the matching `displayTimeNs` used for environment
 depth acquire. Missing fields remain owned by OpenXR reference-space geometry,
 not by the analyzer or blur pipeline.
 
+For a physical monitor or printed alignment target, use the target witness
+analyzer on an opacity-zero native-passthrough reference and an opaque custom
+projection candidate:
+
+```powershell
+python .\tools\quest-camera-profile\Analyze-TargetAlignmentWitness.py `
+  --reference .\artifacts\<native-passthrough>\screencap.png `
+  --candidate .\artifacts\<custom-camera>\screencap.png `
+  --out-dir .\artifacts\<target-witness>
+```
+
+The target analyzer detects high-saturation target features by eye, estimates
+candidate-to-reference translation, and writes overlay PNGs plus JSON/Markdown
+summaries. A zero-shift, high-correlation result is an alignment witness, while
+a missing/black opacity-zero reference is owned by projection-area mapping
+because the underlay witness did not expose the physical target. Large
+single-marker deltas can remain analyzer evidence when the correlation result
+is stable, especially when the physical screen shows duplicated target content.
+
 ## Camera Readiness Preflight
 
 The runner preserves headset power, stay-awake, and proximity state by default.
