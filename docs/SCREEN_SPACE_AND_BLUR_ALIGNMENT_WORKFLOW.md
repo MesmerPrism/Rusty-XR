@@ -170,6 +170,21 @@ Use the same `diagnostic-grid` static packet for checker/thin-line blur
 behavior, then `motion-bar` when checking whether blur processing interacts with
 stale/repeated frames.
 
+After the raw and blur suites have both been analyzed with
+`Analyze-RawStackScreenSpace.py`, compare them with:
+
+```powershell
+python .\tools\quest-camera-profile\Build-SyntheticBlurComparison.py `
+  --raw-report <raw-suite>\screen-space-analysis\screen-space-report.json `
+  --blur-report <blur-suite>\screen-space-analysis\screen-space-report.json `
+  --out-dir <comparison-output>
+```
+
+The comparison gate checks that raw and blur keep the same accepted projection
+footprint, then measures high-frequency edge-energy loss inside the synthetic
+valid-content crop. Treat a geometry shift as a projection contract regression,
+not as blur evidence.
+
 ## Public Control Map
 
 | Renderer family | Raw border control | Projection-area opacity | Border opacity | Blur control |

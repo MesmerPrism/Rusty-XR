@@ -265,6 +265,9 @@ Use `-ProcessingLayer blur -BlurRadiusPx 2.0` when comparing the same raw
 projection area through the public diagnostic blur layer. The blur layer is a
 small generic 9-tap sampler intended for processing-stack diagnostics; it is
 not a downstream visual-effect preset or a performance-optimized separable blur.
+Run `Build-SyntheticBlurComparison.py` on the raw and blur
+`screen-space-report.json` files to verify that geometry stayed stable and that
+the synthetic `diagnostic-grid` lost high-frequency edge energy under blur.
 
 The suite applies the same policy to every public lane:
 
