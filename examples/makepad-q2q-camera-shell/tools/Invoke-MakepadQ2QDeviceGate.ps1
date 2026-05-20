@@ -13,6 +13,7 @@ param(
     [int]$SampleSeconds = 90,
     [int]$FreshnessFrames = 6,
     [int]$FreshnessIntervalSeconds = 1,
+    [int]$BrokerH264ReadyTimeoutSeconds = 30,
     [switch]$SkipInstall,
     [switch]$SkipDirectXrFallback,
     [switch]$PreferDirectVrActivity,
@@ -571,6 +572,24 @@ function Capture-FreshnessFrames {
     return $hashes
 }
 
+function Wait-BrokerH264TextureReady {
+    param([datetime]$LaunchStartedAt)
+    if (-not ($UseBrokerH264Synthetic -or $UseBrokerH264Camera)) {
+        return $null
+    }
+
+    $deadline = (Get-Date).AddSeconds($BrokerH264ReadyTimeoutSeconds)
+    $state = $null
+    do {
+        Start-Sleep -Seconds 3
+        $state = Capture-LaunchState -Label "broker-h264-ready-poll" -LaunchStartedAt $LaunchStartedAt
+        if ($state.brokerH264DecodedTextureReady) {
+            return $state
+        }
+    } while ((Get-Date) -lt $deadline)
+    return $state
+}
+
 if (-not $OutDir) {
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $OutDir = Join-Path (Get-Location) "artifacts/makepad-q2q-device-gate-$stamp"
@@ -604,9 +623,21 @@ else {
 
 $finalLabel = $attempts[-1].label
 if ($attempts[-1].ready) {
+    $launchStartedAt = if ($attempts[-1].launchedAt) {
+        [datetime]::Parse(
+            $attempts[-1].launchedAt,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [System.Globalization.DateTimeStyles]::RoundtripKind)
+    } else {
+        Get-Date
+    }
+    $brokerReadyState = Wait-BrokerH264TextureReady -LaunchStartedAt $launchStartedAt
+    if ($brokerReadyState) {
+        $attempts += $brokerReadyState
+    }
     $frames = Capture-FreshnessFrames -Label $finalLabel
     Start-Sleep -Seconds ([Math]::Max(0, $SampleSeconds - ($FreshnessFrames * $FreshnessIntervalSeconds)))
-    $finalState = Capture-LaunchState -Label "$finalLabel-final" -LaunchStartedAt (Get-Date)
+    $finalState = Capture-LaunchState -Label "$finalLabel-final" -LaunchStartedAt $launchStartedAt
     $attempts += $finalState
 } else {
     $frames = @()

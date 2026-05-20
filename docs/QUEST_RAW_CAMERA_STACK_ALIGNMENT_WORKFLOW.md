@@ -223,6 +223,44 @@ For opacity sweeps, keep `-ProjectionBorderPolicy solid-red`, add
 `-ProjectionBorderOpacity <0..1>`. That keeps the full submitted XR surface and
 the red border active while fading only the projected camera window against the
 native passthrough background.
+For Makepad source-alpha regressions, use the focused opacity ladder before
+alignment evidence:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File .\tools\quest-camera-profile\Invoke-MakepadOpacityLadderGate.ps1 `
+  -Serial <quest-serial> `
+  -Apk <makepad-apk> `
+  -Lane direct `
+  -SkipInstall
+```
+
+The ladder captures `0.0`, `0.5`, and `1.0` projection-area opacity with native
+passthrough requested. The `0.0` row must show native passthrough only, `0.5`
+must show an intentional native/custom blend, and `1.0` must show the custom
+projection. Broker rows are not valid until their decoded texture counters are
+nonzero. For broker rows, add `-Lane broker -RestartBrokerBeforeBrokerRows` so
+stale live-stream sockets are cleared before each opacity row.
+
+For GL/OES color matching, keep the first pass scalar and neutral-constrained.
+Use native passthrough at `-ProjectionAreaOpacity 0` as the reference, then
+capture the uncorrected OES projection and one candidate with the same geometry
+and `-ProjectionAreaOpacity 1`. Sample both color bars and neutral regions of
+the target; do not fit a full matrix from saturated bars alone. A useful current
+baseline for the alignment stimulus is:
+
+```powershell
+-GlesCameraColorMatrix '1;0;0;0;1;0;0;0;1' `
+-GlesCameraColorOffset '0;0;0' `
+-GlesCameraColorContrast 0.85 `
+-GlesCameraColorBrightness -0.11 `
+-GlesCameraColorSaturation 1.0
+```
+
+Treat these values as stimulus and lighting dependent until a broader color
+profile is captured. Peripheral native-passthrough curvature remains compositor
+behavior; use the green center cross for geometry and the color bars plus
+neutral target regions for color.
 Use `-ProcessingLayer blur -BlurRadiusPx 2.0` when comparing the same raw
 projection area through the public diagnostic blur layer. The blur layer is a
 small generic 9-tap sampler intended for processing-stack diagnostics; it is

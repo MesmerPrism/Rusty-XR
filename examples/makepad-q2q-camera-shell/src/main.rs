@@ -853,7 +853,13 @@ script_mod! {
                 let guided_window = mix(bordered_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
                 let border_alpha = projection_border_opacity * (1.0 - passthrough_border_policy);
                 let alpha = mix(border_alpha, projection_area_opacity, camera_window_valid);
-                return vec4(guided_window.x, guided_window.y, guided_window.z, alpha);
+                let premultiplied_window = guided_window * alpha;
+                return vec4(
+                    premultiplied_window.x,
+                    premultiplied_window.y,
+                    premultiplied_window.z,
+                    alpha
+                );
             }
             let direct_rgb =
                 self.sample_processed_camera_rgb(live_sample_uv, eye_selector) * mix(0.12, 1.0, live_projection_valid);
