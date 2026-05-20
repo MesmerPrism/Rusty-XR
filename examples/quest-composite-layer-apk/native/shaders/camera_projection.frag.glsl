@@ -997,6 +997,7 @@ void main() {
     vec2 projection_screen_uv = full_frame_stimulus_mapping
         ? projection_screen_uv_base - projection_area_offset
         : projection_screen_uv_base;
+    vec2 projection_area_domain_uv = projection_screen_uv_base - projection_area_offset;
 
     vec2 local_uv = vec2(0.5) + ((v_surface_uv - vec2(0.5)) / overscan);
     bool content_surface_valid = true;
@@ -1028,8 +1029,6 @@ void main() {
     projection_valid =
         projection_valid && (full_frame_stimulus_mapping || content_surface_valid);
     float coverage = projection_coverage(raw_projected_uv, projection_valid, max(edge_fade, 0.012));
-    vec2 projection_area_domain_uv = projection_screen_uv;
-
     if ((packed_flags & CAMERA_FLAG_PROJECTION_AREA_DIAGNOSTIC) != 0) {
         out_color = vec4(resolve_projection_area_diagnostic(
             projection_area_domain_uv,

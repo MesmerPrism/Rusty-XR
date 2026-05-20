@@ -1864,6 +1864,13 @@ def app_projection_record(fields: dict[str, str], stages: dict[str, Any], eye: s
         "content_uv_scale": parse_number_value(fields.get("contentUvScale")),
         "projection_area_transform_stage": fields.get("projectionAreaTransformStage"),
         "projection_area_warp_parity": fields.get("projectionAreaWarpParity"),
+        "projection_area_target_source": fields.get("projectionAreaTargetSource"),
+        "projection_area_target_stage": fields.get("projectionAreaTargetStage"),
+        "projection_area_target_coordinate_space": fields.get("projectionAreaTargetCoordinateSpace"),
+        "projection_area_target_rect_semantics": fields.get("projectionAreaTargetRectSemantics"),
+        "projection_area_offset_convention": fields.get("projectionAreaOffsetConvention"),
+        "projection_area_screen_uv_rect": parse_uv_rect(prefixed_eye_field(fields, eye, "projectionAreaScreenUvRect")),
+        "projection_area_center_uv": parse_float_list(prefixed_eye_field(fields, eye, "projectionAreaCenterUv")),
         "projection_area_offset_x_uv": parse_number_value(projection_area_offset_x_value),
         "projection_area_offset_y_uv": parse_number_value(
             fields.get("projectionAreaOffsetYUv")
@@ -2918,6 +2925,14 @@ def projection_coordinate_gaps(
         gaps.append("projection-homography-not-confirmed-ready")
     if metadata.get("valid_source_uv_rect") is None:
         gaps.append("valid-source-uv-rect-not-logged")
+    selected_app_projection = None
+    for eye_analysis in analysis.values():
+        projection = eye_analysis.get("app_projection") if isinstance(eye_analysis, dict) else None
+        if isinstance(projection, dict):
+            selected_app_projection = projection
+            break
+    if selected_app_projection and selected_app_projection.get("projection_area_screen_uv_rect") is None:
+        gaps.append("projection-area-target-rect-not-logged")
     if metadata.get("orientation_state") != "explicit" and "broker" in mode:
         gaps.append("synthetic-orientation-metadata-not-explicit")
     for stage_name in STAGE_KEYS:

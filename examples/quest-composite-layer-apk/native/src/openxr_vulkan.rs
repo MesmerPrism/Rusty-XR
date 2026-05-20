@@ -3052,7 +3052,9 @@ unsafe fn run_vulkan(
                                 .as_ref()
                                 .or(projection_homographies.as_ref());
                             let projection_homography_fields = displayed_projection_homographies
-                                .map(projected_homography_marker_fields)
+                                .map(|homographies| {
+                                    projected_homography_marker_fields(homographies, &config)
+                                })
                                 .unwrap_or_else(|| {
                                     "projectionHomographyReady=false projectionAreaTransformStage=none projectionAreaWarpParity=reference_unwarped_screen_uv".to_string()
                                 });
@@ -6114,6 +6116,50 @@ fn screen_uv_rect_token(rect: [f32; 4]) -> String {
     )
 }
 
+fn screen_uv_vec2_token(value: [f32; 2]) -> String {
+    format!("{:.6},{:.6}", value[0], value[1])
+}
+
+fn projection_area_screen_uv_rect(
+    offset_uv: [f32; 2],
+    radius_uv: [f32; 2],
+    scale_uv: f32,
+) -> [f32; 4] {
+    let scale = scale_uv.clamp(0.05, 4.0);
+    let radius_x = radius_uv[0].clamp(0.05, 0.5);
+    let radius_y = radius_uv[1].clamp(0.05, 0.5);
+    let center_x = 0.5 + offset_uv[0].clamp(-0.5, 0.5) / scale;
+    let center_y = 0.5 + offset_uv[1].clamp(-0.5, 0.5) / scale;
+    [
+        center_x - radius_x / scale,
+        center_y - radius_y / scale,
+        (radius_x * 2.0) / scale,
+        (radius_y * 2.0) / scale,
+    ]
+}
+
+fn projection_area_center_uv(offset_uv: [f32; 2], scale_uv: f32) -> [f32; 2] {
+    let scale = scale_uv.clamp(0.05, 4.0);
+    [
+        0.5 + offset_uv[0].clamp(-0.5, 0.5) / scale,
+        0.5 + offset_uv[1].clamp(-0.5, 0.5) / scale,
+    ]
+}
+
+fn projection_area_target_marker_fields(config: &crate::RuntimeConfig) -> String {
+    let left_offset = config.camera_projection_area_offset_for_eye(0);
+    let right_offset = config.camera_projection_area_offset_for_eye(1);
+    let [radius_x, radius_y, _corner_radius, scale] = config.camera_area_params_push();
+    let radius = [radius_x, radius_y];
+    format!(
+        "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+        screen_uv_rect_token(projection_area_screen_uv_rect(left_offset, radius, scale)),
+        screen_uv_rect_token(projection_area_screen_uv_rect(right_offset, radius, scale)),
+        screen_uv_vec2_token(projection_area_center_uv(left_offset, scale)),
+        screen_uv_vec2_token(projection_area_center_uv(right_offset, scale)),
+    )
+}
+
 fn apply_homography(rows: [[f32; 3]; 3], x: f32, y: f32) -> Option<(f32, f32)> {
     let w = rows[2][0] * x + rows[2][1] * y + rows[2][2];
     if !w.is_finite() || w.abs() <= 1.0e-6 {
@@ -6203,9 +6249,12 @@ fn domain_to_screen_with_visual_offset(
     rows
 }
 
-fn projected_homography_marker_fields(homographies: &ProjectedStereoHomographies) -> String {
+fn projected_homography_marker_fields(
+    homographies: &ProjectedStereoHomographies,
+    config: &crate::RuntimeConfig,
+) -> String {
     format!(
-        "projectionHomographyReady=true projectionAreaTransformStage=screen_space_xy_offset projectionAreaWarpParity=reference_unwarped_screen_uv leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} {}",
+        "projectionHomographyReady=true projectionAreaTransformStage=screen_space_xy_offset projectionAreaWarpParity=reference_unwarped_screen_uv leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} {} {}",
         homography_token(homographies.left.surface_to_camera),
         homography_token(homographies.right.surface_to_camera),
         homography_token(homographies.left.screen_to_camera),
@@ -6215,6 +6264,7 @@ fn projected_homography_marker_fields(homographies: &ProjectedStereoHomographies
         homography_token(homographies.left.surface_to_screen),
         homography_token(homographies.right.surface_to_screen),
         expected_source_valid_footprint_marker_fields(homographies),
+        projection_area_target_marker_fields(config),
     )
 }
 

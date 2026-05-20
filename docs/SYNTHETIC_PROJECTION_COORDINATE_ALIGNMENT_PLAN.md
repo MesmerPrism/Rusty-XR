@@ -17,18 +17,24 @@ logged or intentionally marked unavailable for each active lane.
 
 ## Current Finding
 
-Latest evidence is from the 2026-05-19 broker-synthetic runs after the
-projection-coordinate contract scaffold was added to the analyzer and the
-HWB/GL/Makepad lanes were made to log the same source-geometry fields.
+Latest synthetic evidence includes the 2026-05-19 broker-synthetic runs plus
+the 2026-05-20 focused projection-area offset probes. The analyzer now checks
+the source-geometry fields and the renderer-authored projection-area target
+fields in the same `display-eye-screen-uv` coordinate contract.
 
 The three requested gates are now handled for the synthetic broker lanes:
 
 - renderer-authored expected source-valid footprint fields are present and
   preferred over analyzer-derived boxes;
+- renderer-authored projection-area target rects and centers are logged for
+  HWB, GL/OES, and Makepad;
 - Makepad full-frame Y orientation is upright after separating source-raster
   convention from Makepad CPU-YUV sampler-origin convention;
 - full-frame vertical placement parity passes after the analyzer uses the
   full-frame visible stimulus envelope instead of a single dense component.
+- shared positive X and positive Y projection-area offsets move the target
+  right and down across the three lanes when launched through the suite-level
+  controls.
 
 The current full-frame result is:
 
@@ -195,16 +201,16 @@ Trace these fields in order:
    `projection_area_content_uv` in the Makepad shader;
 6. final valid content bbox and orientation marker classification.
 
-The full-frame sweep showed a Makepad-specific vertical inversion even though
-the stream metadata was explicit and the contract was `ready`. The fix keeps
-the two layer boundaries separate: broker top-left raster metadata is applied
-in the projection plan, while Makepad CPU-YUV sampler-origin conversion is
-logged as `sourceSampleYFlip=1.0` with a sampler-origin reason. The follow-up
-full-frame run is upright; the camera-matched run no longer reports inverted
-markers, though one eye can still be ambiguous because the camera-matched valid
-footprint intentionally masks much of the marker area. Do not re-label this as
-a manual flip, and do not tune `contentUvScale=1.6000` as active scale evidence
-until it is either wired into the shader path or renamed inactive/log-only.
+The Makepad Y lessons now split into two different domains. Source-raster
+orientation and CPU-YUV sampler-origin conversion remain separate and are
+logged through `sourceSampleYFlip=1.0` with a sampler-origin reason. Projection
+area placement, however, uses the same display/screenshot convention as HWB and
+GL/OES: positive Y moves the projection area down. The Makepad launcher wrapper
+therefore normalizes the legacy native horizontal offset sign only; it does not
+invert the vertical projection-area offset. Do not re-label source sampling as
+a projection-area flip, and do not tune `contentUvScale=1.6000` as active scale
+evidence until it is either wired into the shader path or renamed
+inactive/log-only.
 
 ## Regression And Promotion Order
 
@@ -212,8 +218,9 @@ until it is either wired into the shader path or renamed inactive/log-only.
    regression run.
 2. Keep renderer-authored expected source-valid footprint fields mandatory for
    camera-matched mode; analyzer-derived boxes are evidence only.
-3. Keep Makepad's raster convention and CPU-YUV sampler convention separately
-   logged so the Y issue cannot recur as a hidden manual flip.
+3. Keep Makepad's raster convention, CPU-YUV sampler convention, and
+   projection-area placement convention separately logged so Y issues cannot
+   recur as hidden manual flips.
 4. Use full-frame visible-envelope measurement for full-frame placement parity;
    dense-component boxes remain screenshot evidence, not geometry truth.
 5. Use the frozen synthetic gates to catch regressions before live Camera2,

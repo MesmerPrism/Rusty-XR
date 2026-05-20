@@ -227,11 +227,14 @@ function Set-MakepadBrokerH264Profile {
 
 function Set-MakepadProjectionTargetProfile {
     $nativePassthrough = if ($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0) { "true" } else { "false" }
-    # The public suite-level X offset uses screenshot/display-screen semantics:
-    # positive X moves the projection area right. Makepad's native left/right
-    # projection properties predate that contract and use the opposite sign.
+    # The public suite-level offsets use screenshot/display-screen semantics:
+    # positive X moves the projection area right and positive Y moves it down.
+    # Makepad's horizontal projection-area properties predate that contract and
+    # use the opposite X sign, so normalize X at the wrapper boundary. Native
+    # vertical offset already uses the public positive-Y-down contract.
     $offsetLeftUv = if ([double]::IsNaN($ProjectionAreaOffsetLeftUv)) { -$ProjectionAreaOffsetXUv } else { $ProjectionAreaOffsetLeftUv }
     $offsetRightUv = if ([double]::IsNaN($ProjectionAreaOffsetRightUv)) { -$ProjectionAreaOffsetXUv } else { $ProjectionAreaOffsetRightUv }
+    $offsetVerticalUv = $ProjectionAreaOffsetYUv
     $props = [ordered]@{
         "debug.rustyxr.makepad.projection.border.policy" = $ProjectionBorderPolicy
         "debug.rustyxr.makepad.native.passthrough.enabled" = $nativePassthrough
@@ -244,7 +247,7 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.xr.render.scale" = (Format-InvariantDouble -Value $XrRenderScale)
         "debug.rustyxr.makepad.projection.area.offset.left.uv" = (Format-InvariantDouble -Value $offsetLeftUv)
         "debug.rustyxr.makepad.projection.area.offset.right.uv" = (Format-InvariantDouble -Value $offsetRightUv)
-        "debug.rustyxr.makepad.projection.area.offset.vertical.uv" = (Format-InvariantDouble -Value $ProjectionAreaOffsetYUv)
+        "debug.rustyxr.makepad.projection.area.offset.vertical.uv" = (Format-InvariantDouble -Value $offsetVerticalUv)
         "debug.rustyxr.makepad.projection.area.scale.x" = (Format-InvariantDouble -Value $ProjectionAreaScaleX)
         "debug.rustyxr.makepad.projection.area.scale.y" = (Format-InvariantDouble -Value $ProjectionAreaScaleY)
         "debug.rustyxr.makepad.projection.area.radius.x.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusXUv)

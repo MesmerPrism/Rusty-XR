@@ -279,6 +279,10 @@ on the suite to run repeatable centering sweeps. The suite-level contract uses
 screen/screenshot coordinates: positive X moves the projection area right and
 positive Y moves it down. Renderer-specific sign or viewport conventions must
 be normalized at the renderer/profile boundary before the app is launched.
+Prefer those suite-level controls for cross-lane work. The Makepad launcher
+wrapper normalizes the native horizontal projection-area properties into the
+public positive-X-right contract; its native vertical projection-area property
+already uses the public positive-Y-down contract.
 Treat these values as projection-area placement controls; do not hide
 source-crop, texture-origin, or analyzer problems behind them.
 Use `-ProjectionAreaOpacity` for the projection-window fade and
@@ -427,6 +431,14 @@ When lane logcat is available, the report also lists source/mode fields and the
 projection-stage rows found in that lane. Use those rows as the input to
 `tools\quest-stereo-alignment\Compare-HomographyStages.py` when the footprint
 diff suggests a coordinate-chain mismatch.
+Projection-coordinate contract rows should also carry the renderer-authored
+projection-area target fields:
+`projectionAreaTargetCoordinateSpace=display-eye-screen-uv`,
+`projectionAreaOffsetConvention=positive-x-right-positive-y-down`,
+`leftProjectionAreaScreenUvRect`, `rightProjectionAreaScreenUvRect`,
+`leftProjectionAreaCenterUv`, and `rightProjectionAreaCenterUv`. Missing target
+rect fields make the row evidence-only for projection-area placement, not a
+stable coordinate authority.
 
 ## Diagnostic Loop
 

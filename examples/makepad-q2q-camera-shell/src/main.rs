@@ -5690,6 +5690,39 @@ fn screen_uv_rect_token(rect: [f32; 4]) -> String {
     )
 }
 
+fn screen_uv_vec2_token(value: [f32; 2]) -> String {
+    format!("{:.6},{:.6}", value[0], value[1])
+}
+
+fn projection_area_screen_uv_rect(
+    offset_x_uv: f32,
+    offset_y_uv: f32,
+    radius_x_uv: f32,
+    radius_y_uv: f32,
+    scale_x: f32,
+    scale_y: f32,
+) -> [f32; 4] {
+    let scale_x = scale_x.clamp(0.05, 4.0);
+    let scale_y = scale_y.clamp(0.05, 4.0);
+    let radius_x = radius_x_uv.clamp(0.05, 0.5);
+    let radius_y = radius_y_uv.clamp(0.05, 0.5);
+    let center_x = 0.5 + offset_x_uv.clamp(-0.5, 0.5) / scale_x;
+    let center_y = 0.5 + offset_y_uv.clamp(-0.5, 0.5) / scale_y;
+    [
+        center_x - radius_x / scale_x,
+        center_y - radius_y / scale_y,
+        (radius_x * 2.0) / scale_x,
+        (radius_y * 2.0) / scale_y,
+    ]
+}
+
+fn projection_area_center_uv(offset_x_uv: f32, offset_y_uv: f32, scale_x: f32, scale_y: f32) -> [f32; 2] {
+    [
+        0.5 + offset_x_uv.clamp(-0.5, 0.5) / scale_x.clamp(0.05, 4.0),
+        0.5 + offset_y_uv.clamp(-0.5, 0.5) / scale_y.clamp(0.05, 4.0),
+    ]
+}
+
 fn apply_homography(rows: [[f32; 3]; 3], x: f32, y: f32) -> Option<(f32, f32)> {
     let w = rows[2][0] * x + rows[2][1] * y + rows[2][2];
     if !w.is_finite() || w.abs() <= 1.0e-6 {
@@ -6073,6 +6106,39 @@ fn makepad_projection_target_marker_fields() -> String {
     let policy = MakepadProjectionBorderPolicy::current();
     let processing_layer = MakepadProcessingLayer::current();
     let native_passthrough = makepad_native_passthrough_enabled();
+    let native_projection_area_left_uv = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV,
+        TARGET_PROJECTION_AREA_OFFSET_LEFT_UV,
+        -0.5,
+        0.5,
+    );
+    let native_projection_area_right_uv = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_OFFSET_RIGHT_UV,
+        TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV,
+        -0.5,
+        0.5,
+    );
+    let native_projection_area_vertical_uv = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_OFFSET_VERTICAL_UV,
+        TARGET_PROJECTION_AREA_OFFSET_VERTICAL_UV,
+        -0.5,
+        0.5,
+    );
+    let projection_area_left_offset_x_uv = -native_projection_area_left_uv;
+    let projection_area_right_offset_x_uv = -native_projection_area_right_uv;
+    let projection_area_offset_y_uv = native_projection_area_vertical_uv;
+    let projection_area_scale_x = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_SCALE_X,
+        TARGET_PROJECTION_AREA_SCALE_X,
+        0.05,
+        4.0,
+    );
+    let projection_area_scale_y = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_SCALE_Y,
+        TARGET_PROJECTION_AREA_SCALE_Y,
+        0.05,
+        4.0,
+    );
     let projection_area_radius_x_uv = hotload_f32(
         KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV,
         TARGET_PROJECTION_AREA_RADIUS_X_UV,
@@ -6091,8 +6157,36 @@ fn makepad_projection_target_marker_fields() -> String {
         0.0,
         0.5,
     );
+    let left_projection_area_rect = projection_area_screen_uv_rect(
+        projection_area_left_offset_x_uv,
+        projection_area_offset_y_uv,
+        projection_area_radius_x_uv,
+        projection_area_radius_y_uv,
+        projection_area_scale_x,
+        projection_area_scale_y,
+    );
+    let right_projection_area_rect = projection_area_screen_uv_rect(
+        projection_area_right_offset_x_uv,
+        projection_area_offset_y_uv,
+        projection_area_radius_x_uv,
+        projection_area_radius_y_uv,
+        projection_area_scale_x,
+        projection_area_scale_y,
+    );
+    let left_projection_area_center = projection_area_center_uv(
+        projection_area_left_offset_x_uv,
+        projection_area_offset_y_uv,
+        projection_area_scale_x,
+        projection_area_scale_y,
+    );
+    let right_projection_area_center = projection_area_center_uv(
+        projection_area_right_offset_x_uv,
+        projection_area_offset_y_uv,
+        projection_area_scale_x,
+        projection_area_scale_y,
+    );
     format!(
-        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} processingLayer={} blurRadiusPx={:.2} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} rendererSurfaceUvOrigin=top-left-origin-y-down displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-display-screen-uv",
+        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} processingLayer={} blurRadiusPx={:.2} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=top-left-origin-y-down displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-display-screen-uv",
         native_passthrough,
         policy.stable_id(),
         policy.stable_id(),
@@ -6101,9 +6195,21 @@ fn makepad_projection_target_marker_fields() -> String {
         makepad_projection_border_opacity(),
         processing_layer.stable_id(),
         makepad_blur_radius_px(),
+        projection_area_left_offset_x_uv,
+        projection_area_right_offset_x_uv,
+        projection_area_offset_y_uv,
+        native_projection_area_left_uv,
+        native_projection_area_right_uv,
+        native_projection_area_vertical_uv,
+        projection_area_scale_x,
+        projection_area_scale_y,
         projection_area_radius_x_uv,
         projection_area_radius_y_uv,
-        projection_area_corner_radius_uv
+        projection_area_corner_radius_uv,
+        screen_uv_rect_token(left_projection_area_rect),
+        screen_uv_rect_token(right_projection_area_rect),
+        screen_uv_vec2_token(left_projection_area_center),
+        screen_uv_vec2_token(right_projection_area_center),
     )
 }
 

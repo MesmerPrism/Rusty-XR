@@ -102,6 +102,14 @@ Later 2026-05-19 work promoted the same contract beyond synthetic evidence:
 - suite-level projection-area signs are stable: positive X moves right and
   positive Y moves down in display/screenshot coordinates.
 
+The 2026-05-20 focused synthetic offset probes tightened that last rule. HWB,
+GL/OES, and Makepad now log renderer-authored projection-area target rects and
+centers in `display-eye-screen-uv`. Zero-offset, positive-Y, and small
+positive-X broker-synthetic runs all report `ready` contracts with zero gaps
+and passing cross-lane footprint parity. Makepad still normalizes a legacy
+native horizontal property at the launcher boundary, but its vertical
+projection-area offset is already the public positive-Y-down convention.
+
 The 2026-05-20 physical-target matrix extends that contract to native
 passthrough center-cross alignment. All six live Camera2 lanes classify as
 `ready` when compared against an opacity-zero passthrough witness, using the
@@ -137,7 +145,7 @@ The same term must not mean different things in different lanes.
 | Camera/source UV | Camera projection model | Normalized camera image sample domain after source orientation and valid rect are applied. | Log `surface_to_camera`, `screen_to_camera`, source invalid-fill policy, and source rect clipping. |
 | Content surface UV | Rusty XR projection model | Normalized coordinates on the intended camera/content surface. | Log content rect, content aspect, projection profile, and any overscan or scale. |
 | Full submitted surface UV | Renderer/OpenXR swapchain image | Normalized coordinates over the full submitted eye surface or layer image. | Log full surface size, viewport, scissor, matte/border policy, and full-to-content mapping. |
-| Projection-area UV | Rusty XR projection-area mask | Normalized intended visible camera area inside the submitted surface. | Log projection-area center, radius/scale, corner radius, opacity, and invalid-region policy. |
+| Projection-area UV | Rusty XR projection-area mask | Normalized intended visible camera area inside the submitted surface. | Log projection-area center, radius/scale, corner radius, opacity, target screen-UV rect/center, and invalid-region policy. |
 | Display-eye screen UV | Final per-eye submitted image before screenshot | Normalized screen-space domain per eye. | Log `surface_to_screen`, `screen_to_surface`, renderer-authored expected source-valid box, observed box, and per-eye tokens. |
 | OpenXR view tangent space | OpenXR view pose/FOV | Eye-local rays derived from `XrView.pose` and `XrView.fov`. | Log display time, reference space, per-eye pose, and FOV angles. |
 | OpenXR app reference space | App-chosen `LOCAL`, `STAGE`, or other reference space | Meters, runtime-defined origin for the chosen reference space. | Log reference-space type, pose composition, and any head-anchored surface pose. |

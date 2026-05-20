@@ -601,8 +601,14 @@ mod android {
         let system = xr_instance
             .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
             .map_err(|error| format!("get HMD system: {error}"))?;
+        let projection_area_target_fields = projection_area_target_marker_fields(
+            projection_area_eye_offset_uv[0],
+            projection_area_eye_offset_uv[1],
+            projection_area_radius,
+            projection_area_scale,
+        );
         log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
             projection_border_policy.stable_id(),
             processing_layer.stable_id(),
             blur_radius_px,
@@ -619,6 +625,7 @@ mod android {
             projection_area_corner_radius_uv,
             projection_area_opacity,
             projection_border_opacity,
+            projection_area_target_fields,
             native_passthrough_underlay_requested,
             enabled_extensions.fb_passthrough,
             camera_color_controls.matrix,
@@ -830,6 +837,7 @@ mod android {
                     projection_border_opacity,
                     camera_color_controls,
                     &openxr_projection_fields,
+                    &projection_area_target_fields,
                 )?;
 
                 for (index, eye) in swapchains.iter().enumerate() {
@@ -1337,6 +1345,7 @@ mod android {
         projection_border_opacity: f32,
         camera_color_controls: OesColorControls,
         openxr_projection_fields: &str,
+        projection_area_target_fields: &str,
     ) -> Result<(), String> {
         egl.make_current()?;
         for eye in swapchains {
@@ -1413,6 +1422,7 @@ mod android {
                                     source.source_sequence,
                                     eye_projection,
                                     openxr_projection_fields,
+                                    &projection_area_target_fields,
                                 );
                             }
                             fbo_status
@@ -4679,6 +4689,7 @@ void main() {
         source_sequence: u64,
         projection: Option<&OesEyeProjection>,
         openxr_projection_fields: &str,
+        projection_area_target_fields: &str,
     ) {
         let Some(eye) = eye_from_view_index(view_index) else {
             return;
@@ -4726,7 +4737,8 @@ void main() {
                     "{OES_COPY_RENDER_PATH}:frame={frame_count}:source_sequence={source_sequence}"
                 )
             });
-        let source_label = format!("{source_label} {openxr_projection_fields}");
+        let source_label =
+            format!("{source_label} {openxr_projection_fields} {projection_area_target_fields}");
         for (stage, rows) in stage_rows {
             let row = ProjectionStageTokenRow::new("rusty_xr_gl_oes", eye, stage)
                 .with_rows(rows)
@@ -4812,6 +4824,51 @@ void main() {
         format!(
             "{:.6},{:.6},{:.6},{:.6}",
             rect[0], rect[1], rect[2], rect[3]
+        )
+    }
+
+    fn screen_uv_vec2_token(value: [f32; 2]) -> String {
+        format!("{:.6},{:.6}", value[0], value[1])
+    }
+
+    fn projection_area_screen_uv_rect(
+        offset_uv: [f32; 2],
+        radius_uv: [f32; 2],
+        scale_uv: [f32; 2],
+    ) -> [f32; 4] {
+        let scale_x = scale_uv[0].clamp(0.05, 4.0);
+        let scale_y = scale_uv[1].clamp(0.05, 4.0);
+        let radius_x = radius_uv[0].clamp(0.05, 0.5);
+        let radius_y = radius_uv[1].clamp(0.05, 0.5);
+        let center_x = 0.5 + offset_uv[0].clamp(-0.5, 0.5) / scale_x;
+        let center_y = 0.5 + offset_uv[1].clamp(-0.5, 0.5) / scale_y;
+        [
+            center_x - radius_x / scale_x,
+            center_y - radius_y / scale_y,
+            (radius_x * 2.0) / scale_x,
+            (radius_y * 2.0) / scale_y,
+        ]
+    }
+
+    fn projection_area_center_uv(offset_uv: [f32; 2], scale_uv: [f32; 2]) -> [f32; 2] {
+        [
+            0.5 + offset_uv[0].clamp(-0.5, 0.5) / scale_uv[0].clamp(0.05, 4.0),
+            0.5 + offset_uv[1].clamp(-0.5, 0.5) / scale_uv[1].clamp(0.05, 4.0),
+        ]
+    }
+
+    fn projection_area_target_marker_fields(
+        left_offset_uv: [f32; 2],
+        right_offset_uv: [f32; 2],
+        radius_uv: [f32; 2],
+        scale_uv: [f32; 2],
+    ) -> String {
+        format!(
+            "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+            screen_uv_rect_token(projection_area_screen_uv_rect(left_offset_uv, radius_uv, scale_uv)),
+            screen_uv_rect_token(projection_area_screen_uv_rect(right_offset_uv, radius_uv, scale_uv)),
+            screen_uv_vec2_token(projection_area_center_uv(left_offset_uv, scale_uv)),
+            screen_uv_vec2_token(projection_area_center_uv(right_offset_uv, scale_uv)),
         )
     }
 
