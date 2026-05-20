@@ -51,6 +51,16 @@ renderer-authored full-frame intent to measure the visible stimulus envelope,
 so backend color/decoder differences do not turn a disconnected top diagnostic
 band into a false vertical-placement failure.
 
+Projection-coordinate contracts also include a `source_sampling` record when
+renderers log the source sample boundary. Use this to keep architecture
+differences explicit: HWB reports hardware-buffer sampler transform flags,
+GL/OES reports the Android `SurfaceTexture` transform or identity decision, and
+Makepad reports the CPU-YUV shader `source_sample_uv` convention. The analyzer
+also records dominant green horizontal feature rows from screenshots as
+evidence. If broker-synthetic rows agree but live Camera2 rows diverge, assign
+the first owner to source sampling or texture/upload metadata before touching
+projection-area offsets.
+
 For environment-depth particle or mesh profiles, build the world-space contract
 artifact from logcat markers with:
 
@@ -289,9 +299,17 @@ and swapchain settings.
 red-border passthrough alignment run, use a solid-red preset with
 `rustyxr.openxrPassthroughProbe=underlay` and sweep only the opacity values; do
 not switch geometry presets while measuring screen-space offsets.
+`rustyxr.cameraProjectionAlphaMode` can derive valid-camera alpha from source
+color after geometry is stable. Supported modes are `fixed`, `red`, `green`,
+`blue`, `luma`, and the four inverse variants; the effective alpha is area
+opacity multiplied by `clamp(mask * scale + bias)`.
 Projection mode remains independent from those presets so border, sampler, and
 color modules can be tested against both public geometry mappings in the same
 APK.
+Projection surface depth is also explicit: the alignment suite's
+`-ProjectionDepthMeters` value is emitted by every lane and defaults to `1.0`
+meter. Use lane-specific depth overrides only when testing a named architecture
+difference; do not bury depth changes in renderer constants.
 
 ## Runtime Control Contract
 
@@ -304,18 +322,30 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | --- | --- | --- |
 | `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-blur-solid-red-unorm`, `raw-projection-blur-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, or `raw-projection-cycling-border-unorm`. |
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `display-screen-homography` or `quad-surface`. |
+| `rustyxr.cameraProjectionDepthMeters` | float | Vulkan/HWB head-anchored projection surface depth in meters; keep it explicit because `rustyxr.cameraProjectionScale` is not a depth fallback. |
 | `rustyxr.cameraProjectionAreaOffsetXUv` | float | Optional Vulkan/HWB horizontal projection-area sweep knob for screen-space centering diagnostics. |
 | `rustyxr.cameraProjectionAreaOffsetYUv` | float | Optional Vulkan/HWB vertical projection-area sweep knob for screen-space centering diagnostics. |
 | `rustyxr.projectionAreaOffsetXUv` | float | Optional GL/OES horizontal projection-area sweep knob for screen-space centering diagnostics. |
 | `rustyxr.projectionAreaOffsetYUv` | float | Optional GL/OES vertical projection-area sweep knob for screen-space centering diagnostics. |
+| `rustyxr.projectionDepthMeters` | float | GL/OES head-anchored projection surface depth in meters. |
 | `rustyxr.cameraProjectionAreaOpacity` | float | Vulkan/HWB valid projection-window alpha, clamped to `0..1`. |
 | `rustyxr.cameraProjectionBorderOpacity` | float | Vulkan/HWB solid border alpha, clamped to `0..1`. |
+| `rustyxr.cameraProjectionAlphaMode` | string | Vulkan/HWB color-derived alpha mode: `fixed`, RGB, luma, or inverse variants. |
+| `rustyxr.cameraProjectionAlphaScale` | float | Vulkan/HWB multiplier applied to the selected alpha mask, clamped to `0..4`. |
+| `rustyxr.cameraProjectionAlphaBias` | float | Vulkan/HWB bias applied after alpha-mask scaling, clamped to `-1..1`. |
 | `rustyxr.projectionAreaOpacity` | float | GL/OES valid projection-window alpha, clamped to `0..1`. |
 | `rustyxr.projectionBorderOpacity` | float | GL/OES solid border alpha, clamped to `0..1`. |
+| `rustyxr.projectionAlphaMode` | string | GL/OES color-derived alpha mode using the same values as Vulkan/HWB. |
+| `rustyxr.projectionAlphaScale` | float | GL/OES multiplier applied to the selected alpha mask, clamped to `0..4`. |
+| `rustyxr.projectionAlphaBias` | float | GL/OES bias applied after alpha-mask scaling, clamped to `-1..1`. |
 | `rustyxr.cameraBorderCycleHz` | float | Adjusts the generic phase-cycled border-color rate used by `raw-projection-cycling-border-unorm`; ignored by static border presets. |
 | `rustyxr.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in pixels for blur projection presets. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
 | `rustyxr.openxrPassthroughProbe` | string | Keeps native passthrough checks separate from camera projection: `off`, `warmup`, `client`, or `underlay`. |
+
+Makepad uses the same public runtime-key contract through Android properties:
+`debug.rustyxr.projection.depth.meters` controls the head-anchored projection
+surface depth and is logged back as `projectionDepthMeters`.
 
 Projection-area offset keys share the suite-level screen contract: positive X
 moves the projection area right and positive Y moves it down in screenshot /

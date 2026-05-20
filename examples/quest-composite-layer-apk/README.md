@@ -606,6 +606,13 @@ The catalog keeps camera path experiments as separate runtime profiles:
   run should keep the solid-red preset and set
   `rustyxr.openxrPassthroughProbe=underlay` so opacity changes do not alter the
   projection geometry.
+  Use `rustyxr.cameraProjectionAlphaMode=red|green|blue|luma` or an inverse
+  variant only after the hard-mask geometry is stable; the selected color mask
+  is multiplied by projection-area opacity with optional
+  `rustyxr.cameraProjectionAlphaScale` and `rustyxr.cameraProjectionAlphaBias`.
+  Use `rustyxr.cameraProjectionDepthMeters=<meters>` for the head-anchored
+  projection surface depth. The default is `1.0`; `rustyxr.cameraProjectionScale`
+  remains a footprint/content-scale variable and is not a depth fallback.
 - `broker-h264` existing-stream mode: set
   `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264

@@ -25,7 +25,7 @@ const READER_MAX_IMAGES: i32 = 3;
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 const PREFERRED_DIMENSION: u32 = 1280;
 const MAX_CAPTURE_DIMENSION: u32 = 1920;
-const PROJECTION_TARGET_DEPTH_METERS: f32 = 0.75;
+const DEFAULT_PROJECTION_TARGET_DEPTH_METERS: f32 = 1.0;
 const PROJECTION_PREVIEW_FOV_Y_DEGREES: f32 = 60.0;
 const PROJECTION_RAW_OVERSCAN: f32 = 1.06;
 const PROJECTION_SOURCE_ASPECT: f32 = 1.0;
@@ -53,6 +53,7 @@ pub struct XrDisplayViews {
     pub right: XrDisplayEyeView,
     pub predicted_display_time_ns: i64,
     pub reference_space: &'static str,
+    pub projection_depth_meters: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -62,6 +63,7 @@ pub struct XrProjectionContract {
     pub display_time_source: &'static str,
     pub predicted_display_time_ns: Option<i64>,
     pub view_pose_fov_source: &'static str,
+    pub projection_depth_meters: Option<f32>,
     pub left_render_fov_tangents: Option<[f32; 4]>,
     pub right_render_fov_tangents: Option<[f32; 4]>,
     pub left_render_position: Option<[f32; 4]>,
@@ -78,6 +80,7 @@ impl XrProjectionContract {
             display_time_source: "not-logged",
             predicted_display_time_ns: None,
             view_pose_fov_source: "not-logged",
+            projection_depth_meters: None,
             left_render_fov_tangents: None,
             right_render_fov_tangents: None,
             left_render_position: None,
@@ -94,6 +97,7 @@ impl XrProjectionContract {
             display_time_source: "predicted-display-time",
             predicted_display_time_ns: Some(views.predicted_display_time_ns),
             view_pose_fov_source: "makepad-xr-XrUpdateEvent",
+            projection_depth_meters: Some(views.projection_depth_meters),
             left_render_fov_tangents: Some(fov_tangents(views.left)),
             right_render_fov_tangents: Some(fov_tangents(views.right)),
             left_render_position: Some(position_vec4(views.left)),
@@ -413,7 +417,7 @@ pub fn broker_synthetic_projection_plan_from_xr_views(
     let surface = head_anchored_preview_surface_corners(
         tracking,
         PROJECTION_PREVIEW_FOV_Y_DEGREES,
-        PROJECTION_TARGET_DEPTH_METERS,
+        views.projection_depth_meters,
         aspect,
         PROJECTION_RAW_OVERSCAN,
     )
@@ -497,7 +501,7 @@ pub fn broker_full_frame_projection_plan_from_xr_views(
     let surface = head_anchored_preview_surface_corners(
         tracking,
         PROJECTION_PREVIEW_FOV_Y_DEGREES,
-        PROJECTION_TARGET_DEPTH_METERS,
+        views.projection_depth_meters,
         aspect,
         PROJECTION_RAW_OVERSCAN,
     )
@@ -1368,7 +1372,7 @@ fn stereo_projection_homographies(
     let surface = head_anchored_preview_surface_corners(
         tracking,
         PROJECTION_PREVIEW_FOV_Y_DEGREES,
-        PROJECTION_TARGET_DEPTH_METERS,
+        DEFAULT_PROJECTION_TARGET_DEPTH_METERS,
         PROJECTION_SOURCE_ASPECT,
         PROJECTION_RAW_OVERSCAN,
     )
@@ -1440,7 +1444,7 @@ fn stereo_projection_homographies_from_xr_views(
     let surface = head_anchored_preview_surface_corners(
         tracking,
         PROJECTION_PREVIEW_FOV_Y_DEGREES,
-        PROJECTION_TARGET_DEPTH_METERS,
+        views.projection_depth_meters,
         aspect,
         PROJECTION_RAW_OVERSCAN,
     )
@@ -1937,15 +1941,22 @@ fn optional_i64_token(value: Option<i64>) -> String {
         .unwrap_or_else(|| "not-logged".to_string())
 }
 
+fn optional_f32_token(value: Option<f32>) -> String {
+    value
+        .map(|value| format!("{value:.6}"))
+        .unwrap_or_else(|| "not-logged".to_string())
+}
+
 fn openxr_contract_marker_fields(contract: XrProjectionContract) -> String {
     format!(
-        "referenceSpace={} openxrReferenceSpace={} displayTimeSource={} predictedDisplayTimeSource={} predictedDisplayTimeNs={} viewPoseFovSource={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
+        "referenceSpace={} openxrReferenceSpace={} displayTimeSource={} predictedDisplayTimeSource={} predictedDisplayTimeNs={} viewPoseFovSource={} projectionDepthMeters={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
         marker_token(contract.reference_space),
         marker_token(contract.openxr_reference_space),
         marker_token(contract.display_time_source),
         marker_token(contract.display_time_source),
         optional_i64_token(contract.predicted_display_time_ns),
         marker_token(contract.view_pose_fov_source),
+        optional_f32_token(contract.projection_depth_meters),
         optional_vec4_token(contract.left_render_fov_tangents),
         optional_vec4_token(contract.right_render_fov_tangents),
         optional_vec4_token(contract.left_render_position),

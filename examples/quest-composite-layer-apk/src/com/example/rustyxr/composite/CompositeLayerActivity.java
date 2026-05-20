@@ -48,6 +48,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES = 92.0f;
     private static final float DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES = 60.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_SCALE = 1.0f;
+    private static final float DEFAULT_CAMERA_PROJECTION_DEPTH_METERS = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_SCALE_UV = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_X_UV = 0.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_Y_UV = 0.0f;
@@ -56,6 +57,9 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_CORNER_RADIUS_UV = 0.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_OPACITY = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_BORDER_OPACITY = 1.0f;
+    private static final String DEFAULT_CAMERA_PROJECTION_ALPHA_MODE = "fixed";
+    private static final float DEFAULT_CAMERA_PROJECTION_ALPHA_SCALE = 1.0f;
+    private static final float DEFAULT_CAMERA_PROJECTION_ALPHA_BIAS = 0.0f;
     private static final float DEFAULT_CAMERA_RAW_OVERLAY_OVERSCAN = 1.06f;
     private static final float DEFAULT_CAMERA_FULL_VIEW_OVERLAY_OVERSCAN = 2.10f;
     private static final float DEFAULT_CAMERA_EDGE_FADE = 0.12f;
@@ -425,6 +429,7 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraProjectionFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraProjectionFovYDegrees", DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES)));
         builder.append(",\"cameraPreviewFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraPreviewFovYDegrees", DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES)));
         builder.append(",\"cameraProjectionScale\":").append(floatJson(floatExtra("rustyxr.cameraProjectionScale", DEFAULT_CAMERA_PROJECTION_SCALE)));
+        builder.append(",\"cameraProjectionDepthMeters\":").append(floatJson(floatExtra("rustyxr.cameraProjectionDepthMeters", DEFAULT_CAMERA_PROJECTION_DEPTH_METERS)));
         builder.append(",\"cameraProjectionAreaScaleUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaScaleUv", DEFAULT_CAMERA_PROJECTION_AREA_SCALE_UV)));
         float projectionAreaOffsetXUv = floatExtra("rustyxr.cameraProjectionAreaOffsetXUv", DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_X_UV);
         float projectionAreaOffsetYUv = floatExtra("rustyxr.cameraProjectionAreaOffsetYUv", DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_Y_UV);
@@ -439,6 +444,10 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraProjectionAreaCornerRadiusUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaCornerRadiusUv", DEFAULT_CAMERA_PROJECTION_AREA_CORNER_RADIUS_UV)));
         builder.append(",\"cameraProjectionAreaOpacity\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaOpacity", DEFAULT_CAMERA_PROJECTION_AREA_OPACITY)));
         builder.append(",\"cameraProjectionBorderOpacity\":").append(floatJson(floatExtra("rustyxr.cameraProjectionBorderOpacity", DEFAULT_CAMERA_PROJECTION_BORDER_OPACITY)));
+        builder.append(',');
+        appendJsonString(builder, "cameraProjectionAlphaMode", stringExtra("rustyxr.cameraProjectionAlphaMode", DEFAULT_CAMERA_PROJECTION_ALPHA_MODE));
+        builder.append(",\"cameraProjectionAlphaScale\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAlphaScale", DEFAULT_CAMERA_PROJECTION_ALPHA_SCALE)));
+        builder.append(",\"cameraProjectionAlphaBias\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAlphaBias", DEFAULT_CAMERA_PROJECTION_ALPHA_BIAS)));
         builder.append(",\"cameraRawOverlayOverscan\":").append(floatJson(floatExtra("rustyxr.cameraRawOverlayOverscan", DEFAULT_CAMERA_RAW_OVERLAY_OVERSCAN)));
         builder.append(",\"cameraFullViewOverlayOverscan\":").append(floatJson(floatExtra("rustyxr.cameraFullViewOverlayOverscan", DEFAULT_CAMERA_FULL_VIEW_OVERLAY_OVERSCAN)));
         builder.append(",\"cameraEdgeFade\":").append(floatJson(floatExtra("rustyxr.cameraEdgeFade", DEFAULT_CAMERA_EDGE_FADE)));

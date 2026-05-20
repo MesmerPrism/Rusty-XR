@@ -46,6 +46,7 @@ const DEFAULT_SYNTHETIC_SCENE: &str =
 const DEFAULT_ACQUISITION_PROFILE: &str =
     "bounded-camera2-private-plus-makepad-paired-import-probe";
 const DEFAULT_PROJECTION_SCALE: f64 = 1.0;
+const DEFAULT_PROJECTION_DEPTH_METERS: f64 = 1.0;
 const DEFAULT_XR_RENDER_SCALE: f64 = 1.0;
 const DEFAULT_BROKER_H264_ENABLED: bool = false;
 const DEFAULT_BROKER_H264_HOST: &str = "127.0.0.1";
@@ -92,7 +93,7 @@ const SOURCE_VALID_FOOTPRINT_GRID: usize = 64;
 const TARGET_DISPLAY_EYE_OFFSET_METERS: f32 = 0.032;
 const TARGET_DISPLAY_FOV_Y_DEGREES: f32 = 92.0;
 const TARGET_DISPLAY_ASPECT: f32 = 1.0;
-const TARGET_PROJECTION_DEPTH_METERS: f32 = 0.75;
+const TARGET_PROJECTION_DEPTH_METERS: f32 = DEFAULT_PROJECTION_DEPTH_METERS as f32;
 const TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES: f32 = 60.0;
 const TARGET_PROJECTION_RAW_OVERSCAN: f32 = 1.06;
 const FRAME_RASTER_TOP_LEFT_Y_DOWN: &str = "top-left-origin-y-down";
@@ -124,6 +125,7 @@ const KEY_COMPARISON_BASELINE: &str = "comparison_baseline";
 const KEY_SYNTHETIC_SCENE: &str = "synthetic_scene";
 const KEY_ACQUISITION_PROFILE: &str = "acquisition_profile";
 const KEY_PROJECTION_SCALE: &str = "projection_scale";
+const KEY_PROJECTION_DEPTH_METERS: &str = "projection_depth_meters";
 const KEY_XR_RENDER_SCALE: &str = "xr_render_scale";
 const KEY_RENDERER: &str = "renderer";
 const KEY_ANDROID_PACKAGER: &str = "android_packager";
@@ -152,6 +154,9 @@ const KEY_MAKEPAD_PROJECTION_AREA_KEYSTONE_X: &str = "makepad_projection_area_ke
 const KEY_MAKEPAD_PROJECTION_AREA_BOW_X: &str = "makepad_projection_area_bow_x";
 const KEY_MAKEPAD_PROJECTION_AREA_OPACITY: &str = "makepad_projection_area_opacity";
 const KEY_MAKEPAD_PROJECTION_BORDER_OPACITY: &str = "makepad_projection_border_opacity";
+const KEY_MAKEPAD_PROJECTION_ALPHA_MODE: &str = "makepad_projection_alpha_mode";
+const KEY_MAKEPAD_PROJECTION_ALPHA_SCALE: &str = "makepad_projection_alpha_scale";
+const KEY_MAKEPAD_PROJECTION_ALPHA_BIAS: &str = "makepad_projection_alpha_bias";
 const KEY_MAKEPAD_PROJECTION_BORDER_POLICY: &str = "makepad_projection_border_policy";
 const KEY_MAKEPAD_PROCESSING_LAYER: &str = "makepad_processing_layer";
 const KEY_MAKEPAD_BLUR_RADIUS_PX: &str = "makepad_blur_radius_px";
@@ -265,7 +270,7 @@ script_mod! {
         display_eye_offset_meters: 0.032
         display_fov_y_degrees: 92.0
         display_aspect: 1.0
-        projection_depth_meters: 0.75
+        projection_depth_meters: 1.0
         projection_preview_fov_y_degrees: 60.0
         projection_raw_overscan: 1.06
         suppress_live_camera_sampling: 1.0
@@ -287,6 +292,9 @@ script_mod! {
         projection_area_keystone_x: 0.0
         projection_area_bow_x: 0.0
         projection_area_opacity: 1.0
+        projection_alpha_mode: 0.0
+        projection_alpha_scale: 1.0
+        projection_alpha_bias: 0.0
         source_sample_y_flip: 1.0
         projection_content_mapping_mode: 0.0
         display_source_eye_swap: 1.0
@@ -642,6 +650,63 @@ script_mod! {
             return mix(raw_rgb, blur_rgb, step(0.5, self.processing_layer));
         }
 
+        projection_alpha_transform: fn(mask: float) -> float {
+            return clamp(
+                mask * max(self.projection_alpha_scale, 0.0) + self.projection_alpha_bias,
+                0.0,
+                1.0
+            );
+        }
+
+        projection_color_alpha: fn(rgb: vec3f) -> float {
+            let color = clamp(rgb, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0));
+            let luma = color.x * 0.2126 + color.y * 0.7152 + color.z * 0.0722;
+            let max_channel = max(max(color.x, color.y), color.z);
+            let min_channel = min(min(color.x, color.y), color.z);
+            let saturation = max_channel - min_channel;
+            let mode = self.projection_alpha_mode;
+            if mode > 0.5 && mode < 1.5 {
+                return self.projection_alpha_transform(color.x);
+            }
+            if mode > 1.5 && mode < 2.5 {
+                return self.projection_alpha_transform(color.y);
+            }
+            if mode > 2.5 && mode < 3.5 {
+                return self.projection_alpha_transform(color.z);
+            }
+            if mode > 3.5 && mode < 4.5 {
+                return self.projection_alpha_transform(luma);
+            }
+            if mode > 4.5 && mode < 5.5 {
+                return self.projection_alpha_transform(1.0 - color.x);
+            }
+            if mode > 5.5 && mode < 6.5 {
+                return self.projection_alpha_transform(1.0 - color.y);
+            }
+            if mode > 6.5 && mode < 7.5 {
+                return self.projection_alpha_transform(1.0 - color.z);
+            }
+            if mode > 7.5 && mode < 8.5 {
+                return self.projection_alpha_transform(1.0 - luma);
+            }
+            if mode > 8.5 && mode < 9.5 {
+                return self.projection_alpha_transform(max(color.x - max(color.y, color.z), 0.0));
+            }
+            if mode > 9.5 && mode < 10.5 {
+                return self.projection_alpha_transform(max(color.y - max(color.x, color.z), 0.0));
+            }
+            if mode > 10.5 && mode < 11.5 {
+                return self.projection_alpha_transform(max(color.z - max(color.x, color.y), 0.0));
+            }
+            if mode > 11.5 && mode < 12.5 {
+                return self.projection_alpha_transform(saturation);
+            }
+            if mode > 12.5 && mode < 13.5 {
+                return self.projection_alpha_transform(1.0 - saturation);
+            }
+            return self.projection_alpha_transform(1.0);
+        }
+
         source_sample_uv: fn(coord: vec2f) -> vec2f {
             let sample_uv = clamp(coord, vec2(0.0, 0.0), vec2(1.0, 1.0));
             let flip_y = step(0.5, self.source_sample_y_flip);
@@ -852,7 +917,8 @@ script_mod! {
                 let bordered_rgb = mix(window_rgb, guide_rgb, projection_border);
                 let guided_window = mix(bordered_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
                 let border_alpha = projection_border_opacity * (1.0 - passthrough_border_policy);
-                let alpha = mix(border_alpha, projection_area_opacity, camera_window_valid);
+                let area_alpha = projection_area_opacity * self.projection_color_alpha(camera_rgb);
+                let alpha = mix(border_alpha, area_alpha, camera_window_valid);
                 let premultiplied_window = guided_window * alpha;
                 return vec4(
                     premultiplied_window.x,
@@ -1110,6 +1176,12 @@ pub struct App {
     #[rust]
     projection_area_opacity: f32,
     #[rust]
+    projection_alpha_mode: f32,
+    #[rust]
+    projection_alpha_scale: f32,
+    #[rust]
+    projection_alpha_bias: f32,
+    #[rust]
     #[allow(dead_code)]
     projection_content_mapping_mode: f32,
     #[rust]
@@ -1231,6 +1303,12 @@ pub struct DrawMakepadStereoCameraPanel {
     pub projection_area_bow_x: f32,
     #[live(1.0_f32)]
     pub projection_area_opacity: f32,
+    #[live(0.0_f32)]
+    pub projection_alpha_mode: f32,
+    #[live(1.0_f32)]
+    pub projection_alpha_scale: f32,
+    #[live(0.0_f32)]
+    pub projection_alpha_bias: f32,
     #[live(1.0_f32)]
     pub source_sample_y_flip: f32,
     #[live(0.0_f32)]
@@ -1456,6 +1534,9 @@ struct HorizontalAlignmentTuning {
     projection_area_keystone_x: f32,
     projection_area_bow_x: f32,
     projection_area_opacity: f32,
+    projection_alpha_mode: f32,
+    projection_alpha_scale: f32,
+    projection_alpha_bias: f32,
 }
 
 impl Default for HorizontalAlignmentTuning {
@@ -1482,6 +1563,9 @@ impl Default for HorizontalAlignmentTuning {
             projection_area_keystone_x: TARGET_PROJECTION_AREA_KEYSTONE_X,
             projection_area_bow_x: TARGET_PROJECTION_AREA_BOW_X,
             projection_area_opacity: TARGET_PROJECTION_AREA_OPACITY,
+            projection_alpha_mode: MakepadProjectionAlphaMode::current().shader_code(),
+            projection_alpha_scale: makepad_projection_alpha_scale(),
+            projection_alpha_bias: makepad_projection_alpha_bias(),
         }
     }
 }
@@ -1618,7 +1702,7 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.display_eye_offset_meters = TARGET_DISPLAY_EYE_OFFSET_METERS;
         self.draw_panel.display_fov_y_degrees = TARGET_DISPLAY_FOV_Y_DEGREES;
         self.draw_panel.display_aspect = TARGET_DISPLAY_ASPECT;
-        self.draw_panel.projection_depth_meters = TARGET_PROJECTION_DEPTH_METERS;
+        self.draw_panel.projection_depth_meters = makepad_projection_depth_meters();
         self.draw_panel.projection_preview_fov_y_degrees = TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES;
         self.draw_panel.projection_raw_overscan = TARGET_PROJECTION_RAW_OVERSCAN;
         self.draw_panel.suppress_live_camera_sampling = if SUPPRESS_LIVE_CAMERA_SAMPLING {
@@ -1654,6 +1738,9 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.projection_area_keystone_x = TARGET_PROJECTION_AREA_KEYSTONE_X;
         self.draw_panel.projection_area_bow_x = TARGET_PROJECTION_AREA_BOW_X;
         self.draw_panel.projection_area_opacity = TARGET_PROJECTION_AREA_OPACITY;
+        self.draw_panel.projection_alpha_mode = MakepadProjectionAlphaMode::current().shader_code();
+        self.draw_panel.projection_alpha_scale = makepad_projection_alpha_scale();
+        self.draw_panel.projection_alpha_bias = makepad_projection_alpha_bias();
         self.set_horizontal_alignment_tuning(cx, HorizontalAlignmentTuning::default());
         self.draw_panel.camera_ready = 1.0;
         self.draw_panel.texture_probe_mode = 2.0;
@@ -1829,6 +1916,18 @@ impl MakepadStereoCameraPanel {
                 TARGET_PROJECTION_AREA_OPACITY,
             ),
             (
+                live_id!(projection_alpha_mode),
+                self.draw_panel.projection_alpha_mode,
+            ),
+            (
+                live_id!(projection_alpha_scale),
+                self.draw_panel.projection_alpha_scale,
+            ),
+            (
+                live_id!(projection_alpha_bias),
+                self.draw_panel.projection_alpha_bias,
+            ),
+            (
                 live_id!(source_sample_y_flip),
                 self.draw_panel.source_sample_y_flip,
             ),
@@ -1847,7 +1946,7 @@ impl MakepadStereoCameraPanel {
             (live_id!(display_aspect), TARGET_DISPLAY_ASPECT),
             (
                 live_id!(projection_depth_meters),
-                TARGET_PROJECTION_DEPTH_METERS,
+                self.draw_panel.projection_depth_meters,
             ),
             (
                 live_id!(projection_preview_fov_y_degrees),
@@ -2132,6 +2231,9 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.projection_area_keystone_x = tuning.projection_area_keystone_x;
         self.draw_panel.projection_area_bow_x = tuning.projection_area_bow_x;
         self.draw_panel.projection_area_opacity = tuning.projection_area_opacity;
+        self.draw_panel.projection_alpha_mode = tuning.projection_alpha_mode;
+        self.draw_panel.projection_alpha_scale = tuning.projection_alpha_scale;
+        self.draw_panel.projection_alpha_bias = tuning.projection_alpha_bias;
         for (id, value) in [
             (live_id!(horizontal_alignment_strength), tuning.strength),
             (
@@ -2205,6 +2307,18 @@ impl MakepadStereoCameraPanel {
                 live_id!(projection_area_opacity),
                 tuning.projection_area_opacity,
             ),
+            (
+                live_id!(projection_alpha_mode),
+                tuning.projection_alpha_mode,
+            ),
+            (
+                live_id!(projection_alpha_scale),
+                tuning.projection_alpha_scale,
+            ),
+            (
+                live_id!(projection_alpha_bias),
+                tuning.projection_alpha_bias,
+            ),
         ] {
             self.draw_panel.draw_vars.set_dyn_instance(cx, id, &[value]);
             self.draw_panel.draw_vars.set_uniform(cx, id, &[value]);
@@ -2238,8 +2352,10 @@ impl Widget for MakepadStereoCameraPanel {
         }
         if !CAMERA_PANEL_DRAW_MARKER_EMITTED.swap(true, Ordering::AcqRel) {
             emit_marker_line(&format!(
-                "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=visible-panel-draw status=ok visibleCameraPanelDrawn=true cameraTextureReady={} renderPath=makepad-xr sceneOwnedPanel=true projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review panelTargetDepthMeters=0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 diagnosticSolidPanel=false debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
-                self.camera_ready
+                "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=visible-panel-draw status=ok visibleCameraPanelDrawn=true cameraTextureReady={} renderPath=makepad-xr sceneOwnedPanel=true projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review projectionDepthMeters={:.2} panelTargetDepthMeters={:.2} panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 diagnosticSolidPanel=false debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
+                self.camera_ready,
+                self.draw_panel.projection_depth_meters,
+                self.draw_panel.projection_depth_meters
             ));
         }
         let _world = xr_widget_world_transform(cx, scope, self.widget_uid(), &self.node);
@@ -2374,6 +2490,16 @@ impl App {
                 KEY_PROJECTION_SCALE,
                 "RUSTY_XR_PROJECTION_SCALE",
                 DEFAULT_PROJECTION_SCALE,
+            ),
+            RuntimeConfigSource::Environment,
+        );
+        set_runtime_float(
+            &mut config,
+            KEY_PROJECTION_DEPTH_METERS,
+            startup_f64(
+                KEY_PROJECTION_DEPTH_METERS,
+                "RUSTY_XR_PROJECTION_DEPTH_METERS",
+                DEFAULT_PROJECTION_DEPTH_METERS,
             ),
             RuntimeConfigSource::Environment,
         );
@@ -2618,6 +2744,7 @@ impl App {
             },
             predicted_display_time_ns,
             reference_space: "makepad-platform-local-space",
+            projection_depth_meters: makepad_projection_depth_meters(),
         };
         let updated = if Self::broker_h264_enabled() {
             self.refresh_broker_h264_projection_plan(views)
@@ -2970,6 +3097,9 @@ impl App {
             0.25,
         );
         let projection_area_opacity = makepad_projection_area_opacity();
+        let projection_alpha_mode = MakepadProjectionAlphaMode::current().shader_code();
+        let projection_alpha_scale = makepad_projection_alpha_scale();
+        let projection_alpha_bias = makepad_projection_alpha_bias();
         HorizontalAlignmentTuning {
             strength,
             left_offset_uv: left_offset.clamp(-0.5, 0.5),
@@ -2992,6 +3122,9 @@ impl App {
             projection_area_keystone_x,
             projection_area_bow_x,
             projection_area_opacity,
+            projection_alpha_mode,
+            projection_alpha_scale,
+            projection_alpha_bias,
         }
     }
 
@@ -3019,6 +3152,9 @@ impl App {
                 projection_area_keystone_x: self.projection_area_keystone_x,
                 projection_area_bow_x: self.projection_area_bow_x,
                 projection_area_opacity: self.projection_area_opacity,
+                projection_alpha_mode: self.projection_alpha_mode,
+                projection_alpha_scale: self.projection_alpha_scale,
+                projection_alpha_bias: self.projection_alpha_bias,
             }
         } else {
             HorizontalAlignmentTuning::default()
@@ -3058,7 +3194,10 @@ impl App {
                 > 0.0001
             || (self.projection_area_keystone_x - tuning.projection_area_keystone_x).abs() > 0.0001
             || (self.projection_area_bow_x - tuning.projection_area_bow_x).abs() > 0.0001
-            || (self.projection_area_opacity - tuning.projection_area_opacity).abs() > 0.0001;
+            || (self.projection_area_opacity - tuning.projection_area_opacity).abs() > 0.0001
+            || (self.projection_alpha_mode - tuning.projection_alpha_mode).abs() > 0.0001
+            || (self.projection_alpha_scale - tuning.projection_alpha_scale).abs() > 0.0001
+            || (self.projection_alpha_bias - tuning.projection_alpha_bias).abs() > 0.0001;
         if !changed {
             return;
         }
@@ -3085,9 +3224,12 @@ impl App {
         self.projection_area_keystone_x = tuning.projection_area_keystone_x;
         self.projection_area_bow_x = tuning.projection_area_bow_x;
         self.projection_area_opacity = tuning.projection_area_opacity;
+        self.projection_alpha_mode = tuning.projection_alpha_mode;
+        self.projection_alpha_scale = tuning.projection_alpha_scale;
+        self.projection_alpha_bias = tuning.projection_alpha_bias;
         let panel_bound = self.apply_horizontal_alignment_tuning_to_panel(cx, tuning);
         Self::emit_stereo_projection_marker(&format!(
-            "phase=horizontal-alignment-hotload status=applied s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109RedProjectionBorder=true s110VerticalWindowOffsetHotload=true s111ProjectionAreaDiagnostic=true s112ProjectionAreaScreenOffset=true s113ProjectionAreaScreenScale=true s114ProjectionAreaFootprintOnlyDiagnostic=true s115ProjectionAreaKeystone=true s116ProjectionAreaMidpointBow=true s117PreHomographyDiagnosticOnly=true s118ProjectedFootprintLiveWindow=true s119ProcessingLayerHotload=true s120ProjectionAreaOpacityHotload=true s121ProjectionAreaRoundedMaskHotload=true horizontalAlignmentSource=screen_to_camera_center_delta_safe_window_invalid_matte manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true projectionBorderStrengthHotload=true projectionBorderOpacityHotload=true projectionBorderPolicyHotload=true processingLayerHotload=true projectionAreaDiagnosticHotload=true projectionAreaScreenOffsetHotload=true projectionAreaScreenScaleHotload=true projectionAreaRoundedMaskHotload=true projectionAreaKeystoneHotload=true projectionAreaBowHotload=true projectionAreaOpacityHotload=true projectionAreaTransformStage=pre_homography_screen_uv borderlessWindowMask=false redProjectionBorder={} propertyPrefix=debug.rustyxr {} projectionAreaDiagnosticMode=0_off_1_full_2_footprint_only horizontalAlignmentStrength={:.4} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} projectionBorderStrength={:.4} projectionBorderOpacity={:.4} projectionAreaOpacity={:.4} processingLayer={} blurRadiusPx={:.2} projectionAreaDiagnostic={:.1} projectionAreaLeftUv={:.4} projectionAreaRightUv={:.4} projectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaKeystoneX={:.4} projectionAreaBowX={:.4} panelBound={} visualInspection=required",
+            "phase=horizontal-alignment-hotload status=applied s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109RedProjectionBorder=true s110VerticalWindowOffsetHotload=true s111ProjectionAreaDiagnostic=true s112ProjectionAreaScreenOffset=true s113ProjectionAreaScreenScale=true s114ProjectionAreaFootprintOnlyDiagnostic=true s115ProjectionAreaKeystone=true s116ProjectionAreaMidpointBow=true s117PreHomographyDiagnosticOnly=true s118ProjectedFootprintLiveWindow=true s119ProcessingLayerHotload=true s120ProjectionAreaOpacityHotload=true s121ProjectionAreaRoundedMaskHotload=true s122ProjectionAlphaMaskHotload=true horizontalAlignmentSource=screen_to_camera_center_delta_safe_window_invalid_matte manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true projectionBorderStrengthHotload=true projectionBorderOpacityHotload=true projectionBorderPolicyHotload=true processingLayerHotload=true projectionAreaDiagnosticHotload=true projectionAreaScreenOffsetHotload=true projectionAreaScreenScaleHotload=true projectionAreaRoundedMaskHotload=true projectionAreaKeystoneHotload=true projectionAreaBowHotload=true projectionAreaOpacityHotload=true projectionAlphaMaskHotload=true projectionAreaTransformStage=pre_homography_screen_uv borderlessWindowMask=false redProjectionBorder={} propertyPrefix=debug.rustyxr {} projectionAreaDiagnosticMode=0_off_1_full_2_footprint_only horizontalAlignmentStrength={:.4} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} projectionBorderStrength={:.4} projectionBorderOpacity={:.4} projectionAreaOpacity={:.4} projectionAlphaMode={} projectionAlphaScale={:.4} projectionAlphaBias={:.4} processingLayer={} blurRadiusPx={:.2} projectionAreaDiagnostic={:.1} projectionAreaLeftUv={:.4} projectionAreaRightUv={:.4} projectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaKeystoneX={:.4} projectionAreaBowX={:.4} panelBound={} visualInspection=required",
             tuning.projection_border_strength > 0.0001,
             makepad_projection_target_marker_fields(),
             tuning.strength,
@@ -3098,6 +3240,9 @@ impl App {
             tuning.projection_border_strength,
             tuning.projection_border_strength,
             tuning.projection_area_opacity,
+            MakepadProjectionAlphaMode::current().stable_id(),
+            tuning.projection_alpha_scale,
+            tuning.projection_alpha_bias,
             MakepadProcessingLayer::current().stable_id(),
             tuning.blur_radius_px,
             tuning.projection_area_diagnostic,
@@ -4241,7 +4386,7 @@ impl App {
             direct_camera2_content_geometry_marker_fields(pair.left.width, pair.left.height)
         };
         Self::emit_stereo_projection_marker(&format!(
-            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} diagnosticUvTransform={} sourceRasterYMappingStage={} displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-display-screen-uv rendererSurfaceUvOrigin=top-left-origin-y-down {}",
+            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} sourceUvContract=screen_to_camera_content_uv_to_makepad_video_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_yuv_sample sourceSampleTransform={} sourceSampleTransformOwner=makepad-shader-source_sample_uv sourceSampleTransformApplied={} sourceSampleOutputUv=makepad-video-sampler-uv sourceSamplerUvOrigin=makepad-video-sampler sourceSamplerYAxis=makepad-sampler-origin-convention sourceTextureTransformStage=post_homography_pre_yuv_sample sourceTextureTransformOwner=makepad-shader-source_sample_uv diagnosticUvTransform={} sourceRasterYMappingStage={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-backend-bias-pending {}",
             broker_h264_enabled,
             explicit_top_left_broker_stimulus,
             marker_token(&orientation_decision.orientation_kind),
@@ -4258,11 +4403,13 @@ impl App {
                 "camera-projection-homography"
             },
             source_sample_transform,
+            source_sample_y_flip >= 0.5,
+            source_sample_transform,
             source_sample_transform,
             content_geometry_fields,
         ));
         Self::emit_stereo_projection_marker(&format!(
-            "phase=draw-vars-bound status=ok cameraReady=true yuvMode={} proofTintStrength=0.0 neutralWaitingPanel=true textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id drawVarsTextureRedraw=true shaderAreaStateUpdate=true leftYuvTextureBound={} rightYuvTextureBound={} brokerH264SurfaceTexture={} singleStreamVisualProof={} updatedStreamVisualProofSide={} visibleCameraProjectionReady=true sceneOwnedPanel=true projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review panelTargetDepthMeters=0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 borderOnlyGuide=false paleBorderGuide=false depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
+            "phase=draw-vars-bound status=ok cameraReady=true yuvMode={} proofTintStrength=0.0 neutralWaitingPanel=true textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id drawVarsTextureRedraw=true shaderAreaStateUpdate=true leftYuvTextureBound={} rightYuvTextureBound={} brokerH264SurfaceTexture={} singleStreamVisualProof={} updatedStreamVisualProofSide={} visibleCameraProjectionReady=true sceneOwnedPanel=true projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDepthMeters=deprecated-0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 borderOnlyGuide=false paleBorderGuide=false depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
             !broker_h264_enabled || broker_h264_cpu_yuv_decode,
             !broker_h264_enabled || broker_h264_cpu_yuv_decode,
             !broker_h264_enabled || broker_h264_cpu_yuv_decode,
@@ -4278,7 +4425,7 @@ impl App {
             );
         }
         Self::emit_stereo_projection_marker(&format!(
-            "phase=visible-panel-bound status=ok visibleCameraProjectionReady=true eyeSelection=per-eye-direct-camera-yuv-color-limited601-noswap-border sourceEyeMapping={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftRotationSteps={:.0} rightRotationSteps={:.0} sceneOwnedPanel=true projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review panelTargetDepthMeters=0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 diagnosticSolidPanel=false debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false singleStreamVisualProof={} updatedStreamVisualProofSide={} cpuUploadPath=makepad-camera-cpu-yuv-plane drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false",
+            "phase=visible-panel-bound status=ok visibleCameraProjectionReady=true eyeSelection=per-eye-direct-camera-yuv-color-limited601-noswap-border sourceEyeMapping={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftRotationSteps={:.0} rightRotationSteps={:.0} sceneOwnedPanel=true projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDepthMeters=deprecated-0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 diagnosticSolidPanel=false debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false singleStreamVisualProof={} updatedStreamVisualProofSide={} cpuUploadPath=makepad-camera-cpu-yuv-plane drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false",
             pair.source_eye_mapping,
             pair.left.source_index,
             pair.right.source_index,
@@ -4328,7 +4475,7 @@ impl App {
             if !self.camera_projection_single_stream_logged {
                 self.camera_projection_single_stream_logged = true;
                 Self::emit_stereo_projection_marker(&format!(
-                    "phase=single-stream-proof status=waiting pairedLeftRightCameraFrames=false singleStreamCameraPixels=true leftUpdated={} rightUpdated={} leftYuvReady={} rightYuvReady={} projectionMappingReady={} alignedProjection=false visibleCameraProjectionReady={} sceneOwnedPanel=true projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review panelTargetDepthMeters=0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 proofTintStrength=0.0 neutralWaitingPanel=true borderOnlyGuide=false paleBorderGuide=false depthClip=false environmentDepthClip=false drawVarsTextureRedraw=true shaderAreaStateUpdate=true updatedStreamVisualProofSide={} visualInspection=required visualReleaseAccepted=false fallbackReason=waiting_for_second_cpu_yuv_stream",
+                    "phase=single-stream-proof status=waiting pairedLeftRightCameraFrames=false singleStreamCameraPixels=true leftUpdated={} rightUpdated={} leftYuvReady={} rightYuvReady={} projectionMappingReady={} alignedProjection=false visibleCameraProjectionReady={} sceneOwnedPanel=true projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDepthMeters=deprecated-0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 proofTintStrength=0.0 neutralWaitingPanel=true borderOnlyGuide=false paleBorderGuide=false depthClip=false environmentDepthClip=false drawVarsTextureRedraw=true shaderAreaStateUpdate=true updatedStreamVisualProofSide={} visualInspection=required visualReleaseAccepted=false fallbackReason=waiting_for_second_cpu_yuv_stream",
                     self.paired_import_left_updated,
                     self.paired_import_right_updated,
                     self.paired_import_left_yuv_textures.is_some(),
@@ -4344,7 +4491,7 @@ impl App {
         let aligned_projection = pair.projection_homography_ready && paired_streams_ready;
         let visible_projection_ready = self.bind_camera_projection_panel(cx);
         Self::emit_stereo_projection_marker(&format!(
-            "phase=complete status=ok pairedLeftRightCameraFrames={} brokerH264SurfaceTexture={} makepadVulkanImport=false projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionMode={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftRotationSteps={:.0} rightRotationSteps={:.0} projectionScale={:.2} xrRenderScale={:.2} renderPath=makepad-xr projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review panelTargetDepthMeters=0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 cpuUploadPath={} debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false fallbackReason={}",
+            "phase=complete status=ok pairedLeftRightCameraFrames={} brokerH264SurfaceTexture={} makepadVulkanImport=false projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionMode={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftRotationSteps={:.0} rightRotationSteps={:.0} projectionScale={:.2} xrRenderScale={:.2} renderPath=makepad-xr projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDepthMeters=deprecated-0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 cpuUploadPath={} debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false fallbackReason={}",
             paired_streams_ready,
             broker_h264_enabled,
             pair.projection_homography_ready,
@@ -4391,7 +4538,7 @@ impl App {
     ) {
         let config = Self::runtime_config();
         emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} sourceEyeMapping={} projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightCameraFrames=true alignedProjection={} visibleCameraProjectionReady={} renderPath=makepad-xr projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} makepadForkBranch={} makepadForkCommit={} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review panelTargetDepthMeters=0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false cpuUploadPath=makepad-camera-cpu-yuv-plane drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false",
+            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} sourceEyeMapping={} projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightCameraFrames=true alignedProjection={} visibleCameraProjectionReady={} renderPath=makepad-xr projectionShaderPath=makepad-s91-inverted-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=inverted_xr_view_id diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91InvertedSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-inverted-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} makepadForkBranch={} makepadForkCommit={} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDepthMeters=deprecated-0.75 panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false cpuUploadPath=makepad-camera-cpu-yuv-plane drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false",
             phase,
             runtime_text(&config, KEY_RUNTIME_PROFILE),
             runtime_text(&config, KEY_COMPARISON_BASELINE),
@@ -5220,6 +5367,7 @@ struct MakepadOpenXrProjectionContract {
     display_time_source: String,
     predicted_display_time_ns: Option<i64>,
     view_pose_fov_source: String,
+    projection_depth_meters: Option<f32>,
     left_render_fov_tangents: Option<[f32; 4]>,
     right_render_fov_tangents: Option<[f32; 4]>,
     left_render_position: Option<[f32; 4]>,
@@ -5236,6 +5384,7 @@ impl MakepadOpenXrProjectionContract {
             display_time_source: "not-logged".to_string(),
             predicted_display_time_ns: None,
             view_pose_fov_source: "not-logged".to_string(),
+            projection_depth_meters: None,
             left_render_fov_tangents: None,
             right_render_fov_tangents: None,
             left_render_position: None,
@@ -5253,6 +5402,7 @@ impl MakepadOpenXrProjectionContract {
             display_time_source: contract.display_time_source.to_string(),
             predicted_display_time_ns: contract.predicted_display_time_ns,
             view_pose_fov_source: contract.view_pose_fov_source.to_string(),
+            projection_depth_meters: contract.projection_depth_meters,
             left_render_fov_tangents: contract.left_render_fov_tangents,
             right_render_fov_tangents: contract.right_render_fov_tangents,
             left_render_position: contract.left_render_position,
@@ -5665,15 +5815,22 @@ fn optional_i64_token(value: Option<i64>) -> String {
         .unwrap_or_else(|| "not-logged".to_string())
 }
 
+fn optional_f32_token(value: Option<f32>) -> String {
+    value
+        .map(|value| format!("{value:.6}"))
+        .unwrap_or_else(|| "not-logged".to_string())
+}
+
 fn openxr_contract_marker_fields(contract: &MakepadOpenXrProjectionContract) -> String {
     format!(
-        "referenceSpace={} openxrReferenceSpace={} displayTimeSource={} predictedDisplayTimeSource={} predictedDisplayTimeNs={} viewPoseFovSource={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
+        "referenceSpace={} openxrReferenceSpace={} displayTimeSource={} predictedDisplayTimeSource={} predictedDisplayTimeNs={} viewPoseFovSource={} projectionDepthMeters={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
         marker_token(&contract.reference_space),
         marker_token(&contract.openxr_reference_space),
         marker_token(&contract.display_time_source),
         marker_token(&contract.display_time_source),
         optional_i64_token(contract.predicted_display_time_ns),
         marker_token(&contract.view_pose_fov_source),
+        optional_f32_token(contract.projection_depth_meters),
         optional_vec4_token(contract.left_render_fov_tangents),
         optional_vec4_token(contract.right_render_fov_tangents),
         optional_vec4_token(contract.left_render_position),
@@ -5716,7 +5873,12 @@ fn projection_area_screen_uv_rect(
     ]
 }
 
-fn projection_area_center_uv(offset_x_uv: f32, offset_y_uv: f32, scale_x: f32, scale_y: f32) -> [f32; 2] {
+fn projection_area_center_uv(
+    offset_x_uv: f32,
+    offset_y_uv: f32,
+    scale_x: f32,
+    scale_y: f32,
+) -> [f32; 2] {
     [
         0.5 + offset_x_uv.clamp(-0.5, 0.5) / scale_x.clamp(0.05, 4.0),
         0.5 + offset_y_uv.clamp(-0.5, 0.5) / scale_y.clamp(0.05, 4.0),
@@ -6036,6 +6198,104 @@ impl MakepadProjectionBorderPolicy {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MakepadProjectionAlphaMode {
+    Fixed,
+    Red,
+    Green,
+    Blue,
+    Luma,
+    InverseRed,
+    InverseGreen,
+    InverseBlue,
+    InverseLuma,
+    RedDominance,
+    GreenDominance,
+    BlueDominance,
+    Saturation,
+    InverseSaturation,
+}
+
+impl MakepadProjectionAlphaMode {
+    fn current() -> Self {
+        let value = hotload_text(KEY_MAKEPAD_PROJECTION_ALPHA_MODE, "fixed");
+        match value.trim().to_ascii_lowercase().as_str() {
+            "red" | "r" | "channel-r" => Self::Red,
+            "green" | "g" | "channel-g" => Self::Green,
+            "blue" | "b" | "channel-b" => Self::Blue,
+            "luma" | "luminance" | "brightness" | "value" => Self::Luma,
+            "inverse-red" | "red-inverse" | "inv-red" | "one-minus-red" | "1-red" | "1-r" => {
+                Self::InverseRed
+            }
+            "inverse-green" | "green-inverse" | "inv-green" | "one-minus-green" | "1-green"
+            | "1-g" => Self::InverseGreen,
+            "inverse-blue" | "blue-inverse" | "inv-blue" | "one-minus-blue" | "1-blue" | "1-b" => {
+                Self::InverseBlue
+            }
+            "inverse-luma" | "luma-inverse" | "inv-luma" | "inverse-brightness"
+            | "one-minus-luma" | "1-luma" | "1-brightness" => Self::InverseLuma,
+            "red-dominance" | "dominant-red" | "red-key" | "red-chroma" | "red-minus-max" => {
+                Self::RedDominance
+            }
+            "green-dominance" | "dominant-green" | "green-key" | "green-chroma"
+            | "green-minus-max" | "screen-green" => Self::GreenDominance,
+            "blue-dominance" | "dominant-blue" | "blue-key" | "blue-chroma" | "blue-minus-max" => {
+                Self::BlueDominance
+            }
+            "saturation" | "chroma" | "max-min" | "colorfulness" => Self::Saturation,
+            "inverse-saturation"
+            | "saturation-inverse"
+            | "inverse-chroma"
+            | "inv-chroma"
+            | "one-minus-saturation"
+            | "1-saturation" => Self::InverseSaturation,
+            _ => Self::Fixed,
+        }
+    }
+
+    fn stable_id(self) -> &'static str {
+        match self {
+            Self::Fixed => "fixed",
+            Self::Red => "red",
+            Self::Green => "green",
+            Self::Blue => "blue",
+            Self::Luma => "luma",
+            Self::InverseRed => "inverse-red",
+            Self::InverseGreen => "inverse-green",
+            Self::InverseBlue => "inverse-blue",
+            Self::InverseLuma => "inverse-luma",
+            Self::RedDominance => "red-dominance",
+            Self::GreenDominance => "green-dominance",
+            Self::BlueDominance => "blue-dominance",
+            Self::Saturation => "saturation",
+            Self::InverseSaturation => "inverse-saturation",
+        }
+    }
+
+    fn shader_code(self) -> f32 {
+        match self {
+            Self::Fixed => 0.0,
+            Self::Red => 1.0,
+            Self::Green => 2.0,
+            Self::Blue => 3.0,
+            Self::Luma => 4.0,
+            Self::InverseRed => 5.0,
+            Self::InverseGreen => 6.0,
+            Self::InverseBlue => 7.0,
+            Self::InverseLuma => 8.0,
+            Self::RedDominance => 9.0,
+            Self::GreenDominance => 10.0,
+            Self::BlueDominance => 11.0,
+            Self::Saturation => 12.0,
+            Self::InverseSaturation => 13.0,
+        }
+    }
+
+    fn uses_dynamic_alpha(self) -> bool {
+        !matches!(self, Self::Fixed)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MakepadProcessingLayer {
     Raw,
     Blur,
@@ -6069,6 +6329,15 @@ fn makepad_blur_radius_px() -> f32 {
     hotload_f32(KEY_MAKEPAD_BLUR_RADIUS_PX, 2.0, 0.0, 16.0)
 }
 
+fn makepad_projection_depth_meters() -> f32 {
+    hotload_f32(
+        KEY_PROJECTION_DEPTH_METERS,
+        TARGET_PROJECTION_DEPTH_METERS,
+        0.05,
+        10.0,
+    )
+}
+
 fn makepad_projection_area_opacity() -> f32 {
     hotload_f32(
         KEY_MAKEPAD_PROJECTION_AREA_OPACITY,
@@ -6092,20 +6361,33 @@ fn makepad_projection_border_opacity() -> f32 {
     )
 }
 
+fn makepad_projection_alpha_scale() -> f32 {
+    hotload_f32(KEY_MAKEPAD_PROJECTION_ALPHA_SCALE, 1.0, 0.0, 4.0)
+}
+
+fn makepad_projection_alpha_bias() -> f32 {
+    hotload_f32(KEY_MAKEPAD_PROJECTION_ALPHA_BIAS, 0.0, -1.0, 1.0)
+}
+
 fn makepad_native_passthrough_enabled() -> bool {
     let policy = MakepadProjectionBorderPolicy::current();
+    let alpha_mode = MakepadProjectionAlphaMode::current();
     let opacity_needs_passthrough =
         makepad_projection_area_opacity() < 0.999 || makepad_projection_border_opacity() < 0.999;
     hotload_bool(
         KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED,
-        policy.wants_native_passthrough() || opacity_needs_passthrough,
+        policy.wants_native_passthrough()
+            || opacity_needs_passthrough
+            || alpha_mode.uses_dynamic_alpha(),
     )
 }
 
 fn makepad_projection_target_marker_fields() -> String {
     let policy = MakepadProjectionBorderPolicy::current();
     let processing_layer = MakepadProcessingLayer::current();
+    let alpha_mode = MakepadProjectionAlphaMode::current();
     let native_passthrough = makepad_native_passthrough_enabled();
+    let projection_depth_meters = makepad_projection_depth_meters();
     let native_projection_area_left_uv = hotload_f32(
         KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV,
         TARGET_PROJECTION_AREA_OFFSET_LEFT_UV,
@@ -6186,13 +6468,18 @@ fn makepad_projection_target_marker_fields() -> String {
         projection_area_scale_y,
     );
     format!(
-        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} processingLayer={} blurRadiusPx={:.2} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=top-left-origin-y-down displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-display-screen-uv",
+        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={} projectionDepthMeters={:.3} panelTargetDepthMeters={:.3} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} processingLayer={} blurRadiusPx={:.2} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-backend-bias-pending",
         native_passthrough,
         policy.stable_id(),
         policy.stable_id(),
         policy.wants_native_passthrough(),
+        projection_depth_meters,
+        projection_depth_meters,
         makepad_projection_area_opacity(),
         makepad_projection_border_opacity(),
+        alpha_mode.stable_id(),
+        makepad_projection_alpha_scale(),
+        makepad_projection_alpha_bias(),
         processing_layer.stable_id(),
         makepad_blur_radius_px(),
         projection_area_left_offset_x_uv,

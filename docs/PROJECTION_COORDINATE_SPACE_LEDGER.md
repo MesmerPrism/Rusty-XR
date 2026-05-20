@@ -128,6 +128,14 @@ The resolved mismatch owners are:
   detector chooses a strong axis near the green target median instead of the
   raw maximum row or column when other green target features are present.
 
+The follow-up source-sampling audit keeps that owner model explicit. Existing
+broker-synthetic runs place the dominant green feature at the same rows across
+HWB, GL/OES, and Makepad, while live direct Camera2 rows still split by source
+path even when `surface_to_screen`, `screen_to_surface`, `surface_to_camera`,
+and `screen_to_camera` homographies match. Treat that as texture/upload
+convention plus source-sampling metadata until a renderer emits contradictory
+evidence. Do not repair it with a lane-specific projection-area Y offset.
+
 Blur remains a downstream consumer of the stable projection contract. Do not
 use blur, color effects, source crops, or renderer-local hidden offsets to
 discover or hide coordinate errors.
@@ -141,7 +149,7 @@ The same term must not mean different things in different lanes.
 | --- | --- | --- | --- |
 | Camera2 active-array pixels | Android Camera2 metadata | Sensor pixel coordinates. Origin and crop are Camera2-defined. | Log active-array size, selected stream size, crop/valid rect when available. |
 | Delivered image pixels | Camera2, MediaCodec, broker synthetic source, or CPU YUV frame | Raster pixel coordinates for the actual buffer delivered to the renderer. | Log width, height, format, row stride when relevant, timestamp domain, and source-eye identity. |
-| Decoded texture UV | Hardware buffer, OES texture, or CPU-upload texture | Normalized texture coordinates after decoder/upload ownership. | Log texture size, valid UV rect, OES transform matrix, Y flip, and crop transform. |
+| Decoded texture UV | Hardware buffer, OES texture, or CPU-upload texture | Normalized texture coordinates after decoder/upload ownership. | Log texture size, valid UV rect, OES transform matrix, source-sampling transform, Y flip when present, and crop transform. |
 | Camera/source UV | Camera projection model | Normalized camera image sample domain after source orientation and valid rect are applied. | Log `surface_to_camera`, `screen_to_camera`, source invalid-fill policy, and source rect clipping. |
 | Content surface UV | Rusty XR projection model | Normalized coordinates on the intended camera/content surface. | Log content rect, content aspect, projection profile, and any overscan or scale. |
 | Full submitted surface UV | Renderer/OpenXR swapchain image | Normalized coordinates over the full submitted eye surface or layer image. | Log full surface size, viewport, scissor, matte/border policy, and full-to-content mapping. |
@@ -222,9 +230,26 @@ world-space surface is hidden. Every lane must log the named stages:
 - `screen_to_surface`
 - `surface_to_camera`
 - `screen_to_camera`
-- source texture transform
+- source sampling contract and texture transform
 - valid source UV rect
 - projection-area mask
+
+The source sampling boundary is separate from projection-area mapping. Lanes
+must report `sourceUvContract`, `sourceHomographyOutputUv`,
+`sourceSampleInputUv`, `sourceSampleTransformStage`, `sourceSampleTransform`,
+`sourceSampleTransformOwner`, `sourceSampleTransformApplied`,
+`sourceSampleOutputUv`, `sourceSamplerUvOrigin`, `sourceSamplerYAxis`,
+`sourceTextureTransformStage`, and `sourceTextureTransformOwner`. HWB owns this
+through hardware-buffer sampler flags, GL/OES through Android
+`SurfaceTexture` transform semantics, and Makepad through its CPU-YUV upload
+and shader `source_sample_uv` convention. Those are architecture differences;
+projection-area offsets are not a substitute for them.
+
+OpenXR reference-space, predicted-display-time, per-eye render pose, and per-eye
+FOV fields must be emitted in a short dedicated projection-contract marker.
+Do not repeat those fields in already-long renderer status lines; Android
+logcat can truncate the right-eye tail and turn valid renderer state into a
+false analyzer gap.
 
 If the stages disagree, fix the first divergent stage. Do not compensate for a
 bad source rect with a projection-area scale, or for a bad projection area with
@@ -317,6 +342,8 @@ Trace these before changing a visual parameter:
 - source mode and geometry profile
 - selected camera/source size and valid source UV rect
 - `cameraProjectionScale`
+- `cameraProjectionDepthMeters` (meters to the head-anchored projection
+  surface; `cameraProjectionScale` is not a depth fallback)
 - `cameraProjectionAreaScaleUv`
 - projection-area radii and corner radius
 - content/full-view mapping
@@ -338,6 +365,7 @@ Trace these before using OES as the reference:
 - producer buffer size versus renderer texture size
 - OES external texture UV after transform
 - source valid UV rect and crop
+- `projectionDepthMeters` (meters to the head-anchored projection surface)
 - projection-area mask and matte/border policy
 - per-eye `screen_to_camera` stage
 - source-alpha output convention
@@ -360,6 +388,8 @@ Trace these before changing scale:
 - source Y flip and stride handling
 - CPU YUV plane size and upload rect
 - runtime OpenXR view poses/FOV
+- `projection_depth_meters` / `projectionDepthMeters` (meters to the
+  head-anchored projection surface)
 - `projection_content_mapping_mode`
 - `screen_to_camera`
 - `projection_area_screen_uv`
@@ -402,6 +432,18 @@ The schema name is currently `rusty.xr.projection-coordinate-contract.v1`.
     "orientation_state": "explicit-defaulted-or-missing",
     "valid_source_uv_rect": [0.0, 0.0, 1.0, 1.0]
   },
+  "source_sampling": {
+    "contract": "screen_to_camera_content_uv_to_renderer_sampler",
+    "homography_output_uv": "content-normalized-top-left-y-down",
+    "sample_input_uv": "screen-to-camera-homography-output",
+    "sample_transform_stage": "post_homography_pre_texture_sample",
+    "sample_transform": "renderer-specific-transform-or-identity",
+    "sample_transform_owner": "hwb-oes-or-cpu-yuv-owner",
+    "sample_transform_applied": true,
+    "sample_output_uv": "renderer-sampler-uv",
+    "sampler_uv_origin": "renderer-specific",
+    "sampler_y_axis": "renderer-specific"
+  },
   "projection": {
     "profile": "camera-matched",
     "preview_fov_y_degrees": 60.0,
@@ -440,6 +482,9 @@ The schema name is currently `rusty.xr.projection-coordinate-contract.v1`.
   },
   "mask_and_processing": {
     "invalid_region_policy": "solid-diagnostic-or-transparent-underlay",
+    "projection_alpha_mode": "fixed-red-green-blue-luma-or-inverse",
+    "projection_alpha_scale": 1.0,
+    "projection_alpha_bias": 0.0,
     "processing_layer": "raw",
     "blur_disabled_for_coordinate_gate": true
   },

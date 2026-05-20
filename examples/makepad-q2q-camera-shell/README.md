@@ -333,6 +333,16 @@ Add `-EnableNativePassthrough -ProjectionAreaOpacity <0..1>
 passthrough active behind the same full submitted surface. The area opacity
 fades only valid projected camera pixels; the border opacity fades the
 non-projection matte/border independently.
+Add `-ProjectionDepthMeters <meters>` to set the head-anchored projection
+surface depth explicitly. The guarded launcher writes
+`debug.rustyxr.projection.depth.meters`, defaults to `1.0`, and logs the value
+as `projectionDepthMeters` / `panelTargetDepthMeters` so Makepad depth remains
+visible beside HWB and GL/OES.
+Add `-ProjectionAlphaMode red|green|blue|luma` or an inverse variant when the
+valid camera window should reveal native passthrough based on source color.
+The Makepad path uses premultiplied RGB, so alpha-zero mask regions do not leak
+camera color. `tools\Send-MakepadQ2QHorizontalOffset.ps1` accepts the same
+alpha mode, scale, and bias properties for short headset A/B checks.
 Add `-ProcessingLayer blur -BlurRadiusPx 2.0` to enable the public diagnostic
 blur layer for valid camera samples while keeping the same projection border
 policy. The gate writes `debug.rustyxr.makepad.processing.layer` and

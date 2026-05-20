@@ -42,6 +42,7 @@ param(
     [string]$ProcessingLayer = "raw",
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionScale = 1.0,
+    [double]$ProjectionDepthMeters = 1.0,
     [double]$XrRenderScale = 1.0,
     [double]$ProjectionAreaOffsetXUv = 0.0,
     [double]$ProjectionAreaOffsetLeftUv = [double]::NaN,
@@ -54,6 +55,10 @@ param(
     [double]$ProjectionAreaCornerRadiusUv = 0.0,
     [double]$ProjectionAreaOpacity = 1.0,
     [double]$ProjectionBorderOpacity = 1.0,
+    [ValidateSet("fixed", "red", "green", "blue", "luma", "inverse-red", "inverse-green", "inverse-blue", "inverse-luma", "red-dominance", "green-dominance", "blue-dominance", "saturation", "inverse-saturation")]
+    [string]$ProjectionAlphaMode = "fixed",
+    [double]$ProjectionAlphaScale = 1.0,
+    [double]$ProjectionAlphaBias = 0.0,
     [switch]$EnableNativePassthrough
 )
 
@@ -226,7 +231,7 @@ function Set-MakepadBrokerH264Profile {
 }
 
 function Set-MakepadProjectionTargetProfile {
-    $nativePassthrough = if ($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0) { "true" } else { "false" }
+    $nativePassthrough = if ($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0 -or $ProjectionAlphaMode -ne "fixed") { "true" } else { "false" }
     # The public suite-level offsets use screenshot/display-screen semantics:
     # positive X moves the projection area right and positive Y moves it down.
     # Makepad's horizontal projection-area properties predate that contract and
@@ -241,9 +246,13 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.projection.border.strength" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
         "debug.rustyxr.makepad.projection.border.opacity" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
         "debug.rustyxr.makepad.projection.area.opacity" = (Format-InvariantDouble -Value $ProjectionAreaOpacity)
+        "debug.rustyxr.makepad.projection.alpha.mode" = $ProjectionAlphaMode
+        "debug.rustyxr.makepad.projection.alpha.scale" = (Format-InvariantDouble -Value $ProjectionAlphaScale)
+        "debug.rustyxr.makepad.projection.alpha.bias" = (Format-InvariantDouble -Value $ProjectionAlphaBias)
         "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
         "debug.rustyxr.projection.scale" = (Format-InvariantDouble -Value $ProjectionScale)
+        "debug.rustyxr.projection.depth.meters" = (Format-InvariantDouble -Value $ProjectionDepthMeters)
         "debug.rustyxr.xr.render.scale" = (Format-InvariantDouble -Value $XrRenderScale)
         "debug.rustyxr.makepad.projection.area.offset.left.uv" = (Format-InvariantDouble -Value $offsetLeftUv)
         "debug.rustyxr.makepad.projection.area.offset.right.uv" = (Format-InvariantDouble -Value $offsetRightUv)
@@ -662,9 +671,12 @@ $summary = [ordered]@{
     brokerH264SourceMode = if ($UseBrokerH264Camera) { "broker-camera" } elseif ($UseBrokerH264Synthetic) { "broker-synthetic" } else { "disabled" }
     brokerH264SyntheticProjectionProfile = $BrokerH264SyntheticProjectionProfile
     projectionBorderPolicy = $ProjectionBorderPolicy
-    nativePassthroughRequested = [bool]($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0)
+    nativePassthroughRequested = [bool]($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0 -or $ProjectionAlphaMode -ne "fixed")
     projectionAreaOpacity = $ProjectionAreaOpacity
     projectionBorderOpacity = $ProjectionBorderOpacity
+    projectionAlphaMode = $ProjectionAlphaMode
+    projectionAlphaScale = $ProjectionAlphaScale
+    projectionAlphaBias = $ProjectionAlphaBias
     processingLayer = $ProcessingLayer
     blurRadiusPx = $BlurRadiusPx
     brokerH264FrameRateHz = $BrokerH264FrameRateHz

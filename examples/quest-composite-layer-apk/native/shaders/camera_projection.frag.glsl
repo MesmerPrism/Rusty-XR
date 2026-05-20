@@ -31,6 +31,7 @@ layout(push_constant) uniform CameraProjectionPush {
     vec4 params;
     vec4 color_adjust;
     vec4 effect_params;
+    vec4 alpha_params;
     vec4 area_params;
     vec4 area_offset_params;
     vec4 left_h0;
@@ -973,6 +974,60 @@ vec3 resolve_projection_area_diagnostic(
     return clamp01(color);
 }
 
+float projection_alpha_mask(vec3 color) {
+    vec3 rgb = clamp01(color);
+    float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+    float max_channel = max(max(rgb.r, rgb.g), rgb.b);
+    float min_channel = min(min(rgb.r, rgb.g), rgb.b);
+    float saturation = max_channel - min_channel;
+    int mode = int(floor(pc.alpha_params.x + 0.5));
+    if (mode == 1) {
+        return rgb.r;
+    }
+    if (mode == 2) {
+        return rgb.g;
+    }
+    if (mode == 3) {
+        return rgb.b;
+    }
+    if (mode == 4) {
+        return luma;
+    }
+    if (mode == 5) {
+        return 1.0 - rgb.r;
+    }
+    if (mode == 6) {
+        return 1.0 - rgb.g;
+    }
+    if (mode == 7) {
+        return 1.0 - rgb.b;
+    }
+    if (mode == 8) {
+        return 1.0 - luma;
+    }
+    if (mode == 9) {
+        return max(rgb.r - max(rgb.g, rgb.b), 0.0);
+    }
+    if (mode == 10) {
+        return max(rgb.g - max(rgb.r, rgb.b), 0.0);
+    }
+    if (mode == 11) {
+        return max(rgb.b - max(rgb.r, rgb.g), 0.0);
+    }
+    if (mode == 12) {
+        return saturation;
+    }
+    if (mode == 13) {
+        return 1.0 - saturation;
+    }
+    return 1.0;
+}
+
+float projection_color_alpha(vec3 color, float area_opacity) {
+    float scaled_mask = projection_alpha_mask(color) * max(pc.alpha_params.y, 0.0) + pc.alpha_params.z;
+    return clamp(area_opacity * clamp(scaled_mask, 0.0, 1.0), 0.0, 1.0);
+}
+
 void main() {
     int eye = clamp(v_eye_index, 0, 1);
     int packed_flags = int(floor(pc.params.w + 0.5));
@@ -1252,7 +1307,7 @@ void main() {
     float out_alpha = 1.0;
     if (raw_projection_area_mask) {
         out_alpha = masked_projection_valid
-            ? projection_area_opacity
+            ? projection_color_alpha(color, projection_area_opacity)
             : (passthrough_underlay_alpha ? 0.0 : projection_border_opacity);
     }
     vec3 final_color = color * surface_edge_dim * source_edge_dim;
@@ -1265,6 +1320,15 @@ void main() {
             diagnostic_guide_color,
             clamp(projection_area_guide * projection_border_opacity, 0.0, 1.0)
         );
+    }
+    bool source_alpha_output =
+        raw_projection_area_mask &&
+        (passthrough_underlay_alpha ||
+            projection_area_opacity < 0.999 ||
+            projection_border_opacity < 0.999 ||
+            int(floor(pc.alpha_params.x + 0.5)) != 0);
+    if (source_alpha_output) {
+        final_color *= out_alpha;
     }
     out_color = vec4(clamp01(final_color), out_alpha);
 }

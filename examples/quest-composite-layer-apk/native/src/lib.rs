@@ -659,6 +659,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) camera_projection_fov_y_degrees: f32,
     pub(crate) camera_preview_fov_y_degrees: f32,
     pub(crate) camera_projection_scale: f32,
+    pub(crate) camera_projection_depth_meters: f32,
     pub(crate) camera_projection_area_scale_uv: f32,
     pub(crate) camera_projection_area_offset_x_uv: f32,
     pub(crate) camera_projection_area_offset_y_uv: f32,
@@ -671,6 +672,9 @@ pub(crate) struct RuntimeConfig {
     pub(crate) camera_projection_area_corner_radius_uv: f32,
     pub(crate) camera_projection_area_opacity: f32,
     pub(crate) camera_projection_border_opacity: f32,
+    pub(crate) camera_projection_alpha_mode: CameraProjectionAlphaMode,
+    pub(crate) camera_projection_alpha_scale: f32,
+    pub(crate) camera_projection_alpha_bias: f32,
     pub(crate) camera_raw_overlay_overscan: f32,
     pub(crate) camera_full_view_overlay_overscan: f32,
     pub(crate) camera_edge_fade: f32,
@@ -748,6 +752,7 @@ impl Default for RuntimeConfig {
             camera_projection_fov_y_degrees: 92.0,
             camera_preview_fov_y_degrees: 60.0,
             camera_projection_scale: 1.0,
+            camera_projection_depth_meters: 1.0,
             camera_projection_area_scale_uv: 1.0,
             camera_projection_area_offset_x_uv: 0.0,
             camera_projection_area_offset_y_uv: 0.0,
@@ -760,6 +765,9 @@ impl Default for RuntimeConfig {
             camera_projection_area_corner_radius_uv: 0.0,
             camera_projection_area_opacity: 1.0,
             camera_projection_border_opacity: 1.0,
+            camera_projection_alpha_mode: CameraProjectionAlphaMode::default(),
+            camera_projection_alpha_scale: 1.0,
+            camera_projection_alpha_bias: 0.0,
             camera_raw_overlay_overscan: 1.06,
             camera_full_view_overlay_overscan: 2.10,
             camera_edge_fade: 0.12,
@@ -1003,6 +1011,105 @@ impl OpenXrPassthroughStyleMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum CameraProjectionAlphaMode {
+    #[default]
+    Fixed,
+    Red,
+    Green,
+    Blue,
+    Luma,
+    InverseRed,
+    InverseGreen,
+    InverseBlue,
+    InverseLuma,
+    RedDominance,
+    GreenDominance,
+    BlueDominance,
+    Saturation,
+    InverseSaturation,
+}
+
+impl CameraProjectionAlphaMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "" | "fixed" | "none" | "constant" | "area-opacity" | "opacity" => Some(Self::Fixed),
+            "red" | "r" | "channel-r" => Some(Self::Red),
+            "green" | "g" | "channel-g" => Some(Self::Green),
+            "blue" | "b" | "channel-b" => Some(Self::Blue),
+            "luma" | "luminance" | "brightness" | "value" => Some(Self::Luma),
+            "inverse-red" | "red-inverse" | "inv-red" | "one-minus-red" | "1-red" | "1-r" => {
+                Some(Self::InverseRed)
+            }
+            "inverse-green" | "green-inverse" | "inv-green" | "one-minus-green" | "1-green"
+            | "1-g" => Some(Self::InverseGreen),
+            "inverse-blue" | "blue-inverse" | "inv-blue" | "one-minus-blue" | "1-blue" | "1-b" => {
+                Some(Self::InverseBlue)
+            }
+            "inverse-luma" | "luma-inverse" | "inv-luma" | "inverse-brightness"
+            | "one-minus-luma" | "1-luma" | "1-brightness" => Some(Self::InverseLuma),
+            "red-dominance" | "dominant-red" | "red-key" | "red-chroma" | "red-minus-max" => {
+                Some(Self::RedDominance)
+            }
+            "green-dominance" | "dominant-green" | "green-key" | "green-chroma"
+            | "green-minus-max" | "screen-green" => Some(Self::GreenDominance),
+            "blue-dominance" | "dominant-blue" | "blue-key" | "blue-chroma" | "blue-minus-max" => {
+                Some(Self::BlueDominance)
+            }
+            "saturation" | "chroma" | "max-min" | "colorfulness" => Some(Self::Saturation),
+            "inverse-saturation"
+            | "saturation-inverse"
+            | "inverse-chroma"
+            | "inv-chroma"
+            | "one-minus-saturation"
+            | "1-saturation" => Some(Self::InverseSaturation),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::Fixed => "fixed",
+            Self::Red => "red",
+            Self::Green => "green",
+            Self::Blue => "blue",
+            Self::Luma => "luma",
+            Self::InverseRed => "inverse-red",
+            Self::InverseGreen => "inverse-green",
+            Self::InverseBlue => "inverse-blue",
+            Self::InverseLuma => "inverse-luma",
+            Self::RedDominance => "red-dominance",
+            Self::GreenDominance => "green-dominance",
+            Self::BlueDominance => "blue-dominance",
+            Self::Saturation => "saturation",
+            Self::InverseSaturation => "inverse-saturation",
+        }
+    }
+
+    pub(crate) const fn shader_code(self) -> f32 {
+        match self {
+            Self::Fixed => 0.0,
+            Self::Red => 1.0,
+            Self::Green => 2.0,
+            Self::Blue => 3.0,
+            Self::Luma => 4.0,
+            Self::InverseRed => 5.0,
+            Self::InverseGreen => 6.0,
+            Self::InverseBlue => 7.0,
+            Self::InverseLuma => 8.0,
+            Self::RedDominance => 9.0,
+            Self::GreenDominance => 10.0,
+            Self::BlueDominance => 11.0,
+            Self::Saturation => 12.0,
+            Self::InverseSaturation => 13.0,
+        }
+    }
+
+    pub(crate) const fn uses_dynamic_alpha(self) -> bool {
+        !matches!(self, Self::Fixed)
+    }
+}
+
 impl RuntimeConfig {
     pub(crate) fn camera_color_adjust_push(&self) -> [f32; 4] {
         [
@@ -1018,6 +1125,15 @@ impl RuntimeConfig {
             self.camera_blur_radius_px.clamp(0.0, 16.0),
             self.camera_projection_area_opacity.clamp(0.0, 1.0),
             self.camera_projection_border_opacity.clamp(0.0, 1.0),
+            0.0,
+        ]
+    }
+
+    pub(crate) fn camera_alpha_params_push(&self) -> [f32; 4] {
+        [
+            self.camera_projection_alpha_mode.shader_code(),
+            self.camera_projection_alpha_scale.clamp(0.0, 16.0),
+            self.camera_projection_alpha_bias.clamp(-1.0, 1.0),
             0.0,
         ]
     }
@@ -1070,6 +1186,7 @@ impl RuntimeConfig {
                 .uses_passthrough_underlay_alpha()
             || self.camera_projection_area_opacity < 0.999
             || self.camera_projection_border_opacity < 0.999
+            || self.camera_projection_alpha_mode.uses_dynamic_alpha()
     }
 
     pub(crate) fn camera_border_cycle_phase(&self, frame_count: u64) -> f32 {
@@ -1313,7 +1430,7 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} cameraBlurRadiusPx={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} projectionScale={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaLeftOffsetXUv={} projectionAreaLeftOffsetYUv={} projectionAreaRightOffsetXUv={} projectionAreaRightOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} cameraBlurRadiusPx={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} projectionScale={} projectionDepthMeters={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaLeftOffsetXUv={} projectionAreaLeftOffsetYUv={} projectionAreaRightOffsetXUv={} projectionAreaRightOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} projectionAlphaMode={} projectionAlphaScale={} projectionAlphaBias={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -1352,6 +1469,7 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_projection_fov_y_degrees,
         config.camera_preview_fov_y_degrees,
         config.camera_projection_scale,
+        config.camera_projection_depth_meters,
         config.camera_projection_area_scale_uv,
         config.camera_projection_area_offset_x_uv,
         config.camera_projection_area_offset_y_uv,
@@ -1364,6 +1482,9 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_projection_area_corner_radius_uv,
         config.camera_projection_area_opacity,
         config.camera_projection_border_opacity,
+        config.camera_projection_alpha_mode.stable_id(),
+        config.camera_projection_alpha_scale,
+        config.camera_projection_alpha_bias,
         config.camera_raw_overlay_overscan,
         config.camera_full_view_overlay_overscan,
         config.camera_edge_fade,
@@ -1876,6 +1997,8 @@ struct JavaRuntimeConfig {
     camera_projection_fov_y_degrees: Option<f32>,
     camera_preview_fov_y_degrees: Option<f32>,
     camera_projection_scale: Option<f32>,
+    #[serde(alias = "projectionDepthMeters")]
+    camera_projection_depth_meters: Option<f32>,
     camera_projection_area_scale_uv: Option<f32>,
     camera_projection_area_offset_x_uv: Option<f32>,
     camera_projection_area_offset_y_uv: Option<f32>,
@@ -1888,6 +2011,12 @@ struct JavaRuntimeConfig {
     camera_projection_area_corner_radius_uv: Option<f32>,
     camera_projection_area_opacity: Option<f32>,
     camera_projection_border_opacity: Option<f32>,
+    #[serde(alias = "projectionAlphaMode")]
+    camera_projection_alpha_mode: Option<String>,
+    #[serde(alias = "projectionAlphaScale")]
+    camera_projection_alpha_scale: Option<f32>,
+    #[serde(alias = "projectionAlphaBias")]
+    camera_projection_alpha_bias: Option<f32>,
     camera_raw_overlay_overscan: Option<f32>,
     camera_full_view_overlay_overscan: Option<f32>,
     camera_edge_fade: Option<f32>,
@@ -2020,6 +2149,11 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             bridge.camera_projection_scale,
             defaults.camera_projection_scale,
         ),
+        camera_projection_depth_meters: finite_positive_or(
+            bridge.camera_projection_depth_meters,
+            defaults.camera_projection_depth_meters,
+        )
+        .clamp(0.05, 10.0),
         camera_projection_area_scale_uv: finite_positive_or(
             bridge.camera_projection_area_scale_uv,
             defaults.camera_projection_area_scale_uv,
@@ -2100,6 +2234,21 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_border_opacity)
             .clamp(0.0, 1.0),
+        camera_projection_alpha_mode: bridge
+            .camera_projection_alpha_mode
+            .as_deref()
+            .and_then(CameraProjectionAlphaMode::parse)
+            .unwrap_or(defaults.camera_projection_alpha_mode),
+        camera_projection_alpha_scale: bridge
+            .camera_projection_alpha_scale
+            .filter(|value| value.is_finite())
+            .unwrap_or(defaults.camera_projection_alpha_scale)
+            .clamp(0.0, 4.0),
+        camera_projection_alpha_bias: bridge
+            .camera_projection_alpha_bias
+            .filter(|value| value.is_finite())
+            .unwrap_or(defaults.camera_projection_alpha_bias)
+            .clamp(-1.0, 1.0),
         camera_raw_overlay_overscan: finite_positive_or(
             bridge.camera_raw_overlay_overscan,
             defaults.camera_raw_overlay_overscan,
@@ -3797,11 +3946,11 @@ mod tests {
         contract_json, parse_diagnostic_hud_command, public_camera_metadata, public_runtime_config,
         CameraColorMode, CameraFeedPipelineMode, CameraFrameAdoptionMode,
         CameraImportImageLayoutMode, CameraOrientationDiagnosticMode, CameraPipelinePreset,
-        CameraProjectionEffectMode, CameraProjectionMode, CameraSamplerBindingMode,
-        EnvironmentDepthMode, HandParticleMode, JavaCameraExtrinsics, JavaCameraFrameMetadata,
-        JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind, JavaRuntimeConfig,
-        OpenXrColorFormatMode, OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode,
-        StereoSourceEyeMapping,
+        CameraProjectionAlphaMode, CameraProjectionEffectMode, CameraProjectionMode,
+        CameraSamplerBindingMode, EnvironmentDepthMode, HandParticleMode, JavaCameraExtrinsics,
+        JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind,
+        JavaRuntimeConfig, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
+        OpenXrPassthroughStyleMode, StereoSourceEyeMapping,
     };
     use rusty_xr_contracts::{
         CameraCompositeTier, CameraImageRotation, CameraPixelDomainKind, ImageSize,
@@ -3968,6 +4117,7 @@ mod tests {
             camera_projection_fov_y_degrees: Some(92.0),
             camera_preview_fov_y_degrees: Some(60.0),
             camera_projection_scale: Some(0.75),
+            camera_projection_depth_meters: Some(1.25),
             camera_projection_area_scale_uv: Some(0.815),
             camera_projection_area_offset_x_uv: Some(0.125),
             camera_projection_area_offset_y_uv: Some(-0.25),
@@ -3980,6 +4130,9 @@ mod tests {
             camera_projection_area_corner_radius_uv: Some(0.0),
             camera_projection_area_opacity: Some(0.42),
             camera_projection_border_opacity: Some(0.85),
+            camera_projection_alpha_mode: Some("green".to_string()),
+            camera_projection_alpha_scale: Some(1.5),
+            camera_projection_alpha_bias: Some(-0.1),
             camera_raw_overlay_overscan: Some(1.06),
             camera_full_view_overlay_overscan: Some(2.15),
             camera_edge_fade: Some(0.06),
@@ -4075,6 +4228,7 @@ mod tests {
         assert_eq!(config.camera_projection_fov_y_degrees, 92.0);
         assert_eq!(config.camera_preview_fov_y_degrees, 60.0);
         assert_eq!(config.camera_projection_scale, 0.75);
+        assert_eq!(config.camera_projection_depth_meters, 1.25);
         assert_eq!(config.camera_projection_area_scale_uv, 0.815);
         assert_eq!(config.camera_projection_area_offset_x_uv, 0.125);
         assert_eq!(config.camera_projection_area_offset_y_uv, -0.25);
@@ -4095,6 +4249,12 @@ mod tests {
         assert_eq!(config.camera_projection_area_corner_radius_uv, 0.0);
         assert_eq!(config.camera_projection_area_opacity, 0.42);
         assert_eq!(config.camera_projection_border_opacity, 0.85);
+        assert_eq!(
+            config.camera_projection_alpha_mode,
+            CameraProjectionAlphaMode::Green
+        );
+        assert_eq!(config.camera_projection_alpha_scale, 1.5);
+        assert_eq!(config.camera_projection_alpha_bias, -0.1);
         assert_eq!(config.camera_raw_overlay_overscan, 1.06);
         assert_eq!(config.camera_full_view_overlay_overscan, 2.15);
         assert_eq!(config.camera_edge_fade, 0.06);

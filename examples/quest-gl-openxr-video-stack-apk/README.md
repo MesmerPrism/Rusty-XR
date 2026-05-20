@@ -150,6 +150,13 @@ pixels and `rustyxr.projectionBorderOpacity=<0..1>` to fade the solid-red
 outside-projection region independently. Opacity below `1.0` requests
 source-alpha composition for the projection layer and the same optional native
 passthrough underlay path.
+Use `rustyxr.projectionAlphaMode=red|green|blue|luma` or an inverse variant
+when a stable projection should blend native passthrough by source color. The
+effective alpha is projection-area opacity multiplied by the selected mask with
+optional `rustyxr.projectionAlphaScale` and `rustyxr.projectionAlphaBias`.
+Use `rustyxr.projectionDepthMeters=<meters>` for the head-anchored projection
+surface depth. The default is `1.0`, and the value is emitted in projection
+contract markers so OES can be compared directly with HWB and Makepad.
 Set `rustyxr.processingLayer=blur` and `rustyxr.cameraBlurRadiusPx=<px>` to run
 the same valid projected camera samples through the public 9-tap diagnostic blur
 layer. Leave `rustyxr.processingLayer=raw` for projection-only checks.

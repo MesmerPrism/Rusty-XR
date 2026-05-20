@@ -36,6 +36,8 @@ before reading chronological plans or investigation logs.
   source-only Rust client probe for broker status and commands.
 - [Makepad comparison shell](../examples/makepad-q2q-camera-shell/README.md):
   standalone Makepad-first comparison lane.
+- [Unity example integration](UNITY_EXAMPLE_INTEGRATION.md): relationship with
+  the canonical public Unity comparison target.
 
 ## Extraction Gate
 
@@ -70,6 +72,8 @@ before reading chronological plans or investigation logs.
   toolchain and Quest source-build notes.
 - [Companion integration](RUSTY_XR_COMPANION_INTEGRATION.md): shared catalog
   schema and companion-tool boundary.
+- [Unity broker adapter contract](UNITY_BROKER_ADAPTER_CONTRACT.md): source-only
+  Unity adapter boundary and validation shape.
 - [Media pipeline and permissions](MEDIA_PIPELINE_AND_PERMISSIONS.md): Android
   media permissions, platform codecs, and optional external sidecars.
 

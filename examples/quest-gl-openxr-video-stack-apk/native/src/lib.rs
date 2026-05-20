@@ -111,7 +111,7 @@ mod android {
     const OES_COPY_RENDER_PATH: &str = "broker-h264-oes-full-surface-copy";
     const OES_PROJECTED_RENDER_PATH: &str = "broker-h264-oes-projected-camera-uv";
     const DIRECT_CAMERA2_OES_SOURCE: &str = "app.camera2_oes_surface_texture";
-    const PROJECTION_TARGET_DEPTH_METERS: f32 = 0.75;
+    const DEFAULT_PROJECTION_TARGET_DEPTH_METERS: f32 = 1.0;
     const PROJECTION_PREVIEW_FOV_Y_DEGREES: f32 = 60.0;
     const PROJECTION_RAW_OVERSCAN: f32 = 1.06;
     const PROJECTION_SOURCE_ASPECT: f32 = 1.0;
@@ -167,10 +167,12 @@ mod android {
             self,
             projection_area_opacity: f32,
             projection_border_opacity: f32,
+            projection_alpha_mode: OesProjectionAlphaMode,
         ) -> bool {
             self.uses_source_alpha()
                 || projection_area_opacity < 0.999
                 || projection_border_opacity < 0.999
+                || projection_alpha_mode.uses_dynamic_alpha()
         }
 
         const fn clear_color(self) -> (f32, f32, f32, f32) {
@@ -179,6 +181,105 @@ mod android {
                 Self::DiagnosticSplit => (0.36, 0.0, 0.28, 1.0),
                 Self::PassthroughUnderlay => (0.0, 0.0, 0.0, 0.0),
             }
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    enum OesProjectionAlphaMode {
+        #[default]
+        Fixed,
+        Red,
+        Green,
+        Blue,
+        Luma,
+        InverseRed,
+        InverseGreen,
+        InverseBlue,
+        InverseLuma,
+        RedDominance,
+        GreenDominance,
+        BlueDominance,
+        Saturation,
+        InverseSaturation,
+    }
+
+    impl OesProjectionAlphaMode {
+        fn parse(value: &str) -> Option<Self> {
+            match value.trim().to_ascii_lowercase().as_str() {
+                "" | "fixed" | "none" | "constant" | "area-opacity" | "opacity" => {
+                    Some(Self::Fixed)
+                }
+                "red" | "r" | "channel-r" => Some(Self::Red),
+                "green" | "g" | "channel-g" => Some(Self::Green),
+                "blue" | "b" | "channel-b" => Some(Self::Blue),
+                "luma" | "luminance" | "brightness" | "value" => Some(Self::Luma),
+                "inverse-red" | "red-inverse" | "inv-red" | "one-minus-red" | "1-red" | "1-r" => {
+                    Some(Self::InverseRed)
+                }
+                "inverse-green" | "green-inverse" | "inv-green" | "one-minus-green" | "1-green"
+                | "1-g" => Some(Self::InverseGreen),
+                "inverse-blue" | "blue-inverse" | "inv-blue" | "one-minus-blue" | "1-blue"
+                | "1-b" => Some(Self::InverseBlue),
+                "inverse-luma" | "luma-inverse" | "inv-luma" | "inverse-brightness"
+                | "one-minus-luma" | "1-luma" | "1-brightness" => Some(Self::InverseLuma),
+                "red-dominance" | "dominant-red" | "red-key" | "red-chroma" | "red-minus-max" => {
+                    Some(Self::RedDominance)
+                }
+                "green-dominance" | "dominant-green" | "green-key" | "green-chroma"
+                | "green-minus-max" | "screen-green" => Some(Self::GreenDominance),
+                "blue-dominance" | "dominant-blue" | "blue-key" | "blue-chroma"
+                | "blue-minus-max" => Some(Self::BlueDominance),
+                "saturation" | "chroma" | "max-min" | "colorfulness" => Some(Self::Saturation),
+                "inverse-saturation"
+                | "saturation-inverse"
+                | "inverse-chroma"
+                | "inv-chroma"
+                | "one-minus-saturation"
+                | "1-saturation" => Some(Self::InverseSaturation),
+                _ => None,
+            }
+        }
+
+        const fn stable_id(self) -> &'static str {
+            match self {
+                Self::Fixed => "fixed",
+                Self::Red => "red",
+                Self::Green => "green",
+                Self::Blue => "blue",
+                Self::Luma => "luma",
+                Self::InverseRed => "inverse-red",
+                Self::InverseGreen => "inverse-green",
+                Self::InverseBlue => "inverse-blue",
+                Self::InverseLuma => "inverse-luma",
+                Self::RedDominance => "red-dominance",
+                Self::GreenDominance => "green-dominance",
+                Self::BlueDominance => "blue-dominance",
+                Self::Saturation => "saturation",
+                Self::InverseSaturation => "inverse-saturation",
+            }
+        }
+
+        const fn shader_id(self) -> c_int {
+            match self {
+                Self::Fixed => 0,
+                Self::Red => 1,
+                Self::Green => 2,
+                Self::Blue => 3,
+                Self::Luma => 4,
+                Self::InverseRed => 5,
+                Self::InverseGreen => 6,
+                Self::InverseBlue => 7,
+                Self::InverseLuma => 8,
+                Self::RedDominance => 9,
+                Self::GreenDominance => 10,
+                Self::BlueDominance => 11,
+                Self::Saturation => 12,
+                Self::InverseSaturation => 13,
+            }
+        }
+
+        const fn uses_dynamic_alpha(self) -> bool {
+            !matches!(self, Self::Fixed)
         }
     }
 
@@ -511,6 +612,7 @@ mod android {
         let projection_border_policy = projection_border_policy_from_activity(&app);
         let processing_layer = processing_layer_from_activity(&app);
         let blur_radius_px = blur_radius_px_from_activity(&app);
+        let projection_depth_meters = projection_depth_meters_from_activity(&app);
         let projection_area_offset_x_uv = projection_area_offset_x_uv_from_activity(&app);
         let projection_area_offset_y_uv = projection_area_offset_y_uv_from_activity(&app);
         let projection_area_offset_uv = [projection_area_offset_x_uv, projection_area_offset_y_uv];
@@ -521,9 +623,15 @@ mod android {
         let projection_area_corner_radius_uv = projection_area_corner_radius_uv_from_activity(&app);
         let projection_area_opacity = projection_area_opacity_from_activity(&app);
         let projection_border_opacity = projection_border_opacity_from_activity(&app);
+        let projection_alpha_mode = projection_alpha_mode_from_activity(&app);
+        let projection_alpha_scale = projection_alpha_scale_from_activity(&app);
+        let projection_alpha_bias = projection_alpha_bias_from_activity(&app);
         let camera_color_controls = camera_color_controls_from_activity(&app);
-        let projection_uses_source_alpha = projection_border_policy
-            .needs_source_alpha(projection_area_opacity, projection_border_opacity);
+        let projection_uses_source_alpha = projection_border_policy.needs_source_alpha(
+            projection_area_opacity,
+            projection_border_opacity,
+            projection_alpha_mode,
+        );
         let native_passthrough_underlay_requested = projection_uses_source_alpha;
 
         let entry = unsafe { xr::Entry::load().map_err(|error| format!("load OpenXR: {error}"))? };
@@ -606,12 +714,17 @@ mod android {
             projection_area_eye_offset_uv[1],
             projection_area_radius,
             projection_area_scale,
+            projection_alpha_mode,
+            projection_alpha_scale,
+            projection_alpha_bias,
+            projection_depth_meters,
         );
         log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
             projection_border_policy.stable_id(),
             processing_layer.stable_id(),
             blur_radius_px,
+            projection_depth_meters,
             projection_area_offset_x_uv,
             projection_area_offset_y_uv,
             projection_area_eye_offset_uv[0][0],
@@ -625,6 +738,9 @@ mod android {
             projection_area_corner_radius_uv,
             projection_area_opacity,
             projection_border_opacity,
+            projection_alpha_mode.stable_id(),
+            projection_alpha_scale,
+            projection_alpha_bias,
             projection_area_target_fields,
             native_passthrough_underlay_requested,
             enabled_extensions.fb_passthrough,
@@ -810,6 +926,7 @@ mod android {
                         &views,
                         projection_area_eye_offset_uv,
                         projection_area_scale,
+                        projection_depth_meters,
                     )
                 });
                 let openxr_projection_fields = openxr_projection_contract_fields(
@@ -835,6 +952,9 @@ mod android {
                     projection_area_corner_radius_uv,
                     projection_area_opacity,
                     projection_border_opacity,
+                    projection_alpha_mode,
+                    projection_alpha_scale,
+                    projection_alpha_bias,
                     camera_color_controls,
                     &openxr_projection_fields,
                     &projection_area_target_fields,
@@ -1343,6 +1463,9 @@ mod android {
         projection_area_corner_radius_uv: f32,
         projection_area_opacity: f32,
         projection_border_opacity: f32,
+        projection_alpha_mode: OesProjectionAlphaMode,
+        projection_alpha_scale: f32,
+        projection_alpha_bias: f32,
         camera_color_controls: OesColorControls,
         openxr_projection_fields: &str,
         projection_area_target_fields: &str,
@@ -1396,6 +1519,9 @@ mod android {
                         projection_area_corner_radius_uv,
                         projection_area_opacity,
                         projection_border_opacity,
+                        projection_alpha_mode,
+                        projection_alpha_scale,
+                        projection_alpha_bias,
                         camera_color_controls,
                     ) {
                         Ok(fbo_status) => {
@@ -1529,6 +1655,8 @@ mod android {
         projection_area_corner_radius_uv_location: c_int,
         projection_area_opacity_location: c_int,
         projection_border_opacity_location: c_int,
+        projection_alpha_mode_location: c_int,
+        projection_alpha_transform_location: c_int,
         source_texel_size_location: c_int,
         color_matrix_r0_location: c_int,
         color_matrix_r1_location: c_int,
@@ -1571,6 +1699,8 @@ uniform vec2 u_projection_area_radius;
 uniform float u_projection_area_corner_radius_uv;
 uniform float u_projection_area_opacity;
 uniform float u_projection_border_opacity;
+uniform int u_projection_alpha_mode;
+uniform vec2 u_projection_alpha_transform;
 uniform vec2 u_source_texel_size;
 uniform vec3 u_color_matrix_r0;
 uniform vec3 u_color_matrix_r1;
@@ -1639,8 +1769,61 @@ vec3 adjusted_camera_rgb(vec2 uv) {
         vec3(0.5 + u_color_adjust.y);
     return clamp(adjusted_rgb, vec3(0.0), vec3(1.0));
 }
+float projection_alpha_mask(vec3 rgb) {
+    vec3 color = clamp(rgb, vec3(0.0), vec3(1.0));
+    float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    float max_channel = max(max(color.r, color.g), color.b);
+    float min_channel = min(min(color.r, color.g), color.b);
+    float saturation = max_channel - min_channel;
+    if (u_projection_alpha_mode == 1) {
+        return color.r;
+    }
+    if (u_projection_alpha_mode == 2) {
+        return color.g;
+    }
+    if (u_projection_alpha_mode == 3) {
+        return color.b;
+    }
+    if (u_projection_alpha_mode == 4) {
+        return luma;
+    }
+    if (u_projection_alpha_mode == 5) {
+        return 1.0 - color.r;
+    }
+    if (u_projection_alpha_mode == 6) {
+        return 1.0 - color.g;
+    }
+    if (u_projection_alpha_mode == 7) {
+        return 1.0 - color.b;
+    }
+    if (u_projection_alpha_mode == 8) {
+        return 1.0 - luma;
+    }
+    if (u_projection_alpha_mode == 9) {
+        return max(color.r - max(color.g, color.b), 0.0);
+    }
+    if (u_projection_alpha_mode == 10) {
+        return max(color.g - max(color.r, color.b), 0.0);
+    }
+    if (u_projection_alpha_mode == 11) {
+        return max(color.b - max(color.r, color.g), 0.0);
+    }
+    if (u_projection_alpha_mode == 12) {
+        return saturation;
+    }
+    if (u_projection_alpha_mode == 13) {
+        return 1.0 - saturation;
+    }
+    return 1.0;
+}
+float projection_color_alpha(vec3 rgb) {
+    float mask = projection_alpha_mask(rgb) * max(u_projection_alpha_transform.x, 0.0) +
+        u_projection_alpha_transform.y;
+    return clamp(u_projection_area_opacity * clamp(mask, 0.0, 1.0), 0.0, 1.0);
+}
 vec4 camera_sample(vec2 uv) {
-    return premultiplied_alpha_color(adjusted_camera_rgb(uv), u_projection_area_opacity);
+    vec3 rgb = adjusted_camera_rgb(uv);
+    return premultiplied_alpha_color(rgb, projection_color_alpha(rgb));
 }
 vec4 blurred_camera_sample(vec2 uv) {
     float radius = max(u_blur_radius_px, 0.0);
@@ -1660,12 +1843,11 @@ vec4 blurred_camera_sample(vec2 uv) {
         adjusted_camera_rgb(sample_uv - texel) +
         adjusted_camera_rgb(sample_uv + vec2(texel.x, -texel.y)) +
         adjusted_camera_rgb(sample_uv + vec2(-texel.x, texel.y));
-    return premultiplied_alpha_color(
-        center + axis * 0.12 + diag * 0.04,
-        u_projection_area_opacity
-    );
+    vec3 rgb = center + axis * 0.12 + diag * 0.04;
+    return premultiplied_alpha_color(rgb, projection_color_alpha(rgb));
 }
 void main() {
+    vec2 screen_uv = v_uv;
     vec2 projection_scale = max(u_projection_area_scale, vec2(0.05));
     vec2 requested_projection_area_offset_uv = u_eye_index == 0
         ? u_projection_area_eye_offset_uv.xy
@@ -1675,7 +1857,7 @@ void main() {
         clamp(-requested_projection_area_offset_uv.y, -0.5, 0.5)
     );
     vec2 projection_area_uv =
-        (v_uv - vec2(0.5)) * projection_scale + vec2(0.5) -
+        (screen_uv - vec2(0.5)) * projection_scale + vec2(0.5) -
         projection_area_offset_uv;
     float area_distance = projection_area_distance(projection_area_uv);
     if (area_distance > 1.0) {
@@ -1686,7 +1868,7 @@ void main() {
     if (u_content_mapping_mode == 1) {
         camera_uv = projection_area_content_uv(projection_area_uv);
     } else {
-        vec3 input_uv = vec3(v_uv, 1.0);
+        vec3 input_uv = vec3(screen_uv, 1.0);
         vec3 camera_uv_h = vec3(
             dot(u_screen_to_camera_h0, input_uv),
             dot(u_screen_to_camera_h1, input_uv),
@@ -1746,6 +1928,8 @@ void main() {
                     uniform_location(program, "u_projection_area_corner_radius_uv")?,
                     uniform_location(program, "u_projection_area_opacity")?,
                     uniform_location(program, "u_projection_border_opacity")?,
+                    uniform_location(program, "u_projection_alpha_mode")?,
+                    uniform_location(program, "u_projection_alpha_transform")?,
                     uniform_location(program, "u_source_texel_size")?,
                     uniform_location(program, "u_color_matrix_r0")?,
                     uniform_location(program, "u_color_matrix_r1")?,
@@ -1771,6 +1955,8 @@ void main() {
                 projection_area_corner_radius_uv_location,
                 projection_area_opacity_location,
                 projection_border_opacity_location,
+                projection_alpha_mode_location,
+                projection_alpha_transform_location,
                 source_texel_size_location,
                 color_matrix_r0_location,
                 color_matrix_r1_location,
@@ -1829,6 +2015,8 @@ void main() {
                 projection_area_corner_radius_uv_location,
                 projection_area_opacity_location,
                 projection_border_opacity_location,
+                projection_alpha_mode_location,
+                projection_alpha_transform_location,
                 source_texel_size_location,
                 color_matrix_r0_location,
                 color_matrix_r1_location,
@@ -1854,6 +2042,9 @@ void main() {
             projection_area_corner_radius_uv: f32,
             projection_area_opacity: f32,
             projection_border_opacity: f32,
+            projection_alpha_mode: OesProjectionAlphaMode,
+            projection_alpha_scale: f32,
+            projection_alpha_bias: f32,
             source_texel_size: [f32; 2],
             color_controls: OesColorControls,
         ) -> Result<(), String> {
@@ -1910,6 +2101,15 @@ void main() {
                 glUniform1f(
                     self.projection_border_opacity_location,
                     projection_border_opacity.clamp(0.0, 1.0),
+                );
+                glUniform1i(
+                    self.projection_alpha_mode_location,
+                    projection_alpha_mode.shader_id(),
+                );
+                glUniform2f(
+                    self.projection_alpha_transform_location,
+                    projection_alpha_scale.clamp(0.0, 4.0),
+                    projection_alpha_bias.clamp(-1.0, 1.0),
                 );
                 glUniform2f(
                     self.source_texel_size_location,
@@ -2254,6 +2454,9 @@ void main() {
             projection_area_corner_radius_uv: f32,
             projection_area_opacity: f32,
             projection_border_opacity: f32,
+            projection_alpha_mode: OesProjectionAlphaMode,
+            projection_alpha_scale: f32,
+            projection_alpha_bias: f32,
             camera_color_controls: OesColorControls,
         ) -> Result<GlFramebufferCompleteness, String> {
             unsafe {
@@ -2300,6 +2503,9 @@ void main() {
                     projection_area_corner_radius_uv,
                     projection_area_opacity,
                     projection_border_opacity,
+                    projection_alpha_mode,
+                    projection_alpha_scale,
+                    projection_alpha_bias,
                     [
                         1.0 / DEFAULT_OES_SURFACE_WIDTH.max(1) as f32,
                         1.0 / DEFAULT_OES_SURFACE_HEIGHT.max(1) as f32,
@@ -3162,6 +3368,7 @@ void main() {
             views: &[xr::View],
             projection_area_eye_offset_uv: [[f32; 2]; 2],
             projection_area_scale: [f32; 2],
+            projection_depth_meters: f32,
         ) -> Option<OesProjectionPlan> {
             let left = self.projection_metadata[0].as_ref()?;
             let right = self.projection_metadata[1].as_ref()?;
@@ -3185,6 +3392,7 @@ void main() {
                     views,
                     projection_area_eye_offset_uv,
                     projection_area_scale,
+                    projection_depth_meters,
                 )
             } else if left.is_camera_matched_synthetic()
                 && right.is_camera_matched_synthetic()
@@ -3199,6 +3407,7 @@ void main() {
                     views,
                     projection_area_eye_offset_uv,
                     projection_area_scale,
+                    projection_depth_meters,
                 )
             } else if left.is_synthetic() && right.is_synthetic() {
                 broker_synthetic_projection_plan_from_xr_views(
@@ -3209,6 +3418,7 @@ void main() {
                     views,
                     projection_area_eye_offset_uv,
                     projection_area_scale,
+                    projection_depth_meters,
                 )
             } else if left.has_camera2_projection() && right.has_camera2_projection() {
                 camera2_projection_plan_from_xr_views(
@@ -3219,6 +3429,7 @@ void main() {
                     views,
                     projection_area_eye_offset_uv,
                     projection_area_scale,
+                    projection_depth_meters,
                 )
             } else {
                 None
@@ -3381,6 +3592,7 @@ void main() {
         views: &[xr::View],
         projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
+        projection_depth_meters: f32,
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
@@ -3389,7 +3601,7 @@ void main() {
         let surface = head_anchored_preview_surface_corners(
             tracking,
             PROJECTION_PREVIEW_FOV_Y_DEGREES,
-            PROJECTION_TARGET_DEPTH_METERS,
+            projection_depth_meters,
             aspect,
             PROJECTION_RAW_OVERSCAN,
         )
@@ -3443,8 +3655,22 @@ void main() {
             projection_area_eye_offset_uv[1],
             projection_area_scale,
         );
-        let left_source_label = projection_source_label(left_metadata, width, height);
-        let right_source_label = projection_source_label(right_metadata, width, height);
+        let left_use_surface_texture_transform =
+            !left_metadata.has_explicit_top_left_stimulus_orientation();
+        let right_use_surface_texture_transform =
+            !right_metadata.has_explicit_top_left_stimulus_orientation();
+        let left_source_label = projection_source_label(
+            left_metadata,
+            width,
+            height,
+            left_use_surface_texture_transform,
+        );
+        let right_source_label = projection_source_label(
+            right_metadata,
+            width,
+            height,
+            right_use_surface_texture_transform,
+        );
 
         Some(OesProjectionPlan {
             left: OesEyeProjection {
@@ -3455,8 +3681,7 @@ void main() {
                 screen_to_camera_h: left_screen_to_camera_h,
                 source_label: left_source_label,
                 source_eye: "left".to_string(),
-                use_surface_texture_transform: !left_metadata
-                    .has_explicit_top_left_stimulus_orientation(),
+                use_surface_texture_transform: left_use_surface_texture_transform,
                 content_mapping_mode: OesContentMappingMode::CameraProjection,
             },
             right: OesEyeProjection {
@@ -3467,8 +3692,7 @@ void main() {
                 screen_to_camera_h: right_screen_to_camera_h,
                 source_label: right_source_label,
                 source_eye: "right".to_string(),
-                use_surface_texture_transform: !right_metadata
-                    .has_explicit_top_left_stimulus_orientation(),
+                use_surface_texture_transform: right_use_surface_texture_transform,
                 content_mapping_mode: OesContentMappingMode::CameraProjection,
             },
         })
@@ -3482,6 +3706,7 @@ void main() {
         views: &[xr::View],
         projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
+        projection_depth_meters: f32,
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
@@ -3490,7 +3715,7 @@ void main() {
         let surface = head_anchored_preview_surface_corners(
             tracking,
             PROJECTION_PREVIEW_FOV_Y_DEGREES,
-            PROJECTION_TARGET_DEPTH_METERS,
+            projection_depth_meters,
             aspect,
             PROJECTION_RAW_OVERSCAN,
         )
@@ -3526,8 +3751,8 @@ void main() {
             projection_area_scale,
         );
         let identity = identity_homography();
-        let left_source_label = projection_source_label(left_metadata, width, height);
-        let right_source_label = projection_source_label(right_metadata, width, height);
+        let left_source_label = projection_source_label(left_metadata, width, height, true);
+        let right_source_label = projection_source_label(right_metadata, width, height, true);
 
         Some(OesProjectionPlan {
             left: OesEyeProjection {
@@ -3563,6 +3788,7 @@ void main() {
         views: &[xr::View],
         projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
+        projection_depth_meters: f32,
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
@@ -3571,7 +3797,7 @@ void main() {
         let surface = head_anchored_preview_surface_corners(
             tracking,
             PROJECTION_PREVIEW_FOV_Y_DEGREES,
-            PROJECTION_TARGET_DEPTH_METERS,
+            projection_depth_meters,
             aspect,
             PROJECTION_RAW_OVERSCAN,
         )
@@ -3640,8 +3866,8 @@ void main() {
             projection_area_eye_offset_uv[1],
             projection_area_scale,
         );
-        let left_source_label = projection_source_label(left_metadata, width, height);
-        let right_source_label = projection_source_label(right_metadata, width, height);
+        let left_source_label = projection_source_label(left_metadata, width, height, true);
+        let right_source_label = projection_source_label(right_metadata, width, height, true);
 
         Some(OesProjectionPlan {
             left: OesEyeProjection {
@@ -3673,6 +3899,7 @@ void main() {
         metadata: &OesProjectionMetadata,
         width: u32,
         height: u32,
+        use_surface_texture_transform: bool,
     ) -> String {
         let metadata_label = if metadata.is_synthetic() {
             "broker_stream_header"
@@ -3681,8 +3908,23 @@ void main() {
         } else {
             "camera2_stream_header"
         };
+        let source_sample_transform = if use_surface_texture_transform {
+            "surfaceTextureTransformMatrix"
+        } else {
+            "identity"
+        };
+        let source_sample_transform_owner = if use_surface_texture_transform {
+            "android-surface-texture"
+        } else {
+            "stimulus-orientation-metadata"
+        };
+        let source_sampler_y_axis = if use_surface_texture_transform {
+            "surface-texture-transform-defined"
+        } else {
+            "content-top-left-y-down"
+        };
         format!(
-            "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:contentUvRect=0,0,1,1",
+            "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:sourceUvContract=screen_to_camera_content_uv_to_oes_external_sampler:sourceHomographyOutputUv=content-normalized-top-left-y-down:sourceSampleInputUv=screen-to-camera-homography-output:sourceSampleTransformStage=post_homography_pre_oes_sample:sourceSampleTransform={}:sourceSampleTransformOwner={}:sourceSampleTransformApplied={}:sourceSampleOutputUv=oes-external-sampler-uv:sourceSamplerUvOrigin=android-surface-texture:sourceSamplerYAxis={}:sourceTextureTransformStage=post_homography_pre_oes_sample:sourceTextureTransformOwner=android-surface-texture:contentUvRect=0,0,1,1",
             metadata_label,
             metadata.source,
             metadata.camera_id,
@@ -3715,6 +3957,10 @@ void main() {
             metadata.content_mapping_intent,
             metadata.content_geometry_metadata_source,
             metadata.content_geometry_default,
+            source_sample_transform,
+            source_sample_transform_owner,
+            use_surface_texture_transform,
+            source_sampler_y_axis,
         )
     }
 
@@ -4115,6 +4361,26 @@ void main() {
             .clamp(0.0, 16.0)
     }
 
+    fn projection_depth_meters_from_activity(app: &android_activity::AndroidApp) -> f32 {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return DEFAULT_PROJECTION_TARGET_DEPTH_METERS;
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return DEFAULT_PROJECTION_TARGET_DEPTH_METERS;
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.projectionDepthMeters")
+            .or_else(|| {
+                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionDepthMeters")
+            })
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(DEFAULT_PROJECTION_TARGET_DEPTH_METERS)
+            .clamp(0.05, 10.0)
+    }
+
     fn projection_area_offset_x_uv_from_activity(app: &android_activity::AndroidApp) -> f32 {
         let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
             return 0.0;
@@ -4365,6 +4631,67 @@ void main() {
             .filter(|value| value.is_finite())
             .unwrap_or(1.0)
             .clamp(0.0, 1.0)
+    }
+
+    fn projection_alpha_mode_from_activity(
+        app: &android_activity::AndroidApp,
+    ) -> OesProjectionAlphaMode {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return OesProjectionAlphaMode::default();
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return OesProjectionAlphaMode::default();
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.projectionAlphaMode")
+            .or_else(|| {
+                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAlphaMode")
+            })
+            .as_deref()
+            .and_then(OesProjectionAlphaMode::parse)
+            .unwrap_or_default()
+    }
+
+    fn projection_alpha_scale_from_activity(app: &android_activity::AndroidApp) -> f32 {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return 1.0;
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return 1.0;
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.projectionAlphaScale")
+            .or_else(|| {
+                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAlphaScale")
+            })
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(1.0)
+            .clamp(0.0, 4.0)
+    }
+
+    fn projection_alpha_bias_from_activity(app: &android_activity::AndroidApp) -> f32 {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return 0.0;
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return 0.0;
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.projectionAlphaBias")
+            .or_else(|| {
+                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAlphaBias")
+            })
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(0.0)
+            .clamp(-1.0, 1.0)
     }
 
     fn camera_color_controls_from_activity(app: &android_activity::AndroidApp) -> OesColorControls {
@@ -4862,9 +5189,17 @@ void main() {
         right_offset_uv: [f32; 2],
         radius_uv: [f32; 2],
         scale_uv: [f32; 2],
+        projection_alpha_mode: OesProjectionAlphaMode,
+        projection_alpha_scale: f32,
+        projection_alpha_bias: f32,
+        projection_depth_meters: f32,
     ) -> String {
         format!(
-            "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+            "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionDepthMeters={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} rendererSurfaceUvOrigin=gles-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=gles-v-uv-direct-backend-bias-pending leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+            projection_depth_meters,
+            projection_alpha_mode.stable_id(),
+            projection_alpha_scale,
+            projection_alpha_bias,
             screen_uv_rect_token(projection_area_screen_uv_rect(left_offset_uv, radius_uv, scale_uv)),
             screen_uv_rect_token(projection_area_screen_uv_rect(right_offset_uv, radius_uv, scale_uv)),
             screen_uv_vec2_token(projection_area_center_uv(left_offset_uv, scale_uv)),

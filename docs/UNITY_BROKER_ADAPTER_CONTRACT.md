@@ -4,6 +4,9 @@ Status: public source-only adapter contract. This is a design target for Unity
 examples and downstream Unity projects; it is not a Unity package release,
 runtime compatibility claim, or endorsement by any external toolbox.
 
+The canonical public Unity comparison target is tracked in
+[Unity example integration](UNITY_EXAMPLE_INTEGRATION.md).
+
 ## Purpose
 
 A Unity broker adapter should let a Unity scene exchange typed Rusty XR broker

@@ -13,6 +13,7 @@ param(
     [ValidateSet("", "raw", "blur")]
     [string]$ProcessingLayer = "",
     [double]$BlurRadiusPx = [double]::NaN,
+    [double]$ProjectionDepthMeters = [double]::NaN,
     [double]$ProjectionAreaDiagnostic = [double]::NaN,
     [double]$ProjectionAreaLeftUv = [double]::NaN,
     [double]$ProjectionAreaRightUv = [double]::NaN,
@@ -24,6 +25,10 @@ param(
     [double]$ProjectionAreaCornerRadiusUv = [double]::NaN,
     [double]$ProjectionAreaKeystoneX = [double]::NaN,
     [double]$ProjectionAreaBowX = [double]::NaN,
+    [ValidateSet("", "fixed", "red", "green", "blue", "luma", "inverse-red", "inverse-green", "inverse-blue", "inverse-luma", "red-dominance", "green-dominance", "blue-dominance", "saturation", "inverse-saturation")]
+    [string]$ProjectionAlphaMode = "",
+    [double]$ProjectionAlphaScale = [double]::NaN,
+    [double]$ProjectionAlphaBias = [double]::NaN,
     [switch]$Reset
 )
 
@@ -78,6 +83,7 @@ $properties = [ordered]@{
     NativePassthroughEnabled = "debug.rustyxr.makepad.native.passthrough.enabled"
     ProcessingLayer = "debug.rustyxr.makepad.processing.layer"
     BlurRadiusPx = "debug.rustyxr.makepad.blur.radius.px"
+    ProjectionDepthMeters = "debug.rustyxr.projection.depth.meters"
     ProjectionAreaDiagnostic = "debug.rustyxr.makepad.projection.area.diagnostic"
     ProjectionAreaLeftUv = "debug.rustyxr.makepad.projection.area.offset.left.uv"
     ProjectionAreaRightUv = "debug.rustyxr.makepad.projection.area.offset.right.uv"
@@ -89,6 +95,9 @@ $properties = [ordered]@{
     ProjectionAreaCornerRadiusUv = "debug.rustyxr.makepad.projection.area.corner.radius.uv"
     ProjectionAreaKeystoneX = "debug.rustyxr.makepad.projection.area.keystone.x"
     ProjectionAreaBowX = "debug.rustyxr.makepad.projection.area.bow.x"
+    ProjectionAlphaMode = "debug.rustyxr.makepad.projection.alpha.mode"
+    ProjectionAlphaScale = "debug.rustyxr.makepad.projection.alpha.scale"
+    ProjectionAlphaBias = "debug.rustyxr.makepad.projection.alpha.bias"
 }
 
 if ($Reset) {
@@ -102,6 +111,7 @@ if ($Reset) {
     $ProjectionBorderPolicy = "solid-red"
     $ProcessingLayer = "raw"
     $BlurRadiusPx = 2.0
+    $ProjectionDepthMeters = 1.0
     $ProjectionAreaDiagnostic = 0.0
     $ProjectionAreaLeftUv = 0.0
     $ProjectionAreaRightUv = 0.0
@@ -113,6 +123,9 @@ if ($Reset) {
     $ProjectionAreaCornerRadiusUv = 0.0
     $ProjectionAreaKeystoneX = 0.0
     $ProjectionAreaBowX = 0.0
+    $ProjectionAlphaMode = "fixed"
+    $ProjectionAlphaScale = 1.0
+    $ProjectionAlphaBias = 0.0
 }
 
 if (-not [double]::IsNaN($SymmetricUv)) {
@@ -129,6 +142,7 @@ Assert-Range -Name "SymmetricUv" -Value $SymmetricUv -Min -0.5 -Max 0.5
 Assert-Range -Name "ContentScale" -Value $ContentScale -Min 1.0 -Max 2.4
 Assert-Range -Name "ProjectionBorderStrength" -Value $ProjectionBorderStrength -Min 0.0 -Max 1.0
 Assert-Range -Name "BlurRadiusPx" -Value $BlurRadiusPx -Min 0.0 -Max 16.0
+Assert-Range -Name "ProjectionDepthMeters" -Value $ProjectionDepthMeters -Min 0.05 -Max 10.0
 Assert-Range -Name "ProjectionAreaDiagnostic" -Value $ProjectionAreaDiagnostic -Min 0.0 -Max 2.0
 Assert-Range -Name "ProjectionAreaLeftUv" -Value $ProjectionAreaLeftUv -Min -0.5 -Max 0.5
 Assert-Range -Name "ProjectionAreaRightUv" -Value $ProjectionAreaRightUv -Min -0.5 -Max 0.5
@@ -140,6 +154,8 @@ Assert-Range -Name "ProjectionAreaRadiusYUv" -Value $ProjectionAreaRadiusYUv -Mi
 Assert-Range -Name "ProjectionAreaCornerRadiusUv" -Value $ProjectionAreaCornerRadiusUv -Min 0.0 -Max 0.5
 Assert-Range -Name "ProjectionAreaKeystoneX" -Value $ProjectionAreaKeystoneX -Min -0.45 -Max 0.45
 Assert-Range -Name "ProjectionAreaBowX" -Value $ProjectionAreaBowX -Min -0.25 -Max 0.25
+Assert-Range -Name "ProjectionAlphaScale" -Value $ProjectionAlphaScale -Min 0.0 -Max 4.0
+Assert-Range -Name "ProjectionAlphaBias" -Value $ProjectionAlphaBias -Min -1.0 -Max 1.0
 
 if (-not [double]::IsNaN($Strength)) {
     Set-Prop -Name $properties.Strength -Value $Strength
@@ -167,11 +183,20 @@ if ($ProjectionBorderPolicy) {
     $nativePassthrough = if ($ProjectionBorderPolicy -eq "passthrough-underlay") { "true" } else { "false" }
     Invoke-Adb -Arguments @("shell", "setprop", $properties.NativePassthroughEnabled, $nativePassthrough)
 }
+if ($ProjectionAlphaMode) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionAlphaMode, $ProjectionAlphaMode)
+    if ($ProjectionAlphaMode -ne "fixed") {
+        Invoke-Adb -Arguments @("shell", "setprop", $properties.NativePassthroughEnabled, "true")
+    }
+}
 if ($ProcessingLayer) {
     Invoke-Adb -Arguments @("shell", "setprop", $properties.ProcessingLayer, $ProcessingLayer)
 }
 if (-not [double]::IsNaN($BlurRadiusPx)) {
     Set-Prop -Name $properties.BlurRadiusPx -Value $BlurRadiusPx
+}
+if (-not [double]::IsNaN($ProjectionDepthMeters)) {
+    Set-Prop -Name $properties.ProjectionDepthMeters -Value $ProjectionDepthMeters
 }
 if (-not [double]::IsNaN($ProjectionAreaDiagnostic)) {
     Set-Prop -Name $properties.ProjectionAreaDiagnostic -Value $ProjectionAreaDiagnostic
@@ -205,6 +230,12 @@ if (-not [double]::IsNaN($ProjectionAreaKeystoneX)) {
 }
 if (-not [double]::IsNaN($ProjectionAreaBowX)) {
     Set-Prop -Name $properties.ProjectionAreaBowX -Value $ProjectionAreaBowX
+}
+if (-not [double]::IsNaN($ProjectionAlphaScale)) {
+    Set-Prop -Name $properties.ProjectionAlphaScale -Value $ProjectionAlphaScale
+}
+if (-not [double]::IsNaN($ProjectionAlphaBias)) {
+    Set-Prop -Name $properties.ProjectionAlphaBias -Value $ProjectionAlphaBias
 }
 
 $readback = foreach ($property in $properties.GetEnumerator()) {

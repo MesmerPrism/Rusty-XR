@@ -117,6 +117,17 @@ function Save-AdbTextCapture {
     Write-Utf8TextFile -Path $OutputPath -Value ((Invoke-Adb -Arguments $Arguments) -join [Environment]::NewLine)
 }
 
+function Save-OptionalRunAsFileCapture {
+    param(
+        [string]$Package,
+        [string]$RemotePath,
+        [string]$OutputPath
+    )
+    $escapedPath = $RemotePath.Replace("'", "'\''")
+    $script = "cat '$escapedPath' 2>/dev/null || echo optional file missing: $RemotePath"
+    Save-AdbTextCapture -Arguments @("shell", "run-as", $Package, "sh", "-c", $script) -OutputPath $OutputPath
+}
+
 function Resolve-ProcessFileName {
     param([string]$FileName)
     if ([System.IO.Path]::IsPathRooted($FileName) -or (Split-Path -Path $FileName -Parent)) {
@@ -602,7 +613,7 @@ function Capture-Artifacts {
     Save-AdbTextCapture -Arguments @("shell", "dumpsys", "battery") -OutputPath (Join-Path $Dir "$Label-battery.txt")
     Save-AdbTextCapture -Arguments @("shell", "dumpsys", "power") -OutputPath (Join-Path $Dir "$Label-power.txt")
     Save-AdbTextCapture -Arguments @("shell", "dumpsys", "vrpowermanager") -OutputPath (Join-Path $Dir "$Label-vrpowermanager.txt")
-    Save-AdbTextCapture -Arguments @("shell", "run-as", $Package, "cat", "files/camera-source-diagnostics.json") -OutputPath (Join-Path $Dir "$Label-camera-source-diagnostics.json")
+    Save-OptionalRunAsFileCapture -Package $Package -RemotePath "files/camera-source-diagnostics.json" -OutputPath (Join-Path $Dir "$Label-camera-source-diagnostics.json")
     Invoke-RunValidation -Dir $Dir -Label $Label
 }
 

@@ -187,11 +187,11 @@ not as blur evidence.
 
 ## Public Control Map
 
-| Renderer family | Raw border control | Projection-area opacity | Border opacity | Blur control |
-| --- | --- | --- | --- | --- |
-| Vulkan/HWB | `rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `rustyxr.cameraProjectionAreaOpacity` | `rustyxr.cameraProjectionBorderOpacity` | `raw-projection-blur-solid-red-unorm` or `raw-projection-blur-underlay-unorm`, plus `rustyxr.cameraBlurRadiusPx` |
-| GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
-| Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.projection.area.opacity` | `debug.rustyxr.makepad.projection.border.opacity` | `debug.rustyxr.makepad.processing.layer=blur`, plus `debug.rustyxr.makepad.blur.radius.px` |
+| Renderer family | Raw border control | Projection-area opacity | Border opacity | Color-derived alpha | Blur control |
+| --- | --- | --- | --- | --- | --- |
+| Vulkan/HWB | `rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `rustyxr.cameraProjectionAreaOpacity` | `rustyxr.cameraProjectionBorderOpacity` | `rustyxr.cameraProjectionAlphaMode`, `rustyxr.cameraProjectionAlphaScale`, `rustyxr.cameraProjectionAlphaBias` | `raw-projection-blur-solid-red-unorm` or `raw-projection-blur-underlay-unorm`, plus `rustyxr.cameraBlurRadiusPx` |
+| GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.projectionAlphaMode`, `rustyxr.projectionAlphaScale`, `rustyxr.projectionAlphaBias` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
+| Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.projection.area.opacity` | `debug.rustyxr.makepad.projection.border.opacity` | `debug.rustyxr.makepad.projection.alpha.mode`, `.scale`, `.bias` | `debug.rustyxr.makepad.processing.layer=blur`, plus `debug.rustyxr.makepad.blur.radius.px` |
 
 The suite-level `-ProjectionAreaOffsetXUv` and `-ProjectionAreaOffsetYUv`
 parameters forward the same screen-space sweep intent to each renderer through
@@ -201,10 +201,23 @@ hard-mask evidence is valid. If a lane needs a renderer-specific offset,
 document the owning layer and keep the adjustment out of source-content
 detection, texture-origin conversion, and blur processing.
 
+Color-derived alpha modes are blend witnesses for native-passthrough/manual
+alignment after the hard-mask geometry gate passes. Modes are `fixed`, `red`,
+`green`, `blue`, `luma`, and the four inverse variants; the final valid-camera
+alpha is area opacity multiplied by `clamp(mask * scale + bias)`. Do not use
+these masks to discover or hide screen-space coordinate errors.
+
+Projection surface depth is not a renderer-private constant. The suite-level
+`-ProjectionDepthMeters` default is `1.0` meter and is logged by all lanes as
+`cameraProjectionDepthMeters`, `projectionDepthMeters`, or the Makepad
+`debug.rustyxr.projection.depth.meters` property. Use lane-specific depth
+overrides only as named architecture experiments; otherwise all three lanes
+should share the same projection plane before alignment offsets are measured.
+
 For alignment runs, do not launch `fast075` HWB profiles. Those names belong to
 older performance comparisons and can hide a `cameraProjectionScale=0.75`
 footprint. Use the full-feed alignment profiles selected by the suite and keep
-any deliberate scale reduction explicit in the command summary.
+any deliberate scale or depth reduction explicit in the command summary.
 
 Prefer the full-suite runner for comparable public runs:
 

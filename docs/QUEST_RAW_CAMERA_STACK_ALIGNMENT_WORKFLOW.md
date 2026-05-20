@@ -53,6 +53,12 @@ Launch/profile behavior:
 - device performance level, refresh rate, render scale, foveation, and warmup;
 - projection border policy: `solid-red` for automated segmentation or
   `passthrough-underlay` for operator alignment against native passthrough;
+- projection surface depth in meters. The suite-level
+  `-ProjectionDepthMeters` default is forwarded as
+  `rustyxr.cameraProjectionDepthMeters` for Vulkan/HWB,
+  `rustyxr.projectionDepthMeters` for GL/OES, and
+  `debug.rustyxr.projection.depth.meters` for Makepad. Lane-specific depth
+  overrides must be logged rather than hidden in renderer constants;
 - projection-area offset sweep values such as
   `rustyxr.cameraProjectionAreaOffsetXUv`,
   `rustyxr.cameraProjectionAreaOffsetYUv`, `rustyxr.projectionAreaOffsetXUv`,
@@ -73,6 +79,10 @@ Launch/profile behavior:
   `rustyxr.cameraProjectionBorderOpacity`, `rustyxr.projectionAreaOpacity`,
   `rustyxr.projectionBorderOpacity`, and the matching Makepad
   `debug.rustyxr.makepad.projection.*.opacity` properties;
+- color-derived projection alpha controls such as
+  `rustyxr.cameraProjectionAlphaMode`, `rustyxr.projectionAlphaMode`, and
+  `debug.rustyxr.makepad.projection.alpha.mode`, with shared
+  scale/bias controls;
 - synthetic pattern selection when running broker-synthetic validation;
 - screenshot, HzDB, logcat, freshness, visual-stimulus, and comparison capture
   options.
@@ -136,7 +146,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
   -RuntimeProfile camera-stereo-gpu-composite-full-feed-alignment `
-  -Override rustyxr.cameraTargetFps=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.cameraProjectionAreaScaleUv=1,rustyxr.cameraProjectionAreaRadiusXUv=0.5,rustyxr.cameraProjectionAreaRadiusYUv=0.5,rustyxr.cameraProjectionAreaCornerRadiusUv=0 `
+  -Override rustyxr.cameraTargetFps=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.cameraProjectionDepthMeters=1,rustyxr.cameraProjectionAreaScaleUv=1,rustyxr.cameraProjectionAreaRadiusXUv=0.5,rustyxr.cameraProjectionAreaRadiusYUv=0.5,rustyxr.cameraProjectionAreaCornerRadiusUv=0 `
   -FreshnessFrames 6
 ```
 
@@ -149,7 +159,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
   -RuntimeProfile broker-h264-stereo-live-openxr-projection-full-feed-alignment `
-  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.cameraProjectionAreaScaleUv=1,rustyxr.cameraProjectionAreaRadiusXUv=0.5,rustyxr.cameraProjectionAreaRadiusYUv=0.5,rustyxr.cameraProjectionAreaCornerRadiusUv=0 `
+  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.cameraProjectionDepthMeters=1,rustyxr.cameraProjectionAreaScaleUv=1,rustyxr.cameraProjectionAreaRadiusXUv=0.5,rustyxr.cameraProjectionAreaRadiusYUv=0.5,rustyxr.cameraProjectionAreaCornerRadiusUv=0 `
   -FreshnessFrames 6
 ```
 
@@ -242,6 +252,15 @@ projection. Broker rows are not valid until their decoded texture counters are
 nonzero. For broker rows, add `-Lane broker -RestartBrokerBeforeBrokerRows` so
 stale live-stream sockets are cleared before each opacity row.
 
+For manual blending against native passthrough after geometry is stable, use
+`-ProjectionAlphaMode fixed|red|green|blue|luma|inverse-red|inverse-green|inverse-blue|inverse-luma`
+with optional `-ProjectionAlphaScale` and `-ProjectionAlphaBias`. The effective
+valid-camera alpha is `ProjectionAreaOpacity * clamp(mask * scale + bias)`.
+For example, `-ProjectionAlphaMode green` keeps green stimulus regions opaque
+while dark or non-green regions reveal the native passthrough underlay. Use this
+only as a blend/mask witness; solid-red raw gates remain the coordinate
+authority.
+
 For GL/OES color matching, keep the first pass scalar and neutral-constrained.
 Use native passthrough at `-ProjectionAreaOpacity 0` as the reference, then
 capture the uncorrected OES projection and one candidate with the same geometry
@@ -292,6 +311,9 @@ Use `-ProjectionAreaOpacity` for the projection-window fade and
 `-ProjectionBorderOpacity` for the non-projection area/border fade. Opacity
 changes must not move the camera projection area; rerun the solid-red
 screen-space analyzer after each geometry change.
+Use `-ProjectionAlphaMode` only after the hard-mask geometry contract is stable.
+Color-derived alpha is a projection-layer blend mask, not a source metadata,
+texture-origin, or OpenXR geometry correction.
 GL/OES source-alpha composition expects premultiplied RGB. Opacity-zero
 underlay witnesses are invalid if camera RGB remains visible, and that failure
 belongs to the texture/upload convention before any projection-area tuning.

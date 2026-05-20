@@ -127,6 +127,12 @@ SOURCE_FIELD_KEYS = (
     "passthroughUnderlay",
     "projectionAreaOpacity",
     "projectionBorderOpacity",
+    "projectionAlphaMode",
+    "projectionAlphaScale",
+    "projectionAlphaBias",
+    "cameraProjectionAlphaMode",
+    "cameraProjectionAlphaScale",
+    "cameraProjectionAlphaBias",
     "processingLayer",
     "blurRadiusPx",
     "stimulusRasterOrientation",
@@ -140,8 +146,20 @@ SOURCE_FIELD_KEYS = (
     "orientationMetadataSource",
     "orientationDefault",
     "orientationFallbackReason",
+    "sourceUvContract",
+    "sourceHomographyOutputUv",
+    "sourceSampleInputUv",
+    "sourceSampleTransformStage",
+    "sourceSampleTransform",
+    "sourceSampleTransformOwner",
+    "sourceSampleTransformApplied",
+    "sourceSampleOutputUv",
+    "sourceSamplerUvOrigin",
+    "sourceSamplerYAxis",
     "sourceSampleYFlip",
     "sourceSampleYFlipReason",
+    "sourceTextureTransformStage",
+    "sourceTextureTransformOwner",
     "diagnosticUvTransform",
     "displayScreenUvNormalization",
     "displayScreenUvOrigin",
@@ -476,6 +494,45 @@ def row_span(mask: np.ndarray, y: int) -> dict[str, Any]:
         "x_min_px": int(xs[0]),
         "x_max_px": int(xs[-1]),
         "width_px": int(xs[-1] - xs[0] + 1),
+    }
+
+
+def dominant_green_feature_summary(rgb: np.ndarray, x_offset: int) -> dict[str, Any]:
+    values = rgb.astype(np.int16)
+    red = values[..., 0]
+    green = values[..., 1]
+    blue = values[..., 2]
+    dominance = green - np.maximum(red, blue)
+    mask = (green >= 70) & (dominance >= 25)
+    weighted = np.where(mask, dominance, 0)
+    row_scores = weighted.sum(axis=1)
+    if row_scores.size == 0 or int(row_scores.max(initial=0)) <= 0:
+        return {"status": "not-detected", "reason": "no-dominant-green-row"}
+    peak_indices = np.argsort(row_scores)[-5:][::-1]
+    peaks = [
+        {
+            "row_eye_px": int(index),
+            "row_full_px": int(index),
+            "strength": float(row_scores[index]),
+        }
+        for index in peak_indices
+        if row_scores[index] > 0
+    ]
+    strongest = peaks[0]
+    xs = np.flatnonzero(mask[strongest["row_eye_px"]])
+    x_span_eye = [int(xs[0]), int(xs[-1])] if xs.size else None
+    x_span_full = [int(x_offset + xs[0]), int(x_offset + xs[-1])] if xs.size else None
+    return {
+        "status": "measured",
+        "feature": "dominant-green-horizontal-row",
+        "coordinate_system": "screenshot pixels, origin top-left, x right, y down",
+        "row_eye_px": strongest["row_eye_px"],
+        "row_full_px": strongest["row_full_px"],
+        "row_fraction": float(strongest["row_eye_px"] / max(rgb.shape[0], 1)),
+        "strength": strongest["strength"],
+        "x_span_eye_px": x_span_eye,
+        "x_span_full_px": x_span_full,
+        "peaks": peaks,
     }
 
 
@@ -818,6 +875,7 @@ def summarize_eye(
         "center_offset_fraction": [float((cx - center_x) / rgb.shape[1]), float((cy - center_y) / rgb.shape[0])],
         "row_spans": row_spans,
         "orientation_marker": orientation_marker_summary(rgb, [x, y, width, height]),
+        "dominant_green_feature": dominant_green_feature_summary(rgb, x_offset),
         "projection_footprint": {
             "status": "measured",
             "segmentation_strategy": f"{strategy}-{measured_strategy_suffix}",
@@ -1830,6 +1888,7 @@ def orientation_record(fields: dict[str, str], marker: dict[str, Any] | None) ->
         "metadata_default": parse_bool_value(fields.get("orientationDefault") or fields.get("stimulusOrientationDefault")),
         "fallback_reason": fields.get("orientationFallbackReason"),
         "source_sample_y_flip": parse_number_value(fields.get("sourceSampleYFlip")),
+        "source_sample_y_flip_reason": fields.get("sourceSampleYFlipReason"),
         "diagnostic_uv_transform": fields.get("diagnosticUvTransform"),
         "screenshot_marker": marker or {},
     }
@@ -1860,6 +1919,11 @@ def app_projection_record(fields: dict[str, str], stages: dict[str, Any], eye: s
         "content_mapping_mode": fields.get("content_mapping") or fields.get("contentMapping"),
         "render_path": fields.get("renderPath"),
         "projection_scale": parse_number_value(fields.get("projectionScale") or fields.get("cameraProjectionScale")),
+        "projection_depth_meters": parse_number_value(
+            fields.get("projectionDepthMeters")
+            or fields.get("cameraProjectionDepthMeters")
+            or fields.get("panelTargetDepthMeters")
+        ),
         "xr_render_scale": parse_number_value(fields.get("xrRenderScale")),
         "content_uv_scale": parse_number_value(fields.get("contentUvScale")),
         "projection_area_transform_stage": fields.get("projectionAreaTransformStage"),
@@ -1915,6 +1979,13 @@ def app_projection_record(fields: dict[str, str], stages: dict[str, Any], eye: s
         ),
         "projection_border_opacity": parse_number_value(
             fields.get("projectionBorderOpacity") or fields.get("cameraProjectionBorderOpacity")
+        ),
+        "projection_alpha_mode": fields.get("projectionAlphaMode") or fields.get("cameraProjectionAlphaMode"),
+        "projection_alpha_scale": parse_number_value(
+            fields.get("projectionAlphaScale") or fields.get("cameraProjectionAlphaScale")
+        ),
+        "projection_alpha_bias": parse_number_value(
+            fields.get("projectionAlphaBias") or fields.get("cameraProjectionAlphaBias")
         ),
         "processing_layer": fields.get("processingLayer"),
         "blur_radius_px": parse_number_value(fields.get("blurRadiusPx")),
@@ -2748,6 +2819,26 @@ def texture_or_upload_record(mode: str, fields: dict[str, str]) -> dict[str, Any
     return {key: value for key, value in values.items() if value is not None}
 
 
+def source_sampling_record(fields: dict[str, str]) -> dict[str, Any]:
+    values = {
+        "contract": first_field(fields, "sourceUvContract"),
+        "homography_output_uv": first_field(fields, "sourceHomographyOutputUv"),
+        "sample_input_uv": first_field(fields, "sourceSampleInputUv"),
+        "sample_transform_stage": first_field(fields, "sourceSampleTransformStage"),
+        "sample_transform": first_field(fields, "sourceSampleTransform"),
+        "sample_transform_owner": first_field(fields, "sourceSampleTransformOwner"),
+        "sample_transform_applied": bool_field(fields, "sourceSampleTransformApplied"),
+        "sample_output_uv": first_field(fields, "sourceSampleOutputUv"),
+        "sampler_uv_origin": first_field(fields, "sourceSamplerUvOrigin"),
+        "sampler_y_axis": first_field(fields, "sourceSamplerYAxis"),
+        "texture_transform_stage": first_field(fields, "sourceTextureTransformStage"),
+        "texture_transform_owner": first_field(fields, "sourceTextureTransformOwner"),
+        "source_sample_y_flip": number_field(fields, "sourceSampleYFlip"),
+        "source_sample_y_flip_reason": first_field(fields, "sourceSampleYFlipReason"),
+    }
+    return {key: value for key, value in values.items() if value is not None}
+
+
 def source_record(mode: str, fields: dict[str, str]) -> dict[str, Any]:
     size = source_size_record(mode, fields)
     values = {
@@ -2895,6 +2986,7 @@ def analysis_by_eye(lane: dict[str, Any], mapping_by_eye: dict[str, dict[str, An
             "expected": mapping.get("expected_screenshot"),
             "verdict": mapping.get("verdict"),
             "orientation_marker": eye_report.get("orientation_marker"),
+            "dominant_green_feature": eye_report.get("dominant_green_feature"),
         }
     return by_eye
 
@@ -2943,6 +3035,17 @@ def projection_coordinate_gaps(
         gaps.append("oes-surface-texture-transform-not-logged")
     if mode.startswith("makepad") and texture_upload.get("cpu_upload_rect_or_stride_state") == "not-logged":
         gaps.append("makepad-cpu-upload-rect-or-stride-not-logged")
+    source_sampling = source_sampling_record(fields)
+    for key in (
+        "contract",
+        "homography_output_uv",
+        "sample_transform_stage",
+        "sample_transform",
+        "sample_transform_owner",
+        "sample_output_uv",
+    ):
+        if source_sampling.get(key) in (None, "", "unknown", "not-logged"):
+            gaps.append(f"source-sampling-{key.replace('_', '-')}-not-logged")
     if (bool_field(fields, "runtimeXrViewStateReady") is not True) and (
         "openxr" in str(first_field(fields, "poseSource", "pose_source", "coordinateChain") or "").lower()
     ):
@@ -3017,6 +3120,7 @@ def build_projection_coordinate_contracts(
         source = source_record(mode, fields)
         metadata = metadata_record(fields)
         texture_upload = texture_or_upload_record(mode, fields)
+        source_sampling = source_sampling_record(fields)
         analysis = analysis_by_eye(lane, records_by_mode_eye.get(mode, {}))
         gaps = projection_coordinate_gaps(
             mode,
@@ -3055,6 +3159,7 @@ def build_projection_coordinate_contracts(
                 "source": source,
                 "metadata": metadata,
                 "texture_or_upload": texture_upload,
+                "source_sampling": source_sampling,
                 "projection": common_projection_record(fields, stages),
                 "openxr": openxr_record(fields),
                 "transforms": transform_contract(stages),
@@ -3065,6 +3170,15 @@ def build_projection_coordinate_contracts(
                     "projection_area_opacity": number_field(fields, "projectionAreaOpacity", "cameraProjectionAreaOpacity"),
                     "projection_border_opacity": number_field(
                         fields, "projectionBorderOpacity", "cameraProjectionBorderOpacity"
+                    ),
+                    "projection_alpha_mode": first_field(
+                        fields, "projectionAlphaMode", "cameraProjectionAlphaMode"
+                    ),
+                    "projection_alpha_scale": number_field(
+                        fields, "projectionAlphaScale", "cameraProjectionAlphaScale"
+                    ),
+                    "projection_alpha_bias": number_field(
+                        fields, "projectionAlphaBias", "cameraProjectionAlphaBias"
                     ),
                     "native_passthrough_requested": bool_field(fields, "nativePassthroughRequested"),
                     "passthrough_underlay": bool_field(fields, "passthroughUnderlay"),
@@ -3099,11 +3213,30 @@ def summarize_projection_coordinate_contracts(contracts: list[dict[str, Any]]) -
             gap_counts[gap] = gap_counts.get(gap, 0) + 1
         lane = contract.get("lane") or {}
         source = contract.get("source") or {}
+        source_sampling = contract.get("source_sampling") or {}
+        analysis = contract.get("analysis") or {}
+        by_eye = analysis.get("by_eye") if isinstance(analysis, dict) else {}
+        green_rows = {}
+        if isinstance(by_eye, dict):
+            for eye, eye_analysis in by_eye.items():
+                if not isinstance(eye_analysis, dict):
+                    continue
+                feature = eye_analysis.get("dominant_green_feature") or {}
+                if isinstance(feature, dict) and feature.get("status") == "measured":
+                    green_rows[eye] = {
+                        "row_eye_px": feature.get("row_eye_px"),
+                        "row_fraction": feature.get("row_fraction"),
+                        "strength": feature.get("strength"),
+                    }
         modes[mode] = {
             "status": status,
             "architecture": lane.get("architecture"),
             "source_mode": lane.get("source_mode"),
             "geometry_profile": lane.get("geometry_profile"),
+            "source_sampling_contract": source_sampling.get("contract"),
+            "source_sample_transform": source_sampling.get("sample_transform"),
+            "source_sample_transform_owner": source_sampling.get("sample_transform_owner"),
+            "dominant_green_rows": green_rows,
             "resolved_source_size": [
                 source.get("resolved_width"),
                 source.get("resolved_height"),

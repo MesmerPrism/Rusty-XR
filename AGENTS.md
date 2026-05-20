@@ -42,6 +42,7 @@ Start with:
 - `docs/README.md`
 - `docs/MODULE_CRATE_MAP.md`
 - `docs/EXAMPLES_MATRIX.md`
+- `docs/UNITY_EXAMPLE_INTEGRATION.md`
 - `docs/API_CLI_MCP_ENTRYPOINTS.md`
 - `docs/PUBLIC_EXTRACTION_WORKFLOW.md`
 - `docs/VALIDATION.md`
