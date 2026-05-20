@@ -7,6 +7,11 @@ passthrough feature, creates the native layer, applies styles, and submits an
 crate records the portable intent so downstream shells can translate it without
 publishing app-specific renderer behavior.
 
+For the broader public source split between compositor passthrough, raw camera
+frames, environment depth, MediaProjection, and operator streams, start with
+[passthrough.html](passthrough.html) and
+[QUEST_VISUAL_SOURCE_TAXONOMY.md](QUEST_VISUAL_SOURCE_TAXONOMY.md).
+
 Official references:
 
 - [Meta native Android mobile passthrough](https://developers.meta.com/horizon/documentation/native/android/mobile-passthrough/)

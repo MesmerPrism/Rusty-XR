@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quest Passthrough Source Boundary | Rusty XR</title>
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="brand-mark">RX</span><span class="brand-title"><strong>Rusty XR</strong><span>Quest passthrough source boundary</span></span></a>
+      <nav class="top-nav" data-nav aria-label="Primary">
+        <a href="index.html">Overview</a>
+        <a href="architecture.html">Architecture</a>
+        <a href="boundaries.html">Boundaries</a>
+        <a href="passthrough.html">Passthrough</a>
+        <a href="workflow.html">Workflow</a>
+        <a href="diagrams.html">Diagrams</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div class="kicker">Quest Visual Sources</div>
+      <h1>Passthrough visibility is not the same thing as camera access.</h1>
+      <p>Rusty XR keeps Meta Quest compositor passthrough, app-visible camera frames, environment depth, scene understanding, MediaProjection, and operator casting in separate buckets. That separation keeps public examples honest about what an app can render, sample, measure, or merely inspect.</p>
+      <ul class="tag-list">
+        <li>Compositor passthrough</li>
+        <li>Raw camera APIs</li>
+        <li>Environment depth</li>
+        <li>Final-display inspection</li>
+        <li>Public contracts</li>
+      </ul>
+    </section>
+
+    <section class="grid cols-2">
+      <article class="panel">
+        <h2>The Core Split</h2>
+        <p>A normal Meta passthrough layer is a runtime/compositor-owned layer. Apps can request it, place it in the composition order, and apply documented style parameters, but that does not make the final eye-aligned passthrough image a sampleable app texture.</p>
+        <p>Raw camera paths are different. Camera APIs can expose frames, timestamps, intrinsics, and pose metadata for custom overlays or computer-vision work. Those frames still have to be aligned, projected, and validated by the app.</p>
+      </article>
+      <article class="panel">
+        <h2>Why Rusty XR Carries This</h2>
+        <p>Rusty XR owns the public contracts and examples that need this vocabulary: passthrough style descriptors, camera metadata, depth-frame descriptors, MediaProjection boundaries, diagnostic scorecards, and companion-tool handoffs. Downstream apps keep private renderer behavior and device-specific tuning.</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Source Classes</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Source</th><th>What it provides</th><th>What it does not provide</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Native compositor passthrough</td><td>A runtime-owned mixed-reality background layer with documented style controls.</td><td>Raw or final passthrough pixels for app shaders.</td></tr>
+            <tr><td>Passthrough Camera / Camera2-style APIs</td><td>App-visible camera frames plus metadata when permission, device support, and policy allow it.</td><td>The already-warped user-facing compositor view.</td></tr>
+            <tr><td>Environment depth</td><td>Runtime-generated depth texture and per-frame metadata for occlusion, grounding, and diagnostics.</td><td>Raw depth-sensor feeds or private compositor fusion buffers.</td></tr>
+            <tr><td>MediaProjection</td><td>A consented final-display stream for inspection, debugging, or companion tooling.</td><td>Raw stereo camera streams or a privileged compositor hook.</td></tr>
+            <tr><td>Casting, scrcpy, and screenrecord</td><td>Operator-visible evidence of what reached the display path.</td><td>Calibration-grade camera, depth, or pose data.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid cols-2">
+      <article class="panel">
+        <h2>Read The Technical Notes</h2>
+        <ul>
+          <li><a href="QUEST_VISUAL_SOURCE_TAXONOMY.md">Quest visual source taxonomy</a> separates camera, depth, passthrough, MediaProjection, and operator streams.</li>
+          <li><a href="META_PASSTHROUGH_LAYER.md">Meta passthrough layer contracts</a> documents public layer purposes, placement, style modes, and compositor access boundaries.</li>
+          <li><a href="MEDIA_PIPELINE_AND_PERMISSIONS.md">Media pipeline and permissions</a> keeps platform media APIs, permissions, codecs, and optional sidecars in separate lanes.</li>
+          <li><a href="QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md">Quest streaming diagnostics workflow</a> describes scorecards for final-display and camera-composite evidence.</li>
+        </ul>
+      </article>
+      <article class="panel">
+        <h2>Public Claim Rules</h2>
+        <ul>
+          <li>Say "runtime/compositor passthrough" when the app is submitting a passthrough proxy layer.</li>
+          <li>Say "raw camera" only when the app receives sampleable frames and metadata.</li>
+          <li>Say "environment depth" when the data comes from the public depth API contract.</li>
+          <li>Say "final-display inspection" for MediaProjection, casting, screenrecord, or companion streams.</li>
+          <li>Treat patents and view-synthesis papers as design context, not proof of a shipped runtime implementation.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>References</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Reference</th><th>Role</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><a href="https://developers.meta.com/horizon/documentation/native/android/mobile-passthrough/">Meta native Android mobile passthrough</a></td><td>Official compositor-passthrough developer surface.</td></tr>
+            <tr><td><a href="https://registry.khronos.org/OpenXR/specs/1.1/man/html/XrCompositionLayerPassthroughFB.html">Khronos XrCompositionLayerPassthroughFB</a></td><td>OpenXR passthrough composition-layer contract.</td></tr>
+            <tr><td><a href="https://developers.meta.com/horizon/documentation/unity/unity-pca-overview/">Meta Passthrough Camera API overview</a></td><td>Official app-visible camera-access surface.</td></tr>
+            <tr><td><a href="https://developers.meta.com/horizon/documentation/unity/unity-depthapi-overview/">Meta Depth API overview</a></td><td>Official public environment-depth surface.</td></tr>
+            <tr><td><a href="https://doi.org/10.1145/3384540">Chaurasia et al., Passthrough+</a></td><td>Public view-synthesis context for camera-to-eye passthrough reconstruction.</td></tr>
+            <tr><td><a href="https://arxiv.org/abs/2207.02186">NeuralPassthrough</a></td><td>Adjacent learned view-synthesis context, not a runtime disclosure.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer"><div class="footer-inner">Rusty XR keeps source classes explicit so public examples do not overclaim platform access.</div></footer>
+  <script type="module" src="assets/site.js"></script>
+</body>
+</html>

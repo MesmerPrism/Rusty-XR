@@ -41,6 +41,9 @@ before reading chronological plans or investigation logs.
 
 - [Public extraction workflow](PUBLIC_EXTRACTION_WORKFLOW.md): how reusable
   pieces move from downstream pressure into this public repo.
+- [Passthrough source boundary](passthrough.html): public Pages summary for
+  compositor passthrough, raw camera, environment depth, and final-display
+  inspection boundaries.
 - [API, CLI, and MCP entrypoints](API_CLI_MCP_ENTRYPOINTS.md): consistency
   rules for command surfaces and provider routes.
 - [Effect-stack diagnostics](EFFECT_STACK_DIAGNOSTICS.md): data-only visual
@@ -75,6 +78,8 @@ before reading chronological plans or investigation logs.
 - [Quest visual source taxonomy](QUEST_VISUAL_SOURCE_TAXONOMY.md): raw camera,
   passthrough, environment depth, MediaProjection, and casting source
   boundaries.
+- [Meta passthrough layer contracts](META_PASSTHROUGH_LAYER.md): public layer
+  purpose, placement, style, and compositor-access boundaries.
 - [Quest app launching and shell helpers](QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md):
   normal app launches, shell helpers, and package visibility.
 - [Quest distribution and ADB boundary](QUEST_DISTRIBUTION_AND_ADB_BOUNDARY.md):

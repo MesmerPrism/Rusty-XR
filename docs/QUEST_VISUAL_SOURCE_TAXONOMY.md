@@ -5,6 +5,11 @@ native passthrough styling, rendered strobe stimuli, final-display inspection,
 and operator streaming paths separate. These sources are related, but they are
 not interchangeable.
 
+The GitHub Pages summary for this boundary is
+[passthrough.html](passthrough.html). Use this Markdown file for the detailed
+technical taxonomy and keep public examples explicit about which source class
+they use.
+
 ## Native Platform Passthrough Compositor
 
 The platform passthrough compositor is the system-provided view users see in
