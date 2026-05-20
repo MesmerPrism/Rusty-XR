@@ -117,13 +117,30 @@ def target_feature_mask(masks: dict[str, np.ndarray]) -> np.ndarray:
     return result
 
 
+def dominant_axis_index_near_median(counts: np.ndarray, positions: np.ndarray) -> int:
+    max_count = int(counts.max()) if counts.size else 0
+    if max_count <= 0:
+        return 0
+    median = float(np.median(positions))
+    strong_indices = np.where(counts >= max(1, int(round(max_count * 0.5))))[0]
+    if strong_indices.size == 0:
+        return int(counts.argmax())
+    strong_counts = counts[strong_indices]
+    max_strong_count = int(strong_counts.max())
+    near_peak = strong_indices[strong_counts >= max(1, int(round(max_strong_count * 0.70)))]
+    candidates = near_peak if near_peak.size else strong_indices
+    distances = np.abs(candidates.astype(np.float64) - median)
+    return int(candidates[int(distances.argmin())])
+
+
 def green_cross_record(mask: np.ndarray, x_offset: int = 0) -> dict[str, Any]:
     if int(mask.sum()) < 32:
         return {"status": "missing", "pixel_count": int(mask.sum())}
+    ys, xs = np.where(mask)
     row_counts = mask.sum(axis=1)
     col_counts = mask.sum(axis=0)
-    row = int(row_counts.argmax())
-    col = int(col_counts.argmax())
+    row = dominant_axis_index_near_median(row_counts, ys)
+    col = dominant_axis_index_near_median(col_counts, xs)
     return {
         "status": "measured",
         "center_px": [x_offset + col, row],

@@ -662,6 +662,10 @@ pub(crate) struct RuntimeConfig {
     pub(crate) camera_projection_area_scale_uv: f32,
     pub(crate) camera_projection_area_offset_x_uv: f32,
     pub(crate) camera_projection_area_offset_y_uv: f32,
+    pub(crate) camera_projection_area_left_offset_x_uv: f32,
+    pub(crate) camera_projection_area_left_offset_y_uv: f32,
+    pub(crate) camera_projection_area_right_offset_x_uv: f32,
+    pub(crate) camera_projection_area_right_offset_y_uv: f32,
     pub(crate) camera_projection_area_radius_x_uv: f32,
     pub(crate) camera_projection_area_radius_y_uv: f32,
     pub(crate) camera_projection_area_corner_radius_uv: f32,
@@ -747,6 +751,10 @@ impl Default for RuntimeConfig {
             camera_projection_area_scale_uv: 1.0,
             camera_projection_area_offset_x_uv: 0.0,
             camera_projection_area_offset_y_uv: 0.0,
+            camera_projection_area_left_offset_x_uv: 0.0,
+            camera_projection_area_left_offset_y_uv: 0.0,
+            camera_projection_area_right_offset_x_uv: 0.0,
+            camera_projection_area_right_offset_y_uv: 0.0,
             camera_projection_area_radius_x_uv: 0.5,
             camera_projection_area_radius_y_uv: 0.5,
             camera_projection_area_corner_radius_uv: 0.0,
@@ -1016,11 +1024,33 @@ impl RuntimeConfig {
 
     pub(crate) fn camera_area_offset_params_push(&self) -> [f32; 4] {
         [
-            self.camera_projection_area_offset_x_uv.clamp(-0.5, 0.5),
-            self.camera_projection_area_offset_y_uv.clamp(-0.5, 0.5),
-            0.0,
-            0.0,
+            self.camera_projection_area_left_offset_x_uv
+                .clamp(-0.5, 0.5),
+            self.camera_projection_area_left_offset_y_uv
+                .clamp(-0.5, 0.5),
+            self.camera_projection_area_right_offset_x_uv
+                .clamp(-0.5, 0.5),
+            self.camera_projection_area_right_offset_y_uv
+                .clamp(-0.5, 0.5),
         ]
+    }
+
+    pub(crate) fn camera_projection_area_offset_for_eye(&self, eye_index: usize) -> [f32; 2] {
+        if eye_index == 0 {
+            [
+                self.camera_projection_area_left_offset_x_uv
+                    .clamp(-0.5, 0.5),
+                self.camera_projection_area_left_offset_y_uv
+                    .clamp(-0.5, 0.5),
+            ]
+        } else {
+            [
+                self.camera_projection_area_right_offset_x_uv
+                    .clamp(-0.5, 0.5),
+                self.camera_projection_area_right_offset_y_uv
+                    .clamp(-0.5, 0.5),
+            ]
+        }
     }
 
     pub(crate) fn camera_area_params_push(&self) -> [f32; 4] {
@@ -1283,7 +1313,7 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} cameraBlurRadiusPx={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} projectionScale={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} cameraBlurRadiusPx={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} projectionScale={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaLeftOffsetXUv={} projectionAreaLeftOffsetYUv={} projectionAreaRightOffsetXUv={} projectionAreaRightOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -1325,6 +1355,10 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_projection_area_scale_uv,
         config.camera_projection_area_offset_x_uv,
         config.camera_projection_area_offset_y_uv,
+        config.camera_projection_area_left_offset_x_uv,
+        config.camera_projection_area_left_offset_y_uv,
+        config.camera_projection_area_right_offset_x_uv,
+        config.camera_projection_area_right_offset_y_uv,
         config.camera_projection_area_radius_x_uv,
         config.camera_projection_area_radius_y_uv,
         config.camera_projection_area_corner_radius_uv,
@@ -1845,6 +1879,10 @@ struct JavaRuntimeConfig {
     camera_projection_area_scale_uv: Option<f32>,
     camera_projection_area_offset_x_uv: Option<f32>,
     camera_projection_area_offset_y_uv: Option<f32>,
+    camera_projection_area_left_offset_x_uv: Option<f32>,
+    camera_projection_area_left_offset_y_uv: Option<f32>,
+    camera_projection_area_right_offset_x_uv: Option<f32>,
+    camera_projection_area_right_offset_y_uv: Option<f32>,
     camera_projection_area_radius_x_uv: Option<f32>,
     camera_projection_area_radius_y_uv: Option<f32>,
     camera_projection_area_corner_radius_uv: Option<f32>,
@@ -1996,6 +2034,46 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             .camera_projection_area_offset_y_uv
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_area_offset_y_uv)
+            .clamp(-0.5, 0.5),
+        camera_projection_area_left_offset_x_uv: bridge
+            .camera_projection_area_left_offset_x_uv
+            .filter(|value| value.is_finite())
+            .unwrap_or_else(|| {
+                bridge
+                    .camera_projection_area_offset_x_uv
+                    .filter(|value| value.is_finite())
+                    .unwrap_or(defaults.camera_projection_area_offset_x_uv)
+            })
+            .clamp(-0.5, 0.5),
+        camera_projection_area_left_offset_y_uv: bridge
+            .camera_projection_area_left_offset_y_uv
+            .filter(|value| value.is_finite())
+            .unwrap_or_else(|| {
+                bridge
+                    .camera_projection_area_offset_y_uv
+                    .filter(|value| value.is_finite())
+                    .unwrap_or(defaults.camera_projection_area_offset_y_uv)
+            })
+            .clamp(-0.5, 0.5),
+        camera_projection_area_right_offset_x_uv: bridge
+            .camera_projection_area_right_offset_x_uv
+            .filter(|value| value.is_finite())
+            .unwrap_or_else(|| {
+                bridge
+                    .camera_projection_area_offset_x_uv
+                    .filter(|value| value.is_finite())
+                    .unwrap_or(defaults.camera_projection_area_offset_x_uv)
+            })
+            .clamp(-0.5, 0.5),
+        camera_projection_area_right_offset_y_uv: bridge
+            .camera_projection_area_right_offset_y_uv
+            .filter(|value| value.is_finite())
+            .unwrap_or_else(|| {
+                bridge
+                    .camera_projection_area_offset_y_uv
+                    .filter(|value| value.is_finite())
+                    .unwrap_or(defaults.camera_projection_area_offset_y_uv)
+            })
             .clamp(-0.5, 0.5),
         camera_projection_area_radius_x_uv: bridge
             .camera_projection_area_radius_x_uv
@@ -3891,8 +3969,12 @@ mod tests {
             camera_preview_fov_y_degrees: Some(60.0),
             camera_projection_scale: Some(0.75),
             camera_projection_area_scale_uv: Some(0.815),
-            camera_projection_area_offset_x_uv: Some(0.0),
-            camera_projection_area_offset_y_uv: Some(0.0),
+            camera_projection_area_offset_x_uv: Some(0.125),
+            camera_projection_area_offset_y_uv: Some(-0.25),
+            camera_projection_area_left_offset_x_uv: Some(-0.03125),
+            camera_projection_area_left_offset_y_uv: Some(0.0625),
+            camera_projection_area_right_offset_x_uv: Some(0.09375),
+            camera_projection_area_right_offset_y_uv: None,
             camera_projection_area_radius_x_uv: Some(0.5),
             camera_projection_area_radius_y_uv: Some(0.5),
             camera_projection_area_corner_radius_uv: Some(0.0),
@@ -3994,6 +4076,20 @@ mod tests {
         assert_eq!(config.camera_preview_fov_y_degrees, 60.0);
         assert_eq!(config.camera_projection_scale, 0.75);
         assert_eq!(config.camera_projection_area_scale_uv, 0.815);
+        assert_eq!(config.camera_projection_area_offset_x_uv, 0.125);
+        assert_eq!(config.camera_projection_area_offset_y_uv, -0.25);
+        assert_eq!(
+            config.camera_projection_area_offset_for_eye(0),
+            [-0.03125, 0.0625]
+        );
+        assert_eq!(
+            config.camera_projection_area_offset_for_eye(1),
+            [0.09375, -0.25]
+        );
+        assert_eq!(
+            config.camera_area_offset_params_push(),
+            [-0.03125, 0.0625, 0.09375, -0.25]
+        );
         assert_eq!(config.camera_projection_area_radius_x_uv, 0.5);
         assert_eq!(config.camera_projection_area_radius_y_uv, 0.5);
         assert_eq!(config.camera_projection_area_corner_radius_uv, 0.0);

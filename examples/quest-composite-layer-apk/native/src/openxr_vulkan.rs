@@ -6457,6 +6457,7 @@ fn projected_stereo_homographies(
         config,
         views,
         left_view,
+        0,
         resolution,
         reference_center,
     )?;
@@ -6465,6 +6466,7 @@ fn projected_stereo_homographies(
         config,
         views,
         right_view,
+        1,
         resolution,
         reference_center,
     )?;
@@ -6476,6 +6478,7 @@ fn projected_display_eye_homography(
     config: &crate::RuntimeConfig,
     views: &[xr::View],
     display_view: &xr::View,
+    display_eye_index: usize,
     resolution: vk::Extent2D,
     reference_center: Vec3,
 ) -> Option<DisplayEyeProjectionMapping> {
@@ -6485,6 +6488,7 @@ fn projected_display_eye_homography(
             config,
             views,
             display_view,
+            display_eye_index,
             resolution,
         );
     }
@@ -6554,8 +6558,8 @@ fn projected_display_eye_homography(
     // feed as if a real quad had supplied rasterized surface coordinates.
     // The mode remains visible in logs/catalogs so a future mesh-quad backend
     // can be A/B tested without changing launch profiles.
-    let offset_x_uv = config.camera_projection_area_offset_x_uv;
-    let offset_y_uv = config.camera_projection_area_offset_y_uv;
+    let [offset_x_uv, offset_y_uv] =
+        config.camera_projection_area_offset_for_eye(display_eye_index);
     let screen_to_surface = screen_to_domain_with_visual_offset(
         invert_homography(surface_to_screen)?,
         offset_x_uv,
@@ -6582,6 +6586,7 @@ fn projected_full_frame_display_eye_homography(
     config: &crate::RuntimeConfig,
     views: &[xr::View],
     display_view: &xr::View,
+    display_eye_index: usize,
     resolution: vk::Extent2D,
 ) -> Option<DisplayEyeProjectionMapping> {
     let tracking = tracking_basis_from_views(views)?;
@@ -6614,8 +6619,8 @@ fn projected_full_frame_display_eye_homography(
         display_view.fov.angle_up.tan(),
     )
     .ok()?;
-    let offset_x_uv = config.camera_projection_area_offset_x_uv;
-    let offset_y_uv = config.camera_projection_area_offset_y_uv;
+    let [offset_x_uv, offset_y_uv] =
+        config.camera_projection_area_offset_for_eye(display_eye_index);
     let screen_to_surface = screen_to_domain_with_visual_offset(
         invert_homography(surface_to_screen)?,
         offset_x_uv,

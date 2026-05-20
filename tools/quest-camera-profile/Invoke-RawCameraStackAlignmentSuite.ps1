@@ -43,6 +43,12 @@ param(
     [double]$VulkanProjectionAreaOffsetXUv = [double]::NaN,
     [double]$GlesProjectionAreaOffsetXUv = [double]::NaN,
     [double]$MakepadProjectionAreaOffsetXUv = [double]::NaN,
+    [double]$VulkanProjectionAreaLeftOffsetXUv = [double]::NaN,
+    [double]$VulkanProjectionAreaRightOffsetXUv = [double]::NaN,
+    [double]$GlesProjectionAreaLeftOffsetXUv = [double]::NaN,
+    [double]$GlesProjectionAreaRightOffsetXUv = [double]::NaN,
+    [double]$MakepadProjectionAreaLeftOffsetXUv = [double]::NaN,
+    [double]$MakepadProjectionAreaRightOffsetXUv = [double]::NaN,
     [double]$VulkanDirectProjectionAreaOffsetXUv = [double]::NaN,
     [double]$VulkanBrokerProjectionAreaOffsetXUv = [double]::NaN,
     [double]$GlesDirectProjectionAreaOffsetXUv = [double]::NaN,
@@ -57,6 +63,10 @@ param(
     [double]$VulkanProjectionAreaOffsetYUv = [double]::NaN,
     [double]$GlesProjectionAreaOffsetYUv = [double]::NaN,
     [double]$MakepadProjectionAreaOffsetYUv = [double]::NaN,
+    [double]$VulkanProjectionAreaLeftOffsetYUv = [double]::NaN,
+    [double]$VulkanProjectionAreaRightOffsetYUv = [double]::NaN,
+    [double]$GlesProjectionAreaLeftOffsetYUv = [double]::NaN,
+    [double]$GlesProjectionAreaRightOffsetYUv = [double]::NaN,
     [double]$VulkanDirectProjectionAreaOffsetYUv = [double]::NaN,
     [double]$VulkanBrokerProjectionAreaOffsetYUv = [double]::NaN,
     [double]$GlesDirectProjectionAreaOffsetYUv = [double]::NaN,
@@ -542,6 +552,17 @@ function Resolve-BrokerModeProjectionAreaOffsetYUv {
     return (Resolve-ModeProjectionAreaOffsetYUv -RendererValue $RendererValue -ModeValue $ModeValue)
 }
 
+function Resolve-ProjectionAreaEyeOffsetUv {
+    param(
+        [double]$EyeValue,
+        [double]$FallbackValue
+    )
+    if (-not [double]::IsNaN($EyeValue)) {
+        return $EyeValue
+    }
+    return $FallbackValue
+}
+
 function Resolve-ProjectionAreaScaleUv {
     param([double]$RendererValue)
     if ([double]::IsNaN($RendererValue)) {
@@ -644,6 +665,10 @@ function Get-VulkanProjectionBorderOverride {
     $blurRadius = Format-InvariantDouble -Value $BlurRadiusPx
     $offsetX = Format-InvariantDouble -Value $OffsetXUv
     $offsetY = Format-InvariantDouble -Value $OffsetYUv
+    $leftOffsetX = Format-InvariantDouble -Value (Resolve-ProjectionAreaEyeOffsetUv -EyeValue $VulkanProjectionAreaLeftOffsetXUv -FallbackValue $OffsetXUv)
+    $leftOffsetY = Format-InvariantDouble -Value (Resolve-ProjectionAreaEyeOffsetUv -EyeValue $VulkanProjectionAreaLeftOffsetYUv -FallbackValue $OffsetYUv)
+    $rightOffsetX = Format-InvariantDouble -Value (Resolve-ProjectionAreaEyeOffsetUv -EyeValue $VulkanProjectionAreaRightOffsetXUv -FallbackValue $OffsetXUv)
+    $rightOffsetY = Format-InvariantDouble -Value (Resolve-ProjectionAreaEyeOffsetUv -EyeValue $VulkanProjectionAreaRightOffsetYUv -FallbackValue $OffsetYUv)
     $projectionScale = Format-InvariantDouble -Value $CameraProjectionScale
     $xrRenderScale = Format-InvariantDouble -Value $XrRenderScale
     $projectionAreaScaleUv = Format-InvariantDouble -Value $ProjectionAreaScaleUv
@@ -658,6 +683,10 @@ function Get-VulkanProjectionBorderOverride {
     $commonValues.Add("rustyxr.cameraProjectionAreaScaleUv=$projectionAreaScaleUv")
     $commonValues.Add("rustyxr.cameraProjectionAreaOffsetXUv=$offsetX")
     $commonValues.Add("rustyxr.cameraProjectionAreaOffsetYUv=$offsetY")
+    $commonValues.Add("rustyxr.cameraProjectionAreaLeftOffsetXUv=$leftOffsetX")
+    $commonValues.Add("rustyxr.cameraProjectionAreaLeftOffsetYUv=$leftOffsetY")
+    $commonValues.Add("rustyxr.cameraProjectionAreaRightOffsetXUv=$rightOffsetX")
+    $commonValues.Add("rustyxr.cameraProjectionAreaRightOffsetYUv=$rightOffsetY")
     $commonValues.Add("rustyxr.cameraProjectionAreaRadiusXUv=$areaRadiusX")
     $commonValues.Add("rustyxr.cameraProjectionAreaRadiusYUv=$areaRadiusY")
     $commonValues.Add("rustyxr.cameraProjectionAreaCornerRadiusUv=$areaCornerRadius")
@@ -700,6 +729,10 @@ function Get-GlesProjectionBorderOverride {
     $blurRadius = Format-InvariantDouble -Value $BlurRadiusPx
     $offsetX = Format-InvariantDouble -Value $OffsetXUv
     $offsetY = Format-InvariantDouble -Value $OffsetYUv
+    $leftOffsetX = Format-InvariantDouble -Value (Resolve-ProjectionAreaEyeOffsetUv -EyeValue $GlesProjectionAreaLeftOffsetXUv -FallbackValue $OffsetXUv)
+    $leftOffsetY = Format-InvariantDouble -Value (Resolve-ProjectionAreaEyeOffsetUv -EyeValue $GlesProjectionAreaLeftOffsetYUv -FallbackValue $OffsetYUv)
+    $rightOffsetX = Format-InvariantDouble -Value (Resolve-ProjectionAreaEyeOffsetUv -EyeValue $GlesProjectionAreaRightOffsetXUv -FallbackValue $OffsetXUv)
+    $rightOffsetY = Format-InvariantDouble -Value (Resolve-ProjectionAreaEyeOffsetUv -EyeValue $GlesProjectionAreaRightOffsetYUv -FallbackValue $OffsetYUv)
     $scaleUv = Format-InvariantDouble -Value $ScaleUv
     $areaRadiusX = Format-InvariantDouble -Value $GlesProjectionAreaRadiusXUv
     $areaRadiusY = Format-InvariantDouble -Value $GlesProjectionAreaRadiusYUv
@@ -709,7 +742,7 @@ function Get-GlesProjectionBorderOverride {
     $colorContrast = Format-InvariantDouble -Value $GlesCameraColorContrast
     $colorBrightness = Format-InvariantDouble -Value $GlesCameraColorBrightness
     $colorSaturation = Format-InvariantDouble -Value $GlesCameraColorSaturation
-    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,rustyxr.processingLayer=$ProcessingLayer,rustyxr.cameraBlurRadiusPx=$blurRadius,rustyxr.projectionAreaOffsetXUv=$offsetX,rustyxr.projectionAreaOffsetYUv=$offsetY,rustyxr.projectionAreaScaleUv=$scaleUv,rustyxr.projectionAreaRadiusXUv=$areaRadiusX,rustyxr.projectionAreaRadiusYUv=$areaRadiusY,rustyxr.projectionAreaCornerRadiusUv=$cornerRadius,rustyxr.projectionAreaOpacity=$areaOpacity,rustyxr.projectionBorderOpacity=$borderOpacity,rustyxr.cameraColorMatrix=$GlesCameraColorMatrix,rustyxr.cameraColorOffset=$GlesCameraColorOffset,rustyxr.cameraColorContrast=$colorContrast,rustyxr.cameraColorBrightness=$colorBrightness,rustyxr.cameraColorSaturation=$colorSaturation"
+    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,rustyxr.processingLayer=$ProcessingLayer,rustyxr.cameraBlurRadiusPx=$blurRadius,rustyxr.projectionAreaOffsetXUv=$offsetX,rustyxr.projectionAreaOffsetYUv=$offsetY,rustyxr.projectionAreaLeftOffsetXUv=$leftOffsetX,rustyxr.projectionAreaLeftOffsetYUv=$leftOffsetY,rustyxr.projectionAreaRightOffsetXUv=$rightOffsetX,rustyxr.projectionAreaRightOffsetYUv=$rightOffsetY,rustyxr.projectionAreaScaleUv=$scaleUv,rustyxr.projectionAreaRadiusXUv=$areaRadiusX,rustyxr.projectionAreaRadiusYUv=$areaRadiusY,rustyxr.projectionAreaCornerRadiusUv=$cornerRadius,rustyxr.projectionAreaOpacity=$areaOpacity,rustyxr.projectionBorderOpacity=$borderOpacity,rustyxr.cameraColorMatrix=$GlesCameraColorMatrix,rustyxr.cameraColorOffset=$GlesCameraColorOffset,rustyxr.cameraColorContrast=$colorContrast,rustyxr.cameraColorBrightness=$colorBrightness,rustyxr.cameraColorSaturation=$colorSaturation"
 }
 
 function Get-BrokerH264Override {
@@ -941,6 +974,14 @@ function Invoke-MakepadMode {
     $argList.Add((Format-InvariantDouble -Value $OffsetXUv))
     $argList.Add("-ProjectionAreaOffsetYUv")
     $argList.Add((Format-InvariantDouble -Value $OffsetYUv))
+    if (-not [double]::IsNaN($MakepadProjectionAreaLeftOffsetXUv)) {
+        $argList.Add("-ProjectionAreaOffsetLeftUv")
+        $argList.Add((Format-InvariantDouble -Value (-$MakepadProjectionAreaLeftOffsetXUv)))
+    }
+    if (-not [double]::IsNaN($MakepadProjectionAreaRightOffsetXUv)) {
+        $argList.Add("-ProjectionAreaOffsetRightUv")
+        $argList.Add((Format-InvariantDouble -Value (-$MakepadProjectionAreaRightOffsetXUv)))
+    }
     $argList.Add("-ProjectionAreaScaleX")
     $argList.Add((Format-InvariantDouble -Value $resolvedScaleX))
     $argList.Add("-ProjectionAreaScaleY")
@@ -1228,6 +1269,9 @@ $lines.Add(("- Projection area offset X UV: ``{0}``" -f (Format-InvariantDouble 
 $lines.Add(("- Vulkan/HWB projection area offset X UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ProjectionAreaOffsetXUv -RendererValue $VulkanProjectionAreaOffsetXUv))))
 $lines.Add(("- GL/OES projection area offset X UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ProjectionAreaOffsetXUv -RendererValue $GlesProjectionAreaOffsetXUv))))
 $lines.Add(("- Makepad CPU-YUV projection area offset X UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ProjectionAreaOffsetXUv -RendererValue $MakepadProjectionAreaOffsetXUv))))
+$lines.Add(("- Vulkan/HWB projection area left/right offset X UV: ``{0}``, ``{1}``" -f (Format-OptionalInvariantDouble -Value $VulkanProjectionAreaLeftOffsetXUv), (Format-OptionalInvariantDouble -Value $VulkanProjectionAreaRightOffsetXUv)))
+$lines.Add(("- GL/OES projection area left/right offset X UV: ``{0}``, ``{1}``" -f (Format-OptionalInvariantDouble -Value $GlesProjectionAreaLeftOffsetXUv), (Format-OptionalInvariantDouble -Value $GlesProjectionAreaRightOffsetXUv)))
+$lines.Add(("- Makepad CPU-YUV projection area left/right offset X UV: ``{0}``, ``{1}``" -f (Format-OptionalInvariantDouble -Value $MakepadProjectionAreaLeftOffsetXUv), (Format-OptionalInvariantDouble -Value $MakepadProjectionAreaRightOffsetXUv)))
 $lines.Add(("- Vulkan/HWB direct projection area offset X UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaOffsetXUv -RendererValue $VulkanProjectionAreaOffsetXUv -ModeValue $VulkanDirectProjectionAreaOffsetXUv))))
 $lines.Add(("- Vulkan/HWB broker projection area offset X UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaOffsetXUv -RendererValue $VulkanProjectionAreaOffsetXUv -ModeValue $VulkanBrokerProjectionAreaOffsetXUv))))
 $lines.Add(("- GL/OES direct projection area offset X UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaOffsetXUv -RendererValue $GlesProjectionAreaOffsetXUv -ModeValue $GlesDirectProjectionAreaOffsetXUv))))
@@ -1238,6 +1282,8 @@ $lines.Add(("- Projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble 
 $lines.Add(("- Vulkan/HWB projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ProjectionAreaOffsetYUv -RendererValue $VulkanProjectionAreaOffsetYUv))))
 $lines.Add(("- GL/OES projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ProjectionAreaOffsetYUv -RendererValue $GlesProjectionAreaOffsetYUv))))
 $lines.Add(("- Makepad CPU-YUV projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ProjectionAreaOffsetYUv -RendererValue $MakepadProjectionAreaOffsetYUv))))
+$lines.Add(("- Vulkan/HWB projection area left/right offset Y UV: ``{0}``, ``{1}``" -f (Format-OptionalInvariantDouble -Value $VulkanProjectionAreaLeftOffsetYUv), (Format-OptionalInvariantDouble -Value $VulkanProjectionAreaRightOffsetYUv)))
+$lines.Add(("- GL/OES projection area left/right offset Y UV: ``{0}``, ``{1}``" -f (Format-OptionalInvariantDouble -Value $GlesProjectionAreaLeftOffsetYUv), (Format-OptionalInvariantDouble -Value $GlesProjectionAreaRightOffsetYUv)))
 $lines.Add(("- Vulkan/HWB direct projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaOffsetYUv -RendererValue $VulkanProjectionAreaOffsetYUv -ModeValue $VulkanDirectProjectionAreaOffsetYUv))))
 $lines.Add(("- Vulkan/HWB broker projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaOffsetYUv -RendererValue $VulkanProjectionAreaOffsetYUv -ModeValue $VulkanBrokerProjectionAreaOffsetYUv))))
 $lines.Add(("- GL/OES direct projection area offset Y UV: ``{0}``" -f (Format-InvariantDouble -Value (Resolve-ModeProjectionAreaOffsetYUv -RendererValue $GlesProjectionAreaOffsetYUv -ModeValue $GlesDirectProjectionAreaOffsetYUv))))

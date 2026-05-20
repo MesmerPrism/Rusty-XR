@@ -471,6 +471,7 @@ mod android {
         fn glUniform1f(location: c_int, v0: f32);
         fn glUniform2f(location: c_int, v0: f32, v1: f32);
         fn glUniform3f(location: c_int, v0: f32, v1: f32, v2: f32);
+        fn glUniform4f(location: c_int, v0: f32, v1: f32, v2: f32, v3: f32);
         fn glUniformMatrix4fv(location: c_int, count: c_int, transpose: u8, value: *const f32);
         fn glGenBuffers(n: c_int, buffers: *mut u32);
         fn glDeleteBuffers(n: c_int, buffers: *const u32);
@@ -513,6 +514,8 @@ mod android {
         let projection_area_offset_x_uv = projection_area_offset_x_uv_from_activity(&app);
         let projection_area_offset_y_uv = projection_area_offset_y_uv_from_activity(&app);
         let projection_area_offset_uv = [projection_area_offset_x_uv, projection_area_offset_y_uv];
+        let projection_area_eye_offset_uv =
+            projection_area_eye_offset_uv_from_activity(&app, projection_area_offset_uv);
         let projection_area_scale = projection_area_scale_from_activity(&app);
         let projection_area_radius = projection_area_radius_from_activity(&app);
         let projection_area_corner_radius_uv = projection_area_corner_radius_uv_from_activity(&app);
@@ -599,12 +602,16 @@ mod android {
             .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
             .map_err(|error| format!("get HMD system: {error}"))?;
         log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
             projection_border_policy.stable_id(),
             processing_layer.stable_id(),
             blur_radius_px,
             projection_area_offset_x_uv,
             projection_area_offset_y_uv,
+            projection_area_eye_offset_uv[0][0],
+            projection_area_eye_offset_uv[0][1],
+            projection_area_eye_offset_uv[1][0],
+            projection_area_eye_offset_uv[1][1],
             projection_area_scale[0],
             projection_area_scale[1],
             projection_area_radius[0],
@@ -794,7 +801,7 @@ mod android {
                 let projection_plan = surface_texture_oes_probe.as_ref().and_then(|probe| {
                     probe.projection_plan_from_xr_views(
                         &views,
-                        projection_area_offset_uv,
+                        projection_area_eye_offset_uv,
                         projection_area_scale,
                     )
                 });
@@ -815,7 +822,7 @@ mod android {
                     projection_border_policy,
                     processing_layer,
                     blur_radius_px,
-                    projection_area_offset_uv,
+                    projection_area_eye_offset_uv,
                     projection_area_scale,
                     projection_area_radius,
                     projection_area_corner_radius_uv,
@@ -1322,7 +1329,7 @@ mod android {
         projection_border_policy: OesProjectionBorderPolicy,
         processing_layer: OesProcessingLayer,
         blur_radius_px: f32,
-        projection_area_offset_uv: [f32; 2],
+        projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
         projection_area_radius: [f32; 2],
         projection_area_corner_radius_uv: f32,
@@ -1374,7 +1381,7 @@ mod android {
                         projection_border_policy,
                         processing_layer,
                         blur_radius_px,
-                        projection_area_offset_uv,
+                        projection_area_eye_offset_uv,
                         projection_area_scale,
                         projection_area_radius,
                         projection_area_corner_radius_uv,
@@ -1506,7 +1513,7 @@ mod android {
         projection_border_policy_location: c_int,
         processing_layer_location: c_int,
         blur_radius_px_location: c_int,
-        projection_area_offset_uv_location: c_int,
+        projection_area_eye_offset_uv_location: c_int,
         projection_area_scale_location: c_int,
         projection_area_radius_location: c_int,
         projection_area_corner_radius_uv_location: c_int,
@@ -1548,7 +1555,7 @@ uniform int u_content_mapping_mode;
 uniform int u_projection_border_policy;
 uniform int u_processing_layer;
 uniform float u_blur_radius_px;
-uniform vec2 u_projection_area_offset_uv;
+uniform vec4 u_projection_area_eye_offset_uv;
 uniform vec2 u_projection_area_scale;
 uniform vec2 u_projection_area_radius;
 uniform float u_projection_area_corner_radius_uv;
@@ -1562,20 +1569,24 @@ uniform vec3 u_color_offset;
 uniform vec3 u_color_adjust;
 in vec2 v_uv;
 out vec4 out_color;
+vec4 premultiplied_alpha_color(vec3 rgb, float alpha) {
+    float a = clamp(alpha, 0.0, 1.0);
+    return vec4(clamp(rgb, vec3(0.0), vec3(1.0)) * a, a);
+}
 vec4 intended_projection_mask_color() {
     if (u_projection_border_policy == 1) {
         return vec4(0.0, 0.0, 0.0, 0.0);
     }
     if (u_projection_border_policy == 2) {
-        return vec4(0.36, 0.0, 0.28, clamp(u_projection_border_opacity, 0.0, 1.0));
+        return premultiplied_alpha_color(vec3(0.36, 0.0, 0.28), u_projection_border_opacity);
     }
-    return vec4(1.0, 0.0, 0.0, clamp(u_projection_border_opacity, 0.0, 1.0));
+    return premultiplied_alpha_color(vec3(1.0, 0.0, 0.0), u_projection_border_opacity);
 }
 vec4 source_invalid_color() {
     if (u_projection_border_policy == 1) {
         return vec4(0.0, 0.0, 0.0, 0.0);
     }
-    return vec4(1.0, 0.0, 0.0, clamp(u_projection_border_opacity, 0.0, 1.0));
+    return premultiplied_alpha_color(vec3(1.0, 0.0, 0.0), u_projection_border_opacity);
 }
 vec3 projection_guide_color() {
     return u_eye_index == 0 ? vec3(0.0, 0.95, 1.0) : vec3(1.0, 0.86, 0.0);
@@ -1603,7 +1614,7 @@ vec2 projection_area_content_uv(vec2 area_uv) {
     );
     return (area_uv - (vec2(0.5) - half_size)) / max(half_size * 2.0, vec2(0.001));
 }
-vec4 camera_sample(vec2 uv) {
+vec3 adjusted_camera_rgb(vec2 uv) {
     vec4 transformed = u_source_transform * vec4(clamp(uv, vec2(0.0), vec2(1.0)), 0.0, 1.0);
     vec2 texture_uv = clamp(transformed.xy, vec2(0.0), vec2(1.0));
     vec3 source_rgb = texture(u_source, texture_uv).rgb;
@@ -1616,10 +1627,10 @@ vec4 camera_sample(vec2 uv) {
     adjusted_rgb = mix(vec3(luma), adjusted_rgb, max(u_color_adjust.z, 0.0));
     adjusted_rgb = (adjusted_rgb - vec3(0.5)) * max(u_color_adjust.x, 0.0) +
         vec3(0.5 + u_color_adjust.y);
-    return vec4(
-        clamp(adjusted_rgb, vec3(0.0), vec3(1.0)),
-        clamp(u_projection_area_opacity, 0.0, 1.0)
-    );
+    return clamp(adjusted_rgb, vec3(0.0), vec3(1.0));
+}
+vec4 camera_sample(vec2 uv) {
+    return premultiplied_alpha_color(adjusted_camera_rgb(uv), u_projection_area_opacity);
 }
 vec4 blurred_camera_sample(vec2 uv) {
     float radius = max(u_blur_radius_px, 0.0);
@@ -1628,27 +1639,30 @@ vec4 blurred_camera_sample(vec2 uv) {
     }
     vec2 texel = u_source_texel_size * radius;
     vec2 sample_uv = clamp(uv, vec2(0.0), vec2(1.0));
-    vec3 center = camera_sample(sample_uv).rgb * 0.36;
+    vec3 center = adjusted_camera_rgb(sample_uv) * 0.36;
     vec3 axis =
-        camera_sample(sample_uv + vec2(texel.x, 0.0)).rgb +
-        camera_sample(sample_uv - vec2(texel.x, 0.0)).rgb +
-        camera_sample(sample_uv + vec2(0.0, texel.y)).rgb +
-        camera_sample(sample_uv - vec2(0.0, texel.y)).rgb;
+        adjusted_camera_rgb(sample_uv + vec2(texel.x, 0.0)) +
+        adjusted_camera_rgb(sample_uv - vec2(texel.x, 0.0)) +
+        adjusted_camera_rgb(sample_uv + vec2(0.0, texel.y)) +
+        adjusted_camera_rgb(sample_uv - vec2(0.0, texel.y));
     vec3 diag =
-        camera_sample(sample_uv + texel).rgb +
-        camera_sample(sample_uv - texel).rgb +
-        camera_sample(sample_uv + vec2(texel.x, -texel.y)).rgb +
-        camera_sample(sample_uv + vec2(-texel.x, texel.y)).rgb;
-    return vec4(
-        clamp(center + axis * 0.12 + diag * 0.04, vec3(0.0), vec3(1.0)),
-        clamp(u_projection_area_opacity, 0.0, 1.0)
+        adjusted_camera_rgb(sample_uv + texel) +
+        adjusted_camera_rgb(sample_uv - texel) +
+        adjusted_camera_rgb(sample_uv + vec2(texel.x, -texel.y)) +
+        adjusted_camera_rgb(sample_uv + vec2(-texel.x, texel.y));
+    return premultiplied_alpha_color(
+        center + axis * 0.12 + diag * 0.04,
+        u_projection_area_opacity
     );
 }
 void main() {
     vec2 projection_scale = max(u_projection_area_scale, vec2(0.05));
+    vec2 requested_projection_area_offset_uv = u_eye_index == 0
+        ? u_projection_area_eye_offset_uv.xy
+        : u_projection_area_eye_offset_uv.zw;
     vec2 projection_area_offset_uv = vec2(
-        clamp(u_projection_area_offset_uv.x, -0.5, 0.5),
-        clamp(-u_projection_area_offset_uv.y, -0.5, 0.5)
+        clamp(requested_projection_area_offset_uv.x, -0.5, 0.5),
+        clamp(-requested_projection_area_offset_uv.y, -0.5, 0.5)
     );
     vec2 projection_area_uv =
         (v_uv - vec2(0.5)) * projection_scale + vec2(0.5) -
@@ -1716,7 +1730,7 @@ void main() {
                     uniform_location(program, "u_projection_border_policy")?,
                     uniform_location(program, "u_processing_layer")?,
                     uniform_location(program, "u_blur_radius_px")?,
-                    uniform_location(program, "u_projection_area_offset_uv")?,
+                    uniform_location(program, "u_projection_area_eye_offset_uv")?,
                     uniform_location(program, "u_projection_area_scale")?,
                     uniform_location(program, "u_projection_area_radius")?,
                     uniform_location(program, "u_projection_area_corner_radius_uv")?,
@@ -1741,7 +1755,7 @@ void main() {
                 projection_border_policy_location,
                 processing_layer_location,
                 blur_radius_px_location,
-                projection_area_offset_uv_location,
+                projection_area_eye_offset_uv_location,
                 projection_area_scale_location,
                 projection_area_radius_location,
                 projection_area_corner_radius_uv_location,
@@ -1799,7 +1813,7 @@ void main() {
                 projection_border_policy_location,
                 processing_layer_location,
                 blur_radius_px_location,
-                projection_area_offset_uv_location,
+                projection_area_eye_offset_uv_location,
                 projection_area_scale_location,
                 projection_area_radius_location,
                 projection_area_corner_radius_uv_location,
@@ -1824,7 +1838,7 @@ void main() {
             projection_border_policy: OesProjectionBorderPolicy,
             processing_layer: OesProcessingLayer,
             blur_radius_px: f32,
-            projection_area_offset_uv: [f32; 2],
+            projection_area_eye_offset_uv: [[f32; 2]; 2],
             projection_area_scale: [f32; 2],
             projection_area_radius: [f32; 2],
             projection_area_corner_radius_uv: f32,
@@ -1858,10 +1872,12 @@ void main() {
                     self.blur_radius_px_location,
                     blur_radius_px.clamp(0.0, 16.0),
                 );
-                glUniform2f(
-                    self.projection_area_offset_uv_location,
-                    projection_area_offset_uv[0].clamp(-0.5, 0.5),
-                    projection_area_offset_uv[1].clamp(-0.5, 0.5),
+                glUniform4f(
+                    self.projection_area_eye_offset_uv_location,
+                    projection_area_eye_offset_uv[0][0].clamp(-0.5, 0.5),
+                    projection_area_eye_offset_uv[0][1].clamp(-0.5, 0.5),
+                    projection_area_eye_offset_uv[1][0].clamp(-0.5, 0.5),
+                    projection_area_eye_offset_uv[1][1].clamp(-0.5, 0.5),
                 );
                 glUniform2f(
                     self.projection_area_scale_location,
@@ -2222,7 +2238,7 @@ void main() {
             projection_border_policy: OesProjectionBorderPolicy,
             processing_layer: OesProcessingLayer,
             blur_radius_px: f32,
-            projection_area_offset_uv: [f32; 2],
+            projection_area_eye_offset_uv: [[f32; 2]; 2],
             projection_area_scale: [f32; 2],
             projection_area_radius: [f32; 2],
             projection_area_corner_radius_uv: f32,
@@ -2268,7 +2284,7 @@ void main() {
                     projection_border_policy,
                     processing_layer,
                     blur_radius_px,
-                    projection_area_offset_uv,
+                    projection_area_eye_offset_uv,
                     projection_area_scale,
                     projection_area_radius,
                     projection_area_corner_radius_uv,
@@ -3134,7 +3150,7 @@ void main() {
         fn projection_plan_from_xr_views(
             &self,
             views: &[xr::View],
-            projection_area_offset_uv: [f32; 2],
+            projection_area_eye_offset_uv: [[f32; 2]; 2],
             projection_area_scale: [f32; 2],
         ) -> Option<OesProjectionPlan> {
             let left = self.projection_metadata[0].as_ref()?;
@@ -3157,7 +3173,7 @@ void main() {
                     width,
                     height,
                     views,
-                    projection_area_offset_uv,
+                    projection_area_eye_offset_uv,
                     projection_area_scale,
                 )
             } else if left.is_camera_matched_synthetic()
@@ -3171,7 +3187,7 @@ void main() {
                     width,
                     height,
                     views,
-                    projection_area_offset_uv,
+                    projection_area_eye_offset_uv,
                     projection_area_scale,
                 )
             } else if left.is_synthetic() && right.is_synthetic() {
@@ -3181,7 +3197,7 @@ void main() {
                     width,
                     height,
                     views,
-                    projection_area_offset_uv,
+                    projection_area_eye_offset_uv,
                     projection_area_scale,
                 )
             } else if left.has_camera2_projection() && right.has_camera2_projection() {
@@ -3191,7 +3207,7 @@ void main() {
                     width,
                     height,
                     views,
-                    projection_area_offset_uv,
+                    projection_area_eye_offset_uv,
                     projection_area_scale,
                 )
             } else {
@@ -3353,7 +3369,7 @@ void main() {
         width: u32,
         height: u32,
         views: &[xr::View],
-        projection_area_offset_uv: [f32; 2],
+        projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
@@ -3399,22 +3415,22 @@ void main() {
         .ok()?;
         let left_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
             invert_homography(left_surface_to_screen)?,
-            projection_area_offset_uv,
+            projection_area_eye_offset_uv[0],
             projection_area_scale,
         );
         let right_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
             invert_homography(right_surface_to_screen)?,
-            projection_area_offset_uv,
+            projection_area_eye_offset_uv[1],
             projection_area_scale,
         );
         let left_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
             screen_to_camera_uv_homography(left_surface_to_screen, surface_to_camera).ok()?,
-            projection_area_offset_uv,
+            projection_area_eye_offset_uv[0],
             projection_area_scale,
         );
         let right_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
             screen_to_camera_uv_homography(right_surface_to_screen, surface_to_camera).ok()?,
-            projection_area_offset_uv,
+            projection_area_eye_offset_uv[1],
             projection_area_scale,
         );
         let left_source_label = projection_source_label(left_metadata, width, height);
@@ -3454,7 +3470,7 @@ void main() {
         width: u32,
         height: u32,
         views: &[xr::View],
-        projection_area_offset_uv: [f32; 2],
+        projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
@@ -3491,12 +3507,12 @@ void main() {
         .ok()?;
         let left_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
             invert_homography(left_surface_to_screen)?,
-            projection_area_offset_uv,
+            projection_area_eye_offset_uv[0],
             projection_area_scale,
         );
         let right_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
             invert_homography(right_surface_to_screen)?,
-            projection_area_offset_uv,
+            projection_area_eye_offset_uv[1],
             projection_area_scale,
         );
         let identity = identity_homography();
@@ -3535,7 +3551,7 @@ void main() {
         width: u32,
         height: u32,
         views: &[xr::View],
-        projection_area_offset_uv: [f32; 2],
+        projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
@@ -3595,23 +3611,23 @@ void main() {
         .ok()?;
         let left_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
             invert_homography(left_surface_to_screen)?,
-            projection_area_offset_uv,
+            projection_area_eye_offset_uv[0],
             projection_area_scale,
         );
         let right_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
             invert_homography(right_surface_to_screen)?,
-            projection_area_offset_uv,
+            projection_area_eye_offset_uv[1],
             projection_area_scale,
         );
         let left_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
             screen_to_camera_uv_homography(left_surface_to_screen, left_surface_to_camera).ok()?,
-            projection_area_offset_uv,
+            projection_area_eye_offset_uv[0],
             projection_area_scale,
         );
         let right_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
             screen_to_camera_uv_homography(right_surface_to_screen, right_surface_to_camera)
                 .ok()?,
-            projection_area_offset_uv,
+            projection_area_eye_offset_uv[1],
             projection_area_scale,
         );
         let left_source_label = projection_source_label(left_metadata, width, height);
@@ -4127,6 +4143,73 @@ void main() {
             .filter(|value| value.is_finite())
             .unwrap_or(0.0)
             .clamp(-0.5, 0.5)
+    }
+
+    fn activity_float_extra(
+        env: &mut JNIEnv<'_>,
+        activity: &JObject<'_>,
+        keys: &[&str],
+    ) -> Option<f32> {
+        keys.iter()
+            .find_map(|key| activity_string_extra(env, activity, key))
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+    }
+
+    fn projection_area_eye_offset_uv_from_activity(
+        app: &android_activity::AndroidApp,
+        base_offset_uv: [f32; 2],
+    ) -> [[f32; 2]; 2] {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return [base_offset_uv, base_offset_uv];
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return [base_offset_uv, base_offset_uv];
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        let left_x = activity_float_extra(
+            &mut env,
+            &activity,
+            &[
+                "rustyxr.projectionAreaLeftOffsetXUv",
+                "rustyxr.cameraProjectionAreaLeftOffsetXUv",
+            ],
+        )
+        .unwrap_or(base_offset_uv[0])
+        .clamp(-0.5, 0.5);
+        let left_y = activity_float_extra(
+            &mut env,
+            &activity,
+            &[
+                "rustyxr.projectionAreaLeftOffsetYUv",
+                "rustyxr.cameraProjectionAreaLeftOffsetYUv",
+            ],
+        )
+        .unwrap_or(base_offset_uv[1])
+        .clamp(-0.5, 0.5);
+        let right_x = activity_float_extra(
+            &mut env,
+            &activity,
+            &[
+                "rustyxr.projectionAreaRightOffsetXUv",
+                "rustyxr.cameraProjectionAreaRightOffsetXUv",
+            ],
+        )
+        .unwrap_or(base_offset_uv[0])
+        .clamp(-0.5, 0.5);
+        let right_y = activity_float_extra(
+            &mut env,
+            &activity,
+            &[
+                "rustyxr.projectionAreaRightOffsetYUv",
+                "rustyxr.cameraProjectionAreaRightOffsetYUv",
+            ],
+        )
+        .unwrap_or(base_offset_uv[1])
+        .clamp(-0.5, 0.5);
+        [[left_x, left_y], [right_x, right_y]]
     }
 
     fn projection_area_scale_from_activity(app: &android_activity::AndroidApp) -> [f32; 2] {

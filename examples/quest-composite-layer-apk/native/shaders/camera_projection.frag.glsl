@@ -984,7 +984,11 @@ void main() {
     float content_uv_scale = max(pc.params.z, 1.0);
     float projection_area_opacity = clamp(pc.effect_params.y, 0.0, 1.0);
     float projection_border_opacity = clamp(pc.effect_params.z, 0.0, 1.0);
-    vec2 projection_area_offset = clamp(pc.area_offset_params.xy, vec2(-0.5), vec2(0.5));
+    vec2 projection_area_offset = clamp(
+        eye == 0 ? pc.area_offset_params.xy : pc.area_offset_params.zw,
+        vec2(-0.5),
+        vec2(0.5)
+    );
     float projection_area_scale = clamp(pc.area_params.w, 0.05, 4.0);
     bool full_frame_stimulus_mapping =
         (packed_flags & CAMERA_FLAG_FULL_FRAME_STIMULUS_MAPPING) != 0;

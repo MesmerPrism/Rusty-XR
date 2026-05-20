@@ -56,7 +56,15 @@ Launch/profile behavior:
 - projection-area offset sweep values such as
   `rustyxr.cameraProjectionAreaOffsetXUv`,
   `rustyxr.cameraProjectionAreaOffsetYUv`, `rustyxr.projectionAreaOffsetXUv`,
-  `rustyxr.projectionAreaOffsetYUv`,
+  `rustyxr.projectionAreaOffsetYUv`, per-eye variants such as
+  `rustyxr.cameraProjectionAreaLeftOffsetXUv`,
+  `rustyxr.cameraProjectionAreaLeftOffsetYUv`,
+  `rustyxr.cameraProjectionAreaRightOffsetXUv`,
+  `rustyxr.cameraProjectionAreaRightOffsetYUv`,
+  `rustyxr.projectionAreaLeftOffsetXUv`,
+  `rustyxr.projectionAreaLeftOffsetYUv`,
+  `rustyxr.projectionAreaRightOffsetXUv`, and
+  `rustyxr.projectionAreaRightOffsetYUv`,
   `debug.rustyxr.makepad.projection.area.offset.left.uv`,
   `debug.rustyxr.makepad.projection.area.offset.right.uv`, or
   `debug.rustyxr.makepad.projection.area.offset.vertical.uv`;
@@ -239,6 +247,9 @@ Use `-ProjectionAreaOpacity` for the projection-window fade and
 `-ProjectionBorderOpacity` for the non-projection area/border fade. Opacity
 changes must not move the camera projection area; rerun the solid-red
 screen-space analyzer after each geometry change.
+GL/OES source-alpha composition expects premultiplied RGB. Opacity-zero
+underlay witnesses are invalid if camera RGB remains visible, and that failure
+belongs to the texture/upload convention before any projection-area tuning.
 
 Transparent GL/OES pixels show compositor background unless a runtime
 passthrough underlay is active for that app. Treat that as a composition
@@ -318,8 +329,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -BrokerH264SyntheticPattern diagnostic-grid `
   -BrokerH264SyntheticProjectionProfile camera-matched `
   -ProjectionBorderPolicy passthrough-underlay `
-  -ProcessingLayer blur `
-  -BlurRadiusPx 2.0
+  -ProcessingLayer raw
 ```
 
 The public Makepad example defaults to package
@@ -337,6 +347,16 @@ display/screenshot coordinates: right and down. Use renderer-specific overrides
 only when a lane has a documented OpenXR layer or viewport placement
 convention that requires a different value; sign normalization belongs in the
 renderer/profile boundary, not in the analyzer or source-content detection.
+For eye-specific alignment, use renderer-specific left/right suite parameters
+such as `-VulkanProjectionAreaLeftOffsetXUv`,
+`-VulkanProjectionAreaRightOffsetXUv`,
+`-VulkanProjectionAreaLeftOffsetYUv`,
+`-VulkanProjectionAreaRightOffsetYUv`,
+`-GlesProjectionAreaLeftOffsetXUv`,
+`-GlesProjectionAreaRightOffsetXUv`,
+`-GlesProjectionAreaLeftOffsetYUv`, and
+`-GlesProjectionAreaRightOffsetYUv`. The common offset remains the fallback
+for an eye whose per-eye value is not supplied.
 
 Use `-RestartBrokerBeforeBrokerModes` when multiple live broker-camera lanes
 reuse the same H.264 ports in one suite. The switch restarts the broker console

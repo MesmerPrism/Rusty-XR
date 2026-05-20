@@ -102,16 +102,27 @@ Later 2026-05-19 work promoted the same contract beyond synthetic evidence:
 - suite-level projection-area signs are stable: positive X moves right and
   positive Y moves down in display/screenshot coordinates.
 
-Do not treat this as blur-ready. A patched 2026-05-19 device comparison now
-shows the depth/world-space records ready and keeps passthrough as a physical
-witness. The live broker Camera2 lanes across HWB, GL/OES, and Makepad carry
-the app reference-space role, renderer OpenXR reference-space label, predicted
-display time, and per-eye render pose/FOV values, and they join as `ready`
-against the depth baseline. The remaining direct Camera2 and passthrough
-witness rows are owned by analyzer evidence: the physical target does not give
-synthetic marker certainty for left/right orientation. That is not a
-texture/upload, projection-area, OpenXR reference-space, or backend viewport
-fix by itself.
+The 2026-05-20 physical-target matrix extends that contract to native
+passthrough center-cross alignment. All six live Camera2 lanes classify as
+`ready` when compared against an opacity-zero passthrough witness, using the
+green center cross as the primary evidence target and keeping full-feature
+correlation secondary because the native passthrough compositor can apply
+peripheral warp that the custom projection is not expected to reproduce.
+
+The resolved mismatch owners are:
+
+- GL/OES opacity and brightness mismatch: texture/upload convention. Source
+  alpha output must premultiply RGB before OpenXR source-alpha composition.
+- HWB and GL/OES per-eye center offsets: projection-area mapping. The common
+  projection-area offset is only a fallback; HWB and GL/OES can accept per-eye
+  left/right X and Y offsets.
+- False GL/OES right-eye row selection: analyzer evidence. The green-cross
+  detector chooses a strong axis near the green target median instead of the
+  raw maximum row or column when other green target features are present.
+
+Blur remains a downstream consumer of the stable projection contract. Do not
+use blur, color effects, source crops, or renderer-local hidden offsets to
+discover or hide coordinate errors.
 
 ## Coordinate Domains
 
@@ -321,10 +332,16 @@ Trace these before using OES as the reference:
 - source valid UV rect and crop
 - projection-area mask and matte/border policy
 - per-eye `screen_to_camera` stage
+- source-alpha output convention
 
 OES can be the temporary camera-matched footprint target only while it remains
 upright, unclipped, and has the largest plausible source footprint under the
 same run manifest.
+For source-alpha OpenXR composition, GL/OES shader output must be
+premultiplied: RGB is multiplied by the projection-area or border alpha before
+it reaches the compositor. If an opacity-zero witness still shows custom camera
+RGB, classify the first mismatch as texture/upload convention rather than
+projection-area geometry.
 
 ### Makepad CPU-YUV
 
@@ -383,7 +400,9 @@ The schema name is currently `rusty.xr.projection-coordinate-contract.v1`.
     "depth_meters": 1.0,
     "overscan": 1.0,
     "aspect": 1.0,
-    "projection_area_scale_uv": 1.0
+    "projection_area_scale_uv": 1.0,
+    "projection_area_left_offset_uv": [-0.02, 0.01],
+    "projection_area_right_offset_uv": [0.02, 0.01]
   },
   "openxr": {
     "reference_space": "app-reference-space",

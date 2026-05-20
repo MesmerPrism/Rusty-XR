@@ -426,8 +426,14 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraPreviewFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraPreviewFovYDegrees", DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES)));
         builder.append(",\"cameraProjectionScale\":").append(floatJson(floatExtra("rustyxr.cameraProjectionScale", DEFAULT_CAMERA_PROJECTION_SCALE)));
         builder.append(",\"cameraProjectionAreaScaleUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaScaleUv", DEFAULT_CAMERA_PROJECTION_AREA_SCALE_UV)));
-        builder.append(",\"cameraProjectionAreaOffsetXUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaOffsetXUv", DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_X_UV)));
-        builder.append(",\"cameraProjectionAreaOffsetYUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaOffsetYUv", DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_Y_UV)));
+        float projectionAreaOffsetXUv = floatExtra("rustyxr.cameraProjectionAreaOffsetXUv", DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_X_UV);
+        float projectionAreaOffsetYUv = floatExtra("rustyxr.cameraProjectionAreaOffsetYUv", DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_Y_UV);
+        builder.append(",\"cameraProjectionAreaOffsetXUv\":").append(floatJson(projectionAreaOffsetXUv));
+        builder.append(",\"cameraProjectionAreaOffsetYUv\":").append(floatJson(projectionAreaOffsetYUv));
+        builder.append(",\"cameraProjectionAreaLeftOffsetXUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaLeftOffsetXUv", projectionAreaOffsetXUv)));
+        builder.append(",\"cameraProjectionAreaLeftOffsetYUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaLeftOffsetYUv", projectionAreaOffsetYUv)));
+        builder.append(",\"cameraProjectionAreaRightOffsetXUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaRightOffsetXUv", projectionAreaOffsetXUv)));
+        builder.append(",\"cameraProjectionAreaRightOffsetYUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaRightOffsetYUv", projectionAreaOffsetYUv)));
         builder.append(",\"cameraProjectionAreaRadiusXUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaRadiusXUv", DEFAULT_CAMERA_PROJECTION_AREA_RADIUS_X_UV)));
         builder.append(",\"cameraProjectionAreaRadiusYUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaRadiusYUv", DEFAULT_CAMERA_PROJECTION_AREA_RADIUS_Y_UV)));
         builder.append(",\"cameraProjectionAreaCornerRadiusUv\":").append(floatJson(floatExtra("rustyxr.cameraProjectionAreaCornerRadiusUv", DEFAULT_CAMERA_PROJECTION_AREA_CORNER_RADIUS_UV)));
