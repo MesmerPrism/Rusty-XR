@@ -660,6 +660,10 @@ mod android {
         let processing_layer = processing_layer_from_activity(&app);
         let blur_radius_px = blur_radius_px_from_activity(&app);
         let projection_depth_meters = projection_depth_meters_from_activity(&app);
+        let projection_preview_fov_y_degrees = projection_preview_fov_y_degrees_from_activity(&app);
+        let projection_preview_offset_y_meters =
+            projection_preview_offset_y_meters_from_activity(&app);
+        let projection_raw_overscan = projection_raw_overscan_from_activity(&app);
         let projection_area_offset_x_uv = projection_area_offset_x_uv_from_activity(&app);
         let projection_area_offset_y_uv = projection_area_offset_y_uv_from_activity(&app);
         let projection_area_offset_uv = [projection_area_offset_x_uv, projection_area_offset_y_uv];
@@ -765,13 +769,19 @@ mod android {
             projection_alpha_scale,
             projection_alpha_bias,
             projection_depth_meters,
+            projection_preview_fov_y_degrees,
+            projection_preview_offset_y_meters,
+            projection_raw_overscan,
         );
         log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} oesSourceColorTransfer={} sourceColorInputEncoding={} sourceColorOutputEncoding={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} oesSourceColorTransfer={} sourceColorInputEncoding={} sourceColorOutputEncoding={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
             projection_border_policy.stable_id(),
             processing_layer.stable_id(),
             blur_radius_px,
             projection_depth_meters,
+            projection_preview_fov_y_degrees,
+            projection_preview_offset_y_meters,
+            projection_raw_overscan,
             projection_area_offset_x_uv,
             projection_area_offset_y_uv,
             projection_area_eye_offset_uv[0][0],
@@ -977,6 +987,9 @@ mod android {
                         projection_area_eye_offset_uv,
                         projection_area_scale,
                         projection_depth_meters,
+                        projection_preview_fov_y_degrees,
+                        projection_preview_offset_y_meters,
+                        projection_raw_overscan,
                     )
                 });
                 let openxr_projection_fields = openxr_projection_contract_fields(
@@ -3449,6 +3462,9 @@ void main() {
             projection_area_eye_offset_uv: [[f32; 2]; 2],
             projection_area_scale: [f32; 2],
             projection_depth_meters: f32,
+            projection_preview_fov_y_degrees: f32,
+            projection_preview_offset_y_meters: f32,
+            projection_raw_overscan: f32,
         ) -> Option<OesProjectionPlan> {
             let left = self.projection_metadata[0].as_ref()?;
             let right = self.projection_metadata[1].as_ref()?;
@@ -3473,6 +3489,9 @@ void main() {
                     projection_area_eye_offset_uv,
                     projection_area_scale,
                     projection_depth_meters,
+                    projection_preview_fov_y_degrees,
+                    projection_preview_offset_y_meters,
+                    projection_raw_overscan,
                 )
             } else if left.is_camera_matched_synthetic()
                 && right.is_camera_matched_synthetic()
@@ -3488,6 +3507,9 @@ void main() {
                     projection_area_eye_offset_uv,
                     projection_area_scale,
                     projection_depth_meters,
+                    projection_preview_fov_y_degrees,
+                    projection_preview_offset_y_meters,
+                    projection_raw_overscan,
                 )
             } else if left.is_synthetic() && right.is_synthetic() {
                 broker_synthetic_projection_plan_from_xr_views(
@@ -3499,6 +3521,9 @@ void main() {
                     projection_area_eye_offset_uv,
                     projection_area_scale,
                     projection_depth_meters,
+                    projection_preview_fov_y_degrees,
+                    projection_preview_offset_y_meters,
+                    projection_raw_overscan,
                 )
             } else if left.has_camera2_projection() && right.has_camera2_projection() {
                 camera2_projection_plan_from_xr_views(
@@ -3510,6 +3535,9 @@ void main() {
                     projection_area_eye_offset_uv,
                     projection_area_scale,
                     projection_depth_meters,
+                    projection_preview_fov_y_degrees,
+                    projection_preview_offset_y_meters,
+                    projection_raw_overscan,
                 )
             } else {
                 None
@@ -3664,6 +3692,29 @@ void main() {
         }
     }
 
+    fn preview_surface_corners(
+        tracking: TrackingBasis,
+        preview_fov_y_degrees: f32,
+        projection_depth_meters: f32,
+        aspect: f32,
+        raw_overscan: f32,
+        preview_offset_y_meters: f32,
+    ) -> Option<[Vec3; 4]> {
+        let mut surface = head_anchored_preview_surface_corners(
+            tracking,
+            preview_fov_y_degrees,
+            projection_depth_meters,
+            aspect,
+            raw_overscan,
+        )
+        .ok()?;
+        let offset = tracking.up * preview_offset_y_meters.clamp(-2.0, 2.0);
+        for corner in &mut surface {
+            *corner = *corner + offset;
+        }
+        Some(surface)
+    }
+
     fn broker_synthetic_projection_plan_from_xr_views(
         left_metadata: &OesProjectionMetadata,
         right_metadata: &OesProjectionMetadata,
@@ -3673,20 +3724,24 @@ void main() {
         projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
         projection_depth_meters: f32,
+        projection_preview_fov_y_degrees: f32,
+        projection_preview_offset_y_meters: f32,
+        projection_raw_overscan: f32,
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
         let tracking = tracking_basis_from_xr_views(left_view, right_view)?;
         let aspect = fov_aspect(left_view).unwrap_or(PROJECTION_SOURCE_ASPECT);
-        let surface = head_anchored_preview_surface_corners(
+        let surface = preview_surface_corners(
             tracking,
-            PROJECTION_PREVIEW_FOV_Y_DEGREES,
+            projection_preview_fov_y_degrees,
             projection_depth_meters,
             aspect,
-            PROJECTION_RAW_OVERSCAN,
-        )
-        .ok()?;
-        let intrinsics = synthetic_broker_intrinsics(width, height)?;
+            projection_raw_overscan,
+            projection_preview_offset_y_meters,
+        )?;
+        let intrinsics =
+            synthetic_broker_intrinsics(width, height, projection_preview_fov_y_degrees)?;
         let camera_basis = CameraBasis::new(
             tracking.origin,
             tracking.right,
@@ -3787,19 +3842,22 @@ void main() {
         projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
         projection_depth_meters: f32,
+        projection_preview_fov_y_degrees: f32,
+        projection_preview_offset_y_meters: f32,
+        projection_raw_overscan: f32,
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
         let tracking = tracking_basis_from_xr_views(left_view, right_view)?;
         let aspect = fov_aspect(left_view).unwrap_or(PROJECTION_SOURCE_ASPECT);
-        let surface = head_anchored_preview_surface_corners(
+        let surface = preview_surface_corners(
             tracking,
-            PROJECTION_PREVIEW_FOV_Y_DEGREES,
+            projection_preview_fov_y_degrees,
             projection_depth_meters,
             aspect,
-            PROJECTION_RAW_OVERSCAN,
-        )
-        .ok()?;
+            projection_raw_overscan,
+            projection_preview_offset_y_meters,
+        )?;
         let left_eye_basis = eye_basis_from_xr_view(left_view)?;
         let right_eye_basis = eye_basis_from_xr_view(right_view)?;
         let left_surface_to_screen = surface_to_eye_screen_uv_homography(
@@ -3869,19 +3927,22 @@ void main() {
         projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
         projection_depth_meters: f32,
+        projection_preview_fov_y_degrees: f32,
+        projection_preview_offset_y_meters: f32,
+        projection_raw_overscan: f32,
     ) -> Option<OesProjectionPlan> {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
         let tracking = tracking_basis_from_xr_views(left_view, right_view)?;
         let aspect = fov_aspect(left_view).unwrap_or(PROJECTION_SOURCE_ASPECT);
-        let surface = head_anchored_preview_surface_corners(
+        let surface = preview_surface_corners(
             tracking,
-            PROJECTION_PREVIEW_FOV_Y_DEGREES,
+            projection_preview_fov_y_degrees,
             projection_depth_meters,
             aspect,
-            PROJECTION_RAW_OVERSCAN,
-        )
-        .ok()?;
+            projection_raw_overscan,
+            projection_preview_offset_y_meters,
+        )?;
         let left_extrinsics = left_metadata.extrinsics?;
         let right_extrinsics = right_metadata.extrinsics?;
         let reference_center = (left_extrinsics.world_from_camera.position
@@ -4044,13 +4105,17 @@ void main() {
         )
     }
 
-    fn synthetic_broker_intrinsics(width: u32, height: u32) -> Option<CameraIntrinsics> {
+    fn synthetic_broker_intrinsics(
+        width: u32,
+        height: u32,
+        preview_fov_y_degrees: f32,
+    ) -> Option<CameraIntrinsics> {
         let width_f = width as f32;
         let height_f = height as f32;
         if width_f <= 0.0 || height_f <= 0.0 {
             return None;
         }
-        let focal = height_f / (2.0 * (PROJECTION_PREVIEW_FOV_Y_DEGREES.to_radians() * 0.5).tan());
+        let focal = height_f / (2.0 * (preview_fov_y_degrees.to_radians() * 0.5).tan());
         let intrinsics = CameraIntrinsics::new(
             Vec2::new(focal, focal),
             Vec2::new(width_f * 0.5, height_f * 0.5),
@@ -4447,6 +4512,57 @@ void main() {
             .filter(|value| value.is_finite())
             .unwrap_or(DEFAULT_PROJECTION_TARGET_DEPTH_METERS)
             .clamp(0.05, 10.0)
+    }
+
+    fn projection_preview_fov_y_degrees_from_activity(app: &android_activity::AndroidApp) -> f32 {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return PROJECTION_PREVIEW_FOV_Y_DEGREES;
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return PROJECTION_PREVIEW_FOV_Y_DEGREES;
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.cameraPreviewFovYDegrees")
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(PROJECTION_PREVIEW_FOV_Y_DEGREES)
+            .clamp(1.0, 175.0)
+    }
+
+    fn projection_preview_offset_y_meters_from_activity(app: &android_activity::AndroidApp) -> f32 {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return 0.0;
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return 0.0;
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.cameraPreviewOffsetYMeters")
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(0.0)
+            .clamp(-2.0, 2.0)
+    }
+
+    fn projection_raw_overscan_from_activity(app: &android_activity::AndroidApp) -> f32 {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return PROJECTION_RAW_OVERSCAN;
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return PROJECTION_RAW_OVERSCAN;
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        activity_string_extra(&mut env, &activity, "rustyxr.cameraRawOverlayOverscan")
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .unwrap_or(PROJECTION_RAW_OVERSCAN)
+            .max(1.0)
     }
 
     fn projection_area_offset_x_uv_from_activity(app: &android_activity::AndroidApp) -> f32 {
@@ -5249,10 +5365,16 @@ void main() {
         projection_alpha_scale: f32,
         projection_alpha_bias: f32,
         projection_depth_meters: f32,
+        projection_preview_fov_y_degrees: f32,
+        projection_preview_offset_y_meters: f32,
+        projection_raw_overscan: f32,
     ) -> String {
         format!(
-            "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionDepthMeters={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} rendererSurfaceUvOrigin=gles-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=gles-v-uv-direct-backend-bias-pending leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+            "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} rendererSurfaceUvOrigin=gles-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=gles-v-uv-direct-backend-bias-pending leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
             projection_depth_meters,
+            projection_preview_fov_y_degrees,
+            projection_preview_offset_y_meters,
+            projection_raw_overscan,
             projection_alpha_mode.stable_id(),
             projection_alpha_scale,
             projection_alpha_bias,

@@ -114,6 +114,21 @@ switch, the wrapper expects a WSL/Linux-host SDK and a Linux NDK prebuilt. A
 path being reachable from WSL is not enough; the SDK must contain tools for the
 host that runs `cargo-makepad`.
 
+For repeatable Rusty XR evidence builds, record which host lane built the APK.
+If a clean WSL/Linux-host rerun still fails while Makepad removes a missing
+bundled font asset, treat that as a Makepad packager-route failure rather than
+ordinary stale staging. After cleaning
+`target/android/makepad-android-apk/` once, switch to the Windows-host wrapper
+lane with `-UseWindowsHost` or state that Linux-host packaging itself is being
+tested.
+
+If the `cargo_makepad` tool still tries to run hardcoded
+`build-tools/33.0.1/aapt` when the wrapper selected a Windows SDK with a
+different build-tools version, the wrong or stale Makepad packager is being
+used. Do not create a fake SDK shadow as the primary fix; update or select the
+Makepad fork whose packager resolves installed SDK tools and host executable
+names from `--sdk-path`.
+
 For projection-footprint alignment work, build a distinct alignment APK rather
 than reusing the Q2Q package identity:
 

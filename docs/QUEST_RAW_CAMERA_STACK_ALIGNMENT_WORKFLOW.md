@@ -276,6 +276,14 @@ Launch/profile behavior:
   `debug.rustyxr.projection.depth.meters` for Makepad. Lane-specific depth
   overrides must be logged rather than
   hidden in renderer constants;
+- preview-surface shape values. The suite-level
+  `-CameraPreviewFovYDegrees`, `-CameraPreviewOffsetYMeters`, and
+  `-CameraRawOverlayOverscan` values are forwarded as the public
+  `rustyxr.cameraPreview*` extras for Vulkan/HWB and GL/OES, and as
+  `debug.rustyxr.camera.preview.*` / `debug.rustyxr.camera.raw.overlay.overscan`
+  properties for Makepad. This keeps the native-aligned HWB canvas target
+  replayable by OES and Makepad custom-projection lanes without hiding shape
+  differences in renderer constants;
 - projection-area offset sweep values such as
   `rustyxr.projectionAreaOffsetXUv`, `rustyxr.projectionAreaOffsetYUv`,
   per-eye variants such as `rustyxr.projectionAreaLeftOffsetXUv`,
@@ -333,13 +341,23 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 ```
 
 The Makepad build consumes a prepared Android SDK layout for Makepad. Pass
-`-MakepadSourceRoot` for evidence runs that must use the maintained fork's
-Android packager; leave app dependency patching off unless an uncommitted
-Makepad dependency change is explicitly under test. Host `cargo check` and
-focused host tests are still useful for Makepad parser/projection code, but
-plain `cargo check --target aarch64-linux-android` is not the Makepad Android
+`-UseWindowsHost` when the selected SDK is a Windows-host SDK; omit it only for
+an intentional WSL/Linux-host SDK and packager run. Pass `-MakepadSourceRoot`
+for evidence runs that must use the maintained fork's Android packager; leave
+app dependency patching off unless an uncommitted Makepad dependency change is
+explicitly under test. Host `cargo check` and focused host tests are still
+useful for Makepad parser/projection code, but plain
+`cargo check --target aarch64-linux-android` is not the Makepad Android
 acceptance gate because it does not exercise the generated activity/packager
-path. The Vulkan/HWB and GL/OES APKs consume the OpenXR loader directly.
+path. If a clean WSL/Linux-host Makepad rebuild repeats a missing bundled font
+asset removal failure, treat it as a packager-route failure rather than hidden
+staging state and switch to the Windows-host wrapper lane unless Linux-host
+packaging is the variable being tested. If `cargo_makepad` then looks for a
+hardcoded `build-tools/33.0.1/aapt` path while the wrapper selected a different
+Windows build-tools version, the Makepad packager source/tool is stale for this
+route; update or select the maintained fork/tool rather than creating SDK
+shadow directories or executable aliases. The Vulkan/HWB and GL/OES APKs
+consume the OpenXR loader directly.
 
 ## Single-Lane Launch Recipes
 
@@ -638,6 +656,45 @@ Use `solid-red` for image-derived border checks and `passthrough-underlay` for
 manual alignment with native passthrough. Leave `-ProcessingLayer raw` for
 projection-only checks, and switch to `blur` only when comparing camera-sample
 processing behavior across the lanes.
+To verify the current HWB canvas-aligned target across non-HWB custom lanes,
+pass the solved surface values explicitly:
+
+```powershell
+-ProjectionDepthMeters 1.434085 `
+-CameraPreviewFovYDegrees 69.763084 `
+-CameraPreviewOffsetYMeters -0.168832 `
+-CameraRawOverlayOverscan 1.0
+```
+
+Reference validation on 2026-05-21 used freshly built GL/OES and Makepad APKs.
+The Makepad APK was built through the Windows-host wrapper lane with
+`-UseWindowsHost`, an explicit standalone Windows SDK path, and the maintained
+Makepad fork passed through `-MakepadSourceRoot`; the build log identified a
+source-built `cargo_makepad` from that fork and SDK build-tools `36.0.0`.
+The validation suite then installed those APKs and ran only the non-HWB custom
+projection modes:
+
+```powershell
+-Mode gles-oes-direct-camera2-raw,gles-oes-broker-h264-raw,makepad-cpuyuv-direct-camera2-raw,makepad-cpuyuv-broker-h264-raw `
+-RestartBrokerBeforeBrokerModes `
+-BrokerH264SourceMode broker-synthetic `
+-BrokerH264SyntheticPattern diagnostic-grid `
+-BrokerH264ProjectionGeometryProfile full-frame-diagnostic `
+-ProjectionBorderPolicy solid-red `
+-ProcessingLayer raw
+```
+
+The strict diagnostic-mask analyzer passed the two broker-synthetic custom
+projection lanes with zero cross-lane footprint deltas between GL/OES and
+Makepad. The direct live-Camera2 lanes completed and logged ready projection
+coordinate contracts, but the strict analyzer correctly marked their screenshots
+ambiguous because live camera pixels do not contain the diagnostic mask. Running
+the analyzer with `--allow-visible-fallback` produced ready records for all four
+modes, while the all-lane parity check remained evidence-only because it mixes
+live-camera visible envelopes with broker-synthetic diagnostic footprints. Treat
+broker-synthetic parity and direct-Camera2 visible-envelope evidence as separate
+checks unless a future direct-camera diagnostic mask is added.
+
 Use `-ProjectionAreaOffsetXUv <value>` and `-ProjectionAreaOffsetYUv <value>`
 for controlled centering sweeps. Positive X and positive Y are defined in
 display/screenshot coordinates: right and down. Use renderer-specific overrides

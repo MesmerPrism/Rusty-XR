@@ -46,6 +46,9 @@ param(
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionScale = 1.0,
     [double]$ProjectionDepthMeters = 1.0,
+    [double]$CameraPreviewFovYDegrees = [double]::NaN,
+    [double]$CameraPreviewOffsetYMeters = [double]::NaN,
+    [double]$CameraRawOverlayOverscan = [double]::NaN,
     [double]$XrRenderScale = 1.0,
     [double]$ProjectionAreaOffsetXUv = 0.0,
     [double]$ProjectionAreaOffsetLeftUv = [double]::NaN,
@@ -273,6 +276,15 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.projection.area.radius.x.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusXUv)
         "debug.rustyxr.makepad.projection.area.radius.y.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusYUv)
         "debug.rustyxr.makepad.projection.area.corner.radius.uv" = (Format-InvariantDouble -Value $ProjectionAreaCornerRadiusUv)
+    }
+    if (-not [double]::IsNaN($CameraPreviewFovYDegrees)) {
+        $props["debug.rustyxr.camera.preview.fov.y.degrees"] = (Format-InvariantDouble -Value $CameraPreviewFovYDegrees)
+    }
+    if (-not [double]::IsNaN($CameraPreviewOffsetYMeters)) {
+        $props["debug.rustyxr.camera.preview.offset.y.meters"] = (Format-InvariantDouble -Value $CameraPreviewOffsetYMeters)
+    }
+    if (-not [double]::IsNaN($CameraRawOverlayOverscan)) {
+        $props["debug.rustyxr.camera.raw.overlay.overscan"] = (Format-InvariantDouble -Value $CameraRawOverlayOverscan)
     }
 
     foreach ($entry in $props.GetEnumerator()) {

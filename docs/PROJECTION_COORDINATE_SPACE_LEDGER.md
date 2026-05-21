@@ -324,8 +324,9 @@ transparent alpha, solid fill, matte, or documented border.
 Depth-1.0 / overscan-1.0 canvas-vs-collapsed evidence should now be treated as
 the geometry handoff gate: when both profiles use the same
 `projectionDepthMeters`, `cameraPreviewFovYDegrees`, delivered source aspect,
-and `cameraRawOverlayOverscan`, the `world-canvas` quad and the
-`display-screen-homography` camera-footprint shader are expected to line up in
+`cameraPreviewOffsetYMeters`, and `cameraRawOverlayOverscan`, the
+`world-canvas` quad and the `display-screen-homography` camera-footprint shader
+are expected to line up in
 MediaProjection and HzDB per-eye screenshots. If they disagree, keep debugging
 the canvas-to-collapsed mapping before touching native-passthrough alignment.
 If they agree, tune native-passthrough alignment against the visible
@@ -337,7 +338,9 @@ The next passthrough solve should tune named surface geometry in this order:
    This is the primary convergence/parallax knob.
 2. `cameraPreviewFovYDegrees`: adjust the virtual surface height once depth is
    bracketed.
-3. `cameraRawOverlayOverscan`: use only after depth and height are close, and
+3. `cameraPreviewOffsetYMeters`: move the named preview surface along tracking
+   up/down only after the surface scale is close.
+4. `cameraRawOverlayOverscan`: use only after depth and height are close, and
    record it as a coverage pad rather than an alignment offset.
 
 Do not compensate first with projection-area offsets, blur, passthrough

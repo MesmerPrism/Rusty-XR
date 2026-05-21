@@ -127,6 +127,9 @@ const KEY_SYNTHETIC_SCENE: &str = "synthetic_scene";
 const KEY_ACQUISITION_PROFILE: &str = "acquisition_profile";
 const KEY_PROJECTION_SCALE: &str = "projection_scale";
 const KEY_PROJECTION_DEPTH_METERS: &str = "projection_depth_meters";
+const KEY_CAMERA_PREVIEW_FOV_Y_DEGREES: &str = "camera_preview_fov_y_degrees";
+const KEY_CAMERA_PREVIEW_OFFSET_Y_METERS: &str = "camera_preview_offset_y_meters";
+const KEY_CAMERA_RAW_OVERLAY_OVERSCAN: &str = "camera_raw_overlay_overscan";
 const KEY_XR_RENDER_SCALE: &str = "xr_render_scale";
 const KEY_RENDERER: &str = "renderer";
 const KEY_ANDROID_PACKAGER: &str = "android_packager";
@@ -276,6 +279,7 @@ script_mod! {
         display_fov_y_degrees: 92.0
         display_aspect: 1.0
         projection_depth_meters: 1.0
+        projection_preview_offset_y_meters: 0.0
         projection_preview_fov_y_degrees: 60.0
         projection_raw_overscan: 1.06
         suppress_live_camera_sampling: 1.0
@@ -492,7 +496,10 @@ script_mod! {
             let ray = normalize(ray4.xyz);
 
             let depth = max(self.projection_depth_meters, 0.05);
-            let surface_center = head_origin + forward * depth;
+            let surface_center =
+                head_origin +
+                forward * depth +
+                up * self.projection_preview_offset_y_meters;
             let denom = dot(ray, forward);
             let safe_denom = mix(0.0001, denom, step(0.0001, abs(denom)));
             let t = dot(surface_center - eye_origin, forward) / safe_denom;
@@ -1266,6 +1273,8 @@ pub struct DrawMakepadStereoCameraPanel {
     pub display_aspect: f32,
     #[live(0.75_f32)]
     pub projection_depth_meters: f32,
+    #[live(0.0_f32)]
+    pub projection_preview_offset_y_meters: f32,
     #[live(60.0_f32)]
     pub projection_preview_fov_y_degrees: f32,
     #[live(1.06_f32)]
@@ -1708,8 +1717,11 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.display_fov_y_degrees = TARGET_DISPLAY_FOV_Y_DEGREES;
         self.draw_panel.display_aspect = TARGET_DISPLAY_ASPECT;
         self.draw_panel.projection_depth_meters = makepad_projection_depth_meters();
-        self.draw_panel.projection_preview_fov_y_degrees = TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES;
-        self.draw_panel.projection_raw_overscan = TARGET_PROJECTION_RAW_OVERSCAN;
+        self.draw_panel.projection_preview_offset_y_meters =
+            makepad_projection_preview_offset_y_meters();
+        self.draw_panel.projection_preview_fov_y_degrees =
+            makepad_projection_preview_fov_y_degrees();
+        self.draw_panel.projection_raw_overscan = makepad_projection_raw_overscan();
         self.draw_panel.suppress_live_camera_sampling = if SUPPRESS_LIVE_CAMERA_SAMPLING {
             1.0
         } else {
@@ -1954,12 +1966,16 @@ impl MakepadStereoCameraPanel {
                 self.draw_panel.projection_depth_meters,
             ),
             (
+                live_id!(projection_preview_offset_y_meters),
+                self.draw_panel.projection_preview_offset_y_meters,
+            ),
+            (
                 live_id!(projection_preview_fov_y_degrees),
-                TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES,
+                self.draw_panel.projection_preview_fov_y_degrees,
             ),
             (
                 live_id!(projection_raw_overscan),
-                TARGET_PROJECTION_RAW_OVERSCAN,
+                self.draw_panel.projection_raw_overscan,
             ),
         ] {
             self.draw_panel.draw_vars.set_dyn_instance(cx, id, &[value]);
@@ -2357,10 +2373,13 @@ impl Widget for MakepadStereoCameraPanel {
         }
         if !CAMERA_PANEL_DRAW_MARKER_EMITTED.swap(true, Ordering::AcqRel) {
             emit_marker_line(&format!(
-                "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=visible-panel-draw status=ok visibleCameraPanelDrawn=true cameraTextureReady={} renderPath=makepad-xr sceneOwnedPanel=true projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review projectionDepthMeters={:.2} panelTargetDepthMeters={:.2} panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06 panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 diagnosticSolidPanel=false debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
+                "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=visible-panel-draw status=ok visibleCameraPanelDrawn=true cameraTextureReady={} renderPath=makepad-xr sceneOwnedPanel=true projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping diagnosticPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77RustyXrInvalidUvFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88TargetFastInvalidFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109RedProjectionBorder=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review projectionDepthMeters={:.2} panelTargetDepthMeters={:.2} panelTargetPreviewFovYDegrees={:.3} panelTargetPreviewOffsetYMeters={:.3} panelTargetRawOverscan={:.3} panelTargetAspect=1.00 panelTargetWidthMeters=0.92 panelTargetHeightMeters=0.92 diagnosticSolidPanel=false debugAlignmentGuide=false borderOnlyGuide=false paleBorderGuide=false proofTintStrength=0.0 neutralWaitingPanel=true visualIsolation=s118_projected_footprint_red_border depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
                 self.camera_ready,
                 self.draw_panel.projection_depth_meters,
-                self.draw_panel.projection_depth_meters
+                self.draw_panel.projection_depth_meters,
+                self.draw_panel.projection_preview_fov_y_degrees,
+                self.draw_panel.projection_preview_offset_y_meters,
+                self.draw_panel.projection_raw_overscan
             ));
         }
         let _world = xr_widget_world_transform(cx, scope, self.widget_uid(), &self.node);
@@ -2505,6 +2524,36 @@ impl App {
                 KEY_PROJECTION_DEPTH_METERS,
                 "RUSTY_XR_PROJECTION_DEPTH_METERS",
                 DEFAULT_PROJECTION_DEPTH_METERS,
+            ),
+            RuntimeConfigSource::Environment,
+        );
+        set_runtime_float(
+            &mut config,
+            KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
+            startup_f64(
+                KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
+                "RUSTY_XR_CAMERA_PREVIEW_FOV_Y_DEGREES",
+                TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES as f64,
+            ),
+            RuntimeConfigSource::Environment,
+        );
+        set_runtime_float(
+            &mut config,
+            KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
+            startup_signed_f64(
+                KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
+                "RUSTY_XR_CAMERA_PREVIEW_OFFSET_Y_METERS",
+                0.0,
+            ),
+            RuntimeConfigSource::Environment,
+        );
+        set_runtime_float(
+            &mut config,
+            KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
+            startup_f64(
+                KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
+                "RUSTY_XR_CAMERA_RAW_OVERLAY_OVERSCAN",
+                TARGET_PROJECTION_RAW_OVERSCAN as f64,
             ),
             RuntimeConfigSource::Environment,
         );
@@ -2762,6 +2811,9 @@ impl App {
             predicted_display_time_ns,
             reference_space: "makepad-platform-local-space",
             projection_depth_meters: makepad_projection_depth_meters(),
+            projection_preview_fov_y_degrees: makepad_projection_preview_fov_y_degrees(),
+            projection_preview_offset_y_meters: makepad_projection_preview_offset_y_meters(),
+            projection_raw_overscan: makepad_projection_raw_overscan(),
         };
         let updated = if Self::broker_h264_enabled() {
             self.refresh_broker_h264_projection_plan(views)
@@ -5398,6 +5450,9 @@ struct MakepadOpenXrProjectionContract {
     predicted_display_time_ns: Option<i64>,
     view_pose_fov_source: String,
     projection_depth_meters: Option<f32>,
+    projection_preview_fov_y_degrees: Option<f32>,
+    projection_preview_offset_y_meters: Option<f32>,
+    projection_raw_overscan: Option<f32>,
     left_render_fov_tangents: Option<[f32; 4]>,
     right_render_fov_tangents: Option<[f32; 4]>,
     left_render_position: Option<[f32; 4]>,
@@ -5415,6 +5470,9 @@ impl MakepadOpenXrProjectionContract {
             predicted_display_time_ns: None,
             view_pose_fov_source: "not-logged".to_string(),
             projection_depth_meters: None,
+            projection_preview_fov_y_degrees: None,
+            projection_preview_offset_y_meters: None,
+            projection_raw_overscan: None,
             left_render_fov_tangents: None,
             right_render_fov_tangents: None,
             left_render_position: None,
@@ -5433,6 +5491,9 @@ impl MakepadOpenXrProjectionContract {
             predicted_display_time_ns: contract.predicted_display_time_ns,
             view_pose_fov_source: contract.view_pose_fov_source.to_string(),
             projection_depth_meters: contract.projection_depth_meters,
+            projection_preview_fov_y_degrees: contract.projection_preview_fov_y_degrees,
+            projection_preview_offset_y_meters: contract.projection_preview_offset_y_meters,
+            projection_raw_overscan: contract.projection_raw_overscan,
             left_render_fov_tangents: contract.left_render_fov_tangents,
             right_render_fov_tangents: contract.right_render_fov_tangents,
             left_render_position: contract.left_render_position,
@@ -5910,7 +5971,7 @@ fn optional_f32_token(value: Option<f32>) -> String {
 
 fn openxr_contract_marker_fields(contract: &MakepadOpenXrProjectionContract) -> String {
     format!(
-        "referenceSpace={} openxrReferenceSpace={} displayTimeSource={} predictedDisplayTimeSource={} predictedDisplayTimeNs={} viewPoseFovSource={} projectionDepthMeters={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
+        "referenceSpace={} openxrReferenceSpace={} displayTimeSource={} predictedDisplayTimeSource={} predictedDisplayTimeNs={} viewPoseFovSource={} projectionDepthMeters={} cameraPreviewFovYDegrees={} cameraPreviewOffsetYMeters={} cameraRawOverlayOverscan={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
         marker_token(&contract.reference_space),
         marker_token(&contract.openxr_reference_space),
         marker_token(&contract.display_time_source),
@@ -5918,6 +5979,9 @@ fn openxr_contract_marker_fields(contract: &MakepadOpenXrProjectionContract) -> 
         optional_i64_token(contract.predicted_display_time_ns),
         marker_token(&contract.view_pose_fov_source),
         optional_f32_token(contract.projection_depth_meters),
+        optional_f32_token(contract.projection_preview_fov_y_degrees),
+        optional_f32_token(contract.projection_preview_offset_y_meters),
+        optional_f32_token(contract.projection_raw_overscan),
         optional_vec4_token(contract.left_render_fov_tangents),
         optional_vec4_token(contract.right_render_fov_tangents),
         optional_vec4_token(contract.left_render_position),
@@ -6456,6 +6520,28 @@ fn makepad_projection_depth_meters() -> f32 {
     )
 }
 
+fn makepad_projection_preview_fov_y_degrees() -> f32 {
+    hotload_f32(
+        KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
+        TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES,
+        1.0,
+        175.0,
+    )
+}
+
+fn makepad_projection_preview_offset_y_meters() -> f32 {
+    hotload_f32(KEY_CAMERA_PREVIEW_OFFSET_Y_METERS, 0.0, -2.0, 2.0)
+}
+
+fn makepad_projection_raw_overscan() -> f32 {
+    hotload_f32(
+        KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
+        TARGET_PROJECTION_RAW_OVERSCAN,
+        1.0,
+        16.0,
+    )
+}
+
 fn makepad_projection_area_opacity() -> f32 {
     hotload_f32(
         KEY_MAKEPAD_PROJECTION_AREA_OPACITY,
@@ -6506,6 +6592,9 @@ fn makepad_projection_target_marker_fields() -> String {
     let alpha_mode = MakepadProjectionAlphaMode::current();
     let native_passthrough = makepad_native_passthrough_enabled();
     let projection_depth_meters = makepad_projection_depth_meters();
+    let preview_fov_y_degrees = makepad_projection_preview_fov_y_degrees();
+    let preview_offset_y_meters = makepad_projection_preview_offset_y_meters();
+    let raw_overscan = makepad_projection_raw_overscan();
     let native_projection_area_left_uv = hotload_f32(
         KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV,
         TARGET_PROJECTION_AREA_OFFSET_LEFT_UV,
@@ -6586,13 +6675,16 @@ fn makepad_projection_target_marker_fields() -> String {
         projection_area_scale_y,
     );
     format!(
-        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={} projectionDepthMeters={:.3} panelTargetDepthMeters={:.3} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} processingLayer={} blurRadiusPx={:.2} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-backend-bias-pending",
+        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={} projectionDepthMeters={:.3} panelTargetDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} processingLayer={} blurRadiusPx={:.2} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-backend-bias-pending",
         native_passthrough,
         policy.stable_id(),
         policy.stable_id(),
         policy.wants_native_passthrough(),
         projection_depth_meters,
         projection_depth_meters,
+        preview_fov_y_degrees,
+        preview_offset_y_meters,
+        raw_overscan,
         makepad_projection_area_opacity(),
         makepad_projection_border_opacity(),
         alpha_mode.stable_id(),
@@ -6660,6 +6752,14 @@ fn startup_f64(runtime_key: &'static str, env_key: &str, default: f64) -> f64 {
         .or_else(|| std::env::var(env_key).ok())
         .and_then(|value| value.parse::<f64>().ok())
         .filter(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or(default)
+}
+
+fn startup_signed_f64(runtime_key: &'static str, env_key: &str, default: f64) -> f64 {
+    runtime_property_value(runtime_key)
+        .or_else(|| std::env::var(env_key).ok())
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
         .unwrap_or(default)
 }
 
@@ -6947,6 +7047,19 @@ fn texture_updated_label(updated: &TextureUpdated) -> &'static str {
     }
 }
 
+fn marker_line_with_runtime_projection_target_fields(line: &str) -> std::borrow::Cow<'_, str> {
+    const LEGACY_TARGET_FIELDS: &str =
+        "panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06";
+    if line.contains(LEGACY_TARGET_FIELDS) {
+        std::borrow::Cow::Owned(line.replace(
+            LEGACY_TARGET_FIELDS,
+            &makepad_projection_target_marker_fields(),
+        ))
+    } else {
+        std::borrow::Cow::Borrowed(line)
+    }
+}
+
 #[cfg(target_os = "android")]
 fn emit_marker_line(line: &str) {
     use std::ffi::CString;
@@ -6959,8 +7072,9 @@ fn emit_marker_line(line: &str) {
         fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
     }
 
+    let line = marker_line_with_runtime_projection_target_fields(line);
     let tag = CString::new("RustyXRMakepad");
-    let msg = CString::new(line);
+    let msg = CString::new(line.as_ref());
     if let (Ok(tag), Ok(msg)) = (tag, msg) {
         unsafe {
             __android_log_write(ANDROID_LOG_INFO, tag.as_ptr(), msg.as_ptr());
@@ -6970,7 +7084,8 @@ fn emit_marker_line(line: &str) {
 
 #[cfg(not(target_os = "android"))]
 fn emit_marker_line(line: &str) {
-    log!("{}", line);
+    let line = marker_line_with_runtime_projection_target_fields(line);
+    log!("{}", line.as_ref());
 }
 
 impl MatchEvent for App {

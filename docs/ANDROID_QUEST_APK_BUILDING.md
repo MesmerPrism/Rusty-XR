@@ -91,6 +91,32 @@ names. Windows-host builds need a Windows SDK with Windows NDK prebuilts and
 reuse a Windows SDK path from WSL just because the directory is reachable, and
 do not reuse a Linux SDK path for a Windows host build.
 
+When a prepared Windows-host SDK is the selected Rusty XR evidence lane, make
+that explicit in the command:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
+  -UseWindowsHost `
+  -SdkPath <windows-host-sdk> `
+  -MakepadSourceRoot <makepad-fork-checkout>
+```
+
+If a WSL/Linux-host rebuild fails in Makepad's packager while removing a missing
+bundled font asset even after the concrete
+`examples/makepad-q2q-camera-shell/target/android/makepad-android-apk/` output
+subtree has been cleaned once, do not keep cycling staging cleanup as the
+primary fix. Treat that as a host-packager-route failure, switch to the
+Windows-host wrapper lane, or document that Linux-host Makepad packaging is the
+actual thing under test.
+
+If the selected `cargo_makepad` tool ignores the wrapper's SDK preflight and
+tries a hardcoded path such as `build-tools/33.0.1/aapt` against a Windows SDK
+that actually contains a different `aapt.exe`, the Makepad packager source is
+stale for this route. Do not repair that by fabricating a repo-local SDK shadow
+with aliased executables. Update or select a Makepad fork/tool whose Android
+packager resolves installed build-tools, platform, Java, NDK prebuilt, and host
+executable names from the selected `--sdk-path`.
+
 Use `-MakepadSourceRoot` when local evidence depends on the maintained Makepad
 fork's Android packager. That switch selects the fork checkout's
 `tools/cargo_makepad` tool. It does not rewrite this example's app dependency

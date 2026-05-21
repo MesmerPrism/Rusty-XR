@@ -489,6 +489,13 @@ Makepad uses the same public runtime-key contract through Android properties.
 Camera2 `full-frame-diagnostic` geometry, while
 `debug.rustyxr.projection.depth.meters` controls the head-anchored projection
 surface depth and is logged back as `projectionDepthMeters`.
+The Makepad raw-projection lane also accepts
+`debug.rustyxr.camera.preview.fov.y.degrees`,
+`debug.rustyxr.camera.preview.offset.y.meters`, and
+`debug.rustyxr.camera.raw.overlay.overscan`; the raw-stack suite forwards these
+from `-CameraPreviewFovYDegrees`, `-CameraPreviewOffsetYMeters`, and
+`-CameraRawOverlayOverscan` so OES and Makepad can be checked against the same
+canvas-solved surface shape as the Vulkan/HWB lane.
 
 Projection-area offset keys share the suite-level display-eye screen-UV
 contract: positive X moves the projection area right and positive Y moves it

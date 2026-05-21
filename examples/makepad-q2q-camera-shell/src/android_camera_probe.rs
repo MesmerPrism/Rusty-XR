@@ -54,6 +54,9 @@ pub struct XrDisplayViews {
     pub predicted_display_time_ns: i64,
     pub reference_space: &'static str,
     pub projection_depth_meters: f32,
+    pub projection_preview_fov_y_degrees: f32,
+    pub projection_preview_offset_y_meters: f32,
+    pub projection_raw_overscan: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -64,6 +67,9 @@ pub struct XrProjectionContract {
     pub predicted_display_time_ns: Option<i64>,
     pub view_pose_fov_source: &'static str,
     pub projection_depth_meters: Option<f32>,
+    pub projection_preview_fov_y_degrees: Option<f32>,
+    pub projection_preview_offset_y_meters: Option<f32>,
+    pub projection_raw_overscan: Option<f32>,
     pub left_render_fov_tangents: Option<[f32; 4]>,
     pub right_render_fov_tangents: Option<[f32; 4]>,
     pub left_render_position: Option<[f32; 4]>,
@@ -81,6 +87,9 @@ impl XrProjectionContract {
             predicted_display_time_ns: None,
             view_pose_fov_source: "not-logged",
             projection_depth_meters: None,
+            projection_preview_fov_y_degrees: None,
+            projection_preview_offset_y_meters: None,
+            projection_raw_overscan: None,
             left_render_fov_tangents: None,
             right_render_fov_tangents: None,
             left_render_position: None,
@@ -98,6 +107,9 @@ impl XrProjectionContract {
             predicted_display_time_ns: Some(views.predicted_display_time_ns),
             view_pose_fov_source: "makepad-xr-XrUpdateEvent",
             projection_depth_meters: Some(views.projection_depth_meters),
+            projection_preview_fov_y_degrees: Some(views.projection_preview_fov_y_degrees),
+            projection_preview_offset_y_meters: Some(views.projection_preview_offset_y_meters),
+            projection_raw_overscan: Some(views.projection_raw_overscan),
             left_render_fov_tangents: Some(fov_tangents(views.left)),
             right_render_fov_tangents: Some(fov_tangents(views.right)),
             left_render_position: Some(position_vec4(views.left)),
@@ -402,6 +414,26 @@ pub fn update_stereo_projection_from_xr_views(views: XrDisplayViews) -> bool {
     true
 }
 
+fn preview_surface_corners(
+    tracking: TrackingBasis,
+    views: XrDisplayViews,
+    aspect: f32,
+) -> Option<[Vec3; 4]> {
+    let mut surface = head_anchored_preview_surface_corners(
+        tracking,
+        views.projection_preview_fov_y_degrees,
+        views.projection_depth_meters,
+        aspect,
+        views.projection_raw_overscan,
+    )
+    .ok()?;
+    let offset = tracking.up * views.projection_preview_offset_y_meters.clamp(-2.0, 2.0);
+    for corner in &mut surface {
+        *corner = *corner + offset;
+    }
+    Some(surface)
+}
+
 pub fn broker_synthetic_projection_plan_from_xr_views(
     left_camera_id: &str,
     right_camera_id: &str,
@@ -414,15 +446,9 @@ pub fn broker_synthetic_projection_plan_from_xr_views(
     }
     let tracking = tracking_basis_from_xr_views(views)?;
     let aspect = fov_aspect(views.left).unwrap_or(PROJECTION_SOURCE_ASPECT);
-    let surface = head_anchored_preview_surface_corners(
-        tracking,
-        PROJECTION_PREVIEW_FOV_Y_DEGREES,
-        views.projection_depth_meters,
-        aspect,
-        PROJECTION_RAW_OVERSCAN,
-    )
-    .ok()?;
-    let intrinsics = synthetic_broker_intrinsics(width, height)?;
+    let surface = preview_surface_corners(tracking, views, aspect)?;
+    let intrinsics =
+        synthetic_broker_intrinsics(width, height, views.projection_preview_fov_y_degrees)?;
     let camera_basis = CameraBasis::new(
         tracking.origin,
         tracking.right,
@@ -498,14 +524,7 @@ pub fn broker_full_frame_projection_plan_from_xr_views(
     }
     let tracking = tracking_basis_from_xr_views(views)?;
     let aspect = fov_aspect(views.left).unwrap_or(PROJECTION_SOURCE_ASPECT);
-    let surface = head_anchored_preview_surface_corners(
-        tracking,
-        PROJECTION_PREVIEW_FOV_Y_DEGREES,
-        views.projection_depth_meters,
-        aspect,
-        PROJECTION_RAW_OVERSCAN,
-    )
-    .ok()?;
+    let surface = preview_surface_corners(tracking, views, aspect)?;
     let left_eye_basis = eye_basis_from_xr_view(views.left)?;
     let right_eye_basis = eye_basis_from_xr_view(views.right)?;
     let left_surface_to_screen = surface_to_eye_screen_uv_homography(
@@ -557,13 +576,17 @@ pub fn broker_full_frame_projection_plan_from_xr_views(
     })
 }
 
-fn synthetic_broker_intrinsics(width: u32, height: u32) -> Option<CameraIntrinsics> {
+fn synthetic_broker_intrinsics(
+    width: u32,
+    height: u32,
+    preview_fov_y_degrees: f32,
+) -> Option<CameraIntrinsics> {
     let width_f = width as f32;
     let height_f = height as f32;
     if width_f <= 0.0 || height_f <= 0.0 {
         return None;
     }
-    let focal = height_f / (2.0 * (PROJECTION_PREVIEW_FOV_Y_DEGREES.to_radians() * 0.5).tan());
+    let focal = height_f / (2.0 * (preview_fov_y_degrees.to_radians() * 0.5).tan());
     let intrinsics = CameraIntrinsics::new(
         Vec2::new(focal, focal),
         Vec2::new(width_f * 0.5, height_f * 0.5),
@@ -1441,14 +1464,7 @@ fn stereo_projection_homographies_from_xr_views(
         * 0.5;
     let tracking = tracking_basis_from_xr_views(views)?;
     let aspect = fov_aspect(views.left).unwrap_or(PROJECTION_SOURCE_ASPECT);
-    let surface = head_anchored_preview_surface_corners(
-        tracking,
-        PROJECTION_PREVIEW_FOV_Y_DEGREES,
-        views.projection_depth_meters,
-        aspect,
-        PROJECTION_RAW_OVERSCAN,
-    )
-    .ok()?;
+    let surface = preview_surface_corners(tracking, views, aspect)?;
     let left_intrinsics = scaled_intrinsics(left, delivered_width, delivered_height)?;
     let right_intrinsics = scaled_intrinsics(right, delivered_width, delivered_height)?;
     let left_basis = camera_basis_from_camera2_reference_pose_relative_to_center(
@@ -1949,7 +1965,7 @@ fn optional_f32_token(value: Option<f32>) -> String {
 
 fn openxr_contract_marker_fields(contract: XrProjectionContract) -> String {
     format!(
-        "referenceSpace={} openxrReferenceSpace={} displayTimeSource={} predictedDisplayTimeSource={} predictedDisplayTimeNs={} viewPoseFovSource={} projectionDepthMeters={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
+        "referenceSpace={} openxrReferenceSpace={} displayTimeSource={} predictedDisplayTimeSource={} predictedDisplayTimeNs={} viewPoseFovSource={} projectionDepthMeters={} cameraPreviewFovYDegrees={} cameraPreviewOffsetYMeters={} cameraRawOverlayOverscan={} leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
         marker_token(contract.reference_space),
         marker_token(contract.openxr_reference_space),
         marker_token(contract.display_time_source),
@@ -1957,6 +1973,9 @@ fn openxr_contract_marker_fields(contract: XrProjectionContract) -> String {
         optional_i64_token(contract.predicted_display_time_ns),
         marker_token(contract.view_pose_fov_source),
         optional_f32_token(contract.projection_depth_meters),
+        optional_f32_token(contract.projection_preview_fov_y_degrees),
+        optional_f32_token(contract.projection_preview_offset_y_meters),
+        optional_f32_token(contract.projection_raw_overscan),
         optional_vec4_token(contract.left_render_fov_tangents),
         optional_vec4_token(contract.right_render_fov_tangents),
         optional_vec4_token(contract.left_render_position),
