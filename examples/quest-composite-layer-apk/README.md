@@ -492,6 +492,46 @@ and color checks; do not treat it as a different camera source or downstream
 effect stack. Current validation keeps this mode visually gated because its
 performance and final color still need optimization against downstream
 reference implementations.
+`world-canvas` is the diagnostic version of that same surface model. It draws
+the camera content on an actual head-anchored OpenXR quad instead of a
+fullscreen triangle, then samples with `surface_to_camera` rows. Use it to make
+`projectionDepthMeters`, preview FOV, overscan, and source aspect visible as a
+world-space canvas before changing the collapsed per-eye shader path. The
+`camera-stereo-gpu-composite-world-canvas-mediaprojection` profile uses the
+known direct Camera2 stereo hardware-buffer route as the first live diagnostic:
+it keeps full-frame camera-as-content metadata, disables projection-area
+offsets, starts at the named `0.75m` historical surface depth, and enables
+MediaProjection for a machine-readable final-display capture. The
+`broker-h264-stereo-live-world-canvas-mediaprojection` profile keeps broker
+Camera2 transport live, uses a named `0.75m` starting depth from the historical
+projection-surface split, keeps projection-area offsets at zero, and enables
+MediaProjection so the rendered canvas can be captured as one final-display
+witness. Treat both profiles as diagnostics, not as tuned production alignment
+presets.
+
+The matching custom projection comparison is
+`camera-stereo-gpu-composite-camera-footprint-canvas-equivalent-depth1`. It
+keeps `cameraProjectionMode=display-screen-homography`, draws the optimized
+fullscreen/multiview pass, and reconstructs the same head-anchored content
+surface that the depth-1.0 world canvas draws as real quad geometry. The
+expected equivalence is:
+
+```text
+world canvas:    surface UV -> surface_to_camera -> texture sample
+custom collapse: screen UV -> screen_to_surface -> surface_to_camera -> texture sample
+```
+
+Both comparison profiles use `projectionDepthMeters=1.0`,
+`cameraPreviewFovYDegrees=60`, source-frame aspect, `cameraRawOverlayOverscan=1.06`,
+`cameraProjectionScale=1.0`, and `projectionAreaScaleUv=1.0`. The custom
+profile uses `raw-projection-camera-footprint-underlay-unorm` so the full
+Camera2 source frame is sampled only through the reconstructed content surface;
+pixels outside that valid projected camera footprint go transparent to the
+passthrough underlay instead of stretching or clamping the camera image across
+the full eye. Use
+`camera-stereo-gpu-composite-full-feed-control` only as a negative/lane-parity
+control: it proves full-frame transport and renderer parity, not a custom
+passthrough replacement footprint.
 When intrinsics or pose metadata is missing, this example logs the fallback
 reason and remains a GPU-buffer probe.
 If a profile supplies an estimated calibration pose, diagnostics say
@@ -598,19 +638,19 @@ The catalog keeps camera path experiments as separate runtime profiles:
   `raw-projection-blur-underlay-unorm` with `rustyxr.cameraBlurRadiusPx=<px>`
   for the same projection-area policies with the public diagnostic blur layer
   applied to valid camera samples only. Use
-  `rustyxr.cameraProjectionAreaOffsetYUv=<value>` for controlled vertical
-  centering sweeps after the hard-mask evidence is valid.
-  Use `rustyxr.cameraProjectionAreaOpacity=<0..1>` to fade the projected camera
-  window and `rustyxr.cameraProjectionBorderOpacity=<0..1>` to fade the
+  `rustyxr.projectionAreaOffsetYUv=<value>` for controlled vertical centering
+  sweeps after the hard-mask evidence is valid.
+  Use `rustyxr.projectionAreaOpacity=<0..1>` to fade the projected camera
+  window and `rustyxr.projectionBorderOpacity=<0..1>` to fade the
   surrounding solid border independently. A red-border passthrough alignment
   run should keep the solid-red preset and set
   `rustyxr.openxrPassthroughProbe=underlay` so opacity changes do not alter the
   projection geometry.
-  Use `rustyxr.cameraProjectionAlphaMode=red|green|blue|luma` or an inverse
+  Use `rustyxr.projectionAlphaMode=red|green|blue|luma` or an inverse
   variant only after the hard-mask geometry is stable; the selected color mask
   is multiplied by projection-area opacity with optional
-  `rustyxr.cameraProjectionAlphaScale` and `rustyxr.cameraProjectionAlphaBias`.
-  Use `rustyxr.cameraProjectionDepthMeters=<meters>` for the head-anchored
+  `rustyxr.projectionAlphaScale` and `rustyxr.projectionAlphaBias`.
+  Use `rustyxr.projectionDepthMeters=<meters>` for the head-anchored
   projection surface depth. The default is `1.0`; `rustyxr.cameraProjectionScale`
   remains a footprint/content-scale variable and is not a depth fallback.
 - `broker-h264` existing-stream mode: set

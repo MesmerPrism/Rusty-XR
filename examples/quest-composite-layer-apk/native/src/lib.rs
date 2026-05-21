@@ -291,6 +291,7 @@ pub(crate) enum CameraProjectionMode {
     #[default]
     DisplayScreenHomography,
     QuadSurface,
+    WorldCanvas,
 }
 
 impl CameraProjectionMode {
@@ -304,6 +305,8 @@ impl CameraProjectionMode {
             "quad-surface" | "quadSurface" | "content-surface" | "surface" | "quad-style" => {
                 Some(Self::QuadSurface)
             }
+            "world-canvas" | "worldCanvas" | "world-space-canvas" | "world-space-quad"
+            | "mesh-quad" | "actual-quad" => Some(Self::WorldCanvas),
             _ => None,
         }
     }
@@ -312,6 +315,7 @@ impl CameraProjectionMode {
         match self {
             Self::DisplayScreenHomography => "display-screen-homography",
             Self::QuadSurface => "quad-surface",
+            Self::WorldCanvas => "world-canvas",
         }
     }
 
@@ -319,7 +323,12 @@ impl CameraProjectionMode {
         match self {
             Self::DisplayScreenHomography => "head-anchored-content-surface-via-openxr-eye-view",
             Self::QuadSurface => "head-anchored-content-surface-quad-emulated",
+            Self::WorldCanvas => "head-anchored-content-surface-world-canvas",
         }
+    }
+
+    pub(crate) const fn uses_world_canvas(self) -> bool {
+        matches!(self, Self::WorldCanvas)
     }
 }
 
@@ -448,7 +457,11 @@ pub(crate) enum CameraPipelinePreset {
     RawProjectionWarmBorderUnorm,
     RawProjectionCyclingBorderUnorm,
     RawProjectionUnderlayUnorm,
+    RawProjectionCameraFootprintUnderlayUnorm,
     ProjectionAreaDiagnosticUnorm,
+    DisplayEyeUvFiducialUnorm,
+    ProjectionContentUvFiducialUnorm,
+    SourceSamplingWitnessUnorm,
 }
 
 impl CameraPipelinePreset {
@@ -524,10 +537,31 @@ impl CameraPipelinePreset {
             | "raw-projection-alpha-underlay-unorm"
             | "direct-raw-projection-underlay-unorm"
             | "fast-raw-underlay-unorm" => Some(Self::RawProjectionUnderlayUnorm),
+            "raw-projection-camera-footprint-underlay-unorm"
+            | "raw-projection-projection-area-bounded-underlay-unorm"
+            | "raw-projection-bounded-footprint-underlay-unorm"
+            | "camera-footprint-underlay-unorm"
+            | "projection-area-bounded-underlay-unorm" => {
+                Some(Self::RawProjectionCameraFootprintUnderlayUnorm)
+            }
             "projection-area-diagnostic-unorm"
             | "camera-projection-area-diagnostic-unorm"
             | "raw-projection-area-diagnostic-unorm"
             | "fast-projection-area-diagnostic-unorm" => Some(Self::ProjectionAreaDiagnosticUnorm),
+            "display-eye-uv-fiducial-unorm"
+            | "display-eye-screen-uv-fiducial-unorm"
+            | "display-eye-uv-map-unorm"
+            | "mirror-mapping-fiducial-unorm" => Some(Self::DisplayEyeUvFiducialUnorm),
+            "projection-content-uv-fiducial-unorm"
+            | "post-offset-content-uv-fiducial-unorm"
+            | "content-uv-map-unorm"
+            | "projection-area-content-uv-map-unorm" => {
+                Some(Self::ProjectionContentUvFiducialUnorm)
+            }
+            "source-sampling-witness-unorm"
+            | "source-uv-sampling-witness-unorm"
+            | "source-sampling-overlay-unorm"
+            | "source-uv-map-unorm" => Some(Self::SourceSamplingWitnessUnorm),
             _ => None,
         }
     }
@@ -554,7 +588,13 @@ impl CameraPipelinePreset {
             Self::RawProjectionWarmBorderUnorm => "raw-projection-warm-border-unorm",
             Self::RawProjectionCyclingBorderUnorm => "raw-projection-cycling-border-unorm",
             Self::RawProjectionUnderlayUnorm => "raw-projection-underlay-unorm",
+            Self::RawProjectionCameraFootprintUnderlayUnorm => {
+                "raw-projection-camera-footprint-underlay-unorm"
+            }
             Self::ProjectionAreaDiagnosticUnorm => "projection-area-diagnostic-unorm",
+            Self::DisplayEyeUvFiducialUnorm => "display-eye-uv-fiducial-unorm",
+            Self::ProjectionContentUvFiducialUnorm => "projection-content-uv-fiducial-unorm",
+            Self::SourceSamplingWitnessUnorm => "source-sampling-witness-unorm",
         }
     }
 }
@@ -1121,7 +1161,11 @@ impl RuntimeConfig {
             self.camera_color_contrast.max(0.0),
             self.camera_color_brightness,
             self.camera_color_saturation.max(0.0),
-            1.0,
+            if self.camera_projection_mode.uses_world_canvas() {
+                2.0
+            } else {
+                1.0
+            },
         ]
     }
 
@@ -1130,7 +1174,7 @@ impl RuntimeConfig {
             self.camera_blur_radius_px.clamp(0.0, 16.0),
             self.camera_projection_area_opacity.clamp(0.0, 1.0),
             self.camera_projection_border_opacity.clamp(0.0, 1.0),
-            0.0,
+            self.camera_projection_effect_mode.diagnostic_shader_code(),
         ]
     }
 
@@ -2002,26 +2046,22 @@ struct JavaRuntimeConfig {
     camera_projection_fov_y_degrees: Option<f32>,
     camera_preview_fov_y_degrees: Option<f32>,
     camera_projection_scale: Option<f32>,
-    #[serde(alias = "projectionDepthMeters")]
-    camera_projection_depth_meters: Option<f32>,
-    camera_projection_area_scale_uv: Option<f32>,
-    camera_projection_area_offset_x_uv: Option<f32>,
-    camera_projection_area_offset_y_uv: Option<f32>,
-    camera_projection_area_left_offset_x_uv: Option<f32>,
-    camera_projection_area_left_offset_y_uv: Option<f32>,
-    camera_projection_area_right_offset_x_uv: Option<f32>,
-    camera_projection_area_right_offset_y_uv: Option<f32>,
-    camera_projection_area_radius_x_uv: Option<f32>,
-    camera_projection_area_radius_y_uv: Option<f32>,
-    camera_projection_area_corner_radius_uv: Option<f32>,
-    camera_projection_area_opacity: Option<f32>,
-    camera_projection_border_opacity: Option<f32>,
-    #[serde(alias = "projectionAlphaMode")]
-    camera_projection_alpha_mode: Option<String>,
-    #[serde(alias = "projectionAlphaScale")]
-    camera_projection_alpha_scale: Option<f32>,
-    #[serde(alias = "projectionAlphaBias")]
-    camera_projection_alpha_bias: Option<f32>,
+    projection_depth_meters: Option<f32>,
+    projection_area_scale_uv: Option<f32>,
+    projection_area_offset_x_uv: Option<f32>,
+    projection_area_offset_y_uv: Option<f32>,
+    projection_area_left_offset_x_uv: Option<f32>,
+    projection_area_left_offset_y_uv: Option<f32>,
+    projection_area_right_offset_x_uv: Option<f32>,
+    projection_area_right_offset_y_uv: Option<f32>,
+    projection_area_radius_x_uv: Option<f32>,
+    projection_area_radius_y_uv: Option<f32>,
+    projection_area_corner_radius_uv: Option<f32>,
+    projection_area_opacity: Option<f32>,
+    projection_border_opacity: Option<f32>,
+    projection_alpha_mode: Option<String>,
+    projection_alpha_scale: Option<f32>,
+    projection_alpha_bias: Option<f32>,
     camera_raw_overlay_overscan: Option<f32>,
     camera_full_view_overlay_overscan: Option<f32>,
     camera_edge_fade: Option<f32>,
@@ -2155,102 +2195,102 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             defaults.camera_projection_scale,
         ),
         camera_projection_depth_meters: finite_positive_or(
-            bridge.camera_projection_depth_meters,
+            bridge.projection_depth_meters,
             defaults.camera_projection_depth_meters,
         )
         .clamp(0.05, 10.0),
         camera_projection_area_scale_uv: finite_positive_or(
-            bridge.camera_projection_area_scale_uv,
+            bridge.projection_area_scale_uv,
             defaults.camera_projection_area_scale_uv,
         )
         .clamp(0.05, 4.0),
         camera_projection_area_offset_x_uv: bridge
-            .camera_projection_area_offset_x_uv
+            .projection_area_offset_x_uv
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_area_offset_x_uv)
             .clamp(-0.5, 0.5),
         camera_projection_area_offset_y_uv: bridge
-            .camera_projection_area_offset_y_uv
+            .projection_area_offset_y_uv
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_area_offset_y_uv)
             .clamp(-0.5, 0.5),
         camera_projection_area_left_offset_x_uv: bridge
-            .camera_projection_area_left_offset_x_uv
+            .projection_area_left_offset_x_uv
             .filter(|value| value.is_finite())
             .unwrap_or_else(|| {
                 bridge
-                    .camera_projection_area_offset_x_uv
+                    .projection_area_offset_x_uv
                     .filter(|value| value.is_finite())
                     .unwrap_or(defaults.camera_projection_area_offset_x_uv)
             })
             .clamp(-0.5, 0.5),
         camera_projection_area_left_offset_y_uv: bridge
-            .camera_projection_area_left_offset_y_uv
+            .projection_area_left_offset_y_uv
             .filter(|value| value.is_finite())
             .unwrap_or_else(|| {
                 bridge
-                    .camera_projection_area_offset_y_uv
+                    .projection_area_offset_y_uv
                     .filter(|value| value.is_finite())
                     .unwrap_or(defaults.camera_projection_area_offset_y_uv)
             })
             .clamp(-0.5, 0.5),
         camera_projection_area_right_offset_x_uv: bridge
-            .camera_projection_area_right_offset_x_uv
+            .projection_area_right_offset_x_uv
             .filter(|value| value.is_finite())
             .unwrap_or_else(|| {
                 bridge
-                    .camera_projection_area_offset_x_uv
+                    .projection_area_offset_x_uv
                     .filter(|value| value.is_finite())
                     .unwrap_or(defaults.camera_projection_area_offset_x_uv)
             })
             .clamp(-0.5, 0.5),
         camera_projection_area_right_offset_y_uv: bridge
-            .camera_projection_area_right_offset_y_uv
+            .projection_area_right_offset_y_uv
             .filter(|value| value.is_finite())
             .unwrap_or_else(|| {
                 bridge
-                    .camera_projection_area_offset_y_uv
+                    .projection_area_offset_y_uv
                     .filter(|value| value.is_finite())
                     .unwrap_or(defaults.camera_projection_area_offset_y_uv)
             })
             .clamp(-0.5, 0.5),
         camera_projection_area_radius_x_uv: bridge
-            .camera_projection_area_radius_x_uv
+            .projection_area_radius_x_uv
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_area_radius_x_uv)
             .clamp(0.05, 0.5),
         camera_projection_area_radius_y_uv: bridge
-            .camera_projection_area_radius_y_uv
+            .projection_area_radius_y_uv
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_area_radius_y_uv)
             .clamp(0.05, 0.5),
         camera_projection_area_corner_radius_uv: bridge
-            .camera_projection_area_corner_radius_uv
+            .projection_area_corner_radius_uv
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_area_corner_radius_uv)
             .clamp(0.0, 0.5),
         camera_projection_area_opacity: bridge
-            .camera_projection_area_opacity
+            .projection_area_opacity
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_area_opacity)
             .clamp(0.0, 1.0),
         camera_projection_border_opacity: bridge
-            .camera_projection_border_opacity
+            .projection_border_opacity
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_border_opacity)
             .clamp(0.0, 1.0),
         camera_projection_alpha_mode: bridge
-            .camera_projection_alpha_mode
+            .projection_alpha_mode
             .as_deref()
             .and_then(CameraProjectionAlphaMode::parse)
             .unwrap_or(defaults.camera_projection_alpha_mode),
         camera_projection_alpha_scale: bridge
-            .camera_projection_alpha_scale
+            .projection_alpha_scale
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_alpha_scale)
             .clamp(0.0, 4.0),
         camera_projection_alpha_bias: bridge
-            .camera_projection_alpha_bias
+            .projection_alpha_bias
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_alpha_bias)
             .clamp(-1.0, 1.0),
@@ -2733,12 +2773,48 @@ fn apply_camera_pipeline_preset(config: &mut RuntimeConfig) {
             OpenXrColorFormatMode::Rgba8Unorm,
             OpenXrPassthroughProbeMode::Underlay,
         ),
+        CameraPipelinePreset::RawProjectionCameraFootprintUnderlayUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::RawProjectionCameraFootprintUnderlay,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            OpenXrPassthroughProbeMode::Underlay,
+        ),
         CameraPipelinePreset::ProjectionAreaDiagnosticUnorm => (
             CameraFeedPipelineMode::RawFeed,
             CameraColorMode::ExternalRgb,
             CameraSamplerBindingMode::CombinedImmutableSampler,
             CameraImportImageLayoutMode::ShaderReadOnlyTransition,
             CameraProjectionEffectMode::ProjectionAreaDiagnostic,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::DisplayEyeUvFiducialUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::DisplayEyeUvFiducial,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::ProjectionContentUvFiducialUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::ProjectionContentUvFiducial,
+            OpenXrColorFormatMode::Rgba8Unorm,
+            config.openxr_passthrough_probe,
+        ),
+        CameraPipelinePreset::SourceSamplingWitnessUnorm => (
+            CameraFeedPipelineMode::RawFeed,
+            CameraColorMode::ExternalRgb,
+            CameraSamplerBindingMode::CombinedImmutableSampler,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
+            CameraProjectionEffectMode::SourceSamplingWitness,
             OpenXrColorFormatMode::Rgba8Unorm,
             config.openxr_passthrough_probe,
         ),
@@ -4181,22 +4257,22 @@ mod tests {
             camera_projection_fov_y_degrees: Some(92.0),
             camera_preview_fov_y_degrees: Some(60.0),
             camera_projection_scale: Some(0.75),
-            camera_projection_depth_meters: Some(1.25),
-            camera_projection_area_scale_uv: Some(0.815),
-            camera_projection_area_offset_x_uv: Some(0.125),
-            camera_projection_area_offset_y_uv: Some(-0.25),
-            camera_projection_area_left_offset_x_uv: Some(-0.03125),
-            camera_projection_area_left_offset_y_uv: Some(0.0625),
-            camera_projection_area_right_offset_x_uv: Some(0.09375),
-            camera_projection_area_right_offset_y_uv: None,
-            camera_projection_area_radius_x_uv: Some(0.5),
-            camera_projection_area_radius_y_uv: Some(0.5),
-            camera_projection_area_corner_radius_uv: Some(0.0),
-            camera_projection_area_opacity: Some(0.42),
-            camera_projection_border_opacity: Some(0.85),
-            camera_projection_alpha_mode: Some("green".to_string()),
-            camera_projection_alpha_scale: Some(1.5),
-            camera_projection_alpha_bias: Some(-0.1),
+            projection_depth_meters: Some(1.25),
+            projection_area_scale_uv: Some(0.815),
+            projection_area_offset_x_uv: Some(0.125),
+            projection_area_offset_y_uv: Some(-0.25),
+            projection_area_left_offset_x_uv: Some(-0.03125),
+            projection_area_left_offset_y_uv: Some(0.0625),
+            projection_area_right_offset_x_uv: Some(0.09375),
+            projection_area_right_offset_y_uv: None,
+            projection_area_radius_x_uv: Some(0.5),
+            projection_area_radius_y_uv: Some(0.5),
+            projection_area_corner_radius_uv: Some(0.0),
+            projection_area_opacity: Some(0.42),
+            projection_border_opacity: Some(0.85),
+            projection_alpha_mode: Some("green".to_string()),
+            projection_alpha_scale: Some(1.5),
+            projection_alpha_bias: Some(-0.1),
             camera_raw_overlay_overscan: Some(1.06),
             camera_full_view_overlay_overscan: Some(2.15),
             camera_edge_fade: Some(0.06),
@@ -4441,6 +4517,56 @@ mod tests {
         assert!(!config.osc_overlay_enabled);
         assert_eq!(config.osc_listen_addr, "127.0.0.1:9100");
         assert_eq!(config.osc_max_packet_bytes, 4096);
+    }
+
+    #[test]
+    fn runtime_config_parses_shared_projection_area_runtime_keys() {
+        let bridge: JavaRuntimeConfig = serde_json::from_str(
+            r#"{
+                "projectionDepthMeters": 1.75,
+                "projectionAreaScaleUv": 0.625,
+                "projectionAreaOffsetXUv": 0.03125,
+                "projectionAreaOffsetYUv": -0.0625,
+                "projectionAreaLeftOffsetXUv": -0.125,
+                "projectionAreaLeftOffsetYUv": 0.25,
+                "projectionAreaRightOffsetXUv": 0.1875,
+                "projectionAreaRightOffsetYUv": -0.3125,
+                "projectionAreaRadiusXUv": 0.45,
+                "projectionAreaRadiusYUv": 0.35,
+                "projectionAreaCornerRadiusUv": 0.08,
+                "projectionAreaOpacity": 0.7,
+                "projectionBorderOpacity": 0.6,
+                "projectionAlphaMode": "green",
+                "projectionAlphaScale": 1.25,
+                "projectionAlphaBias": -0.2
+            }"#,
+        )
+        .expect("shared projection runtime keys should parse");
+        let config = public_runtime_config(&bridge);
+
+        assert_eq!(config.camera_projection_depth_meters, 1.75);
+        assert_eq!(config.camera_projection_area_scale_uv, 0.625);
+        assert_eq!(config.camera_projection_area_offset_x_uv, 0.03125);
+        assert_eq!(config.camera_projection_area_offset_y_uv, -0.0625);
+        assert_eq!(
+            config.camera_projection_area_offset_for_eye(0),
+            [-0.125, 0.25]
+        );
+        assert_eq!(
+            config.camera_projection_area_offset_for_eye(1),
+            [0.1875, -0.3125]
+        );
+        assert_eq!(config.camera_projection_area_radius_x_uv, 0.45);
+        assert_eq!(config.camera_projection_area_radius_y_uv, 0.35);
+        assert_eq!(config.camera_projection_area_corner_radius_uv, 0.08);
+        assert_eq!(config.camera_projection_area_opacity, 0.7);
+        assert_eq!(config.camera_projection_border_opacity, 0.6);
+        assert_eq!(
+            config.camera_projection_alpha_mode,
+            CameraProjectionAlphaMode::Green
+        );
+        assert_eq!(config.camera_projection_alpha_scale, 1.25);
+        assert_eq!(config.camera_projection_alpha_bias, -0.2);
     }
 
     #[test]
@@ -4715,6 +4841,129 @@ mod tests {
     }
 
     #[test]
+    fn runtime_config_display_eye_uv_fiducial_preset_selects_mapping_probe() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("display-eye-uv-fiducial-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            camera_feed_pipeline_mode: Some("projected-feed".to_string()),
+            camera_color_mode: Some("debug-red-only".to_string()),
+            camera_sampler_binding_mode: Some("separate-image-sampler".to_string()),
+            camera_import_image_layout_mode: Some("general-no-transition".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::DisplayEyeUvFiducialUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::DisplayEyeUvFiducial
+        );
+        assert_eq!(config.camera_effect_params_push()[3], 1.0);
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.camera_sampler_binding_mode,
+            CameraSamplerBindingMode::CombinedImmutableSampler
+        );
+        assert_eq!(
+            config.camera_import_image_layout_mode,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition
+        );
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+    }
+
+    #[test]
+    fn runtime_config_projection_content_uv_fiducial_preset_selects_post_offset_probe() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("projection-content-uv-fiducial-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            camera_feed_pipeline_mode: Some("projected-feed".to_string()),
+            camera_color_mode: Some("debug-red-only".to_string()),
+            camera_sampler_binding_mode: Some("separate-image-sampler".to_string()),
+            camera_import_image_layout_mode: Some("general-no-transition".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::ProjectionContentUvFiducialUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::ProjectionContentUvFiducial
+        );
+        assert_eq!(config.camera_effect_params_push()[3], 2.0);
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.camera_sampler_binding_mode,
+            CameraSamplerBindingMode::CombinedImmutableSampler
+        );
+        assert_eq!(
+            config.camera_import_image_layout_mode,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition
+        );
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+    }
+
+    #[test]
+    fn runtime_config_source_sampling_witness_preset_selects_source_overlay_probe() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("source-sampling-witness-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            camera_feed_pipeline_mode: Some("projected-feed".to_string()),
+            camera_color_mode: Some("debug-red-only".to_string()),
+            camera_sampler_binding_mode: Some("separate-image-sampler".to_string()),
+            camera_import_image_layout_mode: Some("general-no-transition".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::SourceSamplingWitnessUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::SourceSamplingWitness
+        );
+        assert_eq!(config.camera_effect_params_push()[3], 3.0);
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.camera_sampler_binding_mode,
+            CameraSamplerBindingMode::CombinedImmutableSampler
+        );
+        assert_eq!(
+            config.camera_import_image_layout_mode,
+            CameraImportImageLayoutMode::ShaderReadOnlyTransition
+        );
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+    }
+
+    #[test]
     fn runtime_config_raw_projection_underlay_preset_selects_passthrough_underlay() {
         let config = public_runtime_config(&JavaRuntimeConfig {
             camera_pipeline_preset: Some("raw-projection-underlay-unorm".to_string()),
@@ -4732,6 +4981,42 @@ mod tests {
             config.camera_projection_effect_mode,
             CameraProjectionEffectMode::RawProjectionUnderlay
         );
+        assert_eq!(
+            config.camera_feed_pipeline_mode,
+            CameraFeedPipelineMode::RawFeed
+        );
+        assert_eq!(config.camera_color_mode, CameraColorMode::ExternalRgb);
+        assert_eq!(
+            config.xr_color_format_mode,
+            OpenXrColorFormatMode::Rgba8Unorm
+        );
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Underlay
+        );
+    }
+
+    #[test]
+    fn runtime_config_camera_footprint_underlay_preset_selects_surface_mapping() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some(
+                "raw-projection-camera-footprint-underlay-unorm".to_string(),
+            ),
+            camera_projection_effect_mode: Some("raw-projection-underlay".to_string()),
+            openxr_passthrough_probe: Some("off".to_string()),
+            xr_color_format_mode: Some("rgba8-srgb".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionCameraFootprintUnderlayUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjectionCameraFootprintUnderlay
+        );
+        assert_eq!(config.camera_effect_params_push()[3], 4.0);
         assert_eq!(
             config.camera_feed_pipeline_mode,
             CameraFeedPipelineMode::RawFeed

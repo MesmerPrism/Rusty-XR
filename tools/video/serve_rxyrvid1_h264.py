@@ -13,7 +13,8 @@ from pathlib import Path
 
 
 MAGIC = b"RXYRVID1"
-SCHEMA_VERSION = 2
+DEFAULT_SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS = (2, 3)
 CODEC_H264 = 1
 FLAG_KEY_FRAME = 1
 FLAG_CODEC_CONFIG = 2
@@ -112,9 +113,17 @@ def write_stream(
     realtime: bool,
     fps: float,
     timestamp_mode: str,
+    schema_version: int,
+    metadata: bytes,
 ) -> None:
     connection.sendall(MAGIC)
-    connection.sendall(struct.pack(">iiiiii", SCHEMA_VERSION, CODEC_H264, width, height, len(packets), 0))
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
+        raise ValueError(f"Unsupported RXYRVID1 schema version: {schema_version}")
+    if schema_version == 2 and metadata:
+        raise ValueError("RXYRVID1 schema v2 does not carry stream-header metadata.")
+    connection.sendall(struct.pack(">iiiiii", schema_version, CODEC_H264, width, height, len(packets), len(metadata)))
+    if metadata:
+        connection.sendall(metadata)
     start_monotonic = time.monotonic()
     frame_interval = 1.0 / max(1.0, fps)
     frame_index = 0
@@ -149,6 +158,8 @@ def serve_once(
     realtime: bool,
     fps: float,
     timestamp_mode: str,
+    schema_version: int,
+    metadata: bytes,
 ) -> dict[str, object]:
     started = time.time_ns()
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
@@ -158,20 +169,33 @@ def serve_once(
         connection, address = server.accept()
         with connection:
             connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            write_stream(connection, width, height, packets, realtime, fps, timestamp_mode)
+            write_stream(connection, width, height, packets, realtime, fps, timestamp_mode, schema_version, metadata)
     payload_bytes = sum(len(packet.payload) for packet in packets)
     return {
         "schema": "rusty.xr.tools.rxyrvid1_h264_source_report.v1",
+        "rxyrvid1_schema_version": schema_version,
         "bind_host": bind_host,
         "port": port,
         "width": width,
         "height": height,
         "packet_count": len(packets),
+        "metadata_bytes": len(metadata),
         "payload_bytes": payload_bytes,
         "timestamp_mode": timestamp_mode,
         "started_unix_ns": started,
         "completed_unix_ns": time.time_ns(),
     }
+
+
+def load_metadata(args: argparse.Namespace) -> bytes:
+    metadata_sources = [bool(args.metadata_json), bool(args.metadata_file)]
+    if sum(1 for enabled in metadata_sources if enabled) > 1:
+        raise ValueError("Use at most one of --metadata-json or --metadata-file.")
+    if args.metadata_json:
+        return args.metadata_json.encode("utf-8")
+    if args.metadata_file:
+        return Path(args.metadata_file).read_bytes()
+    return b""
 
 
 def main(argv: list[str]) -> int:
@@ -185,6 +209,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--packets", type=int, default=120, help="Frame packets to serve; 0 means one file pass. Default: 120")
     parser.add_argument("--realtime", action="store_true", help="Sleep between frame packets at the requested FPS.")
     parser.add_argument(
+        "--schema-version",
+        type=int,
+        choices=SUPPORTED_SCHEMA_VERSIONS,
+        default=DEFAULT_SCHEMA_VERSION,
+        help="RXYRVID1 schema version. Use 3 when sending stream-header metadata. Default: 2",
+    )
+    parser.add_argument("--metadata-json", help="UTF-8 projection metadata JSON to send in the schema-v3 stream header.")
+    parser.add_argument("--metadata-file", help="File containing UTF-8 projection metadata JSON for the schema-v3 stream header.")
+    parser.add_argument(
         "--timestamp-mode",
         choices=("wall", "pts"),
         default="wall",
@@ -197,8 +230,12 @@ def main(argv: list[str]) -> int:
     input_path = Path(args.input)
     data = input_path.read_bytes()
     packets = packetize_annex_b(data, args.fps, max(0, args.packets))
+    metadata = load_metadata(args)
+    if metadata and args.schema_version != 3:
+        raise ValueError("--metadata-json/--metadata-file requires --schema-version 3.")
     report = {
         "schema": "rusty.xr.tools.rxyrvid1_h264_source_plan.v1",
+        "rxyrvid1_schema_version": args.schema_version,
         "input": str(input_path),
         "bind_host": args.bind,
         "port": args.port,
@@ -206,6 +243,7 @@ def main(argv: list[str]) -> int:
         "height": args.height,
         "fps": args.fps,
         "packet_count": len(packets),
+        "metadata_bytes": len(metadata),
         "payload_bytes": sum(len(packet.payload) for packet in packets),
         "codec_config_packets": sum(1 for packet in packets if packet.flags & FLAG_CODEC_CONFIG),
         "key_frame_packets": sum(1 for packet in packets if packet.flags & FLAG_KEY_FRAME),
@@ -223,6 +261,8 @@ def main(argv: list[str]) -> int:
                 bool(args.realtime),
                 args.fps,
                 args.timestamp_mode,
+                args.schema_version,
+                metadata,
             )
         )
 

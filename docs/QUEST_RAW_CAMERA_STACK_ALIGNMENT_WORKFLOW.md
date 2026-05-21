@@ -14,6 +14,103 @@ public diagnostic blur comparison, broker-synthetic stimuli, and the later
 physical-screen Brave stimulus pass, see
 [SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md](SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md).
 
+## Passthrough Reference Frozen-Frame Replay
+
+Use this protocol when solving custom composite projection against Meta native
+passthrough without changing camera acquisition or renderer transport.
+
+1. Display the visual-stimulus green center cross as the only intended
+   alignment target. Record the stimulus page state, browser/display surface,
+   host timestamp, and any operator caveat such as focus or partial occlusion.
+2. Capture one Meta native-passthrough screenshot that shows the green cross.
+   This screenshot is the reference target. Do not use it as camera input.
+3. Capture one bounded Camera2 `YUV_420_888` frame per selected headset camera
+   as close in time to the screenshot as the current tooling allows. Store the
+   raw packed frame, a preview image, the camera id, image timestamp, source
+   elapsed time, original plane strides, and capture command metadata.
+4. Treat the stored camera frames as frozen source input. Replay them through
+   the same source-agnostic broker/full-frame decode path used by synthetic and
+   broker-camera validation, carrying explicit full-frame projection metadata.
+5. Before translating screenshot-pixel deltas into display-eye UV projection
+   changes, capture a display-eye UV fiducial screenshot through the same
+   OpenXR submission path and analyze it with
+   `Analyze-DisplayEyeUvMapping.py`. This records the mirror-capture mapping as
+   evidence instead of assuming a linear eye-half-to-pixel scale.
+6. Capture the custom composite replay screenshot and compare its green-cross
+   centers to the native-passthrough screenshot in screenshot pixels and
+   normalized eye space.
+
+Recommended artifact layout:
+
+```text
+<suite-root>/
+  reference/
+    passthrough-screenshot.png
+    passthrough-analysis/
+    stimulus-state.json
+  camera-frames/
+    left/
+      frame.nv21
+      frame.jpg
+      frame.json
+    right/
+      frame.nv21
+      frame.jpg
+      frame.json
+  replay/
+    left-source.h264
+    right-source.h264
+    projection-metadata-left.json
+    projection-metadata-right.json
+    custom-composite-screenshot.png
+    replay-analysis/
+  mirror-mapping/
+    display-eye-uv-fiducial-screenshot.png
+    display-eye-uv-mapping.json
+    display-eye-uv-mapping-summary.md
+    display-eye-uv-mapping-overlay.png
+  alignment-report.json
+  notes.md
+```
+
+Keep the responsibilities separate:
+
+- Meta passthrough screenshot: reference-only screen-space target.
+- Stored camera frames: frozen source input.
+- Broker or replay transport: source-agnostic delivery lane.
+- Custom composite projection geometry: the only tuning target.
+
+If the replay cross does not align, name the first divergent layer before
+changing code: capture timing, raw camera frame metadata, broker replay
+metadata, source sampling, projection geometry, OpenXR reference-space/view
+pose, compositor/screenshot coordinate convention, or analyzer evidence. Do not
+hide residuals with blur, passthrough-opacity blending, renderer-local offsets,
+or undocumented constants.
+
+Before aligning either surface to native passthrough, prove the two public
+custom-rendering forms are equivalent:
+
+1. Capture `camera-stereo-gpu-composite-world-canvas-depth1-mediaprojection`.
+   This draws the chosen depth-1.0 head-anchored content surface as actual quad
+   geometry.
+2. Capture
+   `camera-stereo-gpu-composite-camera-footprint-canvas-equivalent-depth1`.
+   This keeps the optimized `display-screen-homography` path and reconstructs
+   that same content surface in the fullscreen shader.
+3. Compare the MediaProjection and HzDB screenshots. They should agree on the
+   valid camera footprint, green-cross position, and per-eye geometry up to the
+   expected capture-method differences. If they do not, the first divergent
+   layer is the canvas-to-collapsed mapping, not native passthrough alignment.
+
+Both comparison profiles use `projectionDepthMeters=1.0`,
+`cameraProjectionScale=1.0`, `projectionAreaScaleUv=1.0`,
+`cameraPreviewFovYDegrees=60`, the delivered source-frame aspect, and
+`cameraRawOverlayOverscan=1.06`. The camera-footprint profile uses
+`raw-projection-camera-footprint-underlay-unorm`: it samples the full live
+Camera2 source but only emits color inside the reconstructed valid footprint;
+outside that footprint it uses passthrough-underlay alpha rather than clamping
+or stretching camera pixels over the full eye.
+
 ## Canonical Lane Names
 
 Use these names in run folders, summaries, and issue notes. Older runtime
@@ -55,34 +152,28 @@ Launch/profile behavior:
   `passthrough-underlay` for operator alignment against native passthrough;
 - projection surface depth in meters. The suite-level
   `-ProjectionDepthMeters` default is forwarded as
-  `rustyxr.cameraProjectionDepthMeters` for Vulkan/HWB,
-  `rustyxr.projectionDepthMeters` for GL/OES, and
+  `rustyxr.projectionDepthMeters` for Vulkan/HWB and GL/OES, and
   `debug.rustyxr.projection.depth.meters` for Makepad. Lane-specific depth
-  overrides must be logged rather than hidden in renderer constants;
+  overrides must be logged rather than
+  hidden in renderer constants;
 - projection-area offset sweep values such as
-  `rustyxr.cameraProjectionAreaOffsetXUv`,
-  `rustyxr.cameraProjectionAreaOffsetYUv`, `rustyxr.projectionAreaOffsetXUv`,
-  `rustyxr.projectionAreaOffsetYUv`, per-eye variants such as
-  `rustyxr.cameraProjectionAreaLeftOffsetXUv`,
-  `rustyxr.cameraProjectionAreaLeftOffsetYUv`,
-  `rustyxr.cameraProjectionAreaRightOffsetXUv`,
-  `rustyxr.cameraProjectionAreaRightOffsetYUv`,
-  `rustyxr.projectionAreaLeftOffsetXUv`,
+  `rustyxr.projectionAreaOffsetXUv`, `rustyxr.projectionAreaOffsetYUv`,
+  per-eye variants such as `rustyxr.projectionAreaLeftOffsetXUv`,
   `rustyxr.projectionAreaLeftOffsetYUv`,
   `rustyxr.projectionAreaRightOffsetXUv`, and
-  `rustyxr.projectionAreaRightOffsetYUv`,
+  `rustyxr.projectionAreaRightOffsetYUv`. The shorter
+  `rustyxr.projectionArea*` names are the cross-renderer contract,
   `debug.rustyxr.makepad.projection.area.offset.left.uv`,
   `debug.rustyxr.makepad.projection.area.offset.right.uv`, or
   `debug.rustyxr.makepad.projection.area.offset.vertical.uv`;
 - independent projection-area and border opacity values such as
-  `rustyxr.cameraProjectionAreaOpacity`,
-  `rustyxr.cameraProjectionBorderOpacity`, `rustyxr.projectionAreaOpacity`,
-  `rustyxr.projectionBorderOpacity`, and the matching Makepad
+  `rustyxr.projectionAreaOpacity`, `rustyxr.projectionBorderOpacity`, and the
+  matching Makepad
   `debug.rustyxr.makepad.projection.*.opacity` properties;
 - color-derived projection alpha controls such as
-  `rustyxr.cameraProjectionAlphaMode`, `rustyxr.projectionAlphaMode`, and
-  `debug.rustyxr.makepad.projection.alpha.mode`, with shared
-  scale/bias controls;
+  `rustyxr.projectionAlphaMode` and
+  `debug.rustyxr.makepad.projection.alpha.mode`, with shared scale/bias
+  controls;
 - synthetic pattern selection when running broker-synthetic validation;
 - screenshot, HzDB, logcat, freshness, visual-stimulus, and comparison capture
   options.
@@ -145,8 +236,8 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -Catalog .\examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
-  -RuntimeProfile camera-stereo-gpu-composite-full-feed-alignment `
-  -Override rustyxr.cameraTargetFps=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.cameraProjectionDepthMeters=1,rustyxr.cameraProjectionAreaScaleUv=1,rustyxr.cameraProjectionAreaRadiusXUv=0.5,rustyxr.cameraProjectionAreaRadiusYUv=0.5,rustyxr.cameraProjectionAreaCornerRadiusUv=0 `
+  -RuntimeProfile camera-stereo-gpu-composite-full-feed-control `
+  -Override rustyxr.cameraTargetFps=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.projectionDepthMeters=1,rustyxr.projectionAreaScaleUv=1,rustyxr.projectionAreaRadiusXUv=0.5,rustyxr.projectionAreaRadiusYUv=0.5,rustyxr.projectionAreaCornerRadiusUv=0 `
   -FreshnessFrames 6
 ```
 
@@ -158,8 +249,8 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -Catalog .\examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
-  -RuntimeProfile broker-h264-stereo-live-openxr-projection-full-feed-alignment `
-  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.cameraProjectionDepthMeters=1,rustyxr.cameraProjectionAreaScaleUv=1,rustyxr.cameraProjectionAreaRadiusXUv=0.5,rustyxr.cameraProjectionAreaRadiusYUv=0.5,rustyxr.cameraProjectionAreaCornerRadiusUv=0 `
+  -RuntimeProfile broker-h264-stereo-live-openxr-projection-full-feed-control `
+  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.projectionDepthMeters=1,rustyxr.projectionAreaScaleUv=1,rustyxr.projectionAreaRadiusXUv=0.5,rustyxr.projectionAreaRadiusYUv=0.5,rustyxr.projectionAreaCornerRadiusUv=0 `
   -FreshnessFrames 6
 ```
 
@@ -482,9 +573,46 @@ projection-area target fields:
 `projectionAreaTargetCoordinateSpace=display-eye-screen-uv`,
 `projectionAreaOffsetConvention=positive-x-right-positive-y-down`,
 `leftProjectionAreaScreenUvRect`, `rightProjectionAreaScreenUvRect`,
-`leftProjectionAreaCenterUv`, and `rightProjectionAreaCenterUv`. Missing target
-rect fields make the row evidence-only for projection-area placement, not a
-stable coordinate authority.
+`leftProjectionAreaCenterUv`, and `rightProjectionAreaCenterUv`. Vulkan/HWB
+rows also log the response model fields
+`projectionAreaOffsetResponseModel`, `leftProjectionAreaOffsetResponseUv`, and
+`rightProjectionAreaOffsetResponseUv`; use them to compare observed screenshot
+motion against the named projection-area response before changing projection
+geometry. If the display-eye UV response and screenshot-pixel motion disagree,
+keep the disagreement assigned to the screenshot/compositor coordinate
+convention until an eye-UV-to-screenshot mapping is logged. Missing target rect
+or response fields make the row evidence-only for projection-area placement,
+not a stable coordinate authority.
+
+For that mapping, launch the Vulkan/HWB composite APK with the
+`display-eye-uv-fiducial-unorm` pipeline preset and capture the mirror
+screenshot plus logcat tail. Then run:
+
+```powershell
+python .\tools\quest-camera-profile\Analyze-DisplayEyeUvMapping.py `
+  .\artifacts\<run>\display-eye-uv-fiducial-screenshot.png `
+  --log .\artifacts\<run>\display-eye-uv-fiducial-logcat.txt `
+  --out-dir .\artifacts\<run>\display-eye-uv-analysis
+```
+
+The analyzer writes the global affine fit, a near-center finite-difference
+mapping around the green center fiducial, centerline nonlinearity/asymmetry
+evidence, and an overlay. Use the near-center mapping for first-order
+green-cross alignment, then pass the mapping JSON to
+`Analyze-TargetAlignmentWitness.py --display-eye-uv-mapping <mapping.json>` so
+the target analyzer reports local display-eye UV deltas alongside raw
+screenshot-pixel deltas. Treat large affine residuals or centerline asymmetry as
+mirror/compositor evidence, not permission to introduce renderer-local offsets.
+If the projection-area offset response still disagrees after the local mapping,
+the next divergent layer is projection-area content mapping or projection
+geometry, not the screenshot coordinate convention by itself.
+
+When that happens, rerun the same fiducial analyzer on
+`projection-content-uv-fiducial-unorm`. That preset renders markers in
+`full_frame_content_uv`, the post-offset content basis used by frozen-frame
+replay before source sampling. Comparing the submitted-eye fiducial against this
+post-offset content fiducial separates mirror/screenshot mapping from
+projection-area content response.
 
 ## Diagnostic Loop
 
@@ -515,6 +643,8 @@ Useful tools:
 
 - `tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1` for app launch,
   profile overrides, HzDB/screenshot capture, freshness checks, and log bundles.
+- `tools\quest-camera-profile\Analyze-DisplayEyeUvMapping.py` for
+  display-eye-UV-to-mirror-screenshot mapping from the fiducial preset.
 - `tools\quest-stereo-alignment\Analyze-StereoAlignment.py` for image-derived
   stereo checks.
 - `tools\quest-stereo-alignment\Compare-HomographyStages.py` for stage-token

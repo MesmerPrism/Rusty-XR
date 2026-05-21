@@ -16,6 +16,7 @@ const CLIENT_ID: &str = "rusty-xr-broker-client-probe";
 const APP_LABEL: &str = "Rusty XR Broker Client Probe";
 const DEFAULT_TRANSPORT_SESSION_ID: &str = "probe-transport-session";
 const DEFAULT_H264_DECODE_SESSION_ID: &str = "probe-h264-decode-session";
+const DEFAULT_SYNTHETIC_H264_SESSION_ID: &str = "probe-synthetic-h264-session";
 
 fn main() -> Result<(), Box<dyn Error>> {
     let options = ProbeOptions::parse(env::args().skip(1))?;
@@ -54,7 +55,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                 &options.host,
                 options.port,
                 "camera_provider.run_app_camera_probe",
-                None,
+                Some(build_app_camera_probe_params_json(&options)),
+            )?;
+            print_messages(&response);
+        }
+        "synthetic-h264-stream" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                "media.start_synthetic_h264_stream",
+                Some(build_synthetic_h264_stream_params_json(&options)),
             )?;
             print_messages(&response);
         }
@@ -270,7 +280,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         _ => {
             return Err(format!(
-                "unknown command '{}'; use status, capabilities, streams, camera-provider, projection-profile, app-camera-probe, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
+                "unknown command '{}'; use status, capabilities, streams, camera-provider, projection-profile, app-camera-probe, synthetic-h264-stream, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
                 options.command
             )
             .into());
@@ -579,6 +589,22 @@ struct ProbeOptions {
     port: u16,
     stream: Option<String>,
     session: Option<String>,
+    camera_id: Option<String>,
+    frame_output_dir: Option<String>,
+    persist_frame: bool,
+    jpeg_quality: u8,
+    device_port: Option<u16>,
+    host_port: Option<u16>,
+    width: Option<u32>,
+    height: Option<u32>,
+    capture_ms: Option<u32>,
+    max_packets: Option<u32>,
+    bitrate_bps: Option<u32>,
+    frame_rate_hz: Option<u32>,
+    accept_timeout_ms: Option<u32>,
+    synthetic_pattern: Option<String>,
+    synthetic_image_path: Option<String>,
+    projection_profile: Option<String>,
     subscribe: bool,
 }
 
@@ -589,6 +615,22 @@ impl ProbeOptions {
         let mut port = DEFAULT_PORT;
         let mut stream = None;
         let mut session = None;
+        let mut camera_id = None;
+        let mut frame_output_dir = None;
+        let mut persist_frame = false;
+        let mut jpeg_quality = 95;
+        let mut device_port = None;
+        let mut host_port = None;
+        let mut width = None;
+        let mut height = None;
+        let mut capture_ms = None;
+        let mut max_packets = None;
+        let mut bitrate_bps = None;
+        let mut frame_rate_hz = None;
+        let mut accept_timeout_ms = None;
+        let mut synthetic_pattern = None;
+        let mut synthetic_image_path = None;
+        let mut projection_profile = None;
         let mut subscribe = false;
         let mut iterator = args.into_iter();
 
@@ -606,6 +648,79 @@ impl ProbeOptions {
                 }
                 "--session" => {
                     session = Some(iterator.next().ok_or("--session requires a value")?);
+                }
+                "--camera-id" => {
+                    camera_id = Some(iterator.next().ok_or("--camera-id requires a value")?);
+                }
+                "--persist-frame" => {
+                    persist_frame = true;
+                }
+                "--frame-output-dir" => {
+                    persist_frame = true;
+                    frame_output_dir = Some(
+                        iterator
+                            .next()
+                            .ok_or("--frame-output-dir requires a value")?,
+                    );
+                }
+                "--jpeg-quality" => {
+                    let raw = iterator.next().ok_or("--jpeg-quality requires a value")?;
+                    jpeg_quality = raw.parse()?;
+                    if !(1..=100).contains(&jpeg_quality) {
+                        return Err("--jpeg-quality must be between 1 and 100".into());
+                    }
+                }
+                "--device-port" => {
+                    device_port = Some(parse_port_arg("--device-port", iterator.next())?);
+                }
+                "--host-port" => {
+                    host_port = Some(parse_port_arg("--host-port", iterator.next())?);
+                }
+                "--width" => {
+                    width = Some(parse_positive_u32_arg("--width", iterator.next())?);
+                }
+                "--height" => {
+                    height = Some(parse_positive_u32_arg("--height", iterator.next())?);
+                }
+                "--capture-ms" => {
+                    capture_ms = Some(parse_positive_u32_arg("--capture-ms", iterator.next())?);
+                }
+                "--max-packets" => {
+                    max_packets = Some(parse_positive_u32_arg("--max-packets", iterator.next())?);
+                }
+                "--bitrate-bps" => {
+                    bitrate_bps = Some(parse_positive_u32_arg("--bitrate-bps", iterator.next())?);
+                }
+                "--frame-rate-hz" => {
+                    frame_rate_hz =
+                        Some(parse_positive_u32_arg("--frame-rate-hz", iterator.next())?);
+                }
+                "--accept-timeout-ms" => {
+                    accept_timeout_ms = Some(parse_positive_u32_arg(
+                        "--accept-timeout-ms",
+                        iterator.next(),
+                    )?);
+                }
+                "--synthetic-pattern" => {
+                    synthetic_pattern = Some(
+                        iterator
+                            .next()
+                            .ok_or("--synthetic-pattern requires a value")?,
+                    );
+                }
+                "--synthetic-image-path" => {
+                    synthetic_image_path = Some(
+                        iterator
+                            .next()
+                            .ok_or("--synthetic-image-path requires a value")?,
+                    );
+                }
+                "--projection-profile" => {
+                    projection_profile = Some(
+                        iterator
+                            .next()
+                            .ok_or("--projection-profile requires a value")?,
+                    );
                 }
                 "--subscribe" => {
                     subscribe = true;
@@ -625,9 +740,113 @@ impl ProbeOptions {
             port,
             stream,
             session,
+            camera_id,
+            frame_output_dir,
+            persist_frame,
+            jpeg_quality,
+            device_port,
+            host_port,
+            width,
+            height,
+            capture_ms,
+            max_packets,
+            bitrate_bps,
+            frame_rate_hz,
+            accept_timeout_ms,
+            synthetic_pattern,
+            synthetic_image_path,
+            projection_profile,
             subscribe,
         })
     }
+}
+
+fn parse_port_arg(name: &str, raw: Option<String>) -> Result<u16, Box<dyn Error>> {
+    let value: u16 = raw
+        .ok_or_else(|| format!("{name} requires a value"))?
+        .parse()?;
+    if value == 0 {
+        return Err(format!("{name} must be between 1 and 65535").into());
+    }
+    Ok(value)
+}
+
+fn parse_positive_u32_arg(name: &str, raw: Option<String>) -> Result<u32, Box<dyn Error>> {
+    let value: u32 = raw
+        .ok_or_else(|| format!("{name} requires a value"))?
+        .parse()?;
+    if value == 0 {
+        return Err(format!("{name} must be positive").into());
+    }
+    Ok(value)
+}
+
+fn build_app_camera_probe_params_json(options: &ProbeOptions) -> Value {
+    let mut params = json!({
+        "max_attempts": if options.camera_id.is_some() { 1 } else { 3 },
+        "preferred_width": options.width.unwrap_or(640),
+        "preferred_height": options.height.unwrap_or(480),
+        "capture_timeout_ms": 2500
+    });
+    if let Some(camera_id) = options.camera_id.as_deref() {
+        params["camera_id"] = json!(camera_id);
+    }
+    if options.persist_frame {
+        params["persist_frame"] = json!(true);
+        params["jpeg_quality"] = json!(options.jpeg_quality);
+    }
+    if let Some(frame_output_dir) = options.frame_output_dir.as_deref() {
+        params["frame_output_dir"] = json!(frame_output_dir);
+    }
+    params
+}
+
+fn build_synthetic_h264_stream_params_json(options: &ProbeOptions) -> Value {
+    let session_id = options
+        .session
+        .as_deref()
+        .unwrap_or(DEFAULT_SYNTHETIC_H264_SESSION_ID);
+    let width = options.width.unwrap_or(720);
+    let height = options.height.unwrap_or(480);
+    let synthetic_pattern =
+        options
+            .synthetic_pattern
+            .as_deref()
+            .unwrap_or(if options.synthetic_image_path.is_some() {
+                "image-file"
+            } else {
+                "diagnostic-grid"
+            });
+    let projection_profile = options
+        .projection_profile
+        .as_deref()
+        .unwrap_or("full-frame-diagnostic");
+
+    let mut params = json!({
+        "session_id": session_id,
+        "device_port": options.device_port.unwrap_or(8879),
+        "host_port": options.host_port.unwrap_or(18879),
+        "preferred_width": width,
+        "preferred_height": height,
+        "content_width": width,
+        "content_height": height,
+        "capture_ms": options.capture_ms.unwrap_or(10_000),
+        "max_packets": options.max_packets.unwrap_or(300),
+        "accept_timeout_ms": options.accept_timeout_ms.unwrap_or(60_000),
+        "bitrate_bps": options.bitrate_bps.unwrap_or(2_000_000),
+        "frame_rate_hz": options.frame_rate_hz.unwrap_or(30),
+        "live_stream": true,
+        "synthetic_pattern": synthetic_pattern,
+        "synthetic_projection_profile": projection_profile,
+        "projection_geometry_profile": projection_profile
+    });
+    if let Some(image_path) = options.synthetic_image_path.as_deref() {
+        params["synthetic_image_path"] = json!(image_path);
+    }
+    if let Some(camera_id) = options.camera_id.as_deref() {
+        params["camera_id"] = json!(camera_id);
+    }
+    params
 }
 
 #[cfg(test)]

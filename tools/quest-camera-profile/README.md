@@ -138,6 +138,76 @@ For native passthrough comparisons, the green center cross is the primary
 alignment signal. Full-frame border/correlation evidence is secondary because
 the native compositor can warp the screen perimeter in ways that a raw custom
 Camera2 projection is not expected to reproduce.
+For large offset-response probes, pass `--skip-translation` to report direct
+cross and feature coordinates without the expensive full-feature correlation
+search; use that mode when the green-cross delta and logged projection fields
+are the evidence being compared.
+
+When a native-passthrough comparison needs a display-eye UV to mirror
+screenshot mapping, capture the Vulkan/HWB composite `display-eye-uv-fiducial`
+diagnostic and analyze it separately from camera content:
+
+```powershell
+python .\tools\quest-camera-profile\Analyze-DisplayEyeUvMapping.py `
+  .\artifacts\<run>\display-eye-uv-fiducial-screenshot.png `
+  --log .\artifacts\<run>\display-eye-uv-fiducial-logcat.txt `
+  --out-dir .\artifacts\<run>\display-eye-uv-analysis `
+  --label display-eye-uv-fiducial
+```
+
+The renderer logs the fiducial contract in `display-eye-screen-uv` using
+`projection_screen_uv_base`. The analyzer writes JSON, Markdown, and overlay
+artifacts with marker coordinates, a global affine fit, a near-center
+finite-difference mapping around the green center marker, and centerline
+nonlinearity/asymmetry between the sampled 0.25/0.50/0.75 marker positions.
+Use that local mapping as the bridge from center-cross screenshot-pixel deltas
+to named projection-space adjustments; do not treat the screenshot eye halves
+as a linear UV ruler.
+
+`Analyze-TargetAlignmentWitness.py` can consume the mapping JSON:
+
+```powershell
+python .\tools\quest-camera-profile\Analyze-TargetAlignmentWitness.py `
+  --reference .\artifacts\<run>\reference.png `
+  --candidate .\artifacts\<run>\candidate.png `
+  --display-eye-uv-mapping .\artifacts\<mapping-run>\display-eye-uv-mapping.json `
+  --out-dir .\artifacts\<run>\target-analysis `
+  --skip-translation
+```
+
+This adds local display-eye UV deltas and, when logs are provided, compares the
+observed motion against the logged projection-area response model. If the local
+mapped response still disagrees, keep the owner on projection-area content
+mapping/projection geometry until a denser fiducial or response grid proves
+otherwise.
+
+Use `display-eye-uv-fiducial-unorm` to measure the submitted eye image basis
+`projection_screen_uv_base`. Use `projection-content-uv-fiducial-unorm` to
+measure the post-offset full-frame content basis `full_frame_content_uv`, which
+is the named path used by frozen camera/source replay before source sampling.
+Use `source-sampling-witness-unorm` when the content basis response is proven
+but a physical feature in the frozen source image still disagrees: it renders
+the actual sampled source image through the full-frame projection-area path and
+overlays yellow/white `full_frame_content_uv` guides plus cyan/magenta final
+source-sampler UV guides.
+The same analyzer handles both; the log records the UV basis in
+`displayEyeUvFiducialUvBasis`.
+
+For the current camera-footprint milestone, run the canvas/collapsed pair
+before using native passthrough as the target:
+
+- `camera-stereo-gpu-composite-world-canvas-depth1-mediaprojection`
+- `camera-stereo-gpu-composite-camera-footprint-canvas-equivalent-depth1`
+
+The first profile draws the depth-1.0 head-anchored surface as real quad
+geometry. The second profile should match it while using
+`cameraProjectionMode=display-screen-homography` and
+`raw-projection-camera-footprint-underlay-unorm`: the shader maps display-eye
+screen UV through `screen_to_surface`, then through `surface_to_camera`, and
+alpha-disables pixels outside the valid camera footprint to reveal the
+passthrough underlay. Treat `camera-stereo-gpu-composite-full-feed-control` as
+a negative/lane-parity control only; it is not the custom passthrough footprint
+because the raw Camera2 frame is not the full native passthrough FOV.
 
 ## Camera Readiness Preflight
 
@@ -306,12 +376,16 @@ Use `rustyxr.cameraBlurRadiusPx` to adjust the sample radius for stack
 comparison. The app-parsed runtime config log reports both the requested preset
 and the resolved feed, sampler, decode, projection-effect, tone, blur radius,
 and swapchain settings.
-`rustyxr.cameraProjectionAreaOpacity` fades valid projected camera pixels, while
-`rustyxr.cameraProjectionBorderOpacity` fades the solid diagnostic border. For a
+The `display-eye-uv-fiducial-unorm` preset renders a diagnostic marker pattern
+at known display-eye UV positions through the same OpenXR submission path. It
+is for mirror-capture mapping only; it ignores camera pixels and must not be
+used as a camera-source alignment result.
+`rustyxr.projectionAreaOpacity` fades valid projected camera pixels, while
+`rustyxr.projectionBorderOpacity` fades the solid diagnostic border. For a
 red-border passthrough alignment run, use a solid-red preset with
 `rustyxr.openxrPassthroughProbe=underlay` and sweep only the opacity values; do
 not switch geometry presets while measuring screen-space offsets.
-`rustyxr.cameraProjectionAlphaMode` can derive valid-camera alpha from source
+`rustyxr.projectionAlphaMode` can derive valid-camera alpha from source
 color after geometry is stable. Supported modes are `fixed`, `red`, `green`,
 `blue`, `luma`, and the four inverse variants; the effective alpha is area
 opacity multiplied by `clamp(mask * scale + bias)`.
@@ -332,28 +406,25 @@ integrations on these stable keys instead of duplicating shader-specific state:
 
 | Key | Type | Purpose |
 | --- | --- | --- |
-| `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-blur-solid-red-unorm`, `raw-projection-blur-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, or `raw-projection-cycling-border-unorm`. |
+| `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-camera-footprint-underlay-unorm`, `raw-projection-blur-solid-red-unorm`, `raw-projection-blur-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, `raw-projection-cycling-border-unorm`, `display-eye-uv-fiducial-unorm`, `projection-content-uv-fiducial-unorm`, or `source-sampling-witness-unorm`. |
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `display-screen-homography` or `quad-surface`. |
 | `rustyxr.cameraProjectionGeometryProfile` | string | Selects direct Camera2 source/content geometry metadata. Active direct lanes accept only `full-frame-diagnostic`; other values are rejected or reported as unsupported. |
 | `rustyxr.directCamera2OesProjectionGeometryProfile` | string | GL/OES direct Camera2 override; falls back to `rustyxr.cameraProjectionGeometryProfile`. |
 | `rustyxr.brokerH264ProjectionGeometryProfile` | string | Broker H.264 source/content geometry metadata for camera or synthetic streams; use this for source-agnostic transport checks. |
 | `rustyxr.oesSourceColorTransfer` | string | GL/OES external texture color transfer before camera color controls. Default is `srgb-to-linear`; use `identity` only for an explicit OES source-convention A/B run. |
-| `rustyxr.cameraProjectionDepthMeters` | float | Vulkan/HWB head-anchored projection surface depth in meters; keep it explicit because `rustyxr.cameraProjectionScale` is not a depth fallback. |
-| `rustyxr.cameraProjectionAreaOffsetXUv` | float | Optional Vulkan/HWB horizontal projection-area sweep knob for screen-space centering diagnostics. |
-| `rustyxr.cameraProjectionAreaOffsetYUv` | float | Optional Vulkan/HWB vertical projection-area sweep knob for screen-space centering diagnostics. |
-| `rustyxr.projectionAreaOffsetXUv` | float | Optional GL/OES horizontal projection-area sweep knob for screen-space centering diagnostics. |
-| `rustyxr.projectionAreaOffsetYUv` | float | Optional GL/OES vertical projection-area sweep knob for screen-space centering diagnostics. |
-| `rustyxr.projectionDepthMeters` | float | GL/OES head-anchored projection surface depth in meters. |
-| `rustyxr.cameraProjectionAreaOpacity` | float | Vulkan/HWB valid projection-window alpha, clamped to `0..1`. |
-| `rustyxr.cameraProjectionBorderOpacity` | float | Vulkan/HWB solid border alpha, clamped to `0..1`. |
-| `rustyxr.cameraProjectionAlphaMode` | string | Vulkan/HWB color-derived alpha mode: `fixed`, RGB, luma, or inverse variants. |
-| `rustyxr.cameraProjectionAlphaScale` | float | Vulkan/HWB multiplier applied to the selected alpha mask, clamped to `0..4`. |
-| `rustyxr.cameraProjectionAlphaBias` | float | Vulkan/HWB bias applied after alpha-mask scaling, clamped to `-1..1`. |
-| `rustyxr.projectionAreaOpacity` | float | GL/OES valid projection-window alpha, clamped to `0..1`. |
-| `rustyxr.projectionBorderOpacity` | float | GL/OES solid border alpha, clamped to `0..1`. |
-| `rustyxr.projectionAlphaMode` | string | GL/OES color-derived alpha mode using the same values as Vulkan/HWB. |
-| `rustyxr.projectionAlphaScale` | float | GL/OES multiplier applied to the selected alpha mask, clamped to `0..4`. |
-| `rustyxr.projectionAlphaBias` | float | GL/OES bias applied after alpha-mask scaling, clamped to `-1..1`. |
+| `rustyxr.projectionDepthMeters` | float | Shared head-anchored projection surface depth in meters. |
+| `rustyxr.projectionAreaScaleUv` | float | Shared projection-area scale in display-eye screen UV. |
+| `rustyxr.projectionAreaOffsetXUv` | float | Shared horizontal projection-area sweep knob for screen-space centering diagnostics. |
+| `rustyxr.projectionAreaOffsetYUv` | float | Shared vertical projection-area sweep knob for screen-space centering diagnostics. |
+| `rustyxr.projectionAreaLeftOffsetXUv` | float | Shared left-eye horizontal projection-area override; falls back to `rustyxr.projectionAreaOffsetXUv`. |
+| `rustyxr.projectionAreaLeftOffsetYUv` | float | Shared left-eye vertical projection-area override; falls back to `rustyxr.projectionAreaOffsetYUv`. |
+| `rustyxr.projectionAreaRightOffsetXUv` | float | Shared right-eye horizontal projection-area override; falls back to `rustyxr.projectionAreaOffsetXUv`. |
+| `rustyxr.projectionAreaRightOffsetYUv` | float | Shared right-eye vertical projection-area override; falls back to `rustyxr.projectionAreaOffsetYUv`. |
+| `rustyxr.projectionAreaOpacity` | float | Shared valid projection-window alpha, clamped to `0..1`. |
+| `rustyxr.projectionBorderOpacity` | float | Shared solid border alpha, clamped to `0..1`. |
+| `rustyxr.projectionAlphaMode` | string | Shared color-derived alpha mode: `fixed`, RGB, luma, or inverse variants. |
+| `rustyxr.projectionAlphaScale` | float | Shared multiplier applied to the selected alpha mask, clamped to `0..4`. |
+| `rustyxr.projectionAlphaBias` | float | Shared bias applied after alpha-mask scaling, clamped to `-1..1`. |
 | `rustyxr.cameraBorderCycleHz` | float | Adjusts the generic phase-cycled border-color rate used by `raw-projection-cycling-border-unorm`; ignored by static border presets. |
 | `rustyxr.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in pixels for blur projection presets. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
@@ -365,11 +436,14 @@ Camera2 `full-frame-diagnostic` geometry, while
 `debug.rustyxr.projection.depth.meters` controls the head-anchored projection
 surface depth and is logged back as `projectionDepthMeters`.
 
-Projection-area offset keys share the suite-level screen contract: positive X
-moves the projection area right and positive Y moves it down in screenshot /
-display-screen coordinates. Any renderer-specific sign convention should be
-normalized by the renderer profile or launch wrapper before these keys reach
-the app-specific backend.
+Projection-area offset keys share the suite-level display-eye screen-UV
+contract: positive X moves the projection area right and positive Y moves it
+down before final runtime mirror capture. Screenshot pixels are evidence after
+runtime/compositor presentation, so large or peripheral screenshot deltas must
+not be treated as a linear offset response unless that mapping is logged for
+the run. Any renderer-specific sign convention should be normalized by the
+renderer profile or launch wrapper before these keys reach the app-specific
+backend.
 
 The app-parsed runtime config log is the authority for whether a switch was
 actually applied. It reports the requested preset and the resolved feed,

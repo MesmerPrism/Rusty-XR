@@ -82,9 +82,21 @@ half_height = tan(preview_fov_y / 2) * depth_meters * overscan
 half_width = half_height * source_aspect
 ```
 
+`source_aspect` means the delivered camera/content aspect, not the OpenXR
+display-eye FOV aspect. This keeps a square `1280x1280` camera frame on a
+square physical content surface before depth/convergence tuning starts.
+
 That policy can be useful because OpenXR handles the stereo view of the
 reference-space surface once the surface is placed. It remains a projection
 profile, not a runtime guarantee that the full real room lies on that plane.
+
+The Vulkan composite example exposes this as the `world-canvas` diagnostic
+projection mode. That mode rasterizes the selected preview surface as an actual
+head-anchored quad and samples camera pixels with `surface_to_camera` rows. It
+is meant to answer whether a mismatch belongs to surface depth/FOV/aspect or to
+the later fullscreen collapse. It is not a license to add renderer-local
+offsets: any accepted correction still belongs to the named preview surface
+policy, source-camera model, or OpenXR view/reference-space stage.
 
 ## Direct Per-Eye Shader Path
 

@@ -3102,6 +3102,16 @@ unsafe fn run_vulkan(
                                     &config,
                                 )
                             ));
+                            let display_eye_uv_fiducial_fields =
+                                display_eye_uv_fiducial_marker_fields(&config);
+                            if config.camera_projection_effect_mode.is_uv_fiducial() {
+                                log_info(format!(
+                                    "Rusty XR display-eye UV fiducial contract frame={} openXrFrameCount={} {}",
+                                    stereo_frame.index,
+                                    frame_count,
+                                    display_eye_uv_fiducial_fields
+                                ));
+                            }
                             log_info(format!(
                                 "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
                                 stereo_frame.index,
@@ -5117,7 +5127,12 @@ impl GpuCameraRenderer {
             0,
             push_bytes,
         );
-        device.cmd_draw(cmd, 3, 1, 0, 0);
+        let vertex_count = if config.camera_projection_mode.uses_world_canvas() {
+            6
+        } else {
+            3
+        };
+        device.cmd_draw(cmd, vertex_count, 1, 0, 0);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -5211,7 +5226,13 @@ impl GpuCameraRenderer {
             0,
             push_bytes,
         );
-        device.cmd_draw(cmd, 3, 1, 0, 0);
+        let vertex_count = if config.camera_projection_mode.uses_world_canvas() && projection_active
+        {
+            6
+        } else {
+            3
+        };
+        device.cmd_draw(cmd, vertex_count, 1, 0, 0);
     }
 
     unsafe fn destroy(&mut self, device: &ash::Device) {
@@ -5403,6 +5424,14 @@ struct CameraProjectionUniforms {
     color_offset: [f32; 4],
     left_source_uv_rect: [f32; 4],
     right_source_uv_rect: [f32; 4],
+    left_canvas_clip0: [f32; 4],
+    left_canvas_clip1: [f32; 4],
+    left_canvas_clip2: [f32; 4],
+    left_canvas_clip3: [f32; 4],
+    right_canvas_clip0: [f32; 4],
+    right_canvas_clip1: [f32; 4],
+    right_canvas_clip2: [f32; 4],
+    right_canvas_clip3: [f32; 4],
 }
 
 impl CameraProjectionUniforms {
@@ -5415,12 +5444,21 @@ impl CameraProjectionUniforms {
         left: &DisplayEyeProjectionMapping,
         right: &DisplayEyeProjectionMapping,
     ) -> Self {
-        Self::from_rows(
+        let mut uniforms = Self::from_rows(
             &left.screen_to_surface,
             &right.screen_to_surface,
             &left.surface_to_screen,
             &right.surface_to_screen,
-        )
+        );
+        uniforms.left_canvas_clip0 = left.canvas_clip[0];
+        uniforms.left_canvas_clip1 = left.canvas_clip[1];
+        uniforms.left_canvas_clip2 = left.canvas_clip[2];
+        uniforms.left_canvas_clip3 = left.canvas_clip[3];
+        uniforms.right_canvas_clip0 = right.canvas_clip[0];
+        uniforms.right_canvas_clip1 = right.canvas_clip[1];
+        uniforms.right_canvas_clip2 = right.canvas_clip[2];
+        uniforms.right_canvas_clip3 = right.canvas_clip[3];
+        uniforms
     }
 
     fn from_rows(
@@ -5448,6 +5486,14 @@ impl CameraProjectionUniforms {
             color_offset: [0.0, 0.0, 0.0, 0.0],
             left_source_uv_rect: full_source_uv_rect_xywh(),
             right_source_uv_rect: full_source_uv_rect_xywh(),
+            left_canvas_clip0: [-1.0, -1.0, 0.0, 1.0],
+            left_canvas_clip1: [1.0, -1.0, 0.0, 1.0],
+            left_canvas_clip2: [1.0, 1.0, 0.0, 1.0],
+            left_canvas_clip3: [-1.0, 1.0, 0.0, 1.0],
+            right_canvas_clip0: [-1.0, -1.0, 0.0, 1.0],
+            right_canvas_clip1: [1.0, -1.0, 0.0, 1.0],
+            right_canvas_clip2: [1.0, 1.0, 0.0, 1.0],
+            right_canvas_clip3: [-1.0, 1.0, 0.0, 1.0],
         }
     }
 
@@ -5638,12 +5684,22 @@ impl CameraProjectionPush {
             right_h1: [0.0, 1.0, 0.0, 0.0],
             right_h2: [0.0, 0.0, 1.0, 0.0],
         };
-        push.left_h0 = pack_homography_row(homographies.left.screen_to_camera[0]);
-        push.left_h1 = pack_homography_row(homographies.left.screen_to_camera[1]);
-        push.left_h2 = pack_homography_row(homographies.left.screen_to_camera[2]);
-        push.right_h0 = pack_homography_row(homographies.right.screen_to_camera[0]);
-        push.right_h1 = pack_homography_row(homographies.right.screen_to_camera[1]);
-        push.right_h2 = pack_homography_row(homographies.right.screen_to_camera[2]);
+        let left_sample_rows = if config.camera_projection_mode.uses_world_canvas() {
+            homographies.left.surface_to_camera
+        } else {
+            homographies.left.screen_to_camera
+        };
+        let right_sample_rows = if config.camera_projection_mode.uses_world_canvas() {
+            homographies.right.surface_to_camera
+        } else {
+            homographies.right.screen_to_camera
+        };
+        push.left_h0 = pack_homography_row(left_sample_rows[0]);
+        push.left_h1 = pack_homography_row(left_sample_rows[1]);
+        push.left_h2 = pack_homography_row(left_sample_rows[2]);
+        push.right_h0 = pack_homography_row(right_sample_rows[0]);
+        push.right_h1 = pack_homography_row(right_sample_rows[1]);
+        push.right_h2 = pack_homography_row(right_sample_rows[2]);
         (
             push,
             CameraProjectionUniforms::from_mappings(&homographies.left, &homographies.right)
@@ -5668,6 +5724,9 @@ struct DisplayEyeProjectionMapping {
     screen_to_camera: [[f32; 3]; 3],
     screen_to_surface: [[f32; 3]; 3],
     surface_to_screen: [[f32; 3]; 3],
+    canvas_clip: [[f32; 4]; 4],
+    surface_aspect: f32,
+    surface_aspect_source: &'static str,
     full_frame_stimulus_mapping: bool,
 }
 
@@ -6208,23 +6267,54 @@ fn projection_area_center_uv(offset_uv: [f32; 2], scale_uv: f32) -> [f32; 2] {
     ]
 }
 
+fn projection_area_offset_response_uv(offset_uv: [f32; 2], scale_uv: f32) -> [f32; 2] {
+    let scale = scale_uv.clamp(0.05, 4.0);
+    [
+        offset_uv[0].clamp(-0.5, 0.5) / scale,
+        offset_uv[1].clamp(-0.5, 0.5) / scale,
+    ]
+}
+
+fn projection_area_source_to_screen_gain_uv(radius_uv: [f32; 2], scale_uv: f32) -> [f32; 2] {
+    let scale = scale_uv.clamp(0.05, 4.0);
+    [
+        (radius_uv[0].clamp(0.05, 0.5) * 2.0) / scale,
+        (radius_uv[1].clamp(0.05, 0.5) * 2.0) / scale,
+    ]
+}
+
 fn projection_area_target_marker_fields(config: &crate::RuntimeConfig) -> String {
     let left_offset = config.camera_projection_area_offset_for_eye(0);
     let right_offset = config.camera_projection_area_offset_for_eye(1);
     let [radius_x, radius_y, _corner_radius, scale] = config.camera_area_params_push();
     let radius = [radius_x, radius_y];
+    let source_to_screen_gain = projection_area_source_to_screen_gain_uv(radius, scale);
     format!(
-        "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionDepthMeters={:.3} cameraProjectionDepthMeters={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
-        config.camera_projection_depth_meters,
+        "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionAreaOffsetResponseCoordinateSpace=display-eye-screen-uv projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv_div_projectionAreaScaleUv projectionAreaShaderScreenBaseFormula=screenBase=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 projectionAreaFullFrameContentFormula=contentUv=(screenBase-offsetUv-(0.5-radiusUv))/(2*radiusUv) projectionAreaSourceToScreenGainUv={} projectionDepthMeters={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} leftProjectionAreaOffsetUv={} rightProjectionAreaOffsetUv={} leftProjectionAreaOffsetResponseUv={} rightProjectionAreaOffsetResponseUv={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+        screen_uv_vec2_token(source_to_screen_gain),
         config.camera_projection_depth_meters,
         config.camera_projection_alpha_mode.stable_id(),
         config.camera_projection_alpha_scale,
         config.camera_projection_alpha_bias,
+        screen_uv_vec2_token(left_offset),
+        screen_uv_vec2_token(right_offset),
+        screen_uv_vec2_token(projection_area_offset_response_uv(left_offset, scale)),
+        screen_uv_vec2_token(projection_area_offset_response_uv(right_offset, scale)),
         screen_uv_rect_token(projection_area_screen_uv_rect(left_offset, radius, scale)),
         screen_uv_rect_token(projection_area_screen_uv_rect(right_offset, radius, scale)),
         screen_uv_vec2_token(projection_area_center_uv(left_offset, scale)),
         screen_uv_vec2_token(projection_area_center_uv(right_offset, scale)),
     )
+}
+
+fn display_eye_uv_fiducial_marker_fields(config: &crate::RuntimeConfig) -> &'static str {
+    use crate::camera_color_pipeline::CameraProjectionEffectMode;
+    match config.camera_projection_effect_mode {
+        CameraProjectionEffectMode::DisplayEyeUvFiducial => "displayEyeUvFiducialActive=true displayEyeUvFiducialSchema=rusty.xr.display_eye_uv_fiducial.v1 displayEyeUvFiducialCoordinateSpace=display-eye-screen-uv displayEyeUvFiducialUvBasis=projection_screen_uv_base displayEyeUvFiducialShaderFormula=displayEyeUv=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 displayEyeUvFiducialMarkersUv=cyan_upper_left@0.250000,0.250000;red_left_mid@0.250000,0.500000;yellow_top_mid@0.500000,0.250000;green_center@0.500000,0.500000;magenta_bottom_mid@0.500000,0.750000;blue_right_mid@0.750000,0.500000",
+        CameraProjectionEffectMode::ProjectionContentUvFiducial => "displayEyeUvFiducialActive=true displayEyeUvFiducialSchema=rusty.xr.display_eye_uv_fiducial.v1 displayEyeUvFiducialCoordinateSpace=projection-content-uv displayEyeUvFiducialUvBasis=full_frame_content_uv displayEyeUvFiducialShaderFormula=contentUv=(projectionScreenUv-(0.5-radiusUv))/(2*radiusUv);projectionScreenUv=(surfaceUv-0.5)*projectionAreaScaleUv+0.5-offsetUv displayEyeUvFiducialMarkersUv=cyan_upper_left@0.250000,0.250000;red_left_mid@0.250000,0.500000;yellow_top_mid@0.500000,0.250000;green_center@0.500000,0.500000;magenta_bottom_mid@0.500000,0.750000;blue_right_mid@0.750000,0.500000",
+        CameraProjectionEffectMode::SourceSamplingWitness => "displayEyeUvFiducialActive=true displayEyeUvFiducialSchema=rusty.xr.source_sampling_witness.v1 displayEyeUvFiducialCoordinateSpace=source-sampling-witness displayEyeUvFiducialUvBasis=actual-source-image+full_frame_content_uv+hardware-buffer-sampler-uv displayEyeUvFiducialShaderFormula=contentUv=(projectionScreenUv-(0.5-radiusUv))/(2*radiusUv);sourceSamplerUv=cameraTextureTransform(sourceVisibleUvRect(contentUv)) displayEyeUvFiducialMarkersUv=content_grid_yellow_white@0.125,0.250,0.500;source_sampler_grid_cyan_magenta@0.125,0.250,0.500",
+        _ => "displayEyeUvFiducialActive=false",
+    }
 }
 
 fn apply_homography(rows: [[f32; 3]; 3], x: f32, y: f32) -> Option<(f32, f32)> {
@@ -6321,7 +6411,22 @@ fn projected_homography_marker_fields(
     config: &crate::RuntimeConfig,
 ) -> String {
     format!(
-        "projectionHomographyReady=true projectionAreaTransformStage=screen_space_xy_offset projectionAreaWarpParity=reference_unwarped_screen_uv leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} {} {}",
+        "projectionHomographyReady=true projectionAreaTransformStage=screen_space_xy_offset projectionAreaWarpParity=reference_unwarped_screen_uv projectionCanvasMode={} projectionCanvasSampleRows={} projectionCanvasIndicator={} projectionSurfaceAspectContract=content_frame_aspect_not_display_eye_fov leftProjectionSurfaceAspect={:.6} rightProjectionSurfaceAspect={:.6} leftProjectionSurfaceAspectSource={} rightProjectionSurfaceAspectSource={} leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} {} {}",
+        if config.camera_projection_mode.uses_world_canvas() {
+            "world-space-quad"
+        } else {
+            "fullscreen-collapsed-surface"
+        },
+        if config.camera_projection_mode.uses_world_canvas() {
+            "surface_to_camera"
+        } else {
+            "screen_to_camera"
+        },
+        "none",
+        homographies.left.surface_aspect,
+        homographies.right.surface_aspect,
+        homographies.left.surface_aspect_source,
+        homographies.right.surface_aspect_source,
         homography_token(homographies.left.surface_to_camera),
         homography_token(homographies.right.surface_to_camera),
         homography_token(homographies.left.screen_to_camera),
@@ -6788,17 +6893,7 @@ fn projected_display_eye_homography(
         return None;
     }
     let tracking = tracking_basis_from_views(views)?;
-    let aspect = views
-        .first()
-        .and_then(|view| fov_aspect(view.fov))
-        .unwrap_or_else(|| {
-            if resolution.height == 0 {
-                1.0
-            } else {
-                resolution.width as f32 / resolution.height as f32
-            }
-        })
-        .clamp(0.25, 4.0);
+    let (aspect, aspect_source) = content_surface_aspect(width, height, resolution);
     // Build the homography over the camera-content surface, not the larger
     // visible full-view surface. The fragment shader expands full-view UVs
     // into content UVs before applying this homography, matching a real
@@ -6828,6 +6923,8 @@ fn projected_display_eye_homography(
         display_view.fov.angle_up.tan(),
     )
     .ok()?;
+    let canvas_clip =
+        project_points_to_eye_clip(osc_overlay_eye_projection(display_view)?, surface_corners)?;
     let surface_to_camera =
         surface_to_camera_uv_homography(surface_corners, camera_basis, scaled).ok()?;
     // Both public projection modes render through the same fullscreen
@@ -6855,12 +6952,15 @@ fn projected_display_eye_homography(
         screen_to_camera,
         screen_to_surface,
         surface_to_screen,
+        canvas_clip,
+        surface_aspect: aspect,
+        surface_aspect_source: aspect_source,
         full_frame_stimulus_mapping: false,
     })
 }
 
 fn projected_full_frame_display_eye_homography(
-    _frame: &HeadsetCameraGpuFrame,
+    frame: &HeadsetCameraGpuFrame,
     config: &crate::RuntimeConfig,
     views: &[xr::View],
     display_view: &xr::View,
@@ -6868,17 +6968,9 @@ fn projected_full_frame_display_eye_homography(
     resolution: vk::Extent2D,
 ) -> Option<DisplayEyeProjectionMapping> {
     let tracking = tracking_basis_from_views(views)?;
-    let aspect = views
-        .first()
-        .and_then(|view| fov_aspect(view.fov))
-        .unwrap_or_else(|| {
-            if resolution.height == 0 {
-                1.0
-            } else {
-                resolution.width as f32 / resolution.height as f32
-            }
-        })
-        .clamp(0.25, 4.0);
+    let width = frame.metadata.delivered_size.width as f32;
+    let height = frame.metadata.delivered_size.height as f32;
+    let (aspect, aspect_source) = content_surface_aspect(width, height, resolution);
     let surface_corners = head_anchored_preview_surface_corners(
         tracking,
         config.camera_preview_fov_y_degrees,
@@ -6897,6 +6989,8 @@ fn projected_full_frame_display_eye_homography(
         display_view.fov.angle_up.tan(),
     )
     .ok()?;
+    let canvas_clip =
+        project_points_to_eye_clip(osc_overlay_eye_projection(display_view)?, surface_corners)?;
     let [offset_x_uv, offset_y_uv] =
         config.camera_projection_area_offset_for_eye(display_eye_index);
     let screen_to_surface = screen_to_domain_with_visual_offset(
@@ -6911,6 +7005,9 @@ fn projected_full_frame_display_eye_homography(
         screen_to_camera: screen_to_surface,
         screen_to_surface,
         surface_to_screen,
+        canvas_clip,
+        surface_aspect: aspect,
+        surface_aspect_source: aspect_source,
         full_frame_stimulus_mapping: true,
     })
 }
@@ -6990,6 +7087,23 @@ fn fov_aspect(fov: xr::Fovf) -> Option<f32> {
     }
 }
 
+fn content_surface_aspect(
+    width: f32,
+    height: f32,
+    resolution: vk::Extent2D,
+) -> (f32, &'static str) {
+    if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+        return ((width / height).clamp(0.25, 4.0), "camera-content-size");
+    }
+    if resolution.height > 0 {
+        return (
+            (resolution.width as f32 / resolution.height as f32).clamp(0.25, 4.0),
+            "swapchain-resolution-fallback",
+        );
+    }
+    (1.0, "square-fallback")
+}
+
 unsafe fn create_gpu_camera_pipeline_resources(
     device: &ash::Device,
     memory_properties: &vk::PhysicalDeviceMemoryProperties,
@@ -7048,7 +7162,7 @@ unsafe fn create_gpu_camera_pipeline_resources(
                 .binding(2)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
                 .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+                .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT),
         ],
         crate::CameraSamplerBindingMode::SeparateImageSampler => vec![
             vk::DescriptorSetLayoutBinding::default()
@@ -7065,7 +7179,7 @@ unsafe fn create_gpu_camera_pipeline_resources(
                 .binding(2)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
                 .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+                .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT),
             vk::DescriptorSetLayoutBinding::default()
                 .binding(3)
                 .descriptor_type(vk::DescriptorType::SAMPLER)

@@ -116,8 +116,17 @@ SOURCE_FIELD_KEYS = (
     "contentUvScale",
     "projectionAreaTransformStage",
     "projectionAreaWarpParity",
+    "projectionAreaOffsetResponseCoordinateSpace",
+    "projectionAreaOffsetResponseModel",
+    "projectionAreaShaderScreenBaseFormula",
+    "projectionAreaFullFrameContentFormula",
+    "projectionAreaSourceToScreenGainUv",
     "projectionAreaOffsetXUv",
     "projectionAreaOffsetYUv",
+    "leftProjectionAreaOffsetUv",
+    "rightProjectionAreaOffsetUv",
+    "leftProjectionAreaOffsetResponseUv",
+    "rightProjectionAreaOffsetResponseUv",
     "projectionAreaLeftUv",
     "projectionAreaRightUv",
     "projectionAreaVerticalUv",
@@ -1981,6 +1990,15 @@ def app_projection_record(fields: dict[str, str], stages: dict[str, Any], eye: s
         "content_uv_scale": parse_number_value(fields.get("contentUvScale")),
         "projection_area_transform_stage": fields.get("projectionAreaTransformStage"),
         "projection_area_warp_parity": fields.get("projectionAreaWarpParity"),
+        "projection_area_offset_response_coordinate_space": fields.get(
+            "projectionAreaOffsetResponseCoordinateSpace"
+        ),
+        "projection_area_offset_response_model": fields.get("projectionAreaOffsetResponseModel"),
+        "projection_area_shader_screen_base_formula": fields.get("projectionAreaShaderScreenBaseFormula"),
+        "projection_area_full_frame_content_formula": fields.get("projectionAreaFullFrameContentFormula"),
+        "projection_area_source_to_screen_gain_uv": parse_float_list(
+            fields.get("projectionAreaSourceToScreenGainUv")
+        ),
         "projection_area_target_source": fields.get("projectionAreaTargetSource"),
         "projection_area_target_stage": fields.get("projectionAreaTargetStage"),
         "projection_area_target_coordinate_space": fields.get("projectionAreaTargetCoordinateSpace"),
@@ -1988,6 +2006,10 @@ def app_projection_record(fields: dict[str, str], stages: dict[str, Any], eye: s
         "projection_area_offset_convention": fields.get("projectionAreaOffsetConvention"),
         "projection_area_screen_uv_rect": parse_uv_rect(prefixed_eye_field(fields, eye, "projectionAreaScreenUvRect")),
         "projection_area_center_uv": parse_float_list(prefixed_eye_field(fields, eye, "projectionAreaCenterUv")),
+        "projection_area_offset_uv": parse_float_list(prefixed_eye_field(fields, eye, "ProjectionAreaOffsetUv")),
+        "projection_area_offset_response_uv": parse_float_list(
+            prefixed_eye_field(fields, eye, "ProjectionAreaOffsetResponseUv")
+        ),
         "projection_area_offset_x_uv": parse_number_value(projection_area_offset_x_value),
         "projection_area_offset_y_uv": parse_number_value(
             fields.get("projectionAreaOffsetYUv")

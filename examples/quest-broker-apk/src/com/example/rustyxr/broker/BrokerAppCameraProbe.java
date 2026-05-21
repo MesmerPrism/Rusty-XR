@@ -4,6 +4,8 @@ import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
+import android.graphics.Rect;
+import android.graphics.YuvImage;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -25,6 +27,11 @@ import android.view.Surface;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -102,9 +109,18 @@ final class BrokerAppCameraProbe {
         int timeoutMs = clamp(params != null ? params.optInt("capture_timeout_ms", DEFAULT_CAPTURE_TIMEOUT_MS) : DEFAULT_CAPTURE_TIMEOUT_MS, 500, 8000);
         int preferredWidth = clamp(params != null ? params.optInt("preferred_width", DEFAULT_PREFERRED_WIDTH) : DEFAULT_PREFERRED_WIDTH, 1, 4096);
         int preferredHeight = clamp(params != null ? params.optInt("preferred_height", DEFAULT_PREFERRED_HEIGHT) : DEFAULT_PREFERRED_HEIGHT, 1, 4096);
+        boolean persistFrame = params != null && params.optBoolean("persist_frame", false);
+        String frameOutputDir = params != null ? params.optString("frame_output_dir", "").trim() : "";
+        int jpegQuality = clamp(params != null ? params.optInt("jpeg_quality", 95) : 95, 1, 100);
+        if (persistFrame) {
+            probe.put("persist_frame", true);
+            probe.put("frame_output_dir", frameOutputDir.length() > 0 ? frameOutputDir : defaultFrameOutputDir(context));
+            probe.put("jpeg_quality", jpegQuality);
+        }
 
         int openSuccess = 0;
         int captureSuccess = 0;
+        int persistedFrameCount = 0;
         int attempted = 0;
         for (int i = 0; i < cameraIds.length && attempted < maxAttempts; i++) {
             String cameraId = cameraIds[i];
@@ -113,7 +129,16 @@ final class BrokerAppCameraProbe {
             }
 
             targetCameraIds.put(cameraId);
-            JSONObject attempt = attemptCapture(manager, cameraId, preferredWidth, preferredHeight, timeoutMs);
+            JSONObject attempt = attemptCapture(
+                context,
+                manager,
+                cameraId,
+                preferredWidth,
+                preferredHeight,
+                timeoutMs,
+                persistFrame,
+                frameOutputDir,
+                jpegQuality);
             attempts.put(attempt);
             attempted++;
             if (attempt.optBoolean("open_succeeded", false)) {
@@ -121,6 +146,9 @@ final class BrokerAppCameraProbe {
             }
             if (attempt.optBoolean("capture_succeeded", false)) {
                 captureSuccess++;
+            }
+            if (attempt.has("persisted_frame")) {
+                persistedFrameCount++;
             }
         }
         if (requestedCameraId.length() > 0 && attempted == 0) {
@@ -137,15 +165,22 @@ final class BrokerAppCameraProbe {
         probe.put("attempted_count", attempted);
         probe.put("open_success_count", openSuccess);
         probe.put("capture_success_count", captureSuccess);
+        if (persistFrame) {
+            probe.put("persisted_frame_count", persistedFrameCount);
+        }
         return finishProbe(probe, startedElapsed);
     }
 
     private static JSONObject attemptCapture(
+        final Context context,
         final CameraManager manager,
         final String cameraId,
         int preferredWidth,
         int preferredHeight,
-        int timeoutMs) throws Exception {
+        int timeoutMs,
+        final boolean persistFrame,
+        final String frameOutputDir,
+        final int jpegQuality) throws Exception {
         final JSONObject attempt = new JSONObject();
         attempt.put("camera_id", cameraId);
         attempt.put("open_state", "pending");
@@ -202,6 +237,11 @@ final class BrokerAppCameraProbe {
                         attempt.put("captured_height", image.getHeight());
                         attempt.put("captured_format", imageFormatLabel(image.getFormat()));
                         attempt.put("captured_plane_count", image.getPlanes() != null ? image.getPlanes().length : 0);
+                        if (persistFrame) {
+                            attempt.put(
+                                "persisted_frame",
+                                persistCapturedYuvImage(context, image, cameraId, frameOutputDir, jpegQuality));
+                        }
                     }
                 } catch (Exception ex) {
                     setAttemptError(attempt, "image_available_failed", ex);
@@ -434,6 +474,164 @@ final class BrokerAppCameraProbe {
             }
         }
         return best;
+    }
+
+    private static JSONObject persistCapturedYuvImage(
+        Context context,
+        Image image,
+        String cameraId,
+        String requestedOutputDir,
+        int jpegQuality) throws Exception {
+        if (image.getFormat() != ImageFormat.YUV_420_888) {
+            throw new IllegalArgumentException("Expected YUV_420_888 image, got format=" + image.getFormat());
+        }
+        File outputDir = new File(
+            requestedOutputDir != null && requestedOutputDir.trim().length() > 0
+                ? requestedOutputDir.trim()
+                : defaultFrameOutputDir(context));
+        if (!outputDir.exists() && !outputDir.mkdirs()) {
+            throw new IllegalStateException("Could not create camera frame output dir: " + outputDir.getAbsolutePath());
+        }
+        if (!outputDir.isDirectory()) {
+            throw new IllegalStateException("Camera frame output path is not a directory: " + outputDir.getAbsolutePath());
+        }
+
+        String baseName = "camera-" + safeFileToken(cameraId) +
+            "-" + System.currentTimeMillis() +
+            "-" + SystemClock.elapsedRealtimeNanos();
+        File nv21File = new File(outputDir, baseName + ".nv21");
+        File jpegFile = new File(outputDir, baseName + ".jpg");
+        File metadataFile = new File(outputDir, baseName + ".json");
+
+        byte[] nv21 = yuv420ImageToNv21(image);
+        writeBytes(nv21File, nv21);
+
+        ByteArrayOutputStream jpegBytes = new ByteArrayOutputStream();
+        YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, image.getWidth(), image.getHeight(), null);
+        boolean jpegWritten = yuvImage.compressToJpeg(
+            new Rect(0, 0, image.getWidth(), image.getHeight()),
+            jpegQuality,
+            jpegBytes);
+        if (!jpegWritten) {
+            throw new IllegalStateException("YuvImage.compressToJpeg returned false");
+        }
+        writeBytes(jpegFile, jpegBytes.toByteArray());
+
+        JSONObject record = new JSONObject();
+        record.put("schema", "rusty.xr.broker_app.camera_yuv_frame_capture.v1");
+        record.put("source", "broker_app.camera2");
+        record.put("camera_id", cameraId);
+        record.put("captured_time_unix_ms", System.currentTimeMillis());
+        record.put("source_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        record.put("image_timestamp_ns", image.getTimestamp());
+        record.put("width", image.getWidth());
+        record.put("height", image.getHeight());
+        record.put("raw_format", "YUV_420_888");
+        record.put("raw_layout", "nv21_packed_from_yuv_420_888_planes");
+        record.put("nv21_path", nv21File.getAbsolutePath());
+        record.put("nv21_bytes", nv21File.length());
+        record.put("jpeg_preview_path", jpegFile.getAbsolutePath());
+        record.put("jpeg_preview_bytes", jpegFile.length());
+        record.put("jpeg_quality", jpegQuality);
+        record.put("planes", imagePlaneMetadataJson(image));
+        record.put("metadata_path", metadataFile.getAbsolutePath());
+        writeText(metadataFile, record.toString(2) + "\n");
+        return record;
+    }
+
+    private static String defaultFrameOutputDir(Context context) {
+        File external = context != null ? context.getExternalFilesDir("camera-frame-capture") : null;
+        if (external != null) {
+            return external.getAbsolutePath();
+        }
+        File internal = context != null ? new File(context.getFilesDir(), "camera-frame-capture") : null;
+        return internal != null ? internal.getAbsolutePath() : "/sdcard/Android/data/com.example.rustyxr.broker/files/camera-frame-capture";
+    }
+
+    private static byte[] yuv420ImageToNv21(Image image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        Image.Plane[] planes = image.getPlanes();
+        if (planes == null || planes.length < 3) {
+            throw new IllegalArgumentException("YUV_420_888 image did not expose three planes");
+        }
+        byte[] nv21 = new byte[width * height * 3 / 2];
+        copyPlaneToPackedOutput(planes[0], width, height, nv21, 0, 1);
+        copyPlaneToPackedOutput(planes[2], width / 2, height / 2, nv21, width * height, 2);
+        copyPlaneToPackedOutput(planes[1], width / 2, height / 2, nv21, width * height + 1, 2);
+        return nv21;
+    }
+
+    private static void copyPlaneToPackedOutput(
+        Image.Plane plane,
+        int width,
+        int height,
+        byte[] output,
+        int outputOffset,
+        int outputPixelStride) {
+        ByteBuffer buffer = plane.getBuffer().duplicate();
+        int rowStride = plane.getRowStride();
+        int pixelStride = plane.getPixelStride();
+        int outputRowStride = width * outputPixelStride;
+        int limit = buffer.limit();
+        for (int row = 0; row < height; row++) {
+            int inputRowOffset = row * rowStride;
+            int outputRowOffset = outputOffset + row * outputRowStride;
+            for (int col = 0; col < width; col++) {
+                int inputIndex = inputRowOffset + col * pixelStride;
+                int outputIndex = outputRowOffset + col * outputPixelStride;
+                if (inputIndex < limit && outputIndex < output.length) {
+                    output[outputIndex] = buffer.get(inputIndex);
+                }
+            }
+        }
+    }
+
+    private static JSONArray imagePlaneMetadataJson(Image image) throws Exception {
+        JSONArray planes = new JSONArray();
+        Image.Plane[] imagePlanes = image.getPlanes();
+        for (int i = 0; i < imagePlanes.length; i++) {
+            Image.Plane plane = imagePlanes[i];
+            JSONObject item = new JSONObject();
+            item.put("index", i);
+            item.put("row_stride", plane.getRowStride());
+            item.put("pixel_stride", plane.getPixelStride());
+            item.put("buffer_remaining", plane.getBuffer().remaining());
+            planes.put(item);
+        }
+        return planes;
+    }
+
+    private static String safeFileToken(String value) {
+        String input = value != null ? value : "unknown";
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < input.length(); i++) {
+            char ch = input.charAt(i);
+            if ((ch >= 'A' && ch <= 'Z') ||
+                    (ch >= 'a' && ch <= 'z') ||
+                    (ch >= '0' && ch <= '9') ||
+                    ch == '-' ||
+                    ch == '_') {
+                builder.append(ch);
+            } else {
+                builder.append('_');
+            }
+        }
+        return builder.length() > 0 ? builder.toString() : "unknown";
+    }
+
+    private static void writeBytes(File file, byte[] bytes) throws Exception {
+        FileOutputStream stream = new FileOutputStream(file, false);
+        try {
+            stream.write(bytes);
+            stream.flush();
+        } finally {
+            stream.close();
+        }
+    }
+
+    private static void writeText(File file, String text) throws Exception {
+        writeBytes(file, text.getBytes(StandardCharsets.UTF_8));
     }
 
     private static JSONObject finishProbe(JSONObject probe, long startedElapsed) throws Exception {

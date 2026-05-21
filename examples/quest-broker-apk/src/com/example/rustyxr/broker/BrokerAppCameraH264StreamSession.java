@@ -3,6 +3,8 @@ package com.example.rustyxr.broker;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Rect;
@@ -140,6 +142,15 @@ final class BrokerAppCameraH264StreamSession {
         final String sourceApiPath = syntheticSource ? SOURCE_API_SYNTHETIC_SURFACE : SOURCE_API_CAMERA2;
         final String syntheticPattern = normalizeSyntheticPattern(
             params != null ? params.optString("synthetic_pattern", DEFAULT_SYNTHETIC_PATTERN) : DEFAULT_SYNTHETIC_PATTERN);
+        final String syntheticImagePath = optStringAny(
+            params,
+            "",
+            "synthetic_image_path",
+            "syntheticImagePath",
+            "source_image_path",
+            "sourceImagePath",
+            "frozen_image_path",
+            "frozenImagePath");
         final String syntheticSideMarker = normalizeSyntheticSideMarker(
             params != null ? params.optString("synthetic_side_marker", "") : "");
         final String requestedProjectionProfile = optStringAny(
@@ -240,6 +251,9 @@ final class BrokerAppCameraH264StreamSession {
         endpoint.put("projection_geometry_profile", syntheticProjectionProfile);
         if (syntheticSource) {
             endpoint.put("synthetic_projection_profile", syntheticProjectionProfile);
+            if (syntheticImagePath.length() > 0) {
+                endpoint.put("synthetic_image_path", syntheticImagePath);
+            }
         }
 
         final String cameraPermissionState = cameraPermissionState(appContext);
@@ -309,6 +323,9 @@ final class BrokerAppCameraH264StreamSession {
             start.put("selected_fps_max_hz", frameRateHz);
             start.put("timestamp_domain", "ElapsedRealtime");
             start.put("synthetic_pattern", syntheticPattern);
+            if (syntheticImagePath.length() > 0) {
+                start.put("synthetic_image_path", syntheticImagePath);
+            }
             start.put("synthetic_side_marker", syntheticSideMarker);
             start.put("synthetic_projection_profile", syntheticProjectionProfile);
             start.put("projection_geometry_profile", syntheticProjectionProfile);
@@ -416,6 +433,7 @@ final class BrokerAppCameraH264StreamSession {
                     liveStream,
                     syntheticSource,
                     syntheticPattern,
+                    syntheticImagePath,
                     syntheticSideMarker,
                     syntheticProjectionProfile,
                     requestedContentWidth,
@@ -661,6 +679,7 @@ final class BrokerAppCameraH264StreamSession {
         boolean liveStream,
         boolean syntheticSource,
         String syntheticPattern,
+        String syntheticImagePath,
         String syntheticSideMarker,
         String syntheticProjectionProfile,
         int requestedContentWidth,
@@ -680,6 +699,7 @@ final class BrokerAppCameraH264StreamSession {
             JSONObject streamProjectionMetadata;
             if (syntheticSource) {
                 syntheticPattern = normalizeSyntheticPattern(syntheticPattern);
+                syntheticImagePath = syntheticImagePath != null ? syntheticImagePath.trim() : "";
                 syntheticSideMarker = normalizeSyntheticSideMarker(syntheticSideMarker);
                 syntheticProjectionProfile = normalizeSyntheticProjectionProfile(syntheticProjectionProfile);
                 cameraId = "synthetic:" + syntheticPattern;
@@ -781,6 +801,7 @@ final class BrokerAppCameraH264StreamSession {
                         streamProjectionMetadata,
                         encoderMetadata,
                         syntheticPattern,
+                        syntheticImagePath,
                         syntheticSideMarker,
                         syntheticProjectionProfile)
                     : streamCameraPacketsLive(
@@ -806,7 +827,7 @@ final class BrokerAppCameraH264StreamSession {
                 encodeEndElapsedNs = liveResult.encodeEndElapsedNs;
             } else {
                 packets = syntheticSource
-                    ? encodeSyntheticPackets(size, captureMs, maxPackets, bitrateBps, frameRateHz, encoderMetadata, syntheticPattern, syntheticSideMarker)
+                    ? encodeSyntheticPackets(size, captureMs, maxPackets, bitrateBps, frameRateHz, encoderMetadata, syntheticPattern, syntheticImagePath, syntheticSideMarker)
                     : encodeCameraPackets(manager, cameraId, size, captureMs, maxPackets, bitrateBps, frameRateHz, encoderMetadata);
                 encodeEndElapsedNs = SystemClock.elapsedRealtimeNanos();
                 registerManifest(
@@ -948,6 +969,7 @@ final class BrokerAppCameraH264StreamSession {
         final int frameRateHz,
         final EncoderMetadata encoderMetadata,
         final String syntheticPattern,
+        final String syntheticImagePath,
         final String syntheticSideMarker) throws Exception {
         final List<EncodedPacket> packets = new ArrayList<EncodedPacket>();
         final int effectiveMaxPackets = maxPackets > 0 ? maxPackets : MAX_SYNTHETIC_FRAME_COUNT;
@@ -970,7 +992,7 @@ final class BrokerAppCameraH264StreamSession {
                     SystemClock.elapsedRealtimeNanos() < deadlineElapsedNs &&
                     videoPacketCount(packets) < effectiveMaxPackets) {
                 long frameStartElapsedNs = SystemClock.elapsedRealtimeNanos();
-                drawSyntheticEncoderFrame(encoderSurface, frameIndex, size, syntheticPattern, syntheticSideMarker);
+                drawSyntheticEncoderFrame(encoderSurface, frameIndex, size, syntheticPattern, syntheticImagePath, syntheticSideMarker);
                 drainEncoder(encoder, packets, false, effectiveMaxPackets, encoderMetadata);
                 sleepUntilSyntheticFrameCadence(frameStartElapsedNs, frameRateHz);
                 frameIndex++;
@@ -1197,6 +1219,7 @@ final class BrokerAppCameraH264StreamSession {
         final JSONObject streamProjectionMetadata,
         final EncoderMetadata encoderMetadata,
         final String syntheticPattern,
+        final String syntheticImagePath,
         final String syntheticSideMarker,
         final String syntheticProjectionProfile) throws Exception {
         final List<EncodedPacket> packets = new ArrayList<EncodedPacket>();
@@ -1262,7 +1285,7 @@ final class BrokerAppCameraH264StreamSession {
                     (!boundedByFrameLimit || frameIndex < MAX_SYNTHETIC_FRAME_COUNT) &&
                     !writer.hasError()) {
                 long frameStartElapsedNs = SystemClock.elapsedRealtimeNanos();
-                drawSyntheticEncoderFrame(encoderSurface, frameIndex, size, syntheticPattern, syntheticSideMarker);
+                drawSyntheticEncoderFrame(encoderSurface, frameIndex, size, syntheticPattern, syntheticImagePath, syntheticSideMarker);
                 drainEncoderToQueue(
                     encoder,
                     packetQueue,
@@ -2469,6 +2492,7 @@ final class BrokerAppCameraH264StreamSession {
         int frameIndex,
         Size size,
         String syntheticPattern,
+        String syntheticImagePath,
         String syntheticSideMarker) throws Exception {
         Canvas canvas = surface.lockCanvas(null);
         try {
@@ -2478,7 +2502,10 @@ final class BrokerAppCameraH264StreamSession {
             paint.setAntiAlias(false);
             int width = size.getWidth();
             int height = size.getHeight();
-            if ("checkerboard".equals(pattern)) {
+            if ("image-file".equals(pattern)) {
+                drawSyntheticImageFileFrame(canvas, paint, width, height, syntheticImagePath);
+                return;
+            } else if ("checkerboard".equals(pattern)) {
                 drawSyntheticCheckerboard(canvas, paint, width, height);
             } else if ("luma-ramp".equals(pattern)) {
                 drawSyntheticLumaRamp(canvas, paint, width, height);
@@ -2492,6 +2519,30 @@ final class BrokerAppCameraH264StreamSession {
             drawSyntheticSideMarker(canvas, paint, width, height, sideMarker);
         } finally {
             surface.unlockCanvasAndPost(canvas);
+        }
+    }
+
+    private static void drawSyntheticImageFileFrame(
+        Canvas canvas,
+        Paint paint,
+        int width,
+        int height,
+        String syntheticImagePath) {
+        String imagePath = syntheticImagePath != null ? syntheticImagePath.trim() : "";
+        if (imagePath.length() == 0) {
+            throw new IllegalArgumentException("synthetic_image_path is required for image-file synthetic pattern.");
+        }
+        Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
+        if (bitmap == null) {
+            throw new IllegalArgumentException("Could not decode synthetic image file: " + imagePath);
+        }
+        try {
+            canvas.drawColor(Color.BLACK);
+            paint.setFilterBitmap(false);
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawBitmap(bitmap, null, new Rect(0, 0, width, height), paint);
+        } finally {
+            bitmap.recycle();
         }
     }
 
@@ -3290,6 +3341,13 @@ final class BrokerAppCameraH264StreamSession {
         }
         if ("motion".equals(normalized) || "motion-bar".equals(normalized)) {
             return "motion-bar";
+        }
+        if ("image".equals(normalized) ||
+                "image-file".equals(normalized) ||
+                "still-image".equals(normalized) ||
+                "frozen-image".equals(normalized) ||
+                "camera-frame".equals(normalized)) {
+            return "image-file";
         }
         return DEFAULT_SYNTHETIC_PATTERN;
     }

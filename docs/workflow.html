@@ -63,7 +63,7 @@
     <section class="panel">
       <h2>Quest Streaming Diagnostics</h2>
       <p>For camera-composite and broker H.264 work, keep the cost matrix separate: synthetic compositor, direct Camera2 projected stereo, broker receive/decode, and broker live projected stereo. Compare the baseline soft-border profiles against the fast public raw-projection profiles at <code>rustyxr.xrRenderScale=0.75</code> and <code>0.65</code>, then summarize the artifacts with <code>tools/quest-streaming-diagnostics</code>.</p>
-      <p>The current public-example evidence points to the projection shader/load path as the parity lever after MediaCodec, broker receive/decode, Java image acquisition, <code>HardwareBuffer</code> extraction, and native bridge handoff are held fixed. Use <code>camera-stereo-gpu-composite-fast075</code> and <code>broker-h264-stereo-live-openxr-projection-fast075-probe</code> only for performance/compatibility checks. Use full-feed alignment profiles for coordinate-alignment gates. See <a href="QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md">QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md</a>.</p>
+      <p>The current public-example evidence points to the projection shader/load path as the parity lever after MediaCodec, broker receive/decode, Java image acquisition, <code>HardwareBuffer</code> extraction, and native bridge handoff are held fixed. Use <code>camera-stereo-gpu-composite-fast075</code> and <code>broker-h264-stereo-live-openxr-projection-fast075-probe</code> only for performance/compatibility checks. Use full-feed control profiles for coordinate-alignment gates. See <a href="QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md">QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md</a>.</p>
     </section>
 
     <section class="panel">

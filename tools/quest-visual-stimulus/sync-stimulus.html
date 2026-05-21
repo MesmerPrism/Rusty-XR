@@ -48,6 +48,34 @@
       background: #fff;
       mix-blend-mode: normal;
     }
+    #centerCross {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      width: min(26vmin, 360px);
+      height: min(26vmin, 360px);
+      transform: translate(-50%, -50%);
+      z-index: 5;
+      pointer-events: none;
+    }
+    #centerCross::before,
+    #centerCross::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      background: #00ff00;
+      box-shadow: 0 0 0 0.7vmin #000;
+      transform: translate(-50%, -50%);
+    }
+    #centerCross::before {
+      width: 100%;
+      height: max(1.8vmin, 14px);
+    }
+    #centerCross::after {
+      width: max(1.8vmin, 14px);
+      height: 100%;
+    }
     #edgeTop, #edgeBottom {
       position: fixed;
       left: 0;
@@ -160,6 +188,7 @@
 <body>
   <main id="stage" aria-label="Quest camera/composite timing stimulus"></main>
   <div id="pulse"></div>
+  <div id="centerCross" aria-hidden="true"></div>
   <div id="edgeTop"></div>
   <div id="edgeBottom"></div>
   <div id="edgeLeft"></div>

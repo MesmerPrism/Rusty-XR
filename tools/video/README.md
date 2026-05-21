@@ -4,6 +4,27 @@ This folder contains source-only helpers for Rusty XR diagnostic video streams.
 They do not bundle codec libraries, native media SDKs, generated captures, or
 APK artifacts.
 
+## Bounded RXYRVID1 H.264 Source
+
+`serve_rxyrvid1_h264.py` wraps a saved H.264 Annex-B elementary stream in the
+Rusty XR diagnostic `RXYRVID1` TCP framing. Schema version 2 remains the
+default. Use schema version 3 when a replay needs stream-header projection
+metadata, such as frozen-frame custom projection alignment.
+
+```powershell
+python .\tools\video\serve_rxyrvid1_h264.py `
+  --input .\left-source.h264 `
+  --port 18879 `
+  --width 640 `
+  --height 640 `
+  --timestamp-mode pts `
+  --schema-version 3 `
+  --metadata-file .\projection-metadata-left.json
+```
+
+The tool only frames an existing H.264 elementary stream. It does not encode
+still images or camera captures by itself.
+
 ## Q2Q Internet Relay MVP
 
 `q2q_relay.py` is a small relay/bridge for the current Rusty XR Quest-to-Quest

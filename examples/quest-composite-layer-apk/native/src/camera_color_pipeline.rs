@@ -66,7 +66,11 @@ pub(crate) enum CameraProjectionEffectMode {
     RawProjectionWarmBorder,
     RawProjectionCyclingBorder,
     RawProjectionUnderlay,
+    RawProjectionCameraFootprintUnderlay,
     ProjectionAreaDiagnostic,
+    DisplayEyeUvFiducial,
+    ProjectionContentUvFiducial,
+    SourceSamplingWitness,
 }
 
 impl CameraProjectionEffectMode {
@@ -132,10 +136,29 @@ impl CameraProjectionEffectMode {
             | "raw-projection-alpha-underlay"
             | "direct-raw-projection-underlay"
             | "fast-raw-underlay" => Some(Self::RawProjectionUnderlay),
+            "raw-projection-camera-footprint-underlay"
+            | "raw-projection-projection-area-bounded-underlay"
+            | "raw-projection-bounded-footprint-underlay"
+            | "camera-footprint-underlay"
+            | "projection-area-bounded-underlay" => {
+                Some(Self::RawProjectionCameraFootprintUnderlay)
+            }
             "projection-area-diagnostic"
             | "camera-projection-area-diagnostic"
             | "raw-projection-area-diagnostic"
             | "fast-projection-area-diagnostic" => Some(Self::ProjectionAreaDiagnostic),
+            "display-eye-uv-fiducial"
+            | "display-eye-screen-uv-fiducial"
+            | "display-eye-uv-map"
+            | "mirror-mapping-fiducial" => Some(Self::DisplayEyeUvFiducial),
+            "projection-content-uv-fiducial"
+            | "post-offset-content-uv-fiducial"
+            | "content-uv-map"
+            | "projection-area-content-uv-map" => Some(Self::ProjectionContentUvFiducial),
+            "source-sampling-witness"
+            | "source-uv-sampling-witness"
+            | "source-sampling-overlay"
+            | "source-uv-map" => Some(Self::SourceSamplingWitness),
             _ => None,
         }
     }
@@ -156,7 +179,13 @@ impl CameraProjectionEffectMode {
             Self::RawProjectionWarmBorder => "raw-projection-warm-border",
             Self::RawProjectionCyclingBorder => "raw-projection-cycling-border",
             Self::RawProjectionUnderlay => "raw-projection-underlay",
+            Self::RawProjectionCameraFootprintUnderlay => {
+                "raw-projection-camera-footprint-underlay"
+            }
             Self::ProjectionAreaDiagnostic => "projection-area-diagnostic",
+            Self::DisplayEyeUvFiducial => "display-eye-uv-fiducial",
+            Self::ProjectionContentUvFiducial => "projection-content-uv-fiducial",
+            Self::SourceSamplingWitness => "source-sampling-witness",
         }
     }
 
@@ -216,24 +245,67 @@ impl CameraProjectionEffectMode {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
                     | CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA
             }
+            Self::RawProjectionCameraFootprintUnderlay => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA
+            }
             Self::ProjectionAreaDiagnostic => {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
                     | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
             }
+            Self::DisplayEyeUvFiducial => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
+            }
+            Self::ProjectionContentUvFiducial => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
+                    | CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING
+            }
+            Self::SourceSamplingWitness => {
+                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                    | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
+                    | CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING
+            }
         }
+    }
+
+    pub(crate) const fn diagnostic_shader_code(self) -> f32 {
+        match self {
+            Self::DisplayEyeUvFiducial => 1.0,
+            Self::ProjectionContentUvFiducial => 2.0,
+            Self::SourceSamplingWitness => 3.0,
+            Self::RawProjectionCameraFootprintUnderlay => 4.0,
+            _ => 0.0,
+        }
+    }
+
+    pub(crate) const fn is_uv_fiducial(self) -> bool {
+        matches!(
+            self,
+            Self::DisplayEyeUvFiducial
+                | Self::ProjectionContentUvFiducial
+                | Self::SourceSamplingWitness
+        )
     }
 
     pub(crate) const fn uses_fast_projection_pipeline(self) -> bool {
         matches!(
             self,
-            Self::RawProjectionFast | Self::ProjectionAreaDiagnostic
+            Self::RawProjectionFast
+                | Self::ProjectionAreaDiagnostic
+                | Self::DisplayEyeUvFiducial
+                | Self::ProjectionContentUvFiducial
+                | Self::SourceSamplingWitness
         )
     }
 
     pub(crate) const fn uses_passthrough_underlay_alpha(self) -> bool {
         matches!(
             self,
-            Self::RawProjectionBlurUnderlay | Self::RawProjectionUnderlay
+            Self::RawProjectionBlurUnderlay
+                | Self::RawProjectionUnderlay
+                | Self::RawProjectionCameraFootprintUnderlay
         )
     }
 }

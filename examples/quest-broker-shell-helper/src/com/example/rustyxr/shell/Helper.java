@@ -5,6 +5,7 @@ import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.graphics.YuvImage;
 import android.content.AttributionSource;
 import android.content.Context;
 import android.content.ContextWrapper;
@@ -35,6 +36,7 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Constructor;
@@ -89,6 +91,9 @@ public final class Helper {
     private static final int CAMERA_OPEN_PROBE_SESSION_TIMEOUT_MS = 3000;
     private static final int CAMERA_OPEN_PROBE_CAPTURE_TIMEOUT_MS = 4000;
     private static final int CAMERA_OPEN_PROBE_MAX_DIMENSION = 640;
+    private static final String CAMERA_FRAME_CAPTURE_DEFAULT_DIR =
+        "/data/local/tmp/rusty-xr-camera-frame-capture";
+    private static final int CAMERA_FRAME_CAPTURE_DEFAULT_JPEG_QUALITY = 95;
     private static final String PROXIMITY_WATCHDOG_STOP_FILE =
         "/data/local/tmp/rusty-xr-proximity-watchdog.stop";
     private static final String PROXIMITY_WATCHDOG_LOG_FILE =
@@ -154,7 +159,15 @@ public final class Helper {
         int uid = Process.myUid();
         String uidLabel = uid == 2000 ? "shell" : "uid:" + uid;
         JSONObject report = buildReport(uidLabel, options);
-        JSONObject ack = sendBrokerCommand(options.host, options.port, "shell_helper.report_status", report);
+        JSONObject ack;
+        if (options.noBrokerReport) {
+            ack = new JSONObject();
+            ack.put("type", "local_report");
+            ack.put("status", "skipped_broker_report");
+            ack.put("report", report);
+        } else {
+            ack = sendBrokerCommand(options.host, options.port, "shell_helper.report_status", report);
+        }
         System.out.println("Rusty XR shell helper version=" + VERSION + " uid=" + uidLabel);
         System.out.println(ack.toString(2));
         if (options.connected && options.syntheticVideoSamples > 0) {
@@ -217,6 +230,11 @@ public final class Helper {
         if (options.probeCameraOpen) {
             capabilities.put("shell.camera.camera2_open_capture_probe");
         }
+        if (options.captureCameraFrame) {
+            capabilities.put("shell.camera.camera2_yuv_frame_persist");
+            capabilities.put("shell.camera.camera2_yuv_nv21_sidecar");
+            capabilities.put("shell.camera.camera2_yuv_jpeg_preview");
+        }
         if (options.syntheticVideoSamples > 0 || options.emitSyntheticVideoBinary) {
             capabilities.put("shell.synthetic_encoded_metadata.emit");
         }
@@ -268,6 +286,7 @@ public final class Helper {
         if (options.probeCodecs ||
                 options.probeCameras ||
                 options.probeCameraOpen ||
+                options.captureCameraFrame ||
                 options.proximityWatchdog ||
                 options.stopProximityWatchdog ||
                 options.focusGuardian ||
@@ -279,8 +298,14 @@ public final class Helper {
             if (options.probeCameras) {
                 diagnostics.put("camera_probe", buildCameraProbe());
             }
-            if (options.probeCameraOpen) {
-                diagnostics.put("camera_open_probe", buildCameraOpenProbe(options.cameraOpenId));
+            if (options.probeCameraOpen || options.captureCameraFrame) {
+                diagnostics.put(
+                    "camera_open_probe",
+                    buildCameraOpenProbe(
+                        options.cameraOpenId,
+                        options.captureCameraFrame,
+                        options.cameraFrameOutputDir,
+                        options.cameraFrameJpegQuality));
             }
             if (options.proximityWatchdog || options.stopProximityWatchdog) {
                 diagnostics.put(
@@ -945,7 +970,11 @@ public final class Helper {
             "video/av01".equals(type);
     }
 
-    private static JSONObject buildCameraOpenProbe(String requestedCameraId) throws Exception {
+    private static JSONObject buildCameraOpenProbe(
+            String requestedCameraId,
+            boolean persistCameraFrame,
+            String cameraFrameOutputDir,
+            int cameraFrameJpegQuality) throws Exception {
         JSONObject probe = new JSONObject();
         probe.put("schema", "rusty.xr.shell_helper.camera_open_probe.v1");
         probe.put("source", "Camera2 CameraManager from adb shell app_process");
@@ -957,6 +986,11 @@ public final class Helper {
         probe.put("capture_timeout_ms", CAMERA_OPEN_PROBE_CAPTURE_TIMEOUT_MS);
         probe.put("capture_format", "YUV_420_888");
         probe.put("capture_max_dimension", CAMERA_OPEN_PROBE_MAX_DIMENSION);
+        probe.put("persist_camera_frame", persistCameraFrame);
+        if (persistCameraFrame) {
+            probe.put("camera_frame_output_dir", cameraFrameOutputDir);
+            probe.put("camera_frame_jpeg_quality", cameraFrameJpegQuality);
+        }
         if (requestedCameraId != null && requestedCameraId.trim().length() > 0) {
             probe.put("requested_camera_id", requestedCameraId.trim());
         }
@@ -980,8 +1014,15 @@ public final class Helper {
             JSONArray attempts = new JSONArray();
             int openSuccessCount = 0;
             int captureSuccessCount = 0;
+            int persistedFrameCount = 0;
             for (int i = 0; i < targetCameraIds.length && i < CAMERA_OPEN_PROBE_MAX_CAMERA_IDS; i++) {
-                JSONObject attempt = probeSingleCameraOpenCapture(manager, targetCameraIds[i], handler);
+                JSONObject attempt = probeSingleCameraOpenCapture(
+                    manager,
+                    targetCameraIds[i],
+                    handler,
+                    persistCameraFrame,
+                    cameraFrameOutputDir,
+                    cameraFrameJpegQuality);
                 attempts.put(attempt);
                 if (attempt.optBoolean("open_succeeded", false)) {
                     openSuccessCount++;
@@ -989,10 +1030,16 @@ public final class Helper {
                 if (attempt.optBoolean("capture_succeeded", false)) {
                     captureSuccessCount++;
                 }
+                if (attempt.has("persisted_frame")) {
+                    persistedFrameCount++;
+                }
             }
             probe.put("attempted_count", attempts.length());
             probe.put("open_success_count", openSuccessCount);
             probe.put("capture_success_count", captureSuccessCount);
+            if (persistCameraFrame) {
+                probe.put("persisted_frame_count", persistedFrameCount);
+            }
             probe.put("attempts", attempts);
         } catch (Exception ex) {
             probe.put("manager_state", "failed");
@@ -1075,7 +1122,10 @@ public final class Helper {
     private static JSONObject probeSingleCameraOpenCapture(
             CameraManager manager,
             String cameraId,
-            Handler handler) throws Exception {
+            Handler handler,
+            boolean persistCameraFrame,
+            String cameraFrameOutputDir,
+            int cameraFrameJpegQuality) throws Exception {
         JSONObject result = new JSONObject();
         result.put("camera_id", cameraId);
         result.put("open_succeeded", false);
@@ -1164,6 +1214,8 @@ public final class Helper {
             final long[] captureStartNs = new long[] { 0L };
             final long[] firstImageElapsedNs = new long[] { 0L };
             final String[] imageErrorRef = new String[1];
+            final JSONObject[] persistedFrameRef = new JSONObject[1];
+            final String[] persistedFrameErrorRef = new String[1];
             reader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
                 @Override
                 public void onImageAvailable(ImageReader imageReader) {
@@ -1175,6 +1227,17 @@ public final class Helper {
                             imageWidth[0] = image.getWidth();
                             imageHeight[0] = image.getHeight();
                             firstImageElapsedNs[0] = SystemClock.elapsedRealtimeNanos() - captureStartNs[0];
+                            if (persistCameraFrame) {
+                                try {
+                                    persistedFrameRef[0] = persistCapturedYuvImage(
+                                        image,
+                                        cameraId,
+                                        cameraFrameOutputDir,
+                                        cameraFrameJpegQuality);
+                                } catch (Exception ex) {
+                                    persistedFrameErrorRef[0] = exceptionSummary(ex);
+                                }
+                            }
                         }
                     } catch (RuntimeException ex) {
                         imageErrorRef[0] = exceptionSummary(ex);
@@ -1242,6 +1305,12 @@ public final class Helper {
             result.put("captured_width", imageWidth[0]);
             result.put("captured_height", imageHeight[0]);
             result.put("first_image_elapsed_ms", nanosToMillis(firstImageElapsedNs[0]));
+            if (persistedFrameRef[0] != null) {
+                result.put("persisted_frame", persistedFrameRef[0]);
+            }
+            if (persistedFrameErrorRef[0] != null) {
+                result.put("persisted_frame_error", persistedFrameErrorRef[0]);
+            }
         } catch (CameraAccessException ex) {
             result.put("capture_state", "camera_access_exception");
             result.put("capture_error", exceptionSummary(ex));
@@ -1261,6 +1330,151 @@ public final class Helper {
             closeQuietly(deviceRef[0]);
         }
         return result;
+    }
+
+    private static JSONObject persistCapturedYuvImage(
+            Image image,
+            String cameraId,
+            String cameraFrameOutputDir,
+            int cameraFrameJpegQuality) throws Exception {
+        if (image.getFormat() != ImageFormat.YUV_420_888) {
+            throw new IllegalArgumentException("Expected YUV_420_888 image, got format=" + image.getFormat());
+        }
+        File outputDir = new File(cameraFrameOutputDir);
+        if (!outputDir.exists() && !outputDir.mkdirs()) {
+            throw new IllegalStateException("Could not create camera frame output dir: " + outputDir.getAbsolutePath());
+        }
+        if (!outputDir.isDirectory()) {
+            throw new IllegalStateException("Camera frame output path is not a directory: " + outputDir.getAbsolutePath());
+        }
+
+        String baseName = "camera-" + safeFileToken(cameraId) +
+            "-" + System.currentTimeMillis() +
+            "-" + SystemClock.elapsedRealtimeNanos();
+        File nv21File = new File(outputDir, baseName + ".nv21");
+        File jpegFile = new File(outputDir, baseName + ".jpg");
+        File metadataFile = new File(outputDir, baseName + ".json");
+
+        byte[] nv21 = yuv420ImageToNv21(image);
+        writeBytes(nv21File, nv21);
+
+        ByteArrayOutputStream jpegBytes = new ByteArrayOutputStream();
+        YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, image.getWidth(), image.getHeight(), null);
+        boolean jpegWritten = yuvImage.compressToJpeg(
+            new Rect(0, 0, image.getWidth(), image.getHeight()),
+            cameraFrameJpegQuality,
+            jpegBytes);
+        if (!jpegWritten) {
+            throw new IllegalStateException("YuvImage.compressToJpeg returned false");
+        }
+        writeBytes(jpegFile, jpegBytes.toByteArray());
+
+        JSONObject record = new JSONObject();
+        record.put("schema", "rusty.xr.shell_helper.camera_yuv_frame_capture.v1");
+        record.put("source", "Camera2 YUV_420_888 one-frame capture from adb shell app_process");
+        record.put("camera_id", cameraId);
+        record.put("captured_time_unix_ms", System.currentTimeMillis());
+        record.put("source_time_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        record.put("image_timestamp_ns", image.getTimestamp());
+        record.put("width", image.getWidth());
+        record.put("height", image.getHeight());
+        record.put("raw_format", "YUV_420_888");
+        record.put("raw_layout", "nv21_packed_from_yuv_420_888_planes");
+        record.put("nv21_path", nv21File.getAbsolutePath());
+        record.put("nv21_bytes", nv21File.length());
+        record.put("jpeg_preview_path", jpegFile.getAbsolutePath());
+        record.put("jpeg_preview_bytes", jpegFile.length());
+        record.put("jpeg_quality", cameraFrameJpegQuality);
+        record.put("planes", imagePlaneMetadataJson(image));
+        record.put("metadata_path", metadataFile.getAbsolutePath());
+        writeText(metadataFile, record.toString(2) + "\n");
+        return record;
+    }
+
+    private static byte[] yuv420ImageToNv21(Image image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        Image.Plane[] planes = image.getPlanes();
+        if (planes == null || planes.length < 3) {
+            throw new IllegalArgumentException("YUV_420_888 image did not expose three planes");
+        }
+        byte[] nv21 = new byte[width * height * 3 / 2];
+        copyPlaneToPackedOutput(planes[0], width, height, nv21, 0, 1);
+        copyPlaneToPackedOutput(planes[2], width / 2, height / 2, nv21, width * height, 2);
+        copyPlaneToPackedOutput(planes[1], width / 2, height / 2, nv21, width * height + 1, 2);
+        return nv21;
+    }
+
+    private static void copyPlaneToPackedOutput(
+            Image.Plane plane,
+            int width,
+            int height,
+            byte[] output,
+            int outputOffset,
+            int outputPixelStride) {
+        ByteBuffer buffer = plane.getBuffer().duplicate();
+        int rowStride = plane.getRowStride();
+        int pixelStride = plane.getPixelStride();
+        int outputRowStride = width * outputPixelStride;
+        int limit = buffer.limit();
+        for (int row = 0; row < height; row++) {
+            int inputRowOffset = row * rowStride;
+            int outputRowOffset = outputOffset + row * outputRowStride;
+            for (int col = 0; col < width; col++) {
+                int inputIndex = inputRowOffset + col * pixelStride;
+                int outputIndex = outputRowOffset + col * outputPixelStride;
+                if (inputIndex < limit && outputIndex < output.length) {
+                    output[outputIndex] = buffer.get(inputIndex);
+                }
+            }
+        }
+    }
+
+    private static JSONArray imagePlaneMetadataJson(Image image) throws Exception {
+        JSONArray planes = new JSONArray();
+        Image.Plane[] imagePlanes = image.getPlanes();
+        for (int i = 0; i < imagePlanes.length; i++) {
+            Image.Plane plane = imagePlanes[i];
+            JSONObject item = new JSONObject();
+            item.put("index", i);
+            item.put("row_stride", plane.getRowStride());
+            item.put("pixel_stride", plane.getPixelStride());
+            item.put("buffer_remaining", plane.getBuffer().remaining());
+            planes.put(item);
+        }
+        return planes;
+    }
+
+    private static String safeFileToken(String value) {
+        String input = value != null ? value : "unknown";
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < input.length(); i++) {
+            char ch = input.charAt(i);
+            if ((ch >= 'A' && ch <= 'Z') ||
+                    (ch >= 'a' && ch <= 'z') ||
+                    (ch >= '0' && ch <= '9') ||
+                    ch == '-' ||
+                    ch == '_') {
+                builder.append(ch);
+            } else {
+                builder.append('_');
+            }
+        }
+        return builder.length() > 0 ? builder.toString() : "unknown";
+    }
+
+    private static void writeBytes(File file, byte[] bytes) throws Exception {
+        FileOutputStream stream = new FileOutputStream(file, false);
+        try {
+            stream.write(bytes);
+            stream.flush();
+        } finally {
+            stream.close();
+        }
+    }
+
+    private static void writeText(File file, String text) throws Exception {
+        writeBytes(file, text.getBytes(StandardCharsets.UTF_8));
     }
 
     private static Size chooseYuvProbeSize(CameraManager manager, String cameraId) throws CameraAccessException {
@@ -3230,6 +3444,15 @@ public final class Helper {
         }
 
         @Override
+        public PackageManager getPackageManager() {
+            Context base = getBaseContext();
+            if (base != null) {
+                return base.getPackageManager();
+            }
+            return super.getPackageManager();
+        }
+
+        @Override
         public Object getSystemService(String name) {
             return null;
         }
@@ -3281,7 +3504,16 @@ public final class Helper {
                 Method getSystemContext = activityThreadClass.getDeclaredMethod("getSystemContext");
                 getSystemContext.setAccessible(true);
                 Object context = getSystemContext.invoke(activityThread);
-                return context instanceof Context ? (Context) context : null;
+                if (context instanceof Context) {
+                    return (Context) context;
+                }
+                Class<?> contextImplClass = Class.forName("android.app.ContextImpl");
+                Method createSystemContext = contextImplClass.getDeclaredMethod(
+                    "createSystemContext",
+                    activityThreadClass);
+                createSystemContext.setAccessible(true);
+                Object createdContext = createSystemContext.invoke(null, activityThread);
+                return createdContext instanceof Context ? (Context) createdContext : null;
             } catch (Exception ignored) {
                 return null;
             }
@@ -3396,10 +3628,14 @@ public final class Helper {
         final String host;
         final int port;
         final boolean connected;
+        final boolean noBrokerReport;
         final boolean probeCodecs;
         final boolean probeCameras;
         final boolean probeCameraOpen;
         final String cameraOpenId;
+        final boolean captureCameraFrame;
+        final String cameraFrameOutputDir;
+        final int cameraFrameJpegQuality;
         final int syntheticVideoSamples;
         final boolean emitSyntheticVideoBinary;
         final int syntheticVideoBinaryPort;
@@ -3435,10 +3671,14 @@ public final class Helper {
                 String host,
                 int port,
                 boolean connected,
+                boolean noBrokerReport,
                 boolean probeCodecs,
                 boolean probeCameras,
                 boolean probeCameraOpen,
                 String cameraOpenId,
+                boolean captureCameraFrame,
+                String cameraFrameOutputDir,
+                int cameraFrameJpegQuality,
                 int syntheticVideoSamples,
                 boolean emitSyntheticVideoBinary,
                 int syntheticVideoBinaryPort,
@@ -3472,10 +3712,16 @@ public final class Helper {
             this.host = host;
             this.port = port;
             this.connected = connected;
+            this.noBrokerReport = noBrokerReport;
             this.probeCodecs = probeCodecs;
             this.probeCameras = probeCameras;
             this.probeCameraOpen = probeCameraOpen;
             this.cameraOpenId = cameraOpenId;
+            this.captureCameraFrame = captureCameraFrame;
+            this.cameraFrameOutputDir = cameraFrameOutputDir != null && cameraFrameOutputDir.length() > 0
+                ? cameraFrameOutputDir
+                : CAMERA_FRAME_CAPTURE_DEFAULT_DIR;
+            this.cameraFrameJpegQuality = cameraFrameJpegQuality;
             this.syntheticVideoSamples = syntheticVideoSamples;
             this.emitSyntheticVideoBinary = emitSyntheticVideoBinary;
             this.syntheticVideoBinaryPort = syntheticVideoBinaryPort;
@@ -3516,10 +3762,14 @@ public final class Helper {
             String host = "127.0.0.1";
             int port = 8765;
             boolean connected = true;
+            boolean noBrokerReport = false;
             boolean probeCodecs = false;
             boolean probeCameras = false;
             boolean probeCameraOpen = false;
             String cameraOpenId = "";
+            boolean captureCameraFrame = false;
+            String cameraFrameOutputDir = CAMERA_FRAME_CAPTURE_DEFAULT_DIR;
+            int cameraFrameJpegQuality = CAMERA_FRAME_CAPTURE_DEFAULT_JPEG_QUALITY;
             int syntheticVideoSamples = 0;
             boolean emitSyntheticVideoBinary = false;
             int syntheticVideoBinaryPort = SYNTHETIC_BINARY_DEFAULT_PORT;
@@ -3558,6 +3808,9 @@ public final class Helper {
                     port = Integer.parseInt(args[++i]);
                 } else if ("--disconnect".equals(arg)) {
                     connected = false;
+                } else if ("--no-broker-report".equals(arg)) {
+                    connected = false;
+                    noBrokerReport = true;
                 } else if ("--probe-codecs".equals(arg)) {
                     probeCodecs = true;
                 } else if ("--probe-cameras".equals(arg)) {
@@ -3566,6 +3819,17 @@ public final class Helper {
                     probeCameraOpen = true;
                 } else if ("--camera-open-id".equals(arg) && i + 1 < args.length) {
                     cameraOpenId = args[++i];
+                } else if ("--capture-camera-frame".equals(arg)) {
+                    captureCameraFrame = true;
+                    probeCameraOpen = true;
+                } else if ("--camera-frame-output-dir".equals(arg) && i + 1 < args.length) {
+                    cameraFrameOutputDir = args[++i];
+                } else if ("--camera-frame-jpeg-quality".equals(arg) && i + 1 < args.length) {
+                    cameraFrameJpegQuality = parsePositiveBounded(
+                        "--camera-frame-jpeg-quality",
+                        args[++i],
+                        1,
+                        100);
                 } else if ("--emit-synthetic-video-metadata".equals(arg)) {
                     syntheticVideoSamples = Math.max(syntheticVideoSamples, 3);
                 } else if ("--synthetic-video-samples".equals(arg) && i + 1 < args.length) {
@@ -3672,10 +3936,14 @@ public final class Helper {
                 host,
                 port,
                 connected,
+                noBrokerReport,
                 probeCodecs,
                 probeCameras,
                 probeCameraOpen,
                 cameraOpenId,
+                captureCameraFrame,
+                cameraFrameOutputDir,
+                cameraFrameJpegQuality,
                 syntheticVideoSamples,
                 emitSyntheticVideoBinary,
                 syntheticVideoBinaryPort,
@@ -3795,10 +4063,17 @@ public final class Helper {
             System.out.println("  --broker-host <host>  default 127.0.0.1");
             System.out.println("  --broker-port <port>  default 8765");
             System.out.println("  --disconnect          report connected=false");
+            System.out.println("  --no-broker-report    print local report without opening the broker WebSocket");
             System.out.println("  --probe-codecs        report bounded MediaCodec H.264/H.265/AV1 capabilities");
             System.out.println("  --probe-cameras       report bounded shell-visible camera metadata from dumpsys");
             System.out.println("  --probe-camera-open   attempt bounded shell Camera2 open plus one YUV capture");
             System.out.println("  --camera-open-id <id> restrict --probe-camera-open to one Camera2 id");
+            System.out.println("  --capture-camera-frame");
+            System.out.println("                        persist the captured Camera2 YUV frame as NV21 plus a JPEG preview");
+            System.out.println("  --camera-frame-output-dir <path>");
+            System.out.println("                        device-local output directory; default " + CAMERA_FRAME_CAPTURE_DEFAULT_DIR);
+            System.out.println("  --camera-frame-jpeg-quality <1-100>");
+            System.out.println("                        JPEG preview quality; default " + CAMERA_FRAME_CAPTURE_DEFAULT_JPEG_QUALITY);
             System.out.println("  --emit-synthetic-video-metadata");
             System.out.println("                        register a metadata-only H.264 stream and 3 sample metadata events");
             System.out.println("  --synthetic-video-samples <count>");

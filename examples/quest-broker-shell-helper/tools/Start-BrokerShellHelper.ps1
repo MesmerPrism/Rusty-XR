@@ -13,10 +13,14 @@ param(
     [int]$BrokerPort = 8765,
     [switch]$NoBuild,
     [switch]$Disconnect,
+    [switch]$NoBrokerReport,
     [switch]$ProbeCodecs,
     [switch]$ProbeCameras,
     [switch]$ProbeCameraOpen,
     [string]$CameraOpenId = '',
+    [switch]$CaptureCameraFrame,
+    [string]$CameraFrameOutputDir = '/data/local/tmp/rusty-xr-camera-frame-capture',
+    [int]$CameraFrameJpegQuality = 95,
     [switch]$EmitSyntheticVideoMetadata,
     [int]$SyntheticVideoSamples = 0,
     [switch]$EmitSyntheticVideoBinary,
@@ -126,6 +130,9 @@ $helperArgs = @(
 if ($Disconnect) {
     $helperArgs += '--disconnect'
 }
+if ($NoBrokerReport) {
+    $helperArgs += '--no-broker-report'
+}
 if ($ProbeCodecs) {
     $helperArgs += '--probe-codecs'
 }
@@ -137,6 +144,13 @@ if ($ProbeCameraOpen) {
 }
 if (-not [string]::IsNullOrWhiteSpace($CameraOpenId)) {
     $helperArgs += @('--camera-open-id', $CameraOpenId)
+}
+if ($CaptureCameraFrame) {
+    $helperArgs += @(
+        '--capture-camera-frame',
+        '--camera-frame-output-dir', $CameraFrameOutputDir,
+        '--camera-frame-jpeg-quality', $CameraFrameJpegQuality.ToString()
+    )
 }
 if ($EmitSyntheticVideoMetadata) {
     $helperArgs += '--emit-synthetic-video-metadata'

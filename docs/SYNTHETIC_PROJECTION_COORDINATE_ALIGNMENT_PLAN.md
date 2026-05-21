@@ -33,8 +33,10 @@ The three requested gates are now handled for the synthetic broker lanes:
 - full-frame vertical placement parity passes after the analyzer uses the
   full-frame visible stimulus envelope instead of a single dense component.
 - shared positive X and positive Y projection-area offsets move the target
-  right and down across the three lanes when launched through the suite-level
-  controls.
+  right and down in the renderer-authored display-eye UV contract across the
+  three lanes when launched through the suite-level controls. Native mirror or
+  ADB screenshot pixels remain a separate evidence layer after runtime
+  presentation.
 
 The current full-frame result is:
 
@@ -65,6 +67,15 @@ direct/broker Camera2, passthrough-underlay witness runs, and a
 depth/world-space contract artifact while keeping blur disabled. The remaining
 work is not another synthetic scale guess; it is to compare those live,
 passthrough, and depth records under the same stage names.
+
+The native-passthrough alignment pass adds one more measured layer before
+tuning custom projection geometry: display-eye UV to mirror screenshot pixels.
+The `display-eye-uv-fiducial` renderer diagnostic marks known
+`display-eye-screen-uv` points and the analyzer records both a global affine
+fit and a near-center finite-difference mapping around the green center marker.
+Use that mapping to convert a native-reference versus frozen-replay
+green-cross delta into named projection-space changes. Do not infer the mapping
+from eye-half screenshot dimensions, because the mirror path can be non-linear.
 
 ## Coordinate Contract
 
@@ -153,10 +164,11 @@ Known confusing settings:
 | --- | --- | --- |
 | `fast075` profile names | Historical performance profile names look like geometry intent | Never use for coordinate gates |
 | `rustyxr.cameraProjectionScale` | Changes HWB camera source surface before shader sampling | Log and tune separately from projection-area scale |
-| `rustyxr.cameraProjectionAreaScaleUv` / `projection_area_scale_*` | Changes where the intended projection area lands on screen | Use for screen-footprint scale, not source crop |
+| `rustyxr.projectionAreaScaleUv` / `projection_area_scale_*` | Changes where the intended projection area lands on screen | Use for screen-footprint scale, not source crop |
 | `contentUvScale=1.6000` | Makepad logs/hotloads it, but the active shader path does not use it as the projection footprint control | Do not tune until wired or renamed inactive |
 | Android `debug.rustyxr.*` properties | Persist across launches and can contaminate direct/broker comparisons | Device gate must clear or explicitly set every relevant property |
 | Analyzer dense component union | Measures visible content after color segmentation | Use as screenshot evidence, not as the transform source |
+| Display-eye UV fiducial mapping | The mirror screenshot path can warp submitted display-eye UV non-linearly | Log it before converting screenshot deltas into projection-space tuning |
 
 ### Vulkan/HWB
 
@@ -164,11 +176,13 @@ Trace these fields in order:
 
 1. catalog/runtime profile selected by the suite;
 2. launch override for `rustyxr.cameraProjectionScale`;
-3. launch override for `rustyxr.cameraProjectionAreaScaleUv`;
+3. launch override for `rustyxr.projectionAreaScaleUv`;
 4. native config log fields `projectionScale`, `projectionAreaScaleUv`,
    `projectionAreaRadiusXUv`, and `projectionAreaRadiusYUv`;
 5. generated `screen_to_camera` homography rows;
-6. shader decision between intended mask and invalid-source fill.
+6. renderer-authored `projectionAreaOffsetResponseModel` and per-eye
+   `*ProjectionAreaOffsetResponseUv` fields;
+7. shader decision between intended mask and invalid-source fill.
 
 The old `fast075` launch hypothesis and the earlier HWB source-crop diagnosis
 are superseded by the 2026-05-19 camera-matched sweep. HWB now has full visible
@@ -225,7 +239,9 @@ inactive/log-only.
    dense-component boxes remain screenshot evidence, not geometry truth.
 5. Use the frozen synthetic gates to catch regressions before live Camera2,
    passthrough, or depth/world-space changes.
-6. Compare live Camera2, passthrough-underlay witness, and depth/world-space
+6. For native-passthrough alignment, capture the display-eye UV fiducial and
+   use its near-center mapping before applying a projection-space correction.
+7. Compare live Camera2, passthrough-underlay witness, and depth/world-space
    contract records before resuming blur.
 
 ## Synthetic Regression Sweep
@@ -272,12 +288,12 @@ profiles:
   profile.
 - `broker-h264-stereo-live-openxr-projection-fast075-probe` remains a
   compatibility/performance profile.
-- `camera-stereo-gpu-composite-full-feed-alignment` is the direct HWB
-  alignment profile.
-- `broker-h264-stereo-live-openxr-projection-full-feed-alignment` is the HWB
-  broker alignment profile.
+- `camera-stereo-gpu-composite-full-feed-control` is the direct HWB
+  raw-stack transport/parity control.
+- `broker-h264-stereo-live-openxr-projection-full-feed-control` is the HWB
+  broker raw-stack transport/parity control.
 
-The raw-stack suite should launch the full-feed alignment profiles for HWB and
+The raw-stack suite should launch the full-feed control profiles for HWB and
 then pass explicit overrides for processing layer, border policy, projection
 scale, projection-area scale, radius, corner radius, opacity, and offsets. If a
 future screenshot name still contains `fast075`, the suite is launching the
@@ -288,21 +304,32 @@ scale should come only from an explicitly named compatibility or performance
 profile. This prevents missing launch overrides from silently reintroducing a
 clipped camera-source footprint.
 
+Do not use the full-feed controls as the custom passthrough replacement
+footprint. The current custom-footprint gate is the depth-1.0 pair:
+`camera-stereo-gpu-composite-world-canvas-depth1-mediaprojection` and
+`camera-stereo-gpu-composite-camera-footprint-canvas-equivalent-depth1`. The
+first renders the camera-content surface as a real world canvas; the second
+should reproduce that result through the collapsed fullscreen shader by mapping
+display-eye screen UV to the same surface before source sampling. The collapsed
+profile uses `raw-projection-camera-footprint-underlay-unorm` so the full
+Camera2 frame remains the source input while only the valid reconstructed
+camera footprint contributes color.
+
 The Java-side HWB `CompositeLayerActivity` defaults are also full-feed now:
 `cameraProjectionScale=1.0`, `xrRenderScale=1.0`,
-`cameraProjectionAreaRadiusXUv=0.5`, `cameraProjectionAreaRadiusYUv=0.5`, and
-`cameraProjectionAreaCornerRadiusUv=0.0`. This matters because launch overrides
+`projectionAreaRadiusXUv=0.5`, `projectionAreaRadiusYUv=0.5`, and
+`projectionAreaCornerRadiusUv=0.0`. This matters because launch overrides
 are not a substitute for sane defaults; a missing extra should fail into the
 same coordinate intent, not into an old performance profile.
 
 The native HWB `RuntimeConfig` defaults now match that full-feed intent:
 `cameraProjectionScale=1.0`, `xrRenderScale=1.0`,
-`cameraProjectionAreaRadiusXUv=0.5`, `cameraProjectionAreaRadiusYUv=0.5`, and
-`cameraProjectionAreaCornerRadiusUv=0.0`.
+`projectionAreaRadiusXUv=0.5`, `projectionAreaRadiusYUv=0.5`, and
+`projectionAreaCornerRadiusUv=0.0`.
 
 The HWB clipping trace starts at `rustyxr.cameraProjectionScale` and
-`rustyxr.cameraProjectionAreaScaleUv`. `cameraProjectionScale=0.75` changes the
-camera-source footprint before the shader sees it; `cameraProjectionAreaScaleUv`
+`rustyxr.projectionAreaScaleUv`. `cameraProjectionScale=0.75` changes the
+camera-source footprint before the shader sees it; `projectionAreaScaleUv`
 changes the screen/projection-area mapping. Both must be recorded separately.
 
 The Makepad clipping trace starts at `debug.rustyxr.projection.scale` and

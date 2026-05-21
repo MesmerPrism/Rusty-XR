@@ -156,8 +156,8 @@ For visual camera/parity gates, add a short screenshot freshness sequence:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
   -Serial <serial> `
-  -RuntimeProfile camera-stereo-gpu-composite-full-feed-alignment `
-  -Override 'rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.cameraProjectionAreaScaleUv=1,rustyxr.cameraProjectionAreaRadiusXUv=0.5,rustyxr.cameraProjectionAreaRadiusYUv=0.5,rustyxr.cameraProjectionAreaCornerRadiusUv=0' `
+  -RuntimeProfile camera-stereo-gpu-composite-full-feed-control `
+  -Override 'rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.projectionAreaScaleUv=1,rustyxr.projectionAreaRadiusXUv=0.5,rustyxr.projectionAreaRadiusYUv=0.5,rustyxr.projectionAreaCornerRadiusUv=0' `
   -CaptureHzdbScreencap `
   -FreshnessFrames 6 `
   -FreshnessIntervalMs 1000
@@ -165,8 +165,22 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
 
 Use the `fast075` profiles only for compatibility or performance comparisons.
 Coordinate-alignment work should use the full-feed raw-stack suite or the
-`*-full-feed-alignment` HWB profiles so missing launch extras cannot silently
+`*-full-feed-control` HWB profiles so missing launch extras cannot silently
 return to the older clipped `0.75` geometry.
+
+For custom passthrough replacement work, do not use full-feed controls as the
+target footprint. First compare:
+
+- `camera-stereo-gpu-composite-world-canvas-depth1-mediaprojection`
+- `camera-stereo-gpu-composite-camera-footprint-canvas-equivalent-depth1`
+
+Both use depth 1.0, projection scale 1.0, projection-area scale 1.0, the
+delivered source-frame aspect, and `cameraRawOverlayOverscan=1.06`. The
+world-canvas profile exposes the surface as real quad geometry; the
+camera-footprint profile should match it through the collapsed
+`display-screen-homography` path with
+`raw-projection-camera-footprint-underlay-unorm` and keep passthrough visible
+outside the valid camera footprint.
 
 The generated freshness summary records per-frame SHA-256 hashes and flags
 duplicate hash groups. A byte-identical sequence is a run-quality warning:

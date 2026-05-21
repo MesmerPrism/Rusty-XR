@@ -4390,14 +4390,8 @@ void main() {
         let activity = unsafe {
             JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
         };
-        let requested = activity_string_extra(
-            &mut env,
-            &activity,
-            "rustyxr.projectionBorderPolicy",
-        )
-        .or_else(|| {
-            activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionBorderPolicy")
-        });
+        let requested =
+            activity_string_extra(&mut env, &activity, "rustyxr.projectionBorderPolicy");
         requested
             .as_deref()
             .and_then(OesProjectionBorderPolicy::parse)
@@ -4414,10 +4408,7 @@ void main() {
         let activity = unsafe {
             JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
         };
-        let requested = activity_string_extra(&mut env, &activity, "rustyxr.processingLayer")
-            .or_else(|| {
-                activity_string_extra(&mut env, &activity, "rustyxr.cameraProcessingLayer")
-            });
+        let requested = activity_string_extra(&mut env, &activity, "rustyxr.processingLayer");
         requested
             .as_deref()
             .and_then(OesProcessingLayer::parse)
@@ -4452,9 +4443,6 @@ void main() {
             JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
         };
         activity_string_extra(&mut env, &activity, "rustyxr.projectionDepthMeters")
-            .or_else(|| {
-                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionDepthMeters")
-            })
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(DEFAULT_PROJECTION_TARGET_DEPTH_METERS)
@@ -4472,9 +4460,6 @@ void main() {
             JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
         };
         activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaOffsetXUv")
-            .or_else(|| {
-                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAreaOffsetXUv")
-            })
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(0.0)
@@ -4492,9 +4477,6 @@ void main() {
             JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
         };
         activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaOffsetYUv")
-            .or_else(|| {
-                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAreaOffsetYUv")
-            })
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(0.0)
@@ -4528,40 +4510,28 @@ void main() {
         let left_x = activity_float_extra(
             &mut env,
             &activity,
-            &[
-                "rustyxr.projectionAreaLeftOffsetXUv",
-                "rustyxr.cameraProjectionAreaLeftOffsetXUv",
-            ],
+            &["rustyxr.projectionAreaLeftOffsetXUv"],
         )
         .unwrap_or(base_offset_uv[0])
         .clamp(-0.5, 0.5);
         let left_y = activity_float_extra(
             &mut env,
             &activity,
-            &[
-                "rustyxr.projectionAreaLeftOffsetYUv",
-                "rustyxr.cameraProjectionAreaLeftOffsetYUv",
-            ],
+            &["rustyxr.projectionAreaLeftOffsetYUv"],
         )
         .unwrap_or(base_offset_uv[1])
         .clamp(-0.5, 0.5);
         let right_x = activity_float_extra(
             &mut env,
             &activity,
-            &[
-                "rustyxr.projectionAreaRightOffsetXUv",
-                "rustyxr.cameraProjectionAreaRightOffsetXUv",
-            ],
+            &["rustyxr.projectionAreaRightOffsetXUv"],
         )
         .unwrap_or(base_offset_uv[0])
         .clamp(-0.5, 0.5);
         let right_y = activity_float_extra(
             &mut env,
             &activity,
-            &[
-                "rustyxr.projectionAreaRightOffsetYUv",
-                "rustyxr.cameraProjectionAreaRightOffsetYUv",
-            ],
+            &["rustyxr.projectionAreaRightOffsetYUv"],
         )
         .unwrap_or(base_offset_uv[1])
         .clamp(-0.5, 0.5);
@@ -4580,29 +4550,16 @@ void main() {
         };
         let uniform_scale =
             activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaScaleUv")
-                .or_else(|| {
-                    activity_string_extra(
-                        &mut env,
-                        &activity,
-                        "rustyxr.cameraProjectionAreaScaleUv",
-                    )
-                })
                 .and_then(|value| value.parse::<f32>().ok())
                 .filter(|value| value.is_finite())
                 .unwrap_or(1.0)
                 .clamp(0.05, 4.0);
         let scale_x = activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaScaleX")
-            .or_else(|| {
-                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAreaScaleX")
-            })
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(uniform_scale)
             .clamp(0.05, 4.0);
         let scale_y = activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaScaleY")
-            .or_else(|| {
-                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAreaScaleY")
-            })
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(uniform_scale)
@@ -4622,26 +4579,12 @@ void main() {
         };
         let radius_x =
             activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaRadiusXUv")
-                .or_else(|| {
-                    activity_string_extra(
-                        &mut env,
-                        &activity,
-                        "rustyxr.cameraProjectionAreaRadiusXUv",
-                    )
-                })
                 .and_then(|value| value.parse::<f32>().ok())
                 .filter(|value| value.is_finite())
                 .unwrap_or(0.47)
                 .clamp(0.05, 0.5);
         let radius_y =
             activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaRadiusYUv")
-                .or_else(|| {
-                    activity_string_extra(
-                        &mut env,
-                        &activity,
-                        "rustyxr.cameraProjectionAreaRadiusYUv",
-                    )
-                })
                 .and_then(|value| value.parse::<f32>().ok())
                 .filter(|value| value.is_finite())
                 .unwrap_or(0.36)
@@ -4660,13 +4603,6 @@ void main() {
             JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
         };
         activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaCornerRadiusUv")
-            .or_else(|| {
-                activity_string_extra(
-                    &mut env,
-                    &activity,
-                    "rustyxr.cameraProjectionAreaCornerRadiusUv",
-                )
-            })
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(0.08)
@@ -4684,9 +4620,6 @@ void main() {
             JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
         };
         activity_string_extra(&mut env, &activity, "rustyxr.projectionAreaOpacity")
-            .or_else(|| {
-                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAreaOpacity")
-            })
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(1.0)
@@ -4704,9 +4637,6 @@ void main() {
             JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
         };
         activity_string_extra(&mut env, &activity, "rustyxr.projectionBorderOpacity")
-            .or_else(|| {
-                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionBorderOpacity")
-            })
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(1.0)
@@ -4726,9 +4656,6 @@ void main() {
             JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
         };
         activity_string_extra(&mut env, &activity, "rustyxr.projectionAlphaMode")
-            .or_else(|| {
-                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAlphaMode")
-            })
             .as_deref()
             .and_then(OesProjectionAlphaMode::parse)
             .unwrap_or_default()
@@ -4745,9 +4672,6 @@ void main() {
             JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
         };
         activity_string_extra(&mut env, &activity, "rustyxr.projectionAlphaScale")
-            .or_else(|| {
-                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAlphaScale")
-            })
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(1.0)
@@ -4765,9 +4689,6 @@ void main() {
             JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
         };
         activity_string_extra(&mut env, &activity, "rustyxr.projectionAlphaBias")
-            .or_else(|| {
-                activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionAlphaBias")
-            })
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(0.0)

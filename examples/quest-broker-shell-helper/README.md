@@ -8,6 +8,9 @@ Android `shell` UID when the user has enabled and authorized ADB debugging.
 The first implementation is intentionally small: it connects to the broker's
 localhost WebSocket endpoint and sends `shell_helper.report_status` with its
 reported UID, helper version, and basic diagnostic capabilities. With
+`--no-broker-report`, it prints the same local report without opening the broker
+WebSocket; this is useful for passive one-frame camera captures where
+foregrounding the broker would contaminate the visual reference. With
 `--probe-codecs`, it also reports a bounded Android MediaCodec summary for
 H.264, H.265, and AV1 codecs so later encoded-video work can choose a platform
 codec path before any frame transport is attempted. With
@@ -17,7 +20,9 @@ pose/intrinsics, FPS rows, and stream-configuration rows into broker status.
 With `--probe-camera-open`, it attempts bounded Camera2 open plus a tiny
 YUV_420_888 one-frame capture through the shell-launched helper and reports
 success/failure per attempted Camera2 id; add `--camera-open-id <id>` to limit
-the probe to one source. With
+the probe to one source. Add `--capture-camera-frame` to persist the acquired
+YUV frame as device-local NV21 raw bytes, a JPEG preview, and a JSON sidecar
+under `/data/local/tmp/rusty-xr-camera-frame-capture` by default. With
 `--emit-synthetic-video-metadata`, it registers a metadata-only synthetic H.264
 stream and sends a bounded set of encoded-sample metadata events through the
 broker video-lab commands. With `--emit-synthetic-video-binary`, it also opens
@@ -77,6 +82,8 @@ powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\to
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -ProbeCodecs -EmitSyntheticVideoMetadata
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -ProbeCameras
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -ProbeCameras -ProbeCameraOpen
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -ProbeCameraOpen -CaptureCameraFrame -CameraOpenId <camera-id>
+powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -NoBrokerReport -ProbeCameraOpen -CaptureCameraFrame -CameraOpenId <camera-id>
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -EmitSyntheticVideoBinary -BinaryVideoPackets 3 -BinaryVideoPacketBytes 1024
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -EmitMediaCodecSyntheticVideo -EncodedVideoFrames 4 -EncodedVideoWidth 320 -EncodedVideoHeight 180
 powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\tools\Start-BrokerShellHelper.ps1 -Serial <serial> -EmitScreenrecordVideo -EncodedVideoWidth 320 -EncodedVideoHeight 180 -EncodedVideoBitrate 500000 -ScreenrecordTimeLimit 1 -BinaryVideoPackets 30 -BinaryVideoPacketBytes 16384
@@ -121,6 +128,9 @@ Expected result:
 - when Camera2 open probing is enabled, broker status includes
   `diagnostics.camera_open_probe` and camera-provider status summarizes
   shell metadata/open/capture feasibility for projection-profile selection
+- when camera-frame persistence is enabled, each successful attempted camera id
+  writes one `.nv21` raw frame, one `.jpg` preview, and one `.json` sidecar on
+  the device; pull those files into the run artifact folder before replay
 - when synthetic video metadata is enabled, broker receives
   `video_lab.register_encoded_stream_manifest` and
   `video_lab.record_encoded_sample_metadata`

@@ -276,7 +276,10 @@ and OpenXR layer submission. The broker can run a bounded app-context Camera2
 probe with `camera_provider.run_app_camera_probe`; that command uses the
 broker APK's normal Android permission model to enumerate Camera2 metadata and
 attempt one short YUV capture per selected camera ID. It records only metadata
-and capture success state, not frame payloads. For a bounded payload-transport
+and capture success state unless `persist_frame=true` is supplied. With
+`persist_frame=true`, the probe writes one `.nv21` raw frame, one `.jpg`
+preview, and one `.json` sidecar to the requested device-local output
+directory. For a bounded payload-transport
 diagnostic, `camera_provider.start_app_camera_luma_stream` captures a small
 number of app-context `YUV_420_888` frames, copies only the luma plane, and
 writes `raw_luma8` packets through the public `RXYRVID1` binary framing over
@@ -307,18 +310,25 @@ app-camera H.264 stream. `frame_rate_hz` requests the encoder input cadence;
 the stream manifest records the requested value, while measured packet and
 decode cadence remain the source of truth for device support.
 It also accepts `synthetic_pattern` values `diagnostic-grid`, `checkerboard`,
-`luma-ramp`, or `motion-bar`. The `diagnostic-grid` frame contains color bars, a
-luma ramp, and a lower checkerboard with an intentional 1-pixel white line
-overlay anchored to the checker cell centers for high-frequency blur and
-projection diagnostics. This path requires no camera permission and is intended
-for stream framing, decoder, projection, and downstream processing tests before
-switching back to Camera2 input. Synthetic streams include head-anchored
-projection metadata with a deterministic estimated profile so projected
-receivers can render the diagnostic image through the same stereo projection
-path they use for camera-backed streams. `synthetic_side_marker` is an optional
-diagnostic overlay with values `none`, `left`, `right`, or `both`; it draws small
-colored corner markers after the base pattern so stereo receivers can visually
-check source-eye mapping without changing private downstream shader behavior.
+`luma-ramp`, `motion-bar`, or `image-file`. The `diagnostic-grid` frame contains
+color bars, a luma ramp, and a lower checkerboard with an intentional 1-pixel
+white line overlay anchored to the checker cell centers for high-frequency blur
+and projection diagnostics. With `synthetic_pattern=image-file`, the broker
+decodes the device-local `synthetic_image_path` and draws that image into every
+encoder frame without adding synthetic markers. This is the frozen camera-frame
+replay path for projection alignment: persist a bounded Camera2 preview image,
+then feed that stored image through the same broker H.264/full-frame metadata
+transport used by generated synthetic sources. This path requires no camera
+permission during replay and is intended for stream framing, decoder,
+projection, and downstream processing tests before switching back to Camera2
+input. Synthetic streams include head-anchored projection metadata with a
+deterministic estimated profile so projected receivers can render the diagnostic
+image through the same stereo projection path they use for camera-backed
+streams. `synthetic_side_marker` is an optional diagnostic overlay with values
+`none`, `left`, `right`, or `both`; it draws small colored corner markers after
+the base pattern so stereo receivers can visually check source-eye mapping
+without changing private downstream shader behavior. The side-marker overlay is
+not applied to `image-file` replay.
 For LAN experiments, non-loopback H.264 payload binds are opt-in. Passing
 `lan_stream_enabled=true` allows `camera_provider.start_app_camera_h264_stream`
 to use a non-loopback `bind_host` such as `0.0.0.0`; `advertised_host` can

@@ -5,6 +5,10 @@ and final-display capture alignment runs. It is useful when the headset is
 physically pointed at a laptop or desktop browser and the run needs both a
 repeatable visual target and timestamped browser-side events.
 
+The page includes a fixed green center cross over the timing pattern. Use that
+cross as the primary screen-space alignment feature when comparing native
+passthrough and custom camera projection screenshots.
+
 The tool does not capture headset images by itself. Pair its output with ADB,
 HzDB, MediaProjection, headset share-menu capture, or an external camera
 witness, and record the capture method in the run manifest.

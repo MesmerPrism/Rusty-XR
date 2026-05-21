@@ -34,6 +34,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Exit after the first client disconnects.",
     )
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=0,
+        help="Close the client connection after this many frames. 0 means unlimited.",
+    )
     return parser.parse_args()
 
 
@@ -68,7 +74,9 @@ def extension_for_format(frame_format: str) -> str:
     return "bin"
 
 
-def receive_client(sock: socket.socket, output: Path, ledger_path: Path) -> int:
+def receive_client(
+    sock: socket.socket, output: Path, ledger_path: Path, max_frames: int
+) -> int:
     frame_count = 0
     with ledger_path.open("a", encoding="utf-8") as ledger:
         while True:
@@ -107,6 +115,8 @@ def receive_client(sock: socket.socket, output: Path, ledger_path: Path) -> int:
             ledger.write(json.dumps(record, sort_keys=True) + "\n")
             ledger.flush()
             frame_count += 1
+            if max_frames > 0 and frame_count >= max_frames:
+                return frame_count
 
 
 def main() -> int:
@@ -121,7 +131,9 @@ def main() -> int:
             client, address = server.accept()
             with client:
                 print(f"client connected: {address[0]}:{address[1]}")
-                frame_count = receive_client(client, args.output, ledger_path)
+                frame_count = receive_client(
+                    client, args.output, ledger_path, args.max_frames
+                )
                 print(f"client disconnected after {frame_count} frame(s)")
             if args.once:
                 return 0

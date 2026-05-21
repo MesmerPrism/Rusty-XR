@@ -31,7 +31,7 @@ MAX_GREEN_CROSS_READY_DELTA_PX = 12.0
 
 
 def filesystem_path(path: Path) -> str:
-    text = str(path)
+    text = str(path.resolve() if not path.is_absolute() else path)
     if len(text) >= 248 and not text.startswith("\\\\?\\"):
         return "\\\\?\\" + text
     return text
@@ -42,6 +42,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("images", nargs="*", type=Path, help="Images to analyze as standalone witnesses.")
     parser.add_argument("--reference", type=Path, help="Reference image, usually native-passthrough-only.")
     parser.add_argument("--candidate", type=Path, help="Candidate image, usually custom Camera2 projection.")
+    parser.add_argument("--reference-log", type=Path, help="Optional logcat tail for the reference image.")
+    parser.add_argument("--candidate-log", type=Path, help="Optional logcat tail for the candidate image.")
+    parser.add_argument(
+        "--display-eye-uv-mapping",
+        type=Path,
+        help="Optional Analyze-DisplayEyeUvMapping.py JSON used to map screenshot deltas through the measured local display-eye UV response.",
+    )
     parser.add_argument("--out-dir", type=Path, required=True, help="Output directory for JSON/Markdown/overlays.")
     parser.add_argument("--label", default="target-alignment-witness", help="Label recorded in output artifacts.")
     parser.add_argument(
@@ -49,6 +56,16 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=180,
         help="Maximum per-axis candidate-to-reference shift searched in full-resolution pixels.",
+    )
+    parser.add_argument(
+        "--skip-translation",
+        action="store_true",
+        help="Skip expensive full-feature translation search and report direct feature/cross coordinates only.",
+    )
+    parser.add_argument(
+        "--single-view",
+        action="store_true",
+        help="Analyze standalone images as one final-display view instead of splitting them into left/right eye halves.",
     )
     return parser.parse_args()
 
@@ -150,11 +167,9 @@ def green_cross_record(mask: np.ndarray, x_offset: int = 0) -> dict[str, Any]:
     }
 
 
-def analyze_eye(rgb: np.ndarray, eye: str) -> dict[str, Any]:
+def analyze_region(rgb: np.ndarray, eye: str, x_offset: int, region_width: int) -> dict[str, Any]:
     height, width, _ = rgb.shape
-    eye_width = width // 2
-    x_offset = 0 if eye == "left" else eye_width
-    crop = rgb[:, x_offset : x_offset + eye_width]
+    crop = rgb[:, x_offset : x_offset + region_width]
     masks = color_masks(crop)
     feature_mask = target_feature_mask(masks)
     color_records: dict[str, Any] = {}
@@ -169,7 +184,7 @@ def analyze_eye(rgb: np.ndarray, eye: str) -> dict[str, Any]:
         "eye": eye,
         "status": "measured" if feature_bbox else "missing-target-features",
         "image_size_px": [width, height],
-        "eye_bbox_px": [x_offset, 0, eye_width, height],
+        "eye_bbox_px": [x_offset, 0, region_width, height],
         "feature_mask_pixel_count": int(feature_mask.sum()),
         "feature_bbox_px": feature_bbox,
         "feature_centroid_px": centroid(feature_mask, x_offset),
@@ -178,14 +193,234 @@ def analyze_eye(rgb: np.ndarray, eye: str) -> dict[str, Any]:
     }
 
 
-def analyze_image(path: Path, label: str) -> dict[str, Any]:
+def analyze_eye(rgb: np.ndarray, eye: str) -> dict[str, Any]:
+    height, width, _ = rgb.shape
+    eye_width = width // 2
+    x_offset = 0 if eye == "left" else eye_width
+    return analyze_region(rgb, eye, x_offset, eye_width)
+
+
+def analyze_image(path: Path, label: str, single_view: bool = False) -> dict[str, Any]:
     rgb = load_rgb(path)
+    height, width, _ = rgb.shape
+    eyes = (
+        {"view": analyze_region(rgb, "view", 0, width)}
+        if single_view
+        else {eye: analyze_eye(rgb, eye) for eye in EYES}
+    )
     return {
         "schema": SCHEMA_VERSION,
         "label": label,
         "image_path": str(path),
-        "image_size_px": [int(rgb.shape[1]), int(rgb.shape[0])],
-        "eyes": {eye: analyze_eye(rgb, eye) for eye in EYES},
+        "image_size_px": [int(width), int(height)],
+        "eyes": eyes,
+    }
+
+
+def parse_float_list(value: str | None) -> list[float] | None:
+    if not value:
+        return None
+    try:
+        values = [float(item) for item in value.split(",")]
+    except ValueError:
+        return None
+    return values if values else None
+
+
+def parse_projection_log_fields(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    selected_line = None
+    with open(filesystem_path(path), "r", encoding="utf-8", errors="replace") as handle:
+        lines = handle.read().splitlines()
+    for line in lines:
+        if "Rusty XR final projection status" in line:
+            selected_line = line
+    if selected_line is None:
+        return {
+            "status": "missing-final-projection-status",
+            "path": str(path),
+        }
+    fields: dict[str, str] = {}
+    for token in selected_line.split():
+        if "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        if key:
+            fields[key] = value.strip()
+    return {
+        "status": "parsed",
+        "path": str(path),
+        "fields": fields,
+    }
+
+
+def load_display_eye_uv_mapping(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    with open(filesystem_path(path), "r", encoding="utf-8") as handle:
+        record = json.load(handle)
+    record["_path"] = str(path)
+    return record
+
+
+def map_screenshot_delta_to_display_eye_uv(
+    mapping_record: dict[str, Any] | None,
+    eye: str,
+    delta_px: list[float],
+    label: str,
+) -> dict[str, Any] | None:
+    if mapping_record is None:
+        return None
+    eye_record = (mapping_record.get("eyes") or {}).get(eye) or {}
+    local = eye_record.get("local_center_mapping") or {}
+    inverse = local.get("screenshot_px_delta_to_display_eye_uv_delta_2x2")
+    if local.get("status") != "measured" or not inverse:
+        return {
+            "status": "blocked",
+            "label": label,
+            "reason": "missing-local-center-mapping",
+            "mapping_path": mapping_record.get("_path"),
+        }
+    matrix = np.asarray(inverse, dtype=np.float64)
+    if matrix.shape != (2, 2):
+        return {
+            "status": "blocked",
+            "label": label,
+            "reason": "invalid-local-center-mapping-shape",
+            "mapping_path": mapping_record.get("_path"),
+        }
+    delta = np.asarray(delta_px, dtype=np.float64)
+    mapped = matrix @ delta
+    linearity = eye_record.get("centerline_linearity") or {}
+    return {
+        "status": "measured",
+        "label": label,
+        "method": "local-center-display-eye-uv-fiducial-inverse",
+        "mapping_path": mapping_record.get("_path"),
+        "mapping_schema": mapping_record.get("schema"),
+        "screenshot_px_delta": delta.tolist(),
+        "display_eye_uv_delta": mapped.tolist(),
+        "mapping_center_screenshot_px": local.get("screenshot_px_center"),
+        "mapping_display_eye_uv_center": local.get("display_eye_uv_center"),
+        "mapping_screenshot_px_per_uv": local.get("screenshot_px_per_uv"),
+        "centerline_asymmetry_relative_to_full": {
+            "u": linearity.get("u_segment_asymmetry_relative_to_full"),
+            "v": linearity.get("v_segment_asymmetry_relative_to_full"),
+        },
+        "validity_note": (
+            "This converts a screenshot delta using the measured local mapping around the green display-eye fiducial. "
+            "It is a first-order center witness and should not be extrapolated to border points without a denser fiducial or response grid."
+        ),
+    }
+
+
+def projection_response_fields(log_record: dict[str, Any] | None, eye: str) -> dict[str, Any]:
+    if not log_record or log_record.get("status") != "parsed":
+        return {}
+    fields = log_record.get("fields") or {}
+    prefix = "left" if eye == "left" else "right"
+    center = parse_float_list(fields.get(f"{prefix}ProjectionAreaCenterUv"))
+    response = parse_float_list(fields.get(f"{prefix}ProjectionAreaOffsetResponseUv"))
+    offset = parse_float_list(fields.get(f"{prefix}ProjectionAreaOffsetUv"))
+    if response is None and center and len(center) >= 2:
+        response = [center[0] - 0.5, center[1] - 0.5]
+    return {
+        key: value
+        for key, value in {
+            "projection_area_offset_uv": offset,
+            "projection_area_offset_response_uv": response,
+            "projection_area_center_uv": center,
+            "projection_area_screen_uv_rect": parse_float_list(
+                fields.get(f"{prefix}ProjectionAreaScreenUvRect")
+            ),
+            "projection_area_source_to_screen_gain_uv": parse_float_list(
+                fields.get("projectionAreaSourceToScreenGainUv")
+            ),
+            "projection_area_offset_response_model": fields.get("projectionAreaOffsetResponseModel"),
+            "projection_area_offset_response_coordinate_space": fields.get(
+                "projectionAreaOffsetResponseCoordinateSpace"
+            ),
+            "projection_area_target_stage": fields.get("projectionAreaTargetStage"),
+            "projection_area_transform_stage": fields.get("projectionAreaTransformStage"),
+        }.items()
+        if value is not None
+    }
+
+
+def projection_area_response_comparison(
+    reference_log: dict[str, Any] | None,
+    candidate_log: dict[str, Any] | None,
+    eye_records: dict[str, Any],
+    reference_record: dict[str, Any],
+    display_eye_uv_mapping: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if not reference_log and not candidate_log:
+        return None
+    eyes: dict[str, Any] = {}
+    for eye in EYES:
+        reference_fields = projection_response_fields(reference_log, eye)
+        candidate_fields = projection_response_fields(candidate_log, eye)
+        item: dict[str, Any] = {
+            "reference": reference_fields,
+            "candidate": candidate_fields,
+        }
+        ref_response = reference_fields.get("projection_area_offset_response_uv")
+        cand_response = candidate_fields.get("projection_area_offset_response_uv")
+        delta_px = eye_records.get(eye, {}).get("green_cross_candidate_to_reference_delta_px")
+        eye_bbox = reference_record["eyes"][eye].get("eye_bbox_px") or [0, 0, 0, 0]
+        eye_width = max(float(eye_bbox[2] or 0), 1.0)
+        eye_height = max(float(eye_bbox[3] or 0), 1.0)
+        if ref_response and cand_response and len(ref_response) >= 2 and len(cand_response) >= 2:
+            expected_uv = [
+                float(cand_response[0]) - float(ref_response[0]),
+                float(cand_response[1]) - float(ref_response[1]),
+            ]
+            item["expected_candidate_minus_reference_delta_eye_norm"] = expected_uv
+            item["expected_candidate_minus_reference_delta_px"] = [
+                expected_uv[0] * eye_width,
+                expected_uv[1] * eye_height,
+            ]
+            if delta_px and len(delta_px) >= 2:
+                observed_px = [-float(delta_px[0]), -float(delta_px[1])]
+                observed_uv = [observed_px[0] / eye_width, observed_px[1] / eye_height]
+                item["observed_candidate_minus_reference_delta_px"] = observed_px
+                item["observed_candidate_minus_reference_delta_eye_norm"] = observed_uv
+                item["response_residual_px"] = [
+                    observed_px[0] - item["expected_candidate_minus_reference_delta_px"][0],
+                    observed_px[1] - item["expected_candidate_minus_reference_delta_px"][1],
+                ]
+                item["observed_to_expected_gain"] = [
+                    (observed_uv[0] / expected_uv[0]) if abs(expected_uv[0]) > 1.0e-6 else None,
+                    (observed_uv[1] / expected_uv[1]) if abs(expected_uv[1]) > 1.0e-6 else None,
+                ]
+                mapped = map_screenshot_delta_to_display_eye_uv(
+                    display_eye_uv_mapping,
+                    eye,
+                    observed_px,
+                    "candidate-minus-reference-green-cross",
+                )
+                if mapped:
+                    item["observed_candidate_minus_reference_delta_display_eye_uv_local_center"] = mapped
+                    mapped_uv = mapped.get("display_eye_uv_delta")
+                    if mapped.get("status") == "measured" and mapped_uv and len(mapped_uv) >= 2:
+                        residual_uv = [
+                            float(mapped_uv[0]) - expected_uv[0],
+                            float(mapped_uv[1]) - expected_uv[1],
+                        ]
+                        item["response_residual_display_eye_uv_local_center"] = residual_uv
+                        item["observed_to_expected_gain_display_eye_uv_local_center"] = [
+                            (float(mapped_uv[0]) / expected_uv[0]) if abs(expected_uv[0]) > 1.0e-6 else None,
+                            (float(mapped_uv[1]) / expected_uv[1]) if abs(expected_uv[1]) > 1.0e-6 else None,
+                        ]
+        eyes[eye] = item
+    return {
+        "status": "measured",
+        "coordinate_space": "display-eye-screen-uv",
+        "interpretation": "Observed deltas are candidate minus reference. Expected deltas come from logged projection-area offset response fields.",
+        "eyes": eyes,
+        "reference_log": reference_log,
+        "candidate_log": candidate_log,
     }
 
 
@@ -253,14 +488,31 @@ def image_eye_feature_mask(path: Path, eye: str) -> np.ndarray:
     return target_feature_mask(color_masks(crop))
 
 
-def compare_pair(reference: Path, candidate: Path, max_shift_px: int) -> dict[str, Any]:
+def compare_pair(
+    reference: Path,
+    candidate: Path,
+    max_shift_px: int,
+    reference_log_path: Path | None = None,
+    candidate_log_path: Path | None = None,
+    skip_translation: bool = False,
+    display_eye_uv_mapping: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     reference_record = analyze_image(reference, "reference")
     candidate_record = analyze_image(candidate, "candidate")
+    reference_log = parse_projection_log_fields(reference_log_path)
+    candidate_log = parse_projection_log_fields(candidate_log_path)
     eye_records: dict[str, Any] = {}
     for eye in EYES:
-        ref_mask = image_eye_feature_mask(reference, eye)
-        cand_mask = image_eye_feature_mask(candidate, eye)
-        eye_records[eye] = estimate_translation(ref_mask, cand_mask, max_shift_px)
+        if skip_translation:
+            eye_records[eye] = {
+                "translation_skipped": True,
+                "max_shift_px": max_shift_px,
+                "skip_reason": "requested",
+            }
+        else:
+            ref_mask = image_eye_feature_mask(reference, eye)
+            cand_mask = image_eye_feature_mask(candidate, eye)
+            eye_records[eye] = estimate_translation(ref_mask, cand_mask, max_shift_px)
         eye_records[eye]["reference_feature_bbox_px"] = reference_record["eyes"][eye]["feature_bbox_px"]
         eye_records[eye]["candidate_feature_bbox_px"] = candidate_record["eyes"][eye]["feature_bbox_px"]
         eye_records[eye]["reference_green_cross"] = reference_record["eyes"][eye]["green_cross"]
@@ -268,15 +520,40 @@ def compare_pair(reference: Path, candidate: Path, max_shift_px: int) -> dict[st
         ref_cross = (reference_record["eyes"][eye]["green_cross"] or {}).get("center_px")
         cand_cross = (candidate_record["eyes"][eye]["green_cross"] or {}).get("center_px")
         if ref_cross and cand_cross:
-            eye_records[eye]["green_cross_candidate_to_reference_delta_px"] = [
+            green_delta_px = [
                 float(ref_cross[0] - cand_cross[0]),
                 float(ref_cross[1] - cand_cross[1]),
             ]
+            eye_records[eye]["green_cross_candidate_to_reference_delta_px"] = green_delta_px
+            eye_bbox = reference_record["eyes"][eye].get("eye_bbox_px") or [0, 0, 0, 0]
+            eye_width = max(float(eye_bbox[2] or 0), 1.0)
+            eye_height = max(float(eye_bbox[3] or 0), 1.0)
+            eye_records[eye]["green_cross_candidate_to_reference_delta_eye_norm"] = [
+                green_delta_px[0] / eye_width,
+                green_delta_px[1] / eye_height,
+            ]
+            mapped = map_screenshot_delta_to_display_eye_uv(
+                display_eye_uv_mapping,
+                eye,
+                green_delta_px,
+                "reference-minus-candidate-green-cross",
+            )
+            if mapped:
+                eye_records[eye]["green_cross_candidate_to_reference_delta_display_eye_uv_local_center"] = mapped
         ref_bbox = reference_record["eyes"][eye]["feature_bbox_px"]
         cand_bbox = candidate_record["eyes"][eye]["feature_bbox_px"]
         if ref_bbox and cand_bbox:
             eye_records[eye]["feature_bbox_candidate_to_reference_delta_px"] = [
                 float(ref_bbox[index] - cand_bbox[index]) for index in range(4)
+            ]
+        shift = eye_records[eye].get("candidate_shift_to_reference_px")
+        if shift:
+            eye_bbox = reference_record["eyes"][eye].get("eye_bbox_px") or [0, 0, 0, 0]
+            eye_width = max(float(eye_bbox[2] or 0), 1.0)
+            eye_height = max(float(eye_bbox[3] or 0), 1.0)
+            eye_records[eye]["candidate_shift_to_reference_eye_norm"] = [
+                float(shift[0]) / eye_width,
+                float(shift[1]) / eye_height,
             ]
         eye_records[eye]["classification"] = classify_eye_alignment(
             reference_record["eyes"][eye],
@@ -284,7 +561,7 @@ def compare_pair(reference: Path, candidate: Path, max_shift_px: int) -> dict[st
             eye_records[eye],
         )
     classifications = [eye_records[eye]["classification"] for eye in EYES]
-    return {
+    result = {
         "schema": SCHEMA_VERSION,
         "comparison_type": "reference-candidate-feature-translation",
         "reference": reference_record,
@@ -292,6 +569,23 @@ def compare_pair(reference: Path, candidate: Path, max_shift_px: int) -> dict[st
         "eyes": eye_records,
         "summary": summarize_classifications(classifications),
     }
+    if display_eye_uv_mapping:
+        result["display_eye_uv_mapping"] = {
+            "path": display_eye_uv_mapping.get("_path"),
+            "schema": display_eye_uv_mapping.get("schema"),
+            "label": display_eye_uv_mapping.get("label"),
+            "role": "optional local screenshot-delta to display-eye UV evidence",
+        }
+    response = projection_area_response_comparison(
+        reference_log,
+        candidate_log,
+        eye_records,
+        reference_record,
+        display_eye_uv_mapping,
+    )
+    if response:
+        result["projection_area_response"] = response
+    return result
 
 
 def classify_eye_alignment(
@@ -332,7 +626,8 @@ def classify_eye_alignment(
         abs(float(shift[0])) if shift[0] is not None else None,
         abs(float(shift[1])) if shift[1] is not None else None,
     ]
-    max_abs_shift = max(value for value in abs_shift if value is not None)
+    valid_abs_shift = [value for value in abs_shift if value is not None]
+    max_abs_shift = max(valid_abs_shift) if valid_abs_shift else None
     green_delta_max = None
     if green_delta:
         green_delta_max = max(abs(float(green_delta[0])), abs(float(green_delta[1])))
@@ -365,7 +660,11 @@ def classify_eye_alignment(
             ),
         }
 
-    if max_abs_shift <= MAX_READY_SHIFT_PX and score >= MIN_READY_CORRELATION_SCORE:
+    if (
+        max_abs_shift is not None
+        and max_abs_shift <= MAX_READY_SHIFT_PX
+        and score >= MIN_READY_CORRELATION_SCORE
+    ):
         return {
             "status": "needs-evidence",
             "owner_layer": "analyzer_evidence",
@@ -454,8 +753,7 @@ def write_markdown(path: Path, label: str, records: list[dict[str, Any]], compar
         "| --- | --- | --- | --- | --- | ---: |",
     ]
     for record in records:
-        for eye in EYES:
-            eye_record = record["eyes"][eye]
+        for eye, eye_record in (record.get("eyes") or {}).items():
             cross = (eye_record.get("green_cross") or {}).get("center_px")
             lines.append(
                 "| `{label}` | `{eye}` | `{status}` | `{bbox}` | `{cross}` | {pixels} |".format(
@@ -497,30 +795,63 @@ def write_markdown(path: Path, label: str, records: list[dict[str, Any]], compar
                 "",
                 "Reference/candidate translation:",
                 "",
-                "| Eye | Primary signal | Green-cross delta px | Correlation shift px | Score | Reference bbox | Candidate bbox |",
-                "| --- | --- | --- | --- | ---: | --- | --- |",
+                "| Eye | Primary signal | Green-cross delta px | Green-cross delta eye-norm | Green-cross delta display-eye UV | Correlation shift px | Correlation shift eye-norm | Score | Reference bbox | Candidate bbox |",
+                "| --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- |",
             ]
         )
         for eye in EYES:
             item = comparison["eyes"][eye]
             classification = item.get("classification") or {}
+            mapped_cross = item.get("green_cross_candidate_to_reference_delta_display_eye_uv_local_center") or {}
             lines.append(
-                "| `{eye}` | `{signal}` | `{cross}` | `{shift}` | {score:.4f} | `{ref}` | `{cand}` |".format(
+                "| `{eye}` | `{signal}` | `{cross}` | `{cross_norm}` | `{cross_uv}` | `{shift}` | `{shift_norm}` | {score:.4f} | `{ref}` | `{cand}` |".format(
                     eye=eye,
                     signal=classification.get("alignment_signal"),
                     cross=item.get("green_cross_candidate_to_reference_delta_px"),
+                    cross_norm=item.get("green_cross_candidate_to_reference_delta_eye_norm"),
+                    cross_uv=mapped_cross.get("display_eye_uv_delta"),
                     shift=item.get("candidate_shift_to_reference_px"),
+                    shift_norm=item.get("candidate_shift_to_reference_eye_norm"),
                     score=float(item.get("score") or 0.0),
                     ref=item.get("reference_feature_bbox_px"),
                     cand=item.get("candidate_feature_bbox_px"),
                 )
             )
+        response = comparison.get("projection_area_response")
+        if response:
+            lines.extend(
+                [
+                    "",
+                    "Projection-area response:",
+                    "",
+                    "| Eye | Expected candidate-reference display-eye UV | Observed candidate-reference eye-norm | Observed candidate-reference display-eye UV | Observed/expected gain local | Residual display-eye UV local | Residual px | Response model |",
+                    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+                ]
+            )
+            for eye in EYES:
+                item = (response.get("eyes") or {}).get(eye) or {}
+                candidate_fields = item.get("candidate") or {}
+                mapped_observed = item.get("observed_candidate_minus_reference_delta_display_eye_uv_local_center") or {}
+                lines.append(
+                    "| `{eye}` | `{expected}` | `{observed}` | `{observed_uv}` | `{gain}` | `{residual_uv}` | `{residual_px}` | `{model}` |".format(
+                        eye=eye,
+                        expected=item.get("expected_candidate_minus_reference_delta_eye_norm"),
+                        observed=item.get("observed_candidate_minus_reference_delta_eye_norm"),
+                        observed_uv=mapped_observed.get("display_eye_uv_delta"),
+                        gain=item.get("observed_to_expected_gain_display_eye_uv_local_center"),
+                        residual_uv=item.get("response_residual_display_eye_uv_local_center"),
+                        residual_px=item.get("response_residual_px"),
+                        model=candidate_fields.get("projection_area_offset_response_model"),
+                    )
+                )
         lines.extend(
             [
                 "",
                 "Interpretation:",
                 "",
                 "- Center-cross deltas are the primary alignment signal for physical-target passthrough comparisons.",
+                "- Eye-normalized deltas are `delta_px / [eye_width, eye_height]` and preserve screenshot-space sign.",
+                "- When `--display-eye-uv-mapping` is provided, display-eye UV deltas use the measured local center fiducial inverse rather than assuming a globally linear screenshot half.",
                 "- Full-feature correlation is secondary because native passthrough can apply peripheral compositor warp that the custom projection is not expected to reproduce.",
                 "- This is analyzer evidence only; it estimates target-feature residuals in screenshot pixels.",
                 "- Use it to decide whether a mismatch belongs to source metadata, projection-area mapping, OpenXR/reference-space geometry, backend viewport convention, or analyzer evidence before changing renderer code.",
@@ -534,12 +865,21 @@ def main() -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     records: list[dict[str, Any]] = []
     comparison: dict[str, Any] | None = None
+    display_eye_uv_mapping = load_display_eye_uv_mapping(args.display_eye_uv_mapping)
     if args.reference and args.candidate:
-        comparison = compare_pair(args.reference, args.candidate, args.max_shift_px)
+        comparison = compare_pair(
+            args.reference,
+            args.candidate,
+            args.max_shift_px,
+            args.reference_log,
+            args.candidate_log,
+            args.skip_translation,
+            display_eye_uv_mapping,
+        )
         records.extend([comparison["reference"], comparison["candidate"]])
         write_json(args.out_dir / "target-alignment-comparison.json", comparison)
     for index, image in enumerate(args.images):
-        records.append(analyze_image(image, f"image-{index:02d}"))
+        records.append(analyze_image(image, f"image-{index:02d}", single_view=args.single_view))
     for record in records:
         safe_label = str(record.get("label", "image")).replace("\\", "_").replace("/", "_")
         draw_overlay(record, args.out_dir / f"{safe_label}-target-overlay.png")

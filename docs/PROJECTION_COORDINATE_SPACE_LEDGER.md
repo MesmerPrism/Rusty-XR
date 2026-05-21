@@ -110,6 +110,36 @@ and passing cross-lane footprint parity. Makepad still normalizes a legacy
 native horizontal property at the launcher boundary, but its vertical
 projection-area offset is already the public positive-Y-down convention.
 
+The 2026-05-21 native-passthrough replay pass adds an explicit HWB response
+model to that contract. Vulkan/HWB final-status rows now distinguish the
+projection-area target rect from the predicted offset response with
+`projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv_div_projectionAreaScaleUv`
+and per-eye `*ProjectionAreaOffsetResponseUv` fields. Treat target rect,
+response model, and observed screenshot motion as separate evidence layers.
+Those response fields are display-eye screen UV before runtime mirror capture;
+ADB/Meta screenshot pixels can include compositor distortion and must remain a
+measured witness until the run also logs an eye-UV-to-screenshot mapping.
+
+The 2026-05-21 display-eye UV fiducial probe closes that evidence gap for the
+current mirror-capture path. The Vulkan/HWB composite renderer can render a
+`display-eye-uv-fiducial` diagnostic through the same OpenXR submission path.
+It marks known `projection_screen_uv_base` positions in
+`display-eye-screen-uv`, logs
+`displayEyeUvFiducialSchema=rusty.xr.display_eye_uv_fiducial.v1`, and lets
+`Analyze-DisplayEyeUvMapping.py` fit the observed mirror screenshot mapping.
+The first measured run found all six fiducials in both eyes. A global affine
+fit was useful as a witness but left residuals in the tens of pixels, and the
+centerline segment slopes differed by roughly 5-8% across the sampled
+0.25/0.50/0.75 marker positions. Center-cross alignment should therefore use
+the logged near-center finite-difference mapping around the green center marker.
+If a projection-area offset response still disagrees after that local mapping,
+keep the next owner on projection-area content mapping or projection geometry
+rather than treating mirror screenshot pixels as a global linear UV ruler.
+The companion `projection-content-uv-fiducial` diagnostic renders the same
+markers in `full_frame_content_uv`, after projection-area offset and area
+mapping. Use it to prove whether a residual belongs to the post-offset content
+path before tuning projection geometry again.
+
 The 2026-05-20 physical-target matrix extends that contract to native
 passthrough center-cross alignment. All six live Camera2 lanes classify as
 `ready` when compared against an opacity-zero passthrough witness, using the
@@ -181,12 +211,12 @@ The same term must not mean different things in different lanes.
 | Content surface UV | Rusty XR projection model | Normalized coordinates on the intended camera/content surface. | Log content rect, content aspect, projection profile, and any overscan or scale. |
 | Full submitted surface UV | Renderer/OpenXR swapchain image | Normalized coordinates over the full submitted eye surface or layer image. | Log full surface size, viewport, scissor, matte/border policy, and full-to-content mapping. |
 | Projection-area UV | Rusty XR projection-area mask | Normalized intended visible camera area inside the submitted surface. | Log projection-area center, radius/scale, corner radius, opacity, target screen-UV rect/center, and invalid-region policy. |
-| Display-eye screen UV | Final per-eye submitted image before screenshot | Normalized screen-space domain per eye. | Log `surface_to_screen`, `screen_to_surface`, renderer-authored expected source-valid box, observed box, and per-eye tokens. |
+| Display-eye screen UV | Final per-eye submitted image before screenshot | Normalized screen-space domain per eye. | Log `surface_to_screen`, `screen_to_surface`, renderer-authored expected source-valid box, observed box, per-eye tokens, and display-eye UV fiducials when comparing against mirror screenshot pixels. |
 | OpenXR view tangent space | OpenXR view pose/FOV | Eye-local rays derived from `XrView.pose` and `XrView.fov`. | Log display time, reference space, per-eye pose, and FOV angles. |
 | OpenXR app reference space | App-chosen `LOCAL`, `STAGE`, or other reference space | Meters, runtime-defined origin for the chosen reference space. | Log reference-space type, pose composition, and any head-anchored surface pose. |
 | Environment-depth UV | `XR_META_environment_depth` swapchain image | Normalized depth-image coordinates per depth view. | Log depth image index, near/far meters, depth view pose/FOV, timestamp when available, and hand-removal state if used. |
 | Vulkan clip / NDC / viewport | Renderer backend | Clip/NDC after app projection, then viewport pixels. Vulkan viewport Y conventions can differ from shader math assumptions. | Log projection matrix convention, viewport dimensions, manual FOV projection, and any Y flip. |
-| Screenshot pixels | ADB/HzDB/MediaProjection or analyzer input | Captured final-display pixels. | Use only as evidence. Record capture method, freshness, segmentation thresholds, boxes, and contact sheet. |
+| Screenshot pixels | ADB/HzDB/MediaProjection or analyzer input | Captured final-display pixels. | Use only as evidence. Record capture method, freshness, segmentation thresholds, boxes, contact sheet, and any measured display-eye-UV-to-screenshot mapping. |
 
 ## Source-Of-Truth Priority
 
@@ -232,11 +262,64 @@ half_height = tan(preview_fov_y / 2) * depth_meters * overscan
 half_width = half_height * aspect
 ```
 
+For camera-content lanes, `aspect` is the delivered/source content aspect
+(`contentWidth / contentHeight`). Do not substitute the OpenXR display-eye FOV
+aspect here: that changes the physical canvas dimensions, which can create
+stretch and stereo-convergence errors before any source-camera sampling math
+runs. The Vulkan logs expose this as
+`projectionSurfaceAspectContract=content_frame_aspect_not_display_eye_fov` plus
+per-eye `ProjectionSurfaceAspect` fields.
+
 This can look good because OpenXR handles stereo display of the surface once it
 is placed in reference space, and Camera2 intrinsics/extrinsics provide a
 plausible source sample for that surface. It is still a plane approximation:
 it is exact only for the chosen surface plane. Matching a whole room requires
 depth-assisted geometry or an accepted approximation policy.
+
+For the Vulkan composite example, `rustyxr.cameraProjectionMode=world-canvas`
+is the diagnostic lane for this model. It draws the chosen head-anchored
+surface as real OpenXR quad geometry and samples the source with
+`surface_to_camera` rows. Use it before another fullscreen-shader tuning pass
+when headset review says the source transport is coherent but the visible
+projection lands at the wrong distance or has stretch/convergence errors.
+MediaProjection can capture this rendered canvas as a final-display witness,
+but it remains screenshot evidence; the named source of truth is still the
+surface depth/FOV/overscan/aspect plus the logged OpenXR view state.
+
+The current world-canvas comparison values have different authority levels:
+
+- `cameraProjectionMode=world-canvas` is a diagnostic rendering choice.
+- `projectionDepthMeters=0.75` is a named historical starting depth, not a
+  measured passthrough or physical-screen distance. Depth-1.0 comparison
+  profiles exist to test the default one-meter surface without changing any
+  other geometry field.
+- `cameraPreviewFovYDegrees=60` is the virtual surface angular height. It is
+  not the Camera2 optical FOV and not the OpenXR display FOV.
+- `cameraRawOverlayOverscan=1.06` is a small explicit pad around the
+  camera-content surface. It must stay logged as a surface-coverage field, not
+  as a hidden alignment offset.
+- source frame width/height and per-eye OpenXR view pose/FOV are runtime facts.
+  They are read from the delivered camera frame metadata and current `XrView`s,
+  not copied from the catalog.
+
+The custom camera-footprint path should be equivalent to the world canvas when
+it uses the same depth/FOV/aspect/overscan values and the
+`raw-projection-camera-footprint-underlay-unorm` preset to algebraically
+collapse the surface into the fullscreen shader:
+
+```text
+display-eye screen UV
+-> screen_to_surface
+-> surface_to_camera
+-> source texture sample
+```
+
+That equivalence is different from a full-feed/full-screen control. A
+full-feed control is useful for source transport parity, but it is not the
+custom passthrough replacement footprint because the raw Camera2 image does not
+cover the same field of view as native passthrough. Outside the valid projected
+camera footprint, use an explicit policy such as passthrough underlay,
+transparent alpha, solid fill, matte, or documented border.
 
 ### Direct Per-Eye Shader Projection
 
@@ -369,9 +452,9 @@ Trace these before changing a visual parameter:
 - source mode and geometry profile
 - selected camera/source size and valid source UV rect
 - `cameraProjectionScale`
-- `cameraProjectionDepthMeters` (meters to the head-anchored projection
-  surface; `cameraProjectionScale` is not a depth fallback)
-- `cameraProjectionAreaScaleUv`
+- `projectionDepthMeters` (meters to the head-anchored projection surface;
+  `cameraProjectionScale` is not a depth fallback)
+- `projectionAreaScaleUv` and the other shared `projectionArea*` runtime keys
 - projection-area radii and corner radius
 - content/full-view mapping
 - `screen_to_camera` homography

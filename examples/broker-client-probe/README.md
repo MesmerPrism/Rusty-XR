@@ -14,6 +14,8 @@ cargo run -p rusty-xr-broker-client-probe -- streams
 cargo run -p rusty-xr-broker-client-probe -- camera-provider
 cargo run -p rusty-xr-broker-client-probe -- projection-profile
 cargo run -p rusty-xr-broker-client-probe -- app-camera-probe
+cargo run -p rusty-xr-broker-client-probe -- app-camera-probe --camera-id 50 --persist-frame --frame-output-dir /sdcard/Android/data/com.example.rustyxr.broker/files/camera-frame-capture/run-001
+cargo run -p rusty-xr-broker-client-probe -- synthetic-h264-stream --session frozen-left --device-port 8879 --host-port 18879 --synthetic-image-path /sdcard/Android/data/com.example.rustyxr.broker/files/camera-frame-capture/camera-50.jpg
 cargo run -p rusty-xr-broker-client-probe -- app-camera-h264-decode-probe --session probe-h264-decode-session
 cargo run -p rusty-xr-broker-client-probe -- shell-helper-status
 cargo run -p rusty-xr-broker-client-probe -- video-lab-status
@@ -40,7 +42,15 @@ Commands:
 - `camera-provider`: send `camera_provider.get_status`.
 - `projection-profile`: send `camera_provider.get_projection_profile`.
 - `app-camera-probe`: send `camera_provider.run_app_camera_probe`; the broker
-  APK must have runtime camera permission for capture attempts to succeed.
+  APK must have runtime camera permission for capture attempts to succeed. Add
+  `--camera-id`, `--persist-frame`, and `--frame-output-dir` to persist the
+  one-frame YUV capture as NV21 raw bytes, a JPEG preview, and a JSON sidecar
+  under the broker app's external files area.
+- `synthetic-h264-stream`: send `media.start_synthetic_h264_stream`. With
+  `--synthetic-image-path`, the broker draws the named device-local image into
+  every encoder frame and serves it as a live `RXYRVID1` H.264 stream. This is
+  intended for frozen camera-frame replay through the same full-frame broker
+  transport used by generated synthetic sources.
 - `app-camera-h264-decode-probe [--session <id>]`: run the broker's bounded
   Camera2 to MediaCodec H.264 encode/decode probe and tag the resulting
   manifest/metric with the supplied session id.
@@ -81,3 +91,22 @@ Connection options:
 - `--host <host>` defaults to `127.0.0.1`.
 - `--port <port>` defaults to `8765`.
 - `--session <id>` selects a transport session id for transport commands.
+- `--camera-id <id>` restricts `app-camera-probe` to one Camera2 id.
+- `--persist-frame` asks `app-camera-probe` to write the captured frame to
+  device storage.
+- `--frame-output-dir <path>` sets the device output directory and implies
+  `--persist-frame`.
+- `--jpeg-quality <1-100>` sets the preview quality for persisted frames.
+- `--width <pixels>` and `--height <pixels>` request the app-camera probe's
+  preferred YUV capture size.
+- `--device-port <port>` and `--host-port <port>` select stream endpoints for
+  `synthetic-h264-stream`.
+- For `synthetic-h264-stream`, `--width <pixels>` and `--height <pixels>` set
+  both encoded and full-frame content dimensions.
+- `--capture-ms <ms>`, `--max-packets <count>`, `--bitrate-bps <bps>`,
+  `--frame-rate-hz <hz>`, and `--accept-timeout-ms <ms>` tune the live replay
+  stream bounds.
+- `--synthetic-pattern <name>` defaults to `image-file` when
+  `--synthetic-image-path` is present and otherwise defaults to
+  `diagnostic-grid`.
+- `--projection-profile <name>` defaults to `full-frame-diagnostic`.

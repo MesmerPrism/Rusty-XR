@@ -738,22 +738,22 @@ function Get-VulkanProjectionBorderOverride {
     $commonValues.Add("rustyxr.xrRenderScale=$xrRenderScale")
     $commonValues.Add("rustyxr.cameraProjectionGeometryProfile=$CameraProjectionGeometryProfile")
     $commonValues.Add("rustyxr.cameraProjectionScale=$projectionScale")
-    $commonValues.Add("rustyxr.cameraProjectionDepthMeters=$projectionDepth")
-    $commonValues.Add("rustyxr.cameraProjectionAreaScaleUv=$projectionAreaScaleUv")
-    $commonValues.Add("rustyxr.cameraProjectionAreaOffsetXUv=$offsetX")
-    $commonValues.Add("rustyxr.cameraProjectionAreaOffsetYUv=$offsetY")
-    $commonValues.Add("rustyxr.cameraProjectionAreaLeftOffsetXUv=$leftOffsetX")
-    $commonValues.Add("rustyxr.cameraProjectionAreaLeftOffsetYUv=$leftOffsetY")
-    $commonValues.Add("rustyxr.cameraProjectionAreaRightOffsetXUv=$rightOffsetX")
-    $commonValues.Add("rustyxr.cameraProjectionAreaRightOffsetYUv=$rightOffsetY")
-    $commonValues.Add("rustyxr.cameraProjectionAreaRadiusXUv=$areaRadiusX")
-    $commonValues.Add("rustyxr.cameraProjectionAreaRadiusYUv=$areaRadiusY")
-    $commonValues.Add("rustyxr.cameraProjectionAreaCornerRadiusUv=$areaCornerRadius")
-    $commonValues.Add("rustyxr.cameraProjectionAreaOpacity=$areaOpacity")
-    $commonValues.Add("rustyxr.cameraProjectionBorderOpacity=$borderOpacity")
-    $commonValues.Add("rustyxr.cameraProjectionAlphaMode=$ProjectionAlphaMode")
-    $commonValues.Add("rustyxr.cameraProjectionAlphaScale=$alphaScale")
-    $commonValues.Add("rustyxr.cameraProjectionAlphaBias=$alphaBias")
+    $commonValues.Add("rustyxr.projectionDepthMeters=$projectionDepth")
+    $commonValues.Add("rustyxr.projectionAreaScaleUv=$projectionAreaScaleUv")
+    $commonValues.Add("rustyxr.projectionAreaOffsetXUv=$offsetX")
+    $commonValues.Add("rustyxr.projectionAreaOffsetYUv=$offsetY")
+    $commonValues.Add("rustyxr.projectionAreaLeftOffsetXUv=$leftOffsetX")
+    $commonValues.Add("rustyxr.projectionAreaLeftOffsetYUv=$leftOffsetY")
+    $commonValues.Add("rustyxr.projectionAreaRightOffsetXUv=$rightOffsetX")
+    $commonValues.Add("rustyxr.projectionAreaRightOffsetYUv=$rightOffsetY")
+    $commonValues.Add("rustyxr.projectionAreaRadiusXUv=$areaRadiusX")
+    $commonValues.Add("rustyxr.projectionAreaRadiusYUv=$areaRadiusY")
+    $commonValues.Add("rustyxr.projectionAreaCornerRadiusUv=$areaCornerRadius")
+    $commonValues.Add("rustyxr.projectionAreaOpacity=$areaOpacity")
+    $commonValues.Add("rustyxr.projectionBorderOpacity=$borderOpacity")
+    $commonValues.Add("rustyxr.projectionAlphaMode=$ProjectionAlphaMode")
+    $commonValues.Add("rustyxr.projectionAlphaScale=$alphaScale")
+    $commonValues.Add("rustyxr.projectionAlphaBias=$alphaBias")
     if (-not [double]::IsNaN($CameraPreviewFovYDegrees)) {
         $commonValues.Add(("rustyxr.cameraPreviewFovYDegrees={0}" -f (Format-InvariantDouble -Value $CameraPreviewFovYDegrees)))
     }
@@ -1193,7 +1193,7 @@ foreach ($modeId in $Mode) {
                 -Catalog $compositeCatalog `
                 -AppId "rusty-xr-quest-composite-layer" `
                 -DeviceProfile "xr-composite-comparison-level-5" `
-                -RuntimeProfile "camera-stereo-gpu-composite-full-feed-alignment" `
+                -RuntimeProfile "camera-stereo-gpu-composite-full-feed-control" `
                 -Apk $CompositeApk `
                 -InstallKey "composite" `
                 -Override (Join-OverrideValues -Values @("rustyxr.cameraTargetFps=50", (Get-VulkanProjectionBorderOverride -OffsetXUv $offsetXUv -OffsetYUv $offsetYUv -CameraProjectionScale $projectionScale -TargetProjectionDepthMeters $projectionDepth -XrRenderScale $xrRenderScale -ProjectionAreaScaleUv $projectionAreaScaleUv -CameraPreviewFovYDegrees $previewFovY -CameraRawOverlayOverscan $rawOverlayOverscan -CameraFullViewOverlayOverscan $fullViewOverlayOverscan)))
@@ -1221,7 +1221,7 @@ foreach ($modeId in $Mode) {
                 -Catalog $compositeCatalog `
                 -AppId "rusty-xr-quest-composite-layer" `
                 -DeviceProfile "xr-composite-comparison-level-5" `
-                -RuntimeProfile "broker-h264-stereo-live-openxr-projection-full-feed-alignment" `
+                -RuntimeProfile "broker-h264-stereo-live-openxr-projection-full-feed-control" `
                 -Apk $CompositeApk `
                 -InstallKey "composite" `
                 -Override (Join-OverrideValues -Values @((Get-BrokerH264Override), (Get-VulkanProjectionBorderOverride -OffsetXUv $offsetXUv -OffsetYUv $offsetYUv -CameraProjectionScale $projectionScale -TargetProjectionDepthMeters $projectionDepth -XrRenderScale $xrRenderScale -ProjectionAreaScaleUv $projectionAreaScaleUv -CameraPreviewFovYDegrees $previewFovY -CameraRawOverlayOverscan $rawOverlayOverscan -CameraFullViewOverlayOverscan $fullViewOverlayOverscan)))
