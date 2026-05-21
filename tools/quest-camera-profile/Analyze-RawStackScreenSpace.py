@@ -32,6 +32,11 @@ COMMA_VALUE_FIELD_KEYS = {
     "contentUvRect",
     "leftContentUvRect",
     "rightContentUvRect",
+    "sourceVisibleUvRect",
+    "leftSourceVisibleUvRect",
+    "rightSourceVisibleUvRect",
+    "leftSourceCropRectPx",
+    "rightSourceCropRectPx",
     "leftExpectedSourceValidScreenUvRect",
     "rightExpectedSourceValidScreenUvRect",
     "leftExpectedSourceValidScreenUvRectRaw",
@@ -160,6 +165,15 @@ SOURCE_FIELD_KEYS = (
     "sourceSampleYFlipReason",
     "sourceTextureTransformStage",
     "sourceTextureTransformOwner",
+    "sourceColorInputEncoding",
+    "sourceColorTransformStage",
+    "sourceColorTransform",
+    "sourceColorTransformOwner",
+    "sourceColorTransformApplied",
+    "sourceColorOutputEncoding",
+    "cameraColorControlStage",
+    "swapchainColorFormat",
+    "swapchainColorEncoding",
     "diagnosticUvTransform",
     "displayScreenUvNormalization",
     "displayScreenUvOrigin",
@@ -179,6 +193,9 @@ SOURCE_FIELD_KEYS = (
     "contentXAxis",
     "contentYAxis",
     "contentUvRect",
+    "sourceVisibleUvRect",
+    "sourceCropRectState",
+    "sourceCropRectOwner",
     "contentMappingIntent",
     "contentGeometryMetadataSource",
     "contentGeometryDefault",
@@ -205,6 +222,26 @@ SOURCE_FIELD_KEYS = (
     "rightContentYAxis",
     "leftContentUvRect",
     "rightContentUvRect",
+    "leftSourceVisibleUvRect",
+    "rightSourceVisibleUvRect",
+    "leftSourceCropRectPx",
+    "rightSourceCropRectPx",
+    "leftCameraTextureTransformFlags",
+    "rightCameraTextureTransformFlags",
+    "leftHardwareBufferWidth",
+    "leftHardwareBufferHeight",
+    "leftHardwareBufferNativeFormat",
+    "leftHardwareBufferUsage",
+    "leftHardwareBufferLayers",
+    "leftHardwareBufferStridePx",
+    "leftHardwareBufferId",
+    "rightHardwareBufferWidth",
+    "rightHardwareBufferHeight",
+    "rightHardwareBufferNativeFormat",
+    "rightHardwareBufferUsage",
+    "rightHardwareBufferLayers",
+    "rightHardwareBufferStridePx",
+    "rightHardwareBufferId",
     "leftContentMappingIntent",
     "rightContentMappingIntent",
     "leftContentGeometryMetadataSource",
@@ -710,14 +747,18 @@ def summarize_eye(
     red_fraction = float(legacy_red.mean())
     intended_mask_fraction = float(intended_mask.mean())
     guide_fraction = float(guide_mask.mean())
+    diagnostic_fill_fraction = float(diagnostic_fill.mean())
+    diagnostic_signal_fraction = float(diagnostic_mask.mean())
     visible = visible_content_mask(rgb)
     stimulus_candidate = stimulus_envelope_mask(
         rgb,
         legacy_red,
         intended_mask,
     )
-    diagnostic_fill_present = float(diagnostic_fill.mean()) >= 0.001
-    if expected_solid_red and not diagnostic_fill_present:
+    diagnostic_fill_present = diagnostic_fill_fraction >= 0.001
+    diagnostic_guide_present = prefer_full_frame_envelope and guide_fraction >= 0.001
+    diagnostic_signal_present = diagnostic_fill_present or diagnostic_guide_present
+    if expected_solid_red and not diagnostic_signal_present:
         return {
             "eye": eye,
             "status": "blocked",
@@ -726,15 +767,21 @@ def summarize_eye(
             "red_fraction": red_fraction,
             "intended_projection_mask_fraction": intended_mask_fraction,
             "guide_fraction": guide_fraction,
+            "diagnostic_fill_fraction": diagnostic_fill_fraction,
+            "diagnostic_signal_fraction": diagnostic_signal_fraction,
             "visible_fraction": float(visible.mean()),
             "eye_rect_px": [x_offset, 0, rgb.shape[1], rgb.shape[0]],
         }
     candidate = visible & ~diagnostic_mask
-    strategy = "valid-projection-vs-diagnostic-mask"
+    strategy = (
+        "valid-projection-vs-diagnostic-guide-mask"
+        if diagnostic_guide_present and not diagnostic_fill_present
+        else "valid-projection-vs-diagnostic-mask"
+    )
     component = None
     component_candidates: list[dict[str, Any]] = []
-    if diagnostic_fill_present:
-        max_valid_area = 0.995 if float(diagnostic_fill.mean()) < 0.02 else max_area_fraction
+    if diagnostic_signal_present:
+        max_valid_area = 0.995 if diagnostic_signal_fraction < 0.02 else max_area_fraction
         component_candidates = connected_components(candidate, min_area_fraction, max_valid_area)
         component = component_candidates[0] if component_candidates else None
     if expected_solid_red and component is None:
@@ -746,6 +793,8 @@ def summarize_eye(
             "red_fraction": red_fraction,
             "intended_projection_mask_fraction": intended_mask_fraction,
             "guide_fraction": guide_fraction,
+            "diagnostic_fill_fraction": diagnostic_fill_fraction,
+            "diagnostic_signal_fraction": diagnostic_signal_fraction,
             "visible_fraction": float(visible.mean()),
             "eye_rect_px": [x_offset, 0, rgb.shape[1], rgb.shape[0]],
         }
@@ -763,6 +812,8 @@ def summarize_eye(
             "red_fraction": red_fraction,
             "intended_projection_mask_fraction": intended_mask_fraction,
             "guide_fraction": guide_fraction,
+            "diagnostic_fill_fraction": diagnostic_fill_fraction,
+            "diagnostic_signal_fraction": diagnostic_signal_fraction,
             "visible_fraction": float(visible.mean()),
             "eye_rect_px": [x_offset, 0, rgb.shape[1], rgb.shape[0]],
         }
@@ -848,6 +899,8 @@ def summarize_eye(
         "red_fraction": red_fraction,
         "intended_projection_mask_fraction": intended_mask_fraction,
         "guide_fraction": guide_fraction,
+        "diagnostic_fill_fraction": diagnostic_fill_fraction,
+        "diagnostic_signal_fraction": diagnostic_signal_fraction,
         "visible_fraction": float(visible.mean()),
         "active_fraction": float(measured_component["area_px"] / max(rgb.shape[0] * rgb.shape[1], 1)),
         "valid_projection_bbox_px": full_bbox,
@@ -2510,6 +2563,7 @@ def summarize_projection_mapping_records(records: list[dict[str, Any]]) -> dict[
                 "content_geometry_defaults": 0,
                 "inverted_markers": 0,
                 "ambiguous_markers": 0,
+                "metadata_upright_ambiguous_markers": 0,
                 "valid_projection_coverage_measured": 0,
                 "valid_projection_width_fraction_sum": 0.0,
                 "valid_projection_height_fraction_sum": 0.0,
@@ -2537,7 +2591,10 @@ def summarize_projection_mapping_records(records: list[dict[str, Any]]) -> dict[
         if marker.get("status") == "inverted":
             mode_summary["inverted_markers"] += 1
         if marker.get("status") == "ambiguous":
-            mode_summary["ambiguous_markers"] += 1
+            if str(orientation.get("upright_marker") or "").lower() == "camera-native-upright":
+                mode_summary["metadata_upright_ambiguous_markers"] += 1
+            else:
+                mode_summary["ambiguous_markers"] += 1
         observed = record.get("observed_screenshot") or {}
         mode_summary["source_invalid_fraction_sum"] += float(observed.get("red_fraction") or 0.0)
         mode_summary["intended_mask_fraction_sum"] += float(observed.get("intended_projection_mask_fraction") or 0.0)
@@ -2703,7 +2760,7 @@ def infer_geometry_profile(mode: str, fields: dict[str, str]) -> str:
     if "camera-matched" in combined:
         return "camera-matched"
     if "direct-camera2" in mode:
-        return "physical-camera"
+        return "full-frame-diagnostic"
     if "broker-synthetic" in infer_source_mode(mode, fields).lower():
         return "broker-synthetic-unspecified"
     return "unknown"
@@ -2792,6 +2849,38 @@ def texture_or_upload_record(mode: str, fields: dict[str, str]) -> dict[str, Any
         "rotation": first_field(fields, "cameraTextureRotation"),
         "import_image_layout": first_field(fields, "cameraImportImageLayout"),
         "sampler_binding_mode": first_field(fields, "cameraSamplerBindingMode"),
+        "source_visible_uv_rect": parse_uv_rect(first_field(fields, "sourceVisibleUvRect")),
+        "source_crop_rect_state": first_field(fields, "sourceCropRectState"),
+        "source_crop_rect_owner": first_field(fields, "sourceCropRectOwner"),
+        "left_source_visible_uv_rect": parse_uv_rect(first_field(fields, "leftSourceVisibleUvRect")),
+        "right_source_visible_uv_rect": parse_uv_rect(first_field(fields, "rightSourceVisibleUvRect")),
+        "left_source_crop_rect_px": parse_uv_rect(first_field(fields, "leftSourceCropRectPx")),
+        "right_source_crop_rect_px": parse_uv_rect(first_field(fields, "rightSourceCropRectPx")),
+        "left_camera_texture_transform_flags": number_field(fields, "leftCameraTextureTransformFlags"),
+        "right_camera_texture_transform_flags": number_field(fields, "rightCameraTextureTransformFlags"),
+        "left_hardware_buffer_width": number_field(fields, "leftHardwareBufferWidth"),
+        "left_hardware_buffer_height": number_field(fields, "leftHardwareBufferHeight"),
+        "left_hardware_buffer_native_format": number_field(fields, "leftHardwareBufferNativeFormat"),
+        "left_hardware_buffer_usage": number_field(fields, "leftHardwareBufferUsage"),
+        "left_hardware_buffer_layers": number_field(fields, "leftHardwareBufferLayers"),
+        "left_hardware_buffer_stride_px": number_field(fields, "leftHardwareBufferStridePx"),
+        "left_hardware_buffer_id": first_field(fields, "leftHardwareBufferId"),
+        "right_hardware_buffer_width": number_field(fields, "rightHardwareBufferWidth"),
+        "right_hardware_buffer_height": number_field(fields, "rightHardwareBufferHeight"),
+        "right_hardware_buffer_native_format": number_field(fields, "rightHardwareBufferNativeFormat"),
+        "right_hardware_buffer_usage": number_field(fields, "rightHardwareBufferUsage"),
+        "right_hardware_buffer_layers": number_field(fields, "rightHardwareBufferLayers"),
+        "right_hardware_buffer_stride_px": number_field(fields, "rightHardwareBufferStridePx"),
+        "right_hardware_buffer_id": first_field(fields, "rightHardwareBufferId"),
+        "source_color_input_encoding": first_field(fields, "sourceColorInputEncoding"),
+        "source_color_transform_stage": first_field(fields, "sourceColorTransformStage"),
+        "source_color_transform": first_field(fields, "sourceColorTransform"),
+        "source_color_transform_owner": first_field(fields, "sourceColorTransformOwner"),
+        "source_color_transform_applied": bool_field(fields, "sourceColorTransformApplied"),
+        "source_color_output_encoding": first_field(fields, "sourceColorOutputEncoding"),
+        "camera_color_control_stage": first_field(fields, "cameraColorControlStage"),
+        "swapchain_color_format": first_field(fields, "swapchainColorFormat"),
+        "swapchain_color_encoding": first_field(fields, "swapchainColorEncoding"),
     }
     if mode.startswith("gles-oes"):
         values["surface_texture_transform_state"] = first_field(
@@ -3009,6 +3098,8 @@ def projection_coordinate_gaps(
         gaps.append("source-dimensions-not-logged")
     if geometry_profile in {"unknown", "broker-synthetic-unspecified"}:
         gaps.append("geometry-profile-not-explicit")
+    if geometry_profile == "physical-camera" or geometry_profile.startswith("unsupported-"):
+        gaps.append(f"unsupported-geometry-profile-{geometry_profile}")
     if "broker-synthetic" in infer_source_mode(mode, fields).lower() and geometry_profile == "broker-synthetic-unspecified":
         gaps.append("broker-synthetic-profile-not-logged")
     if metadata.get("projection_metadata_ready") is not True:
@@ -3072,8 +3163,13 @@ def projection_coordinate_gaps(
             gaps.append(f"{eye}-openxr-render-view-pose-fov-not-logged")
     for eye, eye_analysis in analysis.items():
         marker = eye_analysis.get("orientation_marker") or {}
-        if marker.get("status") == "ambiguous" and "direct-camera2" in mode:
-            gaps.append(f"{eye}-physical-camera-orientation-marker-ambiguous")
+        upright_marker = str(fields.get("uprightMarker") or fields.get("stimulusUprightMarker") or "").lower()
+        if (
+            marker.get("status") == "ambiguous"
+            and "direct-camera2" in mode
+            and upright_marker != "camera-native-upright"
+        ):
+            gaps.append(f"{eye}-direct-camera2-orientation-marker-ambiguous")
         expected = eye_analysis.get("expected") or {}
         if expected.get("model_check_only"):
             gaps.append(f"{eye}-expected-source-footprint-is-analyzer-model-check")

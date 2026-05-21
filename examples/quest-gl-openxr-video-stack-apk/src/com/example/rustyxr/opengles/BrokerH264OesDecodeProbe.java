@@ -196,6 +196,7 @@ public final class BrokerH264OesDecodeProbe {
         final String sourceMode;
         final String syntheticPattern;
         final String syntheticProjectionProfile;
+        final String projectionGeometryProfile;
         final String leftCameraId;
         final String rightCameraId;
 
@@ -216,6 +217,7 @@ public final class BrokerH264OesDecodeProbe {
             String sourceMode,
             String syntheticPattern,
             String syntheticProjectionProfile,
+            String projectionGeometryProfile,
             String leftCameraId,
             String rightCameraId) {
             this.host = normalizeHost(host);
@@ -238,9 +240,14 @@ public final class BrokerH264OesDecodeProbe {
                     : SYNTHETIC_PATTERN;
             this.syntheticProjectionProfile =
                 BrokerH264OesDecodeProbe.normalizeSyntheticProjectionProfile(syntheticProjectionProfile);
+            this.projectionGeometryProfile =
+                BrokerH264OesDecodeProbe.normalizeSyntheticProjectionProfile(
+                    projectionGeometryProfile != null && projectionGeometryProfile.trim().length() > 0
+                        ? projectionGeometryProfile
+                        : syntheticProjectionProfile);
             boolean cameraMatchedSynthetic =
                 SOURCE_MODE_BROKER_SYNTHETIC.equals(this.sourceMode) &&
-                "camera-matched".equals(this.syntheticProjectionProfile);
+                "camera-matched".equals(this.projectionGeometryProfile);
             this.leftCameraId = leftCameraId != null && leftCameraId.length() > 0
                 ? leftCameraId
                 : (cameraMatchedSynthetic ? "" : "synthetic-left");
@@ -277,6 +284,10 @@ public final class BrokerH264OesDecodeProbe {
                 stringExtra(activity, "rustyxr.brokerH264SourceMode", SOURCE_MODE_BROKER_SYNTHETIC),
                 stringExtra(activity, "rustyxr.brokerH264SyntheticPattern", SYNTHETIC_PATTERN),
                 stringExtra(activity, "rustyxr.brokerH264SyntheticProjectionProfile", SYNTHETIC_PROJECTION_PROFILE),
+                stringExtra(
+                    activity,
+                    "rustyxr.brokerH264ProjectionGeometryProfile",
+                    stringExtra(activity, "rustyxr.brokerH264SyntheticProjectionProfile", SYNTHETIC_PROJECTION_PROFILE)),
                 leftCameraId,
                 rightCameraId);
         }
@@ -326,6 +337,7 @@ public final class BrokerH264OesDecodeProbe {
             report.put("live_stream", config.liveStream);
             report.put("synthetic_pattern", config.syntheticPattern);
             report.put("synthetic_projection_profile", config.syntheticProjectionProfile);
+            report.put("projection_geometry_profile", config.projectionGeometryProfile);
             report.put("left_camera_id", config.leftCameraId);
             report.put("right_camera_id", config.rightCameraId);
         } catch (Exception error) {
@@ -361,6 +373,7 @@ public final class BrokerH264OesDecodeProbe {
             report.put("frame_rate_hz", config.frameRateHz);
             report.put("synthetic_pattern", config.syntheticPattern);
             report.put("synthetic_projection_profile", config.syntheticProjectionProfile);
+            report.put("projection_geometry_profile", config.projectionGeometryProfile);
             report.put("camera_id", cameraId);
             report.put("max_packets", config.maxPackets);
             report.put("accepted", true);
@@ -462,10 +475,12 @@ public final class BrokerH264OesDecodeProbe {
         params.put("bitrate_bps", config.bitrateBps);
         params.put("frame_rate_hz", config.frameRateHz);
         params.put("live_stream", config.liveStream);
+        params.put("projection_geometry_profile", config.projectionGeometryProfile);
+        params.put("projectionGeometryProfile", config.projectionGeometryProfile);
         if (config.startBrokerSyntheticStream()) {
             params.put("source_mode", "synthetic_surface");
             params.put("synthetic_pattern", config.syntheticPattern);
-            params.put("synthetic_projection_profile", config.syntheticProjectionProfile);
+            params.put("synthetic_projection_profile", config.projectionGeometryProfile);
         }
         params.put("accept_timeout_ms", 60000);
         params.put("writer_queue_depth", 64);
@@ -1106,6 +1121,10 @@ public final class BrokerH264OesDecodeProbe {
         stats.outputMime = mediaFormatString(format, MediaFormat.KEY_MIME, "video/raw");
         stats.outputWidth = mediaFormatInt(format, MediaFormat.KEY_WIDTH, stats.width);
         stats.outputHeight = mediaFormatInt(format, MediaFormat.KEY_HEIGHT, stats.height);
+        stats.outputColorFormat = mediaFormatInt(format, MediaFormat.KEY_COLOR_FORMAT, -1);
+        stats.outputColorStandard = mediaFormatInt(format, MediaFormat.KEY_COLOR_STANDARD, -1);
+        stats.outputColorRange = mediaFormatInt(format, MediaFormat.KEY_COLOR_RANGE, -1);
+        stats.outputColorTransfer = mediaFormatInt(format, MediaFormat.KEY_COLOR_TRANSFER, -1);
     }
 
     private static String mediaFormatString(MediaFormat format, String key, String fallback) {
@@ -1246,6 +1265,10 @@ public final class BrokerH264OesDecodeProbe {
         int outputWidth;
         int outputHeight;
         String outputMime = "";
+        int outputColorFormat = -1;
+        int outputColorStandard = -1;
+        int outputColorRange = -1;
+        int outputColorTransfer = -1;
         int decodedFrameCount;
         long surfaceReleaseCount;
         long lastQueuedPtsUs = -1L;
@@ -1313,6 +1336,10 @@ public final class BrokerH264OesDecodeProbe {
             report.put("output_width", outputWidth);
             report.put("output_height", outputHeight);
             report.put("output_mime", outputMime);
+            report.put("output_color_format", outputColorFormat);
+            report.put("output_color_standard", outputColorStandard);
+            report.put("output_color_range", outputColorRange);
+            report.put("output_color_transfer", outputColorTransfer);
             report.put("decoded_frame_count", decodedFrameCount);
             report.put("surface_release_count", surfaceReleaseCount);
             report.put("last_queued_pts_us", lastQueuedPtsUs);

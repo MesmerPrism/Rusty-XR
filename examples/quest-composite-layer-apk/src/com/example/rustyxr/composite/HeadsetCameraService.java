@@ -82,6 +82,7 @@ public final class HeadsetCameraService extends Service {
     public static final String EXTRA_ESTIMATED_RIGHT_POSE_QW = "estimatedRightPoseQw";
     public static final String EXTRA_STEREO_PAIR_MAX_DELTA_NS = "stereoPairMaxDeltaNs";
     public static final String EXTRA_STEREO_IMAGE_READER_MAX_IMAGES = "stereoImageReaderMaxImages";
+    public static final String EXTRA_PROJECTION_GEOMETRY_PROFILE = "projectionGeometryProfile";
 
     private static final String TAG = "RustyXrHeadsetCamera";
     private static final String HEADSET_CAMERA_PERMISSION = "horizonos.permission.HEADSET_CAMERA";
@@ -101,8 +102,8 @@ public final class HeadsetCameraService extends Service {
     private static final String STREAM_RASTER_ORIENTATION_SCHEMA = "rusty.xr.stream_raster_orientation.v1";
     private static final String STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN = "top-left-origin-y-down";
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
-    private static final String CONTENT_MAPPING_CAMERA_PROJECTION = "map-raster-through-camera-projection";
-    private static final String PROJECTION_GEOMETRY_PROFILE_PHYSICAL_CAMERA = "physical-camera";
+    private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-area";
+    private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
 
     private HandlerThread cameraThread;
     private Handler cameraHandler;
@@ -133,6 +134,7 @@ public final class HeadsetCameraService extends Service {
     private String estimatedPoseLabel;
     private String estimatedPoseVersion;
     private String poseCoordinateConvention;
+    private String projectionGeometryProfile;
     private float estimatedPoseX;
     private float estimatedPoseY;
     private float estimatedPoseZ;
@@ -270,6 +272,8 @@ public final class HeadsetCameraService extends Service {
         estimatedRightPoseQw = intent != null ? intent.getFloatExtra(EXTRA_ESTIMATED_RIGHT_POSE_QW, 1.0f) : 1.0f;
         stereoPairMaxDeltaNs = intent != null ? intent.getLongExtra(EXTRA_STEREO_PAIR_MAX_DELTA_NS, DEFAULT_STEREO_PAIR_MAX_DELTA_NS) : DEFAULT_STEREO_PAIR_MAX_DELTA_NS;
         stereoImageReaderMaxImages = intent != null ? intent.getIntExtra(EXTRA_STEREO_IMAGE_READER_MAX_IMAGES, DEFAULT_STEREO_IMAGE_READER_MAX_IMAGES) : DEFAULT_STEREO_IMAGE_READER_MAX_IMAGES;
+        projectionGeometryProfile = normalizeProjectionGeometryProfile(
+            intent != null ? intent.getStringExtra(EXTRA_PROJECTION_GEOMETRY_PROFILE) : null);
         if (cameraTier == null || cameraTier.trim().isEmpty()) {
             cameraTier = TIER_CPU_DIAGNOSTIC;
         }
@@ -1718,7 +1722,9 @@ public final class HeadsetCameraService extends Service {
             "camera-frame",
             image.getWidth(),
             image.getHeight(),
-            CONTENT_MAPPING_CAMERA_PROJECTION,
+            image.getCropRect(),
+            projectionGeometryProfile,
+            contentMappingIntentForProjectionGeometryProfile(projectionGeometryProfile),
             "headset-camera-service-camera2");
         appendFpsTelemetry(builder, requestedCameraFpsRange(), monoAppliedAeFpsRange, monoDeliveryStats);
         if (sensorOrientation != null) {
@@ -1817,7 +1823,9 @@ public final class HeadsetCameraService extends Service {
             "camera-frame",
             image.getWidth(),
             image.getHeight(),
-            CONTENT_MAPPING_CAMERA_PROJECTION,
+            image.getCropRect(),
+            projectionGeometryProfile,
+            contentMappingIntentForProjectionGeometryProfile(projectionGeometryProfile),
             "headset-camera-service-stereo-camera2");
         Range<Integer> appliedRange = leftEye ? leftAppliedAeFpsRange : rightAppliedAeFpsRange;
         if (appliedRange == null && logicalStereoAppliedAeFpsRange != null) {
@@ -2227,9 +2235,14 @@ public final class HeadsetCameraService extends Service {
         String contentKind,
         int width,
         int height,
+        Rect cropRect,
+        String projectionGeometryProfile,
         String mappingIntent,
         String metadataSource) {
         float aspectRatio = width > 0 && height > 0 ? (float) width / (float) height : 1.0f;
+        Rect normalizedCrop = normalizedImageCropRect(cropRect, width, height);
+        boolean cropReported = cropRect != null;
+        boolean fullFrameCrop = isFullImageCrop(normalizedCrop, width, height);
         builder.append(',');
         appendJsonString(builder, "rasterOrientationSchema", STREAM_RASTER_ORIENTATION_SCHEMA);
         builder.append(',');
@@ -2246,7 +2259,7 @@ public final class HeadsetCameraService extends Service {
         appendJsonString(builder, "orientationMetadataSource", metadataSource);
         builder.append(",\"orientationDefault\":false");
         builder.append(',');
-        appendJsonString(builder, "projectionGeometryProfile", PROJECTION_GEOMETRY_PROFILE_PHYSICAL_CAMERA);
+        appendJsonString(builder, "projectionGeometryProfile", projectionGeometryProfile);
         builder.append(',');
         appendJsonString(builder, "contentGeometrySchema", STREAM_CONTENT_GEOMETRY_SCHEMA);
         builder.append(',');
@@ -2264,12 +2277,81 @@ public final class HeadsetCameraService extends Service {
         appendJsonString(builder, "contentXAxis", "right");
         builder.append(',');
         appendJsonString(builder, "contentYAxis", "down");
-        builder.append(",\"contentUvRect\":{\"left\":0.0,\"top\":0.0,\"right\":1.0,\"bottom\":1.0}");
+        appendUvRectObject(builder, "contentUvRect", normalizedCrop, width, height);
+        appendUvRectObject(builder, "sourceVisibleUvRect", normalizedCrop, width, height);
+        appendPixelRectObject(builder, "sourceCropRectPx", normalizedCrop);
+        builder.append(',');
+        appendJsonString(
+            builder,
+            "sourceCropRectState",
+            cropReported ? (fullFrameCrop ? "full-frame" : "cropped") : "not-reported-defaulted-full-frame");
+        builder.append(',');
+        appendJsonString(builder, "sourceCropRectOwner", "android.media.Image.getCropRect");
         builder.append(',');
         appendJsonString(builder, "contentMappingIntent", mappingIntent);
         builder.append(',');
         appendJsonString(builder, "contentGeometryMetadataSource", metadataSource);
         builder.append(",\"contentGeometryDefault\":false");
+    }
+
+    private static Rect normalizedImageCropRect(Rect cropRect, int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return new Rect(0, 0, 0, 0);
+        }
+        if (cropRect == null) {
+            return new Rect(0, 0, width, height);
+        }
+        int left = Math.max(0, Math.min(width, cropRect.left));
+        int top = Math.max(0, Math.min(height, cropRect.top));
+        int right = Math.max(left, Math.min(width, cropRect.right));
+        int bottom = Math.max(top, Math.min(height, cropRect.bottom));
+        return new Rect(left, top, right, bottom);
+    }
+
+    private static boolean isFullImageCrop(Rect cropRect, int width, int height) {
+        return cropRect != null
+            && cropRect.left == 0
+            && cropRect.top == 0
+            && cropRect.right == Math.max(0, width)
+            && cropRect.bottom == Math.max(0, height);
+    }
+
+    private static String normalizeProjectionGeometryProfile(String requested) {
+        if (requested == null || requested.trim().isEmpty()) {
+            return PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC;
+        }
+        String value = requested.trim();
+        if (PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC.equals(value)) {
+            return value;
+        }
+        throw new IllegalArgumentException(
+            "Unsupported direct Camera2 projection geometry profile: " + requested);
+    }
+
+    private static String contentMappingIntentForProjectionGeometryProfile(String profile) {
+        return CONTENT_MAPPING_CAMERA_FULL_FRAME;
+    }
+
+    private static void appendPixelRectObject(StringBuilder builder, String key, Rect rect) {
+        builder.append(",\"").append(key).append("\":{");
+        builder.append("\"left\":").append(rect.left);
+        builder.append(",\"top\":").append(rect.top);
+        builder.append(",\"right\":").append(rect.right);
+        builder.append(",\"bottom\":").append(rect.bottom);
+        builder.append(",\"width\":").append(Math.max(0, rect.width()));
+        builder.append(",\"height\":").append(Math.max(0, rect.height()));
+        builder.append('}');
+    }
+
+    private static void appendUvRectObject(StringBuilder builder, String key, Rect rect, int width, int height) {
+        float safeWidth = Math.max(1, width);
+        float safeHeight = Math.max(1, height);
+        builder.append(",\"").append(key).append("\":{");
+        builder.append("\"left\":").append(floatJson(rect.left / safeWidth));
+        builder.append(",\"top\":").append(floatJson(rect.top / safeHeight));
+        builder.append(",\"right\":").append(floatJson(rect.right / safeWidth));
+        builder.append(",\"bottom\":").append(floatJson(rect.bottom / safeHeight));
+        builder.append('}');
     }
 
     private static String floatJson(float value) {

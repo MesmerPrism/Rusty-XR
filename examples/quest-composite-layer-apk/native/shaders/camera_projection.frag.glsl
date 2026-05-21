@@ -25,6 +25,8 @@ layout(set = 0, binding = 2, std140) uniform CameraProjectionSurfaceMap {
     vec4 color_matrix_r1;
     vec4 color_matrix_r2;
     vec4 color_offset;
+    vec4 left_source_uv_rect;
+    vec4 right_source_uv_rect;
 } surface_map;
 
 layout(push_constant) uniform CameraProjectionPush {
@@ -141,6 +143,14 @@ vec2 apply_camera_texture_transform(vec2 uv, int flags) {
     return uv;
 }
 
+vec2 apply_source_uv_rect(vec2 uv, int source_eye) {
+    vec4 rect = source_eye == 0
+        ? surface_map.left_source_uv_rect
+        : surface_map.right_source_uv_rect;
+    vec2 scale = max(rect.zw, vec2(0.0));
+    return rect.xy + uv * scale;
+}
+
 int source_eye_for_display_eye(int display_eye, int packed_flags) {
     bool swap = (packed_flags & 1024) != 0;
     return swap ? 1 - display_eye : display_eye;
@@ -246,6 +256,7 @@ vec2 screen_uv_from_content_uv(
 vec2 projected_camera_uv(
     vec2 projection_uv,
     int display_eye,
+    int source_eye,
     int transform_flags,
     bool projected,
     out bool valid
@@ -258,9 +269,16 @@ vec2 projected_camera_uv(
             : apply_homography(projection_uv, pc.right_h0, pc.right_h1, pc.right_h2, homography_valid);
     }
 
+    bool source_content_valid =
+        uv.x >= 0.0 &&
+        uv.y >= 0.0 &&
+        uv.x <= 1.0 &&
+        uv.y <= 1.0;
+    uv = apply_source_uv_rect(uv, source_eye);
     uv = apply_camera_texture_transform(uv, transform_flags);
     valid =
         homography_valid &&
+        source_content_valid &&
         uv.x >= 0.0 &&
         uv.y >= 0.0 &&
         uv.x <= 1.0 &&
@@ -294,6 +312,7 @@ vec4 sample_projected_content_source(
     camera_uv = projected_camera_uv(
         projection_uv,
         display_eye,
+        source_eye,
         transform_flags,
         projected,
         valid
@@ -1077,6 +1096,7 @@ void main() {
     vec2 raw_projected_uv = projected_camera_uv(
         projection_uv,
         eye,
+        source_eye,
         transform_flags,
         projected && !full_frame_stimulus_mapping,
         projection_valid

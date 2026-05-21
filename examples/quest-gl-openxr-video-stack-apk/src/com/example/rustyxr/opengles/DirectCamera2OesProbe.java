@@ -39,8 +39,8 @@ public final class DirectCamera2OesProbe {
     private static final String STREAM_RASTER_ORIENTATION_SCHEMA = "rusty.xr.stream_raster_orientation.v1";
     private static final String STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN = "top-left-origin-y-down";
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
-    private static final String CONTENT_MAPPING_CAMERA_PROJECTION = "map-raster-through-camera-projection";
-    private static final String PROJECTION_GEOMETRY_PROFILE_PHYSICAL_CAMERA = "physical-camera";
+    private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-area";
+    private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
     private static final int DEFAULT_WIDTH = 1280;
     private static final int DEFAULT_HEIGHT = 1280;
     private static final int DEFAULT_FRAME_RATE_HZ = 50;
@@ -84,7 +84,8 @@ public final class DirectCamera2OesProbe {
             leftSurfaceTexture,
             config.width,
             config.height,
-            config.frameRateHz);
+            config.frameRateHz,
+            config.projectionGeometryProfile);
         EyeCamera right = new EyeCamera(
             activity,
             1,
@@ -94,7 +95,8 @@ public final class DirectCamera2OesProbe {
             rightSurfaceTexture,
             config.width,
             config.height,
-            config.frameRateHz);
+            config.frameRateHz,
+            config.projectionGeometryProfile);
         DirectCamera2OesProbe probe = new DirectCamera2OesProbe(left, right);
         emitReport(baseReport("start", config));
         left.start(probe.running);
@@ -120,6 +122,7 @@ public final class DirectCamera2OesProbe {
             report.put("width", config.width);
             report.put("height", config.height);
             report.put("requested_frame_rate_hz", config.frameRateHz);
+            report.put("projection_geometry_profile", config.projectionGeometryProfile);
         } catch (Exception ignored) {
         }
         return report;
@@ -151,19 +154,43 @@ public final class DirectCamera2OesProbe {
         return intent != null && intent.hasExtra(key) ? intent.getIntExtra(key, defaultValue) : defaultValue;
     }
 
+    private static String normalizeProjectionGeometryProfile(String requested) {
+        if (requested == null || requested.trim().isEmpty()) {
+            return PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC;
+        }
+        String value = requested.trim();
+        if (PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC.equals(value)) {
+            return value;
+        }
+        throw new IllegalArgumentException(
+            "Unsupported direct Camera2 projection geometry profile: " + requested);
+    }
+
+    private static String contentMappingIntentForProjectionGeometryProfile(String profile) {
+        return CONTENT_MAPPING_CAMERA_FULL_FRAME;
+    }
+
     private static final class Config {
         final String leftCameraId;
         final String rightCameraId;
         final int width;
         final int height;
         final int frameRateHz;
+        final String projectionGeometryProfile;
 
-        Config(String leftCameraId, String rightCameraId, int width, int height, int frameRateHz) {
+        Config(
+            String leftCameraId,
+            String rightCameraId,
+            int width,
+            int height,
+            int frameRateHz,
+            String projectionGeometryProfile) {
             this.leftCameraId = leftCameraId != null && leftCameraId.length() > 0 ? leftCameraId : "50";
             this.rightCameraId = rightCameraId != null && rightCameraId.length() > 0 ? rightCameraId : "51";
             this.width = Math.max(16, width);
             this.height = Math.max(16, height);
             this.frameRateHz = Math.max(1, Math.min(120, frameRateHz));
+            this.projectionGeometryProfile = normalizeProjectionGeometryProfile(projectionGeometryProfile);
         }
 
         static Config fromActivity(Activity activity, int defaultWidth, int defaultHeight, int defaultFrameRateHz) {
@@ -193,7 +220,11 @@ public final class DirectCamera2OesProbe {
                     intExtra(
                         activity,
                         "rustyxr.brokerH264FrameRateHz",
-                        defaultFrameRateHz > 0 ? defaultFrameRateHz : DEFAULT_FRAME_RATE_HZ)));
+                        defaultFrameRateHz > 0 ? defaultFrameRateHz : DEFAULT_FRAME_RATE_HZ)),
+                stringExtra(
+                    activity,
+                    "rustyxr.directCamera2OesProjectionGeometryProfile",
+                    stringExtra(activity, "rustyxr.cameraProjectionGeometryProfile", PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC)));
         }
     }
 
@@ -207,6 +238,7 @@ public final class DirectCamera2OesProbe {
         final int width;
         final int height;
         final int frameRateHz;
+        final String projectionGeometryProfile;
         final AtomicLong sequence = new AtomicLong(0L);
 
         HandlerThread thread;
@@ -223,7 +255,8 @@ public final class DirectCamera2OesProbe {
             SurfaceTexture surfaceTexture,
             int width,
             int height,
-            int frameRateHz) {
+            int frameRateHz,
+            String projectionGeometryProfile) {
             this.activity = activity;
             this.viewIndex = viewIndex;
             this.eye = eye;
@@ -233,6 +266,7 @@ public final class DirectCamera2OesProbe {
             this.width = width;
             this.height = height;
             this.frameRateHz = frameRateHz;
+            this.projectionGeometryProfile = projectionGeometryProfile;
         }
 
         void start(AtomicBoolean running) {
@@ -374,7 +408,7 @@ public final class DirectCamera2OesProbe {
             metadata.put("syntheticPattern", "none");
             metadata.put("deliveredWidth", width);
             metadata.put("deliveredHeight", height);
-            metadata.put("projectionGeometryProfile", PROJECTION_GEOMETRY_PROFILE_PHYSICAL_CAMERA);
+            metadata.put("projectionGeometryProfile", projectionGeometryProfile);
             metadata.put("rasterOrientationSchema", STREAM_RASTER_ORIENTATION_SCHEMA);
             metadata.put("orientationKind", "camera-frame");
             metadata.put("rasterOrientation", STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN);
@@ -401,7 +435,9 @@ public final class DirectCamera2OesProbe {
             contentUvRect.put("right", 1.0);
             contentUvRect.put("bottom", 1.0);
             metadata.put("contentUvRect", contentUvRect);
-            metadata.put("contentMappingIntent", CONTENT_MAPPING_CAMERA_PROJECTION);
+            metadata.put(
+                "contentMappingIntent",
+                contentMappingIntentForProjectionGeometryProfile(projectionGeometryProfile));
             metadata.put("contentGeometryMetadataSource", "direct-camera2-oes-characteristics");
             metadata.put("contentGeometryDefault", false);
             Integer lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);

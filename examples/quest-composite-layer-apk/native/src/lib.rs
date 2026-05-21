@@ -153,6 +153,11 @@ pub(crate) struct HeadsetCameraFrameDiagnostics {
     pub(crate) content_origin: Option<String>,
     pub(crate) content_x_axis: Option<String>,
     pub(crate) content_y_axis: Option<String>,
+    pub(crate) content_uv_rect: Option<[f32; 4]>,
+    pub(crate) source_visible_uv_rect: Option<[f32; 4]>,
+    pub(crate) source_crop_rect_px: Option<[u32; 4]>,
+    pub(crate) source_crop_rect_state: Option<String>,
+    pub(crate) source_crop_rect_owner: Option<String>,
     pub(crate) content_mapping_intent: Option<String>,
     pub(crate) content_geometry_metadata_source: Option<String>,
     pub(crate) content_geometry_default: Option<bool>,
@@ -2973,6 +2978,11 @@ struct JavaCameraFrameMetadata {
     content_origin: Option<String>,
     content_x_axis: Option<String>,
     content_y_axis: Option<String>,
+    content_uv_rect: Option<JavaUvRect>,
+    source_visible_uv_rect: Option<JavaUvRect>,
+    source_crop_rect_px: Option<JavaPixelRect>,
+    source_crop_rect_state: Option<String>,
+    source_crop_rect_owner: Option<String>,
     content_mapping_intent: Option<String>,
     content_geometry_metadata_source: Option<String>,
     content_geometry_default: Option<bool>,
@@ -3012,6 +3022,24 @@ struct JavaPixelDomain {
     kind: JavaPixelDomainKind,
     width: u32,
     height: u32,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JavaUvRect {
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JavaPixelRect {
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -3156,6 +3184,17 @@ fn public_camera_metadata(
         content_origin: bridge.and_then(|value| value.content_origin.clone()),
         content_x_axis: bridge.and_then(|value| value.content_x_axis.clone()),
         content_y_axis: bridge.and_then(|value| value.content_y_axis.clone()),
+        content_uv_rect: bridge
+            .and_then(|value| value.content_uv_rect)
+            .and_then(public_uv_rect),
+        source_visible_uv_rect: bridge
+            .and_then(|value| value.source_visible_uv_rect)
+            .and_then(public_uv_rect),
+        source_crop_rect_px: bridge
+            .and_then(|value| value.source_crop_rect_px)
+            .and_then(public_pixel_rect),
+        source_crop_rect_state: bridge.and_then(|value| value.source_crop_rect_state.clone()),
+        source_crop_rect_owner: bridge.and_then(|value| value.source_crop_rect_owner.clone()),
         content_mapping_intent: bridge.and_then(|value| value.content_mapping_intent.clone()),
         content_geometry_metadata_source: bridge
             .and_then(|value| value.content_geometry_metadata_source.clone()),
@@ -3196,6 +3235,31 @@ fn public_pixel_domain(domain: JavaPixelDomain) -> Option<CameraPixelDomain> {
         JavaPixelDomainKind::Other => CameraPixelDomainKind::Other,
     };
     Some(CameraPixelDomain::new(kind, size))
+}
+
+fn public_uv_rect(rect: JavaUvRect) -> Option<[f32; 4]> {
+    let values = [rect.left, rect.top, rect.right, rect.bottom];
+    if values.iter().all(|value| value.is_finite())
+        && rect.right >= rect.left
+        && rect.bottom >= rect.top
+    {
+        Some([
+            rect.left.clamp(0.0, 1.0),
+            rect.top.clamp(0.0, 1.0),
+            rect.right.clamp(0.0, 1.0),
+            rect.bottom.clamp(0.0, 1.0),
+        ])
+    } else {
+        None
+    }
+}
+
+fn public_pixel_rect(rect: JavaPixelRect) -> Option<[u32; 4]> {
+    if rect.right >= rect.left && rect.bottom >= rect.top {
+        Some([rect.left, rect.top, rect.right, rect.bottom])
+    } else {
+        None
+    }
 }
 
 fn parse_stereo_layout(value: &str) -> Option<StereoMediaLayout> {

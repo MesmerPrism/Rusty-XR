@@ -620,6 +620,9 @@ public final class CompositeLayerActivity extends NativeActivity {
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_STEREO_IMAGE_READER_MAX_IMAGES,
             intExtra("rustyxr.cameraStereoImageReaderMaxImages", DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES));
+        serviceIntent.putExtra(
+            HeadsetCameraService.EXTRA_PROJECTION_GEOMETRY_PROFILE,
+            stringExtra("rustyxr.cameraProjectionGeometryProfile", "full-frame-diagnostic"));
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_CAMERA_TIER, cameraTier());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_STEREO_LAYOUT, cameraStereoLayout());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_ALLOW_CPU_FALLBACK, allowCpuFallback());
@@ -778,6 +781,11 @@ public final class CompositeLayerActivity extends NativeActivity {
             stringExtra(
                 "rustyxr.brokerH264SyntheticProjectionProfile",
                 DEFAULT_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE),
+            stringExtra(
+                "rustyxr.brokerH264ProjectionGeometryProfile",
+                stringExtra(
+                    "rustyxr.brokerH264SyntheticProjectionProfile",
+                    DEFAULT_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE)),
             booleanExtra("rustyxr.brokerH264LiveDecode", DEFAULT_BROKER_H264_LIVE_DECODE),
             booleanExtra("rustyxr.brokerH264ByteIdentityProbe", DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE),
             stringExtra("rustyxr.brokerH264StereoPairingMode", DEFAULT_BROKER_H264_STEREO_PAIRING_MODE),

@@ -393,13 +393,13 @@ def compare_projection_to_depth(
 
     lane = projection.get("lane") or {}
     geometry_profile = lane.get("geometry_profile")
-    if geometry_profile != "physical-camera":
+    if geometry_profile != "full-frame-diagnostic":
         add_finding(
             findings,
             "source_metadata",
             "needs-evidence" if projection_status != "blocked" else "blocked",
-            "projection-geometry-profile-not-physical-camera",
-            "Live Camera2/depth comparison requires an explicit physical-camera geometry profile.",
+            "projection-geometry-profile-not-full-frame-diagnostic",
+            "Live Camera2/depth comparison requires the active full-frame diagnostic geometry profile.",
             geometry_profile,
         )
 

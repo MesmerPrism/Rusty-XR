@@ -108,8 +108,8 @@ mod android {
     const GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE: u32 = 0x8D56;
     const DEFAULT_OES_SURFACE_WIDTH: i32 = 1280;
     const DEFAULT_OES_SURFACE_HEIGHT: i32 = 1280;
-    const OES_COPY_RENDER_PATH: &str = "broker-h264-oes-full-surface-copy";
-    const OES_PROJECTED_RENDER_PATH: &str = "broker-h264-oes-projected-camera-uv";
+    const OES_COPY_RENDER_PATH: &str = "oes-full-surface-copy";
+    const OES_PROJECTED_RENDER_PATH: &str = "oes-projected-camera-uv";
     const DIRECT_CAMERA2_OES_SOURCE: &str = "app.camera2_oes_surface_texture";
     const DEFAULT_PROJECTION_TARGET_DEPTH_METERS: f32 = 1.0;
     const PROJECTION_PREVIEW_FOV_Y_DEGREES: f32 = 60.0;
@@ -180,6 +180,53 @@ mod android {
                 Self::SolidRed => (1.0, 0.0, 0.0, 1.0),
                 Self::DiagnosticSplit => (0.36, 0.0, 0.28, 1.0),
                 Self::PassthroughUnderlay => (0.0, 0.0, 0.0, 0.0),
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    enum OesSourceColorTransfer {
+        Identity,
+        #[default]
+        SrgbToLinear,
+    }
+
+    impl OesSourceColorTransfer {
+        fn parse(value: &str) -> Option<Self> {
+            match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+                "identity" | "none" | "passthrough" | "external-rgb" => Some(Self::Identity),
+                "srgb-to-linear" | "srgb-linear" | "external-oes-srgb-to-linear" => {
+                    Some(Self::SrgbToLinear)
+                }
+                _ => None,
+            }
+        }
+
+        const fn stable_id(self) -> &'static str {
+            match self {
+                Self::Identity => "identity",
+                Self::SrgbToLinear => "srgb-to-linear",
+            }
+        }
+
+        const fn shader_id(self) -> c_int {
+            match self {
+                Self::Identity => 0,
+                Self::SrgbToLinear => 1,
+            }
+        }
+
+        const fn input_encoding(self) -> &'static str {
+            match self {
+                Self::Identity => "linear-or-renderer-native-rgb",
+                Self::SrgbToLinear => "external-oes-srgb-nonlinear-rgb",
+            }
+        }
+
+        const fn output_encoding(self) -> &'static str {
+            match self {
+                Self::Identity => "unchanged-rgb",
+                Self::SrgbToLinear => "linear-rgb",
             }
         }
     }
@@ -720,7 +767,7 @@ mod android {
             projection_depth_meters,
         );
         log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} oesSourceColorTransfer={} sourceColorInputEncoding={} sourceColorOutputEncoding={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
             projection_border_policy.stable_id(),
             processing_layer.stable_id(),
             blur_radius_px,
@@ -744,6 +791,9 @@ mod android {
             projection_area_target_fields,
             native_passthrough_underlay_requested,
             enabled_extensions.fb_passthrough,
+            camera_color_controls.source_transfer.stable_id(),
+            camera_color_controls.source_transfer.input_encoding(),
+            camera_color_controls.source_transfer.output_encoding(),
             camera_color_controls.matrix,
             camera_color_controls.offset,
             camera_color_controls.contrast,
@@ -1437,6 +1487,7 @@ mod android {
                 images,
                 width,
                 height,
+                color_format: selected_format,
                 view_index: index,
                 pattern,
             });
@@ -1547,6 +1598,8 @@ mod android {
                                     frame_count,
                                     source.source_sequence,
                                     eye_projection,
+                                    camera_color_controls,
+                                    eye.color_format,
                                     openxr_projection_fields,
                                     &projection_area_target_fields,
                                 );
@@ -1582,12 +1635,13 @@ mod android {
             }
             if frame_count == 0 || frame_count.is_multiple_of(120) {
                 log_info(format!(
-                    "Rusty XR OpenXR GLES rendered eye={} imageIndex={} texture={} viewport={}x{} fbo={:?} pattern={} sourceSequence={:?}",
+                    "Rusty XR OpenXR GLES rendered eye={} imageIndex={} texture={} viewport={}x{} colorFormat={} fbo={:?} pattern={} sourceSequence={:?}",
                     eye.view_index,
                     image_index,
                     texture,
                     eye.width,
                     eye.height,
+                    gl_format_label(eye.color_format),
                     fbo_status,
                     render_path,
                     rendered_source_sequence
@@ -1611,6 +1665,7 @@ mod android {
         images: Vec<u32>,
         width: u32,
         height: u32,
+        color_format: u32,
         view_index: usize,
         pattern: &'static str,
     }
@@ -1622,6 +1677,7 @@ mod android {
         contrast: f32,
         brightness: f32,
         saturation: f32,
+        source_transfer: OesSourceColorTransfer,
     }
 
     impl Default for OesColorControls {
@@ -1632,6 +1688,7 @@ mod android {
                 contrast: 1.0,
                 brightness: 0.0,
                 saturation: 1.0,
+                source_transfer: OesSourceColorTransfer::default(),
             }
         }
     }
@@ -1663,6 +1720,7 @@ mod android {
         color_matrix_r2_location: c_int,
         color_offset_location: c_int,
         color_adjust_location: c_int,
+        source_color_transfer_location: c_int,
     }
 
     impl OesCopyRenderer {
@@ -1707,6 +1765,7 @@ uniform vec3 u_color_matrix_r1;
 uniform vec3 u_color_matrix_r2;
 uniform vec3 u_color_offset;
 uniform vec3 u_color_adjust;
+uniform int u_source_color_transfer;
 in vec2 v_uv;
 out vec4 out_color;
 vec4 premultiplied_alpha_color(vec3 rgb, float alpha) {
@@ -1754,10 +1813,24 @@ vec2 projection_area_content_uv(vec2 area_uv) {
     );
     return (area_uv - (vec2(0.5) - half_size)) / max(half_size * 2.0, vec2(0.001));
 }
+float srgb_channel_to_linear(float value) {
+    float c = clamp(value, 0.0, 1.0);
+    return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
+}
+vec3 apply_source_color_transfer(vec3 rgb) {
+    if (u_source_color_transfer == 1) {
+        return vec3(
+            srgb_channel_to_linear(rgb.r),
+            srgb_channel_to_linear(rgb.g),
+            srgb_channel_to_linear(rgb.b)
+        );
+    }
+    return rgb;
+}
 vec3 adjusted_camera_rgb(vec2 uv) {
     vec4 transformed = u_source_transform * vec4(clamp(uv, vec2(0.0), vec2(1.0)), 0.0, 1.0);
     vec2 texture_uv = clamp(transformed.xy, vec2(0.0), vec2(1.0));
-    vec3 source_rgb = texture(u_source, texture_uv).rgb;
+    vec3 source_rgb = apply_source_color_transfer(texture(u_source, texture_uv).rgb);
     vec3 adjusted_rgb = vec3(
         dot(u_color_matrix_r0, source_rgb),
         dot(u_color_matrix_r1, source_rgb),
@@ -1936,6 +2009,7 @@ void main() {
                     uniform_location(program, "u_color_matrix_r2")?,
                     uniform_location(program, "u_color_offset")?,
                     uniform_location(program, "u_color_adjust")?,
+                    uniform_location(program, "u_source_color_transfer")?,
                 ))
             })();
             let (
@@ -1963,6 +2037,7 @@ void main() {
                 color_matrix_r2_location,
                 color_offset_location,
                 color_adjust_location,
+                source_color_transfer_location,
             ) = match uniform_locations {
                 Ok(locations) => locations,
                 Err(error) => {
@@ -2023,6 +2098,7 @@ void main() {
                 color_matrix_r2_location,
                 color_offset_location,
                 color_adjust_location,
+                source_color_transfer_location,
             })
         }
 
@@ -2145,6 +2221,10 @@ void main() {
                     color_controls.contrast.clamp(0.0, 4.0),
                     color_controls.brightness.clamp(-1.0, 1.0),
                     color_controls.saturation.clamp(0.0, 4.0),
+                );
+                glUniform1i(
+                    self.source_color_transfer_location,
+                    color_controls.source_transfer.shader_id(),
                 );
                 glUniform3f(
                     self.screen_to_camera_h0_location,
@@ -2671,7 +2751,7 @@ void main() {
                 .to_string();
             let projection_geometry_fallback =
                 if source.contains("camera2") || source.contains("camera") {
-                    "physical-camera"
+                    "full-frame-diagnostic"
                 } else {
                     "unknown"
                 };
@@ -2863,8 +2943,8 @@ void main() {
             self.is_synthetic() && self.synthetic_profile_is("camera-matched")
         }
 
-        fn is_full_frame_diagnostic_synthetic(&self) -> bool {
-            self.is_synthetic() && self.synthetic_profile_is("full-frame-diagnostic")
+        fn is_full_frame_diagnostic_projection(&self) -> bool {
+            self.synthetic_profile_is("full-frame-diagnostic")
         }
 
         fn has_explicit_top_left_stimulus_orientation(&self) -> bool {
@@ -3381,8 +3461,8 @@ void main() {
             {
                 return None;
             }
-            if left.is_full_frame_diagnostic_synthetic()
-                && right.is_full_frame_diagnostic_synthetic()
+            if left.is_full_frame_diagnostic_projection()
+                && right.is_full_frame_diagnostic_projection()
             {
                 broker_full_frame_projection_plan_from_xr_views(
                     left,
@@ -4730,12 +4810,21 @@ void main() {
                 .filter(|value| value.is_finite())
                 .unwrap_or(defaults.saturation)
                 .clamp(0.0, 4.0);
+        let source_transfer =
+            activity_string_extra(&mut env, &activity, "rustyxr.oesSourceColorTransfer")
+                .or_else(|| {
+                    activity_string_extra(&mut env, &activity, "rustyxr.cameraColorTransfer")
+                })
+                .as_deref()
+                .and_then(OesSourceColorTransfer::parse)
+                .unwrap_or(defaults.source_transfer);
         OesColorControls {
             matrix,
             offset,
             contrast,
             brightness,
             saturation,
+            source_transfer,
         }
     }
 
@@ -5010,11 +5099,33 @@ void main() {
         }
     }
 
+    fn source_color_contract_fields(
+        camera_color_controls: OesColorControls,
+        swapchain_color_format: u32,
+    ) -> String {
+        let transfer = camera_color_controls.source_transfer;
+        format!(
+            "sourceColorInputEncoding={} sourceColorTransformStage=post_oes_sample_pre_camera_color_controls sourceColorTransform={} sourceColorTransformOwner=gles-oes-copy-shader sourceColorTransformApplied={} sourceColorOutputEncoding={} cameraColorControlStage=post_source_color_transfer swapchainColorFormat={} swapchainColorEncoding={}",
+            transfer.input_encoding(),
+            transfer.stable_id(),
+            transfer != OesSourceColorTransfer::Identity,
+            transfer.output_encoding(),
+            gl_format_label(swapchain_color_format),
+            if swapchain_color_format == GL_SRGB8_ALPHA8 {
+                "srgb"
+            } else {
+                "linear-or-runtime-default"
+            }
+        )
+    }
+
     fn log_projection_diagnostics(
         view_index: usize,
         frame_count: u64,
         source_sequence: u64,
         projection: Option<&OesEyeProjection>,
+        camera_color_controls: OesColorControls,
+        swapchain_color_format: u32,
         openxr_projection_fields: &str,
         projection_area_target_fields: &str,
     ) {
@@ -5049,7 +5160,7 @@ void main() {
                 (ProjectionStageKind::SurfaceToCamera, identity),
                 (ProjectionStageKind::ScreenToCamera, identity),
             ]);
-        let source_label = projection
+        let source_contract_fields = projection
             .map(|projection| {
                 format!(
                     "{} {} source_eye={}:content_mapping={}:frame={frame_count}:source_sequence={source_sequence}",
@@ -5064,12 +5175,36 @@ void main() {
                     "{OES_COPY_RENDER_PATH}:frame={frame_count}:source_sequence={source_sequence}"
                 )
             });
-        let source_label =
-            format!("{source_label} {openxr_projection_fields} {projection_area_target_fields}");
+        let compact_source_label = projection
+            .map(|projection| {
+                format!(
+                    "{OES_PROJECTED_RENDER_PATH}:source_eye={}:frame={frame_count}:source_sequence={source_sequence}",
+                    projection.source_eye
+                )
+            })
+            .unwrap_or_else(|| {
+                format!("{OES_COPY_RENDER_PATH}:frame={frame_count}:source_sequence={source_sequence}")
+            });
+        log_info(format!(
+            "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-sampling status=ready {} projectionHomographyReady=true projectionMappingReady=true visibleCameraProjectionReady=true",
+            source_contract_fields.replace(':', " ")
+        ));
+        log_info(format!(
+            "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-color status=ready {}",
+            source_color_contract_fields(camera_color_controls, swapchain_color_format)
+        ));
+        log_info(format!(
+            "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=projection-plan status=ready {}",
+            openxr_projection_fields
+        ));
+        log_info(format!(
+            "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=draw-vars-bound status=ready {}",
+            projection_area_target_fields
+        ));
         for (stage, rows) in stage_rows {
             let row = ProjectionStageTokenRow::new("rusty_xr_gl_oes", eye, stage)
                 .with_rows(rows)
-                .with_source(source_label.clone());
+                .with_source(compact_source_label.clone());
             match serde_json::to_string(&row) {
                 Ok(json) => log_info(format!("Rusty XR OpenXR GLES projection stage row {json}")),
                 Err(error) => log_error(format!(
@@ -5411,7 +5546,7 @@ void main() {
     }
 
     fn select_color_format(formats: &[u32]) -> Option<u32> {
-        [GL_RGBA8, GL_SRGB8_ALPHA8, GL_RGB10_A2, GL_RGBA]
+        [GL_SRGB8_ALPHA8, GL_RGBA8, GL_RGB10_A2, GL_RGBA]
             .into_iter()
             .find(|preferred| formats.contains(preferred))
             .or_else(|| formats.first().copied())

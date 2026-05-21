@@ -199,6 +199,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -PackageName <makepad-package> `
   -LauncherActivity <launcher-activity> `
   -XrActivity <xr-activity> `
+  -CameraProjectionGeometryProfile full-frame-diagnostic `
   -ProjectionBorderPolicy passthrough-underlay `
   -SampleSeconds 20
 ```
@@ -262,17 +263,23 @@ only as a blend/mask witness; solid-red raw gates remain the coordinate
 authority.
 
 For GL/OES color matching, keep the first pass scalar and neutral-constrained.
-Use native passthrough at `-ProjectionAreaOpacity 0` as the reference, then
-capture the uncorrected OES projection and one candidate with the same geometry
-and `-ProjectionAreaOpacity 1`. Sample both color bars and neutral regions of
-the target; do not fit a full matrix from saturated bars alone. A useful current
-baseline for the alignment stimulus is:
+The current OES path first names the external texture color-transfer layer:
+`rustyxr.oesSourceColorTransfer=srgb-to-linear` converts
+`GL_TEXTURE_EXTERNAL_OES` camera/video RGB before the generic camera color
+matrix, offset, contrast, brightness, and saturation controls. Use native
+passthrough at `-ProjectionAreaOpacity 0` as the reference, then capture the
+default OES projection and one candidate with the same geometry and
+`-ProjectionAreaOpacity 1`. Sample both color bars and neutral regions of the
+target; do not fit a full matrix from saturated bars alone. If you need to
+disable the OES transfer for an A/B check, set
+`rustyxr.oesSourceColorTransfer=identity` and record that as the tested source
+color convention. A scalar fallback should start from:
 
 ```powershell
 -GlesCameraColorMatrix '1;0;0;0;1;0;0;0;1' `
 -GlesCameraColorOffset '0;0;0' `
--GlesCameraColorContrast 0.85 `
--GlesCameraColorBrightness -0.11 `
+-GlesCameraColorContrast 1.0 `
+-GlesCameraColorBrightness 0.0 `
 -GlesCameraColorSaturation 1.0
 ```
 
@@ -345,6 +352,18 @@ coordination system before running it.
 For broker-camera Makepad runs, it defaults to headset camera IDs `50` and `51`
 and launches the generated XR activity directly because the normal launcher
 activity is not the reliable XR presentation gate.
+Use `-BrokerH264ProjectionGeometryProfile` for broker-camera or
+broker-synthetic transport checks where the renderer should consume one
+source-agnostic content geometry contract. Use
+`-CameraProjectionGeometryProfile` for direct HWB, GL/OES, and Makepad Camera2
+checks.
+The active direct Camera2 diagnostic profile is `full-frame-diagnostic`; other
+direct Camera2 geometry-profile values are rejected or reported as unsupported.
+The
+legacy
+`-BrokerH264SyntheticProjectionProfile` parameter remains the synthetic-source
+profile alias; it should not be the only geometry selector for actual camera
+data fed through the broker.
 The suite writes passive `state-snapshots\` before and after each mode. These
 snapshots record ADB state, `dumpsys power`, `stay_on_while_plugged_in`, focus,
 windows, VR power-manager state, and broker status/clock endpoints where
@@ -394,7 +413,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -RestartBrokerBeforeBrokerModes `
   -BrokerH264SourceMode broker-synthetic `
   -BrokerH264SyntheticPattern diagnostic-grid `
-  -BrokerH264SyntheticProjectionProfile camera-matched `
+  -BrokerH264ProjectionGeometryProfile full-frame-diagnostic `
   -ProjectionBorderPolicy passthrough-underlay `
   -ProcessingLayer raw
 ```
@@ -434,10 +453,12 @@ broker-managed source lane. The suite forwards the same synthetic pattern,
 source-geometry profile, stream ports, resolution, bitrate, requested FPS,
 capture duration, and max packet settings into the Vulkan/HWB, GL/OES, and
 Makepad broker modes, so their projection rows and screen-space masks can be
-compared before physical camera variables are reintroduced. Use
-`camera-matched` when synthetic pixels should follow the real Camera2
-projection shape, and `full-frame-diagnostic` when the diagnostic raster should
-exercise projection-surface coverage and orientation directly.
+compared before source-acquisition variables are reintroduced. Use
+`-BrokerH264ProjectionGeometryProfile full-frame-diagnostic` when either
+synthetic pixels or real camera pixels should exercise projection-surface
+coverage and orientation directly through the same broker transport contract.
+Use `camera-matched` only for synthetic negative controls that intentionally
+replay the older physical Camera2 projection footprint.
 
 After a solid-red suite run, measure each lane in the captured screenshot
 coordinate system:

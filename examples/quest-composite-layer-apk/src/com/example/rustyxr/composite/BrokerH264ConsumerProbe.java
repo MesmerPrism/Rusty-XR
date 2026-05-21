@@ -105,6 +105,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final boolean startBrokerSyntheticStream;
         final String syntheticPattern;
         final String syntheticProjectionProfile;
+        final String projectionGeometryProfile;
         final boolean liveDecode;
         final boolean byteIdentityProbe;
         final String stereoPairingMode;
@@ -139,6 +140,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             String sourceMode,
             String syntheticPattern,
             String syntheticProjectionProfile,
+            String projectionGeometryProfile,
             boolean liveDecode,
             boolean byteIdentityProbe,
             String stereoPairingMode,
@@ -174,6 +176,10 @@ final class BrokerH264ConsumerProbe implements Runnable {
             this.startBrokerSyntheticStream = SOURCE_MODE_BROKER_SYNTHETIC.equals(this.sourceMode);
             this.syntheticPattern = normalizeSyntheticPattern(syntheticPattern);
             this.syntheticProjectionProfile = normalizeSyntheticProjectionProfile(syntheticProjectionProfile);
+            this.projectionGeometryProfile = normalizeSyntheticProjectionProfile(
+                projectionGeometryProfile != null && projectionGeometryProfile.trim().length() > 0
+                    ? projectionGeometryProfile
+                    : syntheticProjectionProfile);
             this.liveDecode = liveDecode;
             this.byteIdentityProbe = byteIdentityProbe;
             this.stereoPairingMode = normalizeStereoPairingMode(stereoPairingMode);
@@ -316,6 +322,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("broker_synthetic_stream_start_requested", config.startBrokerSyntheticStream);
             report.put("synthetic_pattern", config.syntheticPattern);
             report.put("synthetic_projection_profile", config.syntheticProjectionProfile);
+            report.put("projection_geometry_profile", config.projectionGeometryProfile);
             report.put("decode_output_mode", config.decodeOutputMode);
             report.put("live_decode_requested", config.liveDecode);
             report.put("byte_identity_probe_requested", config.byteIdentityProbe);
@@ -1045,13 +1052,15 @@ final class BrokerH264ConsumerProbe implements Runnable {
         params.put("bitrate_bps", config.bitrateBps);
         params.put("frame_rate_hz", config.frameRateHz);
         params.put("live_stream", config.liveStream);
+        params.put("projection_geometry_profile", config.projectionGeometryProfile);
+        params.put("projectionGeometryProfile", config.projectionGeometryProfile);
         if (cameraId != null && cameraId.length() > 0) {
             params.put("camera_id", cameraId);
         }
         if (config.startBrokerSyntheticStream) {
             params.put("source_mode", "synthetic_surface");
             params.put("synthetic_pattern", config.syntheticPattern);
-            params.put("synthetic_projection_profile", config.syntheticProjectionProfile);
+            params.put("synthetic_projection_profile", config.projectionGeometryProfile);
         }
 
         JSONObject command = new JSONObject();

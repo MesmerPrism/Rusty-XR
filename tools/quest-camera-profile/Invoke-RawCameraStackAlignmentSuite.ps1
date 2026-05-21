@@ -15,11 +15,14 @@ param(
     [int]$SampleSeconds = 20,
     [int]$FreshnessFrames = 6,
     [int]$FreshnessIntervalMs = 1000,
+    [ValidateSet("full-frame-diagnostic")]
+    [string]$CameraProjectionGeometryProfile = "full-frame-diagnostic",
     [ValidateSet("broker-camera", "broker-synthetic")]
     [string]$BrokerH264SourceMode = "broker-camera",
     [string]$BrokerH264LeftCameraId = "50",
     [string]$BrokerH264RightCameraId = "51",
     [string]$BrokerH264SyntheticPattern = "diagnostic-grid",
+    [string]$BrokerH264ProjectionGeometryProfile = "",
     [ValidateSet("head-anchored-virtual-camera", "camera-matched", "full-frame-diagnostic")]
     [string]$BrokerH264SyntheticProjectionProfile = "head-anchored-virtual-camera",
     [int]$BrokerH264LeftStreamPort = 8879,
@@ -144,6 +147,8 @@ param(
     [double]$GlesCameraColorContrast = 1.0,
     [double]$GlesCameraColorBrightness = 0.0,
     [double]$GlesCameraColorSaturation = 1.0,
+    [ValidateSet("srgb-to-linear", "identity")]
+    [string]$GlesOesSourceColorTransfer = "srgb-to-linear",
     [switch]$EnableNativePassthroughUnderlay,
     [switch]$EnableStayAwakeGuard,
     [switch]$RestoreStayAwakeGuard,
@@ -175,6 +180,7 @@ $unknownModes = @($Mode | Where-Object { $allModes -notcontains $_ })
 if ($unknownModes.Count -gt 0) {
     throw "Unknown mode(s): $($unknownModes -join ', '). Valid modes: $($allModes -join ', ')"
 }
+$usesBrokerH264Modes = @($Mode | Where-Object { $_ -like "*broker-h264*" }).Count -gt 0
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $cameraProfileRunner = Join-Path $PSScriptRoot "Invoke-QuestCameraProfileRun.ps1"
@@ -519,7 +525,7 @@ function Resolve-BrokerModeProjectionAreaOffsetXUv {
         [double]$ModeValue,
         [double]$FullFrameRendererValue
     )
-    if ($BrokerH264SyntheticProjectionProfile -eq "full-frame-diagnostic") {
+    if ((Resolve-BrokerH264ProjectionGeometryProfile) -eq "full-frame-diagnostic") {
         if (-not [double]::IsNaN($FullFrameRendererValue)) {
             return $FullFrameRendererValue
         }
@@ -555,7 +561,7 @@ function Resolve-BrokerModeProjectionAreaOffsetYUv {
         [double]$ModeValue,
         [double]$FullFrameRendererValue
     )
-    if ($BrokerH264SyntheticProjectionProfile -eq "full-frame-diagnostic") {
+    if ((Resolve-BrokerH264ProjectionGeometryProfile) -eq "full-frame-diagnostic") {
         if (-not [double]::IsNaN($FullFrameRendererValue)) {
             return $FullFrameRendererValue
         }
@@ -730,6 +736,7 @@ function Get-VulkanProjectionBorderOverride {
     $alphaBias = Format-InvariantDouble -Value $ProjectionAlphaBias
     $commonValues = [System.Collections.Generic.List[string]]::new()
     $commonValues.Add("rustyxr.xrRenderScale=$xrRenderScale")
+    $commonValues.Add("rustyxr.cameraProjectionGeometryProfile=$CameraProjectionGeometryProfile")
     $commonValues.Add("rustyxr.cameraProjectionScale=$projectionScale")
     $commonValues.Add("rustyxr.cameraProjectionDepthMeters=$projectionDepth")
     $commonValues.Add("rustyxr.cameraProjectionAreaScaleUv=$projectionAreaScaleUv")
@@ -801,14 +808,26 @@ function Get-GlesProjectionBorderOverride {
     $colorContrast = Format-InvariantDouble -Value $GlesCameraColorContrast
     $colorBrightness = Format-InvariantDouble -Value $GlesCameraColorBrightness
     $colorSaturation = Format-InvariantDouble -Value $GlesCameraColorSaturation
-    return "rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,rustyxr.processingLayer=$ProcessingLayer,rustyxr.cameraBlurRadiusPx=$blurRadius,rustyxr.projectionDepthMeters=$projectionDepth,rustyxr.projectionAreaOffsetXUv=$offsetX,rustyxr.projectionAreaOffsetYUv=$offsetY,rustyxr.projectionAreaLeftOffsetXUv=$leftOffsetX,rustyxr.projectionAreaLeftOffsetYUv=$leftOffsetY,rustyxr.projectionAreaRightOffsetXUv=$rightOffsetX,rustyxr.projectionAreaRightOffsetYUv=$rightOffsetY,rustyxr.projectionAreaScaleUv=$scaleUv,rustyxr.projectionAreaRadiusXUv=$areaRadiusX,rustyxr.projectionAreaRadiusYUv=$areaRadiusY,rustyxr.projectionAreaCornerRadiusUv=$cornerRadius,rustyxr.projectionAreaOpacity=$areaOpacity,rustyxr.projectionBorderOpacity=$borderOpacity,rustyxr.projectionAlphaMode=$ProjectionAlphaMode,rustyxr.projectionAlphaScale=$alphaScale,rustyxr.projectionAlphaBias=$alphaBias,rustyxr.cameraColorMatrix=$GlesCameraColorMatrix,rustyxr.cameraColorOffset=$GlesCameraColorOffset,rustyxr.cameraColorContrast=$colorContrast,rustyxr.cameraColorBrightness=$colorBrightness,rustyxr.cameraColorSaturation=$colorSaturation"
+    return "rustyxr.cameraProjectionGeometryProfile=$CameraProjectionGeometryProfile,rustyxr.directCamera2OesProjectionGeometryProfile=$CameraProjectionGeometryProfile,rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,rustyxr.processingLayer=$ProcessingLayer,rustyxr.cameraBlurRadiusPx=$blurRadius,rustyxr.projectionDepthMeters=$projectionDepth,rustyxr.projectionAreaOffsetXUv=$offsetX,rustyxr.projectionAreaOffsetYUv=$offsetY,rustyxr.projectionAreaLeftOffsetXUv=$leftOffsetX,rustyxr.projectionAreaLeftOffsetYUv=$leftOffsetY,rustyxr.projectionAreaRightOffsetXUv=$rightOffsetX,rustyxr.projectionAreaRightOffsetYUv=$rightOffsetY,rustyxr.projectionAreaScaleUv=$scaleUv,rustyxr.projectionAreaRadiusXUv=$areaRadiusX,rustyxr.projectionAreaRadiusYUv=$areaRadiusY,rustyxr.projectionAreaCornerRadiusUv=$cornerRadius,rustyxr.projectionAreaOpacity=$areaOpacity,rustyxr.projectionBorderOpacity=$borderOpacity,rustyxr.projectionAlphaMode=$ProjectionAlphaMode,rustyxr.projectionAlphaScale=$alphaScale,rustyxr.projectionAlphaBias=$alphaBias,rustyxr.oesSourceColorTransfer=$GlesOesSourceColorTransfer,rustyxr.cameraColorMatrix=$GlesCameraColorMatrix,rustyxr.cameraColorOffset=$GlesCameraColorOffset,rustyxr.cameraColorContrast=$colorContrast,rustyxr.cameraColorBrightness=$colorBrightness,rustyxr.cameraColorSaturation=$colorSaturation"
+}
+
+function Resolve-BrokerH264ProjectionGeometryProfile {
+    if ($BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) {
+        return $BrokerH264ProjectionGeometryProfile.Trim()
+    }
+    if ($BrokerH264SourceMode -eq "broker-camera") {
+        return "full-frame-diagnostic"
+    }
+    return $BrokerH264SyntheticProjectionProfile
 }
 
 function Get-BrokerH264Override {
+    $projectionGeometryProfile = Resolve-BrokerH264ProjectionGeometryProfile
     $values = [System.Collections.Generic.List[string]]::new()
     $values.Add("rustyxr.brokerH264SourceMode=$BrokerH264SourceMode")
     $values.Add("rustyxr.brokerH264SyntheticPattern=$BrokerH264SyntheticPattern")
     $values.Add("rustyxr.brokerH264SyntheticProjectionProfile=$BrokerH264SyntheticProjectionProfile")
+    $values.Add("rustyxr.brokerH264ProjectionGeometryProfile=$projectionGeometryProfile")
     $values.Add("rustyxr.brokerH264StreamPort=$BrokerH264LeftStreamPort")
     $values.Add("rustyxr.brokerH264RightStreamPort=$BrokerH264RightStreamPort")
     $values.Add("rustyxr.brokerH264CaptureMs=$BrokerH264CaptureMs")
@@ -1024,6 +1043,8 @@ function Invoke-MakepadMode {
     $argList.Add($ProjectionBorderPolicy)
     $argList.Add("-ProcessingLayer")
     $argList.Add($ProcessingLayer)
+    $argList.Add("-CameraProjectionGeometryProfile")
+    $argList.Add($CameraProjectionGeometryProfile)
     $argList.Add("-BlurRadiusPx")
     $argList.Add((Format-InvariantDouble -Value $BlurRadiusPx))
     $argList.Add("-ProjectionScale")
@@ -1084,6 +1105,8 @@ function Invoke-MakepadMode {
     }
 
     if ($BrokerSourceMode) {
+        $argList.Add("-BrokerH264ProjectionGeometryProfile")
+        $argList.Add((Resolve-BrokerH264ProjectionGeometryProfile))
         $argList.Add("-BrokerH264CaptureMs")
         $argList.Add([string]$BrokerH264CaptureMs)
         $argList.Add("-BrokerH264MaxPackets")
@@ -1341,7 +1364,17 @@ $lines.Add(("- Session: ``{0}``" -f $sessionId))
 $lines.Add(("- Border policy: ``{0}``" -f $ProjectionBorderPolicy))
 $lines.Add(("- Processing layer: ``{0}``" -f $ProcessingLayer))
 $lines.Add(("- Blur radius px: ``{0}``" -f (Format-InvariantDouble -Value $BlurRadiusPx)))
+$lines.Add(("- Selected modes: ``{0}``" -f ($Mode -join ", ")))
+if ($usesBrokerH264Modes) {
+    $lines.Add(("- Broker H.264 source mode: ``{0}``" -f $BrokerH264SourceMode))
+    $lines.Add(("- Broker H.264 projection geometry profile: ``{0}``" -f (Resolve-BrokerH264ProjectionGeometryProfile)))
+    $lines.Add(("- Broker H.264 synthetic projection profile alias: ``{0}``" -f $BrokerH264SyntheticProjectionProfile))
+}
+else {
+    $lines.Add("- Broker H.264 transport: not used by selected modes")
+}
 $lines.Add(("- Projection depth meters default: ``{0}``" -f (Format-InvariantDouble -Value $ProjectionDepthMeters)))
+$lines.Add(("- Direct Camera2 projection geometry profile: ``{0}``" -f $CameraProjectionGeometryProfile))
 $lines.Add(("- Vulkan/HWB direct/broker projection depth meters: ``{0}``, ``{1}``" -f (Format-InvariantDouble -Value (Resolve-VulkanProjectionDepthMeters -ModeValue $VulkanDirectProjectionDepthMeters)), (Format-InvariantDouble -Value (Resolve-VulkanProjectionDepthMeters -ModeValue $VulkanBrokerProjectionDepthMeters))))
 $lines.Add(("- GL/OES direct/broker projection depth meters: ``{0}``, ``{1}``" -f (Format-InvariantDouble -Value (Resolve-GlesProjectionDepthMeters -ModeValue $GlesDirectProjectionDepthMeters)), (Format-InvariantDouble -Value (Resolve-GlesProjectionDepthMeters -ModeValue $GlesBrokerProjectionDepthMeters))))
 $lines.Add(("- Makepad CPU-YUV direct/broker projection depth meters: ``{0}``, ``{1}``" -f (Format-InvariantDouble -Value (Resolve-MakepadProjectionDepthMeters -ModeValue $MakepadDirectProjectionDepthMeters)), (Format-InvariantDouble -Value (Resolve-MakepadProjectionDepthMeters -ModeValue $MakepadBrokerProjectionDepthMeters))))
@@ -1423,6 +1456,7 @@ $lines.Add(("- Projection alpha mode/scale/bias: ``{0}``, ``{1}``, ``{2}``" -f $
 $lines.Add(("- GL/OES camera color matrix: ``{0}``" -f $GlesCameraColorMatrix))
 $lines.Add(("- GL/OES camera color offset: ``{0}``" -f $GlesCameraColorOffset))
 $lines.Add(("- GL/OES camera color contrast/brightness/saturation: ``{0}``, ``{1}``, ``{2}``" -f (Format-InvariantDouble -Value $GlesCameraColorContrast), (Format-InvariantDouble -Value $GlesCameraColorBrightness), (Format-InvariantDouble -Value $GlesCameraColorSaturation)))
+$lines.Add(("- GL/OES OES source color transfer: ``{0}``" -f $GlesOesSourceColorTransfer))
 $effectiveNativePassthroughUnderlayRequested = $EnableNativePassthroughUnderlay -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0 -or $ProjectionAlphaMode -ne "fixed"
 $lines.Add(("- Native passthrough underlay requested: ``{0}``" -f [bool]$effectiveNativePassthroughUnderlayRequested))
 $lines.Add(("- Vulkan/HWB border override: ``{0}``" -f (Get-VulkanProjectionBorderOverride)))
@@ -1430,12 +1464,12 @@ $lines.Add(("- GL/OES border override: ``{0}``" -f (Get-GlesProjectionBorderOver
 $lines.Add(("- Warmup seconds: ``{0}``" -f $WarmupSeconds))
 $lines.Add(("- Sample seconds: ``{0}``" -f $SampleSeconds))
 $lines.Add(("- Freshness frames: ``{0}``" -f $FreshnessFrames))
-$lines.Add(("- Broker H.264 source mode: ``{0}``" -f $BrokerH264SourceMode))
-$lines.Add(("- Broker H.264 synthetic pattern: ``{0}``" -f $BrokerH264SyntheticPattern))
-$lines.Add(("- Broker H.264 synthetic projection profile: ``{0}``" -f $BrokerH264SyntheticProjectionProfile))
-$lines.Add(("- Broker H.264 stream ports: left ``{0}``, right ``{1}``" -f $BrokerH264LeftStreamPort, $BrokerH264RightStreamPort))
-$lines.Add(("- Broker H.264 source shape: ``{0}x{1}``, bitrate ``{2}``, requested FPS ``{3}``, capture ms ``{4}``, max packets ``{5}``" -f $BrokerH264Width, $BrokerH264Height, $BrokerH264BitrateBps, $BrokerH264FrameRateHz, $BrokerH264CaptureMs, $BrokerH264MaxPackets))
-$lines.Add(("- Broker camera IDs: left ``{0}``, right ``{1}``" -f $BrokerH264LeftCameraId, $BrokerH264RightCameraId))
+if ($usesBrokerH264Modes) {
+    $lines.Add(("- Broker H.264 synthetic pattern: ``{0}``" -f $BrokerH264SyntheticPattern))
+    $lines.Add(("- Broker H.264 stream ports: left ``{0}``, right ``{1}``" -f $BrokerH264LeftStreamPort, $BrokerH264RightStreamPort))
+    $lines.Add(("- Broker H.264 source shape: ``{0}x{1}``, bitrate ``{2}``, requested FPS ``{3}``, capture ms ``{4}``, max packets ``{5}``" -f $BrokerH264Width, $BrokerH264Height, $BrokerH264BitrateBps, $BrokerH264FrameRateHz, $BrokerH264CaptureMs, $BrokerH264MaxPackets))
+    $lines.Add(("- Broker camera IDs: left ``{0}``, right ``{1}``" -f $BrokerH264LeftCameraId, $BrokerH264RightCameraId))
+}
 $lines.Add(("- Lane app force-stop before each mode: ``{0}``" -f (-not [bool]$SkipLaneAppForceStop)))
 if (-not $SkipLaneAppForceStop) {
     $lines.Add(("- Lane app force-stop settle seconds: ``{0}``" -f $LaneAppForceStopSettleSeconds))

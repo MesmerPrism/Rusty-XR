@@ -63,7 +63,7 @@ homography stages first.
 
 ## Current Evidence Snapshot
 
-Latest completed synthetic evidence on 2026-05-19 has this status:
+Initial completed synthetic evidence on 2026-05-19 has this status:
 
 - `camera-matched`: all three broker lanes now emit renderer-authored expected
   source-valid footprints with
@@ -87,7 +87,7 @@ Latest completed synthetic evidence on 2026-05-19 has this status:
 
 Later 2026-05-19 work promoted the same contract beyond synthetic evidence:
 
-- live direct and broker Camera2 now use explicit `physical-camera` geometry
+- live direct and broker Camera2 now use explicit source/content geometry
   instead of synthetic profile fallback;
 - the broker live Camera2 path carries stream-header geometry through HWB,
   GL/OES, and Makepad, and is the cleanest machine-checkable live source path;
@@ -119,22 +119,49 @@ peripheral warp that the custom projection is not expected to reproduce.
 
 The resolved mismatch owners are:
 
-- GL/OES opacity and brightness mismatch: texture/upload convention. Source
-  alpha output must premultiply RGB before OpenXR source-alpha composition.
+- GL/OES opacity and brightness mismatch: texture/upload and color-transfer
+  convention. Source alpha output must premultiply RGB before OpenXR
+  source-alpha composition. External OES camera/video RGB is a separate color
+  layer: the renderer logs and applies `sourceColorTransform=srgb-to-linear`
+  before generic camera color controls, and prefers an sRGB OpenXR GLES
+  swapchain when the runtime exposes one.
 - HWB and GL/OES per-eye center offsets: projection-area mapping. The common
   projection-area offset is only a fallback; HWB and GL/OES can accept per-eye
   left/right X and Y offsets.
 - False GL/OES right-eye row selection: analyzer evidence. The green-cross
   detector chooses a strong axis near the green target median instead of the
   raw maximum row or column when other green target features are present.
+- Full-frame GL/OES broker guide-only segmentation: analyzer evidence. When a
+  renderer-authored full-frame source-valid footprint leaves no meaningful red
+  invalid-fill region, the strict analyzer may use the cyan/yellow diagnostic
+  guide signal plus the logged full-frame footprint. That is still diagnostic
+  mask evidence, not a visible-content fallback.
 
-The follow-up source-sampling audit keeps that owner model explicit. Existing
-broker-synthetic runs place the dominant green feature at the same rows across
-HWB, GL/OES, and Makepad, while live direct Camera2 rows still split by source
-path even when `surface_to_screen`, `screen_to_surface`, `surface_to_camera`,
-and `screen_to_camera` homographies match. Treat that as texture/upload
-convention plus source-sampling metadata until a renderer emits contradictory
-evidence. Do not repair it with a lane-specific projection-area Y offset.
+The follow-up source-sampling audit keeps that owner model explicit.
+Broker-synthetic runs place the dominant green feature at the same rows across
+HWB, GL/OES, and Makepad. A later source-agnostic full-frame run extends that
+result to actual broker Camera2 data: HWB and Makepad report dominant green
+rows at left `657` / right `619`, GL/OES reports left `661` / right `625`,
+and cross-lane valid-projection footprint parity passes with no contract gaps.
+Direct Camera2 full-frame checks for HWB and GL/OES also pass with the same
+rows. A post-rebuild focused matrix measured HWB at left `658` / right `619`
+and GL/OES at left `661` / right `624`, with zero contract gaps and passing
+cross-lane valid-projection footprint parity. That is evidence that direct and
+broker camera lanes can share the same explicit full-frame rendering contract.
+Makepad now has the same direct full-frame selector wired into the public
+wrapper and renderer metadata path; an on-device Makepad direct rerun still
+needs to confirm that selector against the already-passing broker-camera
+full-frame lane.
+
+The older physical-camera direct run remains useful as a negative control.
+HWB landed the dominant green feature at left `828` / right `815` while GL/OES
+landed at left `699` / right `651` and Makepad at left `697` / right `648`.
+The named first divergent layer is the physical-camera source-sampling /
+texture-upload contract: HWB sampled hardware-buffer input through
+`cameraTextureTransformFlags`, while GL/OES used the Android
+`SurfaceTexture` matrix and Makepad used its CPU-YUV
+`source_sample_uv` convention. Do not repair that split with a lane-specific
+projection-area Y offset.
 
 Blur remains a downstream consumer of the stable projection contract. Do not
 use blur, color effects, source crops, or renderer-local hidden offsets to
@@ -365,6 +392,7 @@ Trace these before using OES as the reference:
 - producer buffer size versus renderer texture size
 - OES external texture UV after transform
 - source valid UV rect and crop
+- external-OES source color transfer and selected GLES swapchain color format
 - `projectionDepthMeters` (meters to the head-anchored projection surface)
 - projection-area mask and matte/border policy
 - per-eye `screen_to_camera` stage
@@ -511,12 +539,14 @@ Before accepting a coordinate run:
 - `camera-matched` explains its source footprint in renderer-authored
   display-eye screen UV, with analyzer inference retained only as a model
   comparison.
+- `physical-camera` is not an active Camera2 lane; it names older
+  source-sampling evidence only.
 - HWB, OES, and Makepad all log the same stage names even if their backend
   texture paths differ.
 - Screenshot analysis records observed pixels but does not override the
   manifest or transform source of truth.
-- Any physical-camera or passthrough-underlay run names the synthetic run it is
-  meant to confirm.
+- Any passthrough-underlay witness run names the synthetic or full-frame camera
+  run it is meant to confirm.
 - Any environment-depth particle or mesh run emits a depth/world-space contract
   artifact, including depth texture size, near/far range, capture time,
   depth-view FOV/pose, current render-eye FOV/pose, sample identity policy, and

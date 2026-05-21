@@ -2963,8 +2963,12 @@ unsafe fn run_vulkan(
                                     &stereo_frame,
                                     controls.source_eye_mapping,
                                 );
+                            let source_sample_transform_applied =
+                                source_uv_rect_transform_applied(&stereo_frame)
+                                    || controls.left_texture_transform.shader_flags() != 0
+                                    || controls.right_texture_transform.shader_flags() != 0;
                             log_info(format!(
-                                "Rusty XR GPU stereo camera draw prepared frame {} requestedTier={} activeTier={} alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true cpuUploadCount=0 poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_texture_sample sourceSampleTransform=cameraTextureTransformFlags sourceSampleTransformOwner=vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck={} orientationAccepted={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} importCacheSize={} stereoDescriptorCacheSize={} projectionShaderPath={} projectionMetadataReady={} fallbackReason={}",
+                                "Rusty XR GPU stereo camera draw prepared frame {} requestedTier={} activeTier={} alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true cpuUploadCount=0 poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck={} orientationAccepted={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} importCacheSize={} stereoDescriptorCacheSize={} projectionShaderPath={} projectionMetadataReady={} fallbackReason={}",
                                 stereo_frame.index,
                                 config.camera_tier.stable_id(),
                                 if projection_active {
@@ -2992,10 +2996,11 @@ unsafe fn run_vulkan(
                                 display_right_camera_id,
                                 controls.left_label(),
                                 controls.right_label(),
+                                controls.left_texture_transform.shader_flags(),
+                                controls.right_texture_transform.shader_flags(),
                                 config.camera_texture_transform.source_label.as_str(),
                                 config.camera_texture_transform.reason.as_str(),
-                                controls.left_texture_transform.shader_flags() != 0
-                                    || controls.right_texture_transform.shader_flags() != 0,
+                                source_sample_transform_applied,
                                 config.camera_texture_transform.is_explicit_visual_check(),
                                 orientation_accepted,
                                 config.visual_release_accepted,
@@ -3084,8 +3089,21 @@ unsafe fn run_vulkan(
                             let orientation_accepted =
                                 controls.left_texture_transform.is_explicit_visual_check()
                                     && controls.right_texture_transform.is_explicit_visual_check();
+                            let source_sample_transform_applied =
+                                source_uv_rect_transform_applied(&stereo_frame)
+                                    || controls.left_texture_transform.shader_flags() != 0
+                                    || controls.right_texture_transform.shader_flags() != 0;
                             log_info(format!(
-                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_texture_sample sourceSampleTransform=cameraTextureTransformFlags sourceSampleTransformOwner=vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
+                                "Rusty XR HWB source sampling detail frame={} {}",
+                                stereo_frame.index,
+                                projection_hwb_source_sampling_detail_marker_fields(
+                                    &stereo_frame,
+                                    &controls,
+                                    &config,
+                                )
+                            ));
+                            log_info(format!(
+                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
                                 stereo_frame.index,
                                 frame_count,
                                 session_focused,
@@ -3109,10 +3127,11 @@ unsafe fn run_vulkan(
                                 display_right_camera_id,
                                 controls.left_label(),
                                 controls.right_label(),
+                                controls.left_texture_transform.shader_flags(),
+                                controls.right_texture_transform.shader_flags(),
                                 config.camera_texture_transform.source_label.as_str(),
                                 config.camera_texture_transform.reason.as_str(),
-                                controls.left_texture_transform.shader_flags() != 0
-                                    || controls.right_texture_transform.shader_flags() != 0,
+                                source_sample_transform_applied,
                                 orientation_accepted,
                                 config.camera_projection_mode.projection_surface_label(),
                                 gpu_camera_renderer.imports.len(),
@@ -5059,7 +5078,10 @@ impl GpuCameraRenderer {
             extent: resolution,
         }];
         let push = CameraProjectionPush::from_frame(frame, config);
-        let uniforms = CameraProjectionUniforms::identity().with_color_config(config);
+        let source_uv_rect = source_uv_rect_xywh_for_frame(frame);
+        let uniforms = CameraProjectionUniforms::identity()
+            .with_source_uv_rects(source_uv_rect, source_uv_rect)
+            .with_color_config(config);
         let uniform_offset = resources.projection_uniform_offset(0);
         if let Err(error) =
             update_camera_projection_uniforms(device, resources, uniform_offset, &uniforms)
@@ -5134,6 +5156,7 @@ impl GpuCameraRenderer {
         let (push, uniforms, projection_homographies) =
             if let Some(homographies) = applied_projection_homographies {
                 let (push, uniforms) = CameraProjectionPush::from_projected_stereo_homographies(
+                    frame,
                     config,
                     &controls,
                     &homographies,
@@ -5378,6 +5401,8 @@ struct CameraProjectionUniforms {
     color_matrix_r1: [f32; 4],
     color_matrix_r2: [f32; 4],
     color_offset: [f32; 4],
+    left_source_uv_rect: [f32; 4],
+    right_source_uv_rect: [f32; 4],
 }
 
 impl CameraProjectionUniforms {
@@ -5421,6 +5446,8 @@ impl CameraProjectionUniforms {
             color_matrix_r1: [0.0, 1.0, 0.0, 0.0],
             color_matrix_r2: [0.0, 0.0, 1.0, 0.0],
             color_offset: [0.0, 0.0, 0.0, 0.0],
+            left_source_uv_rect: full_source_uv_rect_xywh(),
+            right_source_uv_rect: full_source_uv_rect_xywh(),
         }
     }
 
@@ -5454,6 +5481,12 @@ impl CameraProjectionUniforms {
 
     fn with_border_cycle_phase(mut self, config: &crate::RuntimeConfig, frame_count: u64) -> Self {
         self.color_offset[3] = config.camera_border_cycle_phase(frame_count);
+        self
+    }
+
+    fn with_source_uv_rects(mut self, left: [f32; 4], right: [f32; 4]) -> Self {
+        self.left_source_uv_rect = left;
+        self.right_source_uv_rect = right;
         self
     }
 }
@@ -5534,7 +5567,12 @@ impl CameraProjectionPush {
         {
             return (
                 push,
-                CameraProjectionUniforms::identity().with_color_config(config),
+                CameraProjectionUniforms::identity()
+                    .with_source_uv_rects(
+                        source_uv_rect_xywh_for_frame(&frame.left),
+                        source_uv_rect_xywh_for_frame(&frame.right),
+                    )
+                    .with_color_config(config),
                 None,
             );
         }
@@ -5544,17 +5582,23 @@ impl CameraProjectionPush {
         {
             let homographies = ProjectedStereoHomographies { left, right };
             let (push, uniforms) =
-                Self::from_projected_stereo_homographies(config, controls, &homographies);
+                Self::from_projected_stereo_homographies(frame, config, controls, &homographies);
             return (push, uniforms, Some(homographies));
         }
         (
             push,
-            CameraProjectionUniforms::identity().with_color_config(config),
+            CameraProjectionUniforms::identity()
+                .with_source_uv_rects(
+                    source_uv_rect_xywh_for_frame(&frame.left),
+                    source_uv_rect_xywh_for_frame(&frame.right),
+                )
+                .with_color_config(config),
             None,
         )
     }
 
     fn from_projected_stereo_homographies(
+        frame: &StereoGpuCameraFrame,
         config: &crate::RuntimeConfig,
         controls: &crate::StereoProjectionControls,
         homographies: &ProjectedStereoHomographies,
@@ -5603,6 +5647,10 @@ impl CameraProjectionPush {
         (
             push,
             CameraProjectionUniforms::from_mappings(&homographies.left, &homographies.right)
+                .with_source_uv_rects(
+                    source_uv_rect_xywh_for_frame(&frame.left),
+                    source_uv_rect_xywh_for_frame(&frame.right),
+                )
                 .with_color_config(config),
         )
     }
@@ -6306,6 +6354,138 @@ fn marker_f32(value: Option<f32>, fallback: f32) -> String {
     format!("{:.6}", value.unwrap_or(fallback))
 }
 
+fn full_source_uv_rect_ltrb() -> [f32; 4] {
+    [0.0, 0.0, 1.0, 1.0]
+}
+
+fn full_source_uv_rect_xywh() -> [f32; 4] {
+    [0.0, 0.0, 1.0, 1.0]
+}
+
+fn source_uv_rect_ltrb_for_diagnostics(diagnostics: &HeadsetCameraFrameDiagnostics) -> [f32; 4] {
+    diagnostics
+        .source_visible_uv_rect
+        .or(diagnostics.content_uv_rect)
+        .unwrap_or_else(full_source_uv_rect_ltrb)
+}
+
+fn source_uv_rect_xywh_for_frame(frame: &HeadsetCameraGpuFrame) -> [f32; 4] {
+    let [left, top, right, bottom] = source_uv_rect_ltrb_for_diagnostics(&frame.diagnostics);
+    [left, top, (right - left).max(0.0), (bottom - top).max(0.0)]
+}
+
+fn source_uv_rect_is_full(rect: [f32; 4]) -> bool {
+    const EPSILON: f32 = 0.0005;
+    (rect[0]).abs() <= EPSILON
+        && (rect[1]).abs() <= EPSILON
+        && (rect[2] - 1.0).abs() <= EPSILON
+        && (rect[3] - 1.0).abs() <= EPSILON
+}
+
+fn source_uv_rect_transform_applied(frame: &StereoGpuCameraFrame) -> bool {
+    !source_uv_rect_is_full(source_uv_rect_ltrb_for_diagnostics(&frame.left.diagnostics))
+        || !source_uv_rect_is_full(source_uv_rect_ltrb_for_diagnostics(
+            &frame.right.diagnostics,
+        ))
+}
+
+fn uv_rect_token(rect: [f32; 4]) -> String {
+    format!(
+        "{:.6},{:.6},{:.6},{:.6}",
+        rect[0], rect[1], rect[2], rect[3]
+    )
+}
+
+fn pixel_rect_token(rect: Option<[u32; 4]>) -> String {
+    rect.map(|[left, top, right, bottom]| format!("{left},{top},{right},{bottom}"))
+        .unwrap_or_else(|| "not-logged".to_string())
+}
+
+fn optional_u64_token(value: Option<u64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "not-logged".to_string())
+}
+
+fn optional_u32_token(value: Option<u32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "not-logged".to_string())
+}
+
+fn projection_hardware_buffer_marker_fields(frame: &StereoGpuCameraFrame) -> String {
+    format!(
+        "leftHardwareBufferWidth={} leftHardwareBufferHeight={} leftHardwareBufferNativeFormat={} leftHardwareBufferUsage={} leftHardwareBufferLayers={} leftHardwareBufferStridePx={} leftHardwareBufferId={} rightHardwareBufferWidth={} rightHardwareBufferHeight={} rightHardwareBufferNativeFormat={} rightHardwareBufferUsage={} rightHardwareBufferLayers={} rightHardwareBufferStridePx={} rightHardwareBufferId={}",
+        frame.left.width,
+        frame.left.height,
+        optional_u64_token(frame.left.descriptor.native_format),
+        optional_u64_token(frame.left.descriptor.usage_flags),
+        optional_u32_token(frame.left.descriptor.layer_count),
+        optional_u32_token(frame.left.descriptor.stride_px),
+        optional_u64_token(frame.left.descriptor.buffer_id),
+        frame.right.width,
+        frame.right.height,
+        optional_u64_token(frame.right.descriptor.native_format),
+        optional_u64_token(frame.right.descriptor.usage_flags),
+        optional_u32_token(frame.right.descriptor.layer_count),
+        optional_u32_token(frame.right.descriptor.stride_px),
+        optional_u64_token(frame.right.descriptor.buffer_id),
+    )
+}
+
+fn projection_hwb_source_sampling_detail_marker_fields(
+    frame: &StereoGpuCameraFrame,
+    controls: &crate::StereoProjectionControls,
+    config: &crate::RuntimeConfig,
+) -> String {
+    let left_source_uv_rect = source_uv_rect_ltrb_for_diagnostics(&frame.left.diagnostics);
+    let right_source_uv_rect = source_uv_rect_ltrb_for_diagnostics(&frame.right.diagnostics);
+    let content_uv_rect = if left_source_uv_rect == right_source_uv_rect {
+        left_source_uv_rect
+    } else {
+        full_source_uv_rect_ltrb()
+    };
+    let source_crop_rect_state = marker_token(
+        frame
+            .left
+            .diagnostics
+            .source_crop_rect_state
+            .as_deref()
+            .or(frame.right.diagnostics.source_crop_rect_state.as_deref()),
+        "not-logged",
+    );
+    let source_crop_rect_owner = marker_token(
+        frame
+            .left
+            .diagnostics
+            .source_crop_rect_owner
+            .as_deref()
+            .or(frame.right.diagnostics.source_crop_rect_owner.as_deref()),
+        "not-logged",
+    );
+    format!(
+        "schema=rusty.xr.hwb-source-sampling.v1 phase=source-sampling status=ok sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined contentUvRect={} sourceVisibleUvRect={} sourceCropRectState={} sourceCropRectOwner={} leftSourceVisibleUvRect={} rightSourceVisibleUvRect={} leftSourceCropRectPx={} rightSourceCropRectPx={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} {}",
+        source_uv_rect_transform_applied(frame)
+            || controls.left_texture_transform.shader_flags() != 0
+            || controls.right_texture_transform.shader_flags() != 0,
+        uv_rect_token(content_uv_rect),
+        uv_rect_token(content_uv_rect),
+        source_crop_rect_state,
+        source_crop_rect_owner,
+        uv_rect_token(left_source_uv_rect),
+        uv_rect_token(right_source_uv_rect),
+        pixel_rect_token(frame.left.diagnostics.source_crop_rect_px),
+        pixel_rect_token(frame.right.diagnostics.source_crop_rect_px),
+        controls.left_label(),
+        controls.right_label(),
+        controls.left_texture_transform.shader_flags(),
+        controls.right_texture_transform.shader_flags(),
+        config.camera_texture_transform.source_label.as_str(),
+        config.camera_texture_transform.reason.as_str(),
+        projection_hardware_buffer_marker_fields(frame),
+    )
+}
+
 fn projection_source_metadata_marker_fields(
     left: &HeadsetCameraFrameDiagnostics,
     right: &HeadsetCameraFrameDiagnostics,
@@ -6441,8 +6621,27 @@ fn projection_source_metadata_marker_fields(
             1.0
         },
     );
+    let left_source_uv_rect = source_uv_rect_ltrb_for_diagnostics(left);
+    let right_source_uv_rect = source_uv_rect_ltrb_for_diagnostics(right);
+    let content_uv_rect = if left_source_uv_rect == right_source_uv_rect {
+        left_source_uv_rect
+    } else {
+        full_source_uv_rect_ltrb()
+    };
+    let source_crop_rect_state = marker_token(
+        left.source_crop_rect_state
+            .as_deref()
+            .or(right.source_crop_rect_state.as_deref()),
+        "not-logged",
+    );
+    let source_crop_rect_owner = marker_token(
+        left.source_crop_rect_owner
+            .as_deref()
+            .or(right.source_crop_rect_owner.as_deref()),
+        "not-logged",
+    );
     format!(
-        "projectionMetadataReady=true source={} sourceMode={} brokerH264SourceMode={} sourceBindingMode=broker-h264-stream-header-{} brokerH264SyntheticProjectionProfile={} projection_profile={} geometry_profile={} syntheticPattern={} pattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={} desiredDisplayAspectRatio={} desiredProjectionAspectRatio={} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} contentUvRect=0,0,1,1 leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftContentWidth={} leftContentHeight={} rightContentWidth={} rightContentHeight={} leftContentUvRect=0,0,1,1 rightContentUvRect=0,0,1,1",
+        "projectionMetadataReady=true source={} sourceMode={} brokerH264SourceMode={} sourceBindingMode=broker-h264-stream-header-{} brokerH264SyntheticProjectionProfile={} projection_profile={} geometry_profile={} syntheticPattern={} pattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={} desiredDisplayAspectRatio={} desiredProjectionAspectRatio={} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} contentUvRect={} sourceVisibleUvRect={} sourceCropRectState={} sourceCropRectOwner={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftContentWidth={} leftContentHeight={} rightContentWidth={} rightContentHeight={} leftContentUvRect={} rightContentUvRect={} leftSourceVisibleUvRect={} rightSourceVisibleUvRect={} leftSourceCropRectPx={} rightSourceCropRectPx={}",
         source,
         source_mode,
         source_mode,
@@ -6484,6 +6683,10 @@ fn projection_source_metadata_marker_fields(
                 .or(right.content_geometry_default),
             content_geometry_source == "missing",
         ),
+        uv_rect_token(content_uv_rect),
+        uv_rect_token(content_uv_rect),
+        source_crop_rect_state,
+        source_crop_rect_owner,
         left_width,
         left_height,
         right_width,
@@ -6492,6 +6695,12 @@ fn projection_source_metadata_marker_fields(
         left_content_height,
         right_content_width,
         right_content_height,
+        uv_rect_token(left_source_uv_rect),
+        uv_rect_token(right_source_uv_rect),
+        uv_rect_token(left_source_uv_rect),
+        uv_rect_token(right_source_uv_rect),
+        pixel_rect_token(left.source_crop_rect_px),
+        pixel_rect_token(right.source_crop_rect_px),
     )
 }
 

@@ -39,6 +39,12 @@ Add `-BrokerH264SyntheticProjectionProfile camera-matched` when the synthetic
 stream should use the same Camera2 projection geometry as the direct camera
 path, or `-BrokerH264SyntheticProjectionProfile full-frame-diagnostic` when the
 synthetic raster should act as projection-surface diagnostic content.
+For source-agnostic transport checks, prefer
+`-BrokerH264ProjectionGeometryProfile full-frame-diagnostic`; it applies the
+same projection-geometry metadata style to broker-camera streams and keeps the
+older synthetic profile switch as an alias only for synthetic source
+generation. Use `-CameraProjectionGeometryProfile full-frame-diagnostic` for
+direct Camera2 lanes; this is the active camera-as-content path.
 The suite forwards the same broker source parameters into the Vulkan/HWB,
 GL/OES, and Makepad broker lanes so the screen-space analyzer can report both
 the hard solid-red footprint and the projection-stage rows found in each lane's
@@ -49,7 +55,11 @@ renderer-authored `leftExpectedSourceValidScreenUvRect` and
 source of truth. For `full-frame-diagnostic`, the analyzer uses the
 renderer-authored full-frame intent to measure the visible stimulus envelope,
 so backend color/decoder differences do not turn a disconnected top diagnostic
-band into a false vertical-placement failure.
+band into a false vertical-placement failure. If a full-frame lane has no
+meaningful red invalid-fill area because the renderer-authored source-valid
+footprint fills the projection area, the strict path can use the cyan/yellow
+guide signal as the diagnostic mask evidence; this is not the visible-content
+fallback.
 
 Projection-coordinate contracts also include a `source_sampling` record when
 renderers log the source sample boundary. Use this to keep architecture
@@ -60,6 +70,8 @@ also records dominant green horizontal feature rows from screenshots as
 evidence. If broker-synthetic rows agree but live Camera2 rows diverge, assign
 the first owner to source sampling or texture/upload metadata before touching
 projection-area offsets.
+GL/OES also logs `sourceColorTransform` and `swapchainColorFormat`; keep those
+as color/texture-upload evidence, separate from coordinate fields.
 
 For environment-depth particle or mesh profiles, build the world-space contract
 artifact from logcat markers with:
@@ -322,6 +334,10 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | --- | --- | --- |
 | `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-blur-solid-red-unorm`, `raw-projection-blur-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, or `raw-projection-cycling-border-unorm`. |
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `display-screen-homography` or `quad-surface`. |
+| `rustyxr.cameraProjectionGeometryProfile` | string | Selects direct Camera2 source/content geometry metadata. Active direct lanes accept only `full-frame-diagnostic`; other values are rejected or reported as unsupported. |
+| `rustyxr.directCamera2OesProjectionGeometryProfile` | string | GL/OES direct Camera2 override; falls back to `rustyxr.cameraProjectionGeometryProfile`. |
+| `rustyxr.brokerH264ProjectionGeometryProfile` | string | Broker H.264 source/content geometry metadata for camera or synthetic streams; use this for source-agnostic transport checks. |
+| `rustyxr.oesSourceColorTransfer` | string | GL/OES external texture color transfer before camera color controls. Default is `srgb-to-linear`; use `identity` only for an explicit OES source-convention A/B run. |
 | `rustyxr.cameraProjectionDepthMeters` | float | Vulkan/HWB head-anchored projection surface depth in meters; keep it explicit because `rustyxr.cameraProjectionScale` is not a depth fallback. |
 | `rustyxr.cameraProjectionAreaOffsetXUv` | float | Optional Vulkan/HWB horizontal projection-area sweep knob for screen-space centering diagnostics. |
 | `rustyxr.cameraProjectionAreaOffsetYUv` | float | Optional Vulkan/HWB vertical projection-area sweep knob for screen-space centering diagnostics. |
@@ -343,7 +359,9 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
 | `rustyxr.openxrPassthroughProbe` | string | Keeps native passthrough checks separate from camera projection: `off`, `warmup`, `client`, or `underlay`. |
 
-Makepad uses the same public runtime-key contract through Android properties:
+Makepad uses the same public runtime-key contract through Android properties.
+`debug.rustyxr.makepad.camera.projection.geometry.profile` selects direct
+Camera2 `full-frame-diagnostic` geometry, while
 `debug.rustyxr.projection.depth.meters` controls the head-anchored projection
 surface depth and is logged back as `projectionDepthMeters`.
 
