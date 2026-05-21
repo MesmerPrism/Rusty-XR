@@ -315,6 +315,37 @@ profile uses `raw-projection-camera-footprint-underlay-unorm` so the full
 Camera2 frame remains the source input while only the valid reconstructed
 camera footprint contributes color.
 
+The depth-1.0 canvas/collapsed comparison is now the handoff point between
+internal lane parity and native-passthrough alignment. With matching
+`projectionDepthMeters`, `cameraPreviewFovYDegrees`, delivered source aspect,
+and `cameraRawOverlayOverscan=1.0`, the real canvas and collapsed
+camera-footprint shader should agree in both MediaProjection and HzDB
+screenshots. After that equivalence is proven, tune native-passthrough
+alignment on the `world-canvas` lane first and translate the resulting surface
+parameters back into the collapsed custom profile.
+
+For the passthrough solve, use native passthrough as the reference and sweep
+only documented surface geometry at first:
+
+- start with `projectionDepthMeters`, including closer values around `0.5`
+  meters when the depth-1.0 surface appears too far away;
+- then adjust `cameraPreviewFovYDegrees` as the vertical-height knob;
+- leave `cameraRawOverlayOverscan` at `1.0` until depth and height are close,
+  then use it only as a named coverage pad.
+
+Do not use full-feed profiles, projection-area offsets, blur, passthrough
+opacity, or renderer-local constants to make this comparison look good. If the
+canvas cannot be aligned to the native-passthrough green cross using depth and
+height, the result should be reported as a named divergence in the surface
+model, source metadata, OpenXR view/reference-space state,
+compositor/screenshot convention, or analyzer evidence.
+
+The final custom-projection edge policy is still separate from this sweep.
+Because the two raw eye cameras can cover slightly different outer-edge regions,
+the per-eye custom path must later choose a documented behavior for those
+regions: shared clipped footprint, per-eye footprint with passthrough underlay,
+or an explicit fused/combined image mode.
+
 The Java-side HWB `CompositeLayerActivity` defaults are also full-feed now:
 `cameraProjectionScale=1.0`, `xrRenderScale=1.0`,
 `projectionAreaRadiusXUv=0.5`, `projectionAreaRadiusYUv=0.5`, and

@@ -321,6 +321,42 @@ cover the same field of view as native passthrough. Outside the valid projected
 camera footprint, use an explicit policy such as passthrough underlay,
 transparent alpha, solid fill, matte, or documented border.
 
+Depth-1.0 / overscan-1.0 canvas-vs-collapsed evidence should now be treated as
+the geometry handoff gate: when both profiles use the same
+`projectionDepthMeters`, `cameraPreviewFovYDegrees`, delivered source aspect,
+and `cameraRawOverlayOverscan`, the `world-canvas` quad and the
+`display-screen-homography` camera-footprint shader are expected to line up in
+MediaProjection and HzDB per-eye screenshots. If they disagree, keep debugging
+the canvas-to-collapsed mapping before touching native-passthrough alignment.
+If they agree, tune native-passthrough alignment against the visible
+`world-canvas` first because that lane exposes the projection surface directly.
+
+The next passthrough solve should tune named surface geometry in this order:
+
+1. `projectionDepthMeters`: move the head-anchored surface closer or farther.
+   This is the primary convergence/parallax knob.
+2. `cameraPreviewFovYDegrees`: adjust the virtual surface height once depth is
+   bracketed.
+3. `cameraRawOverlayOverscan`: use only after depth and height are close, and
+   record it as a coverage pad rather than an alignment offset.
+
+Do not compensate first with projection-area offsets, blur, passthrough
+opacity, or renderer-local constants. If depth and height cannot match the
+native passthrough center-cross witness, name the divergent layer explicitly:
+surface-plane approximation, OpenXR view/reference-space state,
+compositor/screenshot convention, source camera metadata, or analyzer
+evidence.
+
+One edge case remains after the canvas and collapsed paths agree. The two raw
+Camera2 eye images do not have identical outer-edge coverage: the left and
+right cameras can each see a little farther on their respective outside edge
+than the other eye. A per-eye custom projection can therefore look clean with
+native passthrough visible underneath on the opposite edge, but its final
+policy still needs to be explicit. The reusable choices are a shared clipped
+footprint, per-eye valid footprints with passthrough underlay outside each
+footprint, or a deliberate fused/combined image mode. That policy is separate
+from the canvas-to-passthrough depth/FOV alignment solve.
+
 ### Direct Per-Eye Shader Projection
 
 The optimized per-eye shader path should be treated as the algebraic collapse

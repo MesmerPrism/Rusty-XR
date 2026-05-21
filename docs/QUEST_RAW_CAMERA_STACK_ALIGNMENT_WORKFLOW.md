@@ -104,12 +104,84 @@ custom-rendering forms are equivalent:
 
 Both comparison profiles use `projectionDepthMeters=1.0`,
 `cameraProjectionScale=1.0`, `projectionAreaScaleUv=1.0`,
-`cameraPreviewFovYDegrees=60`, the delivered source-frame aspect, and
-`cameraRawOverlayOverscan=1.06`. The camera-footprint profile uses
+`cameraPreviewFovYDegrees=60`, the delivered source-frame aspect, and a logged
+`cameraRawOverlayOverscan` value. For the strict geometry handoff gate, override
+`cameraRawOverlayOverscan=1.0` in both profiles so the visible canvas and the
+collapsed shader use the same unpadded surface. The camera-footprint profile uses
 `raw-projection-camera-footprint-underlay-unorm`: it samples the full live
 Camera2 source but only emits color inside the reconstructed valid footprint;
 outside that footprint it uses passthrough-underlay alpha rather than clamping
 or stretching camera pixels over the full eye.
+
+Once this pair agrees in MediaProjection and HzDB, use the `world-canvas` lane
+as the native-passthrough alignment workbench. The canvas and collapsed custom
+projection share the same surface geometry, and the collapsed path can be
+translated from the solved canvas parameters later. This avoids retuning the
+harder fullscreen shader while the visible surface depth/FOV relationship to
+Meta passthrough is still unknown.
+
+## Canvas To Native Passthrough Depth Sweep
+
+Use a fixed physical target with a clean green center cross. Keep headset pose,
+target pose, brightness, and target content stable across the sweep. Use the
+same already-installed composite-layer APK when possible; `CompositeLayerActivity`
+hotloads runtime config from a new launch intent, so depth/FOV/visibility sweeps
+do not require rebuilding the APK.
+
+For each candidate depth:
+
+1. Launch or hotload
+   `camera-stereo-gpu-composite-world-canvas-depth1-mediaprojection` with
+   overrides for the current depth and strict coverage:
+   `rustyxr.cameraProjectionMode=world-canvas`,
+   `rustyxr.projectionDepthMeters=<depth>`,
+   `rustyxr.cameraRawOverlayOverscan=1.0`,
+   `rustyxr.cameraProjectionScale=1.0`,
+   `rustyxr.projectionAreaScaleUv=1.0`,
+   `rustyxr.projectionAreaOffsetXUv=0.0`,
+   `rustyxr.projectionAreaOffsetYUv=0.0`,
+   `rustyxr.projectionAreaRadiusXUv=0.5`,
+   `rustyxr.projectionAreaRadiusYUv=0.5`,
+   `rustyxr.projectionAreaCornerRadiusUv=0.0`,
+   `rustyxr.projectionBorderOpacity=0.0`,
+   `rustyxr.projectionLayerVisible=true`,
+   `rustyxr.openxrPassthroughProbe=underlay`, and
+   `rustyxr.mediaProjection=true`.
+2. Capture one MediaProjection frame and one HzDB per-eye screenshot with the
+   canvas visible over native passthrough.
+3. Hotload the same run with `rustyxr.projectionLayerVisible=false`,
+   `rustyxr.openxrPassthroughProbe=underlay`, and
+   `rustyxr.mediaProjection=true`.
+4. Capture one MediaProjection frame and one HzDB per-eye screenshot of native
+   passthrough only.
+5. Run `tools/quest-camera-profile/Analyze-TargetAlignmentWitness.py` on the
+   passthrough-only reference and canvas-visible candidate. Use
+   `--single-view` for MediaProjection images and the default per-eye split for
+   HzDB screenshots.
+6. Record green-cross coordinates, per-eye deltas, `projectionDepthMeters`,
+   `cameraPreviewFovYDegrees`, `cameraRawOverlayOverscan`, and the logged
+   `surface_to_screen` / `screen_to_surface` matrices.
+
+Start by bracketing depth. A practical first sweep is around the suspected
+closer surface, for example `0.45`, `0.50`, `0.55`, `0.60`, `0.70`, and `1.00`
+meters, then refine around the lowest center-cross residual. Only after depth
+is bracketed should the sweep adjust `cameraPreviewFovYDegrees` as the vertical
+height knob. Treat `cameraRawOverlayOverscan` as the last resort for coverage
+padding, not as a primary alignment field.
+
+The pass condition is not just a visually pleasant composite. The canvas-visible
+green cross must land on the native-passthrough green cross in MediaProjection
+and remain stereo-clean in HzDB. If no depth/height pair can satisfy that, stop
+and report the first named divergent layer instead of hiding the mismatch with
+blur, passthrough opacity, projection-area offsets, or undocumented constants.
+
+The final custom projection still needs an edge-coverage policy after the
+canvas is aligned. Each raw eye camera can cover a little extra on its outer
+edge. In per-eye projection, those edges can appear clean because native
+passthrough remains visible underneath where the other eye has no camera
+content. The eventual custom path must explicitly choose between a shared
+clipped footprint, per-eye footprints with passthrough underlay outside each
+footprint, or a deliberate fused/combined image mode.
 
 ## Canonical Lane Names
 

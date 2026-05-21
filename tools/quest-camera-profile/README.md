@@ -209,6 +209,35 @@ passthrough underlay. Treat `camera-stereo-gpu-composite-full-feed-control` as
 a negative/lane-parity control only; it is not the custom passthrough footprint
 because the raw Camera2 frame is not the full native passthrough FOV.
 
+For strict canvas/collapsed equivalence, override both profiles with
+`rustyxr.cameraRawOverlayOverscan=1.0`,
+`rustyxr.projectionDepthMeters=1.0`, neutral `projectionArea*` values, and
+`rustyxr.projectionBorderOpacity=0.0`. A passing comparison means the visible
+canvas and collapsed custom projection share the same surface geometry. After
+that, do native-passthrough alignment on the canvas profile first.
+
+The native-passthrough depth sweep should capture two states for each depth:
+
+- canvas-visible: `rustyxr.cameraProjectionMode=world-canvas`,
+  `rustyxr.projectionLayerVisible=true`,
+  `rustyxr.openxrPassthroughProbe=underlay`,
+  `rustyxr.cameraRawOverlayOverscan=1.0`, and
+  `rustyxr.mediaProjection=true`;
+- passthrough-only reference: same launch context, but
+  `rustyxr.projectionLayerVisible=false`,
+  `rustyxr.openxrPassthroughProbe=underlay`, and
+  `rustyxr.mediaProjection=true`.
+
+`CompositeLayerActivity` hotloads runtime config from a new launch intent, so
+an already-installed APK can be swept by relaunching with new extras rather
+than rebuilding. Bracket `rustyxr.projectionDepthMeters` first, starting around
+closer surfaces such as `0.5` meters when the canvas appears too far away. Once
+depth is bracketed, adjust `rustyxr.cameraPreviewFovYDegrees` for vertical
+height. Keep `cameraRawOverlayOverscan=1.0` until depth and height are close;
+then use overscan only as a named coverage pad. Compare the green center cross
+with `Analyze-TargetAlignmentWitness.py` using `--single-view` for
+MediaProjection captures and the default per-eye split for HzDB screenshots.
+
 ## Camera Readiness Preflight
 
 The runner preserves headset power, stay-awake, and proximity state by default.
