@@ -43,6 +43,7 @@ final class LocalBrokerServer implements Closeable {
     private ServerSocket serverSocket;
     private Thread acceptThread;
     private volatile PolarPmdBrokerSource polarPmdSource;
+    private volatile PolarHeartRateBrokerSource polarHeartRateSource;
 
     LocalBrokerServer(int port, BrokerState state, LatencyPublisher publisher, Context context) {
         this(port, state, publisher, context, "127.0.0.1");
@@ -72,6 +73,10 @@ final class LocalBrokerServer implements Closeable {
 
     void setPolarPmdSource(PolarPmdBrokerSource polarPmdSource) {
         this.polarPmdSource = polarPmdSource;
+    }
+
+    void setPolarHeartRateSource(PolarHeartRateBrokerSource polarHeartRateSource) {
+        this.polarHeartRateSource = polarHeartRateSource;
     }
 
     void start() throws IOException {
@@ -486,6 +491,37 @@ final class LocalBrokerServer implements Closeable {
 
         if ("publish_stream_event".equals(command)) {
             return publishStreamEvent(connection, requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("polar.get_status".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("heart_rate", state.polarHeartRateStatusJson());
+            result.put("pmd", state.polarPmdStatusJson());
+            return commandAck(requestId, command, true, "polar_status", result);
+        }
+
+        if ("polar.start".equals(command)) {
+            return startPolar(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("polar.stop".equals(command)) {
+            return stopPolar(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("polar_hr.get_status".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("status", state.polarHeartRateStatusJson());
+            return commandAck(requestId, command, true, "polar_hr_status", result);
+        }
+
+        if ("polar_hr.start".equals(command)) {
+            return startPolarHeartRate(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("polar_hr.stop".equals(command)) {
+            return stopPolarHeartRate(requestId, command);
         }
 
         if ("polar_pmd.get_status".equals(command)) {
@@ -1639,16 +1675,8 @@ final class LocalBrokerServer implements Closeable {
             return commandError(requestId, command, "polar_pmd_unavailable", "Polar PMD source is not attached to this broker.");
         }
 
-        String deviceAddress = params != null ? params.optString("device_address", "") : "";
-        if (deviceAddress.trim().length() == 0 && params != null) {
-            deviceAddress = params.optString("deviceAddress", "");
-        }
-        long scanTimeoutMs = params != null
-            ? params.optLong("scan_timeout_ms", BrokerRuntimeConfig.DEFAULT_POLAR_SCAN_TIMEOUT_MS)
-            : BrokerRuntimeConfig.DEFAULT_POLAR_SCAN_TIMEOUT_MS;
-        if (params != null && !params.has("scan_timeout_ms")) {
-            scanTimeoutMs = params.optLong("scanTimeoutMs", scanTimeoutMs);
-        }
+        String deviceAddress = polarDeviceAddress(params);
+        long scanTimeoutMs = polarScanTimeoutMs(params);
 
         JSONObject status = source.start(deviceAddress, scanTimeoutMs);
         state.acceptedCommands.incrementAndGet();
@@ -1669,6 +1697,159 @@ final class LocalBrokerServer implements Closeable {
         JSONObject result = new JSONObject();
         result.put("status", status);
         return commandAck(requestId, command, true, "polar_pmd_stopping", result);
+    }
+
+    private JSONObject startPolar(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        boolean includeHeartRate = optBooleanParam(params, "include_hr", "includeHeartRate", true);
+        boolean includePmd = optBooleanParam(params, "include_pmd", "includePmd", false);
+        String deviceAddress = polarDeviceAddress(params);
+        long scanTimeoutMs = polarScanTimeoutMs(params);
+
+        JSONObject result = new JSONObject();
+        int started = 0;
+        if (includeHeartRate) {
+            PolarHeartRateBrokerSource source = polarHeartRateSource;
+            if (source == null) {
+                result.put("heart_rate_error", "Polar heart-rate source is not attached to this broker.");
+            } else {
+                result.put("heart_rate", source.start(deviceAddress, scanTimeoutMs));
+                started++;
+            }
+        }
+
+        if (includePmd) {
+            PolarPmdBrokerSource source = polarPmdSource;
+            if (source == null) {
+                result.put("pmd_error", "Polar PMD source is not attached to this broker.");
+            } else {
+                result.put("pmd", source.start(deviceAddress, scanTimeoutMs));
+                started++;
+            }
+        }
+
+        result.put("include_hr", includeHeartRate);
+        result.put("include_pmd", includePmd);
+        result.put("pmd_default", "disabled unless include_pmd is true");
+        if (started == 0) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "polar_source_unavailable", "No requested Polar source could be started.");
+        }
+
+        state.acceptedCommands.incrementAndGet();
+        return commandAck(requestId, command, true, "polar_starting", result);
+    }
+
+    private JSONObject stopPolar(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        boolean stopHeartRate = optBooleanParam(params, "stop_hr", "stopHeartRate", true);
+        boolean stopPmd = optBooleanParam(params, "stop_pmd", "stopPmd", true);
+        JSONObject result = new JSONObject();
+        int stopped = 0;
+
+        if (stopHeartRate) {
+            PolarHeartRateBrokerSource source = polarHeartRateSource;
+            if (source == null) {
+                result.put("heart_rate_error", "Polar heart-rate source is not attached to this broker.");
+            } else {
+                result.put("heart_rate", source.stop());
+                stopped++;
+            }
+        }
+
+        if (stopPmd) {
+            PolarPmdBrokerSource source = polarPmdSource;
+            if (source == null) {
+                result.put("pmd_error", "Polar PMD source is not attached to this broker.");
+            } else {
+                result.put("pmd", source.stop());
+                stopped++;
+            }
+        }
+
+        if (stopped == 0) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "polar_source_unavailable", "No requested Polar source could be stopped.");
+        }
+
+        state.acceptedCommands.incrementAndGet();
+        return commandAck(requestId, command, true, "polar_stopping", result);
+    }
+
+    private JSONObject startPolarHeartRate(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        PolarHeartRateBrokerSource source = polarHeartRateSource;
+        if (source == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "polar_hr_unavailable", "Polar heart-rate source is not attached to this broker.");
+        }
+
+        JSONObject status = source.start(polarDeviceAddress(params), polarScanTimeoutMs(params));
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("status", status);
+        result.put("pmd_default", "disabled");
+        return commandAck(requestId, command, true, "polar_hr_starting", result);
+    }
+
+    private JSONObject stopPolarHeartRate(String requestId, String command) throws Exception {
+        PolarHeartRateBrokerSource source = polarHeartRateSource;
+        if (source == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "polar_hr_unavailable", "Polar heart-rate source is not attached to this broker.");
+        }
+
+        JSONObject status = source.stop();
+        state.acceptedCommands.incrementAndGet();
+        JSONObject result = new JSONObject();
+        result.put("status", status);
+        return commandAck(requestId, command, true, "polar_hr_stopping", result);
+    }
+
+    private static String polarDeviceAddress(JSONObject params) {
+        if (params == null) {
+            return "";
+        }
+
+        String deviceAddress = params.optString("device_address", "");
+        if (deviceAddress.trim().length() == 0) {
+            deviceAddress = params.optString("deviceAddress", "");
+        }
+        return deviceAddress;
+    }
+
+    private static long polarScanTimeoutMs(JSONObject params) {
+        long scanTimeoutMs = BrokerRuntimeConfig.DEFAULT_POLAR_SCAN_TIMEOUT_MS;
+        if (params != null) {
+            scanTimeoutMs = params.optLong("scan_timeout_ms", scanTimeoutMs);
+            if (!params.has("scan_timeout_ms")) {
+                scanTimeoutMs = params.optLong("scanTimeoutMs", scanTimeoutMs);
+            }
+        }
+        return scanTimeoutMs;
+    }
+
+    private static boolean optBooleanParam(
+        JSONObject params,
+        String snakeName,
+        String camelName,
+        boolean defaultValue) {
+        if (params == null) {
+            return defaultValue;
+        }
+        if (params.has(snakeName)) {
+            return params.optBoolean(snakeName, defaultValue);
+        }
+        if (params.has(camelName)) {
+            return params.optBoolean(camelName, defaultValue);
+        }
+        return defaultValue;
     }
 
     private JSONObject configureBreathAssessment(

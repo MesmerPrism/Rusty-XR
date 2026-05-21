@@ -45,6 +45,7 @@ final class BrokerState {
     private final TransportSessionRegistry transportSessions = new TransportSessionRegistry();
     private final BreathAssessmentState breathAssessment = new BreathAssessmentState();
     private final ClockCore clock = new ClockCore();
+    private JSONObject polarHeartRateStatus = defaultPolarHeartRateStatus();
     private JSONObject polarPmdStatus = defaultPolarPmdStatus();
 
     JSONObject toStatusJson(LatencyPublisher publisher, OscIngressServer oscIngressServer) throws Exception {
@@ -65,6 +66,7 @@ final class BrokerState {
         status.put("projectionProfile", cameraProjectionProvider.projectionProfileJson());
         status.put("shellHelper", shellHelper.toStatusJson());
         status.put("experimentControl", experimentControl.toStatusJson());
+        status.put("polarHeartRate", polarHeartRateStatusJson());
         status.put("polarPmd", polarPmdStatusJson());
         status.put("breathAssessment", breathAssessment.toStatusJson());
         status.put("videoLab", videoLabStatusJson());
@@ -101,6 +103,12 @@ final class BrokerState {
         supportedCommands.put("clock.compare_openxr");
         supportedCommands.put("clock.sync_probe");
         supportedCommands.put("kiosk.get_status");
+        supportedCommands.put("polar.get_status");
+        supportedCommands.put("polar.start");
+        supportedCommands.put("polar.stop");
+        supportedCommands.put("polar_hr.get_status");
+        supportedCommands.put("polar_hr.start");
+        supportedCommands.put("polar_hr.stop");
         supportedCommands.put("polar_pmd.get_status");
         supportedCommands.put("polar_pmd.start");
         supportedCommands.put("polar_pmd.stop");
@@ -202,6 +210,9 @@ final class BrokerState {
         capabilities.put("broker.clock.sync_probe.v1");
         capabilities.put("rusty_kiosk.control_plane.status.v1");
         capabilities.put("rusty.xr.kiosk.command_run_record.v1");
+        capabilities.put("bio.polar_hr.android_ble.v1");
+        capabilities.put("bio.polar_dual_receiver.hr_rr.v1");
+        capabilities.put("bio.polar.pmd_optional.v1");
         capabilities.put("bio.polar_pmd.android_ble.v1");
         capabilities.put("bio.polar_acc.direct_ble.v1");
         capabilities.put("bio.breath_assessment.v1");
@@ -271,7 +282,7 @@ final class BrokerState {
         streams.put(streamJson("clock:openxr_frame", "clock", "OpenXR predicted-display timing samples when an immersive Rusty XR session publishes them.", false));
         streams.put(streamJson("kiosk:control_plane", "control", "Rusty Kiosk phase, surface-intent, helper, and command evidence.", true));
         streams.put(streamJson("latency:sample", "latency", "WebSocket latency samples accepted by the broker.", true));
-        streams.put(streamJson("bio:polar_hr_rr", "bio", "Synthetic or adapter-published Polar-compatible heart-rate/RR events.", true));
+        streams.put(streamJson("bio:polar_hr_rr", "bio", "Synthetic, adapter-published, or direct Android BLE Polar heart-rate/RR events.", true));
         streams.put(streamJson("bio:polar_ecg", "bio", "Synthetic or adapter-published Polar-compatible ECG frame events.", true));
         streams.put(streamJson(
             "bio:polar_acc",
@@ -631,6 +642,14 @@ final class BrokerState {
         return breathAssessment.toStatusJson();
     }
 
+    synchronized void updatePolarHeartRateStatus(JSONObject status) throws Exception {
+        polarHeartRateStatus = status == null ? defaultPolarHeartRateStatus() : new JSONObject(status.toString());
+    }
+
+    synchronized JSONObject polarHeartRateStatusJson() throws Exception {
+        return new JSONObject(polarHeartRateStatus.toString());
+    }
+
     synchronized void updatePolarPmdStatus(JSONObject status) throws Exception {
         polarPmdStatus = status == null ? defaultPolarPmdStatus() : new JSONObject(status.toString());
     }
@@ -702,6 +721,26 @@ final class BrokerState {
 
     private static long unixNowNs() {
         return System.currentTimeMillis() * 1_000_000L;
+    }
+
+    private static JSONObject defaultPolarHeartRateStatus() {
+        JSONObject status = new JSONObject();
+        try {
+            status.put("schema", PolarHeartRateBrokerSource.STATUS_SCHEMA);
+            status.put("enabled", false);
+            status.put("state", "idle");
+            status.put("input_stream", PolarHeartRateBrokerSource.STREAM_ID);
+            status.put("heart_rate_event_count", 0L);
+            status.put("rr_interval_count", 0L);
+            status.put("last_error", "");
+            JSONArray limitations = new JSONArray();
+            limitations.put("requires_android_ble_permissions");
+            limitations.put("uses_standard_heart_rate_service_only");
+            limitations.put("does_not_open_polar_pmd_control_or_data_characteristics");
+            status.put("limitations", limitations);
+        } catch (Exception ignored) {
+        }
+        return status;
     }
 
     private static JSONObject defaultPolarPmdStatus() {

@@ -14,6 +14,8 @@ import java.util.UUID;
 final class PolarPmdProtocol {
     static final UUID HEART_RATE_SERVICE =
         UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb");
+    static final UUID HEART_RATE_MEASUREMENT =
+        UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb");
     static final UUID BATTERY_SERVICE =
         UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb");
     static final UUID BATTERY_LEVEL =

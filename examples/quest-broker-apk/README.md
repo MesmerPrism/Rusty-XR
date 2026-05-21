@@ -214,15 +214,34 @@ counts, movement thresholds, smoothing, quantiles, and `invert_volume`;
 or `all`. The estimates are diagnostic motion-derived values, not medical
 measurements.
 
-The broker can also open a direct Android BLE Polar PMD source on the headset.
-When enabled, the broker scans for a Polar-compatible BLE advertisement, connects
-to the PMD service, enables control-point indications and data notifications,
-starts the ACC stream at 200 Hz / 16 bit / 8 g, decodes ACC frames, publishes
-them as `bio:polar_acc`, and feeds the same `bio:breath` assessment path used by
-adapter-published frames. This is a broker-side diagnostic source rather than a
-medical device integration.
+The broker can also open direct Android BLE Polar sources on the headset.
+Standard Heart Rate Service notifications are the default direct source and
+publish HR/RR events as `bio:polar_hr_rr` without opening Polar PMD control or
+data characteristics. PMD ACC is a separate opt-in source: when enabled, the
+broker scans for a Polar-compatible BLE advertisement, connects to the PMD
+service, enables control-point indications and data notifications, starts the
+ACC stream at 200 Hz / 16 bit / 8 g, decodes ACC frames, publishes them as
+`bio:polar_acc`, and feeds the same `bio:breath` assessment path used by
+adapter-published frames. These are broker-side diagnostic sources rather than
+medical device integrations.
 
-Start the direct source through the WebSocket command API:
+Start the HR/RR-only direct source through the WebSocket command API:
+
+```json
+{
+  "type": "command",
+  "schema": "rusty.xr.broker.command.v1",
+  "request_id": "polar-hr-001",
+  "command": "polar.start",
+  "params": {
+    "include_hr": true,
+    "include_pmd": false,
+    "scan_timeout_ms": 60000
+  }
+}
+```
+
+Start PMD explicitly when the headset is the intended PMD owner:
 
 ```json
 {
@@ -235,6 +254,11 @@ Start the direct source through the WebSocket command API:
   }
 }
 ```
+
+The legacy `polar_pmd.start`, `polar_pmd.stop`, and `polar_pmd.get_status`
+commands remain available for PMD-specific diagnostics. `polar_hr.start`,
+`polar_hr.stop`, and `polar_hr.get_status` are available when a caller wants to
+control only the standard HR/RR source.
 
 For manual development installs on Android 12 and newer, grant Bluetooth
 runtime permissions before starting the source:

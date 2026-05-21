@@ -27,6 +27,7 @@ public final class BrokerService extends Service {
     private LatencyPublisher publisher;
     private OscIngressServer oscIngressServer;
     private PolarPmdBrokerSource polarPmdSource;
+    private PolarHeartRateBrokerSource polarHeartRateSource;
 
     @Override
     public void onCreate() {
@@ -46,6 +47,8 @@ public final class BrokerService extends Service {
             server.setOscIngressServer(oscIngressServer);
             polarPmdSource = new PolarPmdBrokerSource(getApplicationContext(), state, server);
             server.setPolarPmdSource(polarPmdSource);
+            polarHeartRateSource = new PolarHeartRateBrokerSource(getApplicationContext(), state, server);
+            server.setPolarHeartRateSource(polarHeartRateSource);
             publishConsoleReadyService();
             Log.i(TAG, "Broker publisher mode: " + publisher.mode());
             if (config.polarPmdEnabled) {
@@ -87,6 +90,11 @@ public final class BrokerService extends Service {
 
     @Override
     public void onDestroy() {
+        if (polarHeartRateSource != null) {
+            polarHeartRateSource.close();
+            polarHeartRateSource = null;
+        }
+
         if (polarPmdSource != null) {
             polarPmdSource.close();
             polarPmdSource = null;
