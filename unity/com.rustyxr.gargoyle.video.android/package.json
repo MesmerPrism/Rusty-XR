@@ -1,0 +1,28 @@
+{
+  "name": "com.rustyxr.gargoyle.video.android",
+  "version": "0.1.0",
+  "displayName": "Rusty XR Gargoyle Video Android",
+  "description": "Optional Unity package for Gargoyle video control, video-lab telemetry, and diagnostic RXYRVID1 H.264 packet receiving. Native Android decode-to-texture glue is intentionally separate from the core Gargoyle package.",
+  "unity": "2022.3",
+  "author": {
+    "name": "Rusty XR"
+  },
+  "dependencies": {
+    "com.rustyxr.gargoyle": "0.1.0"
+  },
+  "keywords": [
+    "rusty-xr",
+    "gargoyle",
+    "video",
+    "h264",
+    "quest",
+    "android"
+  ],
+  "samples": [
+    {
+      "displayName": "Video Telemetry",
+      "description": "Minimal controls for requesting Gargoyle video-lab status and synthetic H.264 streams.",
+      "path": "Samples~/VideoTelemetry"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "RustyXr.Gargoyle.Video.Android.EditorTests",
+  "rootNamespace": "RustyXr.Gargoyle.Video.Tests",
+  "references": [
+    "RustyXr.Gargoyle",
+    "RustyXr.Gargoyle.Video.Android"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "noEngineReferences": false
+}

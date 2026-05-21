@@ -1,0 +1,21 @@
+{
+  "name": "RustyXr.Gargoyle.EditorTests",
+  "rootNamespace": "RustyXr.Gargoyle.Tests",
+  "references": [
+    "RustyXr.Gargoyle"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "noEngineReferences": false
+}

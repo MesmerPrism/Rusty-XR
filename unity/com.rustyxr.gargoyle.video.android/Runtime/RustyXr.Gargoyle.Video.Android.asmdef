@@ -1,0 +1,16 @@
+{
+  "name": "RustyXr.Gargoyle.Video.Android",
+  "rootNamespace": "RustyXr.Gargoyle.Video",
+  "references": [
+    "RustyXr.Gargoyle"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

@@ -1,0 +1,24 @@
+{
+  "name": "com.rustyxr.gargoyle",
+  "version": "0.1.0",
+  "displayName": "Rusty XR Gargoyle",
+  "description": "Unity client package for connecting to the Rusty XR Gargoyle broker over WebSocket, sending broker commands, and routing typed stream events into scene code.",
+  "unity": "2022.3",
+  "author": {
+    "name": "Rusty XR"
+  },
+  "keywords": [
+    "rusty-xr",
+    "gargoyle",
+    "broker",
+    "quest",
+    "websocket"
+  ],
+  "samples": [
+    {
+      "displayName": "Basic Connection",
+      "description": "Minimal Gargoyle WebSocket connection and stream subscription example.",
+      "path": "Samples~/BasicConnection"
+    }
+  ]
+}
