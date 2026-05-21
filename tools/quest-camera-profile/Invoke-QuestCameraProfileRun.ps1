@@ -123,9 +123,7 @@ function Save-OptionalRunAsFileCapture {
         [string]$RemotePath,
         [string]$OutputPath
     )
-    $escapedPath = $RemotePath.Replace("'", "'\''")
-    $script = "cat '$escapedPath' 2>/dev/null || echo optional file missing: $RemotePath"
-    Save-AdbTextCapture -Arguments @("shell", "run-as", $Package, "sh", "-c", $script) -OutputPath $OutputPath
+    Save-AdbTextCapture -Arguments @("shell", "run-as", $Package, "cat", $RemotePath) -OutputPath $OutputPath
 }
 
 function Resolve-ProcessFileName {
@@ -614,6 +612,7 @@ function Capture-Artifacts {
     Save-AdbTextCapture -Arguments @("shell", "dumpsys", "power") -OutputPath (Join-Path $Dir "$Label-power.txt")
     Save-AdbTextCapture -Arguments @("shell", "dumpsys", "vrpowermanager") -OutputPath (Join-Path $Dir "$Label-vrpowermanager.txt")
     Save-OptionalRunAsFileCapture -Package $Package -RemotePath "files/camera-source-diagnostics.json" -OutputPath (Join-Path $Dir "$Label-camera-source-diagnostics.json")
+    Save-OptionalRunAsFileCapture -Package $Package -RemotePath "files/controller-tuning-state.json" -OutputPath (Join-Path $Dir "$Label-controller-tuning-state.json")
     Invoke-RunValidation -Dir $Dir -Label $Label
 }
 

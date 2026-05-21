@@ -47,6 +47,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final boolean DEFAULT_CAMERA_ALLOW_CPU_FALLBACK = true;
     private static final float DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES = 92.0f;
     private static final float DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES = 60.0f;
+    private static final float DEFAULT_CAMERA_PREVIEW_OFFSET_Y_METERS = 0.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_SCALE = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_DEPTH_METERS = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_SCALE_UV = 1.0f;
@@ -428,6 +429,7 @@ public final class CompositeLayerActivity extends NativeActivity {
         appendJsonString(builder, "nativeSourceMode", stringExtra("rustyxr.nativeSourceMode", "auto"));
         builder.append(",\"cameraProjectionFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraProjectionFovYDegrees", DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES)));
         builder.append(",\"cameraPreviewFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraPreviewFovYDegrees", DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES)));
+        builder.append(",\"cameraPreviewOffsetYMeters\":").append(floatJson(floatExtra("rustyxr.cameraPreviewOffsetYMeters", DEFAULT_CAMERA_PREVIEW_OFFSET_Y_METERS)));
         builder.append(",\"cameraProjectionScale\":").append(floatJson(floatExtra("rustyxr.cameraProjectionScale", DEFAULT_CAMERA_PROJECTION_SCALE)));
         builder.append(",\"projectionDepthMeters\":").append(floatJson(floatExtra("rustyxr.projectionDepthMeters", DEFAULT_CAMERA_PROJECTION_DEPTH_METERS)));
         builder.append(",\"projectionAreaScaleUv\":").append(floatJson(floatExtra("rustyxr.projectionAreaScaleUv", DEFAULT_CAMERA_PROJECTION_AREA_SCALE_UV)));

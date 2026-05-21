@@ -238,6 +238,30 @@ then use overscan only as a named coverage pad. Compare the green center cross
 with `Analyze-TargetAlignmentWitness.py` using `--single-view` for
 MediaProjection captures and the default per-eye split for HzDB screenshots.
 
+The current native-passthrough aligned world-canvas reference is
+`camera-stereo-gpu-composite-world-canvas-native-aligned-mediaprojection`.
+It keeps the same direct stereo GPU Camera2 launch context as the depth-1
+world-canvas diagnostic and changes only the solved visible-canvas geometry:
+`rustyxr.projectionDepthMeters=1.434085`,
+`rustyxr.cameraPreviewFovYDegrees=69.763084`,
+`rustyxr.cameraPreviewOffsetYMeters=-0.168832`, and
+`rustyxr.cameraRawOverlayOverscan=1.0`.
+
+Launch this reference through the catalog runner or another launcher that
+passes the complete runtime profile. Do not reproduce it with a minimal direct
+`adb shell am start` that only sends the geometry keys: that omits the camera
+profile context and can fall back to the slow diagnostic path. A bad launch is
+visible in logs as `requestedTier=cpu-diagnostic-flat-copy`,
+`stereoLayout=Mono`, `transport=cpu-yuv-rgba`, `uploadCadenceHz~4`,
+`requestedAeFpsRange=device-controlled`, and `gpuImportSuccess=0`. A clean
+reference launch keeps `cameraTier=gpu-projected`,
+`cameraStereoLayout=separate`, `cameraSourceEyeMapping=left-right`,
+`cameraTargetFps=72`, `cameraPipelinePreset=raw-projection-underlay-unorm`,
+`cameraColorMode=external-rgb`, `cameraAllowCpuFallback=false`, and
+`cameraCpuUploadHz=0`; validation should then show stereo-left/right Camera2
+streams, GPU import cache activity, camera cadence around the applied AE range,
+and OpenXR cadence returning to display rate after warmup.
+
 ## Camera Readiness Preflight
 
 The runner preserves headset power, stay-awake, and proximity state by default.
@@ -442,6 +466,7 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.brokerH264ProjectionGeometryProfile` | string | Broker H.264 source/content geometry metadata for camera or synthetic streams; use this for source-agnostic transport checks. |
 | `rustyxr.oesSourceColorTransfer` | string | GL/OES external texture color transfer before camera color controls. Default is `srgb-to-linear`; use `identity` only for an explicit OES source-convention A/B run. |
 | `rustyxr.projectionDepthMeters` | float | Shared head-anchored projection surface depth in meters. |
+| `rustyxr.cameraPreviewOffsetYMeters` | float | Vertical world-canvas surface offset in meters along tracking up; default is `0`. |
 | `rustyxr.projectionAreaScaleUv` | float | Shared projection-area scale in display-eye screen UV. |
 | `rustyxr.projectionAreaOffsetXUv` | float | Shared horizontal projection-area sweep knob for screen-space centering diagnostics. |
 | `rustyxr.projectionAreaOffsetYUv` | float | Shared vertical projection-area sweep knob for screen-space centering diagnostics. |
@@ -473,6 +498,14 @@ not be treated as a linear offset response unless that mapping is logged for
 the run. Any renderer-specific sign convention should be normalized by the
 renderer profile or launch wrapper before these keys reach the app-specific
 backend.
+
+The composite-layer example also exposes physical controller tuning for manual
+camera/passthrough alignment: left stick Y adjusts `projectionDepthMeters`,
+left stick X adjusts `cameraPreviewFovYDegrees`, right stick Y adjusts
+`cameraPreviewOffsetYMeters`, right stick X adjusts `cameraRawOverlayOverscan`,
+and the right primary button toggles `projectionLayerVisible`. The app writes
+the current values to `files/controller-tuning-state.json`; this runner copies
+that file into each run as `<label>-controller-tuning-state.json` when present.
 
 The app-parsed runtime config log is the authority for whether a switch was
 actually applied. It reports the requested preset and the resolved feed,

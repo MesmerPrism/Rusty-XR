@@ -532,6 +532,15 @@ the full eye. Use
 `camera-stereo-gpu-composite-full-feed-control` only as a negative/lane-parity
 control: it proves full-frame transport and renderer parity, not a custom
 passthrough replacement footprint.
+The current world-canvas reference aligned to native passthrough is
+`camera-stereo-gpu-composite-world-canvas-native-aligned-mediaprojection`,
+which keeps the direct stereo GPU Camera2 profile but uses
+`projectionDepthMeters=1.434085`, `cameraPreviewFovYDegrees=69.763084`,
+`cameraPreviewOffsetYMeters=-0.168832`, and
+`cameraRawOverlayOverscan=1.0`. Launch it through the catalog profile or an
+equivalent full runtime-profile launcher; a minimal geometry-only `am start`
+can fall back to the slow CPU diagnostic mono path and is not a clean
+alignment reference.
 When intrinsics or pose metadata is missing, this example logs the fallback
 reason and remains a GPU-buffer probe.
 If a profile supplies an estimated calibration pose, diagnostics say

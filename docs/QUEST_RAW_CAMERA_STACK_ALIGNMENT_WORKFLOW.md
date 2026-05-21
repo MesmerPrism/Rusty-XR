@@ -175,6 +175,54 @@ and remain stereo-clean in HzDB. If no depth/height pair can satisfy that, stop
 and report the first named divergent layer instead of hiding the mismatch with
 blur, passthrough opacity, projection-area offsets, or undocumented constants.
 
+## Current Canvas Alignment Reference
+
+The current public reference for the visible world-canvas aligned to native
+passthrough is
+`camera-stereo-gpu-composite-world-canvas-native-aligned-mediaprojection`. It
+uses the direct stereo GPU Camera2 world-canvas launch context and these solved
+surface values:
+
+```text
+rustyxr.projectionDepthMeters=1.434085
+rustyxr.cameraPreviewFovYDegrees=69.763084
+rustyxr.cameraPreviewOffsetYMeters=-0.168832
+rustyxr.cameraRawOverlayOverscan=1.0
+rustyxr.projectionLayerVisible=true
+```
+
+Treat the launch context as part of the reference, not just the four geometry
+numbers. The clean reference must be launched through the catalog profile, or
+through an equivalent launcher that supplies the complete runtime profile:
+`cameraTier=gpu-projected`, `cameraStereoLayout=separate`,
+`cameraSourceEyeMapping=left-right`, `cameraTargetFps=72`,
+`cameraPipelinePreset=raw-projection-underlay-unorm`,
+`cameraColorMode=external-rgb`, `cameraAllowCpuFallback=false`, and
+`cameraCpuUploadHz=0`.
+
+A geometry-only direct `adb shell am start` is not an equivalent reference
+launch. If those camera/profile keys are omitted, the app can fall back to the
+slow diagnostic lane. The bad-lane signature is:
+
+```text
+requestedTier=cpu-diagnostic-flat-copy
+stereoLayout=Mono
+transport=cpu-yuv-rgba
+uploadCadenceHz~4
+requestedAeFpsRange=device-controlled
+gpuImportSuccess=0
+```
+
+The clean-lane signature for this reference is:
+
+```text
+requestedTier=gpu-projected
+stereo-left/right Camera2 streams
+Camera2 delivery cadence around the applied AE range
+OpenXR cadence back at display rate after warmup
+GPU import cache active
+```
+
 The final custom projection still needs an edge-coverage policy after the
 canvas is aligned. Each raw eye camera can cover a little extra on its outer
 edge. In per-eye projection, those edges can appear clean because native

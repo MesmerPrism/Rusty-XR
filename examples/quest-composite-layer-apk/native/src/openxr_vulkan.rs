@@ -1,13 +1,15 @@
 use std::{
     ffi::{CStr, CString},
+    path::PathBuf,
     ptr,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
-    diagnostic_hud_snapshot, gpu_probe_counters, latest_headset_camera_frame,
-    latest_headset_camera_gpu_frame, latest_headset_stereo_camera_gpu_frame, log_error, log_info,
-    runtime_config, EnvironmentDepthMode, HandParticleMode, HeadsetCameraFrame,
+    apply_camera_alignment_tuning, diagnostic_hud_snapshot, gpu_probe_counters,
+    latest_headset_camera_frame, latest_headset_camera_gpu_frame,
+    latest_headset_stereo_camera_gpu_frame, log_error, log_info, runtime_config,
+    CameraAlignmentTuningUpdate, EnvironmentDepthMode, HandParticleMode, HeadsetCameraFrame,
     HeadsetCameraFrameDiagnostics, HeadsetCameraGpuFrame, OpenXrColorFormatMode,
     OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
 };
@@ -90,6 +92,12 @@ const OSC_OVERLAY_FONT_ATLAS_BYTES: &[u8] = include_bytes!(concat!(
     env!("OUT_DIR"),
     "/osc_diagnostics_font_atlas_u32.bin"
 ));
+const CAMERA_ALIGNMENT_TUNING_DEADZONE: f32 = 0.18;
+const CAMERA_ALIGNMENT_DEPTH_RATE_METERS_PER_SECOND: f32 = 0.30;
+const CAMERA_ALIGNMENT_FOV_RATE_DEGREES_PER_SECOND: f32 = 15.0;
+const CAMERA_ALIGNMENT_OFFSET_Y_RATE_METERS_PER_SECOND: f32 = 0.20;
+const CAMERA_ALIGNMENT_OVERSCAN_RATE_PER_SECOND: f32 = 0.20;
+const CAMERA_ALIGNMENT_TUNING_FILE_NAME: &str = "controller-tuning-state.json";
 
 type OpenXrVulkanGetInstanceProcAddr =
     unsafe extern "system" fn(
@@ -107,6 +115,428 @@ fn openxr_vulkan_get_instance_proc_addr(vk_entry: &ash::Entry) -> OpenXrVulkanGe
 
 fn effective_camera_import_cache_limit(limit: usize) -> usize {
     limit.clamp(2, GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX)
+}
+
+struct CameraAlignmentTuningActions {
+    action_set: xr::ActionSet,
+    left_thumbstick: xr::Action<xr::Vector2f>,
+    right_thumbstick: xr::Action<xr::Vector2f>,
+    right_primary_click: xr::Action<bool>,
+    left_hand: xr::Path,
+    right_hand: xr::Path,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CameraAlignmentTuningAxisState {
+    x: f32,
+    y: f32,
+    active: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CameraAlignmentTuningButtonState {
+    pressed: bool,
+    active: bool,
+}
+
+struct CameraAlignmentTuningState {
+    projection_depth_meters: f32,
+    camera_preview_fov_y_degrees: f32,
+    camera_preview_offset_y_meters: f32,
+    camera_raw_overlay_overscan: f32,
+    projection_layer_visible: bool,
+    right_primary_was_pressed: bool,
+    last_log_frame: Option<u64>,
+    last_dump_frame: Option<u64>,
+    output_path: Option<PathBuf>,
+}
+
+impl CameraAlignmentTuningActions {
+    fn new(instance: &xr::Instance, session: &xr::Session<xr::Vulkan>) -> Result<Self, String> {
+        let left_hand = xr_path(instance, "/user/hand/left")?;
+        let right_hand = xr_path(instance, "/user/hand/right")?;
+        let action_set = instance
+            .create_action_set("camera_alignment_tuning", "Camera Alignment Tuning", 0)
+            .map_err(|error| format!("create camera alignment action set: {error}"))?;
+        let left_thumbstick = action_set
+            .create_action::<xr::Vector2f>("left_thumbstick", "Left Thumbstick", &[left_hand])
+            .map_err(|error| format!("create left thumbstick action: {error}"))?;
+        let right_thumbstick = action_set
+            .create_action::<xr::Vector2f>("right_thumbstick", "Right Thumbstick", &[right_hand])
+            .map_err(|error| format!("create right thumbstick action: {error}"))?;
+        let right_primary_click = action_set
+            .create_action::<bool>("right_primary_click", "Right Primary Click", &[right_hand])
+            .map_err(|error| format!("create right primary action: {error}"))?;
+
+        suggest_camera_alignment_bindings(
+            instance,
+            &left_thumbstick,
+            &right_thumbstick,
+            &right_primary_click,
+        );
+        session
+            .attach_action_sets(&[&action_set])
+            .map_err(|error| format!("attach camera alignment action set: {error}"))?;
+        log_info(
+            "Rusty XR camera alignment controller tuning active controls=leftStickY:depth,leftStickX:fov,rightStickY:previewOffsetYMeters,rightStickX:rawOverscan,rightA:projectionLayerVisible",
+        );
+
+        Ok(Self {
+            action_set,
+            left_thumbstick,
+            right_thumbstick,
+            right_primary_click,
+            left_hand,
+            right_hand,
+        })
+    }
+
+    fn update(
+        &self,
+        session: &xr::Session<xr::Vulkan>,
+        tuning: &mut CameraAlignmentTuningState,
+        dt_seconds: f32,
+        frame_count: u64,
+    ) {
+        if let Err(error) = session.sync_actions(&[xr::ActiveActionSet::new(&self.action_set)]) {
+            if frame_count == 0 || frame_count.is_multiple_of(120) {
+                log_error(format!(
+                    "Rusty XR camera alignment controller sync failed: {error}"
+                ));
+            }
+            return;
+        }
+
+        let left = self
+            .left_thumbstick
+            .state(session, self.left_hand)
+            .map(axis_state_from_openxr)
+            .unwrap_or_else(|error| {
+                if frame_count == 0 || frame_count.is_multiple_of(120) {
+                    log_error(format!(
+                        "Rusty XR left thumbstick alignment action unavailable: {error}"
+                    ));
+                }
+                CameraAlignmentTuningAxisState::inactive()
+            });
+        let right = self
+            .right_thumbstick
+            .state(session, self.right_hand)
+            .map(axis_state_from_openxr)
+            .unwrap_or_else(|error| {
+                if frame_count == 0 || frame_count.is_multiple_of(120) {
+                    log_error(format!(
+                        "Rusty XR right thumbstick alignment action unavailable: {error}"
+                    ));
+                }
+                CameraAlignmentTuningAxisState::inactive()
+            });
+        let right_primary = self
+            .right_primary_click
+            .state(session, self.right_hand)
+            .map(button_state_from_openxr)
+            .unwrap_or_else(|error| {
+                if frame_count == 0 || frame_count.is_multiple_of(120) {
+                    log_error(format!(
+                        "Rusty XR right primary alignment action unavailable: {error}"
+                    ));
+                }
+                CameraAlignmentTuningButtonState::inactive()
+            });
+
+        tuning.apply_input(left, right, right_primary, dt_seconds, frame_count);
+    }
+}
+
+impl CameraAlignmentTuningAxisState {
+    const fn inactive() -> Self {
+        Self {
+            x: 0.0,
+            y: 0.0,
+            active: false,
+        }
+    }
+}
+
+impl CameraAlignmentTuningButtonState {
+    const fn inactive() -> Self {
+        Self {
+            pressed: false,
+            active: false,
+        }
+    }
+}
+
+impl CameraAlignmentTuningState {
+    fn new(config: &RuntimeConfig, output_path: Option<PathBuf>) -> Self {
+        if let Some(path) = output_path.as_ref() {
+            log_info(format!(
+                "Rusty XR camera alignment controller tuning readout file={}",
+                path.display()
+            ));
+        } else {
+            log_error(
+                "Rusty XR camera alignment controller tuning has no app data path for readout file",
+            );
+        }
+        Self {
+            projection_depth_meters: config.camera_projection_depth_meters.clamp(0.05, 10.0),
+            camera_preview_fov_y_degrees: config.camera_preview_fov_y_degrees.clamp(1.0, 175.0),
+            camera_preview_offset_y_meters: config.camera_preview_offset_y_meters.clamp(-2.0, 2.0),
+            camera_raw_overlay_overscan: config.camera_raw_overlay_overscan.max(1.0),
+            projection_layer_visible: config.projection_layer_visible,
+            right_primary_was_pressed: false,
+            last_log_frame: None,
+            last_dump_frame: None,
+            output_path,
+        }
+    }
+
+    fn apply_input(
+        &mut self,
+        left: CameraAlignmentTuningAxisState,
+        right: CameraAlignmentTuningAxisState,
+        right_primary: CameraAlignmentTuningButtonState,
+        dt_seconds: f32,
+        frame_count: u64,
+    ) {
+        let dt = dt_seconds.clamp(0.0, 0.1);
+        let mut changed = false;
+        if left.active {
+            let depth_axis = deadzone_axis(left.y);
+            let fov_axis = deadzone_axis(left.x);
+            if depth_axis != 0.0 {
+                self.projection_depth_meters = (self.projection_depth_meters
+                    + depth_axis * CAMERA_ALIGNMENT_DEPTH_RATE_METERS_PER_SECOND * dt)
+                    .clamp(0.05, 10.0);
+                changed = true;
+            }
+            if fov_axis != 0.0 {
+                self.camera_preview_fov_y_degrees = (self.camera_preview_fov_y_degrees
+                    + fov_axis * CAMERA_ALIGNMENT_FOV_RATE_DEGREES_PER_SECOND * dt)
+                    .clamp(1.0, 175.0);
+                changed = true;
+            }
+        }
+        if right.active {
+            let offset_axis = deadzone_axis(right.y);
+            let overscan_axis = deadzone_axis(right.x);
+            if offset_axis != 0.0 {
+                self.camera_preview_offset_y_meters = (self.camera_preview_offset_y_meters
+                    + offset_axis * CAMERA_ALIGNMENT_OFFSET_Y_RATE_METERS_PER_SECOND * dt)
+                    .clamp(-2.0, 2.0);
+                changed = true;
+            }
+            if overscan_axis != 0.0 {
+                self.camera_raw_overlay_overscan = (self.camera_raw_overlay_overscan
+                    + overscan_axis * CAMERA_ALIGNMENT_OVERSCAN_RATE_PER_SECOND * dt)
+                    .max(1.0);
+                changed = true;
+            }
+        }
+        let primary_pressed = right_primary.active && right_primary.pressed;
+        let toggled = primary_pressed && !self.right_primary_was_pressed;
+        self.right_primary_was_pressed = primary_pressed;
+        if toggled {
+            self.projection_layer_visible = !self.projection_layer_visible;
+            changed = true;
+        }
+
+        let periodic_dump = self
+            .last_dump_frame
+            .map(|last| frame_count.saturating_sub(last) >= 120)
+            .unwrap_or(true);
+        if changed || periodic_dump {
+            self.publish(frame_count, changed, toggled);
+        }
+    }
+
+    fn publish(&mut self, frame_count: u64, changed: bool, toggled: bool) {
+        let config = apply_camera_alignment_tuning(CameraAlignmentTuningUpdate {
+            projection_depth_meters: self.projection_depth_meters,
+            camera_preview_fov_y_degrees: self.camera_preview_fov_y_degrees,
+            camera_preview_offset_y_meters: self.camera_preview_offset_y_meters,
+            camera_raw_overlay_overscan: self.camera_raw_overlay_overscan,
+            projection_layer_visible: self.projection_layer_visible,
+        });
+        self.projection_depth_meters = config.camera_projection_depth_meters;
+        self.camera_preview_fov_y_degrees = config.camera_preview_fov_y_degrees;
+        self.camera_preview_offset_y_meters = config.camera_preview_offset_y_meters;
+        self.camera_raw_overlay_overscan = config.camera_raw_overlay_overscan;
+        self.projection_layer_visible = config.projection_layer_visible;
+        self.write_readout(frame_count);
+
+        let should_log = toggled
+            || self
+                .last_log_frame
+                .map(|last| frame_count.saturating_sub(last) >= 30)
+                .unwrap_or(true);
+        if should_log {
+            log_info(format!(
+                "Rusty XR camera alignment tuning source=controller frame={} changed={} projectionDepthMeters={:.4} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.4} cameraRawOverlayOverscan={:.4} projectionLayerVisible={} readoutFile={}",
+                frame_count,
+                changed,
+                self.projection_depth_meters,
+                self.camera_preview_fov_y_degrees,
+                self.camera_preview_offset_y_meters,
+                self.camera_raw_overlay_overscan,
+                self.projection_layer_visible,
+                self.output_path
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "unavailable".to_string())
+            ));
+            self.last_log_frame = Some(frame_count);
+        }
+    }
+
+    fn write_readout(&mut self, frame_count: u64) {
+        let Some(path) = self.output_path.as_ref() else {
+            return;
+        };
+        let json = format!(
+            concat!(
+                "{{\n",
+                "  \"schemaVersion\": \"rusty.xr.camera-alignment-controller-tuning.v1\",\n",
+                "  \"source\": \"openxr-actions\",\n",
+                "  \"frame\": {},\n",
+                "  \"updatedUnixMs\": {},\n",
+                "  \"projectionDepthMeters\": {:.6},\n",
+                "  \"cameraPreviewFovYDegrees\": {:.6},\n",
+                "  \"cameraPreviewOffsetYMeters\": {:.6},\n",
+                "  \"cameraRawOverlayOverscan\": {:.6},\n",
+                "  \"projectionLayerVisible\": {},\n",
+                "  \"controls\": {{\n",
+                "    \"leftJoystickY\": \"projectionDepthMeters\",\n",
+                "    \"leftJoystickX\": \"cameraPreviewFovYDegrees\",\n",
+                "    \"rightJoystickY\": \"cameraPreviewOffsetYMeters\",\n",
+                "    \"rightJoystickX\": \"cameraRawOverlayOverscan\",\n",
+                "    \"rightPrimaryButton\": \"projectionLayerVisibleToggle\"\n",
+                "  }}\n",
+                "}}\n"
+            ),
+            frame_count,
+            now_unix_ms(),
+            self.projection_depth_meters,
+            self.camera_preview_fov_y_degrees,
+            self.camera_preview_offset_y_meters,
+            self.camera_raw_overlay_overscan,
+            self.projection_layer_visible
+        );
+        if let Some(parent) = path.parent() {
+            if let Err(error) = std::fs::create_dir_all(parent) {
+                if frame_count == 0 || frame_count.is_multiple_of(120) {
+                    log_error(format!(
+                        "Rusty XR camera alignment tuning readout directory failed {}: {error}",
+                        parent.display()
+                    ));
+                }
+                return;
+            }
+        }
+        if let Err(error) = std::fs::write(path, json) {
+            if frame_count == 0 || frame_count.is_multiple_of(120) {
+                log_error(format!(
+                    "Rusty XR camera alignment tuning readout write failed {}: {error}",
+                    path.display()
+                ));
+            }
+            return;
+        }
+        self.last_dump_frame = Some(frame_count);
+    }
+}
+
+fn xr_path(instance: &xr::Instance, path: &str) -> Result<xr::Path, String> {
+    instance
+        .string_to_path(path)
+        .map_err(|error| format!("OpenXR path {path}: {error}"))
+}
+
+fn suggest_camera_alignment_bindings(
+    instance: &xr::Instance,
+    left_thumbstick: &xr::Action<xr::Vector2f>,
+    right_thumbstick: &xr::Action<xr::Vector2f>,
+    right_primary_click: &xr::Action<bool>,
+) {
+    let profile = match xr_path(instance, "/interaction_profiles/oculus/touch_controller") {
+        Ok(path) => path,
+        Err(error) => {
+            log_error(format!(
+                "Rusty XR camera alignment touch-controller profile path unavailable: {error}"
+            ));
+            return;
+        }
+    };
+    let left_thumbstick_path = match xr_path(instance, "/user/hand/left/input/thumbstick") {
+        Ok(path) => path,
+        Err(error) => {
+            log_error(format!(
+                "Rusty XR left thumbstick path unavailable: {error}"
+            ));
+            return;
+        }
+    };
+    let right_thumbstick_path = match xr_path(instance, "/user/hand/right/input/thumbstick") {
+        Ok(path) => path,
+        Err(error) => {
+            log_error(format!(
+                "Rusty XR right thumbstick path unavailable: {error}"
+            ));
+            return;
+        }
+    };
+    let right_primary_path = match xr_path(instance, "/user/hand/right/input/a/click") {
+        Ok(path) => path,
+        Err(error) => {
+            log_error(format!("Rusty XR right primary path unavailable: {error}"));
+            return;
+        }
+    };
+    let bindings = [
+        xr::Binding::new(left_thumbstick, left_thumbstick_path),
+        xr::Binding::new(right_thumbstick, right_thumbstick_path),
+        xr::Binding::new(right_primary_click, right_primary_path),
+    ];
+    match instance.suggest_interaction_profile_bindings(profile, &bindings) {
+        Ok(()) => log_info(
+            "Rusty XR camera alignment controller bindings suggested profile=/interaction_profiles/oculus/touch_controller",
+        ),
+        Err(error) => log_error(format!(
+            "Rusty XR camera alignment controller binding suggestion failed: {error}"
+        )),
+    }
+}
+
+fn axis_state_from_openxr(state: xr::ActionState<xr::Vector2f>) -> CameraAlignmentTuningAxisState {
+    if state.is_active {
+        CameraAlignmentTuningAxisState {
+            x: state.current_state.x,
+            y: state.current_state.y,
+            active: true,
+        }
+    } else {
+        CameraAlignmentTuningAxisState::inactive()
+    }
+}
+
+fn button_state_from_openxr(state: xr::ActionState<bool>) -> CameraAlignmentTuningButtonState {
+    if state.is_active {
+        CameraAlignmentTuningButtonState {
+            pressed: state.current_state,
+            active: true,
+        }
+    } else {
+        CameraAlignmentTuningButtonState::inactive()
+    }
+}
+
+fn deadzone_axis(value: f32) -> f32 {
+    if value.abs() <= CAMERA_ALIGNMENT_TUNING_DEADZONE {
+        0.0
+    } else {
+        value.clamp(-1.0, 1.0)
+    }
 }
 
 pub fn run(app: android_activity::AndroidApp) -> Result<(), String> {
@@ -2279,6 +2709,22 @@ unsafe fn run_vulkan(
         startup_config.xr_display_refresh_hz,
         &mut last_requested_display_refresh_hz,
     );
+    let mut camera_alignment_tuning = CameraAlignmentTuningState::new(
+        &startup_config,
+        app.internal_data_path()
+            .map(|path| path.join(CAMERA_ALIGNMENT_TUNING_FILE_NAME)),
+    );
+    camera_alignment_tuning.publish(0, false, false);
+    let camera_alignment_tuning_actions =
+        match CameraAlignmentTuningActions::new(&xr_instance, &session) {
+            Ok(actions) => Some(actions),
+            Err(error) => {
+                log_error(format!(
+                    "Rusty XR camera alignment controller tuning disabled: {error}"
+                ));
+                None
+            }
+        };
 
     let (reference_space, reference_space_label) =
         create_app_reference_space(&session, startup_config.hand_particle_mode)?;
@@ -2537,6 +2983,19 @@ unsafe fn run_vulkan(
         vk_device
             .wait_for_fences(&[fences[frame]], true, u64::MAX)
             .map_err(|error| format!("wait Vulkan fence: {error}"))?;
+        if session_focused {
+            if let Some(actions) = camera_alignment_tuning_actions.as_ref() {
+                let dt_seconds = (frame_state.predicted_display_period.as_nanos() as f32
+                    / 1_000_000_000.0)
+                    .clamp(0.0, 0.1);
+                actions.update(
+                    &session,
+                    &mut camera_alignment_tuning,
+                    dt_seconds,
+                    frame_count,
+                );
+            }
+        }
         let config = runtime_config();
         if openxr_environment_depth_probe.is_some()
             && !openxr_environment_depth_probe_reuses_existing(
@@ -6290,9 +6749,12 @@ fn projection_area_target_marker_fields(config: &crate::RuntimeConfig) -> String
     let radius = [radius_x, radius_y];
     let source_to_screen_gain = projection_area_source_to_screen_gain_uv(radius, scale);
     format!(
-        "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionAreaOffsetResponseCoordinateSpace=display-eye-screen-uv projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv_div_projectionAreaScaleUv projectionAreaShaderScreenBaseFormula=screenBase=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 projectionAreaFullFrameContentFormula=contentUv=(screenBase-offsetUv-(0.5-radiusUv))/(2*radiusUv) projectionAreaSourceToScreenGainUv={} projectionDepthMeters={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} leftProjectionAreaOffsetUv={} rightProjectionAreaOffsetUv={} leftProjectionAreaOffsetResponseUv={} rightProjectionAreaOffsetResponseUv={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+        "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionAreaOffsetResponseCoordinateSpace=display-eye-screen-uv projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv_div_projectionAreaScaleUv projectionAreaShaderScreenBaseFormula=screenBase=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 projectionAreaFullFrameContentFormula=contentUv=(screenBase-offsetUv-(0.5-radiusUv))/(2*radiusUv) projectionAreaSourceToScreenGainUv={} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} leftProjectionAreaOffsetUv={} rightProjectionAreaOffsetUv={} leftProjectionAreaOffsetResponseUv={} rightProjectionAreaOffsetResponseUv={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
         screen_uv_vec2_token(source_to_screen_gain),
         config.camera_projection_depth_meters,
+        config.camera_preview_fov_y_degrees,
+        config.camera_preview_offset_y_meters,
+        config.camera_raw_overlay_overscan,
         config.camera_projection_alpha_mode.stable_id(),
         config.camera_projection_alpha_scale,
         config.camera_projection_alpha_bias,
@@ -6899,14 +7361,7 @@ fn projected_display_eye_homography(
     // into content UVs before applying this homography, matching a real
     // head-anchored overlay whose border may extend beyond the camera-covered
     // content region.
-    let surface_corners = head_anchored_preview_surface_corners(
-        tracking,
-        config.camera_preview_fov_y_degrees,
-        config.camera_projection_depth_meters.max(0.05),
-        aspect,
-        config.camera_raw_overlay_overscan,
-    )
-    .ok()?;
+    let surface_corners = camera_preview_surface_corners(tracking, config, aspect)?;
     let camera_basis = camera_basis_from_camera2_reference_pose_relative_to_center(
         tracking,
         extrinsics,
@@ -6971,14 +7426,7 @@ fn projected_full_frame_display_eye_homography(
     let width = frame.metadata.delivered_size.width as f32;
     let height = frame.metadata.delivered_size.height as f32;
     let (aspect, aspect_source) = content_surface_aspect(width, height, resolution);
-    let surface_corners = head_anchored_preview_surface_corners(
-        tracking,
-        config.camera_preview_fov_y_degrees,
-        config.camera_projection_depth_meters.max(0.05),
-        aspect,
-        config.camera_raw_overlay_overscan,
-    )
-    .ok()?;
+    let surface_corners = camera_preview_surface_corners(tracking, config, aspect)?;
     let eye_basis = eye_basis_from_view(display_view)?;
     let surface_to_screen = surface_to_eye_screen_uv_homography(
         surface_corners,
@@ -7023,6 +7471,26 @@ fn is_full_frame_diagnostic_frame(frame: &HeadsetCameraGpuFrame) -> bool {
             .projection_geometry_profile
             .as_deref()
             .is_some_and(|value| value == "full-frame-diagnostic")
+}
+
+fn camera_preview_surface_corners(
+    tracking: TrackingBasis,
+    config: &crate::RuntimeConfig,
+    aspect: f32,
+) -> Option<[Vec3; 4]> {
+    let mut surface_corners = head_anchored_preview_surface_corners(
+        tracking,
+        config.camera_preview_fov_y_degrees,
+        config.camera_projection_depth_meters.max(0.05),
+        aspect,
+        config.camera_raw_overlay_overscan,
+    )
+    .ok()?;
+    let offset = tracking.up * config.camera_preview_offset_y_meters.clamp(-2.0, 2.0);
+    for corner in &mut surface_corners {
+        *corner = *corner + offset;
+    }
+    Some(surface_corners)
 }
 
 fn eye_basis_from_view(view: &xr::View) -> Option<CameraBasis> {
@@ -8595,14 +9063,7 @@ fn osc_overlay_surface_for_projection(
         })
         .clamp(0.25, 4.0);
     let surface_corners = inset_surface_corners(
-        head_anchored_preview_surface_corners(
-            tracking,
-            config.camera_preview_fov_y_degrees,
-            config.camera_projection_depth_meters.max(0.05),
-            aspect,
-            config.camera_raw_overlay_overscan,
-        )
-        .ok()?,
+        camera_preview_surface_corners(tracking, config, aspect)?,
         OSC_OVERLAY_PROJECTION_INSET_X,
         OSC_OVERLAY_PROJECTION_INSET_Y,
     );

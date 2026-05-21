@@ -703,6 +703,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) stereo_layout: StereoMediaLayout,
     pub(crate) camera_projection_fov_y_degrees: f32,
     pub(crate) camera_preview_fov_y_degrees: f32,
+    pub(crate) camera_preview_offset_y_meters: f32,
     pub(crate) camera_projection_scale: f32,
     pub(crate) camera_projection_depth_meters: f32,
     pub(crate) camera_projection_area_scale_uv: f32,
@@ -796,6 +797,7 @@ impl Default for RuntimeConfig {
             stereo_layout: StereoMediaLayout::Mono,
             camera_projection_fov_y_degrees: 92.0,
             camera_preview_fov_y_degrees: 60.0,
+            camera_preview_offset_y_meters: 0.0,
             camera_projection_scale: 1.0,
             camera_projection_depth_meters: 1.0,
             camera_projection_area_scale_uv: 1.0,
@@ -1386,6 +1388,33 @@ pub(crate) fn runtime_config() -> RuntimeConfig {
         .unwrap_or_default()
 }
 
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) struct CameraAlignmentTuningUpdate {
+    pub(crate) projection_depth_meters: f32,
+    pub(crate) camera_preview_fov_y_degrees: f32,
+    pub(crate) camera_preview_offset_y_meters: f32,
+    pub(crate) camera_raw_overlay_overscan: f32,
+    pub(crate) projection_layer_visible: bool,
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) fn apply_camera_alignment_tuning(update: CameraAlignmentTuningUpdate) -> RuntimeConfig {
+    runtime_config_state()
+        .lock()
+        .map(|mut state| {
+            state.camera_projection_depth_meters = update.projection_depth_meters.clamp(0.05, 10.0);
+            state.camera_preview_fov_y_degrees =
+                update.camera_preview_fov_y_degrees.clamp(1.0, 175.0);
+            state.camera_preview_offset_y_meters =
+                update.camera_preview_offset_y_meters.clamp(-2.0, 2.0);
+            state.camera_raw_overlay_overscan = update.camera_raw_overlay_overscan.max(1.0);
+            state.projection_layer_visible = update.projection_layer_visible;
+            state.clone()
+        })
+        .unwrap_or_default()
+}
+
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) fn diagnostic_hud_snapshot() -> DiagnosticHudUpdate {
     diagnostic_hud_state()
@@ -1479,7 +1508,7 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} cameraBlurRadiusPx={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} projectionScale={} projectionDepthMeters={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaLeftOffsetXUv={} projectionAreaLeftOffsetYUv={} projectionAreaRightOffsetXUv={} projectionAreaRightOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} projectionAlphaMode={} projectionAlphaScale={} projectionAlphaBias={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} cameraBlurRadiusPx={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} previewOffsetYMeters={} projectionScale={} projectionDepthMeters={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaLeftOffsetXUv={} projectionAreaLeftOffsetYUv={} projectionAreaRightOffsetXUv={} projectionAreaRightOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} projectionAlphaMode={} projectionAlphaScale={} projectionAlphaBias={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -1517,6 +1546,7 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_frame_adoption_max_hold_ms,
         config.camera_projection_fov_y_degrees,
         config.camera_preview_fov_y_degrees,
+        config.camera_preview_offset_y_meters,
         config.camera_projection_scale,
         config.camera_projection_depth_meters,
         config.camera_projection_area_scale_uv,
@@ -2045,6 +2075,7 @@ struct JavaRuntimeConfig {
     stereo_layout: Option<String>,
     camera_projection_fov_y_degrees: Option<f32>,
     camera_preview_fov_y_degrees: Option<f32>,
+    camera_preview_offset_y_meters: Option<f32>,
     camera_projection_scale: Option<f32>,
     projection_depth_meters: Option<f32>,
     projection_area_scale_uv: Option<f32>,
@@ -2190,6 +2221,11 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             bridge.camera_preview_fov_y_degrees,
             defaults.camera_preview_fov_y_degrees,
         ),
+        camera_preview_offset_y_meters: finite_or(
+            bridge.camera_preview_offset_y_meters,
+            defaults.camera_preview_offset_y_meters,
+        )
+        .clamp(-2.0, 2.0),
         camera_projection_scale: finite_positive_or(
             bridge.camera_projection_scale,
             defaults.camera_projection_scale,
@@ -4256,6 +4292,7 @@ mod tests {
             stereo_layout: Some("separate".to_string()),
             camera_projection_fov_y_degrees: Some(92.0),
             camera_preview_fov_y_degrees: Some(60.0),
+            camera_preview_offset_y_meters: Some(0.125),
             camera_projection_scale: Some(0.75),
             projection_depth_meters: Some(1.25),
             projection_area_scale_uv: Some(0.815),
@@ -4367,6 +4404,7 @@ mod tests {
         assert!(!config.allow_cpu_fallback);
         assert_eq!(config.camera_projection_fov_y_degrees, 92.0);
         assert_eq!(config.camera_preview_fov_y_degrees, 60.0);
+        assert_eq!(config.camera_preview_offset_y_meters, 0.125);
         assert_eq!(config.camera_projection_scale, 0.75);
         assert_eq!(config.camera_projection_depth_meters, 1.25);
         assert_eq!(config.camera_projection_area_scale_uv, 0.815);
