@@ -7,6 +7,7 @@ members = [
     "crates/rusty-xr-debug-canvas",
     "crates/rusty-xr-lsl",
     "crates/rusty-xr-osc",
+    "crates/rusty-xr-zmq",
     "crates/rusty-xr-broker-model",
     "crates/rusty-xr-eye-model",
     "crates/rusty-xr-polar",

@@ -34,6 +34,8 @@ optional:
 - `android`: Android platform conversion helpers only.
 - `lsl-native`: native `liblsl` transport bindings.
 - `ble-native`: native Bluetooth transport bindings.
+- `runtime`: adapter-crate runtime support when the crate itself is already an
+  optional adapter rather than a core model crate.
 
 If a feature would pull in a large SDK, renderer, app lifecycle, build system,
 or platform service, prefer a separate adapter crate instead of a core feature.
@@ -75,6 +77,10 @@ Before adding an adapter:
 - Run the public boundary scanner.
 - Keep app package names, signing, captured media, local paths, and release
   payloads out of the public repo.
+
+For ZeroMQ specifically, keep native `libzmq` bindings out of public core.
+Pure Rust runtime support belongs in the optional `rusty-xr-zmq` adapter crate
+and must stay disabled by default.
 
 ## Examples Stay Deferred
 

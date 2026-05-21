@@ -46,6 +46,7 @@ Initial crate layout:
   state primitives.
 - `rusty-xr-lsl`: Lab Streaming Layer models and utilities.
 - `rusty-xr-osc`: Open Sound Control packet and UDP helpers.
+- `rusty-xr-zmq`: optional pure-Rust ZeroMQ adapter helpers.
 - `rusty-xr-broker-model`: broker command, stream-manifest, sample-header, and
   transport-lane contracts, plus synthetic stream and replay payload shapes.
 - `rusty-xr-eye-model`: screen-space gaze, XR gaze-ray, AOI, processor-event,

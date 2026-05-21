@@ -1,0 +1,29 @@
+[package]
+name = "rusty-xr-zmq"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Optional pure-Rust ZeroMQ adapter helpers for Rusty XR."
+
+[features]
+default = []
+serde = ["dep:serde", "rusty-xr-broker-model/serde"]
+runtime = ["dep:tokio", "dep:zeromq"]
+
+[[example]]
+name = "zmq_pub_sub_loopback"
+path = "examples/zmq_pub_sub_loopback.rs"
+required-features = ["runtime"]
+
+[dependencies]
+rusty-xr-broker-model = { path = "../rusty-xr-broker-model", default-features = false }
+serde = { workspace = true, optional = true }
+tokio = { version = "1", features = ["rt", "time"], optional = true }
+zeromq = { version = "0.6", optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

@@ -48,6 +48,15 @@ scrubbed_private_dependencies = ["downstream stream names", "sensor-specific add
 review_status = "foundation-pass"
 
 [[utility]]
+crate = "rusty-xr-zmq"
+source_family = "public ZeroMQ bridge manifest and adapter workflows"
+extraction_date = "2026-05-21"
+public_safe_rationale = "A separate optional adapter crate can turn public ZeroMQ bridge manifests into bounded receiver queues without adding socket runtime dependencies to broker-model contracts."
+license_assumptions = "Authored for this MIT repository. Runtime support targets the pure Rust zeromq crate behind an explicit feature; native libzmq bindings and bundled native runtimes remain out of this crate."
+scrubbed_private_dependencies = ["downstream stream names", "local sidecar scripts", "participant data", "app-specific payload semantics", "native libzmq runtime packages"]
+review_status = "first-adapter-slice"
+
+[[utility]]
 crate = "rusty-xr-broker-model"
 source_family = "research XR broker, sidecar stream, and clean-room low-latency transport workflows"
 extraction_date = "2026-05-09"

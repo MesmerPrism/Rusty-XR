@@ -84,6 +84,20 @@ privacy/security policy for LAN and online relays. Clock follow-up work should
 add OpenXR frame-timeline samples, companion sync-probe reporting, and session
 manifest clock summaries.
 
+### ZeroMQ Adapter
+
+The optional `rusty-xr-zmq` crate turns broker ZeroMQ bridge manifests into
+runtime-ready receiver configuration, bounded app-drain queues, and an opt-in
+pure Rust PUB/SUB receiver. The crate is not part of Rusty XR core and default
+builds do not open sockets or pull runtime ZeroMQ dependencies.
+
+The first public slices should stay focused on receiver-side diagnostics:
+manifest validation, explicit bind/connect selection, topic-prefix handling,
+drop counters, decode-error counters, receive timestamps, desktop checks, and
+Android target compilation. A local PUB/SUB loopback example now exercises the
+runtime path without hardware. Later slices can add broker example wiring,
+sender helpers, richer socket-pattern coverage, and device runtime validation.
+
 ### Eye Model
 
 Engine-neutral eye-data contracts for screen-space gaze points, XR gaze rays,
@@ -521,6 +535,7 @@ responsibilities.
 | LSL utilities | In progress | Pure stream descriptor, stream role, channel schema, discovery filter, endpoint status, staleness, roundtrip, biofeedback, and telemetry models added. |
 | OSC utilities | In progress | Pure OSC message/bundle codec, UDP helper, loopback probe, and Quest example listener profile added. |
 | Broker model | In progress | Public command envelopes, acknowledgements, client hello, stream manifests, sample headers, session manifests, transport endpoints, timing stamps, heartbeat state, drop counters, replay records, synthetic wave streams, transport-session contracts, and Rusty XR diagnostic video headers added for sidecar broker streams. |
+| ZeroMQ adapter | In progress | Optional pure-Rust adapter crate added for ZeroMQ bridge manifests, bounded receiver queues, runtime-gated PUB/SUB receiver support, and local loopback example without native `libzmq`. |
 | Eye model | In progress | Public screen-space gaze, XR gaze-ray, AOI hit, processor-event, validity, provenance, and deterministic synthetic eye-data contracts added without native tracker SDK dependencies. |
 | Debug canvas | In progress | Dependency-light logical canvas crate added for reusable diagnostics panels, with normalized rectangle/text draw lists, input-neutral diagnostic HUD command state, and optional serde. |
 | Polar H10 utilities | In progress | Public Polar GATT IDs, HR/RR decoder, uncompressed ECG/ACC PMD decoders, PMD command builders, and LSL schemas added. |
@@ -545,4 +560,4 @@ responsibilities.
 | Boundary scanner and provenance | In progress | Public scanner CLI/config and public utility provenance metadata added. |
 | Feature and adapter policy | `[x]` | Adapter feature names, separate-crate rule, and pre-adapter boundary requirements documented. |
 | Public examples | In progress | Synthetic layout, composite feedback, passthrough style catalog, audio-reactive passthrough style, and visual strobe profile examples added; minimal Rust-native Android APK smoke test added; first camera-driven Quest OpenXR/Vulkan custom-layer example added with optional MediaProjection screen streaming, an OSC listener diagnostics profile, environment-depth diagnostics, passthrough-backed depth mesh visualization, retained local-space particle visualization, scene-owned environment-depth particle mapping, and Meta/OpenXR hand-mesh particle visualization; broker APK proof added for localhost WebSocket, optional LSL forwarding, and OSC ingress/egress validation; portable hand-mesh sampler, collider, and SDF fixture examples added. |
-| Optional adapters | `[ ]` | Deferred until contracts stabilize. |
+| Optional adapters | In progress | First adapter slice is `rusty-xr-zmq`; adapters remain separate crates with runtime features disabled by default. |

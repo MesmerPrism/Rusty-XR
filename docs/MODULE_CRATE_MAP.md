@@ -61,6 +61,7 @@ not in base crates.
 | `rusty-xr-ble` | BLE permissions, adapter state, scan filters, GATT descriptors, and Android Bluetooth contracts. | Framework-neutral only. |
 | `rusty-xr-lsl` | LSL stream descriptors, channel schemas, and sanitized stream roles. | Used by public examples and broker stream models. |
 | `rusty-xr-osc` | OSC packets, type tags, bundles, and UDP helpers. | Runtime integration is example- or adapter-owned. |
+| `rusty-xr-zmq` | Optional pure-Rust ZeroMQ adapter helpers, manifest-to-receiver config conversion, bounded receiver queues, and opt-in runtime receiver support. | Default builds remain socket-free; the runtime feature uses the pure Rust `zeromq` crate and does not link native `libzmq`. |
 | `rusty-xr-polar` | Polar H10 HR/RR/ECG/ACC helper models and LSL descriptors. | Device connection policy stays downstream. |
 | `rusty-xr-eye-model` | Screen-space gaze, XR gaze rays, AOI hits, derived processor events, and synthetic eye-data streams. | Provider adapters stay optional. |
 
