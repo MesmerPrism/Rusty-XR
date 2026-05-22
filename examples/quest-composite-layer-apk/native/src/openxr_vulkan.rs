@@ -6677,6 +6677,31 @@ fn identity_homography() -> [[f32; 3]; 3] {
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
 }
 
+fn full_target_canvas_clip() -> [[f32; 4]; 4] {
+    [
+        [-1.0, -1.0, 0.0, 1.0],
+        [1.0, -1.0, 0.0, 1.0],
+        [1.0, 1.0, 0.0, 1.0],
+        [-1.0, 1.0, 0.0, 1.0],
+    ]
+}
+
+fn full_target_canvas_aspect(
+    display_view: &xr::View,
+    resolution: vk::Extent2D,
+) -> (f32, &'static str) {
+    if let Some(aspect) = fov_aspect(display_view.fov) {
+        return (aspect.clamp(0.25, 4.0), "display-eye-fov");
+    }
+    if resolution.height > 0 {
+        return (
+            (resolution.width as f32 / resolution.height as f32).clamp(0.25, 4.0),
+            "swapchain-resolution-fallback",
+        );
+    }
+    (1.0, "square-fallback")
+}
+
 fn pack_homography_row(row: [f32; 3]) -> [f32; 4] {
     [row[0], row[1], row[2], 0.0]
 }
@@ -6837,19 +6862,25 @@ fn projected_homography_marker_fields(
     homographies: &ProjectedStereoHomographies,
     config: &crate::RuntimeConfig,
 ) -> String {
+    let surface_aspect_contract = if config.camera_projection_mode.uses_world_canvas() {
+        "full_target_canvas_aspect"
+    } else {
+        "content_frame_aspect_not_display_eye_fov"
+    };
     format!(
-        "projectionHomographyReady=true projectionAreaTransformStage=screen_space_xy_offset projectionAreaWarpParity=reference_unwarped_screen_uv projectionCanvasMode={} projectionCanvasSampleRows={} projectionCanvasIndicator={} projectionSurfaceAspectContract=content_frame_aspect_not_display_eye_fov leftProjectionSurfaceAspect={:.6} rightProjectionSurfaceAspect={:.6} leftProjectionSurfaceAspectSource={} rightProjectionSurfaceAspectSource={} leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} {} {}",
+        "projectionHomographyReady=true projectionAreaTransformStage=screen_space_xy_offset projectionAreaWarpParity=reference_unwarped_screen_uv projectionCanvasMode={} projectionCanvasSampleRows={} projectionCanvasIndicator={} projectionSurfaceAspectContract={} leftProjectionSurfaceAspect={:.6} rightProjectionSurfaceAspect={:.6} leftProjectionSurfaceAspectSource={} rightProjectionSurfaceAspectSource={} leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} {} {}",
         if config.camera_projection_mode.uses_world_canvas() {
-            "world-space-quad"
+            "full-target-canvas-quad"
         } else {
             "fullscreen-collapsed-surface"
         },
         if config.camera_projection_mode.uses_world_canvas() {
-            "surface_to_camera"
+            "surface_to_camera_full_target"
         } else {
             "screen_to_camera"
         },
         "none",
+        surface_aspect_contract,
         homographies.left.surface_aspect,
         homographies.right.surface_aspect,
         homographies.left.surface_aspect_source,
@@ -7058,19 +7089,19 @@ fn projection_source_metadata_marker_fields(
         "unknown",
     );
     let raster_orientation = marker_token(
-        left.raster_orientation
+        left.stimulus_raster_orientation
             .as_deref()
-            .or(left.stimulus_raster_orientation.as_deref())
-            .or(right.raster_orientation.as_deref())
-            .or(right.stimulus_raster_orientation.as_deref()),
+            .or(right.stimulus_raster_orientation.as_deref())
+            .or(left.raster_orientation.as_deref())
+            .or(right.raster_orientation.as_deref()),
         "unspecified",
     );
     let upright_marker = marker_token(
-        left.upright_marker
+        left.stimulus_upright_marker
             .as_deref()
-            .or(left.stimulus_upright_marker.as_deref())
-            .or(right.upright_marker.as_deref())
-            .or(right.stimulus_upright_marker.as_deref()),
+            .or(right.stimulus_upright_marker.as_deref())
+            .or(left.upright_marker.as_deref())
+            .or(right.upright_marker.as_deref()),
         "unspecified",
     );
     let orientation_metadata_source = marker_token(
@@ -7243,9 +7274,9 @@ fn projected_stereo_homographies(
     views: &[xr::View],
     resolution: vk::Extent2D,
 ) -> Option<(DisplayEyeProjectionMapping, DisplayEyeProjectionMapping)> {
-    let full_frame_diagnostic =
-        is_full_frame_diagnostic_frame(&frame.left) && is_full_frame_diagnostic_frame(&frame.right);
-    let reference_center = if full_frame_diagnostic {
+    let full_frame_stimulus_mapping = frame_requests_full_frame_stimulus_mapping(&frame.left)
+        && frame_requests_full_frame_stimulus_mapping(&frame.right);
+    let reference_center = if full_frame_stimulus_mapping {
         Vec3::ZERO
     } else {
         let left_extrinsics = frame.left.metadata.extrinsics?;
@@ -7292,7 +7323,7 @@ fn projected_display_eye_homography(
     resolution: vk::Extent2D,
     reference_center: Vec3,
 ) -> Option<DisplayEyeProjectionMapping> {
-    if is_full_frame_diagnostic_frame(frame) {
+    if frame_requests_full_frame_stimulus_mapping(frame) {
         return projected_full_frame_display_eye_homography(
             frame,
             config,
@@ -7367,14 +7398,42 @@ fn projected_display_eye_homography(
     );
     let surface_to_screen =
         domain_to_screen_with_visual_offset(surface_to_screen, offset_x_uv, offset_y_uv);
+    let (
+        surface_to_camera,
+        screen_to_surface,
+        surface_to_screen,
+        canvas_clip,
+        surface_aspect,
+        surface_aspect_source,
+    ) = if config.camera_projection_mode.uses_world_canvas() {
+        let (target_aspect, target_aspect_source) =
+            full_target_canvas_aspect(display_view, resolution);
+        (
+            screen_to_camera,
+            identity_homography(),
+            identity_homography(),
+            full_target_canvas_clip(),
+            target_aspect,
+            target_aspect_source,
+        )
+    } else {
+        (
+            surface_to_camera,
+            screen_to_surface,
+            surface_to_screen,
+            canvas_clip,
+            aspect,
+            aspect_source,
+        )
+    };
     Some(DisplayEyeProjectionMapping {
         surface_to_camera,
         screen_to_camera,
         screen_to_surface,
         surface_to_screen,
         canvas_clip,
-        surface_aspect: aspect,
-        surface_aspect_source: aspect_source,
+        surface_aspect,
+        surface_aspect_source,
         full_frame_stimulus_mapping: false,
     })
 }
@@ -7413,20 +7472,40 @@ fn projected_full_frame_display_eye_homography(
     );
     let surface_to_screen =
         domain_to_screen_with_visual_offset(surface_to_screen, offset_x_uv, offset_y_uv);
+    let (screen_to_surface, surface_to_screen, canvas_clip, surface_aspect, surface_aspect_source) =
+        if config.camera_projection_mode.uses_world_canvas() {
+            let (target_aspect, target_aspect_source) =
+                full_target_canvas_aspect(display_view, resolution);
+            (
+                identity_homography(),
+                identity_homography(),
+                full_target_canvas_clip(),
+                target_aspect,
+                target_aspect_source,
+            )
+        } else {
+            (
+                screen_to_surface,
+                surface_to_screen,
+                canvas_clip,
+                aspect,
+                aspect_source,
+            )
+        };
     Some(DisplayEyeProjectionMapping {
         surface_to_camera: identity_homography(),
         screen_to_camera: screen_to_surface,
         screen_to_surface,
         surface_to_screen,
         canvas_clip,
-        surface_aspect: aspect,
-        surface_aspect_source: aspect_source,
+        surface_aspect,
+        surface_aspect_source,
         full_frame_stimulus_mapping: true,
     })
 }
 
-fn is_full_frame_diagnostic_frame(frame: &HeadsetCameraGpuFrame) -> bool {
-    frame
+fn frame_requests_full_frame_stimulus_mapping(frame: &HeadsetCameraGpuFrame) -> bool {
+    let full_frame_profile = frame
         .diagnostics
         .synthetic_projection_profile
         .as_deref()
@@ -7435,7 +7514,20 @@ fn is_full_frame_diagnostic_frame(frame: &HeadsetCameraGpuFrame) -> bool {
             .diagnostics
             .projection_geometry_profile
             .as_deref()
-            .is_some_and(|value| value == "full-frame-diagnostic")
+            .is_some_and(|value| value == "full-frame-diagnostic");
+    if !full_frame_profile {
+        return false;
+    }
+    let Some(mapping_intent) = frame.diagnostics.content_mapping_intent.as_deref() else {
+        return false;
+    };
+    matches!(
+        mapping_intent,
+        "map-full-frame-stimulus-to-projection-area"
+            | "map-full-frame-stimulus-to-projection-surface"
+            | "map-full-frame-content-to-projection-area"
+            | "map-full-frame-content-to-projection-surface"
+    )
 }
 
 fn camera_preview_surface_corners(

@@ -38,6 +38,7 @@ public final class DirectCamera2OesProbe {
         "android-camera2-lens-pose-reference-from-camera";
     private static final String STREAM_RASTER_ORIENTATION_SCHEMA = "rusty.xr.stream_raster_orientation.v1";
     private static final String STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN = "top-left-origin-y-down";
+    private static final String STIMULUS_ORIENTATION_SCHEMA = "rusty.xr.stimulus_orientation.v1";
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
     private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-surface";
     private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
@@ -424,6 +425,13 @@ public final class DirectCamera2OesProbe {
             metadata.put("uprightMarker", "camera-native-upright");
             metadata.put("orientationMetadataSource", "direct-camera2-oes-characteristics");
             metadata.put("orientationDefault", false);
+            metadata.put("stimulusOrientationSchema", STIMULUS_ORIENTATION_SCHEMA);
+            metadata.put("stimulusRasterOrientation", STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN);
+            metadata.put("stimulusOrigin", "top-left");
+            metadata.put("stimulusYAxis", "down");
+            metadata.put("stimulusUprightMarker", "camera-native-upright");
+            metadata.put("stimulusOrientationMetadataSource", "direct-camera2-oes-characteristics");
+            metadata.put("stimulusOrientationDefault", false);
             metadata.put("contentGeometrySchema", STREAM_CONTENT_GEOMETRY_SCHEMA);
             metadata.put("contentKind", "camera-frame");
             metadata.put("contentWidth", width);

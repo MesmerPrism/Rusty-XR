@@ -374,7 +374,7 @@ full-frame-diagnostic` for the canvas-equivalent pass and
 camera-projection` for the per-eye custom projection pass. The Makepad XR panel
 is sized and placed from the same projection depth, preview FOV, vertical
 offset, and raw overscan values before the camera shader runs. Keep the
-build-time source mapping at `display-left-from-left-source` for current
+build-time source mapping at `display-left-from-right-source` for current
 projection evidence builds so the display eyes consume the same left/right
 camera feeds as the HWB and GLES/OES lanes; override `-DisplaySourceEyeMapping`
 only when the source-eye mapping itself is the variable under test.

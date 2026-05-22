@@ -1185,43 +1185,36 @@ void main() {
     bool camera_footprint_surface_mapping = diagnostic_mode == 4;
     bool full_frame_surface_mapping =
         full_frame_stimulus_mapping && camera_footprint_surface_mapping;
-    vec2 projection_screen_uv_base = world_canvas
-        ? v_surface_uv
-        : (v_surface_uv - vec2(0.5)) * projection_area_scale + vec2(0.5);
+    vec2 projection_screen_uv_base =
+        (v_surface_uv - vec2(0.5)) * projection_area_scale + vec2(0.5);
     vec2 projection_screen_uv = full_frame_stimulus_mapping && !full_frame_surface_mapping
         ? projection_screen_uv_base - projection_area_offset
         : projection_screen_uv_base;
-    vec2 projection_area_domain_uv = world_canvas
-        ? v_surface_uv
-        : projection_screen_uv_base - projection_area_offset;
+    vec2 projection_area_domain_uv = projection_screen_uv_base - projection_area_offset;
 
     vec2 local_uv = vec2(0.5) + ((v_surface_uv - vec2(0.5)) / overscan);
     bool content_surface_valid = true;
-    vec2 projected_content_uv = world_canvas
-        ? v_surface_uv
-        : content_uv_from_screen_uv(
+    vec2 projected_content_uv = content_uv_from_screen_uv(
             projection_screen_uv,
             eye,
             projected,
             content_surface_valid
         );
     vec2 content_uv = world_canvas
-        ? v_surface_uv
+        ? projection_screen_uv
         : (projected
         ? projected_content_uv
         : (v_surface_uv - vec2(0.5)) * content_uv_scale + vec2(0.5));
-    vec2 full_frame_content_uv = world_canvas
-        ? v_surface_uv
-        : (full_frame_surface_mapping
+    vec2 full_frame_content_uv = full_frame_surface_mapping
         ? projected_content_uv
-        : projection_area_content_uv(projection_screen_uv));
+        : projection_area_content_uv(projection_screen_uv);
     vec2 sample_content_uv = world_canvas
-        ? v_surface_uv
+        ? (full_frame_stimulus_mapping ? full_frame_content_uv : projection_screen_uv)
         : (full_frame_stimulus_mapping
         ? full_frame_content_uv
         : (projected ? content_uv : clamp(local_uv, vec2(0.0), vec2(1.0))));
     vec2 projection_uv = world_canvas
-        ? v_surface_uv
+        ? projection_screen_uv
         : (full_frame_surface_mapping
         ? projection_screen_uv
         : (full_frame_stimulus_mapping
@@ -1312,17 +1305,15 @@ void main() {
     float projection_area_distance = resolve_camera_oval_distance(projection_area_domain_uv);
     bool projection_area_inside = projection_area_distance <= 1.0;
     bool masked_projection_valid = projection_valid && (!raw_projection_area_mask || projection_area_inside);
-    vec3 diagnostic_intended_mask_color = vec3(0.36, 0.0, 0.28);
     vec3 diagnostic_source_invalid_color = vec3(1.0, 0.0, 0.0);
-    vec3 diagnostic_guide_color = eye == 0 ? vec3(0.0, 0.95, 1.0) : vec3(1.0, 0.86, 0.0);
+    vec3 diagnostic_intended_mask_color = raw_projection_solid_red
+        ? diagnostic_source_invalid_color
+        : vec3(0.36, 0.0, 0.28);
     bool diagnostic_intended_mask = raw_projection_area_mask && !projection_area_inside;
     bool diagnostic_source_invalid = raw_projection_area_mask && projection_area_inside && !projection_valid;
     vec3 raw_projection_diagnostic_color = diagnostic_intended_mask
         ? diagnostic_intended_mask_color
         : diagnostic_source_invalid_color;
-    float projection_area_guide = raw_projection_area_mask
-        ? 1.0 - smoothstep(0.0, 0.018, abs(projection_area_distance - 1.0))
-        : 0.0;
     vec3 color = center_color;
     if (raw_projection_blur) {
         color = masked_projection_valid
@@ -1490,13 +1481,6 @@ void main() {
     vec3 final_color = color * surface_edge_dim * source_edge_dim;
     if (raw_projection_solid_red && !masked_projection_valid) {
         final_color = raw_projection_diagnostic_color;
-    }
-    if (raw_projection_solid_red) {
-        final_color = mix(
-            final_color,
-            diagnostic_guide_color,
-            clamp(projection_area_guide * projection_border_opacity, 0.0, 1.0)
-        );
     }
     bool source_alpha_output =
         raw_projection_area_mask &&

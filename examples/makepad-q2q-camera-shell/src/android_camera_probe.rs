@@ -32,7 +32,7 @@ const PROJECTION_SOURCE_ASPECT: f32 = 1.0;
 const DISPLAY_EYE_OFFSET_METERS: f32 = 0.032;
 const DISPLAY_FOV_Y_DEGREES: f32 = 92.0;
 const DISPLAY_ASPECT: f32 = 1.0;
-const DEFAULT_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-left-source";
+const DEFAULT_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-right-source";
 
 const IDENTITY_HOMOGRAPHY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 

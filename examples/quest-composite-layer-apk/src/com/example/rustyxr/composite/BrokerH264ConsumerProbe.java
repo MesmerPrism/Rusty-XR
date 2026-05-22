@@ -3530,6 +3530,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusOrigin");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusYAxis");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusUprightMarker");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "stimulusOrientationMetadataSource");
             copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentGeometrySchema");
             copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentKind");
             copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentWidth");

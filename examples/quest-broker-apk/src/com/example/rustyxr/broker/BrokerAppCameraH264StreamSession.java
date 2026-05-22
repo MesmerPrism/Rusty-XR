@@ -66,6 +66,7 @@ final class BrokerAppCameraH264StreamSession {
     private static final String STREAM_RASTER_ORIGIN_TOP_LEFT = "top-left";
     private static final String STREAM_RASTER_Y_AXIS_DOWN = "down";
     private static final String CAMERA_FRAME_UPRIGHT_MARKER = "camera-native-upright";
+    private static final String STIMULUS_ORIENTATION_SCHEMA = "rusty.xr.stimulus_orientation.v1";
     private static final String SYNTHETIC_STIMULUS_ORIENTATION_SCHEMA = "rusty.xr.synthetic_stimulus_orientation.v1";
     private static final String SYNTHETIC_STIMULUS_RASTER_ORIENTATION = "top-left-origin-y-down";
     private static final String SYNTHETIC_STIMULUS_UPRIGHT_MARKER = "color-bars-top";
@@ -2439,6 +2440,14 @@ final class BrokerAppCameraH264StreamSession {
         target.put("uprightMarker", uprightMarker);
         target.put("orientationMetadataSource", metadataSource);
         target.put("orientationDefault", false);
+        putStimulusOrientationFields(
+            target,
+            STIMULUS_ORIENTATION_SCHEMA,
+            STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN,
+            STREAM_RASTER_ORIGIN_TOP_LEFT,
+            STREAM_RASTER_Y_AXIS_DOWN,
+            uprightMarker,
+            metadataSource);
     }
 
     private static void putSyntheticStimulusOrientationFields(JSONObject target) throws Exception {
@@ -2447,11 +2456,30 @@ final class BrokerAppCameraH264StreamSession {
             "synthetic-stimulus",
             SYNTHETIC_STIMULUS_UPRIGHT_MARKER,
             "broker-synthetic-canvas");
-        target.put("stimulusOrientationSchema", SYNTHETIC_STIMULUS_ORIENTATION_SCHEMA);
-        target.put("stimulusRasterOrientation", SYNTHETIC_STIMULUS_RASTER_ORIENTATION);
-        target.put("stimulusOrigin", "top-left");
-        target.put("stimulusYAxis", "down");
-        target.put("stimulusUprightMarker", SYNTHETIC_STIMULUS_UPRIGHT_MARKER);
+        putStimulusOrientationFields(
+            target,
+            SYNTHETIC_STIMULUS_ORIENTATION_SCHEMA,
+            SYNTHETIC_STIMULUS_RASTER_ORIENTATION,
+            STREAM_RASTER_ORIGIN_TOP_LEFT,
+            STREAM_RASTER_Y_AXIS_DOWN,
+            SYNTHETIC_STIMULUS_UPRIGHT_MARKER,
+            "broker-synthetic-canvas");
+    }
+
+    private static void putStimulusOrientationFields(
+        JSONObject target,
+        String schema,
+        String rasterOrientation,
+        String origin,
+        String yAxis,
+        String uprightMarker,
+        String metadataSource) throws Exception {
+        target.put("stimulusOrientationSchema", schema);
+        target.put("stimulusRasterOrientation", rasterOrientation);
+        target.put("stimulusOrigin", origin);
+        target.put("stimulusYAxis", yAxis);
+        target.put("stimulusUprightMarker", uprightMarker);
+        target.put("stimulusOrientationMetadataSource", metadataSource);
         target.put("stimulusOrientationDefault", false);
     }
 

@@ -114,6 +114,9 @@ public final class MediaProjectionStreamService extends Service {
     private void onImageAvailable(ImageReader reader) {
         Image image = null;
         try {
+            if (reader != imageReader || stream == null) {
+                return;
+            }
             image = reader.acquireLatestImage();
             if (image == null || stream == null) {
                 return;
@@ -147,9 +150,15 @@ public final class MediaProjectionStreamService extends Service {
         } catch (IOException error) {
             Log.e(TAG, "MediaProjection stream write failed", error);
             stopSelf();
+        } catch (IllegalStateException error) {
+            Log.w(TAG, "MediaProjection image became unavailable during shutdown", error);
+            stopSelf();
         } finally {
             if (image != null) {
-                image.close();
+                try {
+                    image.close();
+                } catch (IllegalStateException ignored) {
+                }
             }
         }
     }
@@ -254,8 +263,13 @@ public final class MediaProjectionStreamService extends Service {
             virtualDisplay = null;
         }
         if (imageReader != null) {
-            imageReader.close();
+            ImageReader reader = imageReader;
             imageReader = null;
+            try {
+                reader.setOnImageAvailableListener(null, null);
+            } catch (RuntimeException ignored) {
+            }
+            reader.close();
         }
         if (mediaProjection != null) {
             mediaProjection.stop();

@@ -101,6 +101,7 @@ public final class HeadsetCameraService extends Service {
         "android-camera2-lens-pose-reference-from-camera";
     private static final String STREAM_RASTER_ORIENTATION_SCHEMA = "rusty.xr.stream_raster_orientation.v1";
     private static final String STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN = "top-left-origin-y-down";
+    private static final String STIMULUS_ORIENTATION_SCHEMA = "rusty.xr.stimulus_orientation.v1";
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
     private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-area";
     private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
@@ -2259,6 +2260,19 @@ public final class HeadsetCameraService extends Service {
         builder.append(',');
         appendJsonString(builder, "orientationMetadataSource", metadataSource);
         builder.append(",\"orientationDefault\":false");
+        builder.append(',');
+        appendJsonString(builder, "stimulusOrientationSchema", STIMULUS_ORIENTATION_SCHEMA);
+        builder.append(',');
+        appendJsonString(builder, "stimulusRasterOrientation", STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN);
+        builder.append(',');
+        appendJsonString(builder, "stimulusOrigin", "top-left");
+        builder.append(',');
+        appendJsonString(builder, "stimulusYAxis", "down");
+        builder.append(',');
+        appendJsonString(builder, "stimulusUprightMarker", "camera-native-upright");
+        builder.append(',');
+        appendJsonString(builder, "stimulusOrientationMetadataSource", metadataSource);
+        builder.append(",\"stimulusOrientationDefault\":false");
         builder.append(',');
         appendJsonString(builder, "projectionGeometryProfile", projectionGeometryProfile);
         builder.append(',');

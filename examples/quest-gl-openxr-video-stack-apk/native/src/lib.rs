@@ -2095,14 +2095,15 @@ vec4 blurred_camera_sample(vec2 uv) {
     return premultiplied_alpha_color(rgb, projection_color_alpha(rgb));
 }
 void main() {
-    vec2 screen_uv = v_uv;
+    vec2 renderer_surface_uv = v_uv;
+    vec2 screen_uv = vec2(renderer_surface_uv.x, 1.0 - renderer_surface_uv.y);
     vec2 projection_scale = max(u_projection_area_scale, vec2(0.05));
     vec2 requested_projection_area_offset_uv = u_eye_index == 0
         ? u_projection_area_eye_offset_uv.xy
         : u_projection_area_eye_offset_uv.zw;
     vec2 projection_area_offset_uv = vec2(
         clamp(requested_projection_area_offset_uv.x, -0.5, 0.5),
-        clamp(-requested_projection_area_offset_uv.y, -0.5, 0.5)
+        clamp(requested_projection_area_offset_uv.y, -0.5, 0.5)
     );
     vec2 projection_area_uv =
         (screen_uv - vec2(0.5)) * projection_scale + vec2(0.5) -
@@ -3157,7 +3158,6 @@ void main() {
         fn has_explicit_top_left_stimulus_orientation(&self) -> bool {
             !self.stimulus_orientation_default
                 && self.stimulus_raster_orientation == "top-left-origin-y-down"
-                && self.stimulus_upright_marker == "color-bars-top"
         }
 
         fn has_camera2_projection(&self) -> bool {
@@ -3374,6 +3374,10 @@ void main() {
                 identity_texture_transform()
             }
         }
+    }
+
+    fn use_surface_texture_transform_for_stimulus(metadata: &OesProjectionMetadata) -> bool {
+        !metadata.has_explicit_top_left_stimulus_orientation()
     }
 
     impl SurfaceTextureOesProbe {
@@ -4163,9 +4167,9 @@ void main() {
             projection_area_scale,
         );
         let left_use_surface_texture_transform =
-            !left_metadata.has_explicit_top_left_stimulus_orientation();
+            use_surface_texture_transform_for_stimulus(left_metadata);
         let right_use_surface_texture_transform =
-            !right_metadata.has_explicit_top_left_stimulus_orientation();
+            use_surface_texture_transform_for_stimulus(right_metadata);
         let left_source_label = projection_source_label(
             left_metadata,
             width,
@@ -4299,8 +4303,22 @@ void main() {
             projection_area_scale,
         );
         let identity = identity_homography();
-        let left_source_label = projection_source_label(left_metadata, width, height, true);
-        let right_source_label = projection_source_label(right_metadata, width, height, true);
+        let left_use_surface_texture_transform =
+            use_surface_texture_transform_for_stimulus(left_metadata);
+        let right_use_surface_texture_transform =
+            use_surface_texture_transform_for_stimulus(right_metadata);
+        let left_source_label = projection_source_label(
+            left_metadata,
+            width,
+            height,
+            left_use_surface_texture_transform,
+        );
+        let right_source_label = projection_source_label(
+            right_metadata,
+            width,
+            height,
+            right_use_surface_texture_transform,
+        );
         let content_mapping_mode = OesContentMappingMode::FullFrameStimulusToSurfaceHomography;
         let left_geometry_plan = shared_per_eye_projection_plan(
             Eye::Left,
@@ -4342,7 +4360,7 @@ void main() {
                 screen_to_camera_h: left_screen_to_surface_h,
                 source_label: left_source_label,
                 source_eye: "left".to_string(),
-                use_surface_texture_transform: true,
+                use_surface_texture_transform: left_use_surface_texture_transform,
                 content_mapping_mode,
                 geometry_plan: left_geometry_plan,
             },
@@ -4354,7 +4372,7 @@ void main() {
                 screen_to_camera_h: right_screen_to_surface_h,
                 source_label: right_source_label,
                 source_eye: "right".to_string(),
-                use_surface_texture_transform: true,
+                use_surface_texture_transform: right_use_surface_texture_transform,
                 content_mapping_mode,
                 geometry_plan: right_geometry_plan,
             },
@@ -4455,8 +4473,22 @@ void main() {
             projection_area_eye_offset_uv[1],
             projection_area_scale,
         );
-        let left_source_label = projection_source_label(left_metadata, width, height, true);
-        let right_source_label = projection_source_label(right_metadata, width, height, true);
+        let left_use_surface_texture_transform =
+            use_surface_texture_transform_for_stimulus(left_metadata);
+        let right_use_surface_texture_transform =
+            use_surface_texture_transform_for_stimulus(right_metadata);
+        let left_source_label = projection_source_label(
+            left_metadata,
+            width,
+            height,
+            left_use_surface_texture_transform,
+        );
+        let right_source_label = projection_source_label(
+            right_metadata,
+            width,
+            height,
+            right_use_surface_texture_transform,
+        );
         let content_mapping_mode = OesContentMappingMode::CameraProjection;
         let left_geometry_plan = shared_per_eye_projection_plan(
             Eye::Left,
@@ -4498,7 +4530,7 @@ void main() {
                 screen_to_camera_h: left_screen_to_camera_h,
                 source_label: left_source_label,
                 source_eye: "left".to_string(),
-                use_surface_texture_transform: true,
+                use_surface_texture_transform: left_use_surface_texture_transform,
                 content_mapping_mode,
                 geometry_plan: left_geometry_plan,
             },
@@ -4510,7 +4542,7 @@ void main() {
                 screen_to_camera_h: right_screen_to_camera_h,
                 source_label: right_source_label,
                 source_eye: "right".to_string(),
-                use_surface_texture_transform: true,
+                use_surface_texture_transform: right_use_surface_texture_transform,
                 content_mapping_mode,
                 geometry_plan: right_geometry_plan,
             },
@@ -5886,7 +5918,7 @@ void main() {
         let left_feed_rect = projection_area_screen_uv_rect(left_offset_uv, radius_uv, scale_uv);
         let right_feed_rect = projection_area_screen_uv_rect(right_offset_uv, radius_uv, scale_uv);
         format!(
-            "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=whole-render-target surfaceCoverageScreenUvRect=0.000000,0.000000,1.000000,1.000000 feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_surface borderRegionSemantics=surface_minus_feed projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} rendererSurfaceUvOrigin=gles-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=gles-v-uv-direct-backend-bias-pending leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+            "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=whole-render-target surfaceCoverageScreenUvRect=0.000000,0.000000,1.000000,1.000000 feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_surface borderRegionSemantics=surface_minus_feed projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} rendererSurfaceUvOrigin=gles-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
             projection_depth_meters,
             projection_preview_fov_y_degrees,
             projection_preview_offset_y_meters,
@@ -6012,7 +6044,7 @@ void main() {
         let scale_x = scale_uv[0].clamp(0.05, 4.0);
         let scale_y = scale_uv[1].clamp(0.05, 4.0);
         let input_x_offset = 0.5 - 0.5 * scale_x - offset_uv[0].clamp(-0.5, 0.5);
-        let input_y_offset = 0.5 - 0.5 * scale_y + offset_uv[1].clamp(-0.5, 0.5);
+        let input_y_offset = 0.5 - 0.5 * scale_y - offset_uv[1].clamp(-0.5, 0.5);
         for row in &mut rows {
             row[2] += row[0] * input_x_offset + row[1] * input_y_offset;
             row[0] *= scale_x;

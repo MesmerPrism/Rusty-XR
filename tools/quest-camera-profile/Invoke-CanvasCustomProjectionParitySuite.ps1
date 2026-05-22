@@ -8,6 +8,9 @@ param(
     [string]$MakepadApk = "examples\makepad-q2q-camera-shell\target\android\makepad-android-apk\rusty_xr_makepad_q2q_camera_shell\apk\rustyx_rmakepadalignment.apk",
     [string]$MakepadPackageName = "com.example.rustyxr.makepad.alignment",
     [int]$WarmupSeconds = 12,
+    [int]$MakepadStartupTimeoutSeconds = 60,
+    [int]$MakepadSampleSeconds = 32,
+    [int]$MakepadPostRunSettleSeconds = 8,
     [int]$MediaProjectionPort = 8787,
     [int]$MediaProjectionMaxFrames = 0,
     [int]$MediaProjectionDrainMs = 1500,
@@ -291,6 +294,90 @@ function Complete-MediaProjectionCapture {
     }
 }
 
+function Wait-MakepadForegroundForHzdb {
+    param(
+        [string]$CaseId,
+        [string]$CaseRoot
+    )
+    $foregroundRoot = Join-Path $CaseRoot "pre-hzdb-foreground"
+    New-Item -ItemType Directory -Force -Path $foregroundRoot | Out-Null
+    $deadline = (Get-Date).AddSeconds(30)
+    $attempt = 0
+    $settled = $false
+    do {
+        $attempt++
+        $activityPath = Join-Path $foregroundRoot ("activity-{0:D2}.txt" -f $attempt)
+        $windowPath = Join-Path $foregroundRoot ("window-{0:D2}.txt" -f $attempt)
+        $logcatPath = Join-Path $foregroundRoot ("logcat-{0:D2}.txt" -f $attempt)
+        Invoke-AdbCapture -OutputPath $activityPath -Arguments @("shell", "dumpsys", "activity", "activities")
+        Invoke-AdbCapture -OutputPath $windowPath -Arguments @("shell", "dumpsys", "window", "windows")
+        Invoke-AdbCapture -OutputPath $logcatPath -Arguments @("logcat", "-d", "-v", "threadtime")
+        $activityText = Get-Content -Raw -Path $activityPath
+        $windowText = Get-Content -Raw -Path $windowPath
+        $logcatText = Get-Content -Raw -Path $logcatPath
+        $packagePattern = [regex]::Escape($MakepadPackageName)
+        $activityReady = (
+            ($activityText -match "topResumedActivity=.*$packagePattern") -or
+            ($activityText -match "ResumedActivity:.*$packagePattern") -or
+            ($activityText -match "Resumed:.*$packagePattern")
+        )
+        $windowReady = (
+            ($windowText -match "mCurrentFocus=.*$packagePattern") -or
+            ($windowText -match "mFocusedApp=.*$packagePattern")
+        )
+        $appError = (
+            ($activityText -match "Application Error:.*$packagePattern") -or
+            ($windowText -match "Application Error:.*$packagePattern") -or
+            (($logcatText -match "FATAL EXCEPTION") -and ($logcatText -match "Process:\s*$packagePattern"))
+        )
+        if ($appError) {
+            throw "$CaseId Makepad app error was visible before HzDB capture; see $foregroundRoot"
+        }
+        $xrFrameReady = $logcatText -match "RUSTY_XR_MAKEPAD_OPENXR_END_FRAME"
+        $projectionReady = (
+            ($logcatText -match "visibleCameraProjectionReady=true") -or
+            ($logcatText -match "RUSTY_XR_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\.00)")
+        )
+        if (($activityReady -or $windowReady) -and $xrFrameReady -and $projectionReady) {
+            if ((-not $settled) -and $MakepadPostRunSettleSeconds -gt 0) {
+                Start-Sleep -Seconds $MakepadPostRunSettleSeconds
+                $settled = $true
+                continue
+            }
+            return
+        }
+        Start-Sleep -Seconds 3
+    } while ((Get-Date) -lt $deadline)
+    throw "$CaseId Makepad app was not foreground before HzDB capture; see $foregroundRoot"
+}
+
+function Assert-MakepadNoApplicationError {
+    param(
+        [string]$CaseId,
+        [string]$CaseRoot
+    )
+    $stateRoot = Join-Path $CaseRoot "post-hzdb-state"
+    New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
+    $activityPath = Join-Path $stateRoot "activity.txt"
+    $windowPath = Join-Path $stateRoot "window.txt"
+    $logcatPath = Join-Path $stateRoot "logcat.txt"
+    Invoke-AdbCapture -OutputPath $activityPath -Arguments @("shell", "dumpsys", "activity", "activities")
+    Invoke-AdbCapture -OutputPath $windowPath -Arguments @("shell", "dumpsys", "window", "windows")
+    Invoke-AdbCapture -OutputPath $logcatPath -Arguments @("logcat", "-d", "-v", "threadtime")
+    $activityText = Get-Content -Raw -Path $activityPath
+    $windowText = Get-Content -Raw -Path $windowPath
+    $logcatText = Get-Content -Raw -Path $logcatPath
+    $packagePattern = [regex]::Escape($MakepadPackageName)
+    $appError = (
+        ($activityText -match "Application Error:.*$packagePattern") -or
+        ($windowText -match "Application Error:.*$packagePattern") -or
+        (($logcatText -match "FATAL EXCEPTION") -and ($logcatText -match "Process:\s*$packagePattern"))
+    )
+    if ($appError) {
+        throw "$CaseId Makepad app error was visible after HzDB capture; see $stateRoot"
+    }
+}
+
 function Parse-Rect {
     param([string]$Text)
     if ([string]::IsNullOrWhiteSpace($Text)) {
@@ -501,9 +588,7 @@ function Invoke-HwbOrGlesCase {
         }
         Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng
         $artifactDir = Copy-HzdbFromProfileRun -ProfileRoot $caseRoot -RuntimeProfile $RuntimeProfile -OutputPng $hzdbPng
-        if (($Lane -ne "hwb") -or ($Mode -eq "custom")) {
-            Assert-BoundedFootprintEvidence -CaseId $caseId -ArtifactDir $artifactDir
-        }
+        Assert-BoundedFootprintEvidence -CaseId $caseId -ArtifactDir $artifactDir
     }
     finally {
         Stop-MediaProjectionReceiver -Process $receiverProcess
@@ -545,6 +630,7 @@ function Invoke-MakepadCase {
         $adbDir = Split-Path -Parent $adbPath
         $env:PATH = "$adbDir;$env:PATH"
     }
+    $makepadSampleSecondsForRun = [Math]::Max($MakepadSampleSeconds, $WarmupSeconds)
     $args = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass",
         "-File", $makepadRunner,
@@ -552,8 +638,8 @@ function Invoke-MakepadCase {
         "-Apk", (Resolve-RepoPath $MakepadApk),
         "-PackageName", $MakepadPackageName,
         "-OutDir", $caseRoot,
-        "-StartupTimeoutSeconds", "35",
-        "-SampleSeconds", $WarmupSeconds.ToString(),
+        "-StartupTimeoutSeconds", $MakepadStartupTimeoutSeconds.ToString(),
+        "-SampleSeconds", $makepadSampleSecondsForRun.ToString(),
         "-FreshnessFrames", "1",
         "-FreshnessIntervalSeconds", "1",
         "-PreferDirectVrActivity",
@@ -603,7 +689,7 @@ function Invoke-MakepadCase {
         if ($LASTEXITCODE -ne 0) {
             throw "$caseId Makepad run failed"
         }
-        Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng
+        Wait-MakepadForegroundForHzdb -CaseId $caseId -CaseRoot $caseRoot
 
         $hzdbArgs = @("-y", "@meta-quest/hzdb", "capture", "screenshot")
         if ($Serial) {
@@ -614,6 +700,8 @@ function Invoke-MakepadCase {
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $hzdbPng)) {
             throw "$caseId HzDB capture failed"
         }
+        Assert-MakepadNoApplicationError -CaseId $caseId -CaseRoot $caseRoot
+        Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng
         Assert-BoundedFootprintEvidence -CaseId $caseId -ArtifactDir $caseRoot
     }
     finally {
@@ -765,6 +853,9 @@ $summary = [ordered]@{
         boundedProjectionAreaRadiusXUv = 0.47
         boundedProjectionAreaRadiusYUv = 0.36
         boundedProjectionAreaCornerRadiusUv = 0.08
+        makepadStartupTimeoutSeconds = $MakepadStartupTimeoutSeconds
+        makepadSampleSeconds = [Math]::Max($MakepadSampleSeconds, $WarmupSeconds)
+        makepadPostRunSettleSeconds = $MakepadPostRunSettleSeconds
     }
     captureRouteNotes = @(
         "HWB and GLES/OES MediaProjection captures are latest-frame app-frame evidence for the rendered camera window after the profile run.",
