@@ -79,6 +79,7 @@ $projectionOpacityOverride = @(
     ("rustyxr.projectionBorderOpacity={0}" -f $ProjectionBorderOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture)),
     ("rustyxr.projectionBorderPolicy={0}" -f $ProjectionBorderPolicy)
 ) -join ","
+$ExpectedMakepadSourceEyeMapping = "display-left-from-left-source"
 
 function Get-BrokerH264Override {
     param([string]$ProjectionGeometryProfile)
@@ -304,6 +305,8 @@ function Wait-MakepadForegroundForHzdb {
     $deadline = (Get-Date).AddSeconds(30)
     $attempt = 0
     $settled = $false
+    $sawXrFrameReady = $false
+    $sawProjectionReady = $false
     do {
         $attempt++
         $activityPath = Join-Path $foregroundRoot ("activity-{0:D2}.txt" -f $attempt)
@@ -333,12 +336,15 @@ function Wait-MakepadForegroundForHzdb {
         if ($appError) {
             throw "$CaseId Makepad app error was visible before HzDB capture; see $foregroundRoot"
         }
-        $xrFrameReady = $logcatText -match "RUSTY_XR_MAKEPAD_OPENXR_END_FRAME"
+        $nonzeroXrCadenceReady = $logcatText -match "RUSTY_XR_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\.00)"
+        $xrFrameReady = ($logcatText -match "RUSTY_XR_MAKEPAD_OPENXR_END_FRAME") -or $nonzeroXrCadenceReady
+        $sawXrFrameReady = $sawXrFrameReady -or $xrFrameReady
         $projectionReady = (
             ($logcatText -match "visibleCameraProjectionReady=true") -or
-            ($logcatText -match "RUSTY_XR_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\.00)")
+            $nonzeroXrCadenceReady
         )
-        if (($activityReady -or $windowReady) -and $xrFrameReady -and $projectionReady) {
+        $sawProjectionReady = $sawProjectionReady -or $projectionReady
+        if (($activityReady -or $windowReady) -and $sawXrFrameReady -and $sawProjectionReady) {
             if ((-not $settled) -and $MakepadPostRunSettleSeconds -gt 0) {
                 Start-Sleep -Seconds $MakepadPostRunSettleSeconds
                 $settled = $true
@@ -478,6 +484,46 @@ function Wait-LatestMarkerField {
         Start-Sleep -Milliseconds 500
     } while ((Get-Date) -lt $deadline)
     return $null
+}
+
+function ConvertTo-CanonicalSourceEyeMapping {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+    $normalized = $Value.Trim().TrimEnd(",", ";").ToLowerInvariant()
+    if ($normalized -in @("left-right", "display-left-from-left", "display-left-from-left-source")) {
+        return "display-left-from-left-source"
+    }
+    if ($normalized -in @("right-left", "display-left-from-right", "display-left-from-right-source")) {
+        return "display-left-from-right-source"
+    }
+    return $normalized
+}
+
+function Assert-MakepadSourceEyeMapping {
+    param(
+        [string]$CaseId,
+        [string]$CaseRoot
+    )
+    $mapping = Wait-LatestMarkerField -Root $CaseRoot -Field "sourceEyeMapping" -TimeoutSeconds 12
+    $canonicalMapping = ConvertTo-CanonicalSourceEyeMapping -Value $mapping
+    $evidence = [ordered]@{
+        caseId = $CaseId
+        artifactDir = $CaseRoot
+        expectedSourceEyeMapping = $ExpectedMakepadSourceEyeMapping
+        observedSourceEyeMapping = $mapping
+        observedCanonicalSourceEyeMapping = $canonicalMapping
+    }
+    $evidencePath = Join-Path $sessionRoot ("makepad-source-eye-mapping-evidence-$CaseId.json")
+    $evidence | ConvertTo-Json -Depth 4 | Set-Content -Path $evidencePath -Encoding UTF8
+
+    if ([string]::IsNullOrWhiteSpace($mapping)) {
+        throw "[$CaseId] Makepad sourceEyeMapping marker was not found; rejecting parity evidence. See $evidencePath"
+    }
+    if ($canonicalMapping -ne $ExpectedMakepadSourceEyeMapping) {
+        throw "[$CaseId] Makepad sourceEyeMapping expected $ExpectedMakepadSourceEyeMapping but saw '$mapping' (canonical '$canonicalMapping'); rebuild without the inverted-source diagnostic override. See $evidencePath"
+    }
 }
 
 function Assert-BoundedFootprintEvidence {
@@ -689,6 +735,7 @@ function Invoke-MakepadCase {
         if ($LASTEXITCODE -ne 0) {
             throw "$caseId Makepad run failed"
         }
+        Assert-MakepadSourceEyeMapping -CaseId $caseId -CaseRoot $caseRoot
         Wait-MakepadForegroundForHzdb -CaseId $caseId -CaseRoot $caseRoot
 
         $hzdbArgs = @("-y", "@meta-quest/hzdb", "capture", "screenshot")
@@ -856,10 +903,12 @@ $summary = [ordered]@{
         makepadStartupTimeoutSeconds = $MakepadStartupTimeoutSeconds
         makepadSampleSeconds = [Math]::Max($MakepadSampleSeconds, $WarmupSeconds)
         makepadPostRunSettleSeconds = $MakepadPostRunSettleSeconds
+        expectedMakepadSourceEyeMapping = $ExpectedMakepadSourceEyeMapping
     }
     captureRouteNotes = @(
         "HWB and GLES/OES MediaProjection captures are latest-frame app-frame evidence for the rendered camera window after the profile run.",
         "Makepad MediaProjection currently captures the Makepad Android/window surface rather than the submitted OpenXR compositor layer; use HzDB for Makepad geometry until this capture-route difference is resolved.",
+        "MediaProjection is display/app-window mirror evidence and may visually align with a different HzDB eye by renderer; do not use its apparent eye index as source-eye parity proof.",
         "Broker-camera runs restart the broker service before each condition and request physical Camera2 H.264 streams with explicit projection metadata."
     )
     records = $records

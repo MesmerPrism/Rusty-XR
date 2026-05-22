@@ -374,10 +374,10 @@ full-frame-diagnostic` for the canvas-equivalent pass and
 camera-projection` for the per-eye custom projection pass. The Makepad XR panel
 is sized and placed from the same projection depth, preview FOV, vertical
 offset, and raw overscan values before the camera shader runs. Keep the
-build-time source mapping at `display-left-from-right-source` for current
-projection evidence builds so the display eyes consume the same left/right
-camera feeds as the HWB and GLES/OES lanes; override `-DisplaySourceEyeMapping`
-only when the source-eye mapping itself is the variable under test.
+build-time source mapping at `display-left-from-left-source` for current
+projection evidence builds, matching the HWB and GLES/OES left/right camera-feed
+convention; override `-DisplaySourceEyeMapping` only when the source-eye mapping
+itself is the variable under test.
 Add `-ProjectionAlphaMode red|green|blue|luma` or an inverse variant when the
 valid camera window should reveal native passthrough based on source color.
 The Makepad path uses premultiplied RGB, so alpha-zero mask regions do not leak

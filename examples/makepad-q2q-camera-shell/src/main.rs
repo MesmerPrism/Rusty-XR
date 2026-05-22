@@ -107,7 +107,7 @@ const IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY: [[f32; 3]; 3] =
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
 const MAKEPAD_REV: &str = "2952b07c";
-const DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-right-source";
+const DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-left-source";
 const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
 const PAIRED_IMPORT_MAX_WAITS: usize = 10;
@@ -6550,7 +6550,7 @@ mod tests {
     fn default_source_eye_mapping_matches_hwb_and_oes() {
         assert_eq!(
             DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING,
-            "display-left-from-right-source"
+            "display-left-from-left-source"
         );
     }
 }

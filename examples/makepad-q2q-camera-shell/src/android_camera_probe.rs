@@ -32,7 +32,7 @@ const PROJECTION_SOURCE_ASPECT: f32 = 1.0;
 const DISPLAY_EYE_OFFSET_METERS: f32 = 0.032;
 const DISPLAY_FOV_Y_DEGREES: f32 = 92.0;
 const DISPLAY_ASPECT: f32 = 1.0;
-const DEFAULT_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-right-source";
+const DEFAULT_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-left-source";
 
 const IDENTITY_HOMOGRAPHY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
@@ -1528,8 +1528,8 @@ fn display_mapped_surface_to_camera_homographies(
     physical_right_h: [[f32; 3]; 3],
 ) -> ([[f32; 3]; 3], [[f32; 3]; 3]) {
     // Homography rows are display-indexed. The display/source eye mapping is
-    // applied only when selecting the source texture, otherwise the current
-    // display-left-from-right-source evidence lane double-swaps the cameras.
+    // applied only when selecting the source texture; remapping homographies
+    // here double-swaps the cameras for the diagnostic inverted-source lane.
     (physical_left_h, physical_right_h)
 }
 

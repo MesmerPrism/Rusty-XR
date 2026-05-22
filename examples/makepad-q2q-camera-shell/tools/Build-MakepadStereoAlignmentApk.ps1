@@ -4,7 +4,7 @@ param(
     [string]$AppLabel = "Rusty XR Makepad Alignment",
     [string]$CargoPackage = "rusty-xr-makepad-q2q-camera-shell",
     [ValidateSet("display-left-from-left-source", "display-left-from-right-source")]
-    [string]$DisplaySourceEyeMapping = "display-left-from-right-source",
+    [string]$DisplaySourceEyeMapping = "display-left-from-left-source",
     [string]$WslDistro,
     [string]$MakepadSourceRoot,
     [switch]$PatchMakepadXrFromSource,
