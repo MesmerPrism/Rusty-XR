@@ -394,6 +394,64 @@ mod android {
         }
     }
 
+    const OES_TUNING_PROP_PROJECTION_DEPTH_METERS: &str = "debug.rustyxr.projection.depth.meters";
+    const OES_TUNING_PROP_CAMERA_PREVIEW_FOV_Y_DEGREES: &str =
+        "debug.rustyxr.camera.preview.fov.y.degrees";
+    const OES_TUNING_PROP_CAMERA_PREVIEW_OFFSET_Y_METERS: &str =
+        "debug.rustyxr.camera.preview.offset.y.meters";
+    const OES_TUNING_PROP_CAMERA_RAW_OVERLAY_OVERSCAN: &str =
+        "debug.rustyxr.camera.raw.overlay.overscan";
+
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct OesProjectionTuning {
+        projection_depth_meters: f32,
+        camera_preview_fov_y_degrees: f32,
+        camera_preview_offset_y_meters: f32,
+        camera_raw_overlay_overscan: f32,
+    }
+
+    impl OesProjectionTuning {
+        fn from_activity(app: &android_activity::AndroidApp) -> Self {
+            Self {
+                projection_depth_meters: projection_depth_meters_from_activity(app),
+                camera_preview_fov_y_degrees: projection_preview_fov_y_degrees_from_activity(app),
+                camera_preview_offset_y_meters: projection_preview_offset_y_meters_from_activity(
+                    app,
+                ),
+                camera_raw_overlay_overscan: projection_raw_overscan_from_activity(app),
+            }
+        }
+
+        fn with_system_properties(self) -> Self {
+            Self {
+                projection_depth_meters: android_system_property_f32(
+                    OES_TUNING_PROP_PROJECTION_DEPTH_METERS,
+                    self.projection_depth_meters,
+                    0.05,
+                    10.0,
+                ),
+                camera_preview_fov_y_degrees: android_system_property_f32(
+                    OES_TUNING_PROP_CAMERA_PREVIEW_FOV_Y_DEGREES,
+                    self.camera_preview_fov_y_degrees,
+                    1.0,
+                    175.0,
+                ),
+                camera_preview_offset_y_meters: android_system_property_f32(
+                    OES_TUNING_PROP_CAMERA_PREVIEW_OFFSET_Y_METERS,
+                    self.camera_preview_offset_y_meters,
+                    -2.0,
+                    2.0,
+                ),
+                camera_raw_overlay_overscan: android_system_property_f32(
+                    OES_TUNING_PROP_CAMERA_RAW_OVERLAY_OVERSCAN,
+                    self.camera_raw_overlay_overscan,
+                    1.0,
+                    16.0,
+                ),
+            }
+        }
+    }
+
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     enum OesProcessingLayer {
         #[default]
@@ -700,11 +758,14 @@ mod android {
         let projection_border_policy = projection_border_policy_from_activity(&app);
         let processing_layer = processing_layer_from_activity(&app);
         let blur_radius_px = blur_radius_px_from_activity(&app);
-        let projection_depth_meters = projection_depth_meters_from_activity(&app);
-        let projection_preview_fov_y_degrees = projection_preview_fov_y_degrees_from_activity(&app);
+        let base_projection_tuning = OesProjectionTuning::from_activity(&app);
+        let mut active_projection_tuning = base_projection_tuning.with_system_properties();
+        let projection_depth_meters = active_projection_tuning.projection_depth_meters;
+        let projection_preview_fov_y_degrees =
+            active_projection_tuning.camera_preview_fov_y_degrees;
         let projection_preview_offset_y_meters =
-            projection_preview_offset_y_meters_from_activity(&app);
-        let projection_raw_overscan = projection_raw_overscan_from_activity(&app);
+            active_projection_tuning.camera_preview_offset_y_meters;
+        let projection_raw_overscan = active_projection_tuning.camera_raw_overlay_overscan;
         let projection_area_offset_x_uv = projection_area_offset_x_uv_from_activity(&app);
         let projection_area_offset_y_uv = projection_area_offset_y_uv_from_activity(&app);
         let projection_area_offset_uv = [projection_area_offset_x_uv, projection_area_offset_y_uv];
@@ -726,6 +787,15 @@ mod android {
             projection_alpha_mode,
         );
         let native_passthrough_underlay_requested = projection_uses_source_alpha;
+        if active_projection_tuning != base_projection_tuning {
+            log_info(format!(
+                "Rusty XR OpenXR GLES projection tuning hotload source=android-system-property frame=0 projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} propertyPrefix=debug.rustyxr",
+                active_projection_tuning.projection_depth_meters,
+                active_projection_tuning.camera_preview_fov_y_degrees,
+                active_projection_tuning.camera_preview_offset_y_meters,
+                active_projection_tuning.camera_raw_overlay_overscan
+            ));
+        }
 
         let entry = unsafe { xr::Entry::load().map_err(|error| format!("load OpenXR: {error}"))? };
         initialize_android_loader(&entry, &app)?;
@@ -1024,16 +1094,41 @@ mod android {
                 if let Some(probe) = surface_texture_oes_probe.as_mut() {
                     probe.update_textures(&egl, frame_count);
                 }
+                let projection_tuning = base_projection_tuning.with_system_properties();
+                if projection_tuning != active_projection_tuning {
+                    active_projection_tuning = projection_tuning;
+                    log_info(format!(
+                        "Rusty XR OpenXR GLES projection tuning hotload source=android-system-property frame={} projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} propertyPrefix=debug.rustyxr",
+                        frame_count,
+                        active_projection_tuning.projection_depth_meters,
+                        active_projection_tuning.camera_preview_fov_y_degrees,
+                        active_projection_tuning.camera_preview_offset_y_meters,
+                        active_projection_tuning.camera_raw_overlay_overscan
+                    ));
+                }
+                let projection_area_target_fields = projection_area_target_marker_fields(
+                    projection_area_eye_offset_uv[0],
+                    projection_area_eye_offset_uv[1],
+                    projection_area_radius,
+                    projection_area_scale,
+                    projection_alpha_mode,
+                    projection_alpha_scale,
+                    projection_alpha_bias,
+                    active_projection_tuning.projection_depth_meters,
+                    active_projection_tuning.camera_preview_fov_y_degrees,
+                    active_projection_tuning.camera_preview_offset_y_meters,
+                    active_projection_tuning.camera_raw_overlay_overscan,
+                );
                 let projection_plan = surface_texture_oes_probe.as_ref().and_then(|probe| {
                     probe.projection_plan_from_xr_views(
                         &views,
                         camera_projection_mode,
                         projection_area_eye_offset_uv,
                         projection_area_scale,
-                        projection_depth_meters,
-                        projection_preview_fov_y_degrees,
-                        projection_preview_offset_y_meters,
-                        projection_raw_overscan,
+                        active_projection_tuning.projection_depth_meters,
+                        active_projection_tuning.camera_preview_fov_y_degrees,
+                        active_projection_tuning.camera_preview_offset_y_meters,
+                        active_projection_tuning.camera_raw_overlay_overscan,
                     )
                 });
                 let openxr_projection_fields = openxr_projection_contract_fields(
@@ -3000,6 +3095,10 @@ void main() {
             self.is_synthetic() && self.synthetic_profile_is("camera-matched")
         }
 
+        fn has_physical_camera2_projection(&self) -> bool {
+            !self.is_synthetic() && self.has_camera2_projection()
+        }
+
         fn is_full_frame_diagnostic_projection(&self) -> bool {
             self.synthetic_profile_is("full-frame-diagnostic")
         }
@@ -3523,6 +3622,23 @@ void main() {
                 return None;
             }
             if camera_projection_mode.uses_world_canvas()
+                && left.has_physical_camera2_projection()
+                && right.has_physical_camera2_projection()
+            {
+                camera2_projection_plan_from_xr_views(
+                    left,
+                    right,
+                    width,
+                    height,
+                    views,
+                    projection_area_eye_offset_uv,
+                    projection_area_scale,
+                    projection_depth_meters,
+                    projection_preview_fov_y_degrees,
+                    projection_preview_offset_y_meters,
+                    projection_raw_overscan,
+                )
+            } else if camera_projection_mode.uses_world_canvas()
                 || (left.is_full_frame_diagnostic_projection()
                     && right.is_full_frame_diagnostic_projection())
             {
@@ -3761,6 +3877,25 @@ void main() {
         Some(surface)
     }
 
+    fn projection_surface_aspect_from_metadata(
+        left: &OesProjectionMetadata,
+        right: &OesProjectionMetadata,
+        width: u32,
+        height: u32,
+    ) -> f32 {
+        [
+            left.desired_projection_aspect_ratio,
+            right.desired_projection_aspect_ratio,
+            left.content_aspect_ratio,
+            right.content_aspect_ratio,
+            aspect_ratio_u32(width, height),
+        ]
+        .into_iter()
+        .find(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or(PROJECTION_SOURCE_ASPECT)
+        .clamp(0.25, 4.0)
+    }
+
     fn broker_synthetic_projection_plan_from_xr_views(
         left_metadata: &OesProjectionMetadata,
         right_metadata: &OesProjectionMetadata,
@@ -3777,7 +3912,8 @@ void main() {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
         let tracking = tracking_basis_from_xr_views(left_view, right_view)?;
-        let aspect = fov_aspect(left_view).unwrap_or(PROJECTION_SOURCE_ASPECT);
+        let aspect =
+            projection_surface_aspect_from_metadata(left_metadata, right_metadata, width, height);
         let surface = preview_surface_corners(
             tracking,
             projection_preview_fov_y_degrees,
@@ -3895,7 +4031,8 @@ void main() {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
         let tracking = tracking_basis_from_xr_views(left_view, right_view)?;
-        let aspect = fov_aspect(left_view).unwrap_or(PROJECTION_SOURCE_ASPECT);
+        let aspect =
+            projection_surface_aspect_from_metadata(left_metadata, right_metadata, width, height);
         let surface = preview_surface_corners(
             tracking,
             projection_preview_fov_y_degrees,
@@ -3980,7 +4117,8 @@ void main() {
         let left_view = views.first()?;
         let right_view = views.get(1)?;
         let tracking = tracking_basis_from_xr_views(left_view, right_view)?;
-        let aspect = fov_aspect(left_view).unwrap_or(PROJECTION_SOURCE_ASPECT);
+        let aspect =
+            projection_surface_aspect_from_metadata(left_metadata, right_metadata, width, height);
         let surface = preview_surface_corners(
             tracking,
             projection_preview_fov_y_degrees,
@@ -4209,16 +4347,6 @@ void main() {
             orientation.rotate_vec3(Vec3::UP),
             orientation.rotate_vec3(Vec3::FORWARD_NEG_Z),
         )
-    }
-
-    fn fov_aspect(view: &xr::View) -> Option<f32> {
-        let width = view.fov.angle_right.tan() - view.fov.angle_left.tan();
-        let height = view.fov.angle_up.tan() - view.fov.angle_down.tan();
-        if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
-            Some((width / height).clamp(0.25, 4.0))
-        } else {
-            None
-        }
     }
 
     fn sample_surface_texture_transform_matrix(
@@ -4560,6 +4688,37 @@ void main() {
             .filter(|value| value.is_finite())
             .unwrap_or(2.0)
             .clamp(0.0, 16.0)
+    }
+
+    fn android_system_property_value(name: &str) -> Option<String> {
+        #[link(name = "c")]
+        unsafe extern "C" {
+            fn __system_property_get(name: *const c_char, value: *mut c_char) -> c_int;
+        }
+
+        let name = CString::new(name).ok()?;
+        let mut value = [0 as c_char; 128];
+        let len = unsafe { __system_property_get(name.as_ptr(), value.as_mut_ptr()) };
+        if len <= 0 {
+            return None;
+        }
+        let value = unsafe { CStr::from_ptr(value.as_ptr()) }
+            .to_string_lossy()
+            .trim()
+            .to_string();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
+    }
+
+    fn android_system_property_f32(name: &str, default: f32, min: f32, max: f32) -> f32 {
+        android_system_property_value(name)
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+            .map(|value| value.clamp(min, max))
+            .unwrap_or(default)
     }
 
     fn projection_depth_meters_from_activity(app: &android_activity::AndroidApp) -> f32 {

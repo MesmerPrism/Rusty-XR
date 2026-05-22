@@ -279,8 +279,9 @@ full-frame canvas case maps through the solved screen-to-surface homography so
 the camera frame lands on the bounded surface instead of filling the eye.
 
 For Makepad, keep the evidence build on
-`display-left-from-right-source` unless source-eye mapping is the test
-variable. Canvas uses `CameraProjectionMode=world-canvas` with
+`display-left-from-left-source` unless source-eye mapping is the test variable,
+matching the HWB and GLES/OES left/right camera-feed convention. Canvas uses
+`CameraProjectionMode=world-canvas` with
 `full-frame-diagnostic` content mapped through the solved bounded surface;
 custom uses `display-screen-homography` with `camera-projection`. Validation
 logs should include panel target dimensions, left/right projection-area rects,

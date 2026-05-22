@@ -6156,14 +6156,8 @@ fn expected_source_valid_screen_uv_rect(
 }
 
 fn expected_source_valid_footprint_marker_fields(pair: &MakepadCameraPair) -> String {
-    let left_rect = expected_source_valid_screen_uv_rect(
-        pair.left_screen_to_camera_h,
-        false,
-    );
-    let right_rect = expected_source_valid_screen_uv_rect(
-        pair.right_screen_to_camera_h,
-        false,
-    );
+    let left_rect = expected_source_valid_screen_uv_rect(pair.left_screen_to_camera_h, false);
+    let right_rect = expected_source_valid_screen_uv_rect(pair.right_screen_to_camera_h, false);
     format!(
         "expectedSourceValidFootprintSource=renderer-authored expectedSourceValidFootprintStage=screen_to_camera_source_uv_bounds expectedSourceValidFootprintCoordinateSpace=display-eye-screen-uv expectedSourceValidFootprintMethod=renderer-grid-sampled-source-uv-validity expectedSourceValidFootprintRectSemantics=xywh leftExpectedSourceValidScreenUvRect={} rightExpectedSourceValidScreenUvRect={}",
         screen_uv_rect_token(left_rect),
@@ -6378,15 +6372,20 @@ mod tests {
     }
 
     #[test]
-    fn s91_visual_correction_uses_explicit_inverted_source_mapping() {
+    fn compile_time_source_eye_mapping_is_sanitized() {
         let expected = match option_env!("RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING") {
             Some("display-left-from-left-source") => "display-left-from-left-source",
             Some("display-left-from-right-source") => "display-left-from-right-source",
             _ => DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING,
         };
+        assert_eq!(makepad_display_source_eye_mapping(), expected);
+    }
+
+    #[test]
+    fn default_source_eye_mapping_matches_hwb_and_oes() {
         assert_eq!(
-            makepad_display_source_eye_mapping(),
-            expected
+            DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING,
+            "display-left-from-left-source"
         );
     }
 }

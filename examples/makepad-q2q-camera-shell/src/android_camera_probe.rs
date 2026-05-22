@@ -445,7 +445,7 @@ pub fn broker_synthetic_projection_plan_from_xr_views(
         return None;
     }
     let tracking = tracking_basis_from_xr_views(views)?;
-    let aspect = fov_aspect(views.left).unwrap_or(PROJECTION_SOURCE_ASPECT);
+    let aspect = projection_surface_aspect(width, height);
     let surface = preview_surface_corners(tracking, views, aspect)?;
     let intrinsics =
         synthetic_broker_intrinsics(width, height, views.projection_preview_fov_y_degrees)?;
@@ -523,7 +523,7 @@ pub fn broker_full_frame_projection_plan_from_xr_views(
         return None;
     }
     let tracking = tracking_basis_from_xr_views(views)?;
-    let aspect = fov_aspect(views.left).unwrap_or(PROJECTION_SOURCE_ASPECT);
+    let aspect = projection_surface_aspect(width, height);
     let surface = preview_surface_corners(tracking, views, aspect)?;
     let left_eye_basis = eye_basis_from_xr_view(views.left)?;
     let right_eye_basis = eye_basis_from_xr_view(views.right)?;
@@ -1463,7 +1463,7 @@ fn stereo_projection_homographies_from_xr_views(
         + right_extrinsics.world_from_camera.position)
         * 0.5;
     let tracking = tracking_basis_from_xr_views(views)?;
-    let aspect = fov_aspect(views.left).unwrap_or(PROJECTION_SOURCE_ASPECT);
+    let aspect = projection_surface_aspect(delivered_width, delivered_height);
     let surface = preview_surface_corners(tracking, views, aspect)?;
     let left_intrinsics = scaled_intrinsics(left, delivered_width, delivered_height)?;
     let right_intrinsics = scaled_intrinsics(right, delivered_width, delivered_height)?;
@@ -1584,14 +1584,11 @@ fn tracking_basis_from_xr_views(views: XrDisplayViews) -> Option<TrackingBasis> 
     )
 }
 
-fn fov_aspect(view: XrDisplayEyeView) -> Option<f32> {
-    let width = view.angle_right.tan() - view.angle_left.tan();
-    let height = view.angle_up.tan() - view.angle_down.tan();
-    if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
-        Some((width / height).clamp(0.25, 4.0))
-    } else {
-        None
+fn projection_surface_aspect(width: u32, height: u32) -> f32 {
+    if width == 0 || height == 0 {
+        return PROJECTION_SOURCE_ASPECT;
     }
+    ((width as f32) / (height as f32)).clamp(0.25, 4.0)
 }
 
 fn fov_tangents(view: XrDisplayEyeView) -> [f32; 4] {
