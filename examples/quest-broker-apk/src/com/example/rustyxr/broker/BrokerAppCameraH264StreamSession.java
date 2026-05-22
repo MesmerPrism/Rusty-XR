@@ -75,10 +75,12 @@ final class BrokerAppCameraH264StreamSession {
     private static final String CONTENT_X_AXIS_RIGHT = "right";
     private static final String CONTENT_Y_AXIS_DOWN = "down";
     private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-area";
+    private static final String CONTENT_MAPPING_CAMERA_PROJECTION = "map-camera-frame-through-screen-to-camera-homography";
     private static final String CONTENT_MAPPING_SYNTHETIC_CAMERA_MATCHED = "map-stimulus-raster-through-camera-projection";
     private static final String CONTENT_MAPPING_SYNTHETIC_FULL_FRAME = "map-full-frame-stimulus-to-projection-area";
     private static final String CONTENT_MAPPING_SYNTHETIC_HEAD_ANCHORED = "fit-stimulus-raster-in-head-anchored-projection-area";
     private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
+    private static final String PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION = "camera-projection";
     private static final String MAGIC = "RXYRVID1";
     private static final int SCHEMA_VERSION = 3;
     private static final int CODEC_H264 = 1;
@@ -3381,11 +3383,20 @@ final class BrokerAppCameraH264StreamSession {
                 "projection-space-diagnostic".equals(normalized)) {
             return PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC;
         }
+        if (PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION.equals(normalized) ||
+                "camera-footprint".equals(normalized) ||
+                "camera-projection-footprint".equals(normalized)) {
+            return PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION;
+        }
         throw new IllegalArgumentException(
             "Unsupported broker camera projection geometry profile: " + value);
     }
 
     private static String contentMappingIntentForCameraProfile(String value) {
+        String profile = cameraProjectionGeometryProfile(value);
+        if (PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION.equals(profile)) {
+            return CONTENT_MAPPING_CAMERA_PROJECTION;
+        }
         return CONTENT_MAPPING_CAMERA_FULL_FRAME;
     }
 

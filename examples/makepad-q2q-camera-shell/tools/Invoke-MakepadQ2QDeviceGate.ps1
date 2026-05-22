@@ -215,6 +215,12 @@ function Set-MakepadBrokerH264Profile {
     else {
         $BrokerH264SyntheticProjectionProfile
     }
+    $syntheticProjectionProfile = if ($UseBrokerH264Camera) {
+        $projectionGeometryProfile
+    }
+    else {
+        $BrokerH264SyntheticProjectionProfile
+    }
     $props = [ordered]@{
         "debug.rustyxr.makepad.broker.h264.enabled" = if ($brokerRequested) { "true" } else { "false" }
         "debug.rustyxr.makepad.broker.h264.host" = $BrokerH264Host
@@ -224,7 +230,7 @@ function Set-MakepadBrokerH264Profile {
         "debug.rustyxr.makepad.broker.h264.source.mode" = $sourceMode
         "debug.rustyxr.makepad.broker.h264.synthetic.pattern" = $BrokerH264SyntheticPattern
         "debug.rustyxr.makepad.broker.h264.projection.geometry.profile" = $projectionGeometryProfile
-        "debug.rustyxr.makepad.broker.h264.synthetic.projection.profile" = $BrokerH264SyntheticProjectionProfile
+        "debug.rustyxr.makepad.broker.h264.synthetic.projection.profile" = $syntheticProjectionProfile
         "debug.rustyxr.makepad.broker.h264.left.camera.id" = $BrokerH264LeftCameraId
         "debug.rustyxr.makepad.broker.h264.right.camera.id" = $BrokerH264RightCameraId
         "debug.rustyxr.makepad.broker.h264.width" = $BrokerH264Width
@@ -727,7 +733,7 @@ $summary = [ordered]@{
     cameraProjectionMode = $CameraProjectionMode
     cameraProjectionGeometryProfile = $CameraProjectionGeometryProfile
     brokerH264ProjectionGeometryProfile = if ($BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) { $BrokerH264ProjectionGeometryProfile.Trim() } else { $BrokerH264SyntheticProjectionProfile }
-    brokerH264SyntheticProjectionProfile = $BrokerH264SyntheticProjectionProfile
+    brokerH264SyntheticProjectionProfile = if ($UseBrokerH264Camera -and $BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) { $BrokerH264ProjectionGeometryProfile.Trim() } else { $BrokerH264SyntheticProjectionProfile }
     projectionBorderPolicy = $ProjectionBorderPolicy
     nativePassthroughRequested = [bool]($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0 -or $ProjectionAlphaMode -ne "fixed")
     projectionAreaOpacity = $ProjectionAreaOpacity

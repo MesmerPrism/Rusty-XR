@@ -11,6 +11,22 @@ param(
     [int]$MediaProjectionPort = 8787,
     [int]$MediaProjectionMaxFrames = 0,
     [int]$MediaProjectionDrainMs = 1500,
+    [ValidateSet("direct-camera", "broker-camera")]
+    [string]$SourceMode = "direct-camera",
+    [ValidateSet("passthrough-underlay", "solid-red")]
+    [string]$ProjectionBorderPolicy = "passthrough-underlay",
+    [double]$ProjectionAreaOpacity = 1.0,
+    [double]$ProjectionBorderOpacity = 1.0,
+    [switch]$BoundedCanvasProjectionArea,
+    [string]$BrokerPackageName = "com.example.rustyxr.broker",
+    [string]$BrokerActivityName = ".BrokerStartActivity",
+    [int]$BrokerRestartSettleSeconds = 3,
+    [string]$BrokerH264LeftCameraId = "50",
+    [string]$BrokerH264RightCameraId = "51",
+    [int]$BrokerH264LeftStreamPort = 8879,
+    [int]$BrokerH264RightStreamPort = 8880,
+    [int]$BrokerH264FrameRateHz = 50,
+    [int]$BrokerH264BitrateBps = 6000000,
     [switch]$Install
 )
 
@@ -55,6 +71,68 @@ $boundedProjectionAreaOverride = @(
     "rustyxr.projectionAreaCornerRadiusUv=0.08"
 ) -join ","
 
+$projectionOpacityOverride = @(
+    ("rustyxr.projectionAreaOpacity={0}" -f $ProjectionAreaOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture)),
+    ("rustyxr.projectionBorderOpacity={0}" -f $ProjectionBorderOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture)),
+    ("rustyxr.projectionBorderPolicy={0}" -f $ProjectionBorderPolicy)
+) -join ","
+
+function Get-BrokerH264Override {
+    param([string]$ProjectionGeometryProfile)
+    return @(
+        "rustyxr.brokerH264SourceMode=broker-camera",
+        ("rustyxr.brokerH264ProjectionGeometryProfile={0}" -f $ProjectionGeometryProfile),
+        ("rustyxr.brokerH264StreamPort={0}" -f $BrokerH264LeftStreamPort),
+        ("rustyxr.brokerH264RightStreamPort={0}" -f $BrokerH264RightStreamPort),
+        ("rustyxr.brokerH264LeftCameraId={0}" -f $BrokerH264LeftCameraId),
+        ("rustyxr.brokerH264RightCameraId={0}" -f $BrokerH264RightCameraId),
+        "rustyxr.brokerH264Width=1280",
+        "rustyxr.brokerH264Height=1280",
+        "rustyxr.brokerH264CaptureMs=0",
+        "rustyxr.brokerH264MaxPackets=0",
+        ("rustyxr.brokerH264FrameRateHz={0}" -f $BrokerH264FrameRateHz),
+        ("rustyxr.brokerH264BitrateBps={0}" -f $BrokerH264BitrateBps),
+        "rustyxr.brokerH264LiveStream=true",
+        "rustyxr.brokerH264LiveDecode=true"
+    ) -join ","
+}
+
+function Get-HwbProjectionStyleOverride {
+    param([string]$Mode)
+    if ($ProjectionBorderPolicy -eq "solid-red") {
+        return "rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,$projectionOpacityOverride"
+    }
+    if ($Mode -eq "custom") {
+        return "rustyxr.cameraPipelinePreset=raw-projection-camera-footprint-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-camera-footprint-underlay,rustyxr.openxrPassthroughProbe=underlay,$projectionOpacityOverride"
+    }
+    return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,rustyxr.openxrPassthroughProbe=underlay,$projectionOpacityOverride"
+}
+
+function Get-GlesProjectionStyleOverride {
+    return $projectionOpacityOverride
+}
+
+function Get-MakepadNativePassthroughRequested {
+    return $ProjectionBorderPolicy -eq "passthrough-underlay" -or
+        $ProjectionAreaOpacity -lt 1.0 -or
+        $ProjectionBorderOpacity -lt 1.0
+}
+
+function Join-OverrideValues {
+    param([string[]]$Values)
+    return (($Values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ",")
+}
+
+function Get-CatalogPackageName {
+    param([string]$Catalog)
+    $catalogPath = Resolve-RepoPath $Catalog
+    $catalogJson = Get-Content -Raw -Path $catalogPath | ConvertFrom-Json
+    if ($catalogJson.apps -and $catalogJson.apps.Count -gt 0) {
+        return [string]$catalogJson.apps[0].packageName
+    }
+    return ""
+}
+
 function Resolve-RepoPath {
     param([string]$Path)
     if ([System.IO.Path]::IsPathRooted($Path)) {
@@ -85,6 +163,57 @@ function Invoke-Adb {
     if ($LASTEXITCODE -ne 0) {
         throw "adb failed: $($Arguments -join ' ')"
     }
+}
+
+function Invoke-AdbCapture {
+    param(
+        [string]$OutputPath,
+        [string[]]$Arguments
+    )
+    $output = if ($Serial) {
+        @(& $Adb -s $Serial @Arguments 2>&1)
+    } else {
+        @(& $Adb @Arguments 2>&1)
+    }
+    $output | Set-Content -Path $OutputPath -Encoding UTF8
+    if ($LASTEXITCODE -ne 0) {
+        throw "adb failed: $($Arguments -join ' ')"
+    }
+}
+
+function Get-BrokerActivityComponent {
+    if ($BrokerActivityName.StartsWith(".")) {
+        return "$BrokerPackageName/$BrokerActivityName"
+    }
+    if ($BrokerActivityName.Contains("/")) {
+        return $BrokerActivityName
+    }
+    return "$BrokerPackageName/$BrokerActivityName"
+}
+
+function Restart-BrokerForCase {
+    param([string]$CaseId)
+    if ($SourceMode -ne "broker-camera") {
+        return
+    }
+    $brokerRoot = Join-Path $sessionRoot ("broker-restarts\$CaseId")
+    New-Item -ItemType Directory -Force -Path $brokerRoot | Out-Null
+    $clientStopLog = Join-Path $brokerRoot "force-stop-clients.txt"
+    foreach ($packageName in $BrokerClientPackages) {
+        if ([string]::IsNullOrWhiteSpace($packageName)) {
+            continue
+        }
+        Add-Content -Path $clientStopLog -Value ("force-stop {0}" -f $packageName) -Encoding UTF8
+        Invoke-AdbCapture -OutputPath (Join-Path $brokerRoot ("force-stop-client-{0}.txt" -f ($packageName -replace "[^A-Za-z0-9_.-]", "_"))) -Arguments @("shell", "am", "force-stop", $packageName)
+    }
+    Start-Sleep -Milliseconds 1200
+    Invoke-AdbCapture -OutputPath (Join-Path $brokerRoot "force-stop-broker.txt") -Arguments @("shell", "am", "force-stop", $BrokerPackageName)
+    Start-Sleep -Milliseconds 1200
+    $component = Get-BrokerActivityComponent
+    Invoke-AdbCapture -OutputPath (Join-Path $brokerRoot "start.txt") -Arguments @("shell", "am", "start", "-n", $component)
+    Start-Sleep -Seconds $BrokerRestartSettleSeconds
+    Invoke-AdbCapture -OutputPath (Join-Path $brokerRoot "activity.txt") -Arguments @("shell", "dumpsys", "activity", "activities")
+    Invoke-AdbCapture -OutputPath (Join-Path $brokerRoot "window.txt") -Arguments @("shell", "dumpsys", "window", "windows")
 }
 
 function Start-MediaProjectionReceiver {
@@ -364,6 +493,7 @@ function Invoke-HwbOrGlesCase {
         $args += @("-Install", "-Apk", (Resolve-RepoPath $Apk))
     }
     try {
+        Restart-BrokerForCase -CaseId $caseId
         $receiverProcess = Start-MediaProjectionReceiver -Dir $mediaRoot
         & powershell @args | ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) {
@@ -395,7 +525,8 @@ function Invoke-MakepadCase {
     param(
         [string]$Mode,
         [string]$CameraProjectionMode,
-        [string]$ProjectionGeometryProfile
+        [string]$ProjectionGeometryProfile,
+        [string]$CaseSourceMode = "direct-camera"
     )
     $caseId = "makepad-$Mode"
     Write-Host "[$caseId] MediaProjection receiver starting"
@@ -439,17 +570,34 @@ function Invoke-MakepadCase {
         "-ProjectionAreaRadiusXUv", "0.47",
         "-ProjectionAreaRadiusYUv", "0.36",
         "-ProjectionAreaCornerRadiusUv", "0.08",
-        "-ProjectionAreaOpacity", "1.0",
-        "-ProjectionBorderOpacity", "1.0",
-        "-ProjectionBorderPolicy", "passthrough-underlay",
-        "-EnableNativePassthrough",
+        "-ProjectionAreaOpacity", $ProjectionAreaOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture),
+        "-ProjectionBorderOpacity", $ProjectionBorderOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture),
+        "-ProjectionBorderPolicy", $ProjectionBorderPolicy,
         "-MediaProjection",
         "-MediaProjectionPort", $MediaProjectionPort.ToString()
     )
+    if (Get-MakepadNativePassthroughRequested) {
+        $args += "-EnableNativePassthrough"
+    }
+    if ($CaseSourceMode -eq "broker-camera") {
+        $args += @(
+            "-UseBrokerH264Camera",
+            "-BrokerH264LeftCameraId", $BrokerH264LeftCameraId,
+            "-BrokerH264RightCameraId", $BrokerH264RightCameraId,
+            "-BrokerH264ProjectionGeometryProfile", $ProjectionGeometryProfile,
+            "-BrokerH264CaptureMs", "0",
+            "-BrokerH264MaxPackets", "0",
+            "-BrokerH264FrameRateHz", $BrokerH264FrameRateHz.ToString(),
+            "-BrokerH264BitrateBps", $BrokerH264BitrateBps.ToString(),
+            "-BrokerH264LeftStreamPort", $BrokerH264LeftStreamPort.ToString(),
+            "-BrokerH264RightStreamPort", $BrokerH264RightStreamPort.ToString()
+        )
+    }
     if (-not $Install) {
         $args += "-SkipInstall"
     }
     try {
+        Restart-BrokerForCase -CaseId $caseId
         $receiverProcess = Start-MediaProjectionReceiver -Dir $mediaRoot
         & powershell @args | ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) {
@@ -487,6 +635,40 @@ function Invoke-MakepadCase {
 
 $hwbCatalog = "examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json"
 $glesCatalog = "examples\quest-gl-openxr-video-stack-apk\catalog\rusty-xr-quest-gl-openxr-video-stack.catalog.json"
+$BrokerClientPackages = @(
+    (Get-CatalogPackageName -Catalog $hwbCatalog),
+    (Get-CatalogPackageName -Catalog $glesCatalog),
+    $MakepadPackageName
+) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique
+$hwbCanvasRuntimeProfile = if ($SourceMode -eq "broker-camera") {
+    "broker-h264-stereo-live-world-canvas-mediaprojection"
+}
+else {
+    "camera-stereo-gpu-composite-world-canvas-native-aligned-mediaprojection"
+}
+$hwbCustomRuntimeProfile = if ($SourceMode -eq "broker-camera") {
+    "broker-h264-stereo-live-openxr-projection-full-feed-control"
+}
+else {
+    "camera-stereo-gpu-composite-camera-footprint-canvas-equivalent-depth1"
+}
+$glesCanvasRuntimeProfile = if ($SourceMode -eq "broker-camera") {
+    "gles-broker-camera-h264-oes-projection"
+}
+else {
+    "gles-direct-camera2-oes-world-canvas-mediaprojection"
+}
+$glesCustomRuntimeProfile = if ($SourceMode -eq "broker-camera") {
+    "gles-broker-camera-h264-oes-projection"
+}
+else {
+    "gles-direct-camera2-oes-camera-projection-mediaprojection"
+}
+$canvasProjectionAreaOverride = if ($BoundedCanvasProjectionArea) { $boundedProjectionAreaOverride } else { "" }
+$hwbCanvasSourceOverride = if ($SourceMode -eq "broker-camera") { Get-BrokerH264Override -ProjectionGeometryProfile "full-frame-diagnostic" } else { "" }
+$hwbCustomSourceOverride = if ($SourceMode -eq "broker-camera") { Get-BrokerH264Override -ProjectionGeometryProfile "camera-projection" } else { "" }
+$glesCanvasSourceOverride = if ($SourceMode -eq "broker-camera") { Get-BrokerH264Override -ProjectionGeometryProfile "full-frame-diagnostic" } else { "" }
+$glesCustomSourceOverride = if ($SourceMode -eq "broker-camera") { Get-BrokerH264Override -ProjectionGeometryProfile "camera-projection" } else { "" }
 $records = @()
 $records += Invoke-HwbOrGlesCase `
     -Lane "hwb" `
@@ -494,38 +676,68 @@ $records += Invoke-HwbOrGlesCase `
     -Catalog $hwbCatalog `
     -AppId "rusty-xr-quest-composite-layer" `
     -DeviceProfile "xr-composite-comparison-level-5" `
-    -RuntimeProfile "camera-stereo-gpu-composite-world-canvas-native-aligned-mediaprojection" `
+    -RuntimeProfile $hwbCanvasRuntimeProfile `
     -Apk $HwbApk `
-    -Override ("rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic,$surfaceOverride")
+    -Override (Join-OverrideValues -Values @(
+        "rustyxr.cameraProjectionMode=world-canvas",
+        "rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic",
+        (Get-HwbProjectionStyleOverride -Mode "canvas"),
+        $canvasProjectionAreaOverride,
+        $hwbCanvasSourceOverride,
+        $surfaceOverride
+    ))
 $records += Invoke-HwbOrGlesCase `
     -Lane "hwb" `
     -Mode "custom" `
     -Catalog $hwbCatalog `
     -AppId "rusty-xr-quest-composite-layer" `
     -DeviceProfile "xr-composite-comparison-level-5" `
-    -RuntimeProfile "camera-stereo-gpu-composite-camera-footprint-canvas-equivalent-depth1" `
+    -RuntimeProfile $hwbCustomRuntimeProfile `
     -Apk $HwbApk `
-    -Override ("rustyxr.cameraProjectionMode=display-screen-homography,rustyxr.cameraProjectionGeometryProfile=camera-projection,rustyxr.cameraPipelinePreset=raw-projection-camera-footprint-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-camera-footprint-underlay,rustyxr.openxrPassthroughProbe=underlay,$boundedProjectionAreaOverride,$surfaceOverride")
+    -Override (Join-OverrideValues -Values @(
+        "rustyxr.cameraProjectionMode=display-screen-homography",
+        "rustyxr.cameraProjectionGeometryProfile=camera-projection",
+        (Get-HwbProjectionStyleOverride -Mode "custom"),
+        $boundedProjectionAreaOverride,
+        $hwbCustomSourceOverride,
+        $surfaceOverride
+    ))
 $records += Invoke-HwbOrGlesCase `
     -Lane "oes" `
     -Mode "canvas" `
     -Catalog $glesCatalog `
     -AppId "rusty-xr-quest-gl-openxr-video-stack" `
     -DeviceProfile "gles-openxr-comparison-level-5" `
-    -RuntimeProfile "gles-direct-camera2-oes-world-canvas-mediaprojection" `
+    -RuntimeProfile $glesCanvasRuntimeProfile `
     -Apk $GlesApk `
-    -Override ("rustyxr.cameraProjectionMode=world-canvas,rustyxr.directCamera2OesProjectionGeometryProfile=full-frame-diagnostic,rustyxr.projectionBorderPolicy=passthrough-underlay,$surfaceOverride")
+    -Override (Join-OverrideValues -Values @(
+        "rustyxr.cameraProjectionMode=world-canvas",
+        "rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic",
+        "rustyxr.directCamera2OesProjectionGeometryProfile=full-frame-diagnostic",
+        (Get-GlesProjectionStyleOverride),
+        $canvasProjectionAreaOverride,
+        $glesCanvasSourceOverride,
+        $surfaceOverride
+    ))
 $records += Invoke-HwbOrGlesCase `
     -Lane "oes" `
     -Mode "custom" `
     -Catalog $glesCatalog `
     -AppId "rusty-xr-quest-gl-openxr-video-stack" `
     -DeviceProfile "gles-openxr-comparison-level-5" `
-    -RuntimeProfile "gles-direct-camera2-oes-camera-projection-mediaprojection" `
+    -RuntimeProfile $glesCustomRuntimeProfile `
     -Apk $GlesApk `
-    -Override ("rustyxr.cameraProjectionMode=display-screen-homography,rustyxr.directCamera2OesProjectionGeometryProfile=camera-projection,rustyxr.projectionBorderPolicy=passthrough-underlay,$surfaceOverride")
-$records += Invoke-MakepadCase -Mode "canvas" -CameraProjectionMode "world-canvas" -ProjectionGeometryProfile "full-frame-diagnostic"
-$records += Invoke-MakepadCase -Mode "custom" -CameraProjectionMode "display-screen-homography" -ProjectionGeometryProfile "camera-projection"
+    -Override (Join-OverrideValues -Values @(
+        "rustyxr.cameraProjectionMode=display-screen-homography",
+        "rustyxr.cameraProjectionGeometryProfile=camera-projection",
+        "rustyxr.directCamera2OesProjectionGeometryProfile=camera-projection",
+        (Get-GlesProjectionStyleOverride),
+        $boundedProjectionAreaOverride,
+        $glesCustomSourceOverride,
+        $surfaceOverride
+    ))
+$records += Invoke-MakepadCase -Mode "canvas" -CameraProjectionMode "world-canvas" -ProjectionGeometryProfile "full-frame-diagnostic" -CaseSourceMode $SourceMode
+$records += Invoke-MakepadCase -Mode "custom" -CameraProjectionMode "display-screen-homography" -ProjectionGeometryProfile "camera-projection" -CaseSourceMode $SourceMode
 
 $contactSheetPath = Join-Path $sessionRoot "canvas-custom-projection-parity-results.png"
 & python $contactSheetBuilder --session-root $sessionRoot --output $contactSheetPath | ForEach-Object { Write-Host $_ }
@@ -537,6 +749,7 @@ $summary = [ordered]@{
     schemaVersion = "rusty.xr.canvas-custom-projection-parity-suite.v1"
     capturedAt = (Get-Date).ToString("o")
     serial = $Serial
+    sourceMode = $SourceMode
     sessionRoot = $sessionRoot
     screenshotsRoot = $screenshotsRoot
     contactSheet = $contactSheetPath
@@ -545,13 +758,18 @@ $summary = [ordered]@{
         cameraPreviewFovYDegrees = 69.763084
         cameraPreviewOffsetYMeters = -0.168832
         cameraRawOverlayOverscan = 1.0
+        projectionBorderPolicy = $ProjectionBorderPolicy
+        projectionAreaOpacity = $ProjectionAreaOpacity
+        projectionBorderOpacity = $ProjectionBorderOpacity
+        boundedCanvasProjectionArea = [bool]$BoundedCanvasProjectionArea
         boundedProjectionAreaRadiusXUv = 0.47
         boundedProjectionAreaRadiusYUv = 0.36
         boundedProjectionAreaCornerRadiusUv = 0.08
     }
     captureRouteNotes = @(
         "HWB and GLES/OES MediaProjection captures are latest-frame app-frame evidence for the rendered camera window after the profile run.",
-        "Makepad MediaProjection currently captures the Makepad Android/window surface rather than the submitted OpenXR compositor layer; use HzDB for Makepad geometry until this capture-route difference is resolved."
+        "Makepad MediaProjection currently captures the Makepad Android/window surface rather than the submitted OpenXR compositor layer; use HzDB for Makepad geometry until this capture-route difference is resolved.",
+        "Broker-camera runs restart the broker service before each condition and request physical Camera2 H.264 streams with explicit projection metadata."
     )
     records = $records
 }

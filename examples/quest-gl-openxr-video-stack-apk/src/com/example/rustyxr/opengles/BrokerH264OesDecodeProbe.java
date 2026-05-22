@@ -48,6 +48,8 @@ public final class BrokerH264OesDecodeProbe {
     private static final int SYNTHETIC_CAPTURE_MS = 45000;
     private static final String SYNTHETIC_PATTERN = "diagnostic-grid";
     private static final String SYNTHETIC_PROJECTION_PROFILE = "head-anchored-virtual-camera";
+    private static final String DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE = "full-frame-diagnostic";
+    private static final String CAMERA_PROJECTION_GEOMETRY_PROFILE = "camera-projection";
     private static final String SOURCE_MODE_BROKER_SYNTHETIC = "broker-synthetic";
     private static final String SOURCE_MODE_BROKER_CAMERA = "broker-camera";
 
@@ -240,11 +242,18 @@ public final class BrokerH264OesDecodeProbe {
                     : SYNTHETIC_PATTERN;
             this.syntheticProjectionProfile =
                 BrokerH264OesDecodeProbe.normalizeSyntheticProjectionProfile(syntheticProjectionProfile);
-            this.projectionGeometryProfile =
-                BrokerH264OesDecodeProbe.normalizeSyntheticProjectionProfile(
-                    projectionGeometryProfile != null && projectionGeometryProfile.trim().length() > 0
-                        ? projectionGeometryProfile
+            String requestedProjectionGeometryProfile =
+                projectionGeometryProfile != null && projectionGeometryProfile.trim().length() > 0
+                    ? projectionGeometryProfile
+                    : (SOURCE_MODE_BROKER_CAMERA.equals(this.sourceMode)
+                        ? DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE
                         : syntheticProjectionProfile);
+            this.projectionGeometryProfile =
+                SOURCE_MODE_BROKER_CAMERA.equals(this.sourceMode)
+                    ? BrokerH264OesDecodeProbe.normalizeCameraProjectionGeometryProfile(
+                        requestedProjectionGeometryProfile)
+                    : BrokerH264OesDecodeProbe.normalizeSyntheticProjectionProfile(
+                        requestedProjectionGeometryProfile);
             boolean cameraMatchedSynthetic =
                 SOURCE_MODE_BROKER_SYNTHETIC.equals(this.sourceMode) &&
                 "camera-matched".equals(this.projectionGeometryProfile);
@@ -314,6 +323,25 @@ public final class BrokerH264OesDecodeProbe {
             return SYNTHETIC_PROJECTION_PROFILE;
         }
         return SYNTHETIC_PROJECTION_PROFILE;
+    }
+
+    private static String normalizeCameraProjectionGeometryProfile(String value) {
+        if (value == null || value.trim().length() == 0) {
+            return DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE;
+        }
+        String normalized = value.trim().toLowerCase(Locale.US).replace('_', '-');
+        if ("full-frame".equals(normalized) ||
+            DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE.equals(normalized) ||
+            "projection-space-diagnostic".equals(normalized)) {
+            return DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE;
+        }
+        if (CAMERA_PROJECTION_GEOMETRY_PROFILE.equals(normalized) ||
+            "camera-footprint".equals(normalized) ||
+            "camera-projection-footprint".equals(normalized)) {
+            return CAMERA_PROJECTION_GEOMETRY_PROFILE;
+        }
+        throw new IllegalArgumentException(
+            "Unsupported broker camera projection geometry profile: " + value);
     }
 
     private static JSONObject probeReport(

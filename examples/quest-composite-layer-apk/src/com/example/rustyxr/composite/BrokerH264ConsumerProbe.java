@@ -58,6 +58,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
     private static final String SOURCE_MODE_EXISTING_STREAM = "existing-stream";
     private static final String DEFAULT_SYNTHETIC_PATTERN = "diagnostic-grid";
     private static final String DEFAULT_SYNTHETIC_PROJECTION_PROFILE = "head-anchored-virtual-camera";
+    private static final String DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE = "full-frame-diagnostic";
+    private static final String CAMERA_PROJECTION_GEOMETRY_PROFILE = "camera-projection";
     private static final String STEREO_PAIRING_TIMESTAMP_NEAREST = "timestamp-nearest";
     private static final String STEREO_PAIRING_FRAME_ORDER = "frame-order";
     private static final long STEREO_REPLAY_DELIVERY_INTERVAL_NS = 33_333_333L;
@@ -176,10 +178,15 @@ final class BrokerH264ConsumerProbe implements Runnable {
             this.startBrokerSyntheticStream = SOURCE_MODE_BROKER_SYNTHETIC.equals(this.sourceMode);
             this.syntheticPattern = normalizeSyntheticPattern(syntheticPattern);
             this.syntheticProjectionProfile = normalizeSyntheticProjectionProfile(syntheticProjectionProfile);
-            this.projectionGeometryProfile = normalizeSyntheticProjectionProfile(
+            String requestedProjectionGeometryProfile =
                 projectionGeometryProfile != null && projectionGeometryProfile.trim().length() > 0
                     ? projectionGeometryProfile
-                    : syntheticProjectionProfile);
+                    : (this.startBrokerCameraStream
+                        ? DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE
+                        : syntheticProjectionProfile);
+            this.projectionGeometryProfile = this.startBrokerCameraStream
+                ? normalizeCameraProjectionGeometryProfile(requestedProjectionGeometryProfile)
+                : normalizeSyntheticProjectionProfile(requestedProjectionGeometryProfile);
             this.liveDecode = liveDecode;
             this.byteIdentityProbe = byteIdentityProbe;
             this.stereoPairingMode = normalizeStereoPairingMode(stereoPairingMode);
@@ -2747,6 +2754,25 @@ final class BrokerH264ConsumerProbe implements Runnable {
             return DEFAULT_SYNTHETIC_PROJECTION_PROFILE;
         }
         return DEFAULT_SYNTHETIC_PROJECTION_PROFILE;
+    }
+
+    private static String normalizeCameraProjectionGeometryProfile(String value) {
+        if (value == null || value.trim().length() == 0) {
+            return DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE;
+        }
+        String normalized = value.trim().toLowerCase(Locale.US).replace('_', '-');
+        if ("full-frame".equals(normalized) ||
+            DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE.equals(normalized) ||
+            "projection-space-diagnostic".equals(normalized)) {
+            return DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE;
+        }
+        if (CAMERA_PROJECTION_GEOMETRY_PROFILE.equals(normalized) ||
+            "camera-footprint".equals(normalized) ||
+            "camera-projection-footprint".equals(normalized)) {
+            return CAMERA_PROJECTION_GEOMETRY_PROFILE;
+        }
+        throw new IllegalArgumentException(
+            "Unsupported broker camera projection geometry profile: " + value);
     }
 
     private static String normalizeStereoPairingMode(String value) {
