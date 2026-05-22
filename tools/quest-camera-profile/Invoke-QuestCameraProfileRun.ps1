@@ -117,6 +117,41 @@ function Save-AdbTextCapture {
     Write-Utf8TextFile -Path $OutputPath -Value ((Invoke-Adb -Arguments $Arguments) -join [Environment]::NewLine)
 }
 
+function Test-TruthyLaunchValue {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $false
+    }
+    $normalized = $Value.Trim().ToLowerInvariant()
+    return $normalized -in @("1", "true", "yes", "on")
+}
+
+function Grant-MediaProjectionAppOp {
+    param(
+        [string]$PackageName,
+        [string]$Dir
+    )
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add("adb shell appops set $PackageName PROJECT_MEDIA allow")
+    $setOutput = @()
+    foreach ($line in (Invoke-Adb -Arguments @("shell", "appops", "set", $PackageName, "PROJECT_MEDIA", "allow") 2>&1)) {
+        $setOutput += [string]$line
+        $lines.Add([string]$line)
+    }
+    $setExitCode = $LASTEXITCODE
+    $lines.Add("adb shell appops get $PackageName PROJECT_MEDIA")
+    $getOutput = @()
+    foreach ($line in (Invoke-Adb -Arguments @("shell", "appops", "get", $PackageName, "PROJECT_MEDIA") 2>&1)) {
+        $getOutput += [string]$line
+        $lines.Add([string]$line)
+    }
+    $getExitCode = $LASTEXITCODE
+    Write-Utf8TextFile -Path (Join-Path $Dir "mediaprojection-appops.txt") -Value $lines.ToArray()
+    if ($setExitCode -ne 0 -or $getExitCode -ne 0 -or (($getOutput -join "`n") -notmatch "PROJECT_MEDIA:\s*allow")) {
+        throw "MediaProjection PROJECT_MEDIA app-op pregrant failed or did not read back as allow; see mediaprojection-appops.txt"
+    }
+}
+
 function Save-OptionalRunAsFileCapture {
     param(
         [string]$Package,
@@ -671,6 +706,9 @@ if ($Install) {
 
 Invoke-Adb -Arguments @("shell", "pm", "grant", $packageName, "android.permission.CAMERA") | Out-Null
 Invoke-Adb -Arguments @("shell", "pm", "grant", $packageName, "horizonos.permission.HEADSET_CAMERA") | Out-Null
+if ($values.ContainsKey("rustyxr.mediaProjection") -and (Test-TruthyLaunchValue -Value $values["rustyxr.mediaProjection"])) {
+    Grant-MediaProjectionAppOp -PackageName $packageName -Dir $dir
+}
 
 if ($device) {
     foreach ($property in $device.properties) {

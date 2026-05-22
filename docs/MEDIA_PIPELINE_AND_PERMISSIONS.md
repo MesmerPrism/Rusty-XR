@@ -97,6 +97,53 @@ overlays are composited, but it cannot recover the runtime's raw
 environment-depth image or the raw camera frames used by a custom projection
 layer.
 
+### Display Capture Semantics
+
+Treat MediaProjection as a display or app-window pixel capture, not as a
+world-space, camera, or OpenXR-layer API. Android grants the app a
+`MediaProjection` token; the app creates a `VirtualDisplay`; and Android writes
+the captured display or app-window image into an app-provided `Surface`, such
+as an `ImageReader`, `SurfaceTexture`, or encoder surface. The app controls the
+requested output size, density, and consumer, while Android can scale or
+letterbox the captured content to preserve aspect ratio. See Android's
+[MediaProjection guide](https://developer.android.com/media/grow/media-projection)
+and AOSP's
+[virtual display overview](https://source.android.com/docs/core/graphics/layers-displays).
+
+On Quest, OpenXR app output can be exposed through the Android display or
+mirror path, so MediaProjection may contain native passthrough, app projection
+layers, UI, and feedback surfaces in the same flattened image. This is a useful
+answer to "what did the app/display mirror render?", but it is not structured
+access to Meta compositor internals. The capture does not identify which pixels
+came from passthrough, app projection, overlays, or system UI, and it does not
+include layer handles, alpha, depth, world poses, raw camera frames, final-eye
+lens/timewarp buffers, or a request such as "capture only passthrough".
+
+Keep MediaProjection, screenshot, and headset/compositor witness captures
+labeled separately:
+
+- `MediaProjection`: real-time flattened display/app-window pixels written to
+  the app's `Surface`; in Rusty XR examples this is usually RGBA
+  `display_composite` frame data that may later be converted to PNG.
+- ADB or HzDB screencap: a system screenshot path, usually PNG output, that may
+  sample the same or a similar composed display buffer but has its own timing
+  and policy.
+- Meta/HzDB metacam-style capture: a separate final-view witness when available
+  through Meta tooling. Use it to cross-check MediaProjection rather than
+  replacing MediaProjection evidence with it.
+
+Some Android or runtime surfaces can be protected from capture. For example,
+Android `FLAG_SECURE` windows are intended to be omitted from screenshots,
+screen recordings, and non-secure displays; DRM or platform-protected paths may
+have similar policy behavior. That is a possible capture-policy limitation, not
+evidence that Rusty XR has app access to protected compositor buffers.
+
+Recursive feedback is expected when an app captures the flattened display image
+and renders that image back into a visible layer. The next display composite can
+then include the previously captured image. Treat this as a display-feedback
+surface, not as proof that MediaProjection exposes the underlying compositor
+layer graph.
+
 ## Plain Stereo And Feedback Surface Layout
 
 `rusty-xr-contracts` includes public layout contracts for app-owned projected
@@ -689,6 +736,15 @@ A custom launcher should not try to bypass MediaProjection consent. It can
 install, launch, set debug properties, prepare `adb reverse`, and watch logs,
 but the app must still trigger the consent flow in headset.
 
+For automated validation harnesses, the supported preflight is to grant normal
+runtime permissions, set the package app-op with
+`adb shell appops set <package> PROJECT_MEDIA allow`, and artifact the
+`adb shell appops get <package> PROJECT_MEDIA` readback before launch. Treat
+that app-op as a best-effort pregrant for the current device build, not as a
+portable replacement for Android's MediaProjection result token. If the
+selector still appears or the receiver gets no frame, fail the run clearly and
+ask the operator to approve capture in headset.
+
 On current Quest system UI, the MediaProjection flow can include an additional
 `Select view you want to share` panel after the first consent prompt. Treat this
 as a headset/user step: select `Entire view`, then press `Share` in the
@@ -696,6 +752,8 @@ headset. ADB shell taps and UIAutomator inspection can see parts of this panel
 on some firmware versions, but they cannot reliably select the view or enable
 the final share action. A public launcher or validation harness should report
 the blocked state instead of claiming it can clear the selector automatically.
+Do not use scripted `adb shell input tap` or `keyevent` attempts as part of
+Quest MediaProjection evidence collection.
 
 When validating a display-composite stream, distinguish app failure from a
 receiver that intentionally exits after one frame. A short-lived Windows

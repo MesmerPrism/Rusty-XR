@@ -13,6 +13,9 @@ For the current ordered workflow that combines raw projection area alignment,
 public diagnostic blur comparison, broker-synthetic stimuli, and the later
 physical-screen Brave stimulus pass, see
 [SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md](SCREEN_SPACE_AND_BLUR_ALIGNMENT_WORKFLOW.md).
+For the renderer-parity work that adds canvas and app-side MediaProjection
+support across HWB, GL/OES, and Makepad, see
+[CANVAS_MEDIAPROJECTION_PARITY_IMPLEMENTATION_PLAN.md](CANVAS_MEDIAPROJECTION_PARITY_IMPLEMENTATION_PLAN.md).
 
 ## Passthrough Reference Frozen-Frame Replay
 
@@ -336,8 +339,10 @@ Makepad CPU-YUV APK:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
+  -UseWindowsHost `
   -SdkPath <makepad-android-sdk-path> `
-  -MakepadSourceRoot <makepad-fork-checkout>
+  -MakepadSourceRoot <makepad-fork-checkout> `
+  -DisplaySourceEyeMapping display-left-from-right-source
 ```
 
 The Makepad build consumes a prepared Android SDK layout for Makepad. Pass
@@ -345,8 +350,11 @@ The Makepad build consumes a prepared Android SDK layout for Makepad. Pass
 an intentional WSL/Linux-host SDK and packager run. Pass `-MakepadSourceRoot`
 for evidence runs that must use the maintained fork's Android packager; leave
 app dependency patching off unless an uncommitted Makepad dependency change is
-explicitly under test. Host `cargo check` and focused host tests are still
-useful for Makepad parser/projection code, but plain
+explicitly under test. Current Makepad projection evidence uses the S91
+`display-left-from-right-source` source-eye mapping; captured build commands
+should pass it explicitly unless source-eye mapping is the experiment. Host
+`cargo check` and focused host tests are still useful for Makepad
+parser/projection code, but plain
 `cargo check --target aarch64-linux-android` is not the Makepad Android
 acceptance gate because it does not exercise the generated activity/packager
 path. If a clean WSL/Linux-host Makepad rebuild repeats a missing bundled font
@@ -358,6 +366,24 @@ Windows build-tools version, the Makepad packager source/tool is stale for this
 route; update or select the maintained fork/tool rather than creating SDK
 shadow directories or executable aliases. The Vulkan/HWB and GL/OES APKs
 consume the OpenXR loader directly.
+
+For canvas/custom parity captures, do not force fullscreen projection-area
+controls into the suite. The solved surface values are
+`projectionDepthMeters=1.434085`,
+`cameraPreviewFovYDegrees=69.763084`,
+`cameraPreviewOffsetYMeters=-0.168832`, and
+`cameraRawOverlayOverscan=1.0`; these are separate from the projection-area
+mask/footprint knobs. The GLES/OES full-frame canvas case and Makepad
+full-frame canvas case should map through their screen-to-surface homographies
+so the effective source-valid footprint is bounded. Treat records whose
+effective source-valid rect is fullscreen as renderer-geometry failures, even
+when MediaProjection and HzDB images are nonblank.
+
+Makepad app-side MediaProjection is not yet a geometry witness. Current
+evidence shows it captures the Makepad Android/window surface rather than the
+submitted OpenXR compositor layer. Use HzDB for Makepad geometry review and
+keep the MediaProjection row labeled as a capture-route diagnostic until that
+route is resolved.
 
 ## Single-Lane Launch Recipes
 
@@ -586,8 +612,11 @@ broker-synthetic transport checks where the renderer should consume one
 source-agnostic content geometry contract. Use
 `-CameraProjectionGeometryProfile` for direct HWB, GL/OES, and Makepad Camera2
 checks.
-The active direct Camera2 diagnostic profile is `full-frame-diagnostic`; other
-direct Camera2 geometry-profile values are rejected or reported as unsupported.
+The active direct Camera2 diagnostic profiles are `full-frame-diagnostic`
+(full delivered camera frame mapped onto the solved projection area) and
+`camera-projection` (per-eye screen-to-camera homography through the solved
+surface). Other direct Camera2 geometry-profile values are rejected or reported
+as unsupported.
 The
 legacy
 `-BrokerH264SyntheticProjectionProfile` parameter remains the synthetic-source

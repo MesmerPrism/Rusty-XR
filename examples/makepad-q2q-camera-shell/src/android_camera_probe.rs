@@ -1527,10 +1527,10 @@ fn display_mapped_surface_to_camera_homographies(
     physical_left_h: [[f32; 3]; 3],
     physical_right_h: [[f32; 3]; 3],
 ) -> ([[f32; 3]; 3], [[f32; 3]; 3]) {
-    match display_source_eye_mapping() {
-        "display-left-from-right-source" => (physical_right_h, physical_left_h),
-        _ => (physical_left_h, physical_right_h),
-    }
+    // Homography rows are display-indexed. The display/source eye mapping is
+    // applied only when selecting the source texture, otherwise the current
+    // display-left-from-right-source evidence lane double-swaps the cameras.
+    (physical_left_h, physical_right_h)
 }
 
 fn display_source_eye_mapping() -> &'static str {

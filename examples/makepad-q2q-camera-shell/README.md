@@ -352,7 +352,16 @@ Add `-ProjectionDepthMeters <meters>` to set the head-anchored projection
 surface depth explicitly. The guarded launcher writes
 `debug.rustyxr.projection.depth.meters`, defaults to `1.0`, and logs the value
 as `projectionDepthMeters` / `panelTargetDepthMeters` so Makepad depth remains
-visible beside HWB and GL/OES.
+visible beside HWB and GL/OES. For canvas/custom parity runs, pass
+`-CameraProjectionMode world-canvas -CameraProjectionGeometryProfile
+full-frame-diagnostic` for the canvas-equivalent pass and
+`-CameraProjectionMode display-screen-homography -CameraProjectionGeometryProfile
+camera-projection` for the per-eye custom projection pass. The Makepad XR panel
+is sized and placed from the same projection depth, preview FOV, vertical
+offset, and raw overscan values before the camera shader runs. Keep the S91
+build-time source mapping at `display-left-from-right-source` for current
+projection evidence builds; override `-DisplaySourceEyeMapping` only when the
+source-eye mapping itself is the variable under test.
 Add `-ProjectionAlphaMode red|green|blue|luma` or an inverse variant when the
 valid camera window should reveal native passthrough based on source color.
 The Makepad path uses premultiplied RGB, so alpha-zero mask regions do not leak

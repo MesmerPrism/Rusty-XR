@@ -1805,6 +1805,9 @@ public final class Helper {
             int wakeApplyCount,
             long remainingMs,
             String lastError) throws Exception {
+        if (options.noBrokerReport) {
+            return;
+        }
         JSONObject report = new JSONObject();
         report.put("connected", active);
         report.put("helper_version", VERSION);
@@ -3809,7 +3812,6 @@ public final class Helper {
                 } else if ("--disconnect".equals(arg)) {
                     connected = false;
                 } else if ("--no-broker-report".equals(arg)) {
-                    connected = false;
                     noBrokerReport = true;
                 } else if ("--probe-codecs".equals(arg)) {
                     probeCodecs = true;

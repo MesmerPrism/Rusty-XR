@@ -262,6 +262,45 @@ reference launch keeps `cameraTier=gpu-projected`,
 streams, GPU import cache activity, camera cadence around the applied AE range,
 and OpenXR cadence returning to display rate after warmup.
 
+### Canvas/Custom Parity Suite
+
+`Invoke-CanvasCustomProjectionParitySuite.ps1` captures the HWB, GLES/OES, and
+Makepad canvas/custom matrix. It keeps the solved surface values from the
+native-aligned canvas reference, but it must not force fullscreen projection
+area values such as `projectionAreaScaleUv=1.0` with
+`projectionAreaRadius*Uv=0.5`. Those are fullscreen diagnostics, not bounded
+footprint proof values.
+
+For GLES/OES, launch the canvas case with
+`rustyxr.directCamera2OesProjectionGeometryProfile=full-frame-diagnostic` and
+the custom case with
+`rustyxr.directCamera2OesProjectionGeometryProfile=camera-projection`. The
+full-frame canvas case maps through the solved screen-to-surface homography so
+the camera frame lands on the bounded surface instead of filling the eye.
+
+For Makepad, keep the evidence build on
+`display-left-from-right-source` unless source-eye mapping is the test
+variable. Canvas uses `CameraProjectionMode=world-canvas` with
+`full-frame-diagnostic` content mapped through the solved bounded surface;
+custom uses `display-screen-homography` with `camera-projection`. Validation
+logs should include panel target dimensions, left/right projection-area rects,
+left/right expected source-valid rects, source-eye mapping, and
+`s91DisplayIndexedHomographyRows=true`.
+
+The suite pregrants normal runtime permissions and records the
+`PROJECT_MEDIA` app-op readback before launching MediaProjection cases. It
+does not tap Quest consent or selector surfaces. If the app-side receiver gets
+no frame, approve MediaProjection manually in headset and rerun the failed
+case.
+
+The suite writes a labeled `canvas-custom-projection-parity-results.png`
+contact sheet into the run root. Treat HWB and GLES/OES MediaProjection rows as
+app-frame evidence for the rendered camera window. The Makepad MediaProjection
+row is currently a capture-route diagnostic only: it captures the Makepad
+Android/window surface instead of the submitted OpenXR compositor layer, so
+HzDB remains the geometry witness for Makepad canvas/custom parity until that
+MediaProjection route is understood.
+
 ## Camera Readiness Preflight
 
 The runner preserves headset power, stay-awake, and proximity state by default.
@@ -381,9 +420,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
 For color-pipeline A/B runs in one installed APK, prefer the named pipeline
 preset shortcut over repeating the full set of feed, sampler, decode, tone, and
 OpenXR color-format extras. Projection geometry is a separate axis, so use
-`-CameraProjectionMode display-screen-homography` or
-`-CameraProjectionMode quad-surface` when a run needs to compare the fullscreen
-display homography against the quad-surface coordinate reconstruction:
+`-CameraProjectionMode world-canvas`, `-CameraProjectionMode display-screen-homography`,
+or `-CameraProjectionMode quad-surface` when a run needs to compare the explicit
+world-canvas surface, fullscreen display homography, or quad-surface coordinate
+reconstruction:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
@@ -460,8 +500,8 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | Key | Type | Purpose |
 | --- | --- | --- |
 | `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-camera-footprint-underlay-unorm`, `raw-projection-blur-solid-red-unorm`, `raw-projection-blur-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, `raw-projection-cycling-border-unorm`, `display-eye-uv-fiducial-unorm`, `projection-content-uv-fiducial-unorm`, or `source-sampling-witness-unorm`. |
-| `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `display-screen-homography` or `quad-surface`. |
-| `rustyxr.cameraProjectionGeometryProfile` | string | Selects direct Camera2 source/content geometry metadata. Active direct lanes accept only `full-frame-diagnostic`; other values are rejected or reported as unsupported. |
+| `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `world-canvas`, `display-screen-homography`, or `quad-surface`. |
+| `rustyxr.cameraProjectionGeometryProfile` | string | Selects direct Camera2 source/content geometry metadata. Active direct lanes accept `full-frame-diagnostic` for full-frame-to-projection-area checks and `camera-projection` for per-eye screen-to-camera homography checks; other values are rejected or reported as unsupported. |
 | `rustyxr.directCamera2OesProjectionGeometryProfile` | string | GL/OES direct Camera2 override; falls back to `rustyxr.cameraProjectionGeometryProfile`. |
 | `rustyxr.brokerH264ProjectionGeometryProfile` | string | Broker H.264 source/content geometry metadata for camera or synthetic streams; use this for source-agnostic transport checks. |
 | `rustyxr.oesSourceColorTransfer` | string | GL/OES external texture color transfer before camera color controls. Default is `srgb-to-linear`; use `identity` only for an explicit OES source-convention A/B run. |

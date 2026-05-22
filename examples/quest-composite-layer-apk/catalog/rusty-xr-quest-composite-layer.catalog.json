@@ -1385,7 +1385,7 @@
     },
     {
       "id": "camera-stereo-gpu-composite-camera-footprint-canvas-equivalent-depth1",
-      "label": "Camera stereo GPU composite camera-footprint canvas-equivalent depth 1.0",
+      "label": "Camera stereo GPU composite camera-footprint native-aligned canvas equivalent (historical depth1 id)",
       "values": {
         "rustyxr.example": "quest-composite-layer-apk",
         "rustyxr.cameraTier": "gpu-projected",
@@ -1396,8 +1396,9 @@
         "rustyxr.cameraMaxDimension": "1920",
         "rustyxr.cameraProjectionMode": "display-screen-homography",
         "rustyxr.cameraProjectionFovYDegrees": "92",
-        "rustyxr.cameraPreviewFovYDegrees": "60",
-        "rustyxr.projectionDepthMeters": "1.0",
+        "rustyxr.cameraPreviewFovYDegrees": "69.763084",
+        "rustyxr.cameraPreviewOffsetYMeters": "-0.168832",
+        "rustyxr.projectionDepthMeters": "1.434085",
         "rustyxr.cameraProjectionScale": "1.0",
         "rustyxr.cameraTargetFps": "72",
         "rustyxr.cameraPipelinePreset": "raw-projection-camera-footprint-underlay-unorm",
@@ -1407,7 +1408,7 @@
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
         "rustyxr.cameraColorSaturation": "1.0",
-        "rustyxr.cameraRawOverlayOverscan": "1.06",
+        "rustyxr.cameraRawOverlayOverscan": "1.0",
         "rustyxr.cameraFullViewOverlayOverscan": "2.10",
         "rustyxr.cameraEdgeFade": "0.12",
         "rustyxr.projectionAreaScaleUv": "1.0",
@@ -1422,8 +1423,8 @@
         "rustyxr.cameraTextureFlipX": "false",
         "rustyxr.cameraTextureFlipY": "false",
         "rustyxr.cameraTextureMirror": "false",
-        "rustyxr.cameraTextureTransformSource": "public-quest-direct-camera-footprint-canvas-equivalent-depth1",
-        "rustyxr.cameraTextureTransformReason": "Collapsed camera-footprint comparison uses the same projection depth, preview FOV, source aspect, and overscan as the depth-1.0 world canvas, but reconstructs the bounded content surface through display-screen homography.",
+        "rustyxr.cameraTextureTransformSource": "public-quest-direct-camera-footprint-native-aligned-canvas-equivalent",
+        "rustyxr.cameraTextureTransformReason": "Collapsed camera-footprint comparison uses the native-passthrough aligned world-canvas projection depth, preview FOV, vertical offset, source aspect, and overscan, but reconstructs the bounded content surface through display-screen homography.",
         "rustyxr.leftCameraTextureRotation": "rotate0",
         "rustyxr.leftCameraTextureFlipX": "false",
         "rustyxr.leftCameraTextureFlipY": "false",
@@ -1446,7 +1447,7 @@
         "rustyxr.source": "headset-camera",
         "rustyxr.depth": "off"
       },
-      "description": "Custom projection comparison profile for the camera-footprint contract. It should match the depth-1.0 world-canvas MediaProjection and HzDB geometry when the fullscreen collapsed path is equivalent to the explicit canvas; passthrough remains visible outside the valid camera footprint through source alpha, not by stretching the camera feed."
+      "description": "Custom projection comparison profile for the camera-footprint contract. The profile id is preserved for compatibility with older depth-1 capture scripts, but the values now match the native-passthrough aligned world-canvas reference. It should match the native-aligned world-canvas MediaProjection and HzDB geometry when the fullscreen collapsed path is equivalent to the explicit canvas; passthrough remains visible outside the valid camera footprint through source alpha, not by stretching the camera feed."
     },
     {
       "id": "camera-stereo-temporal-pose-clamp-fast075",

@@ -15,7 +15,7 @@ param(
     [int]$SampleSeconds = 20,
     [int]$FreshnessFrames = 6,
     [int]$FreshnessIntervalMs = 1000,
-    [ValidateSet("full-frame-diagnostic")]
+    [ValidateSet("full-frame-diagnostic", "camera-projection")]
     [string]$CameraProjectionGeometryProfile = "full-frame-diagnostic",
     [ValidateSet("broker-camera", "broker-synthetic")]
     [string]$BrokerH264SourceMode = "broker-camera",

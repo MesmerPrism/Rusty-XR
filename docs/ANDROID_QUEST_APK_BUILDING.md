@@ -98,7 +98,8 @@ that explicit in the command:
 powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
   -UseWindowsHost `
   -SdkPath <windows-host-sdk> `
-  -MakepadSourceRoot <makepad-fork-checkout>
+  -MakepadSourceRoot <makepad-fork-checkout> `
+  -DisplaySourceEyeMapping display-left-from-right-source
 ```
 
 If a WSL/Linux-host rebuild fails in Makepad's packager while removing a missing
@@ -120,8 +121,11 @@ executable names from the selected `--sdk-path`.
 Use `-MakepadSourceRoot` when local evidence depends on the maintained Makepad
 fork's Android packager. That switch selects the fork checkout's
 `tools/cargo_makepad` tool. It does not rewrite this example's app dependency
-lockfile. Only pass `-PatchMakepadXrFromSource` when the app must also consume
-uncommitted Makepad dependency source from the same checkout.
+lockfile. The current S91 evidence default is
+`display-left-from-right-source`; pass `-DisplaySourceEyeMapping` explicitly in
+captured build commands so source-eye mapping cannot drift between runs. Only
+pass `-PatchMakepadXrFromSource` when the app must also consume uncommitted
+Makepad dependency source from the same checkout.
 
 For the public Makepad comparison example, run the Makepad build from
 `examples/makepad-q2q-camera-shell` and pass Android options before the

@@ -39,8 +39,9 @@ public final class DirectCamera2OesProbe {
     private static final String STREAM_RASTER_ORIENTATION_SCHEMA = "rusty.xr.stream_raster_orientation.v1";
     private static final String STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN = "top-left-origin-y-down";
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
-    private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-area";
+    private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-surface";
     private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
+    private static final String PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION = "camera-projection";
     private static final int DEFAULT_WIDTH = 1280;
     private static final int DEFAULT_HEIGHT = 1280;
     private static final int DEFAULT_FRAME_RATE_HZ = 50;
@@ -162,11 +163,17 @@ public final class DirectCamera2OesProbe {
         if (PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC.equals(value)) {
             return value;
         }
+        if (PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION.equals(value)) {
+            return value;
+        }
         throw new IllegalArgumentException(
             "Unsupported direct Camera2 projection geometry profile: " + requested);
     }
 
     private static String contentMappingIntentForProjectionGeometryProfile(String profile) {
+        if (PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION.equals(profile)) {
+            return "map-camera-frame-through-screen-to-camera-homography";
+        }
         return CONTENT_MAPPING_CAMERA_FULL_FRAME;
     }
 

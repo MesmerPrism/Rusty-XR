@@ -331,10 +331,47 @@ mod android {
     }
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    enum OesCameraProjectionMode {
+        #[default]
+        DisplayScreenHomography,
+        WorldCanvas,
+    }
+
+    impl OesCameraProjectionMode {
+        fn parse(value: &str) -> Option<Self> {
+            match value.trim() {
+                ""
+                | "display-screen-homography"
+                | "screen-homography"
+                | "display-eye-homography"
+                | "fullscreen"
+                | "custom"
+                | "default" => Some(Self::DisplayScreenHomography),
+                "world-canvas" | "worldCanvas" | "world-space-canvas" | "world-space-quad"
+                | "mesh-quad" | "actual-quad" | "canvas" => Some(Self::WorldCanvas),
+                _ => None,
+            }
+        }
+
+        const fn stable_id(self) -> &'static str {
+            match self {
+                Self::DisplayScreenHomography => "display-screen-homography",
+                Self::WorldCanvas => "world-canvas",
+            }
+        }
+
+        const fn uses_world_canvas(self) -> bool {
+            matches!(self, Self::WorldCanvas)
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     enum OesContentMappingMode {
         #[default]
         CameraProjection,
+        #[allow(dead_code)]
         FullFrameStimulusToProjectionArea,
+        FullFrameStimulusToSurfaceHomography,
     }
 
     impl OesContentMappingMode {
@@ -342,6 +379,7 @@ mod android {
             match self {
                 Self::CameraProjection => 0,
                 Self::FullFrameStimulusToProjectionArea => 1,
+                Self::FullFrameStimulusToSurfaceHomography => 0,
             }
         }
 
@@ -349,6 +387,9 @@ mod android {
             match self {
                 Self::CameraProjection => "camera-projection-homography",
                 Self::FullFrameStimulusToProjectionArea => "full-frame-stimulus-to-projection-area",
+                Self::FullFrameStimulusToSurfaceHomography => {
+                    "full-frame-stimulus-to-surface-homography"
+                }
             }
         }
     }
@@ -678,6 +719,7 @@ mod android {
         let projection_alpha_scale = projection_alpha_scale_from_activity(&app);
         let projection_alpha_bias = projection_alpha_bias_from_activity(&app);
         let camera_color_controls = camera_color_controls_from_activity(&app);
+        let camera_projection_mode = camera_projection_mode_from_activity(&app);
         let projection_uses_source_alpha = projection_border_policy.needs_source_alpha(
             projection_area_opacity,
             projection_border_opacity,
@@ -774,9 +816,10 @@ mod android {
             projection_raw_overscan,
         );
         log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} oesSourceColorTransfer={} sourceColorInputEncoding={} sourceColorOutputEncoding={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraProjectionMode={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} oesSourceColorTransfer={} sourceColorInputEncoding={} sourceColorOutputEncoding={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
             projection_border_policy.stable_id(),
             processing_layer.stable_id(),
+            camera_projection_mode.stable_id(),
             blur_radius_px,
             projection_depth_meters,
             projection_preview_fov_y_degrees,
@@ -984,6 +1027,7 @@ mod android {
                 let projection_plan = surface_texture_oes_probe.as_ref().and_then(|probe| {
                     probe.projection_plan_from_xr_views(
                         &views,
+                        camera_projection_mode,
                         projection_area_eye_offset_uv,
                         projection_area_scale,
                         projection_depth_meters,
@@ -3459,6 +3503,7 @@ void main() {
         fn projection_plan_from_xr_views(
             &self,
             views: &[xr::View],
+            camera_projection_mode: OesCameraProjectionMode,
             projection_area_eye_offset_uv: [[f32; 2]; 2],
             projection_area_scale: [f32; 2],
             projection_depth_meters: f32,
@@ -3477,8 +3522,9 @@ void main() {
             {
                 return None;
             }
-            if left.is_full_frame_diagnostic_projection()
-                && right.is_full_frame_diagnostic_projection()
+            if camera_projection_mode.uses_world_canvas()
+                || (left.is_full_frame_diagnostic_projection()
+                    && right.is_full_frame_diagnostic_projection())
             {
                 broker_full_frame_projection_plan_from_xr_views(
                     left,
@@ -3902,7 +3948,7 @@ void main() {
                 source_label: left_source_label,
                 source_eye: "left".to_string(),
                 use_surface_texture_transform: true,
-                content_mapping_mode: OesContentMappingMode::FullFrameStimulusToProjectionArea,
+                content_mapping_mode: OesContentMappingMode::FullFrameStimulusToSurfaceHomography,
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
@@ -3913,7 +3959,7 @@ void main() {
                 source_label: right_source_label,
                 source_eye: "right".to_string(),
                 use_surface_texture_transform: true,
-                content_mapping_mode: OesContentMappingMode::FullFrameStimulusToProjectionArea,
+                content_mapping_mode: OesContentMappingMode::FullFrameStimulusToSurfaceHomography,
             },
         })
     }
@@ -4477,6 +4523,25 @@ void main() {
         requested
             .as_deref()
             .and_then(OesProcessingLayer::parse)
+            .unwrap_or_default()
+    }
+
+    fn camera_projection_mode_from_activity(
+        app: &android_activity::AndroidApp,
+    ) -> OesCameraProjectionMode {
+        let Ok(java_vm) = (unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }) else {
+            return OesCameraProjectionMode::default();
+        };
+        let Ok(mut env) = java_vm.attach_current_thread() else {
+            return OesCameraProjectionMode::default();
+        };
+        let activity = unsafe {
+            JObject::from_raw(app.activity_as_ptr().cast::<std::ffi::c_void>() as jobject)
+        };
+        let requested = activity_string_extra(&mut env, &activity, "rustyxr.cameraProjectionMode");
+        requested
+            .as_deref()
+            .and_then(OesCameraProjectionMode::parse)
             .unwrap_or_default()
     }
 

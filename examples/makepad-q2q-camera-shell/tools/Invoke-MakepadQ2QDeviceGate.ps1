@@ -25,7 +25,9 @@ param(
     [int]$BrokerH264RightStreamPort = 8880,
     [string]$BrokerH264SyntheticPattern = "diagnostic-grid",
     [string]$BrokerH264ProjectionGeometryProfile = "",
-    [ValidateSet("full-frame-diagnostic")]
+    [ValidateSet("display-screen-homography", "world-canvas")]
+    [string]$CameraProjectionMode = "display-screen-homography",
+    [ValidateSet("full-frame-diagnostic", "camera-projection")]
     [string]$CameraProjectionGeometryProfile = "full-frame-diagnostic",
     [ValidateSet("head-anchored-virtual-camera", "camera-matched", "full-frame-diagnostic")]
     [string]$BrokerH264SyntheticProjectionProfile = "head-anchored-virtual-camera",
@@ -65,6 +67,11 @@ param(
     [string]$ProjectionAlphaMode = "fixed",
     [double]$ProjectionAlphaScale = 1.0,
     [double]$ProjectionAlphaBias = 0.0,
+    [switch]$MediaProjection,
+    [int]$MediaProjectionPort = 8787,
+    [int]$MediaProjectionWidth = 512,
+    [int]$MediaProjectionHeight = 288,
+    [int]$MediaProjectionDelayMs = 1600,
     [switch]$EnableNativePassthrough
 )
 
@@ -178,6 +185,21 @@ function Grant-RuntimePermissions {
         Invoke-Adb -Arguments @("shell", "pm", "grant", $PackageName, $permission) 2>&1 |
             Add-Content -Path (Join-Path $OutDir "permission-grants.txt") -Encoding UTF8
     }
+    if ($MediaProjection) {
+        "adb shell appops set $PackageName PROJECT_MEDIA allow" |
+            Add-Content -Path (Join-Path $OutDir "permission-grants.txt") -Encoding UTF8
+        $setOutput = @(Invoke-Adb -Arguments @("shell", "appops", "set", $PackageName, "PROJECT_MEDIA", "allow") 2>&1)
+        $setExitCode = $LASTEXITCODE
+        $setOutput | Add-Content -Path (Join-Path $OutDir "permission-grants.txt") -Encoding UTF8
+        "adb shell appops get $PackageName PROJECT_MEDIA" |
+            Add-Content -Path (Join-Path $OutDir "permission-grants.txt") -Encoding UTF8
+        $getOutput = @(Invoke-Adb -Arguments @("shell", "appops", "get", $PackageName, "PROJECT_MEDIA") 2>&1)
+        $getExitCode = $LASTEXITCODE
+        $getOutput | Add-Content -Path (Join-Path $OutDir "permission-grants.txt") -Encoding UTF8
+        if ($setExitCode -ne 0 -or $getExitCode -ne 0 -or (($getOutput -join "`n") -notmatch "PROJECT_MEDIA:\s*allow")) {
+            throw "MediaProjection PROJECT_MEDIA app-op pregrant failed or did not read back as allow; see permission-grants.txt"
+        }
+    }
 }
 
 function Set-MakepadBrokerH264Profile {
@@ -264,6 +286,7 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.projection.alpha.bias" = (Format-InvariantDouble -Value $ProjectionAlphaBias)
         "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
+        "debug.rustyxr.camera.projection.mode" = $CameraProjectionMode
         "debug.rustyxr.makepad.camera.projection.geometry.profile" = $CameraProjectionGeometryProfile
         "debug.rustyxr.projection.scale" = (Format-InvariantDouble -Value $ProjectionScale)
         "debug.rustyxr.projection.depth.meters" = (Format-InvariantDouble -Value $ProjectionDepthMeters)
@@ -571,6 +594,15 @@ function Start-ActivityAndProbe {
         $launchArgs += @("-a", "android.intent.action.MAIN", "-c", "com.oculus.intent.category.VR")
     }
     $launchArgs += @("-n", $component)
+    if ($MediaProjection) {
+        $launchArgs += @(
+            "--ez", "rustyxr.mediaProjection", "true",
+            "--ei", "rustyxr.mediaProjectionPort", $MediaProjectionPort.ToString(),
+            "--ei", "rustyxr.mediaProjectionWidth", $MediaProjectionWidth.ToString(),
+            "--ei", "rustyxr.mediaProjectionHeight", $MediaProjectionHeight.ToString(),
+            "--ei", "rustyxr.mediaProjectionDelayMs", $MediaProjectionDelayMs.ToString()
+        )
+    }
     Save-Adb -Arguments $launchArgs -Path (Join-Path $OutDir "$Label-start.txt")
 
     $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
@@ -692,6 +724,7 @@ $summary = [ordered]@{
     useBrokerH264Synthetic = [bool]$UseBrokerH264Synthetic
     useBrokerH264Camera = [bool]$UseBrokerH264Camera
     brokerH264SourceMode = if ($UseBrokerH264Camera) { "broker-camera" } elseif ($UseBrokerH264Synthetic) { "broker-synthetic" } else { "disabled" }
+    cameraProjectionMode = $CameraProjectionMode
     cameraProjectionGeometryProfile = $CameraProjectionGeometryProfile
     brokerH264ProjectionGeometryProfile = if ($BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) { $BrokerH264ProjectionGeometryProfile.Trim() } else { $BrokerH264SyntheticProjectionProfile }
     brokerH264SyntheticProjectionProfile = $BrokerH264SyntheticProjectionProfile
@@ -702,6 +735,11 @@ $summary = [ordered]@{
     projectionAlphaMode = $ProjectionAlphaMode
     projectionAlphaScale = $ProjectionAlphaScale
     projectionAlphaBias = $ProjectionAlphaBias
+    mediaProjection = [bool]$MediaProjection
+    mediaProjectionPort = $MediaProjectionPort
+    mediaProjectionWidth = $MediaProjectionWidth
+    mediaProjectionHeight = $MediaProjectionHeight
+    mediaProjectionDelayMs = $MediaProjectionDelayMs
     processingLayer = $ProcessingLayer
     blurRadiusPx = $BlurRadiusPx
     brokerH264FrameRateHz = $BrokerH264FrameRateHz
