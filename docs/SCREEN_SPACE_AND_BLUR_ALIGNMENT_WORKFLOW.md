@@ -189,7 +189,7 @@ not as blur evidence.
 
 | Renderer family | Raw border control | Projection-area opacity | Border opacity | Color-derived alpha | Blur control |
 | --- | --- | --- | --- | --- | --- |
-| Vulkan/HWB | `rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.projectionAlphaMode`, `rustyxr.projectionAlphaScale`, `rustyxr.projectionAlphaBias` | `raw-projection-blur-solid-red-unorm` or `raw-projection-blur-underlay-unorm`, plus `rustyxr.cameraBlurRadiusPx` |
+| Vulkan/HWB | `rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.projectionAlphaMode`, `rustyxr.projectionAlphaScale`, `rustyxr.projectionAlphaBias` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.projectionAlphaMode`, `rustyxr.projectionAlphaScale`, `rustyxr.projectionAlphaBias` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
 | Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.projection.area.opacity` | `debug.rustyxr.makepad.projection.border.opacity` | `debug.rustyxr.makepad.projection.alpha.mode`, `.scale`, `.bias` | `debug.rustyxr.makepad.processing.layer=blur`, plus `debug.rustyxr.makepad.blur.radius.px` |
 

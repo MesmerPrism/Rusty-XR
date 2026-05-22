@@ -38,7 +38,8 @@ pub(crate) const CAMERA_IMPORT_CACHE_LIMIT_MAX: usize = 16;
 
 mod camera_color_pipeline;
 pub(crate) use camera_color_pipeline::{
-    CameraFeedPipelineMode, CameraProjectionEffectMode, OpenXrColorFormatMode,
+    CameraFeedPipelineMode, CameraProcessingLayer, CameraProjectionEffectMode,
+    OpenXrColorFormatMode,
 };
 
 #[cfg(target_os = "android")]
@@ -446,9 +447,6 @@ pub(crate) enum CameraPipelinePreset {
     SeparateDecodeUnorm,
     RawProjectionFastUnorm,
     RawProjectionSolidRedUnorm,
-    RawProjectionBlurUnorm,
-    RawProjectionBlurSolidRedUnorm,
-    RawProjectionBlurUnderlayUnorm,
     RawProjectionInvalidFillUnorm,
     RawProjectionPerimeterFillUnorm,
     RawProjectionSoftBorderUnorm,
@@ -485,20 +483,6 @@ impl CameraPipelinePreset {
             | "raw-projection-red-border-unorm"
             | "direct-raw-projection-solid-red-unorm"
             | "fast-raw-solid-red-unorm" => Some(Self::RawProjectionSolidRedUnorm),
-            "raw-projection-blur-unorm"
-            | "raw-projection-blur-diagnostic-unorm"
-            | "direct-raw-projection-blur-unorm"
-            | "fast-raw-blur-unorm" => Some(Self::RawProjectionBlurUnorm),
-            "raw-projection-blur-solid-red-unorm"
-            | "raw-projection-solid-red-blur-unorm"
-            | "raw-projection-blur-red-border-unorm"
-            | "direct-raw-projection-blur-solid-red-unorm"
-            | "fast-raw-blur-solid-red-unorm" => Some(Self::RawProjectionBlurSolidRedUnorm),
-            "raw-projection-blur-underlay-unorm"
-            | "raw-projection-underlay-blur-unorm"
-            | "raw-projection-blur-passthrough-underlay-unorm"
-            | "direct-raw-projection-blur-underlay-unorm"
-            | "fast-raw-blur-underlay-unorm" => Some(Self::RawProjectionBlurUnderlayUnorm),
             "raw-projection-invalid-fill-unorm"
             | "raw-projection-invalid-only-fill-unorm"
             | "direct-raw-projection-invalid-fill-unorm"
@@ -577,9 +561,6 @@ impl CameraPipelinePreset {
             Self::SeparateDecodeUnorm => "separate-decode-unorm",
             Self::RawProjectionFastUnorm => "raw-projection-fast-unorm",
             Self::RawProjectionSolidRedUnorm => "raw-projection-solid-red-unorm",
-            Self::RawProjectionBlurUnorm => "raw-projection-blur-unorm",
-            Self::RawProjectionBlurSolidRedUnorm => "raw-projection-blur-solid-red-unorm",
-            Self::RawProjectionBlurUnderlayUnorm => "raw-projection-blur-underlay-unorm",
             Self::RawProjectionInvalidFillUnorm => "raw-projection-invalid-fill-unorm",
             Self::RawProjectionPerimeterFillUnorm => "raw-projection-perimeter-fill-unorm",
             Self::RawProjectionSoftBorderUnorm => "raw-projection-soft-border-unorm",
@@ -731,6 +712,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) camera_projection_mode: CameraProjectionMode,
     pub(crate) camera_pipeline_preset: CameraPipelinePreset,
     pub(crate) camera_projection_effect_mode: CameraProjectionEffectMode,
+    pub(crate) camera_processing_layer: CameraProcessingLayer,
     pub(crate) camera_feed_pipeline_mode: CameraFeedPipelineMode,
     pub(crate) camera_color_mode: CameraColorMode,
     pub(crate) camera_sampler_binding_mode: CameraSamplerBindingMode,
@@ -825,6 +807,7 @@ impl Default for RuntimeConfig {
             camera_projection_mode: CameraProjectionMode::default(),
             camera_pipeline_preset: CameraPipelinePreset::default(),
             camera_projection_effect_mode: CameraProjectionEffectMode::default(),
+            camera_processing_layer: CameraProcessingLayer::default(),
             camera_feed_pipeline_mode: CameraFeedPipelineMode::default(),
             camera_color_mode: CameraColorMode::default(),
             camera_sampler_binding_mode: CameraSamplerBindingMode::default(),
@@ -1172,11 +1155,16 @@ impl RuntimeConfig {
     }
 
     pub(crate) fn camera_effect_params_push(&self) -> [f32; 4] {
+        let processing_diagnostic = self.camera_processing_layer.diagnostic_shader_code();
         [
             self.camera_blur_radius_px.clamp(0.0, 16.0),
             self.camera_projection_area_opacity.clamp(0.0, 1.0),
             self.camera_projection_border_opacity.clamp(0.0, 1.0),
-            self.camera_projection_effect_mode.diagnostic_shader_code(),
+            if processing_diagnostic > 0.0 {
+                processing_diagnostic
+            } else {
+                self.camera_projection_effect_mode.diagnostic_shader_code()
+            },
         ]
     }
 
@@ -1508,7 +1496,7 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} cameraBlurRadiusPx={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} previewOffsetYMeters={} projectionScale={} projectionDepthMeters={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaLeftOffsetXUv={} projectionAreaLeftOffsetYUv={} projectionAreaRightOffsetXUv={} projectionAreaRightOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} projectionAlphaMode={} projectionAlphaScale={} projectionAlphaBias={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} processingLayer={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBorderCycleHz={} cameraBlurRadiusPx={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} previewOffsetYMeters={} projectionScale={} projectionDepthMeters={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaLeftOffsetXUv={} projectionAreaLeftOffsetYUv={} projectionAreaRightOffsetXUv={} projectionAreaRightOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} projectionAlphaMode={} projectionAlphaScale={} projectionAlphaBias={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -1519,6 +1507,7 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_projection_mode.stable_id(),
         config.camera_pipeline_preset.stable_id(),
         config.camera_projection_effect_mode.stable_id(),
+        config.camera_processing_layer.stable_id(),
         config.camera_feed_pipeline_mode.stable_id(),
         config.camera_color_mode.stable_id(),
         config.camera_color_mode.shader_bit(),
@@ -2110,6 +2099,7 @@ struct JavaRuntimeConfig {
         alias = "cameraProjectionEffect"
     )]
     camera_projection_effect_mode: Option<String>,
+    processing_layer: Option<String>,
     camera_color_mode: Option<String>,
     camera_sampler_binding_mode: Option<String>,
     #[serde(rename = "cameraImportImageLayout")]
@@ -2364,6 +2354,11 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             .camera_projection_effect_mode
             .as_deref()
             .and_then(CameraProjectionEffectMode::parse)
+            .unwrap_or_default(),
+        camera_processing_layer: bridge
+            .processing_layer
+            .as_deref()
+            .and_then(CameraProcessingLayer::parse)
             .unwrap_or_default(),
         camera_feed_pipeline_mode: bridge
             .camera_feed_pipeline_mode
@@ -2709,33 +2704,6 @@ fn apply_camera_pipeline_preset(config: &mut RuntimeConfig) {
             CameraProjectionEffectMode::RawProjectionSolidRed,
             OpenXrColorFormatMode::Rgba8Unorm,
             config.openxr_passthrough_probe,
-        ),
-        CameraPipelinePreset::RawProjectionBlurUnorm => (
-            CameraFeedPipelineMode::RawFeed,
-            CameraColorMode::ExternalRgb,
-            CameraSamplerBindingMode::CombinedImmutableSampler,
-            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
-            CameraProjectionEffectMode::RawProjectionBlur,
-            OpenXrColorFormatMode::Rgba8Unorm,
-            config.openxr_passthrough_probe,
-        ),
-        CameraPipelinePreset::RawProjectionBlurSolidRedUnorm => (
-            CameraFeedPipelineMode::RawFeed,
-            CameraColorMode::ExternalRgb,
-            CameraSamplerBindingMode::CombinedImmutableSampler,
-            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
-            CameraProjectionEffectMode::RawProjectionBlurSolidRed,
-            OpenXrColorFormatMode::Rgba8Unorm,
-            config.openxr_passthrough_probe,
-        ),
-        CameraPipelinePreset::RawProjectionBlurUnderlayUnorm => (
-            CameraFeedPipelineMode::RawFeed,
-            CameraColorMode::ExternalRgb,
-            CameraSamplerBindingMode::CombinedImmutableSampler,
-            CameraImportImageLayoutMode::ShaderReadOnlyTransition,
-            CameraProjectionEffectMode::RawProjectionBlurUnderlay,
-            OpenXrColorFormatMode::Rgba8Unorm,
-            OpenXrPassthroughProbeMode::Underlay,
         ),
         CameraPipelinePreset::RawProjectionInvalidFillUnorm => (
             CameraFeedPipelineMode::RawFeed,
@@ -4128,10 +4096,10 @@ mod tests {
         contract_json, parse_diagnostic_hud_command, public_camera_metadata, public_runtime_config,
         CameraColorMode, CameraFeedPipelineMode, CameraFrameAdoptionMode,
         CameraImportImageLayoutMode, CameraOrientationDiagnosticMode, CameraPipelinePreset,
-        CameraProjectionAlphaMode, CameraProjectionEffectMode, CameraProjectionMode,
-        CameraSamplerBindingMode, EnvironmentDepthMode, HandParticleMode, JavaCameraExtrinsics,
-        JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind,
-        JavaRuntimeConfig, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
+        CameraProcessingLayer, CameraProjectionAlphaMode, CameraProjectionEffectMode,
+        CameraProjectionMode, CameraSamplerBindingMode, EnvironmentDepthMode, HandParticleMode,
+        JavaCameraExtrinsics, JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain,
+        JavaPixelDomainKind, JavaRuntimeConfig, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
         OpenXrPassthroughStyleMode, StereoSourceEyeMapping,
     };
     use rusty_xr_contracts::{
@@ -4328,6 +4296,7 @@ mod tests {
             camera_projection_mode: Some("quad-surface".to_string()),
             camera_pipeline_preset: None,
             camera_projection_effect_mode: Some("raw-projection-fast".to_string()),
+            processing_layer: Some("blur".to_string()),
             camera_color_mode: Some("external-rgb".to_string()),
             camera_sampler_binding_mode: Some("separate-image-sampler".to_string()),
             camera_import_image_layout_mode: Some("general-no-transition".to_string()),
@@ -4469,6 +4438,7 @@ mod tests {
             config.camera_projection_effect_mode,
             CameraProjectionEffectMode::RawProjectionFast
         );
+        assert_eq!(config.camera_processing_layer, CameraProcessingLayer::Blur);
         assert_eq!(
             config.camera_feed_pipeline_mode,
             CameraFeedPipelineMode::RawFeed
@@ -4786,10 +4756,11 @@ mod tests {
     }
 
     #[test]
-    fn runtime_config_raw_projection_blur_solid_red_preset_selects_blur_path() {
+    fn runtime_config_processing_layer_blur_solid_red_selects_blur_path() {
         let config = public_runtime_config(&JavaRuntimeConfig {
-            camera_pipeline_preset: Some("raw-projection-blur-solid-red-unorm".to_string()),
+            camera_pipeline_preset: Some("raw-projection-solid-red-unorm".to_string()),
             camera_projection_effect_mode: Some("border-composite".to_string()),
+            processing_layer: Some("blur".to_string()),
             camera_blur_radius_px: Some(3.5),
             xr_color_format_mode: Some("rgba8-srgb".to_string()),
             ..Default::default()
@@ -4797,12 +4768,13 @@ mod tests {
 
         assert_eq!(
             config.camera_pipeline_preset,
-            CameraPipelinePreset::RawProjectionBlurSolidRedUnorm
+            CameraPipelinePreset::RawProjectionSolidRedUnorm
         );
         assert_eq!(
             config.camera_projection_effect_mode,
-            CameraProjectionEffectMode::RawProjectionBlurSolidRed
+            CameraProjectionEffectMode::RawProjectionSolidRed
         );
+        assert_eq!(config.camera_processing_layer, CameraProcessingLayer::Blur);
         assert_eq!(
             config.camera_feed_pipeline_mode,
             CameraFeedPipelineMode::RawFeed
@@ -4817,13 +4789,15 @@ mod tests {
             OpenXrPassthroughProbeMode::Off
         );
         assert_eq!(config.camera_blur_radius_px, 3.5);
+        assert_eq!(config.camera_effect_params_push()[3], 5.0);
     }
 
     #[test]
-    fn runtime_config_raw_projection_blur_underlay_preset_selects_passthrough_underlay() {
+    fn runtime_config_processing_layer_blur_underlay_selects_passthrough_underlay() {
         let config = public_runtime_config(&JavaRuntimeConfig {
-            camera_pipeline_preset: Some("raw-projection-blur-underlay-unorm".to_string()),
+            camera_pipeline_preset: Some("raw-projection-underlay-unorm".to_string()),
             camera_projection_effect_mode: Some("border-composite".to_string()),
+            processing_layer: Some("blur".to_string()),
             openxr_passthrough_probe: Some("off".to_string()),
             camera_blur_radius_px: Some(32.0),
             ..Default::default()
@@ -4831,17 +4805,19 @@ mod tests {
 
         assert_eq!(
             config.camera_pipeline_preset,
-            CameraPipelinePreset::RawProjectionBlurUnderlayUnorm
+            CameraPipelinePreset::RawProjectionUnderlayUnorm
         );
         assert_eq!(
             config.camera_projection_effect_mode,
-            CameraProjectionEffectMode::RawProjectionBlurUnderlay
+            CameraProjectionEffectMode::RawProjectionUnderlay
         );
+        assert_eq!(config.camera_processing_layer, CameraProcessingLayer::Blur);
         assert_eq!(
             config.openxr_passthrough_probe,
             OpenXrPassthroughProbeMode::Underlay
         );
         assert_eq!(config.camera_blur_radius_px, 16.0);
+        assert_eq!(config.camera_effect_params_push()[3], 5.0);
     }
 
     #[test]

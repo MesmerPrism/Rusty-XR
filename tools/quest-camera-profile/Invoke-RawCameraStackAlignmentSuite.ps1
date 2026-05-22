@@ -782,6 +782,8 @@ function Get-VulkanProjectionBorderOverride {
     $commonValues.Add("rustyxr.projectionAlphaMode=$ProjectionAlphaMode")
     $commonValues.Add("rustyxr.projectionAlphaScale=$alphaScale")
     $commonValues.Add("rustyxr.projectionAlphaBias=$alphaBias")
+    $commonValues.Add("rustyxr.processingLayer=$ProcessingLayer")
+    $commonValues.Add("rustyxr.cameraBlurRadiusPx=$blurRadius")
     if (-not [double]::IsNaN($CameraPreviewFovYDegrees)) {
         $commonValues.Add(("rustyxr.cameraPreviewFovYDegrees={0}" -f (Format-InvariantDouble -Value $CameraPreviewFovYDegrees)))
     }
@@ -800,12 +802,6 @@ function Get-VulkanProjectionBorderOverride {
     }
     else {
         "rustyxr.openxrPassthroughProbe=off"
-    }
-    if ($ProcessingLayer -eq "blur") {
-        if ($ProjectionBorderPolicy -eq "passthrough-underlay") {
-            return "rustyxr.cameraPipelinePreset=raw-projection-blur-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-underlay,$passthroughOverride,rustyxr.cameraBlurRadiusPx=$blurRadius,$commonOverride"
-        }
-        return "rustyxr.cameraPipelinePreset=raw-projection-blur-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-blur-solid-red,$passthroughOverride,rustyxr.cameraBlurRadiusPx=$blurRadius,$commonOverride"
     }
     if ($ProjectionBorderPolicy -eq "passthrough-underlay") {
         return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,$passthroughOverride,$commonOverride"

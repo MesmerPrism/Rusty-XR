@@ -5802,6 +5802,11 @@ impl GpuCameraPipelineResources {
 
     fn pipeline_for_config(&self, config: &crate::RuntimeConfig) -> vk::Pipeline {
         if config
+            .camera_processing_layer
+            .requires_full_projection_pipeline()
+        {
+            self.pipeline
+        } else if config
             .camera_projection_effect_mode
             .uses_fast_projection_pipeline()
         {

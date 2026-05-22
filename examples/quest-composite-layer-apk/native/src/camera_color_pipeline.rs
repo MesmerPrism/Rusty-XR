@@ -13,8 +13,7 @@ pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_WARM_BORDER: u32 = 1 << 21;
 pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_CYCLING_BORDER: u32 = 1 << 22;
 pub(crate) const CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC: u32 = 1 << 23;
 pub(crate) const CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING: u32 = 1 << 24;
-const CAMERA_SHADER_FLAG_RAW_PROJECTION_BLUR_SENTINEL: u32 =
-    CAMERA_SHADER_FLAG_RAW_PROJECTION_SOFT_BORDER | CAMERA_SHADER_FLAG_RAW_PROJECTION_STRONG_BORDER;
+const CAMERA_SHADER_EFFECT_RAW_PROJECTION_BLUR: f32 = 5.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum CameraFeedPipelineMode {
@@ -55,9 +54,6 @@ pub(crate) enum CameraProjectionEffectMode {
     BorderComposite,
     RawProjectionFast,
     RawProjectionSolidRed,
-    RawProjectionBlur,
-    RawProjectionBlurSolidRed,
-    RawProjectionBlurUnderlay,
     RawProjectionInvalidFill,
     RawProjectionPerimeterFill,
     RawProjectionSoftBorder,
@@ -73,6 +69,41 @@ pub(crate) enum CameraProjectionEffectMode {
     SourceSamplingWitness,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CameraProcessingLayer {
+    #[default]
+    Raw,
+    Blur,
+}
+
+impl CameraProcessingLayer {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "" | "raw" | "none" | "off" | "passthrough" => Some(Self::Raw),
+            "blur" | "blur-diagnostic" | "diagnostic-blur" => Some(Self::Blur),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::Raw => "raw",
+            Self::Blur => "blur",
+        }
+    }
+
+    pub(crate) const fn diagnostic_shader_code(self) -> f32 {
+        match self {
+            Self::Raw => 0.0,
+            Self::Blur => CAMERA_SHADER_EFFECT_RAW_PROJECTION_BLUR,
+        }
+    }
+
+    pub(crate) const fn requires_full_projection_pipeline(self) -> bool {
+        matches!(self, Self::Blur)
+    }
+}
+
 impl CameraProjectionEffectMode {
     pub(crate) fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
@@ -84,20 +115,6 @@ impl CameraProjectionEffectMode {
             | "raw-projection-red-border"
             | "direct-raw-projection-solid-red"
             | "fast-raw-solid-red" => Some(Self::RawProjectionSolidRed),
-            "raw-projection-blur"
-            | "raw-projection-blur-diagnostic"
-            | "direct-raw-projection-blur"
-            | "fast-raw-blur" => Some(Self::RawProjectionBlur),
-            "raw-projection-blur-solid-red"
-            | "raw-projection-solid-red-blur"
-            | "raw-projection-blur-red-border"
-            | "direct-raw-projection-blur-solid-red"
-            | "fast-raw-blur-solid-red" => Some(Self::RawProjectionBlurSolidRed),
-            "raw-projection-blur-underlay"
-            | "raw-projection-underlay-blur"
-            | "raw-projection-blur-passthrough-underlay"
-            | "direct-raw-projection-blur-underlay"
-            | "fast-raw-blur-underlay" => Some(Self::RawProjectionBlurUnderlay),
             "raw-projection-invalid-fill"
             | "raw-projection-invalid-only-fill"
             | "direct-raw-projection-invalid-fill"
@@ -168,9 +185,6 @@ impl CameraProjectionEffectMode {
             Self::BorderComposite => "border-composite",
             Self::RawProjectionFast => "raw-projection-fast",
             Self::RawProjectionSolidRed => "raw-projection-solid-red",
-            Self::RawProjectionBlur => "raw-projection-blur",
-            Self::RawProjectionBlurSolidRed => "raw-projection-blur-solid-red",
-            Self::RawProjectionBlurUnderlay => "raw-projection-blur-underlay",
             Self::RawProjectionInvalidFill => "raw-projection-invalid-fill",
             Self::RawProjectionPerimeterFill => "raw-projection-perimeter-fill",
             Self::RawProjectionSoftBorder => "raw-projection-soft-border",
@@ -197,21 +211,6 @@ impl CameraProjectionEffectMode {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
                     | CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL
                     | CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL
-            }
-            Self::RawProjectionBlur => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_BLUR_SENTINEL
-            }
-            Self::RawProjectionBlurSolidRed => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_BLUR_SENTINEL
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL
-            }
-            Self::RawProjectionBlurUnderlay => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_BLUR_SENTINEL
-                    | CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA
             }
             Self::RawProjectionInvalidFill => {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
@@ -303,9 +302,7 @@ impl CameraProjectionEffectMode {
     pub(crate) const fn uses_passthrough_underlay_alpha(self) -> bool {
         matches!(
             self,
-            Self::RawProjectionBlurUnderlay
-                | Self::RawProjectionUnderlay
-                | Self::RawProjectionCameraFootprintUnderlay
+            Self::RawProjectionUnderlay | Self::RawProjectionCameraFootprintUnderlay
         )
     }
 }

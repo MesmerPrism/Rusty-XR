@@ -559,8 +559,8 @@ behavior; use the green center cross for geometry and the color bars plus
 neutral target regions for color.
 Use `-ProcessingLayer blur -BlurRadiusPx 2.0` when comparing the same raw
 projection area through the public diagnostic blur layer. The blur layer is a
-small generic 9-tap sampler intended for processing-stack diagnostics; it is
-not a downstream visual-effect preset or a performance-optimized separable blur.
+generic 25-tap sampler intended for processing-stack diagnostics; it is not a
+downstream visual-effect preset or a performance-optimized separable blur.
 Run `Build-SyntheticBlurComparison.py` on the raw and blur
 `screen-space-report.json` files to verify that geometry stayed stable and that
 the synthetic `diagnostic-grid` lost high-frequency edge energy under blur.
@@ -569,7 +569,7 @@ The suite applies the same policy to every public lane:
 
 | Renderer family | Border mapping | Blur mapping |
 | --- | --- | --- |
-| Vulkan/HWB | `raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `raw-projection-blur-solid-red-unorm` or `raw-projection-blur-underlay-unorm` plus `rustyxr.cameraBlurRadiusPx` |
+| Vulkan/HWB | `raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
 | Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.processing.layer=blur` plus `debug.rustyxr.makepad.blur.radius.px` |
 

@@ -110,6 +110,8 @@ mod android {
     const GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE: u32 = 0x8D56;
     const DEFAULT_OES_SURFACE_WIDTH: i32 = 1280;
     const DEFAULT_OES_SURFACE_HEIGHT: i32 = 1280;
+    const DIAGNOSTIC_BLUR_SOURCE_WIDTH_PX: f32 = 1280.0;
+    const DIAGNOSTIC_BLUR_SOURCE_HEIGHT_PX: f32 = 1280.0;
     const OES_COPY_RENDER_PATH: &str = "oes-full-surface-copy";
     const OES_PROJECTED_RENDER_PATH: &str = "oes-projected-camera-uv";
     const DIRECT_CAMERA2_OES_SOURCE: &str = "app.camera2_oes_surface_texture";
@@ -118,6 +120,13 @@ mod android {
     const PROJECTION_RAW_OVERSCAN: f32 = 1.06;
     const PROJECTION_SOURCE_ASPECT: f32 = 1.0;
     const PROJECTION_FOOTPRINT_GRID: usize = 64;
+
+    fn diagnostic_blur_source_texel_size() -> [f32; 2] {
+        [
+            1.0 / DIAGNOSTIC_BLUR_SOURCE_WIDTH_PX.max(1.0),
+            1.0 / DIAGNOSTIC_BLUR_SOURCE_HEIGHT_PX.max(1.0),
+        ]
+    }
 
     static OES_DECODE_CALLBACKS: OnceLock<OesDecodeCallbackState> = OnceLock::new();
 
@@ -2078,20 +2087,15 @@ vec4 blurred_camera_sample(vec2 uv) {
     if (radius <= 0.001) {
         return camera_sample(uv);
     }
-    vec2 texel = u_source_texel_size * radius;
+    vec2 texel = u_source_texel_size * radius * 4.0;
     vec2 sample_uv = clamp(uv, vec2(0.0), vec2(1.0));
-    vec3 center = adjusted_camera_rgb(sample_uv) * 0.36;
-    vec3 axis =
-        adjusted_camera_rgb(sample_uv + vec2(texel.x, 0.0)) +
-        adjusted_camera_rgb(sample_uv - vec2(texel.x, 0.0)) +
-        adjusted_camera_rgb(sample_uv + vec2(0.0, texel.y)) +
-        adjusted_camera_rgb(sample_uv - vec2(0.0, texel.y));
-    vec3 diag =
-        adjusted_camera_rgb(sample_uv + texel) +
-        adjusted_camera_rgb(sample_uv - texel) +
-        adjusted_camera_rgb(sample_uv + vec2(texel.x, -texel.y)) +
-        adjusted_camera_rgb(sample_uv + vec2(-texel.x, texel.y));
-    vec3 rgb = center + axis * 0.12 + diag * 0.04;
+    vec3 sum = vec3(0.0);
+    for (int y = -2; y <= 2; ++y) {
+        for (int x = -2; x <= 2; ++x) {
+            sum += adjusted_camera_rgb(sample_uv + vec2(float(x), float(y)) * texel);
+        }
+    }
+    vec3 rgb = sum / 25.0;
     return premultiplied_alpha_color(rgb, projection_color_alpha(rgb));
 }
 void main() {
@@ -2762,10 +2766,7 @@ void main() {
                     projection_alpha_mode,
                     projection_alpha_scale,
                     projection_alpha_bias,
-                    [
-                        1.0 / DEFAULT_OES_SURFACE_WIDTH.max(1) as f32,
-                        1.0 / DEFAULT_OES_SURFACE_HEIGHT.max(1) as f32,
-                    ],
+                    diagnostic_blur_source_texel_size(),
                     camera_color_controls,
                 )?;
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);

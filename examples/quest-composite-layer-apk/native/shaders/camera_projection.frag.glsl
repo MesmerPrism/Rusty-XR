@@ -79,6 +79,9 @@ const int CAMERA_FLAG_RAW_PROJECTION_WARM_BORDER = 2097152;
 const int CAMERA_FLAG_RAW_PROJECTION_CYCLING_BORDER = 4194304;
 const int CAMERA_FLAG_PROJECTION_AREA_DIAGNOSTIC = 8388608;
 const int CAMERA_FLAG_FULL_FRAME_STIMULUS_MAPPING = 16777216;
+const int CAMERA_EFFECT_RAW_PROJECTION_BLUR = 5;
+const vec2 CAMERA_DIAGNOSTIC_BLUR_SOURCE_SIZE_PX = vec2(1280.0, 1280.0);
+const float CAMERA_DIAGNOSTIC_BLUR_SAMPLE_STEP_GAIN = 4.0;
 
 vec3 clamp01(vec3 color) {
     return clamp(color, vec3(0.0), vec3(1.0));
@@ -426,6 +429,10 @@ vec2 camera_texel_size(int source_eye) {
     return 1.0 / dims;
 }
 
+vec2 diagnostic_blur_texel_size() {
+    return 1.0 / max(CAMERA_DIAGNOSTIC_BLUR_SOURCE_SIZE_PX, vec2(1.0));
+}
+
 vec2 projection_area_content_uv(vec2 area_uv) {
     vec2 half_size = vec2(
         clamp(pc.area_params.x, 0.05, 0.50),
@@ -439,20 +446,18 @@ vec3 sample_source_eye_blur_raw(int source_eye, vec2 camera_uv, float radius_px)
     if (radius <= 0.001) {
         return sample_source_eye_raw(source_eye, camera_uv).rgb;
     }
-    vec2 texel = camera_texel_size(source_eye) * radius;
+    vec2 texel = diagnostic_blur_texel_size() * radius * CAMERA_DIAGNOSTIC_BLUR_SAMPLE_STEP_GAIN;
     vec2 uv = clamp(camera_uv, vec2(0.0), vec2(1.0));
-    vec3 center = sample_source_eye_raw(source_eye, uv).rgb * 0.36;
-    vec3 axis =
-        sample_source_eye_raw(source_eye, clamp(uv + vec2(texel.x, 0.0), vec2(0.0), vec2(1.0))).rgb +
-        sample_source_eye_raw(source_eye, clamp(uv - vec2(texel.x, 0.0), vec2(0.0), vec2(1.0))).rgb +
-        sample_source_eye_raw(source_eye, clamp(uv + vec2(0.0, texel.y), vec2(0.0), vec2(1.0))).rgb +
-        sample_source_eye_raw(source_eye, clamp(uv - vec2(0.0, texel.y), vec2(0.0), vec2(1.0))).rgb;
-    vec3 diag =
-        sample_source_eye_raw(source_eye, clamp(uv + texel, vec2(0.0), vec2(1.0))).rgb +
-        sample_source_eye_raw(source_eye, clamp(uv - texel, vec2(0.0), vec2(1.0))).rgb +
-        sample_source_eye_raw(source_eye, clamp(uv + vec2(texel.x, -texel.y), vec2(0.0), vec2(1.0))).rgb +
-        sample_source_eye_raw(source_eye, clamp(uv + vec2(-texel.x, texel.y), vec2(0.0), vec2(1.0))).rgb;
-    return clamp01(center + axis * 0.12 + diag * 0.04);
+    vec3 sum = vec3(0.0);
+    for (int y = -2; y <= 2; ++y) {
+        for (int x = -2; x <= 2; ++x) {
+            sum += sample_source_eye_raw(
+                source_eye,
+                clamp(uv + vec2(float(x), float(y)) * texel, vec2(0.0), vec2(1.0))
+            ).rgb;
+        }
+    }
+    return clamp01(sum / 25.0);
 }
 
 float source_luma(vec2 sample_uv, int source_eye, int transform_flags) {
@@ -1300,7 +1305,7 @@ void main() {
     bool raw_projection_cycling_border = (packed_flags & CAMERA_FLAG_RAW_PROJECTION_CYCLING_BORDER) != 0;
     bool passthrough_underlay_alpha = (packed_flags & CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA) != 0;
     bool raw_projection_solid_red = raw_projection_invalid_fill && raw_projection_perimeter_fill;
-    bool raw_projection_blur = raw_projection_soft_border && raw_projection_strong_border;
+    bool raw_projection_blur = diagnostic_mode == CAMERA_EFFECT_RAW_PROJECTION_BLUR;
     bool raw_projection_area_mask = raw_projection_solid_red || passthrough_underlay_alpha;
     float projection_area_distance = resolve_camera_oval_distance(projection_area_domain_uv);
     bool projection_area_inside = projection_area_distance <= 1.0;

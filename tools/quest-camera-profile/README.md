@@ -472,10 +472,12 @@ operator checks. The
 `raw-projection-underlay-unorm` preset submits a public
 OpenXR passthrough underlay and makes that same outside-projection area
 transparent, which is useful when comparing background composition separately
-from raw camera sampling. The `raw-projection-blur-solid-red-unorm` and
-`raw-projection-blur-underlay-unorm` presets keep the same projection-area
-policy but run the valid camera samples through a generic 9-tap diagnostic blur.
-Use `rustyxr.cameraBlurRadiusPx` to adjust the sample radius for stack
+from raw camera sampling. The `rustyxr.processingLayer=blur` setting keeps the
+selected projection-area policy but runs the valid camera samples through a
+generic 25-tap diagnostic blur.
+HWB, OES, and Makepad normalize the diagnostic blur texel step against the same
+1280x1280 source domain used by the broker camera and synthetic diagnostic feed.
+Use `rustyxr.cameraBlurRadiusPx` to adjust the visual sample radius for stack
 comparison. The app-parsed runtime config log reports both the requested preset
 and the resolved feed, sampler, decode, projection-effect, tone, blur radius,
 and swapchain settings.
@@ -509,7 +511,8 @@ integrations on these stable keys instead of duplicating shader-specific state:
 
 | Key | Type | Purpose |
 | --- | --- | --- |
-| `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-camera-footprint-underlay-unorm`, `raw-projection-blur-solid-red-unorm`, `raw-projection-blur-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, `raw-projection-cycling-border-unorm`, `display-eye-uv-fiducial-unorm`, `projection-content-uv-fiducial-unorm`, or `source-sampling-witness-unorm`. |
+| `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-camera-footprint-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, `raw-projection-cycling-border-unorm`, `display-eye-uv-fiducial-unorm`, `projection-content-uv-fiducial-unorm`, or `source-sampling-witness-unorm`. |
+| `rustyxr.processingLayer` | string | Selects the diagnostic content-processing layer. Use `raw` for unprocessed camera content or `blur` for the public diagnostic blur. |
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `world-canvas`, `display-screen-homography`, or `quad-surface`. |
 | `rustyxr.cameraProjectionGeometryProfile` | string | Selects direct Camera2 source/content geometry metadata. Active direct lanes accept `full-frame-diagnostic` for full-frame-to-projection-area checks and `camera-projection` for per-eye screen-to-camera homography checks; other values are rejected or reported as unsupported. |
 | `rustyxr.directCamera2OesProjectionGeometryProfile` | string | GL/OES direct Camera2 override; falls back to `rustyxr.cameraProjectionGeometryProfile`. |
@@ -530,7 +533,7 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.projectionAlphaScale` | float | Shared multiplier applied to the selected alpha mask, clamped to `0..4`. |
 | `rustyxr.projectionAlphaBias` | float | Shared bias applied after alpha-mask scaling, clamped to `-1..1`. |
 | `rustyxr.cameraBorderCycleHz` | float | Adjusts the generic phase-cycled border-color rate used by `raw-projection-cycling-border-unorm`; ignored by static border presets. |
-| `rustyxr.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in pixels for blur projection presets. |
+| `rustyxr.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in 1280x1280 source pixels when `rustyxr.processingLayer=blur`. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
 | `rustyxr.openxrPassthroughProbe` | string | Keeps native passthrough checks separate from camera projection: `off`, `warmup`, `client`, or `underlay`. |
 

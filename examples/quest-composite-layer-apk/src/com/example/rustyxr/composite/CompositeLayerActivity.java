@@ -67,6 +67,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final String DEFAULT_CAMERA_PROJECTION_MODE = "display-screen-homography";
     private static final String DEFAULT_CAMERA_PIPELINE_PRESET = "manual";
     private static final String DEFAULT_CAMERA_PROJECTION_EFFECT_MODE = "border-composite";
+    private static final String DEFAULT_PROCESSING_LAYER = "raw";
     private static final String DEFAULT_CAMERA_FEED_MODE = "projected-feed";
     private static final String DEFAULT_CAMERA_COLOR_MODE = "external-rgb";
     private static final String DEFAULT_CAMERA_SAMPLER_BINDING_MODE = "combined-immutable-sampler";
@@ -78,6 +79,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_CAMERA_COLOR_BRIGHTNESS = 0.0f;
     private static final float DEFAULT_CAMERA_COLOR_SATURATION = 1.0f;
     private static final float DEFAULT_CAMERA_BORDER_CYCLE_HZ = 0.18f;
+    private static final float DEFAULT_CAMERA_BLUR_RADIUS_PX = 2.0f;
     private static final boolean DEFAULT_CAMERA_TEMPORAL_PROJECTION_ENABLED = false;
     private static final String DEFAULT_CAMERA_TEMPORAL_MODE = "off";
     private static final float DEFAULT_CAMERA_TEMPORAL_MAX_PIXELS_PER_FRAME = 18.0f;
@@ -460,6 +462,8 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(',');
         appendJsonString(builder, "cameraProjectionEffectMode", stringExtra("rustyxr.cameraProjectionEffectMode", DEFAULT_CAMERA_PROJECTION_EFFECT_MODE));
         builder.append(',');
+        appendJsonString(builder, "processingLayer", stringExtra("rustyxr.processingLayer", DEFAULT_PROCESSING_LAYER));
+        builder.append(',');
         appendJsonString(builder, "cameraFeedMode", stringExtra("rustyxr.cameraFeedMode", DEFAULT_CAMERA_FEED_MODE));
         builder.append(',');
         appendJsonString(builder, "cameraColorMode", stringExtra("rustyxr.cameraColorMode", DEFAULT_CAMERA_COLOR_MODE));
@@ -476,6 +480,7 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraColorBrightness\":").append(floatJson(floatExtra("rustyxr.cameraColorBrightness", DEFAULT_CAMERA_COLOR_BRIGHTNESS)));
         builder.append(",\"cameraColorSaturation\":").append(floatJson(floatExtra("rustyxr.cameraColorSaturation", DEFAULT_CAMERA_COLOR_SATURATION)));
         builder.append(",\"cameraBorderCycleHz\":").append(floatJson(floatExtra("rustyxr.cameraBorderCycleHz", DEFAULT_CAMERA_BORDER_CYCLE_HZ)));
+        builder.append(",\"cameraBlurRadiusPx\":").append(floatJson(floatExtra("rustyxr.cameraBlurRadiusPx", DEFAULT_CAMERA_BLUR_RADIUS_PX)));
         builder.append(",\"cameraTemporalProjectionEnabled\":").append(booleanExtra("rustyxr.cameraTemporalProjectionEnabled", DEFAULT_CAMERA_TEMPORAL_PROJECTION_ENABLED));
         builder.append(',');
         appendJsonString(builder, "cameraTemporalMode", stringExtra("rustyxr.cameraTemporalMode", DEFAULT_CAMERA_TEMPORAL_MODE));

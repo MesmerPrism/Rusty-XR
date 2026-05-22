@@ -17,13 +17,13 @@ use makepad_widgets::makepad_platform::{
 };
 use makepad_widgets::*;
 use makepad_xr::scene::{xr_widget_world_transform, XrNode};
-#[cfg(target_os = "android")]
-use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
-use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 use rusty_xr_camera_model::{
     homography_unit_square_bounding_rect, rect_xywh, source_valid_screen_uv_footprint,
     uv_rect_token, Rect2, Vec2,
 };
+#[cfg(target_os = "android")]
+use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
+use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 use serde_json::Value as JsonValue;
 use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -639,20 +639,50 @@ script_mod! {
         }
 
         sample_camera_blur_rgb: fn(coord: vec2f, eye_selector: float) -> vec3f {
-            let radius = clamp(self.blur_radius_px, 0.0, 16.0) / 1280.0;
+            let blur_source_texel = vec2(1.0 / 1280.0, 1.0 / 1280.0);
+            let sample_step = blur_source_texel * clamp(self.blur_radius_px, 0.0, 16.0) * 4.0;
             let sample_uv = clamp(coord, vec2(0.0, 0.0), vec2(1.0, 1.0));
-            let center = self.sample_camera_rgb(sample_uv, eye_selector) * 0.36;
-            let axis =
-                self.sample_camera_rgb(sample_uv + vec2(radius, 0.0), eye_selector) +
-                self.sample_camera_rgb(sample_uv - vec2(radius, 0.0), eye_selector) +
-                self.sample_camera_rgb(sample_uv + vec2(0.0, radius), eye_selector) +
-                self.sample_camera_rgb(sample_uv - vec2(0.0, radius), eye_selector);
-            let diag =
-                self.sample_camera_rgb(sample_uv + vec2(radius, radius), eye_selector) +
-                self.sample_camera_rgb(sample_uv - vec2(radius, radius), eye_selector) +
-                self.sample_camera_rgb(sample_uv + vec2(radius, -radius), eye_selector) +
-                self.sample_camera_rgb(sample_uv + vec2(-radius, radius), eye_selector);
-            let color = center + axis * 0.12 + diag * 0.04;
+            let x0 = -2.0 * sample_step.x;
+            let x1 = -1.0 * sample_step.x;
+            let x2 = 0.0;
+            let x3 = 1.0 * sample_step.x;
+            let x4 = 2.0 * sample_step.x;
+            let y0 = -2.0 * sample_step.y;
+            let y1 = -1.0 * sample_step.y;
+            let y2 = 0.0;
+            let y3 = 1.0 * sample_step.y;
+            let y4 = 2.0 * sample_step.y;
+            let row0 =
+                self.sample_camera_rgb(sample_uv + vec2(x0, y0), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x1, y0), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x2, y0), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x3, y0), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x4, y0), eye_selector);
+            let row1 =
+                self.sample_camera_rgb(sample_uv + vec2(x0, y1), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x1, y1), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x2, y1), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x3, y1), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x4, y1), eye_selector);
+            let row2 =
+                self.sample_camera_rgb(sample_uv + vec2(x0, y2), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x1, y2), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x2, y2), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x3, y2), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x4, y2), eye_selector);
+            let row3 =
+                self.sample_camera_rgb(sample_uv + vec2(x0, y3), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x1, y3), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x2, y3), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x3, y3), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x4, y3), eye_selector);
+            let row4 =
+                self.sample_camera_rgb(sample_uv + vec2(x0, y4), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x1, y4), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x2, y4), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x3, y4), eye_selector) +
+                self.sample_camera_rgb(sample_uv + vec2(x4, y4), eye_selector);
+            let color = (row0 + row1 + row2 + row3 + row4) / 25.0;
             return vec3(
                 clamp(color.x, 0.0, 1.0),
                 clamp(color.y, 0.0, 1.0),
@@ -2891,9 +2921,9 @@ impl App {
             && right_metadata.is_full_frame_diagnostic_projection();
         let camera_projection_mapping = left_metadata.requests_camera_projection_mapping()
             && right_metadata.requests_camera_projection_mapping();
-        let head_anchored_projection =
-            left_metadata.requests_head_anchored_projection_area_mapping()
-                && right_metadata.requests_head_anchored_projection_area_mapping();
+        let head_anchored_projection = left_metadata
+            .requests_head_anchored_projection_area_mapping()
+            && right_metadata.requests_head_anchored_projection_area_mapping();
         let camera_matched = camera_projection_mapping
             && left_metadata.projection_profile_is("camera-matched")
             && right_metadata.projection_profile_is("camera-matched");
@@ -5063,9 +5093,11 @@ impl BrokerH264ProjectionMetadata {
                 .to_string();
         let content_geometry_default = !explicit_content_geometry
             || json_bool_any(object, &["contentGeometryDefault"]).unwrap_or(false);
-        let source_valid_uv_rect =
-            json_rect2_xywh_any(object, &["sourceValidUvRect", "contentUvRect", "stimulusUvRect"])
-                .unwrap_or(Rect2::UNIT);
+        let source_valid_uv_rect = json_rect2_xywh_any(
+            object,
+            &["sourceValidUvRect", "contentUvRect", "stimulusUvRect"],
+        )
+        .unwrap_or(Rect2::UNIT);
         let intrinsics = parse_broker_intrinsics(object.get("intrinsics"));
         let intrinsics_domain = parse_broker_pixel_domain(object.get("intrinsicsDomain"));
         let active_array_domain = parse_broker_pixel_domain(object.get("activeArrayDomain"));
@@ -5185,9 +5217,7 @@ impl BrokerH264ProjectionMetadata {
 
     #[cfg_attr(not(test), allow(dead_code))]
     fn has_camera_projection_metadata(&self) -> bool {
-        self.projection_metadata_ready
-            && self.intrinsics.is_some()
-            && self.extrinsics.is_some()
+        self.projection_metadata_ready && self.intrinsics.is_some() && self.extrinsics.is_some()
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -5261,7 +5291,8 @@ impl FrameOrientationDecision {
         Self {
             source_sample_y_flip: 0.0,
             source_sample_y_flip_reason:
-                "standard-stimulus-default-top-left-raster-matches-makepad-video-sampler-origin".to_string(),
+                "standard-stimulus-default-top-left-raster-matches-makepad-video-sampler-origin"
+                    .to_string(),
             orientation_kind: "standard-stimulus-default".to_string(),
             raster_orientation: FRAME_RASTER_TOP_LEFT_Y_DOWN.to_string(),
             upright_marker: "unspecified".to_string(),
@@ -5275,9 +5306,7 @@ impl FrameOrientationDecision {
         left: &BrokerH264ProjectionMetadata,
         right: &BrokerH264ProjectionMetadata,
     ) -> Self {
-        if !left.has_explicit_stimulus_orientation()
-            || !right.has_explicit_stimulus_orientation()
-        {
+        if !left.has_explicit_stimulus_orientation() || !right.has_explicit_stimulus_orientation() {
             return Self::fallback("broker-h264-explicit-stimulus-orientation-missing");
         }
         if left.stimulus_raster_orientation != right.stimulus_raster_orientation {
@@ -5384,7 +5413,10 @@ fn json_rect2_xywh(value: Option<&JsonValue>) -> Option<Rect2> {
             return None;
         }
         return Some(Rect2::new(
-            Vec2::new(json_f32_value(array.first())?, json_f32_value(array.get(1))?),
+            Vec2::new(
+                json_f32_value(array.first())?,
+                json_f32_value(array.get(1))?,
+            ),
             Vec2::new(json_f32_value(array.get(2))?, json_f32_value(array.get(3))?),
         ));
     }
@@ -5418,8 +5450,7 @@ fn json_f32_value(value: Option<&JsonValue>) -> Option<f32> {
 }
 
 fn json_f32_field_any(object: &serde_json::Map<String, JsonValue>, keys: &[&str]) -> Option<f32> {
-    keys.iter()
-        .find_map(|key| json_f32_value(object.get(*key)))
+    keys.iter().find_map(|key| json_f32_value(object.get(*key)))
 }
 
 fn json_f32_field(object: &serde_json::Map<String, JsonValue>, key: &str) -> Option<f32> {
@@ -5976,7 +6007,6 @@ impl Camera2StereoPlan {
             );
         }
     }
-
 }
 
 #[cfg(target_os = "android")]
@@ -6271,10 +6301,10 @@ fn expected_source_valid_footprint_marker_fields(pair: &MakepadCameraPair) -> St
         scale_x,
         scale_y,
     );
-    let left_surface_rect = homography_unit_square_bounding_rect(pair.left_surface_to_screen_h)
-        .unwrap_or(Rect2::UNIT);
-    let right_surface_rect = homography_unit_square_bounding_rect(pair.right_surface_to_screen_h)
-        .unwrap_or(Rect2::UNIT);
+    let left_surface_rect =
+        homography_unit_square_bounding_rect(pair.left_surface_to_screen_h).unwrap_or(Rect2::UNIT);
+    let right_surface_rect =
+        homography_unit_square_bounding_rect(pair.right_surface_to_screen_h).unwrap_or(Rect2::UNIT);
     format!(
         "expectedSourceValidFootprintSource=renderer-authored expectedSourceValidFootprintStage=screen_to_camera_source_uv_bounds expectedSourceValidFootprintCoordinateSpace=display-eye-screen-uv expectedSourceValidFootprintMethod=renderer-grid-sampled-source-uv-validity expectedSourceValidFootprintRectSemantics=xywh projectionGeometrySchema=rusty.xr.video_projection_geometry.v1 projectionMapping=screen-to-source-homography surfaceCoverageSource=shared-homography feedPlacementSource=renderer-authored borderRegionSemantics=surface_minus_feed borderFillPolicy={} leftSurfaceCoverageScreenUvRect={} rightSurfaceCoverageScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftSourceValidUvRect={} rightSourceValidUvRect={} leftExpectedSourceValidScreenUvRect={} rightExpectedSourceValidScreenUvRect={}",
         policy.shared_fill_policy_id(),
@@ -6490,7 +6520,10 @@ mod tests {
 
         assert!(metadata.has_camera_projection_metadata());
         assert!(metadata.requests_camera_projection_mapping());
-        assert_eq!(metadata.projection_mapping_profile_id(), "camera-projection");
+        assert_eq!(
+            metadata.projection_mapping_profile_id(),
+            "camera-projection"
+        );
         assert_eq!(metadata.camera_id, "50");
         assert_eq!(metadata.intrinsics.unwrap().fx, 1024.0);
         assert_eq!(metadata.intrinsics_domain.unwrap().width, 4096);

@@ -14,10 +14,15 @@ param(
     [int]$MediaProjectionPort = 8787,
     [int]$MediaProjectionMaxFrames = 0,
     [int]$MediaProjectionDrainMs = 1500,
-    [ValidateSet("direct-camera", "broker-camera")]
+    [ValidateSet("direct-camera", "broker-camera", "broker-synthetic")]
     [string]$SourceMode = "direct-camera",
     [ValidateSet("passthrough-underlay", "solid-red")]
     [string]$ProjectionBorderPolicy = "passthrough-underlay",
+    [ValidateSet("all", "hwb", "oes", "makepad")]
+    [string[]]$LaneFilter = @("all"),
+    [ValidateSet("raw", "blur")]
+    [string]$ProcessingLayer = "raw",
+    [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionAreaOpacity = 1.0,
     [double]$ProjectionBorderOpacity = 1.0,
     [switch]$BoundedCanvasProjectionArea,
@@ -30,10 +35,18 @@ param(
     [int]$BrokerH264RightStreamPort = 8880,
     [int]$BrokerH264FrameRateHz = 50,
     [int]$BrokerH264BitrateBps = 6000000,
+    [ValidateSet("diagnostic-grid", "motion-bar", "checkerboard", "luma-ramp")]
+    [string]$BrokerH264SyntheticPattern = "diagnostic-grid",
+    [ValidateSet("head-anchored-virtual-camera", "camera-matched", "full-frame-diagnostic")]
+    [string]$BrokerH264SyntheticProjectionProfile = "camera-matched",
     [switch]$Install
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([double]::IsNaN($BlurRadiusPx) -or [double]::IsInfinity($BlurRadiusPx) -or $BlurRadiusPx -lt 0.0 -or $BlurRadiusPx -gt 16.0) {
+    throw "BlurRadiusPx must be a finite value from 0.0 to 16.0"
+}
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $runRootPath = if ([System.IO.Path]::IsPathRooted($RunRoot)) {
@@ -79,13 +92,34 @@ $projectionOpacityOverride = @(
     ("rustyxr.projectionBorderOpacity={0}" -f $ProjectionBorderOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture)),
     ("rustyxr.projectionBorderPolicy={0}" -f $ProjectionBorderPolicy)
 ) -join ","
+$blurRadiusPxText = $BlurRadiusPx.ToString("0.0#####", [System.Globalization.CultureInfo]::InvariantCulture)
+$processingLayerOverride = @(
+    ("rustyxr.processingLayer={0}" -f $ProcessingLayer),
+    ("rustyxr.cameraBlurRadiusPx={0}" -f $blurRadiusPxText)
+) -join ","
 $ExpectedMakepadSourceEyeMapping = "display-left-from-left-source"
+$brokerSourceRequested = $SourceMode -eq "broker-camera" -or $SourceMode -eq "broker-synthetic"
+
+function Test-LaneEnabled {
+    param([string]$Lane)
+    if ($LaneFilter -contains "all") {
+        return $true
+    }
+    return $LaneFilter -contains $Lane
+}
 
 function Get-BrokerH264Override {
     param([string]$ProjectionGeometryProfile)
+    $brokerProjectionGeometryProfile = if ($SourceMode -eq "broker-synthetic") {
+        $BrokerH264SyntheticProjectionProfile
+    } else {
+        $ProjectionGeometryProfile
+    }
     return @(
-        "rustyxr.brokerH264SourceMode=broker-camera",
-        ("rustyxr.brokerH264ProjectionGeometryProfile={0}" -f $ProjectionGeometryProfile),
+        ("rustyxr.brokerH264SourceMode={0}" -f $SourceMode),
+        ("rustyxr.brokerH264ProjectionGeometryProfile={0}" -f $brokerProjectionGeometryProfile),
+        ("rustyxr.brokerH264SyntheticPattern={0}" -f $BrokerH264SyntheticPattern),
+        ("rustyxr.brokerH264SyntheticProjectionProfile={0}" -f $BrokerH264SyntheticProjectionProfile),
         ("rustyxr.brokerH264StreamPort={0}" -f $BrokerH264LeftStreamPort),
         ("rustyxr.brokerH264RightStreamPort={0}" -f $BrokerH264RightStreamPort),
         ("rustyxr.brokerH264LeftCameraId={0}" -f $BrokerH264LeftCameraId),
@@ -104,16 +138,16 @@ function Get-BrokerH264Override {
 function Get-HwbProjectionStyleOverride {
     param([string]$Mode)
     if ($ProjectionBorderPolicy -eq "solid-red") {
-        return "rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,$projectionOpacityOverride"
+        return "rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,$projectionOpacityOverride,$processingLayerOverride"
     }
     if ($Mode -eq "custom") {
-        return "rustyxr.cameraPipelinePreset=raw-projection-camera-footprint-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-camera-footprint-underlay,rustyxr.openxrPassthroughProbe=underlay,$projectionOpacityOverride"
+        return "rustyxr.cameraPipelinePreset=raw-projection-camera-footprint-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-camera-footprint-underlay,rustyxr.openxrPassthroughProbe=underlay,$projectionOpacityOverride,$processingLayerOverride"
     }
-    return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,rustyxr.openxrPassthroughProbe=underlay,$projectionOpacityOverride"
+    return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,rustyxr.openxrPassthroughProbe=underlay,$projectionOpacityOverride,$processingLayerOverride"
 }
 
 function Get-GlesProjectionStyleOverride {
-    return $projectionOpacityOverride
+    return "$projectionOpacityOverride,$processingLayerOverride"
 }
 
 function Get-MakepadNativePassthroughRequested {
@@ -197,7 +231,7 @@ function Get-BrokerActivityComponent {
 
 function Restart-BrokerForCase {
     param([string]$CaseId)
-    if ($SourceMode -ne "broker-camera") {
+    if (-not $brokerSourceRequested) {
         return
     }
     $brokerRoot = Join-Path $sessionRoot ("broker-restarts\$CaseId")
@@ -566,23 +600,33 @@ function Copy-HzdbFromProfileRun {
         [string]$RuntimeProfile,
         [string]$OutputPng
     )
-    $latest = Get-ChildItem -LiteralPath $ProfileRoot -Directory |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
-    if (-not $latest) {
-        throw "No profile run directory found under $ProfileRoot"
+    $lastError = $null
+    for ($attempt = 0; $attempt -lt 120; $attempt++) {
+        try {
+            $latest = Get-ChildItem -LiteralPath (ConvertTo-WindowsLongPath $ProfileRoot) -Directory -ErrorAction Stop |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 1
+            if (-not $latest) {
+                $lastError = "No profile run directory found under $ProfileRoot"
+            } else {
+                $source = Get-ChildItem -LiteralPath (ConvertTo-WindowsLongPath $latest.FullName) -Filter "*-hzdb-screencap.png" -ErrorAction Stop |
+                    Sort-Object LastWriteTime -Descending |
+                    Select-Object -First 1
+                if ($source) {
+                    [System.IO.File]::Copy(
+                        (ConvertTo-WindowsLongPath $source.FullName),
+                        (ConvertTo-WindowsLongPath $OutputPng),
+                        $true)
+                    return $latest.FullName
+                }
+                $lastError = "HzDB screenshot not found under $($latest.FullName)"
+            }
+        } catch {
+            $lastError = $_.Exception.Message
+        }
+        Start-Sleep -Milliseconds 500
     }
-    $source = Get-ChildItem -LiteralPath $latest.FullName -Filter "*-hzdb-screencap.png" |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
-    if (-not $source) {
-        throw "HzDB screenshot not found under $($latest.FullName)"
-    }
-    [System.IO.File]::Copy(
-        (ConvertTo-WindowsLongPath $source.FullName),
-        (ConvertTo-WindowsLongPath $OutputPng),
-        $true)
-    return $latest.FullName
+    throw $lastError
 }
 
 function Invoke-HwbOrGlesCase {
@@ -649,6 +693,11 @@ function Invoke-HwbOrGlesCase {
         artifactDir = $artifactDir
         mediaProjection = $mediaPng
         hzdb = $hzdbPng
+        brokerH264SourceMode = $SourceMode
+        brokerH264SyntheticPattern = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticPattern } else { $null }
+        brokerH264SyntheticProjectionProfile = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticProjectionProfile } else { $null }
+        processingLayer = $ProcessingLayer
+        blurRadiusPx = $BlurRadiusPx
     }
 }
 
@@ -705,6 +754,8 @@ function Invoke-MakepadCase {
         "-ProjectionAreaOpacity", $ProjectionAreaOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture),
         "-ProjectionBorderOpacity", $ProjectionBorderOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture),
         "-ProjectionBorderPolicy", $ProjectionBorderPolicy,
+        "-ProcessingLayer", $ProcessingLayer,
+        "-BlurRadiusPx", $blurRadiusPxText,
         "-MediaProjection",
         "-MediaProjectionPort", $MediaProjectionPort.ToString()
     )
@@ -717,6 +768,22 @@ function Invoke-MakepadCase {
             "-BrokerH264LeftCameraId", $BrokerH264LeftCameraId,
             "-BrokerH264RightCameraId", $BrokerH264RightCameraId,
             "-BrokerH264ProjectionGeometryProfile", $ProjectionGeometryProfile,
+            "-BrokerH264CaptureMs", "0",
+            "-BrokerH264MaxPackets", "0",
+            "-BrokerH264FrameRateHz", $BrokerH264FrameRateHz.ToString(),
+            "-BrokerH264BitrateBps", $BrokerH264BitrateBps.ToString(),
+            "-BrokerH264LeftStreamPort", $BrokerH264LeftStreamPort.ToString(),
+            "-BrokerH264RightStreamPort", $BrokerH264RightStreamPort.ToString()
+        )
+    }
+    elseif ($CaseSourceMode -eq "broker-synthetic") {
+        $args += @(
+            "-UseBrokerH264Synthetic",
+            "-BrokerH264SyntheticPattern", $BrokerH264SyntheticPattern,
+            "-BrokerH264SyntheticProjectionProfile", $BrokerH264SyntheticProjectionProfile,
+            "-BrokerH264ProjectionGeometryProfile", $BrokerH264SyntheticProjectionProfile,
+            "-BrokerH264LeftCameraId", $BrokerH264LeftCameraId,
+            "-BrokerH264RightCameraId", $BrokerH264RightCameraId,
             "-BrokerH264CaptureMs", "0",
             "-BrokerH264MaxPackets", "0",
             "-BrokerH264FrameRateHz", $BrokerH264FrameRateHz.ToString(),
@@ -765,6 +832,11 @@ function Invoke-MakepadCase {
         artifactDir = $caseRoot
         mediaProjection = $mediaPng
         hzdb = $hzdbPng
+        brokerH264SourceMode = $SourceMode
+        brokerH264SyntheticPattern = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticPattern } else { $null }
+        brokerH264SyntheticProjectionProfile = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticProjectionProfile } else { $null }
+        processingLayer = $ProcessingLayer
+        blurRadiusPx = $BlurRadiusPx
     }
 }
 
@@ -775,104 +847,110 @@ $BrokerClientPackages = @(
     (Get-CatalogPackageName -Catalog $glesCatalog),
     $MakepadPackageName
 ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique
-$hwbCanvasRuntimeProfile = if ($SourceMode -eq "broker-camera") {
+$hwbCanvasRuntimeProfile = if ($brokerSourceRequested) {
     "broker-h264-stereo-live-world-canvas-mediaprojection"
 }
 else {
     "camera-stereo-gpu-composite-world-canvas-native-aligned-mediaprojection"
 }
-$hwbCustomRuntimeProfile = if ($SourceMode -eq "broker-camera") {
+$hwbCustomRuntimeProfile = if ($brokerSourceRequested) {
     "broker-h264-stereo-live-openxr-projection-full-feed-control"
 }
 else {
     "camera-stereo-gpu-composite-camera-footprint-canvas-equivalent-depth1"
 }
-$glesCanvasRuntimeProfile = if ($SourceMode -eq "broker-camera") {
+$glesCanvasRuntimeProfile = if ($brokerSourceRequested) {
     "gles-broker-camera-h264-oes-projection"
 }
 else {
     "gles-direct-camera2-oes-world-canvas-mediaprojection"
 }
-$glesCustomRuntimeProfile = if ($SourceMode -eq "broker-camera") {
+$glesCustomRuntimeProfile = if ($brokerSourceRequested) {
     "gles-broker-camera-h264-oes-projection"
 }
 else {
     "gles-direct-camera2-oes-camera-projection-mediaprojection"
 }
 $canvasProjectionAreaOverride = if ($BoundedCanvasProjectionArea) { $boundedProjectionAreaOverride } else { "" }
-$hwbCanvasSourceOverride = if ($SourceMode -eq "broker-camera") { Get-BrokerH264Override -ProjectionGeometryProfile "full-frame-diagnostic" } else { "" }
-$hwbCustomSourceOverride = if ($SourceMode -eq "broker-camera") { Get-BrokerH264Override -ProjectionGeometryProfile "camera-projection" } else { "" }
-$glesCanvasSourceOverride = if ($SourceMode -eq "broker-camera") { Get-BrokerH264Override -ProjectionGeometryProfile "full-frame-diagnostic" } else { "" }
-$glesCustomSourceOverride = if ($SourceMode -eq "broker-camera") { Get-BrokerH264Override -ProjectionGeometryProfile "camera-projection" } else { "" }
+$hwbCanvasSourceOverride = if ($brokerSourceRequested) { Get-BrokerH264Override -ProjectionGeometryProfile "full-frame-diagnostic" } else { "" }
+$hwbCustomSourceOverride = if ($brokerSourceRequested) { Get-BrokerH264Override -ProjectionGeometryProfile "camera-projection" } else { "" }
+$glesCanvasSourceOverride = if ($brokerSourceRequested) { Get-BrokerH264Override -ProjectionGeometryProfile "full-frame-diagnostic" } else { "" }
+$glesCustomSourceOverride = if ($brokerSourceRequested) { Get-BrokerH264Override -ProjectionGeometryProfile "camera-projection" } else { "" }
 $records = @()
-$records += Invoke-HwbOrGlesCase `
-    -Lane "hwb" `
-    -Mode "canvas" `
-    -Catalog $hwbCatalog `
-    -AppId "rusty-xr-quest-composite-layer" `
-    -DeviceProfile "xr-composite-comparison-level-5" `
-    -RuntimeProfile $hwbCanvasRuntimeProfile `
-    -Apk $HwbApk `
-    -Override (Join-OverrideValues -Values @(
-        "rustyxr.cameraProjectionMode=world-canvas",
-        "rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic",
-        (Get-HwbProjectionStyleOverride -Mode "canvas"),
-        $canvasProjectionAreaOverride,
-        $hwbCanvasSourceOverride,
-        $surfaceOverride
-    ))
-$records += Invoke-HwbOrGlesCase `
-    -Lane "hwb" `
-    -Mode "custom" `
-    -Catalog $hwbCatalog `
-    -AppId "rusty-xr-quest-composite-layer" `
-    -DeviceProfile "xr-composite-comparison-level-5" `
-    -RuntimeProfile $hwbCustomRuntimeProfile `
-    -Apk $HwbApk `
-    -Override (Join-OverrideValues -Values @(
-        "rustyxr.cameraProjectionMode=display-screen-homography",
-        "rustyxr.cameraProjectionGeometryProfile=camera-projection",
-        (Get-HwbProjectionStyleOverride -Mode "custom"),
-        $boundedProjectionAreaOverride,
-        $hwbCustomSourceOverride,
-        $surfaceOverride
-    ))
-$records += Invoke-HwbOrGlesCase `
-    -Lane "oes" `
-    -Mode "canvas" `
-    -Catalog $glesCatalog `
-    -AppId "rusty-xr-quest-gl-openxr-video-stack" `
-    -DeviceProfile "gles-openxr-comparison-level-5" `
-    -RuntimeProfile $glesCanvasRuntimeProfile `
-    -Apk $GlesApk `
-    -Override (Join-OverrideValues -Values @(
-        "rustyxr.cameraProjectionMode=world-canvas",
-        "rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic",
-        "rustyxr.directCamera2OesProjectionGeometryProfile=full-frame-diagnostic",
-        (Get-GlesProjectionStyleOverride),
-        $canvasProjectionAreaOverride,
-        $glesCanvasSourceOverride,
-        $surfaceOverride
-    ))
-$records += Invoke-HwbOrGlesCase `
-    -Lane "oes" `
-    -Mode "custom" `
-    -Catalog $glesCatalog `
-    -AppId "rusty-xr-quest-gl-openxr-video-stack" `
-    -DeviceProfile "gles-openxr-comparison-level-5" `
-    -RuntimeProfile $glesCustomRuntimeProfile `
-    -Apk $GlesApk `
-    -Override (Join-OverrideValues -Values @(
-        "rustyxr.cameraProjectionMode=display-screen-homography",
-        "rustyxr.cameraProjectionGeometryProfile=camera-projection",
-        "rustyxr.directCamera2OesProjectionGeometryProfile=camera-projection",
-        (Get-GlesProjectionStyleOverride),
-        $boundedProjectionAreaOverride,
-        $glesCustomSourceOverride,
-        $surfaceOverride
-    ))
-$records += Invoke-MakepadCase -Mode "canvas" -CameraProjectionMode "world-canvas" -ProjectionGeometryProfile "full-frame-diagnostic" -CaseSourceMode $SourceMode
-$records += Invoke-MakepadCase -Mode "custom" -CameraProjectionMode "display-screen-homography" -ProjectionGeometryProfile "camera-projection" -CaseSourceMode $SourceMode
+if (Test-LaneEnabled -Lane "hwb") {
+    $records += Invoke-HwbOrGlesCase `
+        -Lane "hwb" `
+        -Mode "canvas" `
+        -Catalog $hwbCatalog `
+        -AppId "rusty-xr-quest-composite-layer" `
+        -DeviceProfile "xr-composite-comparison-level-5" `
+        -RuntimeProfile $hwbCanvasRuntimeProfile `
+        -Apk $HwbApk `
+        -Override (Join-OverrideValues -Values @(
+            "rustyxr.cameraProjectionMode=world-canvas",
+            "rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic",
+            (Get-HwbProjectionStyleOverride -Mode "canvas"),
+            $canvasProjectionAreaOverride,
+            $hwbCanvasSourceOverride,
+            $surfaceOverride
+        ))
+    $records += Invoke-HwbOrGlesCase `
+        -Lane "hwb" `
+        -Mode "custom" `
+        -Catalog $hwbCatalog `
+        -AppId "rusty-xr-quest-composite-layer" `
+        -DeviceProfile "xr-composite-comparison-level-5" `
+        -RuntimeProfile $hwbCustomRuntimeProfile `
+        -Apk $HwbApk `
+        -Override (Join-OverrideValues -Values @(
+            "rustyxr.cameraProjectionMode=display-screen-homography",
+            "rustyxr.cameraProjectionGeometryProfile=camera-projection",
+            (Get-HwbProjectionStyleOverride -Mode "custom"),
+            $boundedProjectionAreaOverride,
+            $hwbCustomSourceOverride,
+            $surfaceOverride
+        ))
+}
+if (Test-LaneEnabled -Lane "oes") {
+    $records += Invoke-HwbOrGlesCase `
+        -Lane "oes" `
+        -Mode "canvas" `
+        -Catalog $glesCatalog `
+        -AppId "rusty-xr-quest-gl-openxr-video-stack" `
+        -DeviceProfile "gles-openxr-comparison-level-5" `
+        -RuntimeProfile $glesCanvasRuntimeProfile `
+        -Apk $GlesApk `
+        -Override (Join-OverrideValues -Values @(
+            "rustyxr.cameraProjectionMode=world-canvas",
+            "rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic",
+            "rustyxr.directCamera2OesProjectionGeometryProfile=full-frame-diagnostic",
+            (Get-GlesProjectionStyleOverride),
+            $canvasProjectionAreaOverride,
+            $glesCanvasSourceOverride,
+            $surfaceOverride
+        ))
+    $records += Invoke-HwbOrGlesCase `
+        -Lane "oes" `
+        -Mode "custom" `
+        -Catalog $glesCatalog `
+        -AppId "rusty-xr-quest-gl-openxr-video-stack" `
+        -DeviceProfile "gles-openxr-comparison-level-5" `
+        -RuntimeProfile $glesCustomRuntimeProfile `
+        -Apk $GlesApk `
+        -Override (Join-OverrideValues -Values @(
+            "rustyxr.cameraProjectionMode=display-screen-homography",
+            "rustyxr.cameraProjectionGeometryProfile=camera-projection",
+            "rustyxr.directCamera2OesProjectionGeometryProfile=camera-projection",
+            (Get-GlesProjectionStyleOverride),
+            $boundedProjectionAreaOverride,
+            $glesCustomSourceOverride,
+            $surfaceOverride
+        ))
+}
+if (Test-LaneEnabled -Lane "makepad") {
+    $records += Invoke-MakepadCase -Mode "canvas" -CameraProjectionMode "world-canvas" -ProjectionGeometryProfile "full-frame-diagnostic" -CaseSourceMode $SourceMode
+    $records += Invoke-MakepadCase -Mode "custom" -CameraProjectionMode "display-screen-homography" -ProjectionGeometryProfile "camera-projection" -CaseSourceMode $SourceMode
+}
 
 $contactSheetPath = Join-Path $sessionRoot "canvas-custom-projection-parity-results.png"
 & python $contactSheetBuilder --session-root $sessionRoot --output $contactSheetPath | ForEach-Object { Write-Host $_ }
@@ -894,6 +972,8 @@ $summary = [ordered]@{
         cameraPreviewOffsetYMeters = -0.168832
         cameraRawOverlayOverscan = 1.0
         projectionBorderPolicy = $ProjectionBorderPolicy
+        processingLayer = $ProcessingLayer
+        blurRadiusPx = $BlurRadiusPx
         projectionAreaOpacity = $ProjectionAreaOpacity
         projectionBorderOpacity = $ProjectionBorderOpacity
         boundedCanvasProjectionArea = [bool]$BoundedCanvasProjectionArea
@@ -905,11 +985,26 @@ $summary = [ordered]@{
         makepadPostRunSettleSeconds = $MakepadPostRunSettleSeconds
         expectedMakepadSourceEyeMapping = $ExpectedMakepadSourceEyeMapping
     }
+    brokerH264 = [ordered]@{
+        sourceMode = $SourceMode
+        width = 1280
+        height = 1280
+        aspectRatio = 1.0
+        leftCameraId = $BrokerH264LeftCameraId
+        rightCameraId = $BrokerH264RightCameraId
+        leftStreamPort = $BrokerH264LeftStreamPort
+        rightStreamPort = $BrokerH264RightStreamPort
+        frameRateHz = $BrokerH264FrameRateHz
+        bitrateBps = $BrokerH264BitrateBps
+        syntheticPattern = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticPattern } else { $null }
+        syntheticProjectionProfile = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticProjectionProfile } else { $null }
+        syntheticNote = if ($SourceMode -eq "broker-synthetic") { "Synthetic diagnostic stimulus uses the requested broker synthetic projection metadata profile and the same broker H.264 decode/render stack as broker-camera; with camera-matched metadata, source pixels are diagnostic blur data while camera-derived projection metadata stays comparable." } else { $null }
+    }
     captureRouteNotes = @(
         "HWB and GLES/OES MediaProjection captures are latest-frame app-frame evidence for the rendered camera window after the profile run.",
         "Makepad MediaProjection currently captures the Makepad Android/window surface rather than the submitted OpenXR compositor layer; use HzDB for Makepad geometry until this capture-route difference is resolved.",
         "MediaProjection is display/app-window mirror evidence and may visually align with a different HzDB eye by renderer; do not use its apparent eye index as source-eye parity proof.",
-        "Broker-camera runs restart the broker service before each condition and request physical Camera2 H.264 streams with explicit projection metadata."
+        "Broker-source runs restart the broker service before each condition. Broker-camera requests physical Camera2 H.264 streams; broker-synthetic requests the diagnostic H.264 stimulus with camera-matched metadata for synthetic blur evidence."
     )
     records = $records
 }
