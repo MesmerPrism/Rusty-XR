@@ -75,6 +75,16 @@ treat that as a packager-route failure rather than stale staging. Switch to the
 Windows-host wrapper lane or state explicitly that Linux-host packaging itself
 is under test.
 
+Do not substitute plain `cargo check --target aarch64-linux-android` for the
+Makepad Android gate. This app's Android entrypoint is packaged through
+Makepad's Android build path, and plain Cargo can hit the expected
+`app_main!`/missing-main mismatch. For Android-only Rust edits, an optional
+`cargo test --target aarch64-linux-android --no-run` probe may be useful, but
+label it as partial Android-target Rust compilation evidence. If it reaches the
+edited Rust path and then fails only at final test linking because no target
+`cc`/NDK linker is configured, do not report "tests passed" and do not fail the
+workflow solely on that known linker stop.
+
 The Makepad `cargo_makepad` source used for evidence builds must resolve the
 installed SDK platform/build-tools and host executable names. If it still looks
 for hardcoded `build-tools/33.0.1/aapt` while the selected Windows SDK contains

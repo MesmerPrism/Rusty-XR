@@ -9,6 +9,8 @@ param(
     [string]$MakepadPackageName = "com.example.rustyxr.makepad.alignment",
     [int]$WarmupSeconds = 12,
     [int]$MediaProjectionPort = 8787,
+    [int]$MediaProjectionMaxFrames = 0,
+    [int]$MediaProjectionDrainMs = 1500,
     [switch]$Install
 )
 
@@ -42,6 +44,15 @@ $surfaceOverride = @(
     ("rustyxr.mediaProjectionPort={0}" -f $MediaProjectionPort),
     "rustyxr.mediaProjectionWidth=512",
     "rustyxr.mediaProjectionHeight=288"
+) -join ","
+
+$boundedProjectionAreaOverride = @(
+    "rustyxr.projectionAreaOffsetXUv=0.0",
+    "rustyxr.projectionAreaOffsetYUv=0.0",
+    "rustyxr.projectionAreaScaleUv=1.0",
+    "rustyxr.projectionAreaRadiusXUv=0.47",
+    "rustyxr.projectionAreaRadiusYUv=0.36",
+    "rustyxr.projectionAreaCornerRadiusUv=0.08"
 ) -join ","
 
 function Resolve-RepoPath {
@@ -84,7 +95,7 @@ function Start-MediaProjectionReceiver {
     $stderr = Join-Path $Dir "receiver-stderr.txt"
     $process = Start-Process `
         -FilePath "python" `
-        -ArgumentList @($receiver, "--port", $MediaProjectionPort.ToString(), "--output", $Dir, "--once", "--max-frames", "1") `
+        -ArgumentList @($receiver, "--port", $MediaProjectionPort.ToString(), "--output", $Dir, "--once", "--max-frames", $MediaProjectionMaxFrames.ToString(), "--prune-previous-payloads") `
         -PassThru `
         -WindowStyle Hidden `
         -RedirectStandardOutput $stdout `
@@ -117,13 +128,34 @@ function Complete-MediaProjectionCapture {
         [string]$Dir,
         [string]$OutputPng
     )
-    if (-not $Process.WaitForExit(45000)) {
+    $frames = Join-Path $Dir "frames.jsonl"
+    $deadline = (Get-Date).AddSeconds(45)
+    while ((-not (Test-Path -LiteralPath $frames)) -and (-not $Process.HasExited) -and ((Get-Date) -lt $deadline)) {
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not (Test-Path -LiteralPath $frames)) {
         throw "MediaProjection receiver did not receive a frame for $OutputPng. PROJECT_MEDIA app-op pregrant did not produce a capture frame; if a Meta selector is visible in-headset, grant MediaProjection manually and rerun."
     }
-    $frames = Join-Path $Dir "frames.jsonl"
+    if ($MediaProjectionDrainMs -gt 0 -and (-not $Process.HasExited)) {
+        Start-Sleep -Milliseconds $MediaProjectionDrainMs
+    }
+    if (-not $Process.HasExited) {
+        Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+        $null = $Process.WaitForExit(5000)
+    } elseif (-not $Process.WaitForExit(5000)) {
+        throw "MediaProjection receiver did not exit cleanly for $OutputPng"
+    }
     if (-not (Test-Path -LiteralPath $frames)) {
         throw "MediaProjection receiver wrote no frames ledger for $OutputPng"
     }
+    $frameCount = @(
+        Get-Content -LiteralPath $frames |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    ).Count
+    if ($frameCount -lt 1) {
+        throw "MediaProjection receiver wrote an empty frames ledger for $OutputPng"
+    }
+    Write-Host "MediaProjection frames captured for ${OutputPng}: $frameCount; converting latest frame."
     & python $converter --frames $frames --output $OutputPng --latest | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) {
         throw "MediaProjection PNG conversion failed for $OutputPng"
@@ -339,7 +371,7 @@ function Invoke-HwbOrGlesCase {
         }
         Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng
         $artifactDir = Copy-HzdbFromProfileRun -ProfileRoot $caseRoot -RuntimeProfile $RuntimeProfile -OutputPng $hzdbPng
-        if ($Lane -ne "hwb") {
+        if (($Lane -ne "hwb") -or ($Mode -eq "custom")) {
             Assert-BoundedFootprintEvidence -CaseId $caseId -ArtifactDir $artifactDir
         }
     }
@@ -464,7 +496,7 @@ $records += Invoke-HwbOrGlesCase `
     -DeviceProfile "xr-composite-comparison-level-5" `
     -RuntimeProfile "camera-stereo-gpu-composite-world-canvas-native-aligned-mediaprojection" `
     -Apk $HwbApk `
-    -Override $surfaceOverride
+    -Override ("rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic,$surfaceOverride")
 $records += Invoke-HwbOrGlesCase `
     -Lane "hwb" `
     -Mode "custom" `
@@ -473,7 +505,7 @@ $records += Invoke-HwbOrGlesCase `
     -DeviceProfile "xr-composite-comparison-level-5" `
     -RuntimeProfile "camera-stereo-gpu-composite-camera-footprint-canvas-equivalent-depth1" `
     -Apk $HwbApk `
-    -Override ("rustyxr.cameraProjectionMode=display-screen-homography,rustyxr.cameraPipelinePreset=raw-projection-camera-footprint-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-camera-footprint-underlay,rustyxr.openxrPassthroughProbe=underlay,$surfaceOverride")
+    -Override ("rustyxr.cameraProjectionMode=display-screen-homography,rustyxr.cameraProjectionGeometryProfile=camera-projection,rustyxr.cameraPipelinePreset=raw-projection-camera-footprint-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-camera-footprint-underlay,rustyxr.openxrPassthroughProbe=underlay,$boundedProjectionAreaOverride,$surfaceOverride")
 $records += Invoke-HwbOrGlesCase `
     -Lane "oes" `
     -Mode "canvas" `
@@ -513,9 +545,12 @@ $summary = [ordered]@{
         cameraPreviewFovYDegrees = 69.763084
         cameraPreviewOffsetYMeters = -0.168832
         cameraRawOverlayOverscan = 1.0
+        boundedProjectionAreaRadiusXUv = 0.47
+        boundedProjectionAreaRadiusYUv = 0.36
+        boundedProjectionAreaCornerRadiusUv = 0.08
     }
     captureRouteNotes = @(
-        "HWB and GLES/OES MediaProjection captures are app-frame evidence for the rendered camera window.",
+        "HWB and GLES/OES MediaProjection captures are latest-frame app-frame evidence for the rendered camera window after the profile run.",
         "Makepad MediaProjection currently captures the Makepad Android/window surface rather than the submitted OpenXR compositor layer; use HzDB for Makepad geometry until this capture-route difference is resolved."
     )
     records = $records

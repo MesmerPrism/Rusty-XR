@@ -204,6 +204,21 @@ wrapper build through `Build-MakepadStereoAlignmentApk.ps1`, preferably with
 `-MakepadSourceRoot <makepad-fork-checkout>` when Makepad-side packaging or
 bridge code matters.
 
+When Android-only Rust in this example changes, an optional no-run probe can
+add partial target coverage:
+
+```powershell
+cargo test --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml --target aarch64-linux-android --no-run
+```
+
+This is not a required gate and not a package validation. If the probe compiles
+the edited Rust modules and stops only at final test linking because no
+`cc`/NDK target linker is configured, record it as Android-target Rust
+compilation reaching the edited path with a known final linker failure. Do not
+report it as passed tests, and do not add extra linker/toolchain setup only to
+make this optional probe link unless it is later promoted to CI or a required
+local gate.
+
 Keep the Makepad options before `build` or `run` and use `--key=value` for
 paths and package/app values. Before treating an APK as fresh evidence, remove
 or timestamp `target/android/makepad-android-apk/`, record the rebuilt APK

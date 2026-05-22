@@ -342,7 +342,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -UseWindowsHost `
   -SdkPath <makepad-android-sdk-path> `
   -MakepadSourceRoot <makepad-fork-checkout> `
-  -DisplaySourceEyeMapping display-left-from-right-source
+  -DisplaySourceEyeMapping display-left-from-left-source
 ```
 
 The Makepad build consumes a prepared Android SDK layout for Makepad. Pass
@@ -350,14 +350,20 @@ The Makepad build consumes a prepared Android SDK layout for Makepad. Pass
 an intentional WSL/Linux-host SDK and packager run. Pass `-MakepadSourceRoot`
 for evidence runs that must use the maintained fork's Android packager; leave
 app dependency patching off unless an uncommitted Makepad dependency change is
-explicitly under test. Current Makepad projection evidence uses the S91
-`display-left-from-right-source` source-eye mapping; captured build commands
-should pass it explicitly unless source-eye mapping is the experiment. Host
+explicitly under test. Current Makepad projection evidence uses
+`display-left-from-left-source`, matching the HWB and GLES/OES camera-feed
+convention. Captured build commands should pass it explicitly unless
+source-eye mapping is the experiment. Host
 `cargo check` and focused host tests are still useful for Makepad
 parser/projection code, but plain
 `cargo check --target aarch64-linux-android` is not the Makepad Android
 acceptance gate because it does not exercise the generated activity/packager
-path. If a clean WSL/Linux-host Makepad rebuild repeats a missing bundled font
+path. For Android-only Rust edits, `cargo test --target
+aarch64-linux-android --no-run` may be used as an optional probe. If that probe
+compiles the edited Rust modules and fails only at final test linking because
+no target linker is configured, record it as partial Android-target Rust
+compilation evidence, not as passed tests and not as an APK/package failure.
+If a clean WSL/Linux-host Makepad rebuild repeats a missing bundled font
 asset removal failure, treat it as a packager-route failure rather than hidden
 staging state and switch to the Windows-host wrapper lane unless Linux-host
 packaging is the variable being tested. If `cargo_makepad` then looks for a
@@ -378,6 +384,15 @@ full-frame canvas case should map through their screen-to-surface homographies
 so the effective source-valid footprint is bounded. Treat records whose
 effective source-valid rect is fullscreen as renderer-geometry failures, even
 when MediaProjection and HzDB images are nonblank.
+
+For HWB, keep the canvas reference explicit as
+`rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic`, but run the
+custom/collapsed profile with
+`rustyxr.cameraProjectionGeometryProfile=camera-projection` and the bounded
+projection-area values (`projectionAreaRadiusXUv=0.47`,
+`projectionAreaRadiusYUv=0.36`, `projectionAreaCornerRadiusUv=0.08`). This
+prevents the direct Camera2 service default from silently turning the custom
+path back into a fullscreen diagnostic.
 
 Makepad app-side MediaProjection is not yet a geometry witness. Current
 evidence shows it captures the Makepad Android/window surface rather than the

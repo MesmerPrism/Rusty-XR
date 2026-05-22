@@ -22,10 +22,10 @@ use rusty_xr_camera_model::{
     clamp_stereo_homography_pose_delta, clamp_stereo_homography_screen_motion,
     full_view_content_uv_scale, head_anchored_preview_surface_corners, invert_homography,
     project_camera_point, scale_intrinsics_to_image, screen_to_camera_uv_homography,
-    stereo_homography_projection_metrics, surface_to_camera_uv_homography,
-    surface_to_eye_screen_uv_homography, CameraBasis, CameraCompositeTier, CameraPixelDomain,
-    ImageSize, Pose, Quat, StereoHomographyProjection, StereoHomographyProjectionMetrics,
-    TrackingBasis, Vec3,
+    source_valid_screen_uv_footprint, stereo_homography_projection_metrics,
+    surface_to_camera_uv_homography, surface_to_eye_screen_uv_homography, CameraBasis,
+    CameraCompositeTier, CameraPixelDomain, ImageSize, Pose, Quat, Rect2,
+    StereoHomographyProjection, StereoHomographyProjectionMetrics, TrackingBasis, Vec3,
 };
 use rusty_xr_contracts::{TemporalProjectionEdgeMode, TemporalProjectionMode};
 use rusty_xr_debug_canvas::{
@@ -6748,8 +6748,10 @@ fn projection_area_target_marker_fields(config: &crate::RuntimeConfig) -> String
     let [radius_x, radius_y, _corner_radius, scale] = config.camera_area_params_push();
     let radius = [radius_x, radius_y];
     let source_to_screen_gain = projection_area_source_to_screen_gain_uv(radius, scale);
+    let left_feed_rect = projection_area_screen_uv_rect(left_offset, radius, scale);
+    let right_feed_rect = projection_area_screen_uv_rect(right_offset, radius, scale);
     format!(
-        "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionAreaOffsetResponseCoordinateSpace=display-eye-screen-uv projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv_div_projectionAreaScaleUv projectionAreaShaderScreenBaseFormula=screenBase=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 projectionAreaFullFrameContentFormula=contentUv=(screenBase-offsetUv-(0.5-radiusUv))/(2*radiusUv) projectionAreaSourceToScreenGainUv={} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} leftProjectionAreaOffsetUv={} rightProjectionAreaOffsetUv={} leftProjectionAreaOffsetResponseUv={} rightProjectionAreaOffsetResponseUv={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+        "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionAreaOffsetResponseCoordinateSpace=display-eye-screen-uv projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv_div_projectionAreaScaleUv projectionAreaShaderScreenBaseFormula=screenBase=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 projectionAreaFullFrameContentFormula=contentUv=(screenBase-offsetUv-(0.5-radiusUv))/(2*radiusUv) projectionAreaSourceToScreenGainUv={} surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=canvas-or-layer-covers-target-fov feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_surface borderRegionSemantics=surface_minus_feed borderFillPolicy=source-invalid-fill projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} leftProjectionAreaOffsetUv={} rightProjectionAreaOffsetUv={} leftProjectionAreaOffsetResponseUv={} rightProjectionAreaOffsetResponseUv={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
         screen_uv_vec2_token(source_to_screen_gain),
         config.camera_projection_depth_meters,
         config.camera_preview_fov_y_degrees,
@@ -6762,8 +6764,10 @@ fn projection_area_target_marker_fields(config: &crate::RuntimeConfig) -> String
         screen_uv_vec2_token(right_offset),
         screen_uv_vec2_token(projection_area_offset_response_uv(left_offset, scale)),
         screen_uv_vec2_token(projection_area_offset_response_uv(right_offset, scale)),
-        screen_uv_rect_token(projection_area_screen_uv_rect(left_offset, radius, scale)),
-        screen_uv_rect_token(projection_area_screen_uv_rect(right_offset, radius, scale)),
+        screen_uv_rect_token(left_feed_rect),
+        screen_uv_rect_token(right_feed_rect),
+        screen_uv_rect_token(left_feed_rect),
+        screen_uv_rect_token(right_feed_rect),
         screen_uv_vec2_token(projection_area_center_uv(left_offset, scale)),
         screen_uv_vec2_token(projection_area_center_uv(right_offset, scale)),
     )
@@ -6779,62 +6783,23 @@ fn display_eye_uv_fiducial_marker_fields(config: &crate::RuntimeConfig) -> &'sta
     }
 }
 
-fn apply_homography(rows: [[f32; 3]; 3], x: f32, y: f32) -> Option<(f32, f32)> {
-    let w = rows[2][0] * x + rows[2][1] * y + rows[2][2];
-    if !w.is_finite() || w.abs() <= 1.0e-6 {
-        return None;
-    }
-    let u = (rows[0][0] * x + rows[0][1] * y + rows[0][2]) / w;
-    let v = (rows[1][0] * x + rows[1][1] * y + rows[1][2]) / w;
-    (u.is_finite() && v.is_finite()).then_some((u, v))
-}
-
-fn screen_uv_maps_to_source_uv(rows: [[f32; 3]; 3], x: f32, y: f32) -> bool {
-    apply_homography(rows, x, y)
-        .map(|(u, v)| (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v))
-        .unwrap_or(false)
-}
-
 fn expected_source_valid_screen_uv_rect(mapping: &DisplayEyeProjectionMapping) -> [f32; 4] {
     if mapping.full_frame_stimulus_mapping {
         return [0.0, 0.0, 1.0, 1.0];
     }
-    let mut valid_count = 0_usize;
-    let mut min_x = 1.0_f32;
-    let mut min_y = 1.0_f32;
-    let mut max_x = 0.0_f32;
-    let mut max_y = 0.0_f32;
-    let step = 1.0 / SOURCE_VALID_FOOTPRINT_GRID as f32;
-    for iy in 0..SOURCE_VALID_FOOTPRINT_GRID {
-        for ix in 0..SOURCE_VALID_FOOTPRINT_GRID {
-            let x = (ix as f32 + 0.5) * step;
-            let y = (iy as f32 + 0.5) * step;
-            if screen_uv_maps_to_source_uv(mapping.screen_to_camera, x, y) {
-                valid_count += 1;
-                min_x = min_x.min((x - step * 0.5).clamp(0.0, 1.0));
-                min_y = min_y.min((y - step * 0.5).clamp(0.0, 1.0));
-                max_x = max_x.max((x + step * 0.5).clamp(0.0, 1.0));
-                max_y = max_y.max((y + step * 0.5).clamp(0.0, 1.0));
-            }
-        }
-    }
-    if valid_count == 0 {
-        [0.0, 0.0, 0.0, 0.0]
-    } else {
-        [
-            min_x,
-            min_y,
-            (max_x - min_x).max(0.0),
-            (max_y - min_y).max(0.0),
-        ]
-    }
+    source_valid_screen_uv_footprint(
+        mapping.screen_to_camera,
+        Rect2::UNIT,
+        SOURCE_VALID_FOOTPRINT_GRID,
+    )
+    .bbox_xywh()
 }
 
 fn expected_source_valid_footprint_marker_fields(
     homographies: &ProjectedStereoHomographies,
 ) -> String {
     format!(
-        "expectedSourceValidFootprintSource=renderer-authored expectedSourceValidFootprintStage=screen_to_camera_source_uv_bounds expectedSourceValidFootprintCoordinateSpace=display-eye-screen-uv expectedSourceValidFootprintMethod=renderer-grid-sampled-source-uv-validity expectedSourceValidFootprintRectSemantics=xywh leftExpectedSourceValidScreenUvRect={} rightExpectedSourceValidScreenUvRect={}",
+        "expectedSourceValidFootprintSource=renderer-authored expectedSourceValidFootprintStage=screen_to_camera_source_uv_bounds expectedSourceValidFootprintCoordinateSpace=display-eye-screen-uv expectedSourceValidFootprintMethod=renderer-grid-sampled-source-uv-validity expectedSourceValidFootprintRectSemantics=xywh projectionGeometrySchema=rusty.xr.video_projection_geometry.v1 projectionMapping=screen-to-source-homography sourceValidUvRect=0.000000,0.000000,1.000000,1.000000 borderRegionSemantics=surface_minus_feed leftExpectedSourceValidScreenUvRect={} rightExpectedSourceValidScreenUvRect={}",
         screen_uv_rect_token(expected_source_valid_screen_uv_rect(&homographies.left)),
         screen_uv_rect_token(expected_source_valid_screen_uv_rect(&homographies.right)),
     )

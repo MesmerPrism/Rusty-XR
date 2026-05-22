@@ -40,6 +40,11 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Close the client connection after this many frames. 0 means unlimited.",
     )
+    parser.add_argument(
+        "--prune-previous-payloads",
+        action="store_true",
+        help="Delete the previous payload after a newer frame is written. The ledger is retained.",
+    )
     return parser.parse_args()
 
 
@@ -75,9 +80,14 @@ def extension_for_format(frame_format: str) -> str:
 
 
 def receive_client(
-    sock: socket.socket, output: Path, ledger_path: Path, max_frames: int
+    sock: socket.socket,
+    output: Path,
+    ledger_path: Path,
+    max_frames: int,
+    prune_previous_payloads: bool,
 ) -> int:
     frame_count = 0
+    previous_payload_path: Path | None = None
     with ledger_path.open("a", encoding="utf-8") as ledger:
         while True:
             header_size_bytes = recv_exact(sock, 4)
@@ -114,6 +124,16 @@ def receive_client(
             record["payload_path"] = str(payload_path)
             ledger.write(json.dumps(record, sort_keys=True) + "\n")
             ledger.flush()
+            if (
+                prune_previous_payloads
+                and previous_payload_path is not None
+                and previous_payload_path != payload_path
+            ):
+                try:
+                    previous_payload_path.unlink(missing_ok=True)
+                except OSError as error:
+                    print(f"warning: could not prune {previous_payload_path}: {error}")
+            previous_payload_path = payload_path
             frame_count += 1
             if max_frames > 0 and frame_count >= max_frames:
                 return frame_count
@@ -132,7 +152,11 @@ def main() -> int:
             with client:
                 print(f"client connected: {address[0]}:{address[1]}")
                 frame_count = receive_client(
-                    client, args.output, ledger_path, args.max_frames
+                    client,
+                    args.output,
+                    ledger_path,
+                    args.max_frames,
+                    args.prune_previous_payloads,
                 )
                 print(f"client disconnected after {frame_count} frame(s)")
             if args.once:

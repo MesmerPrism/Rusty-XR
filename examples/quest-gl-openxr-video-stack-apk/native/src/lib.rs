@@ -31,10 +31,12 @@ mod android {
     use rusty_xr_camera_model::{
         camera2_lens_pose_to_extrinsics,
         camera_basis_from_camera2_reference_pose_relative_to_center,
-        head_anchored_preview_surface_corners, invert_homography, scale_intrinsics_to_image,
-        screen_to_camera_uv_homography, surface_to_camera_uv_homography,
-        surface_to_eye_screen_uv_homography, CameraBasis, CameraExtrinsics, CameraIntrinsics,
-        ImageSize, Quat, TrackingBasis, Vec2, Vec3,
+        head_anchored_preview_surface_corners, invert_homography, rect_xywh,
+        scale_intrinsics_to_image, screen_to_camera_uv_homography, surface_to_camera_uv_homography,
+        surface_to_eye_screen_uv_homography, uv_rect_token, CameraBasis, CameraExtrinsics,
+        CameraIntrinsics, ColorRgba, FeedPlacementDescriptor, ImageSize, PerEyeVideoProjectionPlan,
+        ProjectionBorderDescriptor, ProjectionBorderFillPolicy, Quat, Rect2, TrackingBasis, Vec2,
+        Vec3, VideoProjectionMapping,
     };
     use rusty_xr_contracts::{
         Eye, InvalidProjectionFillPolicy, ProjectionFootprintRowSpan, ProjectionFootprintSummary,
@@ -181,6 +183,23 @@ mod android {
                 Self::DiagnosticSplit => (0.36, 0.0, 0.28, 1.0),
                 Self::PassthroughUnderlay => (0.0, 0.0, 0.0, 0.0),
             }
+        }
+
+        const fn shared_fill_policy(self) -> ProjectionBorderFillPolicy {
+            match self {
+                Self::SolidRed => ProjectionBorderFillPolicy::SolidColor,
+                Self::DiagnosticSplit => ProjectionBorderFillPolicy::DiagnosticSplit,
+                Self::PassthroughUnderlay => ProjectionBorderFillPolicy::PassthroughUnderlay,
+            }
+        }
+
+        fn shared_descriptor(self, opacity: f32) -> ProjectionBorderDescriptor {
+            let (r, g, b, a) = self.clear_color();
+            ProjectionBorderDescriptor::new(
+                self.shared_fill_policy(),
+                ColorRgba::new(r, g, b, a),
+                opacity.clamp(0.0, 1.0),
+            )
         }
     }
 
@@ -1125,6 +1144,10 @@ mod android {
                         camera_projection_mode,
                         projection_area_eye_offset_uv,
                         projection_area_scale,
+                        projection_area_radius,
+                        projection_area_opacity,
+                        projection_border_policy,
+                        projection_border_opacity,
                         active_projection_tuning.projection_depth_meters,
                         active_projection_tuning.camera_preview_fov_y_degrees,
                         active_projection_tuning.camera_preview_offset_y_meters,
@@ -2869,6 +2892,7 @@ void main() {
         content_mapping_intent: String,
         content_geometry_metadata_source: String,
         content_geometry_default: bool,
+        source_valid_uv_rect: Rect2,
         projection_metadata_ready: bool,
         delivered_width: u32,
         delivered_height: u32,
@@ -2901,12 +2925,7 @@ void main() {
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown")
                 .to_string();
-            let projection_geometry_fallback =
-                if source.contains("camera2") || source.contains("camera") {
-                    "full-frame-diagnostic"
-                } else {
-                    "unknown"
-                };
+            let projection_geometry_fallback = "unknown";
             let synthetic_projection_profile = object
                 .get("syntheticProjectionProfile")
                 .and_then(serde_json::Value::as_str)
@@ -3043,6 +3062,11 @@ void main() {
                     .to_string();
             let content_geometry_default = !explicit_content_geometry
                 || json_bool_any(object, &["contentGeometryDefault"]).unwrap_or(false);
+            let source_valid_uv_rect = json_rect2_xywh_any(
+                object,
+                &["sourceValidUvRect", "contentUvRect", "stimulusUvRect"],
+            )
+            .unwrap_or(Rect2::UNIT);
             let intrinsics = parse_camera_intrinsics(object, delivered_width, delivered_height);
             let extrinsics = parse_camera2_extrinsics(object);
             Ok(Self {
@@ -3074,6 +3098,7 @@ void main() {
                 content_mapping_intent,
                 content_geometry_metadata_source,
                 content_geometry_default,
+                source_valid_uv_rect,
                 projection_metadata_ready,
                 delivered_width,
                 delivered_height,
@@ -3086,26 +3111,51 @@ void main() {
             self.source == "broker_app.synthetic_h264_stream"
         }
 
-        fn synthetic_profile_is(&self, expected: &str) -> bool {
+        fn projection_profile_is(&self, expected: &str) -> bool {
             self.synthetic_projection_profile == expected
                 || self.projection_geometry_profile == expected
         }
 
-        fn is_camera_matched_synthetic(&self) -> bool {
-            self.is_synthetic() && self.synthetic_profile_is("camera-matched")
+        fn content_mapping_intent_is_any(&self, expected: &[&str]) -> bool {
+            expected
+                .iter()
+                .any(|value| self.content_mapping_intent == *value)
         }
 
-        fn has_physical_camera2_projection(&self) -> bool {
-            !self.is_synthetic() && self.has_camera2_projection()
+        fn requests_camera_projection_mapping(&self) -> bool {
+            self.projection_profile_is("camera-matched")
+                || self.projection_profile_is("camera-projection")
+                || self.projection_profile_is("physical-camera")
+                || self.content_mapping_intent_is_any(&[
+                    "map-camera-frame-through-screen-to-camera-homography",
+                    "map-stimulus-raster-through-camera-projection",
+                ])
         }
 
         fn is_full_frame_diagnostic_projection(&self) -> bool {
-            self.synthetic_profile_is("full-frame-diagnostic")
+            self.requests_full_frame_projection_area_mapping()
+        }
+
+        fn requests_full_frame_projection_area_mapping(&self) -> bool {
+            self.projection_profile_is("full-frame-diagnostic")
+                || self.content_mapping_intent_is_any(&[
+                    "map-camera-frame-to-full-frame-projection-surface",
+                    "map-camera-frame-to-full-frame-projection-area",
+                    "map-full-frame-stimulus-to-projection-surface",
+                    "map-full-frame-stimulus-to-projection-area",
+                    "map-full-frame-content-to-projection-area",
+                ])
+        }
+
+        fn requests_head_anchored_projection_area_mapping(&self) -> bool {
+            self.projection_profile_is("head-anchored-virtual-camera")
+                || self.content_mapping_intent_is_any(&[
+                    "fit-stimulus-raster-in-head-anchored-projection-area",
+                ])
         }
 
         fn has_explicit_top_left_stimulus_orientation(&self) -> bool {
-            self.is_synthetic()
-                && !self.stimulus_orientation_default
+            !self.stimulus_orientation_default
                 && self.stimulus_raster_orientation == "top-left-origin-y-down"
                 && self.stimulus_upright_marker == "color-bars-top"
         }
@@ -3116,6 +3166,10 @@ void main() {
                 && self.extrinsics.is_some()
                 && self.delivered_width > 0
                 && self.delivered_height > 0
+        }
+
+        fn has_metadata_backed_camera_projection(&self) -> bool {
+            self.has_camera2_projection()
         }
     }
 
@@ -3160,6 +3214,56 @@ void main() {
         keys.iter()
             .find_map(|key| json_f32(object.get(*key)))
             .filter(|value| value.is_finite() && *value > 0.0)
+    }
+
+    fn json_rect2_xywh_any(
+        object: &serde_json::Map<String, serde_json::Value>,
+        keys: &[&str],
+    ) -> Option<Rect2> {
+        keys.iter()
+            .find_map(|key| json_rect2_xywh(object.get(*key)))
+            .filter(|rect| {
+                rect.is_valid()
+                    && rect.size.x > 0.0
+                    && rect.size.y > 0.0
+                    && rect.origin.x >= 0.0
+                    && rect.origin.y >= 0.0
+                    && rect.max().x <= 1.0
+                    && rect.max().y <= 1.0
+            })
+    }
+
+    fn json_rect2_xywh(value: Option<&serde_json::Value>) -> Option<Rect2> {
+        let value = value?;
+        if let Some(array) = value.as_array() {
+            if array.len() != 4 {
+                return None;
+            }
+            return Some(Rect2::new(
+                Vec2::new(json_f32(array.first())?, json_f32(array.get(1))?),
+                Vec2::new(json_f32(array.get(2))?, json_f32(array.get(3))?),
+            ));
+        }
+        if let Some(object) = value.as_object() {
+            let x = json_f32(object.get("x")).or_else(|| json_f32(object.get("left")))?;
+            let y = json_f32(object.get("y")).or_else(|| json_f32(object.get("top")))?;
+            let width = json_f32(object.get("width")).or_else(|| json_f32(object.get("w")))?;
+            let height = json_f32(object.get("height")).or_else(|| json_f32(object.get("h")))?;
+            return Some(Rect2::new(Vec2::new(x, y), Vec2::new(width, height)));
+        }
+        let text = value.as_str()?;
+        let parts: Vec<f32> = text
+            .split(',')
+            .filter_map(|part| part.trim().parse::<f32>().ok())
+            .collect();
+        if parts.len() == 4 {
+            Some(Rect2::new(
+                Vec2::new(parts[0], parts[1]),
+                Vec2::new(parts[2], parts[3]),
+            ))
+        } else {
+            None
+        }
     }
 
     fn aspect_ratio_u32(width: u32, height: u32) -> f32 {
@@ -3259,6 +3363,7 @@ void main() {
         source_eye: String,
         use_surface_texture_transform: bool,
         content_mapping_mode: OesContentMappingMode,
+        geometry_plan: PerEyeVideoProjectionPlan,
     }
 
     impl OesEyeProjection {
@@ -3605,6 +3710,10 @@ void main() {
             camera_projection_mode: OesCameraProjectionMode,
             projection_area_eye_offset_uv: [[f32; 2]; 2],
             projection_area_scale: [f32; 2],
+            projection_area_radius: [f32; 2],
+            projection_area_opacity: f32,
+            projection_border_policy: OesProjectionBorderPolicy,
+            projection_border_opacity: f32,
             projection_depth_meters: f32,
             projection_preview_fov_y_degrees: f32,
             projection_preview_offset_y_meters: f32,
@@ -3622,8 +3731,8 @@ void main() {
                 return None;
             }
             if camera_projection_mode.uses_world_canvas()
-                && left.has_physical_camera2_projection()
-                && right.has_physical_camera2_projection()
+                && left.has_metadata_backed_camera_projection()
+                && right.has_metadata_backed_camera_projection()
             {
                 camera2_projection_plan_from_xr_views(
                     left,
@@ -3633,6 +3742,10 @@ void main() {
                     views,
                     projection_area_eye_offset_uv,
                     projection_area_scale,
+                    projection_area_radius,
+                    projection_area_opacity,
+                    projection_border_policy,
+                    projection_border_opacity,
                     projection_depth_meters,
                     projection_preview_fov_y_degrees,
                     projection_preview_offset_y_meters,
@@ -3650,13 +3763,17 @@ void main() {
                     views,
                     projection_area_eye_offset_uv,
                     projection_area_scale,
+                    projection_area_radius,
+                    projection_area_opacity,
+                    projection_border_policy,
+                    projection_border_opacity,
                     projection_depth_meters,
                     projection_preview_fov_y_degrees,
                     projection_preview_offset_y_meters,
                     projection_raw_overscan,
                 )
-            } else if left.is_camera_matched_synthetic()
-                && right.is_camera_matched_synthetic()
+            } else if left.requests_camera_projection_mapping()
+                && right.requests_camera_projection_mapping()
                 && left.has_camera2_projection()
                 && right.has_camera2_projection()
             {
@@ -3668,12 +3785,18 @@ void main() {
                     views,
                     projection_area_eye_offset_uv,
                     projection_area_scale,
+                    projection_area_radius,
+                    projection_area_opacity,
+                    projection_border_policy,
+                    projection_border_opacity,
                     projection_depth_meters,
                     projection_preview_fov_y_degrees,
                     projection_preview_offset_y_meters,
                     projection_raw_overscan,
                 )
-            } else if left.is_synthetic() && right.is_synthetic() {
+            } else if left.requests_head_anchored_projection_area_mapping()
+                && right.requests_head_anchored_projection_area_mapping()
+            {
                 broker_synthetic_projection_plan_from_xr_views(
                     left,
                     right,
@@ -3682,6 +3805,10 @@ void main() {
                     views,
                     projection_area_eye_offset_uv,
                     projection_area_scale,
+                    projection_area_radius,
+                    projection_area_opacity,
+                    projection_border_policy,
+                    projection_border_opacity,
                     projection_depth_meters,
                     projection_preview_fov_y_degrees,
                     projection_preview_offset_y_meters,
@@ -3696,6 +3823,10 @@ void main() {
                     views,
                     projection_area_eye_offset_uv,
                     projection_area_scale,
+                    projection_area_radius,
+                    projection_area_opacity,
+                    projection_border_policy,
+                    projection_border_opacity,
                     projection_depth_meters,
                     projection_preview_fov_y_degrees,
                     projection_preview_offset_y_meters,
@@ -3818,7 +3949,7 @@ void main() {
                 return;
             };
             log_info(format!(
-                "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentSize={}x{} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={}",
+                "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentSize={}x{} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={}",
                 view_index,
                 metadata.source,
                 metadata.camera_id,
@@ -3847,6 +3978,7 @@ void main() {
                 metadata.content_mapping_intent,
                 metadata.content_geometry_metadata_source,
                 metadata.content_geometry_default,
+                uv_rect_token(rect_xywh(metadata.source_valid_uv_rect)),
             ));
             if let Some(slot) = self.projection_metadata.get_mut(view_index) {
                 *slot = Some(metadata);
@@ -3896,6 +4028,60 @@ void main() {
         .clamp(0.25, 4.0)
     }
 
+    fn shared_projection_mapping(mode: OesContentMappingMode) -> VideoProjectionMapping {
+        match mode {
+            OesContentMappingMode::CameraProjection => {
+                VideoProjectionMapping::ScreenToSourceHomography
+            }
+            OesContentMappingMode::FullFrameStimulusToProjectionArea => {
+                VideoProjectionMapping::FullFrameSurface
+            }
+            OesContentMappingMode::FullFrameStimulusToSurfaceHomography => {
+                VideoProjectionMapping::SurfaceToSourceHomography
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn shared_per_eye_projection_plan(
+        eye: Eye,
+        content_mapping_mode: OesContentMappingMode,
+        surface_to_screen_h: [[f32; 3]; 3],
+        screen_to_surface_h: [[f32; 3]; 3],
+        surface_to_camera_h: [[f32; 3]; 3],
+        screen_to_camera_h: [[f32; 3]; 3],
+        projection_area_offset_uv: [f32; 2],
+        projection_area_scale: [f32; 2],
+        projection_area_radius: [f32; 2],
+        projection_area_opacity: f32,
+        projection_border_policy: OesProjectionBorderPolicy,
+        projection_border_opacity: f32,
+        source_valid_uv_rect: Rect2,
+    ) -> Option<PerEyeVideoProjectionPlan> {
+        let feed_rect = array_rect_xywh(projection_area_screen_uv_rect(
+            projection_area_offset_uv,
+            projection_area_radius,
+            projection_area_scale,
+        ));
+        let feed = FeedPlacementDescriptor::new(
+            Rect2::UNIT,
+            feed_rect,
+            projection_area_opacity.clamp(0.0, 1.0),
+        );
+        PerEyeVideoProjectionPlan::from_homographies(
+            eye,
+            shared_projection_mapping(content_mapping_mode),
+            surface_to_screen_h,
+            screen_to_surface_h,
+            surface_to_camera_h,
+            screen_to_camera_h,
+            feed,
+            source_valid_uv_rect,
+            projection_border_policy.shared_descriptor(projection_border_opacity),
+            PROJECTION_FOOTPRINT_GRID,
+        )
+    }
+
     fn broker_synthetic_projection_plan_from_xr_views(
         left_metadata: &OesProjectionMetadata,
         right_metadata: &OesProjectionMetadata,
@@ -3904,6 +4090,10 @@ void main() {
         views: &[xr::View],
         projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
+        projection_area_radius: [f32; 2],
+        projection_area_opacity: f32,
+        projection_border_policy: OesProjectionBorderPolicy,
+        projection_border_opacity: f32,
         projection_depth_meters: f32,
         projection_preview_fov_y_degrees: f32,
         projection_preview_offset_y_meters: f32,
@@ -3988,6 +4178,37 @@ void main() {
             height,
             right_use_surface_texture_transform,
         );
+        let content_mapping_mode = OesContentMappingMode::CameraProjection;
+        let left_geometry_plan = shared_per_eye_projection_plan(
+            Eye::Left,
+            content_mapping_mode,
+            left_surface_to_screen,
+            left_screen_to_surface_h,
+            surface_to_camera,
+            left_screen_to_camera_h,
+            projection_area_eye_offset_uv[0],
+            projection_area_scale,
+            projection_area_radius,
+            projection_area_opacity,
+            projection_border_policy,
+            projection_border_opacity,
+            left_metadata.source_valid_uv_rect,
+        )?;
+        let right_geometry_plan = shared_per_eye_projection_plan(
+            Eye::Right,
+            content_mapping_mode,
+            right_surface_to_screen,
+            right_screen_to_surface_h,
+            surface_to_camera,
+            right_screen_to_camera_h,
+            projection_area_eye_offset_uv[1],
+            projection_area_scale,
+            projection_area_radius,
+            projection_area_opacity,
+            projection_border_policy,
+            projection_border_opacity,
+            right_metadata.source_valid_uv_rect,
+        )?;
 
         Some(OesProjectionPlan {
             left: OesEyeProjection {
@@ -3999,7 +4220,8 @@ void main() {
                 source_label: left_source_label,
                 source_eye: "left".to_string(),
                 use_surface_texture_transform: left_use_surface_texture_transform,
-                content_mapping_mode: OesContentMappingMode::CameraProjection,
+                content_mapping_mode,
+                geometry_plan: left_geometry_plan,
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
@@ -4010,7 +4232,8 @@ void main() {
                 source_label: right_source_label,
                 source_eye: "right".to_string(),
                 use_surface_texture_transform: right_use_surface_texture_transform,
-                content_mapping_mode: OesContentMappingMode::CameraProjection,
+                content_mapping_mode,
+                geometry_plan: right_geometry_plan,
             },
         })
     }
@@ -4023,6 +4246,10 @@ void main() {
         views: &[xr::View],
         projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
+        projection_area_radius: [f32; 2],
+        projection_area_opacity: f32,
+        projection_border_policy: OesProjectionBorderPolicy,
+        projection_border_opacity: f32,
         projection_depth_meters: f32,
         projection_preview_fov_y_degrees: f32,
         projection_preview_offset_y_meters: f32,
@@ -4074,6 +4301,37 @@ void main() {
         let identity = identity_homography();
         let left_source_label = projection_source_label(left_metadata, width, height, true);
         let right_source_label = projection_source_label(right_metadata, width, height, true);
+        let content_mapping_mode = OesContentMappingMode::FullFrameStimulusToSurfaceHomography;
+        let left_geometry_plan = shared_per_eye_projection_plan(
+            Eye::Left,
+            content_mapping_mode,
+            left_surface_to_screen,
+            left_screen_to_surface_h,
+            identity,
+            left_screen_to_surface_h,
+            projection_area_eye_offset_uv[0],
+            projection_area_scale,
+            projection_area_radius,
+            projection_area_opacity,
+            projection_border_policy,
+            projection_border_opacity,
+            left_metadata.source_valid_uv_rect,
+        )?;
+        let right_geometry_plan = shared_per_eye_projection_plan(
+            Eye::Right,
+            content_mapping_mode,
+            right_surface_to_screen,
+            right_screen_to_surface_h,
+            identity,
+            right_screen_to_surface_h,
+            projection_area_eye_offset_uv[1],
+            projection_area_scale,
+            projection_area_radius,
+            projection_area_opacity,
+            projection_border_policy,
+            projection_border_opacity,
+            right_metadata.source_valid_uv_rect,
+        )?;
 
         Some(OesProjectionPlan {
             left: OesEyeProjection {
@@ -4085,7 +4343,8 @@ void main() {
                 source_label: left_source_label,
                 source_eye: "left".to_string(),
                 use_surface_texture_transform: true,
-                content_mapping_mode: OesContentMappingMode::FullFrameStimulusToSurfaceHomography,
+                content_mapping_mode,
+                geometry_plan: left_geometry_plan,
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
@@ -4096,7 +4355,8 @@ void main() {
                 source_label: right_source_label,
                 source_eye: "right".to_string(),
                 use_surface_texture_transform: true,
-                content_mapping_mode: OesContentMappingMode::FullFrameStimulusToSurfaceHomography,
+                content_mapping_mode,
+                geometry_plan: right_geometry_plan,
             },
         })
     }
@@ -4109,6 +4369,10 @@ void main() {
         views: &[xr::View],
         projection_area_eye_offset_uv: [[f32; 2]; 2],
         projection_area_scale: [f32; 2],
+        projection_area_radius: [f32; 2],
+        projection_area_opacity: f32,
+        projection_border_policy: OesProjectionBorderPolicy,
+        projection_border_opacity: f32,
         projection_depth_meters: f32,
         projection_preview_fov_y_degrees: f32,
         projection_preview_offset_y_meters: f32,
@@ -4193,6 +4457,37 @@ void main() {
         );
         let left_source_label = projection_source_label(left_metadata, width, height, true);
         let right_source_label = projection_source_label(right_metadata, width, height, true);
+        let content_mapping_mode = OesContentMappingMode::CameraProjection;
+        let left_geometry_plan = shared_per_eye_projection_plan(
+            Eye::Left,
+            content_mapping_mode,
+            left_surface_to_screen,
+            left_screen_to_surface_h,
+            left_surface_to_camera,
+            left_screen_to_camera_h,
+            projection_area_eye_offset_uv[0],
+            projection_area_scale,
+            projection_area_radius,
+            projection_area_opacity,
+            projection_border_policy,
+            projection_border_opacity,
+            left_metadata.source_valid_uv_rect,
+        )?;
+        let right_geometry_plan = shared_per_eye_projection_plan(
+            Eye::Right,
+            content_mapping_mode,
+            right_surface_to_screen,
+            right_screen_to_surface_h,
+            right_surface_to_camera,
+            right_screen_to_camera_h,
+            projection_area_eye_offset_uv[1],
+            projection_area_scale,
+            projection_area_radius,
+            projection_area_opacity,
+            projection_border_policy,
+            projection_border_opacity,
+            right_metadata.source_valid_uv_rect,
+        )?;
 
         Some(OesProjectionPlan {
             left: OesEyeProjection {
@@ -4204,7 +4499,8 @@ void main() {
                 source_label: left_source_label,
                 source_eye: "left".to_string(),
                 use_surface_texture_transform: true,
-                content_mapping_mode: OesContentMappingMode::CameraProjection,
+                content_mapping_mode,
+                geometry_plan: left_geometry_plan,
             },
             right: OesEyeProjection {
                 eye: Eye::Right,
@@ -4215,7 +4511,8 @@ void main() {
                 source_label: right_source_label,
                 source_eye: "right".to_string(),
                 use_surface_texture_transform: true,
-                content_mapping_mode: OesContentMappingMode::CameraProjection,
+                content_mapping_mode,
+                geometry_plan: right_geometry_plan,
             },
         })
     }
@@ -4249,7 +4546,7 @@ void main() {
             "content-top-left-y-down"
         };
         format!(
-            "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:sourceUvContract=screen_to_camera_content_uv_to_oes_external_sampler:sourceHomographyOutputUv=content-normalized-top-left-y-down:sourceSampleInputUv=screen-to-camera-homography-output:sourceSampleTransformStage=post_homography_pre_oes_sample:sourceSampleTransform={}:sourceSampleTransformOwner={}:sourceSampleTransformApplied={}:sourceSampleOutputUv=oes-external-sampler-uv:sourceSamplerUvOrigin=android-surface-texture:sourceSamplerYAxis={}:sourceTextureTransformStage=post_homography_pre_oes_sample:sourceTextureTransformOwner=android-surface-texture:contentUvRect=0,0,1,1",
+            "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:sourceValidUvRect={}:sourceUvContract=screen_to_camera_content_uv_to_oes_external_sampler:sourceHomographyOutputUv=content-normalized-top-left-y-down:sourceSampleInputUv=screen-to-camera-homography-output:sourceSampleTransformStage=post_homography_pre_oes_sample:sourceSampleTransform={}:sourceSampleTransformOwner={}:sourceSampleTransformApplied={}:sourceSampleOutputUv=oes-external-sampler-uv:sourceSamplerUvOrigin=android-surface-texture:sourceSamplerYAxis={}:sourceTextureTransformStage=post_homography_pre_oes_sample:sourceTextureTransformOwner=android-surface-texture:contentUvRect=0,0,1,1",
             metadata_label,
             metadata.source,
             metadata.camera_id,
@@ -4282,6 +4579,7 @@ void main() {
             metadata.content_mapping_intent,
             metadata.content_geometry_metadata_source,
             metadata.content_geometry_default,
+            uv_rect_token(rect_xywh(metadata.source_valid_uv_rect)),
             source_sample_transform,
             source_sample_transform_owner,
             use_surface_texture_transform,
@@ -5503,19 +5801,13 @@ void main() {
         frame_count: u64,
         source_sequence: u64,
     ) -> ProjectionFootprintSummary {
-        let (active_fraction, bbox_fraction) = if projection.content_mapping_mode
-            == OesContentMappingMode::FullFrameStimulusToProjectionArea
-        {
-            (1.0, [0.0, 0.0, 1.0, 1.0])
-        } else {
-            projection_valid_footprint(projection.screen_to_camera_h)
-        };
+        let footprint_plan = &projection.geometry_plan.source_valid_screen_uv_footprint;
         let mut footprint = ProjectionFootprintSummary::new(
             "rusty_xr_gl_oes",
             format!("public_projected_camera_uv_{}", eye_label(projection.eye)),
         )
-        .with_active_fraction(active_fraction)
-        .with_bbox_fraction(bbox_fraction)
+        .with_active_fraction(footprint_plan.active_fraction)
+        .with_bbox_fraction(footprint_plan.bbox_ltrb())
         .with_invalid_fill_policy(InvalidProjectionFillPolicy::Black)
         .with_guide_domain(ProjectionGuideDomain::ScreenCamera)
         .with_explicit_valid_mask(false)
@@ -5524,20 +5816,14 @@ void main() {
             , projection.content_mapping_mode.stable_id()
         ));
 
-        for row in [0.0_f32, 0.5, 1.0] {
-            footprint = if projection.content_mapping_mode
-                == OesContentMappingMode::FullFrameStimulusToProjectionArea
-            {
-                footprint
-                    .with_row_span(ProjectionFootprintRowSpan::new(row, 1.0).with_span(0.0, 1.0))
-            } else if let Some((x0, x1)) =
-                row_span_for_valid_camera_uv(projection.screen_to_camera_h, row)
-            {
+        for row in &footprint_plan.row_spans {
+            footprint = if let Some((x0, x1)) = row.span {
                 footprint.with_row_span(
-                    ProjectionFootprintRowSpan::new(row, (x1 - x0).max(0.0)).with_span(x0, x1),
+                    ProjectionFootprintRowSpan::new(row.row_y, row.active_fraction)
+                        .with_span(x0, x1),
                 )
             } else {
-                footprint.with_row_span(ProjectionFootprintRowSpan::new(row, 0.0))
+                footprint.with_row_span(ProjectionFootprintRowSpan::new(row.row_y, 0.0))
             };
         }
         footprint
@@ -5548,6 +5834,10 @@ void main() {
             "{:.6},{:.6},{:.6},{:.6}",
             rect[0], rect[1], rect[2], rect[3]
         )
+    }
+
+    fn array_rect_xywh(rect: [f32; 4]) -> Rect2 {
+        Rect2::new(Vec2::new(rect[0], rect[1]), Vec2::new(rect[2], rect[3]))
     }
 
     fn screen_uv_vec2_token(value: [f32; 2]) -> String {
@@ -5593,8 +5883,10 @@ void main() {
         projection_preview_offset_y_meters: f32,
         projection_raw_overscan: f32,
     ) -> String {
+        let left_feed_rect = projection_area_screen_uv_rect(left_offset_uv, radius_uv, scale_uv);
+        let right_feed_rect = projection_area_screen_uv_rect(right_offset_uv, radius_uv, scale_uv);
         format!(
-            "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} rendererSurfaceUvOrigin=gles-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=gles-v-uv-direct-backend-bias-pending leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+            "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=whole-render-target surfaceCoverageScreenUvRect=0.000000,0.000000,1.000000,1.000000 feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_surface borderRegionSemantics=surface_minus_feed projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} rendererSurfaceUvOrigin=gles-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=gles-v-uv-direct-backend-bias-pending leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
             projection_depth_meters,
             projection_preview_fov_y_degrees,
             projection_preview_offset_y_meters,
@@ -5602,8 +5894,10 @@ void main() {
             projection_alpha_mode.stable_id(),
             projection_alpha_scale,
             projection_alpha_bias,
-            screen_uv_rect_token(projection_area_screen_uv_rect(left_offset_uv, radius_uv, scale_uv)),
-            screen_uv_rect_token(projection_area_screen_uv_rect(right_offset_uv, radius_uv, scale_uv)),
+            screen_uv_rect_token(left_feed_rect),
+            screen_uv_rect_token(right_feed_rect),
+            screen_uv_rect_token(left_feed_rect),
+            screen_uv_rect_token(right_feed_rect),
             screen_uv_vec2_token(projection_area_center_uv(left_offset_uv, scale_uv)),
             screen_uv_vec2_token(projection_area_center_uv(right_offset_uv, scale_uv)),
         )
@@ -5662,18 +5956,10 @@ void main() {
     }
 
     fn expected_source_valid_screen_uv_rect(projection: &OesEyeProjection) -> [f32; 4] {
-        if projection.content_mapping_mode
-            == OesContentMappingMode::FullFrameStimulusToProjectionArea
-        {
-            return [0.0, 0.0, 1.0, 1.0];
-        }
-        let (_, bbox) = projection_valid_footprint(projection.screen_to_camera_h);
-        [
-            bbox[0],
-            bbox[1],
-            (bbox[2] - bbox[0]).max(0.0),
-            (bbox[3] - bbox[1]).max(0.0),
-        ]
+        projection
+            .geometry_plan
+            .source_valid_screen_uv_footprint
+            .bbox_xywh()
     }
 
     fn expected_source_valid_footprint_fields(projection: &OesEyeProjection) -> String {
@@ -5684,71 +5970,9 @@ void main() {
             Eye::Mono => "mono",
         };
         format!(
-                "expectedSourceValidFootprintSource=renderer-authored expectedSourceValidFootprintStage=screen_to_camera_source_uv_bounds expectedSourceValidFootprintCoordinateSpace=display-eye-screen-uv expectedSourceValidFootprintMethod=renderer-grid-sampled-source-uv-validity expectedSourceValidFootprintRectSemantics=xywh {eye_prefix}ExpectedSourceValidScreenUvRect={rect}"
+                "expectedSourceValidFootprintSource=renderer-authored expectedSourceValidFootprintStage=screen_to_camera_source_uv_bounds expectedSourceValidFootprintCoordinateSpace=display-eye-screen-uv expectedSourceValidFootprintMethod=renderer-grid-sampled-source-uv-validity expectedSourceValidFootprintRectSemantics=xywh {eye_prefix}ExpectedSourceValidScreenUvRect={rect} {}",
+                projection.geometry_plan.marker_fields(eye_prefix)
         )
-    }
-
-    fn projection_valid_footprint(rows: [[f32; 3]; 3]) -> (f32, [f32; 4]) {
-        let mut valid_count = 0_usize;
-        let mut min_x = 1.0_f32;
-        let mut min_y = 1.0_f32;
-        let mut max_x = 0.0_f32;
-        let mut max_y = 0.0_f32;
-        let step = 1.0 / PROJECTION_FOOTPRINT_GRID as f32;
-        for iy in 0..PROJECTION_FOOTPRINT_GRID {
-            for ix in 0..PROJECTION_FOOTPRINT_GRID {
-                let x = (ix as f32 + 0.5) * step;
-                let y = (iy as f32 + 0.5) * step;
-                if screen_uv_maps_to_camera_uv(rows, x, y) {
-                    valid_count += 1;
-                    min_x = min_x.min((x - step * 0.5).clamp(0.0, 1.0));
-                    min_y = min_y.min((y - step * 0.5).clamp(0.0, 1.0));
-                    max_x = max_x.max((x + step * 0.5).clamp(0.0, 1.0));
-                    max_y = max_y.max((y + step * 0.5).clamp(0.0, 1.0));
-                }
-            }
-        }
-        let total = PROJECTION_FOOTPRINT_GRID * PROJECTION_FOOTPRINT_GRID;
-        if valid_count == 0 {
-            (0.0, [0.0, 0.0, 0.0, 0.0])
-        } else {
-            (
-                valid_count as f32 / total as f32,
-                [min_x, min_y, max_x, max_y],
-            )
-        }
-    }
-
-    fn row_span_for_valid_camera_uv(rows: [[f32; 3]; 3], row: f32) -> Option<(f32, f32)> {
-        const SAMPLE_COUNT: usize = 256;
-        let mut min_x = 1.0_f32;
-        let mut max_x = 0.0_f32;
-        let mut valid = false;
-        for index in 0..SAMPLE_COUNT {
-            let x = index as f32 / (SAMPLE_COUNT - 1) as f32;
-            if screen_uv_maps_to_camera_uv(rows, x, row) {
-                valid = true;
-                min_x = min_x.min(x);
-                max_x = max_x.max(x);
-            }
-        }
-        valid.then_some((min_x, max_x))
-    }
-
-    fn screen_uv_maps_to_camera_uv(rows: [[f32; 3]; 3], x: f32, y: f32) -> bool {
-        apply_homography(rows, x, y)
-            .map(|(u, v)| (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v))
-            .unwrap_or(false)
-    }
-
-    fn apply_homography(rows: [[f32; 3]; 3], x: f32, y: f32) -> Option<(f32, f32)> {
-        let w = rows[2][0] * x + rows[2][1] * y + rows[2][2];
-        if !w.is_finite() || w.abs() <= 1.0e-6 {
-            return None;
-        }
-        let u = (rows[0][0] * x + rows[0][1] * y + rows[0][2]) / w;
-        let v = (rows[1][0] * x + rows[1][1] * y + rows[1][2]) / w;
-        (u.is_finite() && v.is_finite()).then_some((u, v))
     }
 
     fn eye_from_view_index(view_index: usize) -> Option<Eye> {

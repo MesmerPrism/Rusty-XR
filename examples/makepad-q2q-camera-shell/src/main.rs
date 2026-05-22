@@ -20,6 +20,10 @@ use makepad_xr::scene::{xr_widget_world_transform, XrNode};
 #[cfg(target_os = "android")]
 use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
+use rusty_xr_camera_model::{
+    homography_unit_square_bounding_rect, rect_xywh, source_valid_screen_uv_footprint,
+    uv_rect_token, Rect2, Vec2,
+};
 use serde_json::Value as JsonValue;
 use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -2883,22 +2887,17 @@ impl App {
         if left_width != right_width || left_height != right_height {
             return false;
         }
-        let full_frame_diagnostic = left_metadata.is_full_frame_diagnostic_projection()
+        let full_frame_projection = left_metadata.is_full_frame_diagnostic_projection()
             && right_metadata.is_full_frame_diagnostic_projection();
-        let camera_matched = left_metadata.is_camera_matched_synthetic()
-            && right_metadata.is_camera_matched_synthetic();
-        let physical_camera_projection = !full_frame_diagnostic
-            && left_metadata.has_physical_projection_geometry()
-            && right_metadata.has_physical_projection_geometry();
-        if physical_camera_projection {
-            Self::emit_stereo_projection_marker(&format!(
-                "phase=broker-h264-projection-plan status=error projectionMetadataReady=false unsupportedProjectionGeometryProfile=physical-camera leftProjectionGeometryProfile={} rightProjectionGeometryProfile={} fallbackReason=legacy_physical_camera_projection_profile_removed",
-                marker_token(&left_metadata.projection_geometry_profile),
-                marker_token(&right_metadata.projection_geometry_profile),
-            ));
-            return false;
-        }
-        let Some(mut plan) = (if full_frame_diagnostic {
+        let camera_projection_mapping = left_metadata.requests_camera_projection_mapping()
+            && right_metadata.requests_camera_projection_mapping();
+        let head_anchored_projection =
+            left_metadata.requests_head_anchored_projection_area_mapping()
+                && right_metadata.requests_head_anchored_projection_area_mapping();
+        let camera_matched = camera_projection_mapping
+            && left_metadata.projection_profile_is("camera-matched")
+            && right_metadata.projection_profile_is("camera-matched");
+        let Some(mut plan) = (if full_frame_projection {
             android_camera_probe::broker_full_frame_projection_plan_from_xr_views(
                 &left_metadata.camera_id,
                 &right_metadata.camera_id,
@@ -2907,40 +2906,49 @@ impl App {
                 views,
             )
             .map(Camera2StereoPlan::from)
-        } else if camera_matched {
-            Self::camera2_stereo_plan()
+        } else if camera_projection_mapping {
+            left_metadata
+                .android_projection_source()
+                .zip(right_metadata.android_projection_source())
+                .and_then(|(left_source, right_source)| {
+                    android_camera_probe::broker_physical_projection_plan_from_xr_views(
+                        left_source,
+                        right_source,
+                        left_width,
+                        left_height,
+                        views,
+                    )
+                    .map(Camera2StereoPlan::from)
+                })
                 .map(|mut plan| {
                     plan.left_camera_id = left_metadata.camera_id.clone();
                     plan.right_camera_id = right_metadata.camera_id.clone();
                     plan.width = left_width;
                     plan.height = left_height;
                     plan.coordinate_chain = format!(
-                        "broker-h264-camera-matched-stream-header/{}",
+                        "broker-h264-camera-projection-stream-header/{}",
                         plan.coordinate_chain
                     );
                     plan
                 })
                 .or_else(|| {
-                    android_camera_probe::broker_synthetic_projection_plan_from_xr_views(
-                        &left_metadata.camera_id,
-                        &right_metadata.camera_id,
-                        left_width,
-                        left_height,
-                        views,
-                    )
-                    .map(Camera2StereoPlan::from)
-                    .map(|mut plan| {
+                    camera_matched.then_some(())?;
+                    Self::camera2_stereo_plan().map(|mut plan| {
+                        plan.left_camera_id = left_metadata.camera_id.clone();
+                        plan.right_camera_id = right_metadata.camera_id.clone();
+                        plan.width = left_width;
+                        plan.height = left_height;
                         plan.coordinate_chain = format!(
-                            "broker-h264-camera-matched-stream-header/synthetic-camera-shape-fallback/{}",
+                            "broker-h264-camera-matched-live-camera2-fallback/{}",
                             plan.coordinate_chain
                         );
                         plan.fallback_reason =
-                            "camera_matched_stream_header_without_live_direct_camera2_plan"
+                            "camera_matched_stream_header_missing_camera_projection_metadata"
                                 .to_string();
                         plan
                     })
                 })
-        } else {
+        } else if head_anchored_projection {
             android_camera_probe::broker_synthetic_projection_plan_from_xr_views(
                 &left_metadata.camera_id,
                 &right_metadata.camera_id,
@@ -2949,26 +2957,33 @@ impl App {
                 views,
             )
             .map(Camera2StereoPlan::from)
+        } else {
+            None
         }) else {
             return false;
         };
-        if !full_frame_diagnostic
-            && !physical_camera_projection
-            && broker_pair_has_top_left_raster_orientation(left_metadata, right_metadata)
-        {
+        if !full_frame_projection && broker_pair_has_top_left_raster_orientation(left_metadata, right_metadata) {
             plan.apply_top_left_raster_source_uv("broker-h264-explicit-top-left-raster");
         }
-        let source_binding_mode = if camera_matched {
-            "broker-h264-stream-header-camera-matched"
-        } else if full_frame_diagnostic {
+        let source_binding_mode = if full_frame_projection {
             "broker-h264-stream-header-full-frame-diagnostic"
+        } else if camera_matched {
+            "broker-h264-stream-header-camera-matched"
+        } else if camera_projection_mapping {
+            "broker-h264-stream-header-camera-projection"
+        } else if head_anchored_projection {
+            "broker-h264-stream-header-head-anchored"
         } else {
             "broker-h264-stream-header"
         };
-        let projection_geometry_profile = if full_frame_diagnostic {
+        let projection_geometry_profile = if full_frame_projection {
             "full-frame-diagnostic"
         } else if camera_matched {
             "camera-matched"
+        } else if camera_projection_mapping {
+            left_metadata.projection_mapping_profile_id()
+        } else if head_anchored_projection {
+            "head-anchored-virtual-camera"
         } else {
             left_metadata.projection_geometry_profile.as_str()
         };
@@ -2995,13 +3010,15 @@ impl App {
         pair.right_screen_to_camera_h = plan.right_screen_to_camera_h;
         pair.left_screen_to_surface_h = plan.left_screen_to_surface_h;
         pair.right_screen_to_surface_h = plan.right_screen_to_surface_h;
+        pair.left_source_valid_uv_rect = left_metadata.source_valid_uv_rect;
+        pair.right_source_valid_uv_rect = right_metadata.source_valid_uv_rect;
         pair.projection_homography_ready = plan.projection_homography_ready;
         pair.runtime_xr_view_state_ready = plan.runtime_xr_view_state_ready;
         pair.openxr_contract = plan.openxr_contract.clone();
         if !self.broker_h264_projection_plan_logged {
             self.broker_h264_projection_plan_logged = true;
             Self::emit_stereo_projection_marker(&format!(
-                    "phase=broker-h264-projection-plan status=ok projectionMetadataReady={} runtimeXrViewStateReady={} poseSource={} poseCoordinateConvention={} sourceEyeMapping={} sourceBindingMode={} coordinateChain={} projection_profile={} geometry_profile={} leftCameraId={} rightCameraId={} width={} height={} leftMetadataBytes={} rightMetadataBytes={} leftMetadataSource={} rightMetadataSource={} leftProjectionGeometryProfile={} rightProjectionGeometryProfile={} leftSyntheticPattern={} rightSyntheticPattern={} leftOrientationKind={} rightOrientationKind={} leftRasterOrientation={} rightRasterOrientation={} leftUprightMarker={} rightUprightMarker={} leftOrientationMetadataSource={} rightOrientationMetadataSource={} leftOrientationDefault={} rightOrientationDefault={} leftStimulusRasterOrientation={} rightStimulusRasterOrientation={} leftStimulusUprightMarker={} rightStimulusUprightMarker={} {} {}",
+                    "phase=broker-h264-projection-plan status=ok projectionMetadataReady={} runtimeXrViewStateReady={} poseSource={} poseCoordinateConvention={} sourceEyeMapping={} sourceBindingMode={} coordinateChain={} projection_profile={} geometry_profile={} leftCameraId={} rightCameraId={} width={} height={} leftMetadataBytes={} rightMetadataBytes={} leftMetadataSource={} rightMetadataSource={} leftProjectionGeometryProfile={} rightProjectionGeometryProfile={} leftSourceValidUvRect={} rightSourceValidUvRect={} leftSyntheticPattern={} rightSyntheticPattern={} leftOrientationKind={} rightOrientationKind={} leftRasterOrientation={} rightRasterOrientation={} leftUprightMarker={} rightUprightMarker={} leftOrientationMetadataSource={} rightOrientationMetadataSource={} leftOrientationDefault={} rightOrientationDefault={} leftStimulusRasterOrientation={} rightStimulusRasterOrientation={} leftStimulusUprightMarker={} rightStimulusUprightMarker={} {} {}",
                 pair.projection_metadata_ready,
                 pair.runtime_xr_view_state_ready,
                 marker_token(&pair.pose_source),
@@ -3021,6 +3038,8 @@ impl App {
                 marker_token(&right_metadata.source),
                 marker_token(&left_metadata.projection_geometry_profile),
                 marker_token(&right_metadata.projection_geometry_profile),
+                uv_rect_token(rect_xywh(left_metadata.source_valid_uv_rect)),
+                uv_rect_token(rect_xywh(right_metadata.source_valid_uv_rect)),
                 marker_token(&left_metadata.synthetic_pattern),
                 marker_token(&right_metadata.synthetic_pattern),
                 marker_token(&left_metadata.orientation_kind),
@@ -3582,7 +3601,7 @@ impl App {
                     };
                 }
                 Self::emit_hardware_buffer_import_marker(&format!(
-                    "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} projectionGeometryProfile={} geometry_profile={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+                    "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} projectionGeometryProfile={} geometry_profile={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
                     side.label(),
                     metadata.metadata_bytes,
                     marker_token(&metadata.camera_id),
@@ -3616,6 +3635,7 @@ impl App {
                     marker_token(&metadata.content_mapping_intent),
                     marker_token(&metadata.content_geometry_metadata_source),
                     metadata.content_geometry_default,
+                    uv_rect_token(rect_xywh(metadata.source_valid_uv_rect)),
                 ));
             }
             Err(error) => {
@@ -4846,6 +4866,7 @@ struct BrokerH264ProjectionMetadata {
     content_mapping_intent: String,
     content_geometry_metadata_source: String,
     content_geometry_default: bool,
+    source_valid_uv_rect: Rect2,
     projection_metadata_ready: bool,
     delivered_width: u32,
     delivered_height: u32,
@@ -4908,12 +4929,7 @@ impl BrokerH264ProjectionMetadata {
             .and_then(JsonValue::as_str)
             .unwrap_or("unknown")
             .to_string();
-        let projection_geometry_fallback =
-            if source.contains("camera2") || source.contains("camera") {
-                "full-frame-diagnostic"
-            } else {
-                "unknown"
-            };
+        let projection_geometry_fallback = "unknown";
         let synthetic_projection_profile = object
             .get("syntheticProjectionProfile")
             .and_then(JsonValue::as_str)
@@ -5050,6 +5066,9 @@ impl BrokerH264ProjectionMetadata {
                 .to_string();
         let content_geometry_default = !explicit_content_geometry
             || json_bool_any(object, &["contentGeometryDefault"]).unwrap_or(false);
+        let source_valid_uv_rect =
+            json_rect2_xywh_any(object, &["sourceValidUvRect", "contentUvRect", "stimulusUvRect"])
+                .unwrap_or(Rect2::UNIT);
         let intrinsics = parse_broker_intrinsics(object.get("intrinsics"));
         let intrinsics_domain = parse_broker_pixel_domain(object.get("intrinsicsDomain"));
         let active_array_domain = parse_broker_pixel_domain(object.get("activeArrayDomain"));
@@ -5085,6 +5104,7 @@ impl BrokerH264ProjectionMetadata {
             content_mapping_intent,
             content_geometry_metadata_source,
             content_geometry_default,
+            source_valid_uv_rect,
             projection_metadata_ready,
             delivered_width,
             delivered_height,
@@ -5108,8 +5128,7 @@ impl BrokerH264ProjectionMetadata {
     }
 
     fn has_explicit_top_left_stimulus_orientation(&self) -> bool {
-        self.source == "broker_app.synthetic_h264_stream"
-            && !self.stimulus_orientation_default
+        !self.stimulus_orientation_default
             && self.stimulus_raster_orientation == "top-left-origin-y-down"
             && self.stimulus_upright_marker == "color-bars-top"
     }
@@ -5119,29 +5138,72 @@ impl BrokerH264ProjectionMetadata {
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
-    fn synthetic_profile_is(&self, expected: &str) -> bool {
+    fn projection_profile_is(&self, expected: &str) -> bool {
         self.synthetic_projection_profile == expected
             || self.projection_geometry_profile == expected
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
-    fn is_camera_matched_synthetic(&self) -> bool {
-        self.source == "broker_app.synthetic_h264_stream"
-            && self.synthetic_profile_is("camera-matched")
+    fn content_mapping_intent_is_any(&self, expected: &[&str]) -> bool {
+        expected
+            .iter()
+            .any(|value| self.content_mapping_intent == *value)
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    fn requests_camera_projection_mapping(&self) -> bool {
+        self.projection_profile_is("camera-matched")
+            || self.projection_profile_is("camera-projection")
+            || self.projection_profile_is("physical-camera")
+            || self.content_mapping_intent_is_any(&[
+                "map-camera-frame-through-screen-to-camera-homography",
+                "map-stimulus-raster-through-camera-projection",
+            ])
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     fn is_full_frame_diagnostic_projection(&self) -> bool {
-        self.synthetic_profile_is("full-frame-diagnostic")
+        self.requests_full_frame_projection_area_mapping()
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
-    fn has_physical_projection_geometry(&self) -> bool {
+    fn requests_full_frame_projection_area_mapping(&self) -> bool {
+        self.projection_profile_is("full-frame-diagnostic")
+            || self.content_mapping_intent_is_any(&[
+                "map-camera-frame-to-full-frame-projection-surface",
+                "map-camera-frame-to-full-frame-projection-area",
+                "map-full-frame-stimulus-to-projection-surface",
+                "map-full-frame-stimulus-to-projection-area",
+                "map-full-frame-content-to-projection-area",
+            ])
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    fn requests_head_anchored_projection_area_mapping(&self) -> bool {
+        self.projection_profile_is("head-anchored-virtual-camera")
+            || self.content_mapping_intent_is_any(&[
+                "fit-stimulus-raster-in-head-anchored-projection-area",
+            ])
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    fn has_camera_projection_metadata(&self) -> bool {
         self.projection_metadata_ready
             && self.intrinsics.is_some()
             && self.extrinsics.is_some()
-            && (self.projection_geometry_profile == "physical-camera"
-                || self.projection_geometry_profile == "camera-matched")
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    fn projection_mapping_profile_id(&self) -> &'static str {
+        if self.requests_full_frame_projection_area_mapping() {
+            "full-frame-diagnostic"
+        } else if self.requests_camera_projection_mapping() {
+            "camera-projection"
+        } else if self.requests_head_anchored_projection_area_mapping() {
+            "head-anchored-virtual-camera"
+        } else {
+            "unspecified"
+        }
     }
 
     #[cfg(target_os = "android")]
@@ -5293,6 +5355,68 @@ fn json_f64_any(object: &serde_json::Map<String, JsonValue>, keys: &[&str]) -> O
     keys.iter()
         .find_map(|key| object.get(*key).and_then(JsonValue::as_f64))
         .filter(|value| value.is_finite() && *value > 0.0)
+}
+
+fn json_rect2_xywh_any(
+    object: &serde_json::Map<String, JsonValue>,
+    keys: &[&str],
+) -> Option<Rect2> {
+    keys.iter()
+        .find_map(|key| json_rect2_xywh(object.get(*key)))
+        .filter(|rect| {
+            rect.is_valid()
+                && rect.size.x > 0.0
+                && rect.size.y > 0.0
+                && rect.origin.x >= 0.0
+                && rect.origin.y >= 0.0
+                && rect.max().x <= 1.0
+                && rect.max().y <= 1.0
+        })
+}
+
+fn json_rect2_xywh(value: Option<&JsonValue>) -> Option<Rect2> {
+    let value = value?;
+    if let Some(array) = value.as_array() {
+        if array.len() != 4 {
+            return None;
+        }
+        return Some(Rect2::new(
+            Vec2::new(json_f32_value(array.first())?, json_f32_value(array.get(1))?),
+            Vec2::new(json_f32_value(array.get(2))?, json_f32_value(array.get(3))?),
+        ));
+    }
+    if let Some(object) = value.as_object() {
+        let x = json_f32_field_any(object, &["x", "left"])?;
+        let y = json_f32_field_any(object, &["y", "top"])?;
+        let width = json_f32_field_any(object, &["width", "w"])?;
+        let height = json_f32_field_any(object, &["height", "h"])?;
+        return Some(Rect2::new(Vec2::new(x, y), Vec2::new(width, height)));
+    }
+    let text = value.as_str()?;
+    let parts: Vec<f32> = text
+        .split(',')
+        .filter_map(|part| part.trim().parse::<f32>().ok())
+        .collect();
+    if parts.len() == 4 {
+        Some(Rect2::new(
+            Vec2::new(parts[0], parts[1]),
+            Vec2::new(parts[2], parts[3]),
+        ))
+    } else {
+        None
+    }
+}
+
+fn json_f32_value(value: Option<&JsonValue>) -> Option<f32> {
+    value
+        .and_then(JsonValue::as_f64)
+        .filter(|value| value.is_finite())
+        .map(|value| value as f32)
+}
+
+fn json_f32_field_any(object: &serde_json::Map<String, JsonValue>, keys: &[&str]) -> Option<f32> {
+    keys.iter()
+        .find_map(|key| json_f32_value(object.get(*key)))
 }
 
 fn json_f32_field(object: &serde_json::Map<String, JsonValue>, key: &str) -> Option<f32> {
@@ -5569,6 +5693,8 @@ struct MakepadCameraPair {
     right_screen_to_camera_h: [[f32; 3]; 3],
     left_screen_to_surface_h: [[f32; 3]; 3],
     right_screen_to_surface_h: [[f32; 3]; 3],
+    left_source_valid_uv_rect: Rect2,
+    right_source_valid_uv_rect: Rect2,
     projection_homography_ready: bool,
     runtime_xr_view_state_ready: bool,
     openxr_contract: MakepadOpenXrProjectionContract,
@@ -5614,6 +5740,8 @@ impl MakepadCameraPair {
             right_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             left_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             right_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            left_source_valid_uv_rect: Rect2::UNIT,
+            right_source_valid_uv_rect: Rect2::UNIT,
             projection_homography_ready: false,
             runtime_xr_view_state_ready: false,
             openxr_contract: MakepadOpenXrProjectionContract::missing(),
@@ -5666,6 +5794,8 @@ impl MakepadCameraPair {
             right_screen_to_camera_h: plan.right_screen_to_camera_h,
             left_screen_to_surface_h: plan.left_screen_to_surface_h,
             right_screen_to_surface_h: plan.right_screen_to_surface_h,
+            left_source_valid_uv_rect: Rect2::UNIT,
+            right_source_valid_uv_rect: Rect2::UNIT,
             projection_homography_ready: plan.projection_homography_ready,
             runtime_xr_view_state_ready: plan.runtime_xr_view_state_ready,
             openxr_contract: plan.openxr_contract.clone(),
@@ -5740,6 +5870,8 @@ impl MakepadCameraPair {
             right_screen_to_camera_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             left_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             right_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
+            left_source_valid_uv_rect: Rect2::UNIT,
+            right_source_valid_uv_rect: Rect2::UNIT,
             projection_homography_ready: false,
             runtime_xr_view_state_ready: false,
             openxr_contract: MakepadOpenXrProjectionContract::missing(),
@@ -6101,65 +6233,99 @@ fn projection_area_center_uv(
     ]
 }
 
-fn apply_homography(rows: [[f32; 3]; 3], x: f32, y: f32) -> Option<(f32, f32)> {
-    let w = rows[2][0] * x + rows[2][1] * y + rows[2][2];
-    if !w.is_finite() || w.abs() <= 1.0e-6 {
-        return None;
-    }
-    let u = (rows[0][0] * x + rows[0][1] * y + rows[0][2]) / w;
-    let v = (rows[1][0] * x + rows[1][1] * y + rows[1][2]) / w;
-    (u.is_finite() && v.is_finite()).then_some((u, v))
-}
-
-fn screen_uv_maps_to_source_uv(rows: [[f32; 3]; 3], x: f32, y: f32) -> bool {
-    apply_homography(rows, x, y)
-        .map(|(u, v)| (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v))
-        .unwrap_or(false)
-}
-
 fn expected_source_valid_screen_uv_rect(
     screen_to_camera_h: [[f32; 3]; 3],
-    full_frame_stimulus_mapping: bool,
+    source_valid_uv_rect: Rect2,
 ) -> [f32; 4] {
-    if full_frame_stimulus_mapping {
-        return [0.0, 0.0, 1.0, 1.0];
-    }
-    let mut valid_count = 0_usize;
-    let mut min_x = 1.0_f32;
-    let mut min_y = 1.0_f32;
-    let mut max_x = 0.0_f32;
-    let mut max_y = 0.0_f32;
-    let step = 1.0 / SOURCE_VALID_FOOTPRINT_GRID as f32;
-    for iy in 0..SOURCE_VALID_FOOTPRINT_GRID {
-        for ix in 0..SOURCE_VALID_FOOTPRINT_GRID {
-            let x = (ix as f32 + 0.5) * step;
-            let y = (iy as f32 + 0.5) * step;
-            if screen_uv_maps_to_source_uv(screen_to_camera_h, x, y) {
-                valid_count += 1;
-                min_x = min_x.min((x - step * 0.5).clamp(0.0, 1.0));
-                min_y = min_y.min((y - step * 0.5).clamp(0.0, 1.0));
-                max_x = max_x.max((x + step * 0.5).clamp(0.0, 1.0));
-                max_y = max_y.max((y + step * 0.5).clamp(0.0, 1.0));
-            }
-        }
-    }
-    if valid_count == 0 {
-        [0.0, 0.0, 0.0, 0.0]
-    } else {
-        [
-            min_x,
-            min_y,
-            (max_x - min_x).max(0.0),
-            (max_y - min_y).max(0.0),
-        ]
-    }
+    source_valid_screen_uv_footprint(
+        screen_to_camera_h,
+        source_valid_uv_rect,
+        SOURCE_VALID_FOOTPRINT_GRID,
+    )
+    .bbox_xywh()
 }
 
 fn expected_source_valid_footprint_marker_fields(pair: &MakepadCameraPair) -> String {
-    let left_rect = expected_source_valid_screen_uv_rect(pair.left_screen_to_camera_h, false);
-    let right_rect = expected_source_valid_screen_uv_rect(pair.right_screen_to_camera_h, false);
+    let left_rect = expected_source_valid_screen_uv_rect(
+        pair.left_screen_to_camera_h,
+        pair.left_source_valid_uv_rect,
+    );
+    let right_rect = expected_source_valid_screen_uv_rect(
+        pair.right_screen_to_camera_h,
+        pair.right_source_valid_uv_rect,
+    );
+    let policy = MakepadProjectionBorderPolicy::current();
+    let native_left_offset = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV,
+        TARGET_PROJECTION_AREA_OFFSET_LEFT_UV,
+        -0.5,
+        0.5,
+    );
+    let native_right_offset = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_OFFSET_RIGHT_UV,
+        TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV,
+        -0.5,
+        0.5,
+    );
+    let vertical_offset = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_OFFSET_VERTICAL_UV,
+        TARGET_PROJECTION_AREA_OFFSET_VERTICAL_UV,
+        -0.5,
+        0.5,
+    );
+    let scale_x = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_SCALE_X,
+        TARGET_PROJECTION_AREA_SCALE_X,
+        0.05,
+        4.0,
+    );
+    let scale_y = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_SCALE_Y,
+        TARGET_PROJECTION_AREA_SCALE_Y,
+        0.05,
+        4.0,
+    );
+    let radius_x = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV,
+        TARGET_PROJECTION_AREA_RADIUS_X_UV,
+        0.05,
+        0.5,
+    );
+    let radius_y = hotload_f32(
+        KEY_MAKEPAD_PROJECTION_AREA_RADIUS_Y_UV,
+        TARGET_PROJECTION_AREA_RADIUS_Y_UV,
+        0.05,
+        0.5,
+    );
+    let left_feed_rect = projection_area_screen_uv_rect(
+        -native_left_offset,
+        vertical_offset,
+        radius_x,
+        radius_y,
+        scale_x,
+        scale_y,
+    );
+    let right_feed_rect = projection_area_screen_uv_rect(
+        -native_right_offset,
+        vertical_offset,
+        radius_x,
+        radius_y,
+        scale_x,
+        scale_y,
+    );
+    let left_surface_rect = homography_unit_square_bounding_rect(pair.left_surface_to_screen_h)
+        .unwrap_or(Rect2::UNIT);
+    let right_surface_rect = homography_unit_square_bounding_rect(pair.right_surface_to_screen_h)
+        .unwrap_or(Rect2::UNIT);
     format!(
-        "expectedSourceValidFootprintSource=renderer-authored expectedSourceValidFootprintStage=screen_to_camera_source_uv_bounds expectedSourceValidFootprintCoordinateSpace=display-eye-screen-uv expectedSourceValidFootprintMethod=renderer-grid-sampled-source-uv-validity expectedSourceValidFootprintRectSemantics=xywh leftExpectedSourceValidScreenUvRect={} rightExpectedSourceValidScreenUvRect={}",
+        "expectedSourceValidFootprintSource=renderer-authored expectedSourceValidFootprintStage=screen_to_camera_source_uv_bounds expectedSourceValidFootprintCoordinateSpace=display-eye-screen-uv expectedSourceValidFootprintMethod=renderer-grid-sampled-source-uv-validity expectedSourceValidFootprintRectSemantics=xywh projectionGeometrySchema=rusty.xr.video_projection_geometry.v1 projectionMapping=screen-to-source-homography surfaceCoverageSource=shared-homography feedPlacementSource=renderer-authored borderRegionSemantics=surface_minus_feed borderFillPolicy={} leftSurfaceCoverageScreenUvRect={} rightSurfaceCoverageScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftSourceValidUvRect={} rightSourceValidUvRect={} leftExpectedSourceValidScreenUvRect={} rightExpectedSourceValidScreenUvRect={}",
+        policy.shared_fill_policy_id(),
+        uv_rect_token(rect_xywh(left_surface_rect)),
+        uv_rect_token(rect_xywh(right_surface_rect)),
+        screen_uv_rect_token(left_feed_rect),
+        screen_uv_rect_token(right_feed_rect),
+        uv_rect_token(rect_xywh(pair.left_source_valid_uv_rect)),
+        uv_rect_token(rect_xywh(pair.right_source_valid_uv_rect)),
         screen_uv_rect_token(left_rect),
         screen_uv_rect_token(right_rect),
     )
@@ -6328,7 +6494,7 @@ mod tests {
     }
 
     #[test]
-    fn broker_camera_metadata_detects_legacy_physical_projection_geometry() {
+    fn broker_camera_metadata_maps_legacy_physical_profile_to_camera_projection() {
         let metadata = BrokerH264ProjectionMetadata::parse(
             r#"{
                 "source": "broker_app.camera2_h264_stream",
@@ -6364,7 +6530,9 @@ mod tests {
         )
         .unwrap();
 
-        assert!(metadata.has_physical_projection_geometry());
+        assert!(metadata.has_camera_projection_metadata());
+        assert!(metadata.requests_camera_projection_mapping());
+        assert_eq!(metadata.projection_mapping_profile_id(), "camera-projection");
         assert_eq!(metadata.camera_id, "50");
         assert_eq!(metadata.intrinsics.unwrap().fx, 1024.0);
         assert_eq!(metadata.intrinsics_domain.unwrap().width, 4096);
@@ -6429,6 +6597,14 @@ impl MakepadProjectionBorderPolicy {
     fn stable_id(self) -> &'static str {
         match self {
             Self::SolidRed => "solid-red",
+            Self::DiagnosticSplit => "diagnostic-split",
+            Self::PassthroughUnderlay => "passthrough-underlay",
+        }
+    }
+
+    fn shared_fill_policy_id(self) -> &'static str {
+        match self {
+            Self::SolidRed => "solid-color",
             Self::DiagnosticSplit => "diagnostic-split",
             Self::PassthroughUnderlay => "passthrough-underlay",
         }
@@ -6775,7 +6951,7 @@ fn makepad_projection_target_marker_fields() -> String {
         projection_area_scale_y,
     );
     format!(
-        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={} projectionDepthMeters={:.3} panelTargetDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} panelTargetAspect={:.3} panelTargetWidthMeters={:.3} panelTargetHeightMeters={:.3} panelTargetCenterYMeters={:.3} panelTargetZMeters={:.3} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} processingLayer={} blurRadiusPx={:.2} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-backend-bias-pending",
+        "nativePassthroughRequested={} projectionBorderPolicy={} projectionInvalidFillPolicy={} passthroughUnderlay={} projectionDepthMeters={:.3} panelTargetDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} panelTargetAspect={:.3} panelTargetWidthMeters={:.3} panelTargetHeightMeters={:.3} panelTargetCenterYMeters={:.3} panelTargetZMeters={:.3} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} processingLayer={} blurRadiusPx={:.2} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=panel-covers-target-fov feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_panel borderRegionSemantics=surface_minus_feed borderFillPolicy={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=makepad-v-uv-direct-backend-bias-pending",
         native_passthrough,
         policy.stable_id(),
         policy.stable_id(),
@@ -6808,6 +6984,9 @@ fn makepad_projection_target_marker_fields() -> String {
         projection_area_radius_x_uv,
         projection_area_radius_y_uv,
         projection_area_corner_radius_uv,
+        policy.shared_fill_policy_id(),
+        screen_uv_rect_token(left_projection_area_rect),
+        screen_uv_rect_token(right_projection_area_rect),
         screen_uv_rect_token(left_projection_area_rect),
         screen_uv_rect_token(right_projection_area_rect),
         screen_uv_vec2_token(left_projection_area_center),

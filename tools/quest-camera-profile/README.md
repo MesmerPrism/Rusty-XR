@@ -278,6 +278,13 @@ the custom case with
 full-frame canvas case maps through the solved screen-to-surface homography so
 the camera frame lands on the bounded surface instead of filling the eye.
 
+For HWB, keep the world-canvas reference on
+`rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic`, and keep the
+custom/collapsed profile explicit as
+`rustyxr.cameraProjectionGeometryProfile=camera-projection` with the bounded
+projection-area values `0.47 x 0.36`, corner `0.08`. Do not rely on the direct
+Camera2 service default for the custom lane.
+
 For Makepad, keep the evidence build on
 `display-left-from-left-source` unless source-eye mapping is the test variable,
 matching the HWB and GLES/OES left/right camera-feed convention. Canvas uses
@@ -292,7 +299,9 @@ The suite pregrants normal runtime permissions and records the
 `PROJECT_MEDIA` app-op readback before launching MediaProjection cases. It
 does not tap Quest consent or selector surfaces. If the app-side receiver gets
 no frame, approve MediaProjection manually in headset and rerun the failed
-case.
+case. The receiver stays alive through the profile run and the suite converts
+the latest recorded frame, not the first frame observed during startup. It
+prunes older raw payload files while retaining the frame ledger.
 
 The suite writes a labeled `canvas-custom-projection-parity-results.png`
 contact sheet into the run root. Treat HWB and GLES/OES MediaProjection rows as
