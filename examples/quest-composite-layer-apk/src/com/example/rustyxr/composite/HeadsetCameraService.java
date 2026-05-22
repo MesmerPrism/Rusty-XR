@@ -104,6 +104,7 @@ public final class HeadsetCameraService extends Service {
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
     private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-area";
     private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
+    private static final String PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION = "camera-projection";
 
     private HandlerThread cameraThread;
     private Handler cameraHandler;
@@ -2324,11 +2325,17 @@ public final class HeadsetCameraService extends Service {
         if (PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC.equals(value)) {
             return value;
         }
+        if (PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION.equals(value)) {
+            return value;
+        }
         throw new IllegalArgumentException(
             "Unsupported direct Camera2 projection geometry profile: " + requested);
     }
 
     private static String contentMappingIntentForProjectionGeometryProfile(String profile) {
+        if (PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION.equals(profile)) {
+            return "map-camera-frame-through-screen-to-camera-homography";
+        }
         return CONTENT_MAPPING_CAMERA_FULL_FRAME;
     }
 
