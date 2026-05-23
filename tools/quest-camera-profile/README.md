@@ -305,13 +305,17 @@ the latest recorded frame, not the first frame observed during startup. It
 prunes older raw payload files while retaining the frame ledger.
 
 The suite writes a labeled `canvas-custom-projection-parity-results.png`
-contact sheet into the run root. `-HeadsetCaptureProvider fast-adb` is the
-default geometry witness and copies the same fast direct ADB screenshot path
-used by the low-latency manual sweep; `-HeadsetCaptureProvider hzdb` keeps the
-older HzDB screenshot route available for provider comparisons. The summary
-also writes `step-timings.jsonl` and `step-timing-summary.json` so launch,
-MediaProjection receiver, headset capture, analyzer, and contact-sheet time can
-be compared per case.
+contact sheet into the run root. Use `-EvidenceMode fast-visual` for the
+low-latency operator sweep: it forces fast direct ADB headset screenshots,
+solid-red projection borders, no MediaProjection receiver, and no analyzer.
+Use `-EvidenceMode full-evidence` for the slower diagnostic sweep: it enables
+HzDB headset screenshots, MediaProjection receiver capture, analyzer overlays
+and coordinate contracts, contact-sheet output, and timing records. The
+default `-EvidenceMode custom` preserves the individual `-SkipMediaProjection`,
+`-HeadsetCaptureProvider`, `-SkipAnalyzer`, and `-ProjectionBorderPolicy`
+switches for mixed investigations. The summary writes `step-timings.jsonl` and
+`step-timing-summary.json` so launch, MediaProjection receiver, headset
+capture, analyzer, and contact-sheet time can be compared per case.
 
 Treat HWB and GLES/OES MediaProjection rows as app-frame evidence for the
 rendered camera window. The Makepad MediaProjection row is currently a

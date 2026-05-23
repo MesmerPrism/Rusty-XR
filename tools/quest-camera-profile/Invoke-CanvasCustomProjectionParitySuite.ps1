@@ -3,6 +3,8 @@ param(
     [string]$Adb = "adb",
     [string]$Npx = "npx",
     [string]$RunRoot = "artifacts\canvas-custom-projection-parity-suite",
+    [ValidateSet("custom", "fast-visual", "full-evidence")]
+    [string]$EvidenceMode = "custom",
     [string]$HwbApk = "examples\quest-composite-layer-apk\build\outputs\rusty-xr-quest-composite-layer-debug.apk",
     [string]$GlesApk = "examples\quest-gl-openxr-video-stack-apk\build\outputs\rusty-xr-quest-gl-openxr-video-stack-debug.apk",
     [string]$MakepadApk = "examples\makepad-camera-shell\target\android\makepad-android-apk\rusty_xr_makepad_camera_shell\apk\rustyx_rmakepadcamera.apk",
@@ -52,6 +54,45 @@ $ErrorActionPreference = "Stop"
 
 if ([double]::IsNaN($BlurRadiusPx) -or [double]::IsInfinity($BlurRadiusPx) -or $BlurRadiusPx -lt 0.0 -or $BlurRadiusPx -gt 16.0) {
     throw "BlurRadiusPx must be a finite value from 0.0 to 16.0"
+}
+
+switch ($EvidenceMode) {
+    "fast-visual" {
+        if ($PSBoundParameters.ContainsKey("SkipMediaProjection") -and -not [bool]$SkipMediaProjection) {
+            throw "EvidenceMode fast-visual disables MediaProjection. Use EvidenceMode custom for mixed capture settings."
+        }
+        if ($PSBoundParameters.ContainsKey("SkipAnalyzer") -and -not [bool]$SkipAnalyzer) {
+            throw "EvidenceMode fast-visual disables the analyzer. Use EvidenceMode custom for mixed analysis settings."
+        }
+        if ($PSBoundParameters.ContainsKey("HeadsetCaptureProvider") -and $HeadsetCaptureProvider -ne "fast-adb") {
+            throw "EvidenceMode fast-visual requires HeadsetCaptureProvider fast-adb. Use EvidenceMode custom for mixed capture settings."
+        }
+        if ($PSBoundParameters.ContainsKey("ProjectionBorderPolicy") -and $ProjectionBorderPolicy -ne "solid-red") {
+            throw "EvidenceMode fast-visual requires ProjectionBorderPolicy solid-red. Use EvidenceMode custom for mixed projection settings."
+        }
+        $SkipMediaProjection = $true
+        $SkipAnalyzer = $true
+        $HeadsetCaptureProvider = "fast-adb"
+        $ProjectionBorderPolicy = "solid-red"
+    }
+    "full-evidence" {
+        if ($PSBoundParameters.ContainsKey("SkipMediaProjection") -and [bool]$SkipMediaProjection) {
+            throw "EvidenceMode full-evidence enables MediaProjection. Use EvidenceMode custom with -SkipMediaProjection for headset-only evidence."
+        }
+        if ($PSBoundParameters.ContainsKey("SkipAnalyzer") -and [bool]$SkipAnalyzer) {
+            throw "EvidenceMode full-evidence enables the analyzer. Use EvidenceMode custom with -SkipAnalyzer for capture-only runs."
+        }
+        if ($PSBoundParameters.ContainsKey("HeadsetCaptureProvider") -and $HeadsetCaptureProvider -ne "hzdb") {
+            throw "EvidenceMode full-evidence requires HeadsetCaptureProvider hzdb. Use EvidenceMode custom for mixed capture settings."
+        }
+        if ($PSBoundParameters.ContainsKey("ProjectionBorderPolicy") -and $ProjectionBorderPolicy -ne "solid-red") {
+            throw "EvidenceMode full-evidence requires ProjectionBorderPolicy solid-red. Use EvidenceMode custom for mixed projection settings."
+        }
+        $SkipMediaProjection = $false
+        $SkipAnalyzer = $false
+        $HeadsetCaptureProvider = "hzdb"
+        $ProjectionBorderPolicy = "solid-red"
+    }
 }
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
@@ -209,6 +250,13 @@ $processingLayerOverride = @(
 ) -join ","
 $ExpectedMakepadSourceEyeMapping = "display-left-from-left-source"
 $brokerSourceRequested = $SourceMode -eq "broker-camera" -or $SourceMode -eq "broker-synthetic"
+
+Write-Host ("[suite] evidenceMode={0} headsetCaptureProvider={1} mediaProjection={2} analyzer={3} projectionBorderPolicy={4}" -f `
+    $EvidenceMode,
+    $HeadsetCaptureProvider,
+    (-not [bool]$SkipMediaProjection),
+    (-not [bool]$SkipAnalyzer),
+    $ProjectionBorderPolicy)
 
 function Test-LaneEnabled {
     param([string]$Lane)
@@ -1238,6 +1286,7 @@ $summary = [ordered]@{
     capturedAt = (Get-Date).ToString("o")
     serial = $Serial
     sourceMode = $SourceMode
+    evidenceMode = $EvidenceMode
     sessionRoot = $sessionRoot
     screenshotsRoot = $screenshotsRoot
     contactSheet = $contactSheetPath
@@ -1245,6 +1294,19 @@ $summary = [ordered]@{
     timingJsonl = $timingPath
     timingSummary = $timingSummaryPath
     headsetCaptureProvider = $HeadsetCaptureProvider
+    captureContract = [ordered]@{
+        evidenceMode = $EvidenceMode
+        mediaProjectionEnabled = -not [bool]$SkipMediaProjection
+        analyzerEnabled = -not [bool]$SkipAnalyzer
+        contactSheetEnabled = $true
+        timingEnabled = $true
+        geometryWitness = $headsetCaptureLabel
+        modeSemantics = switch ($EvidenceMode) {
+            "fast-visual" { "Fast operator-inspection mode: fast ADB headset screenshots only, no MediaProjection receiver, no analyzer, solid-red projection border." }
+            "full-evidence" { "Full diagnostic mode: HzDB headset screenshots, MediaProjection receiver, analyzer overlays/contracts, contact sheet, and timing summary." }
+            default { "Custom mode: explicit capture/analyzer/projection switches define the run contract." }
+        }
+    }
     geometry = [ordered]@{
         projectionDepthMeters = 1.434085
         cameraPreviewFovYDegrees = 69.763084
