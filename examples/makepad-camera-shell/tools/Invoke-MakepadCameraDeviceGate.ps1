@@ -67,6 +67,7 @@ param(
     [string]$ProjectionAlphaMode = "fixed",
     [double]$ProjectionAlphaScale = 1.0,
     [double]$ProjectionAlphaBias = 0.0,
+    [switch]$UseResolvedProjectionRuntime,
     [switch]$MediaProjection,
     [int]$MediaProjectionPort = 8787,
     [int]$MediaProjectionWidth = 512,
@@ -151,6 +152,66 @@ function Format-InvariantDouble {
     return $Value.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
+function Assert-PropertyReadback {
+    param(
+        [object[]]$Readback,
+        [string]$Label
+    )
+    $mismatches = @($Readback | Where-Object { [string]$_.expected -ne [string]$_.actual })
+    if ($mismatches.Count -eq 0) {
+        return
+    }
+    $path = Join-Path $OutDir "$Label-property-mismatches.json"
+    $mismatches | ConvertTo-Json -Depth 4 | Set-Content -Path $path -Encoding UTF8
+    throw "$Label property readback mismatch; see $path"
+}
+
+function Get-ProjectionRuntimeNumericTypeIssues {
+    param([string[]]$LogLines)
+    $numericKeys = @(
+        "projection_scale",
+        "projection_depth_meters",
+        "camera_projection_fov_y_degrees",
+        "camera_preview_fov_y_degrees",
+        "camera_preview_offset_y_meters",
+        "camera_raw_overlay_overscan",
+        "projection_area_scale_uv",
+        "projection_area_scale_x",
+        "projection_area_scale_y",
+        "projection_area_offset_x_uv",
+        "projection_area_offset_y_uv",
+        "projection_area_left_offset_x_uv",
+        "projection_area_left_offset_y_uv",
+        "projection_area_right_offset_x_uv",
+        "projection_area_right_offset_y_uv",
+        "projection_area_radius_x_uv",
+        "projection_area_radius_y_uv",
+        "projection_area_corner_radius_uv",
+        "projection_area_opacity",
+        "projection_border_opacity",
+        "projection_alpha_scale",
+        "projection_alpha_bias",
+        "source_visible_rect_x_uv",
+        "source_visible_rect_y_uv",
+        "source_visible_rect_width_uv",
+        "source_visible_rect_height_uv"
+    )
+    $issues = New-Object System.Collections.Generic.List[string]
+    foreach ($line in $LogLines) {
+        if ($line -notmatch "RUSTY_XR_PROJECTION_RUNTIME_MANIFEST") {
+            continue
+        }
+        foreach ($key in $numericKeys) {
+            $pattern = [regex]::Escape($key) + "\[[^\]]*resolved=bool:"
+            if ($line -match $pattern) {
+                $issues.Add($line.Trim())
+                break
+            }
+        }
+    }
+    return @($issues | Select-Object -Unique)
+}
+
 function Get-Sha256Hex {
     param([string]$Path)
     if (Get-Command -Name Get-FileHash -ErrorAction SilentlyContinue) {
@@ -211,6 +272,9 @@ function Set-MakepadBrokerH264Profile {
     $sourceMode = if ($UseBrokerH264Camera) { "broker-camera" } elseif ($UseBrokerH264Synthetic) { "broker-synthetic" } else { "disabled" }
     $projectionGeometryProfile = if ($BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) {
         $BrokerH264ProjectionGeometryProfile.Trim()
+    }
+    elseif ($UseBrokerH264Camera) {
+        $CameraProjectionGeometryProfile
     }
     else {
         $BrokerH264SyntheticProjectionProfile
@@ -281,6 +345,11 @@ function Set-MakepadProjectionTargetProfile {
     $offsetLeftUv = if ([double]::IsNaN($ProjectionAreaOffsetLeftUv)) { -$ProjectionAreaOffsetXUv } else { $ProjectionAreaOffsetLeftUv }
     $offsetRightUv = if ([double]::IsNaN($ProjectionAreaOffsetRightUv)) { -$ProjectionAreaOffsetXUv } else { $ProjectionAreaOffsetRightUv }
     $offsetVerticalUv = $ProjectionAreaOffsetYUv
+    $canonicalOffsetLeftUv = -$offsetLeftUv
+    $canonicalOffsetRightUv = -$offsetRightUv
+    $previewFovYDegrees = if ([double]::IsNaN($CameraPreviewFovYDegrees)) { 60.0 } else { $CameraPreviewFovYDegrees }
+    $previewOffsetYMeters = if ([double]::IsNaN($CameraPreviewOffsetYMeters)) { 0.0 } else { $CameraPreviewOffsetYMeters }
+    $rawOverlayOverscan = if ([double]::IsNaN($CameraRawOverlayOverscan)) { 1.06 } else { $CameraRawOverlayOverscan }
     $props = [ordered]@{
         "debug.rustyxr.makepad.projection.border.policy" = $ProjectionBorderPolicy
         "debug.rustyxr.makepad.native.passthrough.enabled" = $nativePassthrough
@@ -289,13 +358,31 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.projection.alpha.mode" = $ProjectionAlphaMode
         "debug.rustyxr.makepad.projection.alpha.scale" = (Format-InvariantDouble -Value $ProjectionAlphaScale)
         "debug.rustyxr.makepad.projection.alpha.bias" = (Format-InvariantDouble -Value $ProjectionAlphaBias)
+        "debug.rustyxr.makepad.projection.runtime.resolution.enabled" = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
         "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
         "debug.rustyxr.camera.projection.mode" = $CameraProjectionMode
         "debug.rustyxr.makepad.camera.projection.geometry.profile" = $CameraProjectionGeometryProfile
         "debug.rustyxr.projection.scale" = (Format-InvariantDouble -Value $ProjectionScale)
         "debug.rustyxr.projection.depth.meters" = (Format-InvariantDouble -Value $ProjectionDepthMeters)
+        "debug.rustyxr.camera.preview.fov.y.degrees" = (Format-InvariantDouble -Value $previewFovYDegrees)
+        "debug.rustyxr.camera.preview.offset.y.meters" = (Format-InvariantDouble -Value $previewOffsetYMeters)
+        "debug.rustyxr.camera.raw.overlay.overscan" = (Format-InvariantDouble -Value $rawOverlayOverscan)
         "debug.rustyxr.xr.render.scale" = (Format-InvariantDouble -Value $XrRenderScale)
+        "debug.rustyxr.projection.area.left.offset.x.uv" = (Format-InvariantDouble -Value $canonicalOffsetLeftUv)
+        "debug.rustyxr.projection.area.right.offset.x.uv" = (Format-InvariantDouble -Value $canonicalOffsetRightUv)
+        "debug.rustyxr.projection.area.offset.y.uv" = (Format-InvariantDouble -Value $offsetVerticalUv)
+        "debug.rustyxr.projection.area.scale.x" = (Format-InvariantDouble -Value $ProjectionAreaScaleX)
+        "debug.rustyxr.projection.area.scale.y" = (Format-InvariantDouble -Value $ProjectionAreaScaleY)
+        "debug.rustyxr.projection.area.radius.x.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusXUv)
+        "debug.rustyxr.projection.area.radius.y.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusYUv)
+        "debug.rustyxr.projection.area.corner.radius.uv" = (Format-InvariantDouble -Value $ProjectionAreaCornerRadiusUv)
+        "debug.rustyxr.projection.area.opacity" = (Format-InvariantDouble -Value $ProjectionAreaOpacity)
+        "debug.rustyxr.projection.border.opacity" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
+        "debug.rustyxr.projection.border.policy" = $ProjectionBorderPolicy
+        "debug.rustyxr.projection.alpha.mode" = $ProjectionAlphaMode
+        "debug.rustyxr.projection.alpha.scale" = (Format-InvariantDouble -Value $ProjectionAlphaScale)
+        "debug.rustyxr.projection.alpha.bias" = (Format-InvariantDouble -Value $ProjectionAlphaBias)
         "debug.rustyxr.makepad.projection.area.offset.left.uv" = (Format-InvariantDouble -Value $offsetLeftUv)
         "debug.rustyxr.makepad.projection.area.offset.right.uv" = (Format-InvariantDouble -Value $offsetRightUv)
         "debug.rustyxr.makepad.projection.area.offset.vertical.uv" = (Format-InvariantDouble -Value $offsetVerticalUv)
@@ -304,15 +391,6 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.projection.area.radius.x.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusXUv)
         "debug.rustyxr.makepad.projection.area.radius.y.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusYUv)
         "debug.rustyxr.makepad.projection.area.corner.radius.uv" = (Format-InvariantDouble -Value $ProjectionAreaCornerRadiusUv)
-    }
-    if (-not [double]::IsNaN($CameraPreviewFovYDegrees)) {
-        $props["debug.rustyxr.camera.preview.fov.y.degrees"] = (Format-InvariantDouble -Value $CameraPreviewFovYDegrees)
-    }
-    if (-not [double]::IsNaN($CameraPreviewOffsetYMeters)) {
-        $props["debug.rustyxr.camera.preview.offset.y.meters"] = (Format-InvariantDouble -Value $CameraPreviewOffsetYMeters)
-    }
-    if (-not [double]::IsNaN($CameraRawOverlayOverscan)) {
-        $props["debug.rustyxr.camera.raw.overlay.overscan"] = (Format-InvariantDouble -Value $CameraRawOverlayOverscan)
     }
 
     foreach ($entry in $props.GetEnumerator()) {
@@ -329,6 +407,7 @@ function Set-MakepadProjectionTargetProfile {
     }
     $readback | ConvertTo-Json -Depth 3 |
         Set-Content -Path (Join-Path $OutDir "projection-target-props.json") -Encoding UTF8
+    Assert-PropertyReadback -Readback $readback -Label "projection-target"
 }
 
 function Install-Apk {
@@ -377,9 +456,14 @@ function Capture-LaunchState {
     }
     $appPattern = [regex]::Escape($PackageName)
     $xrActivityPattern = [regex]::Escape($XrActivity.TrimStart("."))
-    $activePattern = "$xrActivityPattern|$appPattern"
-    $activeXr = @($activity | Select-String -Pattern $activePattern).Count -gt 0 -and
-        @($window | Select-String -Pattern $activePattern).Count -gt 0
+    $activityHasExpectedPackage = @($activity | Select-String -Pattern $appPattern).Count -gt 0
+    $windowHasExpectedPackage = @($window | Select-String -Pattern $appPattern).Count -gt 0
+    $activityHasExpectedXrActivity = @($activity | Select-String -Pattern $xrActivityPattern).Count -gt 0
+    $windowHasExpectedXrActivity = @($window | Select-String -Pattern $xrActivityPattern).Count -gt 0
+    $activeXr = $activityHasExpectedPackage -and
+        $windowHasExpectedPackage -and
+        $activityHasExpectedXrActivity -and
+        $windowHasExpectedXrActivity
     $endFrame = @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_OPENXR_END_FRAME").Count
     $visiblePanel = @($log | Select-String -SimpleMatch "visibleCameraProjectionReady=true").Count
     $xrCadence = @($log | Select-String -Pattern "RUSTY_XR_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\\.00)").Count
@@ -448,11 +532,17 @@ function Capture-LaunchState {
             $rightTextureUpdateMax = [Math]::Max($rightTextureUpdateMax, [int]$Matches[1])
         }
     }
+    $projectionRuntimeManifestLines = @($log | Select-String -SimpleMatch "RUSTY_XR_PROJECTION_RUNTIME_MANIFEST" | ForEach-Object { $_.Line })
+    $projectionRuntimeNumericTypeIssues = @(Get-ProjectionRuntimeNumericTypeIssues -LogLines $projectionRuntimeManifestLines)
 
     $state = [ordered]@{
         label = $Label
         launchedAt = $LaunchStartedAt.ToString("o")
         activeXrActivity = [bool]$activeXr
+        activityHasExpectedPackage = [bool]$activityHasExpectedPackage
+        windowHasExpectedPackage = [bool]$windowHasExpectedPackage
+        activityHasExpectedXrActivity = [bool]$activityHasExpectedXrActivity
+        windowHasExpectedXrActivity = [bool]$windowHasExpectedXrActivity
         openxrEndFrameCount = $endFrame
         visiblePanelMarkerCount = $visiblePanel
         nonzeroXrCadenceMarkerCount = $xrCadence
@@ -463,6 +553,10 @@ function Capture-LaunchState {
         gpuFaultCount = @($log | Select-String -Pattern "(?i)page fault|gpu.*fault|kgsl|iommu|CP_SQE|faulting").Count
         fatalCount = @($log | Select-String -Pattern "FATAL EXCEPTION|Fatal signal|signal 11|SIGSEGV|Abort message").Count
         hardwareBufferWarningCount = @($log | Select-String -Pattern "(?i)hardware.?buffer|AHardwareBuffer|GraphicBuffer\(w=4").Count
+        projectionRuntimeManifestCount = $projectionRuntimeManifestLines.Count
+        resolvedProjectionRuntimeEnabledMarkerCount = @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_PROJECTION_RUNTIME" | Select-String -SimpleMatch "resolvedManifestConsumptionEnabled=true").Count
+        projectionRuntimeNumericTypeIssueCount = $projectionRuntimeNumericTypeIssues.Count
+        projectionRuntimeNumericTypeIssues = $projectionRuntimeNumericTypeIssues
         s69bMarkerCount = @($log | Select-String -SimpleMatch "s69bHorizontalMirrorFix=true").Count
         s70SquareAspectMarkerCount = @($log | Select-String -SimpleMatch "s70SquareAspectFix=true").Count
         s72HeadCenteredSquareRestoredMarkerCount = @($log | Select-String -SimpleMatch "s72HeadCenteredSquareRestored=true").Count
@@ -566,7 +660,7 @@ function Capture-LaunchState {
         staleS70PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s70-head-centered-aspect-panel-control").Count
         staleS69PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s69-source-eye-swap-panel-control").Count
         staleS68PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s68-active-eye-nonworld-panel-control").Count
-        ready = [bool]($activeXr -and $endFrame -gt 0 -and ($visiblePanel -gt 0 -or $xrCadence -gt 0))
+        ready = [bool]($activeXr -and $processId -and $endFrame -gt 0 -and ($visiblePanel -gt 0 -or $xrCadence -gt 0))
         resumed = @($activity | Select-String -Pattern "ResumedActivity|topResumedActivity|$xrActivityPattern|$appPattern" | ForEach-Object { $_.Line.Trim() })
         focus = @($window | Select-String -Pattern "mCurrentFocus|mFocusedApp|mResumedActivity" | ForEach-Object { $_.Line.Trim() })
     }
@@ -718,6 +812,52 @@ if ($attempts[-1].ready) {
 $readyAttempt = $attempts |
     Where-Object { $_.label -notlike "*-final" -and $_.ready } |
     Select-Object -First 1
+$finalAttempt = $attempts[-1]
+$projectionRuntimeManifestTotal = 0
+$resolvedProjectionRuntimeEnabledMarkerTotal = 0
+$projectionRuntimeNumericTypeIssueTotal = 0
+$projectionRuntimeNumericTypeIssues = @()
+foreach ($attempt in $attempts) {
+    if ($null -ne $attempt.projectionRuntimeManifestCount) {
+        $projectionRuntimeManifestTotal += [int]$attempt.projectionRuntimeManifestCount
+    }
+    if ($null -ne $attempt.resolvedProjectionRuntimeEnabledMarkerCount) {
+        $resolvedProjectionRuntimeEnabledMarkerTotal += [int]$attempt.resolvedProjectionRuntimeEnabledMarkerCount
+    }
+    if ($null -ne $attempt.projectionRuntimeNumericTypeIssueCount) {
+        $projectionRuntimeNumericTypeIssueTotal += [int]$attempt.projectionRuntimeNumericTypeIssueCount
+    }
+    if ($null -ne $attempt.projectionRuntimeNumericTypeIssues) {
+        $projectionRuntimeNumericTypeIssues += @($attempt.projectionRuntimeNumericTypeIssues)
+    }
+}
+$projectionRuntimeGateFailures = @()
+if ($UseResolvedProjectionRuntime) {
+    if ($projectionRuntimeManifestTotal -le 0) {
+        $projectionRuntimeGateFailures += "missing projection runtime manifest"
+    }
+    if ($resolvedProjectionRuntimeEnabledMarkerTotal -le 0) {
+        $projectionRuntimeGateFailures += "missing resolved projection runtime consumption marker"
+    }
+    if ($projectionRuntimeNumericTypeIssueTotal -gt 0) {
+        $projectionRuntimeGateFailures += "numeric projection fields resolved as bool"
+    }
+}
+$resolvedBrokerH264ProjectionGeometryProfile = if ($BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) {
+    $BrokerH264ProjectionGeometryProfile.Trim()
+}
+elseif ($UseBrokerH264Camera) {
+    $CameraProjectionGeometryProfile
+}
+else {
+    $BrokerH264SyntheticProjectionProfile
+}
+$resolvedBrokerH264SyntheticProjectionProfile = if ($UseBrokerH264Camera) {
+    $resolvedBrokerH264ProjectionGeometryProfile
+}
+else {
+    $BrokerH264SyntheticProjectionProfile
+}
 
 $summary = [ordered]@{
     schema = "rusty.xr.makepad-camera-device-gate.v1"
@@ -731,16 +871,17 @@ $summary = [ordered]@{
     brokerH264SourceMode = if ($UseBrokerH264Camera) { "broker-camera" } elseif ($UseBrokerH264Synthetic) { "broker-synthetic" } else { "disabled" }
     cameraProjectionMode = $CameraProjectionMode
     cameraProjectionGeometryProfile = $CameraProjectionGeometryProfile
-    brokerH264ProjectionGeometryProfile = if ($BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) { $BrokerH264ProjectionGeometryProfile.Trim() } else { $BrokerH264SyntheticProjectionProfile }
-    brokerH264SyntheticProjectionProfile = if ($UseBrokerH264Camera -and $BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) { $BrokerH264ProjectionGeometryProfile.Trim() } else { $BrokerH264SyntheticProjectionProfile }
+    brokerH264ProjectionGeometryProfile = $resolvedBrokerH264ProjectionGeometryProfile
+    brokerH264SyntheticProjectionProfile = $resolvedBrokerH264SyntheticProjectionProfile
     projectionBorderPolicy = $ProjectionBorderPolicy
     nativePassthroughRequested = [bool]($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0 -or $ProjectionAlphaMode -ne "fixed")
     projectionAreaOpacity = $ProjectionAreaOpacity
     projectionBorderOpacity = $ProjectionBorderOpacity
-    projectionAlphaMode = $ProjectionAlphaMode
-    projectionAlphaScale = $ProjectionAlphaScale
-    projectionAlphaBias = $ProjectionAlphaBias
-    mediaProjection = [bool]$MediaProjection
+        projectionAlphaMode = $ProjectionAlphaMode
+        projectionAlphaScale = $ProjectionAlphaScale
+        projectionAlphaBias = $ProjectionAlphaBias
+        useResolvedProjectionRuntime = [bool]$UseResolvedProjectionRuntime
+        mediaProjection = [bool]$MediaProjection
     mediaProjectionPort = $MediaProjectionPort
     mediaProjectionWidth = $MediaProjectionWidth
     mediaProjectionHeight = $MediaProjectionHeight
@@ -753,8 +894,17 @@ $summary = [ordered]@{
     launchReady = [bool]$readyAttempt
     recoveredBy = if ($readyAttempt) { $readyAttempt.label } else { "none" }
     attempts = $attempts
+    projectionRuntimeManifestTotal = $projectionRuntimeManifestTotal
+    resolvedProjectionRuntimeEnabledMarkerTotal = $resolvedProjectionRuntimeEnabledMarkerTotal
+    projectionRuntimeNumericTypeIssueTotal = $projectionRuntimeNumericTypeIssueTotal
+    projectionRuntimeNumericTypeIssues = $projectionRuntimeNumericTypeIssues
+    projectionRuntimeGateFailureCount = $projectionRuntimeGateFailures.Count
+    projectionRuntimeGateFailures = $projectionRuntimeGateFailures
     uniqueFreshnessHashes = @($frames.sha256 | Sort-Object -Unique).Count
     freshnessFrames = $frames
 }
 $summary | ConvertTo-Json -Depth 7 | Set-Content -Path (Join-Path $OutDir "summary.json") -Encoding UTF8
 $summary | ConvertTo-Json -Depth 7
+if ($projectionRuntimeGateFailures.Count -gt 0) {
+    throw "resolved projection runtime device gate failed: $($projectionRuntimeGateFailures -join '; ')"
+}

@@ -41,9 +41,9 @@ pub use camera::{
     CameraProjectionState, CameraProjectionStatus, CameraSourceDiagnostic,
     CameraSourceDiagnosticsReport, CameraSourceId, CameraTextureTransform, ImageSize,
     ProjectionTargetState, StereoCameraCalibrationProfile, StereoCameraCandidateDiagnostic,
-    StereoCameraFrameMetadata, StereoCameraFramePair, TemporalProjectionEdgeMode,
-    TemporalProjectionMetrics, TemporalProjectionMode, TemporalProjectionPolicy,
-    VisualProjectionState,
+    StereoCameraFrameMetadata, StereoCameraFramePair, StereoSourceEyeMapping,
+    TemporalProjectionEdgeMode, TemporalProjectionMetrics, TemporalProjectionMode,
+    TemporalProjectionPolicy, VisualProjectionState,
 };
 pub use depth::{
     depth_view_position_from_uv, reference_space_point_from_depth_uv,

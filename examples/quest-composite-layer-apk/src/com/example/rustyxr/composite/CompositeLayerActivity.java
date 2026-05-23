@@ -429,6 +429,7 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraStartDelayMs\":").append(cameraStartDelayMs());
         builder.append(',');
         appendJsonString(builder, "nativeSourceMode", stringExtra("rustyxr.nativeSourceMode", "auto"));
+        builder.append(",\"projectionRuntimeResolutionEnabled\":").append(booleanExtra("rustyxr.projectionRuntimeResolutionEnabled", false));
         builder.append(",\"cameraProjectionFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraProjectionFovYDegrees", DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES)));
         builder.append(",\"cameraPreviewFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraPreviewFovYDegrees", DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES)));
         builder.append(",\"cameraPreviewOffsetYMeters\":").append(floatJson(floatExtra("rustyxr.cameraPreviewOffsetYMeters", DEFAULT_CAMERA_PREVIEW_OFFSET_Y_METERS)));

@@ -960,6 +960,7 @@ dependencies = [
  "rusty-xr-debug-canvas",
  "rusty-xr-osc",
  "rusty-xr-particles",
+ "rusty-xr-runtime-config",
  "serde",
  "serde_json",
 ]
@@ -984,6 +985,7 @@ dependencies = [
  "rusty-xr-camera-model",
  "rusty-xr-contracts",
  "rusty-xr-quest-diagnostics",
+ "rusty-xr-runtime-config",
  "serde",
  "serde_json",
 ]

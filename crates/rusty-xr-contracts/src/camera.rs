@@ -321,6 +321,47 @@ impl CameraImageRotation {
     }
 }
 
+/// Mapping from a display eye to the sampled stereo source eye.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StereoSourceEyeMapping {
+    #[default]
+    DisplayLeftFromLeftSource,
+    DisplayLeftFromRightSource,
+}
+
+impl StereoSourceEyeMapping {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "left-right"
+            | "display-left-from-left"
+            | "display-left-from-left-source"
+            | "displayleftfromleft"
+            | "natural"
+            | "camera50-left" => Some(Self::DisplayLeftFromLeftSource),
+            "right-left"
+            | "display-left-from-right"
+            | "display-left-from-right-source"
+            | "displayleftfromright"
+            | "swapped"
+            | "swap"
+            | "camera51-left" => Some(Self::DisplayLeftFromRightSource),
+            _ => None,
+        }
+    }
+
+    pub const fn stable_id(self) -> &'static str {
+        match self {
+            Self::DisplayLeftFromLeftSource => "display-left-from-left-source",
+            Self::DisplayLeftFromRightSource => "display-left-from-right-source",
+        }
+    }
+
+    pub const fn swaps_display_source_eyes(self) -> bool {
+        matches!(self, Self::DisplayLeftFromRightSource)
+    }
+}
+
 /// Explicit post-projection camera texture transform.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1400,6 +1441,23 @@ mod tests {
         assert!((uv.y - 0.7).abs() < 1.0e-6);
         assert!(transform.is_explicit_visual_check());
         assert!(!CameraTextureTransform::default().is_explicit_visual_check());
+    }
+
+    #[test]
+    fn stereo_source_eye_mapping_parses_public_aliases() {
+        assert_eq!(
+            StereoSourceEyeMapping::parse("left-right"),
+            Some(StereoSourceEyeMapping::DisplayLeftFromLeftSource)
+        );
+        assert_eq!(
+            StereoSourceEyeMapping::parse("display-left-from-right-source"),
+            Some(StereoSourceEyeMapping::DisplayLeftFromRightSource)
+        );
+        assert!(StereoSourceEyeMapping::DisplayLeftFromRightSource.swaps_display_source_eyes());
+        assert_eq!(
+            StereoSourceEyeMapping::DisplayLeftFromRightSource.stable_id(),
+            "display-left-from-right-source"
+        );
     }
 
     #[test]

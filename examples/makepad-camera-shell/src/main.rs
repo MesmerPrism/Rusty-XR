@@ -23,6 +23,7 @@ use rusty_xr_camera_model::{
 };
 #[cfg(target_os = "android")]
 use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
+use rusty_xr_runtime_config as rxrc;
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 use serde_json::Value as JsonValue;
 use std::{
@@ -167,6 +168,8 @@ const KEY_MAKEPAD_PROJECTION_ALPHA_BIAS: &str = "makepad_projection_alpha_bias";
 const KEY_MAKEPAD_PROJECTION_BORDER_POLICY: &str = "makepad_projection_border_policy";
 const KEY_MAKEPAD_PROCESSING_LAYER: &str = "makepad_processing_layer";
 const KEY_MAKEPAD_BLUR_RADIUS_PX: &str = "makepad_blur_radius_px";
+const KEY_MAKEPAD_PROJECTION_RUNTIME_RESOLUTION_ENABLED: &str =
+    "makepad_projection_runtime_resolution_enabled";
 const KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED: &str = "makepad_native_passthrough_enabled";
 const KEY_MAKEPAD_BROKER_H264_ENABLED: &str = "makepad_broker_h264_enabled";
 const KEY_MAKEPAD_BROKER_H264_HOST: &str = "makepad_broker_h264_host";
@@ -1799,7 +1802,7 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.projection_alpha_mode = MakepadProjectionAlphaMode::current().shader_code();
         self.draw_panel.projection_alpha_scale = makepad_projection_alpha_scale();
         self.draw_panel.projection_alpha_bias = makepad_projection_alpha_bias();
-        self.set_horizontal_alignment_tuning(cx, HorizontalAlignmentTuning::default());
+        self.set_horizontal_alignment_tuning(cx, App::horizontal_alignment_tuning());
         self.draw_panel.camera_ready = 1.0;
         self.draw_panel.texture_probe_mode = 2.0;
         self.draw_panel.draw_vars.redraw(cx);
@@ -2496,6 +2499,24 @@ impl App {
             tuning.vertical_offset_uv,
             tuning.content_uv_scale
         ));
+        Self::emit_projection_runtime_manifest_marker(phase, &config, tuning);
+    }
+
+    fn emit_projection_runtime_manifest_marker(
+        phase: &str,
+        config: &RuntimeConfig,
+        tuning: HorizontalAlignmentTuning,
+    ) {
+        let runtime = makepad_projection_runtime_resolution(config, tuning);
+        for line in runtime.manifest_marker_lines("makepad", phase) {
+            emit_marker_line(&line);
+        }
+        emit_marker_line(&format!(
+            "RUSTY_XR_MAKEPAD_PROJECTION_RUNTIME schema=rusty.xr.makepad-projection-runtime.v1 phase={} mode={} resolvedManifestConsumptionEnabled={}",
+            marker_token(phase),
+            makepad_projection_runtime_mode_token(),
+            makepad_projection_runtime_resolution_enabled()
+        ));
     }
 
     fn runtime_config() -> RuntimeConfig {
@@ -3107,6 +3128,17 @@ impl App {
     }
 
     fn horizontal_alignment_tuning() -> HorizontalAlignmentTuning {
+        let legacy = Self::legacy_horizontal_alignment_tuning();
+        if !makepad_projection_runtime_resolution_enabled() {
+            return legacy;
+        }
+
+        let config = Self::runtime_config();
+        let runtime = makepad_projection_runtime_resolution(&config, legacy);
+        makepad_horizontal_alignment_tuning_from_resolution(legacy, &runtime.resolution)
+    }
+
+    fn legacy_horizontal_alignment_tuning() -> HorizontalAlignmentTuning {
         let strength = hotload_f32(
             KEY_MAKEPAD_HORIZONTAL_ALIGNMENT_STRENGTH,
             TARGET_HORIZONTAL_ALIGNMENT_STRENGTH,
@@ -6589,9 +6621,21 @@ enum MakepadProjectionBorderPolicy {
 impl MakepadProjectionBorderPolicy {
     fn current() -> Self {
         let value = hotload_text(KEY_MAKEPAD_PROJECTION_BORDER_POLICY, "solid-red");
+        Self::from_stable_id(&value)
+    }
+
+    fn from_stable_id(value: &str) -> Self {
         match value.trim().to_ascii_lowercase().as_str() {
             "passthrough-underlay" => Self::PassthroughUnderlay,
             _ => Self::SolidRed,
+        }
+    }
+
+    fn from_shader_code(value: f32) -> Self {
+        if value >= 0.5 {
+            Self::PassthroughUnderlay
+        } else {
+            Self::SolidRed
         }
     }
 
@@ -6673,6 +6717,10 @@ enum MakepadProjectionAlphaMode {
 impl MakepadProjectionAlphaMode {
     fn current() -> Self {
         let value = hotload_text(KEY_MAKEPAD_PROJECTION_ALPHA_MODE, "fixed");
+        Self::from_stable_id(&value)
+    }
+
+    fn from_stable_id(value: &str) -> Self {
         match value.trim().to_ascii_lowercase().as_str() {
             "red" | "r" | "channel-r" => Self::Red,
             "green" | "g" | "channel-g" => Self::Green,
@@ -6703,6 +6751,25 @@ impl MakepadProjectionAlphaMode {
             | "inv-chroma"
             | "one-minus-saturation"
             | "1-saturation" => Self::InverseSaturation,
+            _ => Self::Fixed,
+        }
+    }
+
+    fn from_shader_code(value: f32) -> Self {
+        match value.round() as i32 {
+            1 => Self::Red,
+            2 => Self::Green,
+            3 => Self::Blue,
+            4 => Self::Luma,
+            5 => Self::InverseRed,
+            6 => Self::InverseGreen,
+            7 => Self::InverseBlue,
+            8 => Self::InverseLuma,
+            9 => Self::RedDominance,
+            10 => Self::GreenDominance,
+            11 => Self::BlueDominance,
+            12 => Self::Saturation,
+            13 => Self::InverseSaturation,
             _ => Self::Fixed,
         }
     }
@@ -6795,6 +6862,18 @@ fn makepad_source_color_contract_fields(transfer: MakepadSourceColorTransfer) ->
 }
 
 fn makepad_projection_depth_meters() -> f32 {
+    if makepad_projection_runtime_resolution_enabled() {
+        return makepad_current_projection_runtime_float(
+            rxrc::KEY_PROJECTION_DEPTH_METERS,
+            TARGET_PROJECTION_DEPTH_METERS,
+            0.05,
+            10.0,
+        );
+    }
+    makepad_legacy_projection_depth_meters()
+}
+
+fn makepad_legacy_projection_depth_meters() -> f32 {
     hotload_f32(
         KEY_PROJECTION_DEPTH_METERS,
         TARGET_PROJECTION_DEPTH_METERS,
@@ -6818,6 +6897,18 @@ fn makepad_camera_projection_mode_is_world_canvas() -> bool {
 }
 
 fn makepad_projection_preview_fov_y_degrees() -> f32 {
+    if makepad_projection_runtime_resolution_enabled() {
+        return makepad_current_projection_runtime_float(
+            rxrc::KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
+            TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES,
+            1.0,
+            175.0,
+        );
+    }
+    makepad_legacy_projection_preview_fov_y_degrees()
+}
+
+fn makepad_legacy_projection_preview_fov_y_degrees() -> f32 {
     hotload_f32(
         KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
         TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES,
@@ -6827,10 +6918,34 @@ fn makepad_projection_preview_fov_y_degrees() -> f32 {
 }
 
 fn makepad_projection_preview_offset_y_meters() -> f32 {
+    if makepad_projection_runtime_resolution_enabled() {
+        return makepad_current_projection_runtime_float(
+            rxrc::KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
+            0.0,
+            -2.0,
+            2.0,
+        );
+    }
+    makepad_legacy_projection_preview_offset_y_meters()
+}
+
+fn makepad_legacy_projection_preview_offset_y_meters() -> f32 {
     hotload_f32(KEY_CAMERA_PREVIEW_OFFSET_Y_METERS, 0.0, -2.0, 2.0)
 }
 
 fn makepad_projection_raw_overscan() -> f32 {
+    if makepad_projection_runtime_resolution_enabled() {
+        return makepad_current_projection_runtime_float(
+            rxrc::KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
+            TARGET_PROJECTION_RAW_OVERSCAN,
+            1.0,
+            16.0,
+        );
+    }
+    makepad_legacy_projection_raw_overscan()
+}
+
+fn makepad_legacy_projection_raw_overscan() -> f32 {
     hotload_f32(
         KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
         TARGET_PROJECTION_RAW_OVERSCAN,
@@ -6896,67 +7011,35 @@ fn makepad_native_passthrough_enabled() -> bool {
 }
 
 fn makepad_projection_target_marker_fields() -> String {
-    let policy = MakepadProjectionBorderPolicy::current();
+    let tuning = App::horizontal_alignment_tuning();
+    let policy = MakepadProjectionBorderPolicy::from_shader_code(tuning.projection_border_policy);
     let processing_layer = MakepadProcessingLayer::current();
     let source_color_transfer = MakepadSourceColorTransfer::Identity;
-    let alpha_mode = MakepadProjectionAlphaMode::current();
-    let native_passthrough = makepad_native_passthrough_enabled();
+    let alpha_mode = MakepadProjectionAlphaMode::from_shader_code(tuning.projection_alpha_mode);
+    let opacity_needs_passthrough =
+        tuning.projection_area_opacity < 0.999 || tuning.projection_border_opacity < 0.999;
+    let native_passthrough = hotload_bool(
+        KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED,
+        policy.wants_native_passthrough()
+            || opacity_needs_passthrough
+            || alpha_mode.uses_dynamic_alpha(),
+    );
     let projection_depth_meters = makepad_projection_depth_meters();
     let preview_fov_y_degrees = makepad_projection_preview_fov_y_degrees();
     let preview_offset_y_meters = makepad_projection_preview_offset_y_meters();
     let raw_overscan = makepad_projection_raw_overscan();
     let panel_geometry = makepad_projection_panel_geometry();
-    let native_projection_area_left_uv = hotload_f32(
-        KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV,
-        TARGET_PROJECTION_AREA_OFFSET_LEFT_UV,
-        -0.5,
-        0.5,
-    );
-    let native_projection_area_right_uv = hotload_f32(
-        KEY_MAKEPAD_PROJECTION_AREA_OFFSET_RIGHT_UV,
-        TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV,
-        -0.5,
-        0.5,
-    );
-    let native_projection_area_vertical_uv = hotload_f32(
-        KEY_MAKEPAD_PROJECTION_AREA_OFFSET_VERTICAL_UV,
-        TARGET_PROJECTION_AREA_OFFSET_VERTICAL_UV,
-        -0.5,
-        0.5,
-    );
+    let native_projection_area_left_uv = tuning.projection_area_offset_left_uv;
+    let native_projection_area_right_uv = tuning.projection_area_offset_right_uv;
+    let native_projection_area_vertical_uv = tuning.projection_area_offset_vertical_uv;
     let projection_area_left_offset_x_uv = -native_projection_area_left_uv;
     let projection_area_right_offset_x_uv = -native_projection_area_right_uv;
     let projection_area_offset_y_uv = native_projection_area_vertical_uv;
-    let projection_area_scale_x = hotload_f32(
-        KEY_MAKEPAD_PROJECTION_AREA_SCALE_X,
-        TARGET_PROJECTION_AREA_SCALE_X,
-        0.05,
-        4.0,
-    );
-    let projection_area_scale_y = hotload_f32(
-        KEY_MAKEPAD_PROJECTION_AREA_SCALE_Y,
-        TARGET_PROJECTION_AREA_SCALE_Y,
-        0.05,
-        4.0,
-    );
-    let projection_area_radius_x_uv = hotload_f32(
-        KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV,
-        TARGET_PROJECTION_AREA_RADIUS_X_UV,
-        0.05,
-        0.5,
-    );
-    let projection_area_radius_y_uv = hotload_f32(
-        KEY_MAKEPAD_PROJECTION_AREA_RADIUS_Y_UV,
-        TARGET_PROJECTION_AREA_RADIUS_Y_UV,
-        0.05,
-        0.5,
-    );
-    let projection_area_corner_radius_uv = hotload_f32(
-        KEY_MAKEPAD_PROJECTION_AREA_CORNER_RADIUS_UV,
-        TARGET_PROJECTION_AREA_CORNER_RADIUS_UV,
-        0.0,
-        0.5,
-    );
+    let projection_area_scale_x = tuning.projection_area_scale_x;
+    let projection_area_scale_y = tuning.projection_area_scale_y;
+    let projection_area_radius_x_uv = tuning.projection_area_radius_x_uv;
+    let projection_area_radius_y_uv = tuning.projection_area_radius_y_uv;
+    let projection_area_corner_radius_uv = tuning.projection_area_corner_radius_uv;
     let left_projection_area_rect = projection_area_screen_uv_rect(
         projection_area_left_offset_x_uv,
         projection_area_offset_y_uv,
@@ -7001,11 +7084,11 @@ fn makepad_projection_target_marker_fields() -> String {
         panel_geometry.height_meters,
         panel_geometry.offset_y_meters,
         panel_geometry.z_meters,
-        makepad_projection_area_opacity(),
-        makepad_projection_border_opacity(),
+        tuning.projection_area_opacity,
+        tuning.projection_border_opacity,
         alpha_mode.stable_id(),
-        makepad_projection_alpha_scale(),
-        makepad_projection_alpha_bias(),
+        tuning.projection_alpha_scale,
+        tuning.projection_alpha_bias,
         processing_layer.stable_id(),
         makepad_blur_radius_px(),
         source_color_contract,
@@ -7050,6 +7133,610 @@ fn set_runtime_float(
     config
         .set(key, RuntimeValue::Float(value), source)
         .expect("runtime config keys should be public-safe constants");
+}
+
+fn makepad_projection_runtime_resolution_enabled() -> bool {
+    hotload_bool(KEY_MAKEPAD_PROJECTION_RUNTIME_RESOLUTION_ENABLED, false)
+}
+
+fn makepad_projection_runtime_mode_token() -> &'static str {
+    if makepad_projection_runtime_resolution_enabled() {
+        "resolved-manifest"
+    } else {
+        "legacy"
+    }
+}
+
+fn makepad_projection_runtime_resolution(
+    config: &RuntimeConfig,
+    tuning: HorizontalAlignmentTuning,
+) -> rxrc::ProjectionRuntimeConfigResolution {
+    let mut builder = rxrc::ProjectionRuntimeConfigBuilder::new();
+    builder
+        .push_layer(
+            "makepad-defaults",
+            0,
+            makepad_projection_runtime_config_defaults(),
+        )
+        .expect("manifest owner should be valid");
+    builder
+        .push_layer(
+            "makepad-effective",
+            10,
+            makepad_projection_runtime_config_effective(config, tuning),
+        )
+        .expect("manifest owner should be valid");
+
+    let env_config = makepad_projection_runtime_env_config();
+    builder
+        .push_layer("makepad-env", 20, env_config)
+        .expect("manifest owner should be valid");
+
+    let legacy_property_config =
+        makepad_projection_runtime_android_property_config(rxrc::RuntimeKeyAliasStatus::Legacy);
+    builder
+        .push_layer(
+            "makepad-legacy-android-properties",
+            25,
+            legacy_property_config,
+        )
+        .expect("manifest owner should be valid");
+
+    let current_property_config =
+        makepad_projection_runtime_android_property_config(rxrc::RuntimeKeyAliasStatus::Current);
+    builder
+        .push_layer("makepad-android-properties", 30, current_property_config)
+        .expect("manifest owner should be valid");
+
+    builder
+        .with_aliases(makepad_projection_alias_records())
+        .resolve()
+}
+
+fn makepad_projection_runtime_env_config() -> rxrc::RuntimeConfig {
+    let values = rxrc::PROJECTION_RUNTIME_KEY_ALIASES
+        .iter()
+        .filter(|alias| alias.source == rxrc::RuntimeKeyAliasSource::EnvironmentVariable)
+        .filter_map(|alias| std::env::var(alias.alias).ok().map(|value| (alias.alias, value)))
+        .collect::<Vec<_>>();
+    makepad_projection_runtime_alias_config(rxrc::RuntimeConfigSource::Environment, values)
+}
+
+fn makepad_projection_runtime_android_property_config(
+    status: rxrc::RuntimeKeyAliasStatus,
+) -> rxrc::RuntimeConfig {
+    let values = rxrc::PROJECTION_RUNTIME_KEY_ALIASES
+        .iter()
+        .filter(|alias| {
+            alias.source == rxrc::RuntimeKeyAliasSource::AndroidProperty && alias.status == status
+        })
+        .filter_map(|alias| android_system_property_value(alias.alias).map(|value| (alias.alias, value)))
+        .collect::<Vec<_>>();
+    makepad_projection_runtime_alias_config(rxrc::RuntimeConfigSource::AndroidProperty, values)
+}
+
+fn makepad_projection_runtime_alias_config(
+    source: rxrc::RuntimeConfigSource,
+    values: Vec<(&'static str, String)>,
+) -> rxrc::RuntimeConfig {
+    let mut config = rxrc::RuntimeConfig::new();
+    for (key, value) in values {
+        let Ok(parsed) = rxrc::parse_projection_runtime_pairs(source.clone(), [(key, value.as_str())])
+        else {
+            continue;
+        };
+        for setting in parsed.config.iter() {
+            config.insert(setting.clone());
+        }
+    }
+    config
+}
+
+fn makepad_current_projection_runtime_float(
+    key: &str,
+    fallback: f32,
+    min: f32,
+    max: f32,
+) -> f32 {
+    let config = App::runtime_config();
+    let legacy = App::legacy_horizontal_alignment_tuning();
+    let runtime = makepad_projection_runtime_resolution(&config, legacy);
+    makepad_projection_runtime_float(&runtime.resolution, key, fallback, min, max)
+}
+
+fn makepad_projection_runtime_float(
+    resolution: &rxrc::RuntimeConfigResolution,
+    key: &str,
+    fallback: f32,
+    min: f32,
+    max: f32,
+) -> f32 {
+    makepad_projection_runtime_optional_float(resolution, key, min, max).unwrap_or(fallback)
+}
+
+fn makepad_projection_runtime_optional_float(
+    resolution: &rxrc::RuntimeConfigResolution,
+    key: &str,
+    min: f32,
+    max: f32,
+) -> Option<f32> {
+    resolution
+        .resolved()
+        .get(key)
+        .and_then(rxrc::RuntimeValue::as_float)
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(f64::from(min), f64::from(max)) as f32)
+}
+
+fn makepad_projection_runtime_text<'a>(
+    resolution: &'a rxrc::RuntimeConfigResolution,
+    key: &str,
+) -> Option<&'a str> {
+    resolution
+        .resolved()
+        .get(key)
+        .and_then(rxrc::RuntimeValue::as_text)
+}
+
+fn makepad_horizontal_alignment_tuning_from_resolution(
+    mut tuning: HorizontalAlignmentTuning,
+    resolution: &rxrc::RuntimeConfigResolution,
+) -> HorizontalAlignmentTuning {
+    let global_offset_x_uv =
+        makepad_projection_runtime_optional_float(
+            resolution,
+            rxrc::KEY_PROJECTION_AREA_OFFSET_X_UV,
+            -0.5,
+            0.5,
+        );
+    let left_offset_x_uv = makepad_projection_runtime_optional_float(
+        resolution,
+        rxrc::KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
+        -0.5,
+        0.5,
+    )
+    .or(global_offset_x_uv)
+    .unwrap_or(-tuning.projection_area_offset_left_uv);
+    let right_offset_x_uv = makepad_projection_runtime_optional_float(
+        resolution,
+        rxrc::KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV,
+        -0.5,
+        0.5,
+    )
+    .or(global_offset_x_uv)
+    .unwrap_or(-tuning.projection_area_offset_right_uv);
+    tuning.projection_area_offset_left_uv = (-left_offset_x_uv).clamp(-0.5, 0.5);
+    tuning.projection_area_offset_right_uv = (-right_offset_x_uv).clamp(-0.5, 0.5);
+    tuning.projection_area_offset_vertical_uv = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_AREA_OFFSET_Y_UV,
+        tuning.projection_area_offset_vertical_uv,
+        -0.5,
+        0.5,
+    );
+    let uniform_scale =
+        makepad_projection_runtime_optional_float(
+            resolution,
+            rxrc::KEY_PROJECTION_AREA_SCALE_UV,
+            0.5,
+            1.5,
+        );
+    tuning.projection_area_scale_x = makepad_projection_runtime_optional_float(
+        resolution,
+        rxrc::KEY_PROJECTION_AREA_SCALE_X,
+        0.5,
+        1.5,
+    )
+    .or(uniform_scale)
+    .unwrap_or(tuning.projection_area_scale_x);
+    tuning.projection_area_scale_y = makepad_projection_runtime_optional_float(
+        resolution,
+        rxrc::KEY_PROJECTION_AREA_SCALE_Y,
+        0.5,
+        1.5,
+    )
+    .or(uniform_scale)
+    .unwrap_or(tuning.projection_area_scale_y);
+    tuning.projection_area_radius_x_uv = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_AREA_RADIUS_X_UV,
+        tuning.projection_area_radius_x_uv,
+        0.05,
+        0.5,
+    );
+    tuning.projection_area_radius_y_uv = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_AREA_RADIUS_Y_UV,
+        tuning.projection_area_radius_y_uv,
+        0.05,
+        0.5,
+    );
+    tuning.projection_area_corner_radius_uv = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
+        tuning.projection_area_corner_radius_uv,
+        0.0,
+        0.5,
+    );
+    tuning.projection_area_opacity = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_AREA_OPACITY,
+        tuning.projection_area_opacity,
+        0.0,
+        1.0,
+    );
+    tuning.projection_border_opacity = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_BORDER_OPACITY,
+        tuning.projection_border_opacity,
+        0.0,
+        1.0,
+    );
+    if let Some(policy) = makepad_projection_runtime_text(resolution, rxrc::KEY_PROJECTION_BORDER_POLICY) {
+        tuning.projection_border_policy =
+            MakepadProjectionBorderPolicy::from_stable_id(policy).shader_code();
+    }
+    if let Some(alpha_mode) = makepad_projection_runtime_text(resolution, rxrc::KEY_PROJECTION_ALPHA_MODE) {
+        tuning.projection_alpha_mode =
+            MakepadProjectionAlphaMode::from_stable_id(alpha_mode).shader_code();
+    }
+    tuning.projection_alpha_scale = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_ALPHA_SCALE,
+        tuning.projection_alpha_scale,
+        0.0,
+        4.0,
+    );
+    tuning.projection_alpha_bias = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_ALPHA_BIAS,
+        tuning.projection_alpha_bias,
+        -1.0,
+        1.0,
+    );
+    tuning
+}
+
+fn makepad_projection_runtime_config_defaults() -> rxrc::RuntimeConfig {
+    let mut config = rxrc::RuntimeConfig::new();
+    set_projection_manifest_text(
+        &mut config,
+        rxrc::KEY_CAMERA_PROJECTION_MODE,
+        DEFAULT_CAMERA_PROJECTION_MODE,
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_text(
+        &mut config,
+        rxrc::KEY_PROJECTION_GEOMETRY_PROFILE,
+        DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE,
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_SCALE,
+        DEFAULT_PROJECTION_SCALE,
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_DEPTH_METERS,
+        DEFAULT_PROJECTION_DEPTH_METERS,
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
+        f64::from(TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
+        0.0,
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
+        f64::from(TARGET_PROJECTION_RAW_OVERSCAN),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
+        f64::from(-TARGET_PROJECTION_AREA_OFFSET_LEFT_UV),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV,
+        f64::from(-TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_AREA_OFFSET_Y_UV,
+        f64::from(TARGET_PROJECTION_AREA_OFFSET_VERTICAL_UV),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_AREA_SCALE_X,
+        f64::from(TARGET_PROJECTION_AREA_SCALE_X),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_AREA_SCALE_Y,
+        f64::from(TARGET_PROJECTION_AREA_SCALE_Y),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_AREA_RADIUS_X_UV,
+        f64::from(TARGET_PROJECTION_AREA_RADIUS_X_UV),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_AREA_RADIUS_Y_UV,
+        f64::from(TARGET_PROJECTION_AREA_RADIUS_Y_UV),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
+        f64::from(TARGET_PROJECTION_AREA_CORNER_RADIUS_UV),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_AREA_OPACITY,
+        f64::from(TARGET_PROJECTION_AREA_OPACITY),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_BORDER_OPACITY,
+        f64::from(TARGET_PROJECTION_BORDER_OPACITY),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_text(
+        &mut config,
+        rxrc::KEY_PROJECTION_BORDER_POLICY,
+        MakepadProjectionBorderPolicy::SolidRed.stable_id(),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_text(
+        &mut config,
+        rxrc::KEY_PROJECTION_ALPHA_MODE,
+        MakepadProjectionAlphaMode::Fixed.stable_id(),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_ALPHA_SCALE,
+        1.0,
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_ALPHA_BIAS,
+        0.0,
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_text(
+        &mut config,
+        rxrc::KEY_SOURCE_EYE_MAPPING,
+        DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING,
+        rxrc::RuntimeConfigSource::Default,
+    );
+    config
+}
+
+fn makepad_projection_runtime_config_effective(
+    config: &RuntimeConfig,
+    tuning: HorizontalAlignmentTuning,
+) -> rxrc::RuntimeConfig {
+    let mut manifest = rxrc::RuntimeConfig::new();
+    set_projection_manifest_text(
+        &mut manifest,
+        rxrc::KEY_CAMERA_PROJECTION_MODE,
+        &runtime_text(config, KEY_CAMERA_PROJECTION_MODE),
+        rxrc::RuntimeConfigSource::Environment,
+    );
+    set_projection_manifest_text(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_GEOMETRY_PROFILE,
+        &App::direct_camera_projection_geometry_profile(),
+        rxrc::RuntimeConfigSource::Environment,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_SCALE,
+        runtime_float(config, KEY_PROJECTION_SCALE),
+        rxrc::RuntimeConfigSource::Environment,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_DEPTH_METERS,
+        runtime_float(config, KEY_PROJECTION_DEPTH_METERS),
+        rxrc::RuntimeConfigSource::Environment,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
+        runtime_float(config, KEY_CAMERA_PREVIEW_FOV_Y_DEGREES),
+        rxrc::RuntimeConfigSource::Environment,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
+        runtime_float(config, KEY_CAMERA_PREVIEW_OFFSET_Y_METERS),
+        rxrc::RuntimeConfigSource::Environment,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
+        runtime_float(config, KEY_CAMERA_RAW_OVERLAY_OVERSCAN),
+        rxrc::RuntimeConfigSource::Environment,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
+        f64::from(-tuning.projection_area_offset_left_uv),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV,
+        f64::from(-tuning.projection_area_offset_right_uv),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_AREA_OFFSET_Y_UV,
+        f64::from(tuning.projection_area_offset_vertical_uv),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_AREA_SCALE_X,
+        f64::from(tuning.projection_area_scale_x),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_AREA_SCALE_Y,
+        f64::from(tuning.projection_area_scale_y),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_AREA_RADIUS_X_UV,
+        f64::from(tuning.projection_area_radius_x_uv),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_AREA_RADIUS_Y_UV,
+        f64::from(tuning.projection_area_radius_y_uv),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
+        f64::from(tuning.projection_area_corner_radius_uv),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_AREA_OPACITY,
+        f64::from(tuning.projection_area_opacity),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_BORDER_OPACITY,
+        f64::from(tuning.projection_border_opacity),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_text(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_BORDER_POLICY,
+        MakepadProjectionBorderPolicy::current().stable_id(),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_text(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_ALPHA_MODE,
+        MakepadProjectionAlphaMode::current().stable_id(),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_ALPHA_SCALE,
+        f64::from(tuning.projection_alpha_scale),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_ALPHA_BIAS,
+        f64::from(tuning.projection_alpha_bias),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_text(
+        &mut manifest,
+        rxrc::KEY_SOURCE_EYE_MAPPING,
+        makepad_display_source_eye_mapping(),
+        rxrc::RuntimeConfigSource::Synthetic,
+    );
+    manifest
+}
+
+fn makepad_projection_alias_records() -> Vec<rxrc::RuntimeKeyAliasRecord> {
+    [
+        "debug.rustyxr.projection.depth.meters",
+        "debug.rustyxr.camera.preview.fov.y.degrees",
+        "debug.rustyxr.camera.preview.offset.y.meters",
+        "debug.rustyxr.camera.raw.overlay.overscan",
+        "debug.rustyxr.projection.area.scale.uv",
+        "debug.rustyxr.projection.area.offset.x.uv",
+        "debug.rustyxr.projection.area.left.offset.x.uv",
+        "debug.rustyxr.projection.area.right.offset.x.uv",
+        "debug.rustyxr.projection.area.offset.y.uv",
+        "debug.rustyxr.projection.area.scale.x",
+        "debug.rustyxr.projection.area.scale.y",
+        "debug.rustyxr.projection.area.radius.x.uv",
+        "debug.rustyxr.projection.area.radius.y.uv",
+        "debug.rustyxr.projection.area.corner.radius.uv",
+        "debug.rustyxr.projection.area.opacity",
+        "debug.rustyxr.projection.border.opacity",
+        "debug.rustyxr.projection.border.policy",
+        "debug.rustyxr.projection.alpha.mode",
+        "debug.rustyxr.projection.alpha.scale",
+        "debug.rustyxr.projection.alpha.bias",
+        "debug.rustyxr.makepad.camera.projection.geometry.profile",
+        "debug.rustyxr.makepad.projection.area.offset.left.uv",
+        "debug.rustyxr.makepad.projection.area.offset.right.uv",
+        "debug.rustyxr.makepad.projection.area.offset.vertical.uv",
+        "debug.rustyxr.makepad.projection.area.scale.x",
+        "debug.rustyxr.makepad.projection.area.scale.y",
+        "debug.rustyxr.makepad.projection.area.radius.x.uv",
+        "debug.rustyxr.makepad.projection.area.radius.y.uv",
+        "debug.rustyxr.makepad.projection.area.corner.radius.uv",
+        "debug.rustyxr.makepad.projection.area.opacity",
+        "debug.rustyxr.makepad.projection.border.opacity",
+        "debug.rustyxr.makepad.projection.border.policy",
+        "debug.rustyxr.makepad.projection.alpha.mode",
+        "debug.rustyxr.makepad.projection.alpha.scale",
+        "debug.rustyxr.makepad.projection.alpha.bias",
+    ]
+    .into_iter()
+    .filter_map(|key| rxrc::resolve_projection_runtime_key(key).ok())
+    .collect()
+}
+
+fn set_projection_manifest_text(
+    config: &mut rxrc::RuntimeConfig,
+    key: &'static str,
+    value: &str,
+    source: rxrc::RuntimeConfigSource,
+) {
+    config
+        .set(key, rxrc::RuntimeValue::Text(value.to_string()), source)
+        .expect("projection manifest keys should be public-safe");
+}
+
+fn set_projection_manifest_float(
+    config: &mut rxrc::RuntimeConfig,
+    key: &'static str,
+    value: f64,
+    source: rxrc::RuntimeConfigSource,
+) {
+    config
+        .set(key, rxrc::RuntimeValue::Float(value), source)
+        .expect("projection manifest keys should be public-safe");
 }
 
 fn runtime_text(config: &RuntimeConfig, key: &str) -> String {
@@ -7140,6 +7827,11 @@ fn runtime_property_name(key: &'static str) -> String {
 
 #[cfg(target_os = "android")]
 fn runtime_property_value(key: &'static str) -> Option<String> {
+    android_system_property_value(&runtime_property_name(key))
+}
+
+#[cfg(target_os = "android")]
+fn android_system_property_value(name: &str) -> Option<String> {
     use std::ffi::{CStr, CString};
     use std::os::raw::{c_char, c_int};
 
@@ -7148,7 +7840,7 @@ fn runtime_property_value(key: &'static str) -> Option<String> {
         fn __system_property_get(name: *const c_char, value: *mut c_char) -> c_int;
     }
 
-    let name = CString::new(runtime_property_name(key)).ok()?;
+    let name = CString::new(name).ok()?;
     let mut value = [0 as c_char; 128];
     let len = unsafe { __system_property_get(name.as_ptr(), value.as_mut_ptr()) };
     if len <= 0 {
@@ -7167,6 +7859,11 @@ fn runtime_property_value(key: &'static str) -> Option<String> {
 
 #[cfg(not(target_os = "android"))]
 fn runtime_property_value(_key: &'static str) -> Option<String> {
+    None
+}
+
+#[cfg(not(target_os = "android"))]
+fn android_system_property_value(_name: &str) -> Option<String> {
     None
 }
 

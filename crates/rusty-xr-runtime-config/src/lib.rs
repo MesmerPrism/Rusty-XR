@@ -58,6 +58,147 @@ impl FromStr for RuntimeKey {
     }
 }
 
+/// Broad area that owns a runtime key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeKeyDomain {
+    Projection,
+}
+
+/// Projection sub-contract that owns a runtime key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectionRuntimeKeyOwner {
+    Geometry,
+    ProjectionArea,
+    SourceSampling,
+    Alpha,
+    RendererPolicy,
+}
+
+/// Expected value shape for a runtime key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeValueKind {
+    Bool,
+    Integer,
+    Float,
+    Text,
+}
+
+/// Public runtime-key registry entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeKeyDefinition {
+    pub key: &'static str,
+    pub domain: RuntimeKeyDomain,
+    pub owner: ProjectionRuntimeKeyOwner,
+    pub value_kind: RuntimeValueKind,
+    pub description: &'static str,
+}
+
+impl RuntimeKeyDefinition {
+    pub fn runtime_key(&self) -> RuntimeKey {
+        RuntimeKey::new(self.key).expect("registered runtime keys should be valid")
+    }
+}
+
+/// Source spelling accepted for a runtime-key alias.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeKeyAliasSource {
+    Canonical,
+    LaunchExtra,
+    AndroidProperty,
+    EnvironmentVariable,
+    LegacyRuntimeKey,
+}
+
+/// Compatibility status for a runtime-key alias.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeKeyAliasStatus {
+    Canonical,
+    Current,
+    Legacy,
+    Deprecated,
+}
+
+/// Value transformation needed when an alias has different historical
+/// semantics than its canonical key.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeKeyAliasValueTransform {
+    Identity,
+    NegateNumber,
+}
+
+impl RuntimeKeyAliasValueTransform {
+    fn apply(
+        self,
+        alias: &str,
+        raw_value: &str,
+        value: RuntimeValue,
+    ) -> Result<RuntimeValue, RuntimeConfigError> {
+        match self {
+            Self::Identity => Ok(value),
+            Self::NegateNumber => match value {
+                RuntimeValue::Integer(value) => value
+                    .checked_neg()
+                    .map(RuntimeValue::Integer)
+                    .ok_or_else(|| RuntimeConfigError::InvalidAliasValue {
+                        alias: alias.to_string(),
+                        value: raw_value.to_string(),
+                    }),
+                RuntimeValue::Float(value) => Ok(RuntimeValue::Float(-value)),
+                RuntimeValue::Bool(_) | RuntimeValue::Text(_) => {
+                    Err(RuntimeConfigError::InvalidAliasValue {
+                        alias: alias.to_string(),
+                        value: raw_value.to_string(),
+                    })
+                }
+            },
+        }
+    }
+}
+
+/// Exact alias accepted for a canonical runtime key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeKeyAlias {
+    pub alias: &'static str,
+    pub canonical_key: &'static str,
+    pub source: RuntimeKeyAliasSource,
+    pub status: RuntimeKeyAliasStatus,
+    pub value_transform: RuntimeKeyAliasValueTransform,
+}
+
+impl RuntimeKeyAlias {
+    pub fn canonical_runtime_key(&self) -> RuntimeKey {
+        RuntimeKey::new(self.canonical_key).expect("registered aliases should target valid keys")
+    }
+}
+
+/// Alias evidence recorded when an input key is canonicalized.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeKeyAliasRecord {
+    pub input_key: String,
+    pub canonical_key: RuntimeKey,
+    pub source: RuntimeKeyAliasSource,
+    pub status: RuntimeKeyAliasStatus,
+    pub value_transform: RuntimeKeyAliasValueTransform,
+}
+
+/// Parsed runtime config plus key-alias evidence.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeConfigAliasParse {
+    pub config: RuntimeConfig,
+    pub aliases: Vec<RuntimeKeyAliasRecord>,
+}
+
+impl RuntimeConfigAliasParse {
+    pub fn into_config(self) -> RuntimeConfig {
+        self.config
+    }
+}
+
 /// Public Android property prefix. Keep app-specific prefixes in app repos.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,6 +228,40 @@ impl Default for AndroidPropertyPrefix {
     }
 }
 
+/// Public owner label for a runtime-config layer.
+///
+/// Owners describe where a group of settings came from, such as a launch
+/// profile, Android property readback, file profile, or backend default table.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RuntimeConfigOwner(String);
+
+impl RuntimeConfigOwner {
+    pub fn new(value: impl Into<String>) -> Result<Self, RuntimeConfigError> {
+        let value = value.into();
+        validate_owner(&value)?;
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for RuntimeConfigOwner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for RuntimeConfigOwner {
+    type Err = RuntimeConfigError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::new(value)
+    }
+}
+
 /// Generic runtime setting value.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Debug, PartialEq)]
@@ -112,6 +287,20 @@ impl RuntimeValue {
             }
         }
         Self::Text(trimmed.to_string())
+    }
+
+    pub fn parse_for_kind(raw: &str, kind: RuntimeValueKind) -> Option<Self> {
+        let trimmed = raw.trim();
+        match kind {
+            RuntimeValueKind::Bool => parse_bool(trimmed).map(Self::Bool),
+            RuntimeValueKind::Integer => trimmed.parse::<i64>().ok().map(Self::Integer),
+            RuntimeValueKind::Float => trimmed
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite())
+                .map(Self::Float),
+            RuntimeValueKind::Text => Some(Self::Text(trimmed.to_string())),
+        }
     }
 
     pub fn as_bool(&self) -> Option<bool> {
@@ -219,20 +408,1194 @@ impl RuntimeConfig {
     }
 }
 
+pub const KEY_CAMERA_PROJECTION_MODE: &str = "camera_projection_mode";
+pub const KEY_PROJECTION_GEOMETRY_PROFILE: &str = "projection_geometry_profile";
+pub const KEY_SYNTHETIC_PROJECTION_PROFILE: &str = "synthetic_projection_profile";
+pub const KEY_PROJECTION_SCALE: &str = "projection_scale";
+pub const KEY_PROJECTION_DEPTH_METERS: &str = "projection_depth_meters";
+pub const KEY_CAMERA_PROJECTION_FOV_Y_DEGREES: &str = "camera_projection_fov_y_degrees";
+pub const KEY_CAMERA_PREVIEW_FOV_Y_DEGREES: &str = "camera_preview_fov_y_degrees";
+pub const KEY_CAMERA_PREVIEW_OFFSET_Y_METERS: &str = "camera_preview_offset_y_meters";
+pub const KEY_CAMERA_RAW_OVERLAY_OVERSCAN: &str = "camera_raw_overlay_overscan";
+pub const KEY_PROJECTION_AREA_SCALE_UV: &str = "projection_area_scale_uv";
+pub const KEY_PROJECTION_AREA_SCALE_X: &str = "projection_area_scale_x";
+pub const KEY_PROJECTION_AREA_SCALE_Y: &str = "projection_area_scale_y";
+pub const KEY_PROJECTION_AREA_OFFSET_X_UV: &str = "projection_area_offset_x_uv";
+pub const KEY_PROJECTION_AREA_OFFSET_Y_UV: &str = "projection_area_offset_y_uv";
+pub const KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV: &str = "projection_area_left_offset_x_uv";
+pub const KEY_PROJECTION_AREA_LEFT_OFFSET_Y_UV: &str = "projection_area_left_offset_y_uv";
+pub const KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV: &str = "projection_area_right_offset_x_uv";
+pub const KEY_PROJECTION_AREA_RIGHT_OFFSET_Y_UV: &str = "projection_area_right_offset_y_uv";
+pub const KEY_PROJECTION_AREA_RADIUS_X_UV: &str = "projection_area_radius_x_uv";
+pub const KEY_PROJECTION_AREA_RADIUS_Y_UV: &str = "projection_area_radius_y_uv";
+pub const KEY_PROJECTION_AREA_CORNER_RADIUS_UV: &str = "projection_area_corner_radius_uv";
+pub const KEY_PROJECTION_AREA_OPACITY: &str = "projection_area_opacity";
+pub const KEY_PROJECTION_BORDER_OPACITY: &str = "projection_border_opacity";
+pub const KEY_PROJECTION_BORDER_POLICY: &str = "projection_border_policy";
+pub const KEY_PROJECTION_ALPHA_MODE: &str = "projection_alpha_mode";
+pub const KEY_PROJECTION_ALPHA_SCALE: &str = "projection_alpha_scale";
+pub const KEY_PROJECTION_ALPHA_BIAS: &str = "projection_alpha_bias";
+pub const KEY_SOURCE_EYE_MAPPING: &str = "source_eye_mapping";
+pub const KEY_SOURCE_TEXTURE_ROTATION: &str = "source_texture_rotation";
+pub const KEY_SOURCE_TEXTURE_FLIP_X: &str = "source_texture_flip_x";
+pub const KEY_SOURCE_TEXTURE_FLIP_Y: &str = "source_texture_flip_y";
+pub const KEY_SOURCE_TEXTURE_MIRROR: &str = "source_texture_mirror";
+pub const KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE: &str = "source_texture_transform_source";
+pub const KEY_SOURCE_TEXTURE_TRANSFORM_REASON: &str = "source_texture_transform_reason";
+pub const KEY_LEFT_SOURCE_TEXTURE_TRANSFORM_SOURCE: &str = "left_source_texture_transform_source";
+pub const KEY_RIGHT_SOURCE_TEXTURE_TRANSFORM_SOURCE: &str = "right_source_texture_transform_source";
+pub const KEY_SOURCE_VISIBLE_RECT_X_UV: &str = "source_visible_rect_x_uv";
+pub const KEY_SOURCE_VISIBLE_RECT_Y_UV: &str = "source_visible_rect_y_uv";
+pub const KEY_SOURCE_VISIBLE_RECT_WIDTH_UV: &str = "source_visible_rect_width_uv";
+pub const KEY_SOURCE_VISIBLE_RECT_HEIGHT_UV: &str = "source_visible_rect_height_uv";
+
+/// Canonical projection runtime keys.
+pub const PROJECTION_RUNTIME_KEY_DEFINITIONS: &[RuntimeKeyDefinition] = &[
+    projection_key(
+        KEY_CAMERA_PROJECTION_MODE,
+        ProjectionRuntimeKeyOwner::Geometry,
+        RuntimeValueKind::Text,
+        "Projection placement mode selected by the runtime profile.",
+    ),
+    projection_key(
+        KEY_PROJECTION_GEOMETRY_PROFILE,
+        ProjectionRuntimeKeyOwner::Geometry,
+        RuntimeValueKind::Text,
+        "Named projection geometry profile used for renderer and analyzer parity.",
+    ),
+    projection_key(
+        KEY_SYNTHETIC_PROJECTION_PROFILE,
+        ProjectionRuntimeKeyOwner::Geometry,
+        RuntimeValueKind::Text,
+        "Named projection profile embedded in synthetic source metadata.",
+    ),
+    projection_key(
+        KEY_PROJECTION_SCALE,
+        ProjectionRuntimeKeyOwner::Geometry,
+        RuntimeValueKind::Float,
+        "Legacy projection scale retained as an explicit non-depth tuning key.",
+    ),
+    projection_key(
+        KEY_PROJECTION_DEPTH_METERS,
+        ProjectionRuntimeKeyOwner::Geometry,
+        RuntimeValueKind::Float,
+        "Head-anchored projection surface depth in meters.",
+    ),
+    projection_key(
+        KEY_CAMERA_PROJECTION_FOV_Y_DEGREES,
+        ProjectionRuntimeKeyOwner::Geometry,
+        RuntimeValueKind::Float,
+        "Projection camera vertical field of view in degrees.",
+    ),
+    projection_key(
+        KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
+        ProjectionRuntimeKeyOwner::Geometry,
+        RuntimeValueKind::Float,
+        "Preview camera vertical field of view in degrees.",
+    ),
+    projection_key(
+        KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
+        ProjectionRuntimeKeyOwner::Geometry,
+        RuntimeValueKind::Float,
+        "Preview camera vertical offset in meters.",
+    ),
+    projection_key(
+        KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
+        ProjectionRuntimeKeyOwner::Geometry,
+        RuntimeValueKind::Float,
+        "Raw camera overlay overscan factor.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_SCALE_UV,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Uniform projection-area scale in display-eye screen UV.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_SCALE_X,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Horizontal projection-area scale in display-eye screen UV.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_SCALE_Y,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Vertical projection-area scale in display-eye screen UV.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_OFFSET_X_UV,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Global projection-area horizontal offset; positive X moves right.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_OFFSET_Y_UV,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Global projection-area vertical offset; positive Y moves down.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Left-eye projection-area horizontal offset; positive X moves right.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_LEFT_OFFSET_Y_UV,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Left-eye projection-area vertical offset; positive Y moves down.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Right-eye projection-area horizontal offset; positive X moves right.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_RIGHT_OFFSET_Y_UV,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Right-eye projection-area vertical offset; positive Y moves down.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_RADIUS_X_UV,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Projection-area horizontal radius in display-eye screen UV.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_RADIUS_Y_UV,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Projection-area vertical radius in display-eye screen UV.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Projection-area corner radius in display-eye screen UV.",
+    ),
+    projection_key(
+        KEY_PROJECTION_AREA_OPACITY,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Projection-area source opacity.",
+    ),
+    projection_key(
+        KEY_PROJECTION_BORDER_OPACITY,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Float,
+        "Projection-area border opacity.",
+    ),
+    projection_key(
+        KEY_PROJECTION_BORDER_POLICY,
+        ProjectionRuntimeKeyOwner::ProjectionArea,
+        RuntimeValueKind::Text,
+        "Projection-area border fill policy.",
+    ),
+    projection_key(
+        KEY_PROJECTION_ALPHA_MODE,
+        ProjectionRuntimeKeyOwner::Alpha,
+        RuntimeValueKind::Text,
+        "Projection alpha interpretation mode.",
+    ),
+    projection_key(
+        KEY_PROJECTION_ALPHA_SCALE,
+        ProjectionRuntimeKeyOwner::Alpha,
+        RuntimeValueKind::Float,
+        "Projection alpha scale.",
+    ),
+    projection_key(
+        KEY_PROJECTION_ALPHA_BIAS,
+        ProjectionRuntimeKeyOwner::Alpha,
+        RuntimeValueKind::Float,
+        "Projection alpha bias.",
+    ),
+    projection_key(
+        KEY_SOURCE_EYE_MAPPING,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Text,
+        "Mapping from display eye to sampled source eye.",
+    ),
+    projection_key(
+        KEY_SOURCE_TEXTURE_ROTATION,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Text,
+        "Source texture rotation before projection sampling.",
+    ),
+    projection_key(
+        KEY_SOURCE_TEXTURE_FLIP_X,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Bool,
+        "Source texture horizontal flip before projection sampling.",
+    ),
+    projection_key(
+        KEY_SOURCE_TEXTURE_FLIP_Y,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Bool,
+        "Source texture vertical flip before projection sampling.",
+    ),
+    projection_key(
+        KEY_SOURCE_TEXTURE_MIRROR,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Bool,
+        "Source texture mirror operation before projection sampling.",
+    ),
+    projection_key(
+        KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Text,
+        "Owner that supplied the source texture transform.",
+    ),
+    projection_key(
+        KEY_SOURCE_TEXTURE_TRANSFORM_REASON,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Text,
+        "Reason for the selected source texture transform.",
+    ),
+    projection_key(
+        KEY_LEFT_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Text,
+        "Owner that supplied the left-eye source texture transform.",
+    ),
+    projection_key(
+        KEY_RIGHT_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Text,
+        "Owner that supplied the right-eye source texture transform.",
+    ),
+    projection_key(
+        KEY_SOURCE_VISIBLE_RECT_X_UV,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Float,
+        "Source-visible rectangle X coordinate in normalized source UV.",
+    ),
+    projection_key(
+        KEY_SOURCE_VISIBLE_RECT_Y_UV,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Float,
+        "Source-visible rectangle Y coordinate in normalized source UV.",
+    ),
+    projection_key(
+        KEY_SOURCE_VISIBLE_RECT_WIDTH_UV,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Float,
+        "Source-visible rectangle width in normalized source UV.",
+    ),
+    projection_key(
+        KEY_SOURCE_VISIBLE_RECT_HEIGHT_UV,
+        ProjectionRuntimeKeyOwner::SourceSampling,
+        RuntimeValueKind::Float,
+        "Source-visible rectangle height in normalized source UV.",
+    ),
+];
+
+const fn projection_key(
+    key: &'static str,
+    owner: ProjectionRuntimeKeyOwner,
+    value_kind: RuntimeValueKind,
+    description: &'static str,
+) -> RuntimeKeyDefinition {
+    RuntimeKeyDefinition {
+        key,
+        domain: RuntimeKeyDomain::Projection,
+        owner,
+        value_kind,
+        description,
+    }
+}
+
+/// Compatibility aliases for projection runtime keys.
+pub const PROJECTION_RUNTIME_KEY_ALIASES: &[RuntimeKeyAlias] = &[
+    launch_alias("rustyxr.cameraProjectionMode", KEY_CAMERA_PROJECTION_MODE),
+    launch_alias(
+        "rustyxr.cameraProjectionGeometryProfile",
+        KEY_PROJECTION_GEOMETRY_PROFILE,
+    ),
+    launch_alias(
+        "rustyxr.brokerH264ProjectionGeometryProfile",
+        KEY_PROJECTION_GEOMETRY_PROFILE,
+    ),
+    launch_alias(
+        "rustyxr.brokerH264SyntheticProjectionProfile",
+        KEY_SYNTHETIC_PROJECTION_PROFILE,
+    ),
+    launch_alias("rustyxr.cameraProjectionScale", KEY_PROJECTION_SCALE),
+    launch_alias("rustyxr.projectionDepthMeters", KEY_PROJECTION_DEPTH_METERS),
+    launch_alias(
+        "rustyxr.cameraProjectionFovYDegrees",
+        KEY_CAMERA_PROJECTION_FOV_Y_DEGREES,
+    ),
+    launch_alias(
+        "rustyxr.cameraPreviewFovYDegrees",
+        KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
+    ),
+    launch_alias(
+        "rustyxr.cameraPreviewOffsetYMeters",
+        KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
+    ),
+    launch_alias(
+        "rustyxr.cameraRawOverlayOverscan",
+        KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
+    ),
+    launch_alias(
+        "rustyxr.projectionAreaScaleUv",
+        KEY_PROJECTION_AREA_SCALE_UV,
+    ),
+    launch_alias("rustyxr.projectionAreaScaleX", KEY_PROJECTION_AREA_SCALE_X),
+    launch_alias("rustyxr.projectionAreaScaleY", KEY_PROJECTION_AREA_SCALE_Y),
+    launch_alias(
+        "rustyxr.projectionAreaOffsetXUv",
+        KEY_PROJECTION_AREA_OFFSET_X_UV,
+    ),
+    launch_alias(
+        "rustyxr.projectionAreaOffsetYUv",
+        KEY_PROJECTION_AREA_OFFSET_Y_UV,
+    ),
+    launch_alias(
+        "rustyxr.projectionAreaLeftOffsetXUv",
+        KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
+    ),
+    launch_alias(
+        "rustyxr.projectionAreaLeftOffsetYUv",
+        KEY_PROJECTION_AREA_LEFT_OFFSET_Y_UV,
+    ),
+    launch_alias(
+        "rustyxr.projectionAreaRightOffsetXUv",
+        KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV,
+    ),
+    launch_alias(
+        "rustyxr.projectionAreaRightOffsetYUv",
+        KEY_PROJECTION_AREA_RIGHT_OFFSET_Y_UV,
+    ),
+    launch_alias(
+        "rustyxr.projectionAreaRadiusXUv",
+        KEY_PROJECTION_AREA_RADIUS_X_UV,
+    ),
+    launch_alias(
+        "rustyxr.projectionAreaRadiusYUv",
+        KEY_PROJECTION_AREA_RADIUS_Y_UV,
+    ),
+    launch_alias(
+        "rustyxr.projectionAreaCornerRadiusUv",
+        KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
+    ),
+    launch_alias("rustyxr.projectionAreaOpacity", KEY_PROJECTION_AREA_OPACITY),
+    launch_alias(
+        "rustyxr.projectionBorderOpacity",
+        KEY_PROJECTION_BORDER_OPACITY,
+    ),
+    launch_alias(
+        "rustyxr.projectionBorderPolicy",
+        KEY_PROJECTION_BORDER_POLICY,
+    ),
+    launch_alias("rustyxr.projectionAlphaMode", KEY_PROJECTION_ALPHA_MODE),
+    launch_alias("rustyxr.projectionAlphaScale", KEY_PROJECTION_ALPHA_SCALE),
+    launch_alias("rustyxr.projectionAlphaBias", KEY_PROJECTION_ALPHA_BIAS),
+    launch_alias("rustyxr.cameraSourceEyeMapping", KEY_SOURCE_EYE_MAPPING),
+    launch_alias("rustyxr.cameraTextureRotation", KEY_SOURCE_TEXTURE_ROTATION),
+    launch_alias("rustyxr.cameraTextureFlipX", KEY_SOURCE_TEXTURE_FLIP_X),
+    launch_alias("rustyxr.cameraTextureFlipY", KEY_SOURCE_TEXTURE_FLIP_Y),
+    launch_alias("rustyxr.cameraTextureMirror", KEY_SOURCE_TEXTURE_MIRROR),
+    launch_alias(
+        "rustyxr.cameraTextureTransformSource",
+        KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+    ),
+    launch_alias(
+        "rustyxr.cameraTextureTransformReason",
+        KEY_SOURCE_TEXTURE_TRANSFORM_REASON,
+    ),
+    launch_alias(
+        "rustyxr.leftCameraTextureTransformSource",
+        KEY_LEFT_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+    ),
+    launch_alias(
+        "rustyxr.rightCameraTextureTransformSource",
+        KEY_RIGHT_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+    ),
+    property_alias(
+        "debug.rustyxr.camera.projection.mode",
+        KEY_CAMERA_PROJECTION_MODE,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.geometry.profile",
+        KEY_PROJECTION_GEOMETRY_PROFILE,
+    ),
+    property_alias("debug.rustyxr.projection.scale", KEY_PROJECTION_SCALE),
+    property_alias(
+        "debug.rustyxr.projection.depth.meters",
+        KEY_PROJECTION_DEPTH_METERS,
+    ),
+    property_alias(
+        "debug.rustyxr.camera.projection.fov.y.degrees",
+        KEY_CAMERA_PROJECTION_FOV_Y_DEGREES,
+    ),
+    property_alias(
+        "debug.rustyxr.camera.preview.fov.y.degrees",
+        KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
+    ),
+    property_alias(
+        "debug.rustyxr.camera.preview.offset.y.meters",
+        KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
+    ),
+    property_alias(
+        "debug.rustyxr.camera.raw.overlay.overscan",
+        KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.scale.uv",
+        KEY_PROJECTION_AREA_SCALE_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.scale.x",
+        KEY_PROJECTION_AREA_SCALE_X,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.scale.y",
+        KEY_PROJECTION_AREA_SCALE_Y,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.offset.x.uv",
+        KEY_PROJECTION_AREA_OFFSET_X_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.offset.y.uv",
+        KEY_PROJECTION_AREA_OFFSET_Y_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.left.offset.x.uv",
+        KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.left.offset.y.uv",
+        KEY_PROJECTION_AREA_LEFT_OFFSET_Y_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.right.offset.x.uv",
+        KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.right.offset.y.uv",
+        KEY_PROJECTION_AREA_RIGHT_OFFSET_Y_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.radius.x.uv",
+        KEY_PROJECTION_AREA_RADIUS_X_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.radius.y.uv",
+        KEY_PROJECTION_AREA_RADIUS_Y_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.corner.radius.uv",
+        KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.area.opacity",
+        KEY_PROJECTION_AREA_OPACITY,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.border.opacity",
+        KEY_PROJECTION_BORDER_OPACITY,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.border.policy",
+        KEY_PROJECTION_BORDER_POLICY,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.alpha.mode",
+        KEY_PROJECTION_ALPHA_MODE,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.alpha.scale",
+        KEY_PROJECTION_ALPHA_SCALE,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.alpha.bias",
+        KEY_PROJECTION_ALPHA_BIAS,
+    ),
+    property_alias("debug.rustyxr.source.eye.mapping", KEY_SOURCE_EYE_MAPPING),
+    property_alias(
+        "debug.rustyxr.source.texture.transform.source",
+        KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+    ),
+    property_alias(
+        "debug.rustyxr.source.visible.rect.x.uv",
+        KEY_SOURCE_VISIBLE_RECT_X_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.source.visible.rect.y.uv",
+        KEY_SOURCE_VISIBLE_RECT_Y_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.source.visible.rect.width.uv",
+        KEY_SOURCE_VISIBLE_RECT_WIDTH_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.source.visible.rect.height.uv",
+        KEY_SOURCE_VISIBLE_RECT_HEIGHT_UV,
+    ),
+    env_alias(
+        "RUSTY_XR_PROJECTION_DEPTH_METERS",
+        KEY_PROJECTION_DEPTH_METERS,
+    ),
+    env_alias(
+        "RUSTY_XR_CAMERA_PREVIEW_FOV_Y_DEGREES",
+        KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
+    ),
+    env_alias(
+        "RUSTY_XR_CAMERA_PREVIEW_OFFSET_Y_METERS",
+        KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
+    ),
+    env_alias(
+        "RUSTY_XR_CAMERA_RAW_OVERLAY_OVERSCAN",
+        KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.camera.projection.geometry.profile",
+        KEY_PROJECTION_GEOMETRY_PROFILE,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.broker.h264.projection.geometry.profile",
+        KEY_PROJECTION_GEOMETRY_PROFILE,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.broker.h264.synthetic.projection.profile",
+        KEY_SYNTHETIC_PROJECTION_PROFILE,
+    ),
+    legacy_property_alias_with_transform(
+        "debug.rustyxr.makepad.projection.area.offset.left.uv",
+        KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
+        RuntimeKeyAliasValueTransform::NegateNumber,
+    ),
+    legacy_property_alias_with_transform(
+        "debug.rustyxr.makepad.projection.area.offset.right.uv",
+        KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV,
+        RuntimeKeyAliasValueTransform::NegateNumber,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.area.offset.vertical.uv",
+        KEY_PROJECTION_AREA_OFFSET_Y_UV,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.area.scale.x",
+        KEY_PROJECTION_AREA_SCALE_X,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.area.scale.y",
+        KEY_PROJECTION_AREA_SCALE_Y,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.area.radius.x.uv",
+        KEY_PROJECTION_AREA_RADIUS_X_UV,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.area.radius.y.uv",
+        KEY_PROJECTION_AREA_RADIUS_Y_UV,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.area.corner.radius.uv",
+        KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.area.opacity",
+        KEY_PROJECTION_AREA_OPACITY,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.border.opacity",
+        KEY_PROJECTION_BORDER_OPACITY,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.border.policy",
+        KEY_PROJECTION_BORDER_POLICY,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.alpha.mode",
+        KEY_PROJECTION_ALPHA_MODE,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.alpha.scale",
+        KEY_PROJECTION_ALPHA_SCALE,
+    ),
+    legacy_property_alias(
+        "debug.rustyxr.makepad.projection.alpha.bias",
+        KEY_PROJECTION_ALPHA_BIAS,
+    ),
+];
+
+const fn launch_alias(alias: &'static str, canonical_key: &'static str) -> RuntimeKeyAlias {
+    RuntimeKeyAlias {
+        alias,
+        canonical_key,
+        source: RuntimeKeyAliasSource::LaunchExtra,
+        status: RuntimeKeyAliasStatus::Current,
+        value_transform: RuntimeKeyAliasValueTransform::Identity,
+    }
+}
+
+const fn property_alias(alias: &'static str, canonical_key: &'static str) -> RuntimeKeyAlias {
+    RuntimeKeyAlias {
+        alias,
+        canonical_key,
+        source: RuntimeKeyAliasSource::AndroidProperty,
+        status: RuntimeKeyAliasStatus::Current,
+        value_transform: RuntimeKeyAliasValueTransform::Identity,
+    }
+}
+
+const fn env_alias(alias: &'static str, canonical_key: &'static str) -> RuntimeKeyAlias {
+    RuntimeKeyAlias {
+        alias,
+        canonical_key,
+        source: RuntimeKeyAliasSource::EnvironmentVariable,
+        status: RuntimeKeyAliasStatus::Current,
+        value_transform: RuntimeKeyAliasValueTransform::Identity,
+    }
+}
+
+const fn legacy_property_alias(
+    alias: &'static str,
+    canonical_key: &'static str,
+) -> RuntimeKeyAlias {
+    legacy_property_alias_with_transform(
+        alias,
+        canonical_key,
+        RuntimeKeyAliasValueTransform::Identity,
+    )
+}
+
+const fn legacy_property_alias_with_transform(
+    alias: &'static str,
+    canonical_key: &'static str,
+    value_transform: RuntimeKeyAliasValueTransform,
+) -> RuntimeKeyAlias {
+    RuntimeKeyAlias {
+        alias,
+        canonical_key,
+        source: RuntimeKeyAliasSource::AndroidProperty,
+        status: RuntimeKeyAliasStatus::Legacy,
+        value_transform,
+    }
+}
+
+pub fn projection_runtime_key_definition(key: &str) -> Option<&'static RuntimeKeyDefinition> {
+    PROJECTION_RUNTIME_KEY_DEFINITIONS
+        .iter()
+        .find(|definition| definition.key == key)
+}
+
+pub fn projection_runtime_key_alias(alias: &str) -> Option<&'static RuntimeKeyAlias> {
+    PROJECTION_RUNTIME_KEY_ALIASES
+        .iter()
+        .find(|definition| definition.alias == alias)
+}
+
+pub fn resolve_projection_runtime_key(
+    input: &str,
+) -> Result<RuntimeKeyAliasRecord, RuntimeConfigError> {
+    if projection_runtime_key_definition(input).is_some() {
+        return Ok(RuntimeKeyAliasRecord {
+            input_key: input.to_string(),
+            canonical_key: RuntimeKey::new(input)?,
+            source: RuntimeKeyAliasSource::Canonical,
+            status: RuntimeKeyAliasStatus::Canonical,
+            value_transform: RuntimeKeyAliasValueTransform::Identity,
+        });
+    }
+
+    let alias = projection_runtime_key_alias(input)
+        .ok_or_else(|| RuntimeConfigError::UnknownRuntimeKeyAlias(input.to_string()))?;
+    Ok(RuntimeKeyAliasRecord {
+        input_key: input.to_string(),
+        canonical_key: alias.canonical_runtime_key(),
+        source: alias.source,
+        status: alias.status,
+        value_transform: alias.value_transform,
+    })
+}
+
+pub fn parse_projection_runtime_pairs<'a>(
+    source: RuntimeConfigSource,
+    pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Result<RuntimeConfigAliasParse, RuntimeConfigError> {
+    let mut config = RuntimeConfig::new();
+    let mut aliases = Vec::new();
+    for (input_key, raw_value) in pairs {
+        let alias = resolve_projection_runtime_key(input_key)?;
+        let definition = projection_runtime_key_definition(alias.canonical_key.as_str())
+            .expect("resolved projection aliases should target registered keys");
+        let value =
+            RuntimeValue::parse_for_kind(raw_value, definition.value_kind).ok_or_else(|| {
+                RuntimeConfigError::InvalidAliasValue {
+                    alias: input_key.to_string(),
+                    value: raw_value.to_string(),
+                }
+            })?;
+        let value = alias.value_transform.apply(input_key, raw_value, value)?;
+        config.insert(RuntimeSetting::new(
+            alias.canonical_key.clone(),
+            value,
+            source.clone(),
+        ));
+        aliases.push(alias);
+    }
+
+    Ok(RuntimeConfigAliasParse { config, aliases })
+}
+
+/// One runtime-config layer with explicit precedence.
+///
+/// Higher precedence wins. If two layers use the same precedence for the same
+/// key, the later layer wins so callers can keep deterministic local override
+/// behavior.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeConfigLayer {
+    pub owner: RuntimeConfigOwner,
+    pub precedence: u32,
+    pub config: RuntimeConfig,
+}
+
+impl RuntimeConfigLayer {
+    pub fn new(
+        owner: impl Into<String>,
+        precedence: u32,
+        config: RuntimeConfig,
+    ) -> Result<Self, RuntimeConfigError> {
+        Ok(Self {
+            owner: RuntimeConfigOwner::new(owner)?,
+            precedence,
+            config,
+        })
+    }
+}
+
+/// Candidate value considered during resolution.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeConfigCandidate {
+    pub key: RuntimeKey,
+    pub value: RuntimeValue,
+    pub source: RuntimeConfigSource,
+    pub owner: RuntimeConfigOwner,
+    pub precedence: u32,
+}
+
+impl RuntimeConfigCandidate {
+    fn from_setting(setting: &RuntimeSetting, owner: &RuntimeConfigOwner, precedence: u32) -> Self {
+        Self {
+            key: setting.key.clone(),
+            value: setting.value.clone(),
+            source: setting.source.clone(),
+            owner: owner.clone(),
+            precedence,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct OrderedRuntimeConfigCandidate {
+    candidate: RuntimeConfigCandidate,
+    layer_order: usize,
+}
+
+/// Resolved value for one key, including all candidate values.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeResolvedSetting {
+    pub key: RuntimeKey,
+    pub value: RuntimeValue,
+    pub source: RuntimeConfigSource,
+    pub owner: RuntimeConfigOwner,
+    pub precedence: u32,
+    pub default_value: Option<RuntimeValue>,
+    pub candidates: Vec<RuntimeConfigCandidate>,
+}
+
+impl RuntimeResolvedSetting {
+    pub fn overridden_candidates(&self) -> impl Iterator<Item = &RuntimeConfigCandidate> {
+        self.candidates
+            .iter()
+            .filter(move |candidate| !candidate_matches_resolution(candidate, self))
+    }
+}
+
+/// Full traced resolution for a set of runtime-config layers.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RuntimeConfigResolution {
+    resolved: RuntimeConfig,
+    settings: BTreeMap<RuntimeKey, RuntimeResolvedSetting>,
+}
+
+impl RuntimeConfigResolution {
+    pub fn resolved(&self) -> &RuntimeConfig {
+        &self.resolved
+    }
+
+    pub fn get(&self, key: &str) -> Option<&RuntimeResolvedSetting> {
+        self.settings.get(&RuntimeKey::new(key).ok()?)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &RuntimeResolvedSetting> {
+        self.settings.values()
+    }
+}
+
+/// Projection-specific resolved runtime config plus alias evidence.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProjectionRuntimeConfigResolution {
+    pub resolution: RuntimeConfigResolution,
+    pub aliases: Vec<RuntimeKeyAliasRecord>,
+}
+
+impl ProjectionRuntimeConfigResolution {
+    pub fn manifest_marker_lines(&self, backend: &str, phase: &str) -> Vec<String> {
+        projection_runtime_manifest_marker_lines(backend, phase, &self.resolution, &self.aliases)
+    }
+}
+
+/// Builder for traced projection runtime config layers.
+#[derive(Clone, Debug, Default)]
+pub struct ProjectionRuntimeConfigBuilder {
+    resolver: RuntimeConfigResolver,
+    aliases: Vec<RuntimeKeyAliasRecord>,
+}
+
+impl ProjectionRuntimeConfigBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn push_layer(
+        &mut self,
+        owner: impl Into<String>,
+        precedence: u32,
+        config: RuntimeConfig,
+    ) -> Result<&mut Self, RuntimeConfigError> {
+        if config.iter().next().is_some() {
+            self.resolver
+                .push_layer(RuntimeConfigLayer::new(owner, precedence, config)?);
+        }
+        Ok(self)
+    }
+
+    pub fn with_layer(
+        mut self,
+        owner: impl Into<String>,
+        precedence: u32,
+        config: RuntimeConfig,
+    ) -> Result<Self, RuntimeConfigError> {
+        self.push_layer(owner, precedence, config)?;
+        Ok(self)
+    }
+
+    pub fn push_aliases(
+        &mut self,
+        aliases: impl IntoIterator<Item = RuntimeKeyAliasRecord>,
+    ) -> &mut Self {
+        self.aliases.extend(aliases);
+        self
+    }
+
+    pub fn with_aliases(
+        mut self,
+        aliases: impl IntoIterator<Item = RuntimeKeyAliasRecord>,
+    ) -> Self {
+        self.push_aliases(aliases);
+        self
+    }
+
+    pub fn resolve(self) -> ProjectionRuntimeConfigResolution {
+        ProjectionRuntimeConfigResolution {
+            resolution: self.resolver.resolve(),
+            aliases: self.aliases,
+        }
+    }
+}
+
+pub fn projection_runtime_manifest_marker_lines(
+    backend: &str,
+    phase: &str,
+    resolution: &RuntimeConfigResolution,
+    aliases: &[RuntimeKeyAliasRecord],
+) -> Vec<String> {
+    const ALIASES_PER_LINE: usize = 8;
+    const FIELDS_PER_LINE: usize = 4;
+    let fields = resolution
+        .iter()
+        .filter(|setting| projection_runtime_key_definition(setting.key.as_str()).is_some())
+        .map(projection_runtime_manifest_field_token)
+        .collect::<Vec<_>>();
+    let alias_tokens = projection_runtime_alias_tokens(aliases);
+    let field_count = fields.len();
+    let alias_part_count = alias_tokens.len().div_ceil(ALIASES_PER_LINE);
+    let field_part_count = field_count.div_ceil(FIELDS_PER_LINE).max(1);
+    let part_count = alias_part_count + field_part_count;
+    let mut lines = Vec::new();
+    let backend = sanitize_marker_token(backend);
+    let phase = sanitize_marker_token(phase);
+
+    for (index, chunk) in alias_tokens.chunks(ALIASES_PER_LINE).enumerate() {
+        lines.push(format!(
+            "RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend={} phase={} part={}/{} section=aliases fieldCount={} aliasCount={} aliases={} fields=none",
+            backend,
+            phase,
+            index + 1,
+            part_count,
+            field_count,
+            aliases.len(),
+            chunk.join("|")
+        ));
+    }
+
+    if fields.is_empty() {
+        lines.push(format!(
+            "RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend={} phase={} part={}/{} section=fields fieldCount=0 aliasCount={} aliases={} fields=none",
+            backend,
+            phase,
+            alias_part_count + 1,
+            part_count,
+            aliases.len(),
+            if aliases.is_empty() { "none" } else { "see-section-aliases" }
+        ));
+        return lines;
+    }
+
+    for (index, chunk) in fields.chunks(FIELDS_PER_LINE).enumerate() {
+        lines.push(format!(
+            "RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend={} phase={} part={}/{} section=fields fieldCount={} aliasCount={} aliases={} fields={}",
+            backend,
+            phase,
+            alias_part_count + index + 1,
+            part_count,
+            field_count,
+            aliases.len(),
+            if aliases.is_empty() { "none" } else { "see-section-aliases" },
+            chunk.join(";")
+        ));
+    }
+
+    lines
+}
+
+fn projection_runtime_manifest_field_token(setting: &RuntimeResolvedSetting) -> String {
+    let default_value = setting
+        .default_value
+        .as_ref()
+        .map(runtime_value_marker_token)
+        .unwrap_or_else(|| "none".to_string());
+    let candidates = setting
+        .candidates
+        .iter()
+        .map(|candidate| {
+            format!(
+                "{}:{}:{}:{}",
+                candidate.precedence,
+                sanitize_marker_token(candidate.owner.as_str()),
+                runtime_source_marker_token(&candidate.source),
+                runtime_value_marker_token(&candidate.value)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+    format!(
+        "{}[owner={},resolved={},source={},default={},candidates={}]",
+        setting.key.as_str(),
+        sanitize_marker_token(setting.owner.as_str()),
+        runtime_value_marker_token(&setting.value),
+        runtime_source_marker_token(&setting.source),
+        default_value,
+        candidates
+    )
+}
+
+fn projection_runtime_alias_tokens(aliases: &[RuntimeKeyAliasRecord]) -> Vec<String> {
+    aliases
+        .iter()
+        .map(|alias| {
+            format!(
+                "{}>{}:{}:{}:{}",
+                sanitize_marker_token(&alias.input_key),
+                alias.canonical_key.as_str(),
+                alias_source_marker_token(alias.source),
+                alias_status_marker_token(alias.status),
+                alias_transform_marker_token(alias.value_transform)
+            )
+        })
+        .collect::<Vec<_>>()
+}
+
+fn runtime_value_marker_token(value: &RuntimeValue) -> String {
+    match value {
+        RuntimeValue::Bool(value) => format!("bool:{value}"),
+        RuntimeValue::Integer(value) => format!("int:{value}"),
+        RuntimeValue::Float(value) => format!("float:{value:.6}"),
+        RuntimeValue::Text(value) => format!("text:{}", sanitize_marker_token(value)),
+    }
+}
+
+fn runtime_source_marker_token(source: &RuntimeConfigSource) -> &'static str {
+    match source {
+        RuntimeConfigSource::Default => "default",
+        RuntimeConfigSource::Environment => "environment",
+        RuntimeConfigSource::AndroidProperty => "android-property",
+        RuntimeConfigSource::File => "file",
+        RuntimeConfigSource::CommandLine => "command-line",
+        RuntimeConfigSource::Synthetic => "synthetic",
+    }
+}
+
+fn alias_source_marker_token(source: RuntimeKeyAliasSource) -> &'static str {
+    match source {
+        RuntimeKeyAliasSource::Canonical => "canonical",
+        RuntimeKeyAliasSource::LaunchExtra => "launch-extra",
+        RuntimeKeyAliasSource::AndroidProperty => "android-property",
+        RuntimeKeyAliasSource::EnvironmentVariable => "environment-variable",
+        RuntimeKeyAliasSource::LegacyRuntimeKey => "legacy-runtime-key",
+    }
+}
+
+fn alias_status_marker_token(status: RuntimeKeyAliasStatus) -> &'static str {
+    match status {
+        RuntimeKeyAliasStatus::Canonical => "canonical",
+        RuntimeKeyAliasStatus::Current => "current",
+        RuntimeKeyAliasStatus::Legacy => "legacy",
+        RuntimeKeyAliasStatus::Deprecated => "deprecated",
+    }
+}
+
+fn alias_transform_marker_token(transform: RuntimeKeyAliasValueTransform) -> &'static str {
+    match transform {
+        RuntimeKeyAliasValueTransform::Identity => "identity",
+        RuntimeKeyAliasValueTransform::NegateNumber => "negate-number",
+    }
+}
+
+fn sanitize_marker_token(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':' | '/') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Incremental resolver for layered runtime configuration.
+#[derive(Clone, Debug, Default)]
+pub struct RuntimeConfigResolver {
+    layers: Vec<RuntimeConfigLayer>,
+}
+
+impl RuntimeConfigResolver {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn push_layer(&mut self, layer: RuntimeConfigLayer) {
+        self.layers.push(layer);
+    }
+
+    pub fn with_layer(mut self, layer: RuntimeConfigLayer) -> Self {
+        self.push_layer(layer);
+        self
+    }
+
+    pub fn resolve(&self) -> RuntimeConfigResolution {
+        let mut by_key: BTreeMap<RuntimeKey, Vec<OrderedRuntimeConfigCandidate>> = BTreeMap::new();
+        for (layer_order, layer) in self.layers.iter().enumerate() {
+            for setting in layer.config.iter() {
+                by_key.entry(setting.key.clone()).or_default().push(
+                    OrderedRuntimeConfigCandidate {
+                        candidate: RuntimeConfigCandidate::from_setting(
+                            setting,
+                            &layer.owner,
+                            layer.precedence,
+                        ),
+                        layer_order,
+                    },
+                );
+            }
+        }
+
+        let mut resolved = RuntimeConfig::new();
+        let mut settings = BTreeMap::new();
+        for (key, mut candidates) in by_key {
+            candidates.sort_by(|left, right| {
+                right
+                    .candidate
+                    .precedence
+                    .cmp(&left.candidate.precedence)
+                    .then_with(|| right.layer_order.cmp(&left.layer_order))
+            });
+
+            let winner = candidates
+                .first()
+                .expect("candidate vector should not be empty")
+                .candidate
+                .clone();
+            let default_value = candidates
+                .iter()
+                .find(|candidate| candidate.candidate.source == RuntimeConfigSource::Default)
+                .map(|candidate| candidate.candidate.value.clone());
+            let public_candidates = candidates
+                .into_iter()
+                .map(|candidate| candidate.candidate)
+                .collect::<Vec<_>>();
+            let setting = RuntimeResolvedSetting {
+                key: key.clone(),
+                value: winner.value.clone(),
+                source: winner.source.clone(),
+                owner: winner.owner.clone(),
+                precedence: winner.precedence,
+                default_value,
+                candidates: public_candidates,
+            };
+
+            resolved.insert(RuntimeSetting::new(
+                key.clone(),
+                winner.value,
+                winner.source,
+            ));
+            settings.insert(key, setting);
+        }
+
+        RuntimeConfigResolution { resolved, settings }
+    }
+}
+
 /// Runtime configuration parsing error.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeConfigError {
     InvalidKey(String),
+    InvalidOwner(String),
     InvalidAndroidPropertyPrefix(String),
+    UnknownRuntimeKeyAlias(String),
+    InvalidAliasValue { alias: String, value: String },
 }
 
 impl fmt::Display for RuntimeConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidKey(value) => write!(f, "invalid runtime config key: {value}"),
+            Self::InvalidOwner(value) => write!(f, "invalid runtime config owner: {value}"),
             Self::InvalidAndroidPropertyPrefix(value) => {
                 write!(f, "invalid Android property prefix: {value}")
+            }
+            Self::UnknownRuntimeKeyAlias(value) => {
+                write!(f, "unknown runtime config key alias: {value}")
+            }
+            Self::InvalidAliasValue { alias, value } => {
+                write!(f, "invalid value for runtime config alias {alias}: {value}")
             }
         }
     }
@@ -260,6 +1623,36 @@ fn validate_key(value: &str) -> Result<(), RuntimeConfigError> {
     }
 
     Ok(())
+}
+
+fn validate_owner(value: &str) -> Result<(), RuntimeConfigError> {
+    if value.is_empty() {
+        return Err(RuntimeConfigError::InvalidOwner(value.to_string()));
+    }
+
+    for byte in value.bytes() {
+        let is_valid = byte.is_ascii_lowercase()
+            || byte.is_ascii_digit()
+            || byte == b'_'
+            || byte == b'-'
+            || byte == b'.';
+        if !is_valid {
+            return Err(RuntimeConfigError::InvalidOwner(value.to_string()));
+        }
+    }
+
+    Ok(())
+}
+
+fn candidate_matches_resolution(
+    candidate: &RuntimeConfigCandidate,
+    setting: &RuntimeResolvedSetting,
+) -> bool {
+    candidate.key == setting.key
+        && candidate.value == setting.value
+        && candidate.source == setting.source
+        && candidate.owner == setting.owner
+        && candidate.precedence == setting.precedence
 }
 
 fn parse_bool(value: &str) -> Option<bool> {
@@ -328,6 +1721,296 @@ mod tests {
 
         assert_eq!(keys, ["a_value", "z_value"]);
         assert_eq!(config.get("a_value"), Some(&RuntimeValue::Bool(true)));
+    }
+
+    #[test]
+    fn projection_runtime_registry_keys_are_valid_and_unique() {
+        let mut seen = BTreeMap::new();
+        for definition in PROJECTION_RUNTIME_KEY_DEFINITIONS {
+            assert_eq!(definition.runtime_key().as_str(), definition.key);
+            assert!(
+                seen.insert(definition.key, definition.owner).is_none(),
+                "duplicate projection key {}",
+                definition.key
+            );
+        }
+    }
+
+    #[test]
+    fn projection_runtime_aliases_resolve_to_registered_keys() {
+        let mut seen = BTreeMap::new();
+        for alias in PROJECTION_RUNTIME_KEY_ALIASES {
+            assert!(
+                projection_runtime_key_definition(alias.canonical_key).is_some(),
+                "alias {} targets unregistered key {}",
+                alias.alias,
+                alias.canonical_key
+            );
+            assert!(
+                seen.insert(alias.alias, alias.canonical_key).is_none(),
+                "duplicate alias {}",
+                alias.alias
+            );
+        }
+
+        let launch = resolve_projection_runtime_key("rustyxr.projectionDepthMeters")
+            .expect("launch extra alias should resolve");
+        assert_eq!(launch.canonical_key.as_str(), KEY_PROJECTION_DEPTH_METERS);
+        assert_eq!(launch.source, RuntimeKeyAliasSource::LaunchExtra);
+
+        let property = resolve_projection_runtime_key("debug.rustyxr.projection.depth.meters")
+            .expect("Android property alias should resolve");
+        assert_eq!(property.canonical_key.as_str(), KEY_PROJECTION_DEPTH_METERS);
+        assert_eq!(property.source, RuntimeKeyAliasSource::AndroidProperty);
+    }
+
+    #[test]
+    fn parses_projection_runtime_pairs_with_alias_evidence() {
+        let parsed = parse_projection_runtime_pairs(
+            RuntimeConfigSource::CommandLine,
+            [
+                ("rustyxr.projectionDepthMeters", "1.25"),
+                ("source_eye_mapping", "right-left"),
+                ("debug.rustyxr.source.visible.rect.width.uv", "0.875"),
+            ],
+        )
+        .expect("projection pairs should parse");
+
+        assert_eq!(
+            parsed.config.get(KEY_PROJECTION_DEPTH_METERS),
+            Some(&RuntimeValue::Float(1.25))
+        );
+        assert_eq!(
+            parsed.config.get(KEY_SOURCE_EYE_MAPPING),
+            Some(&RuntimeValue::Text("right-left".to_string()))
+        );
+        assert_eq!(
+            parsed.config.get(KEY_SOURCE_VISIBLE_RECT_WIDTH_UV),
+            Some(&RuntimeValue::Float(0.875))
+        );
+        assert_eq!(parsed.aliases.len(), 3);
+        assert_eq!(parsed.aliases[0].source, RuntimeKeyAliasSource::LaunchExtra);
+        assert_eq!(parsed.aliases[1].source, RuntimeKeyAliasSource::Canonical);
+        assert_eq!(
+            parsed.aliases[2].source,
+            RuntimeKeyAliasSource::AndroidProperty
+        );
+    }
+
+    #[test]
+    fn parses_projection_alias_values_using_registered_value_kind() {
+        let parsed = parse_projection_runtime_pairs(
+            RuntimeConfigSource::AndroidProperty,
+            [
+                ("debug.rustyxr.projection.depth.meters", "1"),
+                ("debug.rustyxr.camera.preview.offset.y.meters", "0"),
+                ("rustyxr.cameraTextureFlipX", "true"),
+                ("debug.rustyxr.projection.alpha.mode", "source-alpha"),
+            ],
+        )
+        .expect("registered projection value kinds should parse");
+
+        assert_eq!(
+            parsed.config.get(KEY_PROJECTION_DEPTH_METERS),
+            Some(&RuntimeValue::Float(1.0))
+        );
+        assert_eq!(
+            parsed.config.get(KEY_CAMERA_PREVIEW_OFFSET_Y_METERS),
+            Some(&RuntimeValue::Float(0.0))
+        );
+        assert_eq!(
+            parsed.config.get(KEY_SOURCE_TEXTURE_FLIP_X),
+            Some(&RuntimeValue::Bool(true))
+        );
+        assert_eq!(
+            parsed.config.get(KEY_PROJECTION_ALPHA_MODE),
+            Some(&RuntimeValue::Text("source-alpha".to_string()))
+        );
+    }
+
+    #[test]
+    fn parses_legacy_makepad_horizontal_projection_offsets_with_sign_transform() {
+        let parsed = parse_projection_runtime_pairs(
+            RuntimeConfigSource::AndroidProperty,
+            [(
+                "debug.rustyxr.makepad.projection.area.offset.left.uv",
+                "0.125",
+            )],
+        )
+        .expect("legacy Makepad offset should parse");
+
+        assert_eq!(
+            parsed.config.get(KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV),
+            Some(&RuntimeValue::Float(-0.125))
+        );
+        assert_eq!(parsed.aliases[0].status, RuntimeKeyAliasStatus::Legacy);
+        assert_eq!(
+            parsed.aliases[0].value_transform,
+            RuntimeKeyAliasValueTransform::NegateNumber
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_projection_runtime_aliases() {
+        assert_eq!(
+            resolve_projection_runtime_key("rustyxr.privateEffectStrength").unwrap_err(),
+            RuntimeConfigError::UnknownRuntimeKeyAlias("rustyxr.privateEffectStrength".to_string())
+        );
+    }
+
+    #[test]
+    fn projection_manifest_marker_lines_include_resolution_trace() {
+        let defaults = parse_projection_runtime_pairs(
+            RuntimeConfigSource::Default,
+            [("projection_depth_meters", "1.0")],
+        )
+        .expect("defaults should parse");
+        let requested = parse_projection_runtime_pairs(
+            RuntimeConfigSource::AndroidProperty,
+            [("debug.rustyxr.projection.depth.meters", "1.5")],
+        )
+        .expect("properties should parse");
+        let resolution = RuntimeConfigResolver::new()
+            .with_layer(RuntimeConfigLayer::new("backend-defaults", 0, defaults.config).unwrap())
+            .with_layer(
+                RuntimeConfigLayer::new("android-properties", 20, requested.config).unwrap(),
+            )
+            .resolve();
+        let lines = projection_runtime_manifest_marker_lines(
+            "oes",
+            "startup",
+            &resolution,
+            &requested.aliases,
+        );
+
+        assert_eq!(lines.len(), 2);
+        let joined = lines.join("\n");
+        assert!(joined.contains("schema=rusty.xr.projection-runtime-manifest.v1"));
+        assert!(joined.contains("backend=oes"));
+        assert!(joined.contains("section=aliases"));
+        assert!(joined.contains("section=fields"));
+        assert!(joined.contains("projection_depth_meters"));
+        assert!(joined.contains("resolved=float:1.500000"));
+        assert!(joined.contains("default=float:1.000000"));
+        assert!(joined.contains("debug.rustyxr.projection.depth.meters>projection_depth_meters"));
+    }
+
+    #[test]
+    fn projection_runtime_builder_collects_layers_and_aliases() {
+        let defaults = parse_projection_runtime_pairs(
+            RuntimeConfigSource::Default,
+            [("projection_depth_meters", "1.0")],
+        )
+        .expect("defaults should parse");
+        let requested = parse_projection_runtime_pairs(
+            RuntimeConfigSource::AndroidProperty,
+            [("debug.rustyxr.projection.depth.meters", "1.25")],
+        )
+        .expect("properties should parse");
+        let runtime = ProjectionRuntimeConfigBuilder::new()
+            .with_layer("backend-defaults", 0, defaults.config)
+            .expect("default layer should be valid")
+            .with_layer("android-properties", 20, requested.config)
+            .expect("property layer should be valid")
+            .with_aliases(requested.aliases)
+            .resolve();
+
+        assert_eq!(
+            runtime
+                .resolution
+                .resolved()
+                .get(KEY_PROJECTION_DEPTH_METERS),
+            Some(&RuntimeValue::Float(1.25))
+        );
+        assert_eq!(runtime.aliases.len(), 1);
+        let lines = runtime.manifest_marker_lines("oes", "startup");
+        let joined = lines.join("\n");
+        assert!(joined.contains("backend=oes"));
+        assert!(joined.contains("owner=android-properties"));
+        assert!(joined.contains("resolved=float:1.250000"));
+    }
+
+    #[test]
+    fn resolves_layered_runtime_config_with_trace() {
+        let defaults = RuntimeConfig::parse_pairs(
+            RuntimeConfigSource::Default,
+            [
+                ("projection_depth_meters", "1.0"),
+                ("projection_area_scale_x", "1.0"),
+            ],
+        )
+        .expect("defaults should parse");
+        let launch = RuntimeConfig::parse_pairs(
+            RuntimeConfigSource::CommandLine,
+            [("projection_depth_meters", "1.25")],
+        )
+        .expect("launch values should parse");
+        let properties = RuntimeConfig::parse_pairs(
+            RuntimeConfigSource::AndroidProperty,
+            [("projection_depth_meters", "1.5")],
+        )
+        .expect("property values should parse");
+
+        let resolution = RuntimeConfigResolver::new()
+            .with_layer(RuntimeConfigLayer::new("backend-defaults", 0, defaults).unwrap())
+            .with_layer(RuntimeConfigLayer::new("launch-profile", 10, launch).unwrap())
+            .with_layer(RuntimeConfigLayer::new("android-properties", 20, properties).unwrap())
+            .resolve();
+
+        assert_eq!(
+            resolution.resolved().get("projection_depth_meters"),
+            Some(&RuntimeValue::Float(1.5))
+        );
+
+        let setting = resolution
+            .get("projection_depth_meters")
+            .expect("depth should be resolved");
+        assert_eq!(setting.source, RuntimeConfigSource::AndroidProperty);
+        assert_eq!(setting.owner.as_str(), "android-properties");
+        assert_eq!(setting.default_value, Some(RuntimeValue::Float(1.0)));
+        assert_eq!(setting.candidates.len(), 3);
+        assert_eq!(
+            setting
+                .overridden_candidates()
+                .map(|candidate| candidate.owner.as_str())
+                .collect::<Vec<_>>(),
+            ["launch-profile", "backend-defaults"]
+        );
+    }
+
+    #[test]
+    fn later_layer_wins_equal_precedence() {
+        let first = RuntimeConfig::parse_pairs(
+            RuntimeConfigSource::File,
+            [("projection_depth_meters", "1.1")],
+        )
+        .expect("file values should parse");
+        let second = RuntimeConfig::parse_pairs(
+            RuntimeConfigSource::Environment,
+            [("projection_depth_meters", "1.2")],
+        )
+        .expect("env values should parse");
+
+        let resolution = RuntimeConfigResolver::new()
+            .with_layer(RuntimeConfigLayer::new("file-profile", 10, first).unwrap())
+            .with_layer(RuntimeConfigLayer::new("env-profile", 10, second).unwrap())
+            .resolve();
+
+        let setting = resolution
+            .get("projection_depth_meters")
+            .expect("depth should be resolved");
+        assert_eq!(setting.value, RuntimeValue::Float(1.2));
+        assert_eq!(setting.owner.as_str(), "env-profile");
+    }
+
+    #[test]
+    fn rejects_invalid_owner_labels() {
+        let config = RuntimeConfig::new();
+
+        assert_eq!(
+            RuntimeConfigLayer::new("Launch Profile", 0, config).unwrap_err(),
+            RuntimeConfigError::InvalidOwner("Launch Profile".to_string())
+        );
     }
 
     #[cfg(feature = "serde")]
