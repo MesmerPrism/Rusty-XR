@@ -79,7 +79,10 @@ pub enum ProjectionGuideDomain {
 pub enum InvalidProjectionFillPolicy {
     #[default]
     Unknown,
+    NotApplicable,
     Black,
+    SolidRed,
+    Transparent,
     Clamp,
     Repeat,
     OrientedSourceFallback,

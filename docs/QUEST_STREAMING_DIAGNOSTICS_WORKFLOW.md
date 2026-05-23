@@ -54,7 +54,7 @@ For the Makepad comparison lane, keep launch, freshness, and artifact hygiene
 strict enough that a run cannot be mistaken for a different APK or a native
 passthrough/loading state:
 
-- Build from `examples/makepad-q2q-camera-shell`, pass Makepad Android options
+- Build from `examples/makepad-camera-shell`, pass Makepad Android options
   before `build`/`run`, and use `--key=value` syntax for option values.
 - Remove or timestamp the expected APK output before a build, then record the
   fresh APK hash. The current generated APK output root is
@@ -76,7 +76,7 @@ passthrough/loading state:
   start succeeds. Direct generated-XR launch is a fallback/control path and
   should not be reported as launcher success.
 - Prefer the Makepad device-gate harness in
-  `examples/makepad-q2q-camera-shell/tools/Invoke-MakepadQ2QDeviceGate.ps1`
+  `examples/makepad-camera-shell/tools/Invoke-MakepadCameraDeviceGate.ps1`
   so launch recovery class, screenshot freshness, stale-marker counts, and
   fault counters are produced from one consistent path.
 - Keep proximity/awake state and CPU/GPU levels passive unless that setting is
@@ -150,14 +150,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
 
 powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
   -Serial <serial> `
-  -RuntimeProfile camera-stereo-gpu-composite-fast075 `
+  -RuntimeProfile camera-stereo-gpu-composite-scale075 `
   -WarmupSeconds 35 `
   -CaptureHzdbScreencap
 ```
 
-Use `camera-stereo-gpu-composite-fast075` when comparing the direct in-app
-Camera2 projection renderer against the Q2Q fast profile. It keeps direct
-Camera2 stereo capture and projection metadata, but selects the same fast public
+Use `camera-stereo-gpu-composite-scale075` when comparing the direct in-app
+Camera2 projection renderer against the broker live projection profile. It keeps direct
+Camera2 stereo capture and projection metadata, but selects the same direct
 raw-projection shader.
 
 For refresh-normalized comparisons, run the same profile with explicit display
@@ -166,14 +166,14 @@ refresh requests instead of relying on runtime defaults:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
   -Serial <serial> `
-  -RuntimeProfile camera-stereo-gpu-composite-fast075 `
+  -RuntimeProfile camera-stereo-gpu-composite-scale075 `
   -Override 'rustyxr.xrDisplayRefreshHz=72.0' `
   -WarmupSeconds 35 `
   -CaptureHzdbScreencap
 
 powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
   -Serial <serial> `
-  -RuntimeProfile camera-stereo-gpu-composite-fast075 `
+  -RuntimeProfile camera-stereo-gpu-composite-scale075 `
   -Override 'rustyxr.xrDisplayRefreshHz=90.0' `
   -WarmupSeconds 35 `
   -CaptureHzdbScreencap
@@ -213,14 +213,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
 
 powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
   -Serial <serial> `
-  -RuntimeProfile broker-h264-stereo-live-openxr-projection-fast075-probe `
+  -RuntimeProfile broker-h264-stereo-live-openxr-projection-scale075-probe `
   -WarmupSeconds 35
 ```
 
-Use the `fast075` profile only as a performance/compatibility renderer-parity
+Use the `scale075` profile only as a performance/compatibility renderer-parity
 run. It keeps the same broker capture ID pair, MediaCodec decode, and GPU-import
 path; uses square `1280x1280` broker frames and frame-order live stereo pairing;
-and swaps the projection draw to the fast public raw-projection shader at render
+and swaps the projection draw to the direct raw-projection shader at render
 scale `0.75`. Do not use it for coordinate-alignment gates; use the full-feed
 alignment profiles or the raw-stack alignment suite instead.
 
@@ -261,9 +261,9 @@ rustyxr.brokerH264DecodeOutputMode=hardware-buffer
 rustyxr.brokerH264StereoPairingMode=frame-order
 ```
 
-The current renderer-parity target is the `camera-stereo-gpu-composite-fast075`
+The current renderer-parity target is the `camera-stereo-gpu-composite-scale075`
 profile with those existing-stream overrides. It keeps the direct profile's
-projection configuration and fast raw-projection shader, while replacing direct
+projection configuration and direct raw-projection shader, while replacing direct
 Camera2 capture with the broker/relay/decoder receiver path.
 
 The public online roadmap for extending this into mediated and direct

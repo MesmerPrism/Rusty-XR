@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Apk,
 
-    [string]$PackageName = "com.example.rustyxr.makepad.alignment",
+    [string]$PackageName = "io.github.mesmerprism.rustyxr.makepad.camera",
     [string]$LauncherActivity = ("." + "Makepad" + "App"),
     [string]$XrActivity = ("." + "Makepad" + "App" + "Xr"),
     [string]$OutDir = "",
@@ -41,7 +41,7 @@ param(
     [int]$BrokerH264FrameRateHz = 50,
     [int]$BrokerH264StreamTimeoutMs = 60000,
     [int]$BrokerH264DecodeTimeoutMs = 20000,
-    [ValidateSet("solid-red", "diagnostic-split", "passthrough-underlay")]
+    [ValidateSet("solid-red", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("raw", "blur")]
     [string]$ProcessingLayer = "raw",
@@ -284,7 +284,6 @@ function Set-MakepadProjectionTargetProfile {
     $props = [ordered]@{
         "debug.rustyxr.makepad.projection.border.policy" = $ProjectionBorderPolicy
         "debug.rustyxr.makepad.native.passthrough.enabled" = $nativePassthrough
-        "debug.rustyxr.makepad.projection.border.strength" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
         "debug.rustyxr.makepad.projection.border.opacity" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
         "debug.rustyxr.makepad.projection.area.opacity" = (Format-InvariantDouble -Value $ProjectionAreaOpacity)
         "debug.rustyxr.makepad.projection.alpha.mode" = $ProjectionAlphaMode
@@ -472,7 +471,7 @@ function Capture-LaunchState {
         s74LiteralHomographyRowsMarkerCount = @($log | Select-String -SimpleMatch "s74LiteralHomographyRows=true").Count
         s75DynamicHomographyBindingMarkerCount = @($log | Select-String -SimpleMatch "s75DynamicHomographyBinding=true").Count
         s76DirectDrawVarsHomographyMarkerCount = @($log | Select-String -SimpleMatch "s76DirectDrawVarsHomography=true").Count
-        s77RustyXrInvalidUvFallbackMarkerCount = @($log | Select-String -SimpleMatch "s77RustyXrInvalidUvFallback=true").Count
+        s77SourceUvValidityFallbackMarkerCount = @($log | Select-String -SimpleMatch "s77SourceUvValidityFallback=true").Count
         s78ClipSpaceSurfaceHomographyMarkerCount = @($log | Select-String -SimpleMatch "s78ClipSpaceSurfaceHomography=true").Count
         s79TargetSourceEyeMappingMarkerCount = @($log | Select-String -SimpleMatch "s79TargetSourceEyeMapping=true").Count
         s80FullViewContentUvScaleMarkerCount = @($log | Select-String -SimpleMatch "s80FullViewContentUvScale=true").Count
@@ -482,7 +481,7 @@ function Capture-LaunchState {
         s84ProjectionInverseNearFarFallbackMarkerCount = @($log | Select-String -SimpleMatch "s84ProjectionInverseNearFarFallback=true").Count
         s85ForcedScreenToCameraFallbackMarkerCount = @($log | Select-String -SimpleMatch "s85ForcedScreenToCameraFallback=true").Count
         s87RuntimeXrViewHomographyMarkerCount = @($log | Select-String -SimpleMatch "s87RuntimeXrViewHomography=true").Count
-        s88TargetFastInvalidFallbackMarkerCount = @($log | Select-String -SimpleMatch "s88TargetFastInvalidFallback=true").Count
+        s88SourceValidityFallbackMarkerCount = @($log | Select-String -SimpleMatch "s88SourceValidityFallback=true").Count
         s89SingleQuadTargetScreenUvMarkerCount = @($log | Select-String -SimpleMatch "s89SingleQuadTargetScreenUv=true").Count
         s90CameraIdSourceBindingMarkerCount = @($log | Select-String -SimpleMatch "s90CameraIdSourceBinding=true").Count
         s91ProjectionMathCorrectionMarkerCount = @($log | Select-String -SimpleMatch "s91ProjectionMathCorrection=true").Count
@@ -503,7 +502,7 @@ function Capture-LaunchState {
         s107WindowScaleHotloadMarkerCount = @($log | Select-String -SimpleMatch "s107WindowScaleHotload=true").Count
         s108BorderlessWindowScaleMarkerCount = @($log | Select-String -SimpleMatch "s108BorderlessWindowScale=true").Count
         horizontalAlignmentScreenCenterDeltaMarkerCount = @($log | Select-String -SimpleMatch "horizontalAlignmentSource=screen_to_camera_center_delta").Count
-        horizontalAlignmentSafeWindowMarkerCount = @($log | Select-String -SimpleMatch "horizontalAlignmentSource=screen_to_camera_center_delta_safe_window_invalid_matte").Count
+        horizontalAlignmentSafeWindowMarkerCount = @($log | Select-String -SimpleMatch "horizontalAlignmentSource=screen_to_camera_center_delta_projection_area_source_valid_window").Count
         manualHorizontalOffsetHotloadMarkerCount = @($log | Select-String -SimpleMatch "manualHorizontalOffsetHotload=true").Count
         contentUvScaleHotloadMarkerCount = @($log | Select-String -SimpleMatch "contentUvScaleHotload=true").Count
         borderlessWindowMaskMarkerCount = @($log | Select-String -SimpleMatch "borderlessWindowMask=true").Count
@@ -513,7 +512,7 @@ function Capture-LaunchState {
         layerNotResizedMarkerCount = @($log | Select-String -SimpleMatch "layerNotResized=true").Count
         projectionValidMaskDisabledMarkerCount = @($log | Select-String -SimpleMatch "projectionValidMaskDisabled=true").Count
         highDefaultImageRectMarkerCount = @($log | Select-String -SimpleMatch "imageRectWidth=2352 imageRectHeight=2464").Count
-        low075ImageRectMarkerCount = @($log | Select-String -SimpleMatch "imageRectWidth=1260 imageRectHeight=1320").Count
+        reducedImageRectMarkerCount = @($log | Select-String -SimpleMatch "imageRectWidth=1260 imageRectHeight=1320").Count
         cameraIdSourceBindingMarkerCount = @($log | Select-String -SimpleMatch "sourceBindingMode=camera-id").Count
         s86DirectYuvFullscreenControlMarkerCount = @($log | Select-String -SimpleMatch "s86DirectYuvFullscreenControl=true").Count
         runtimeXrViewStateReadyMarkerCount = @($log | Select-String -SimpleMatch "runtimeXrViewStateReady=true").Count
@@ -524,7 +523,7 @@ function Capture-LaunchState {
         staleS86PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s86-direct-yuv-fullscreen-control").Count
         staleS85PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s85-forced-screen-to-camera-fallback-control").Count
         staleS87PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s87-runtime-xr-view-homography").Count
-        staleS88PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s88-target-fast-invalid-fallback").Count
+        staleS88PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s88-source-validity-fallback").Count
         staleS90PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s90-camera-id-bound-single-quad-target-screen-uv").Count
         brokerH264StartupMarkerCount = @($log | Select-String -SimpleMatch "status=broker-h264-enabled").Count
         brokerH264ImportPlanMarkerCount = @($log | Select-String -SimpleMatch "importPlan=broker-h264-stereo-mediacodec-yuv-texture").Count
@@ -665,7 +664,7 @@ function Wait-BrokerH264TextureReady {
 
 if (-not $OutDir) {
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-    $OutDir = Join-Path (Get-Location) "artifacts/makepad-q2q-device-gate-$stamp"
+    $OutDir = Join-Path (Get-Location) "artifacts/makepad-camera-device-gate-$stamp"
 }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
@@ -721,7 +720,7 @@ $readyAttempt = $attempts |
     Select-Object -First 1
 
 $summary = [ordered]@{
-    schema = "rusty.xr.makepad-q2q-device-gate.v1"
+    schema = "rusty.xr.makepad-camera-device-gate.v1"
     capturedAt = (Get-Date).ToString("o")
     serial = $Serial
     packageName = $PackageName

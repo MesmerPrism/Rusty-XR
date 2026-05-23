@@ -118,9 +118,9 @@ part:
 1. Re-run direct and broker-live fast profiles with smoothing off and confirm
    `target_projection_motion_px_p95 == applied_projection_motion_px_p95`,
    residual is zero, held-frame count is zero, and ASW counters are zero.
-2. Add `camera-stereo-temporal-pose-clamp-fast075` to prove left/right
+2. Add `camera-stereo-temporal-pose-clamp-scale075` to prove left/right
    lockstep smoothing state and nonzero residual metrics.
-3. Add `camera-stereo-temporal-screen-clamp-fast075` as the main comfort
+3. Add `camera-stereo-temporal-screen-clamp-scale075` as the main comfort
    profile.
 4. Add frame-adoption smoothing with bounded hold time.
 5. Add shader-owned edge handling and invalid-UV metrics.
@@ -194,7 +194,7 @@ may correctly report zero residual.
 
 Scope:
 
-- add runtime profile `camera-stereo-temporal-pose-clamp-fast075`
+- add runtime profile `camera-stereo-temporal-pose-clamp-scale075`
 - add `rustyxr.cameraTemporalProjectionEnabled=true`
 - add `rustyxr.cameraTemporalMode=pose-delta-clamp`
 - add `rustyxr.cameraTemporalMaxAngularDegreesPerFrame`
@@ -227,7 +227,7 @@ single-headset laptop-relay projected paths.
 
 Scope:
 
-- add runtime profile `camera-stereo-temporal-screen-clamp-fast075`
+- add runtime profile `camera-stereo-temporal-screen-clamp-scale075`
 - add `rustyxr.cameraTemporalMode=screen-motion-clamp`
 - start with `rustyxr.cameraTemporalMaxPixelsPerFrame=18`
 - start with `rustyxr.cameraTemporalCatchupHalfLifeMs=50`

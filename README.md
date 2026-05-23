@@ -187,7 +187,7 @@ encoder probe plus a guarded shell `screenrecord` display-source probe behind
 the same framing. It is Developer Mode tooling, not an installed APK permission:
 [examples/quest-broker-shell-helper/README.md](examples/quest-broker-shell-helper/README.md).
 A standalone Makepad-first Quest comparison lane is available at
-[examples/makepad-q2q-camera-shell/README.md](examples/makepad-q2q-camera-shell/README.md).
+[examples/makepad-camera-shell/README.md](examples/makepad-camera-shell/README.md).
 It uses Makepad's Android/OpenXR packaging surface, exercises `makepad-xr`, and
 emits a synthetic Rusty XR status marker before camera or broker behavior is
 added. The marker values already route through `rusty-xr-runtime-config`, so
@@ -305,7 +305,7 @@ Makepad-compatible Android build and hotload workflow is tracked in
 [docs/MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md](docs/MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md).
 The Makepad-first fork-lane comparison, including affordances, costs,
 dependencies, and remaining decision points, is tracked in
-[docs/MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md](docs/MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md).
+[docs/MAKEPAD_CAMERA_PARALLEL_APPROACH_COMPARISON.md](docs/MAKEPAD_CAMERA_PARALLEL_APPROACH_COMPARISON.md).
 The public ownership boundary between Rusty XR core and the maintained Makepad
 fork branch is documented in
 [docs/MAKEPAD_FORK_RELATIONSHIP.md](docs/MAKEPAD_FORK_RELATIONSHIP.md).

@@ -134,22 +134,14 @@ mod android {
     enum OesProjectionBorderPolicy {
         #[default]
         SolidRed,
-        DiagnosticSplit,
         PassthroughUnderlay,
     }
 
     impl OesProjectionBorderPolicy {
         fn parse(value: &str) -> Option<Self> {
             match value.trim().to_ascii_lowercase().as_str() {
-                "" | "solid-red" | "red" | "diagnostic-red" | "opaque-red" => Some(Self::SolidRed),
-                "diagnostic-split" | "split-diagnostic" | "semantic-diagnostic" => {
-                    Some(Self::DiagnosticSplit)
-                }
-                "passthrough-underlay"
-                | "transparent-underlay"
-                | "transparent"
-                | "alpha"
-                | "clear" => Some(Self::PassthroughUnderlay),
+                "solid-red" => Some(Self::SolidRed),
+                "passthrough-underlay" => Some(Self::PassthroughUnderlay),
                 _ => None,
             }
         }
@@ -157,7 +149,6 @@ mod android {
         const fn stable_id(self) -> &'static str {
             match self {
                 Self::SolidRed => "solid-red",
-                Self::DiagnosticSplit => "diagnostic-split",
                 Self::PassthroughUnderlay => "passthrough-underlay",
             }
         }
@@ -165,7 +156,6 @@ mod android {
         const fn shader_id(self) -> c_int {
             match self {
                 Self::SolidRed => 0,
-                Self::DiagnosticSplit => 2,
                 Self::PassthroughUnderlay => 1,
             }
         }
@@ -189,7 +179,6 @@ mod android {
         const fn clear_color(self) -> (f32, f32, f32, f32) {
             match self {
                 Self::SolidRed => (1.0, 0.0, 0.0, 1.0),
-                Self::DiagnosticSplit => (0.36, 0.0, 0.28, 1.0),
                 Self::PassthroughUnderlay => (0.0, 0.0, 0.0, 0.0),
             }
         }
@@ -197,7 +186,6 @@ mod android {
         const fn shared_fill_policy(self) -> ProjectionBorderFillPolicy {
             match self {
                 Self::SolidRed => ProjectionBorderFillPolicy::SolidColor,
-                Self::DiagnosticSplit => ProjectionBorderFillPolicy::DiagnosticSplit,
                 Self::PassthroughUnderlay => ProjectionBorderFillPolicy::PassthroughUnderlay,
             }
         }
@@ -209,6 +197,13 @@ mod android {
                 ColorRgba::new(r, g, b, a),
                 opacity.clamp(0.0, 1.0),
             )
+        }
+
+        const fn invalid_source_uv_fill_policy(self) -> InvalidProjectionFillPolicy {
+            match self {
+                Self::SolidRed => InvalidProjectionFillPolicy::SolidRed,
+                Self::PassthroughUnderlay => InvalidProjectionFillPolicy::Transparent,
+            }
         }
     }
 
@@ -222,10 +217,8 @@ mod android {
     impl OesSourceColorTransfer {
         fn parse(value: &str) -> Option<Self> {
             match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
-                "identity" | "none" | "passthrough" | "external-rgb" => Some(Self::Identity),
-                "srgb-to-linear" | "srgb-linear" | "external-oes-srgb-to-linear" => {
-                    Some(Self::SrgbToLinear)
-                }
+                "identity" => Some(Self::Identity),
+                "srgb-to-linear" => Some(Self::SrgbToLinear),
                 _ => None,
             }
         }
@@ -490,8 +483,8 @@ mod android {
     impl OesProcessingLayer {
         fn parse(value: &str) -> Option<Self> {
             match value.trim().to_ascii_lowercase().as_str() {
-                "" | "raw" | "off" | "none" | "source" => Some(Self::Raw),
-                "blur" | "blur-diagnostic" | "diagnostic-blur" => Some(Self::Blur),
+                "raw" => Some(Self::Raw),
+                "blur" => Some(Self::Blur),
                 _ => None,
             }
         }
@@ -1782,6 +1775,7 @@ mod android {
                                     frame_count,
                                     source.source_sequence,
                                     eye_projection,
+                                    projection_border_policy,
                                     camera_color_controls,
                                     eye.color_format,
                                     openxr_projection_fields,
@@ -1960,9 +1954,6 @@ vec4 intended_projection_mask_color() {
     if (u_projection_border_policy == 1) {
         return vec4(0.0, 0.0, 0.0, 0.0);
     }
-    if (u_projection_border_policy == 2) {
-        return premultiplied_alpha_color(vec3(0.36, 0.0, 0.28), u_projection_border_opacity);
-    }
     return premultiplied_alpha_color(vec3(1.0, 0.0, 0.0), u_projection_border_opacity);
 }
 vec4 source_invalid_color() {
@@ -1970,9 +1961,6 @@ vec4 source_invalid_color() {
         return vec4(0.0, 0.0, 0.0, 0.0);
     }
     return premultiplied_alpha_color(vec3(1.0, 0.0, 0.0), u_projection_border_opacity);
-}
-vec3 projection_guide_color() {
-    return u_eye_index == 0 ? vec3(0.0, 0.95, 1.0) : vec3(1.0, 0.86, 0.0);
 }
 float projection_area_distance(vec2 uv) {
     vec2 half_size = vec2(
@@ -2140,10 +2128,6 @@ void main() {
     out_color = u_processing_layer == 1
         ? blurred_camera_sample(camera_uv)
         : camera_sample(camera_uv);
-    if (u_projection_border_policy == 2) {
-        float border_guide = 1.0 - smoothstep(0.000, 0.018, abs(area_distance - 1.0));
-        out_color.rgb = mix(out_color.rgb, projection_guide_color(), clamp(border_guide, 0.0, 1.0));
-    }
 }"#,
             ) {
                 Ok(shader) => shader,
@@ -5404,9 +5388,6 @@ void main() {
                 .clamp(0.0, 4.0);
         let source_transfer =
             activity_string_extra(&mut env, &activity, "rustyxr.oesSourceColorTransfer")
-                .or_else(|| {
-                    activity_string_extra(&mut env, &activity, "rustyxr.cameraColorTransfer")
-                })
                 .as_deref()
                 .and_then(OesSourceColorTransfer::parse)
                 .unwrap_or(defaults.source_transfer);
@@ -5716,6 +5697,7 @@ void main() {
         frame_count: u64,
         source_sequence: u64,
         projection: Option<&OesEyeProjection>,
+        projection_border_policy: OesProjectionBorderPolicy,
         camera_color_controls: OesColorControls,
         swapchain_color_format: u32,
         openxr_projection_fields: &str,
@@ -5806,7 +5788,14 @@ void main() {
         }
 
         let footprint = projection
-            .map(|projection| projected_footprint_summary(projection, frame_count, source_sequence))
+            .map(|projection| {
+                projected_footprint_summary(
+                    projection,
+                    projection_border_policy,
+                    frame_count,
+                    source_sequence,
+                )
+            })
             .unwrap_or_else(|| {
             ProjectionFootprintSummary::new("rusty_xr_gl_oes", "public_raw_oes_full_surface")
                 .with_active_fraction(1.0)
@@ -5814,7 +5803,7 @@ void main() {
                 .with_row_span(ProjectionFootprintRowSpan::new(0.0, 1.0).with_span(0.0, 1.0))
                 .with_row_span(ProjectionFootprintRowSpan::new(0.5, 1.0).with_span(0.0, 1.0))
                 .with_row_span(ProjectionFootprintRowSpan::new(1.0, 1.0).with_span(0.0, 1.0))
-                .with_invalid_fill_policy(InvalidProjectionFillPolicy::Black)
+                .with_invalid_fill_policy(InvalidProjectionFillPolicy::NotApplicable)
                 .with_guide_domain(ProjectionGuideDomain::SubmittedSurface)
                 .with_explicit_valid_mask(true)
                 .with_note(format!(
@@ -5831,6 +5820,7 @@ void main() {
 
     fn projected_footprint_summary(
         projection: &OesEyeProjection,
+        projection_border_policy: OesProjectionBorderPolicy,
         frame_count: u64,
         source_sequence: u64,
     ) -> ProjectionFootprintSummary {
@@ -5841,7 +5831,7 @@ void main() {
         )
         .with_active_fraction(footprint_plan.active_fraction)
         .with_bbox_fraction(footprint_plan.bbox_ltrb())
-        .with_invalid_fill_policy(InvalidProjectionFillPolicy::Black)
+        .with_invalid_fill_policy(projection_border_policy.invalid_source_uv_fill_policy())
         .with_guide_domain(ProjectionGuideDomain::ScreenCamera)
         .with_explicit_valid_mask(false)
         .with_note(format!(

@@ -7,7 +7,7 @@ param(
     [double]$VerticalUv = [double]::NaN,
     [double]$SymmetricUv = [double]::NaN,
     [double]$ContentScale = [double]::NaN,
-    [double]$ProjectionBorderStrength = [double]::NaN,
+    [double]$ProjectionBorderOpacity = [double]::NaN,
     [ValidateSet("solid-red", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "",
     [ValidateSet("", "raw", "blur")]
@@ -78,7 +78,7 @@ $properties = [ordered]@{
     RightUv = "debug.rustyxr.makepad.horizontal.offset.right.uv"
     VerticalUv = "debug.rustyxr.makepad.vertical.offset.uv"
     ContentScale = "debug.rustyxr.makepad.content.uv.scale"
-    ProjectionBorderStrength = "debug.rustyxr.makepad.projection.border.strength"
+    ProjectionBorderOpacity = "debug.rustyxr.makepad.projection.border.opacity"
     ProjectionBorderPolicy = "debug.rustyxr.makepad.projection.border.policy"
     NativePassthroughEnabled = "debug.rustyxr.makepad.native.passthrough.enabled"
     ProcessingLayer = "debug.rustyxr.makepad.processing.layer"
@@ -107,7 +107,7 @@ if ($Reset) {
     $RightUv = 0.0
     $VerticalUv = 0.0
     $ContentScale = 1.60
-    $ProjectionBorderStrength = 1.0
+    $ProjectionBorderOpacity = 1.0
     $ProjectionBorderPolicy = "solid-red"
     $ProcessingLayer = "raw"
     $BlurRadiusPx = 2.0
@@ -140,7 +140,7 @@ Assert-Range -Name "RightUv" -Value $RightUv -Min -0.5 -Max 0.5
 Assert-Range -Name "VerticalUv" -Value $VerticalUv -Min -0.5 -Max 0.5
 Assert-Range -Name "SymmetricUv" -Value $SymmetricUv -Min -0.5 -Max 0.5
 Assert-Range -Name "ContentScale" -Value $ContentScale -Min 1.0 -Max 2.4
-Assert-Range -Name "ProjectionBorderStrength" -Value $ProjectionBorderStrength -Min 0.0 -Max 1.0
+Assert-Range -Name "ProjectionBorderOpacity" -Value $ProjectionBorderOpacity -Min 0.0 -Max 1.0
 Assert-Range -Name "BlurRadiusPx" -Value $BlurRadiusPx -Min 0.0 -Max 16.0
 Assert-Range -Name "ProjectionDepthMeters" -Value $ProjectionDepthMeters -Min 0.05 -Max 10.0
 Assert-Range -Name "ProjectionAreaDiagnostic" -Value $ProjectionAreaDiagnostic -Min 0.0 -Max 2.0
@@ -175,8 +175,8 @@ if (-not [double]::IsNaN($VerticalUv)) {
 if (-not [double]::IsNaN($ContentScale)) {
     Set-Prop -Name $properties.ContentScale -Value $ContentScale
 }
-if (-not [double]::IsNaN($ProjectionBorderStrength)) {
-    Set-Prop -Name $properties.ProjectionBorderStrength -Value $ProjectionBorderStrength
+if (-not [double]::IsNaN($ProjectionBorderOpacity)) {
+    Set-Prop -Name $properties.ProjectionBorderOpacity -Value $ProjectionBorderOpacity
 }
 if ($ProjectionBorderPolicy) {
     Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionBorderPolicy, $ProjectionBorderPolicy)

@@ -524,11 +524,11 @@ custom collapse: screen UV -> screen_to_surface -> surface_to_camera -> texture 
 Both comparison profiles use `projectionDepthMeters=1.0`,
 `cameraPreviewFovYDegrees=60`, source-frame aspect, `cameraRawOverlayOverscan=1.06`,
 `cameraProjectionScale=1.0`, and `projectionAreaScaleUv=1.0`. The custom
-profile uses `raw-projection-camera-footprint-underlay-unorm` so the full
-Camera2 source frame is sampled only through the reconstructed content surface;
-pixels outside that valid projected camera footprint go transparent to the
-passthrough underlay instead of stretching or clamping the camera image across
-the full eye. Use
+profile uses `cameraPipelinePreset=raw-projection-unorm` with
+`projectionBorderPolicy=passthrough-underlay` so the full Camera2 source frame
+is sampled only through the reconstructed content surface; pixels outside that
+valid projected camera footprint go transparent to the passthrough underlay
+instead of stretching or clamping the camera image across the full eye. Use
 `camera-stereo-gpu-composite-full-feed-control` only as a negative/lane-parity
 control: it proves full-frame transport and renderer parity, not a custom
 passthrough replacement footprint.
@@ -626,27 +626,25 @@ The catalog keeps camera path experiments as separate runtime profiles:
   live-bounded broker stereo path with `rustyxr.xrRenderScale=0.65`. Use it as
   the current performance comparison profile when the `0.75` visual-quality
   profile is render-cost limited.
-- `broker-h264-stereo-live-openxr-projection-fast075-probe`: the same live
+- `broker-h264-stereo-live-openxr-projection-scale075-probe`: the same live
   broker stereo capture/decode/pair/import path at `rustyxr.xrRenderScale=0.75`
   with square `1280x1280` broker frames and frame-order live stereo pairing, but
-  with the fast public raw-projection shader variant selected. Use it as the
+  with the direct raw-projection shader variant selected. Use it as the
   renderer-parity profile before reintroducing the accepted soft-border visual
   path. This profile is visually accepted for stereo orientation/alignment;
   motion-induced stream-latency artifacts remain a separate compensation task.
-- `broker-h264-stereo-live-openxr-projection-fast065-probe`: the same fast
+- `broker-h264-stereo-live-openxr-projection-scale065-probe`: the same fast
   raw-projection path at `rustyxr.xrRenderScale=0.65` for fragment-load headroom
   checks.
 - For projection-area alignment, override any direct or broker raw-projection
-  profile with `rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm`
-  and `rustyxr.cameraProjectionEffectMode=raw-projection-solid-red` to keep
-  camera pixels inside the hard public projection-area mask and render the
-  outside-projection area as opaque red. Use
-  `rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm` when the same
-  outside-projection area should be transparent over the public OpenXR
-  passthrough underlay instead. Use `raw-projection-blur-solid-red-unorm` or
-  `raw-projection-blur-underlay-unorm` with `rustyxr.cameraBlurRadiusPx=<px>`
-  for the same projection-area policies with the public diagnostic blur layer
-  applied to valid camera samples only. Use
+  profile with `rustyxr.cameraPipelinePreset=raw-projection-unorm` and
+  `rustyxr.projectionBorderPolicy=solid-red` to keep camera pixels inside the
+  hard public projection-area mask and render the outside-projection area as
+  opaque red. Use `rustyxr.projectionBorderPolicy=passthrough-underlay` when
+  the same outside-projection area should be transparent over the public OpenXR
+  passthrough underlay instead. Use `rustyxr.processingLayer=blur` with
+  `rustyxr.cameraBlurRadiusPx=<px>` for the same projection-area policies with
+  the public diagnostic blur layer applied to valid camera samples only. Use
   `rustyxr.projectionAreaOffsetYUv=<value>` for controlled vertical centering
   sweeps after the hard-mask evidence is valid.
   Use `rustyxr.projectionAreaOpacity=<0..1>` to fade the projected camera
@@ -691,17 +689,17 @@ The catalog keeps camera path experiments as separate runtime profiles:
   but with `rustyxr.xrRenderScale=0.65`. Use this to separate shader/fragment
   headroom from camera delivery cadence without changing projection, border, or
   color assumptions.
-- `camera-stereo-gpu-composite-fast075`: same direct in-app Camera2 stereo
-  projection at `rustyxr.xrRenderScale=0.75`, but selects the fast public
+- `camera-stereo-gpu-composite-scale075`: same direct in-app Camera2 stereo
+  projection at `rustyxr.xrRenderScale=0.75`, but selects the direct
   raw-projection shader path. Use it for direct renderer parity checks against
-  the Q2Q fast profile.
-- `camera-stereo-temporal-pose-clamp-fast075`: direct in-app Camera2 stereo
-  projection with the fast public shader and `pose-delta-clamp` temporal mode.
+  the broker renderer-parity profile.
+- `camera-stereo-temporal-pose-clamp-scale075`: direct in-app Camera2 stereo
+  projection with the direct raw-projection shader and `pose-delta-clamp` temporal mode.
   It uses one shared angular/linear pose-delta coefficient for both eyes and
   reports the resulting target/applied/residual screen-motion metrics, making
   it the deterministic lockstep proof before visually tuning the screen-motion
   clamp.
-- `camera-stereo-gpu-composite-fast065`: same direct fast raw-projection path
+- `camera-stereo-gpu-composite-scale065`: same direct raw-projection path
   at `rustyxr.xrRenderScale=0.65` for fragment-load headroom checks.
 - `camera-stereo-gpu-composite-ycbcr-diagnostic`: same projection and border,
   but with shader-side `Cr/Y/Cb` BT.601 narrow-range decode. Use this only

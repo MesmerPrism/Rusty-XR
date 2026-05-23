@@ -1,4 +1,4 @@
-# Rusty XR Makepad Q2Q Agent Notes
+# Rusty XR Makepad Camera Agent Notes
 
 This example is the public Makepad-first Quest lane for Rusty XR. It compares
 Makepad's generated Android/OpenXR app shell against the existing custom Rusty
@@ -11,7 +11,7 @@ Before editing this example, read:
 - `README.md`
 - `../../docs/MAKEPAD_FORK_RELATIONSHIP.md`
 - `../../docs/MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md`
-- `../../docs/MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md`
+- `../../docs/MAKEPAD_CAMERA_PARALLEL_APPROACH_COMPARISON.md`
 - `../../docs/MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md`
 - `../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md`
 
@@ -53,14 +53,14 @@ parity, and zero-copy texture performance as separate conclusions.
 For source changes in this example, run:
 
 ```powershell
-cargo check --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml
-cargo check --locked --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml
+cargo check --manifest-path examples\makepad-camera-shell\Cargo.toml
+cargo check --locked --manifest-path examples\makepad-camera-shell\Cargo.toml
 python tools\docs\check_links.py --repo-root .
-python tools\schema\check_android_build_manifest.py examples\makepad-q2q-camera-shell\build-manifest.public.json
+python tools\schema\check_android_build_manifest.py examples\makepad-camera-shell\build-manifest.public.json
 ```
 
 This example is intentionally standalone rather than a root-workspace member.
-Do not run `cargo check -p rusty-xr-makepad-q2q-camera-shell` from the Rusty XR
+Do not run `cargo check -p rusty-xr-makepad-camera-shell` from the Rusty XR
 workspace root; it does not select this package.
 
 For Android build validation, use `cargo-makepad` from the maintained Makepad

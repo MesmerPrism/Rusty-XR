@@ -21,7 +21,7 @@ members = [
     "examples/quest-gl-openxr-video-stack-apk/native",
     "examples/broker-client-probe",
 ]
-exclude = ["examples/makepad-q2q-camera-shell"]
+exclude = ["examples/makepad-camera-shell"]
 
 [workspace.package]
 version = "0.1.0"

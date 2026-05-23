@@ -1484,7 +1484,18 @@ def schemas() -> dict[str, dict]:
     )
     invalid_projection_fill_policy = enum(
         "InvalidProjectionFillPolicy",
-        ["Unknown", "Black", "Clamp", "Repeat", "OrientedSourceFallback", "VisualContinuityFallback", "Other"],
+        [
+            "Unknown",
+            "NotApplicable",
+            "Black",
+            "SolidRed",
+            "Transparent",
+            "Clamp",
+            "Repeat",
+            "OrientedSourceFallback",
+            "VisualContinuityFallback",
+            "Other",
+        ],
     )
     homography_rows = {
         "type": "array",

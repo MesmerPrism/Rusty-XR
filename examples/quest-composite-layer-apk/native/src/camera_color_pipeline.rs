@@ -2,15 +2,9 @@
 use ash::vk;
 
 pub(crate) const CAMERA_SHADER_FLAG_RAW_FEED: u32 = 1 << 13;
-pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST: u32 = 1 << 14;
+pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION: u32 = 1 << 14;
 pub(crate) const CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA: u32 = 1 << 15;
-pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL: u32 = 1 << 16;
-pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL: u32 = 1 << 17;
-pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_SOFT_BORDER: u32 = 1 << 18;
-pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_STRONG_BORDER: u32 = 1 << 19;
-pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_DYNAMIC_BORDER: u32 = 1 << 20;
-pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_WARM_BORDER: u32 = 1 << 21;
-pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION_CYCLING_BORDER: u32 = 1 << 22;
+pub(crate) const CAMERA_SHADER_FLAG_PROJECTION_BORDER_SOLID_RED: u32 = 1 << 16;
 pub(crate) const CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC: u32 = 1 << 23;
 pub(crate) const CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING: u32 = 1 << 24;
 const CAMERA_SHADER_EFFECT_RAW_PROJECTION_BLUR: f32 = 5.0;
@@ -52,21 +46,12 @@ impl CameraFeedPipelineMode {
 pub(crate) enum CameraProjectionEffectMode {
     #[default]
     BorderComposite,
-    RawProjectionFast,
-    RawProjectionSolidRed,
-    RawProjectionInvalidFill,
-    RawProjectionPerimeterFill,
-    RawProjectionSoftBorder,
-    RawProjectionStrongBorder,
-    RawProjectionDynamicBorder,
-    RawProjectionWarmBorder,
-    RawProjectionCyclingBorder,
-    RawProjectionUnderlay,
-    RawProjectionCameraFootprintUnderlay,
+    RawProjection,
     ProjectionAreaDiagnostic,
     DisplayEyeUvFiducial,
     ProjectionContentUvFiducial,
     SourceSamplingWitness,
+    FullFrameStimulusSurfaceMapping,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -79,8 +64,8 @@ pub(crate) enum CameraProcessingLayer {
 impl CameraProcessingLayer {
     pub(crate) fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
-            "" | "raw" | "none" | "off" | "passthrough" => Some(Self::Raw),
-            "blur" | "blur-diagnostic" | "diagnostic-blur" => Some(Self::Blur),
+            "raw" => Some(Self::Raw),
+            "blur" => Some(Self::Blur),
             _ => None,
         }
     }
@@ -104,78 +89,62 @@ impl CameraProcessingLayer {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CameraProjectionBorderPolicy {
+    #[default]
+    SolidRed,
+    PassthroughUnderlay,
+}
+
+impl CameraProjectionBorderPolicy {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "solid-red" => Some(Self::SolidRed),
+            "passthrough-underlay" => Some(Self::PassthroughUnderlay),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::SolidRed => "solid-red",
+            Self::PassthroughUnderlay => "passthrough-underlay",
+        }
+    }
+
+    pub(crate) const fn shared_fill_policy_id(self) -> &'static str {
+        match self {
+            Self::SolidRed => "solid-color",
+            Self::PassthroughUnderlay => "passthrough-underlay",
+        }
+    }
+
+    pub(crate) const fn shader_bit(self) -> u32 {
+        match self {
+            Self::SolidRed => CAMERA_SHADER_FLAG_PROJECTION_BORDER_SOLID_RED,
+            Self::PassthroughUnderlay => CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA,
+        }
+    }
+
+    pub(crate) const fn requires_full_projection_pipeline(self) -> bool {
+        true
+    }
+
+    pub(crate) const fn uses_passthrough_underlay_alpha(self) -> bool {
+        matches!(self, Self::PassthroughUnderlay)
+    }
+}
+
 impl CameraProjectionEffectMode {
     pub(crate) fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
-            "border-composite" | "border" | "composite" | "default" => Some(Self::BorderComposite),
-            "raw-projection-fast" | "direct-raw-projection" | "raw-direct" | "fast-raw" => {
-                Some(Self::RawProjectionFast)
-            }
-            "raw-projection-solid-red"
-            | "raw-projection-red-border"
-            | "direct-raw-projection-solid-red"
-            | "fast-raw-solid-red" => Some(Self::RawProjectionSolidRed),
-            "raw-projection-invalid-fill"
-            | "raw-projection-invalid-only-fill"
-            | "direct-raw-projection-invalid-fill"
-            | "fast-raw-invalid-fill"
-            | "raw-projection-fill"
-            | "raw-projection-coverage-fill"
-            | "raw-projection-fast-fill"
-            | "direct-raw-projection-fill"
-            | "fast-raw-fill" => Some(Self::RawProjectionInvalidFill),
-            "raw-projection-perimeter-fill"
-            | "raw-projection-rim-fill"
-            | "direct-raw-projection-perimeter-fill"
-            | "fast-raw-perimeter-fill" => Some(Self::RawProjectionPerimeterFill),
-            "raw-projection-soft-border"
-            | "raw-projection-cheap-border"
-            | "direct-raw-projection-soft-border"
-            | "fast-raw-soft-border" => Some(Self::RawProjectionSoftBorder),
-            "raw-projection-strong-border"
-            | "raw-projection-strong-cheap-border"
-            | "direct-raw-projection-strong-border"
-            | "fast-raw-strong-border" => Some(Self::RawProjectionStrongBorder),
-            "raw-projection-dynamic-border"
-            | "raw-projection-feedback-border"
-            | "direct-raw-projection-dynamic-border"
-            | "fast-raw-dynamic-border" => Some(Self::RawProjectionDynamicBorder),
-            "raw-projection-warm-border"
-            | "raw-projection-warm-feedback-border"
-            | "direct-raw-projection-warm-border"
-            | "fast-raw-warm-border" => Some(Self::RawProjectionWarmBorder),
-            "raw-projection-cycling-border"
-            | "raw-projection-cycle-border"
-            | "raw-projection-spectral-border"
-            | "direct-raw-projection-cycling-border"
-            | "fast-raw-cycling-border" => Some(Self::RawProjectionCyclingBorder),
-            "raw-projection-underlay"
-            | "raw-projection-alpha-underlay"
-            | "direct-raw-projection-underlay"
-            | "fast-raw-underlay" => Some(Self::RawProjectionUnderlay),
-            "raw-projection-camera-footprint-underlay"
-            | "raw-projection-projection-area-bounded-underlay"
-            | "raw-projection-bounded-footprint-underlay"
-            | "camera-footprint-underlay"
-            | "projection-area-bounded-underlay" => {
-                Some(Self::RawProjectionCameraFootprintUnderlay)
-            }
-            "projection-area-diagnostic"
-            | "camera-projection-area-diagnostic"
-            | "raw-projection-area-diagnostic"
-            | "fast-projection-area-diagnostic" => Some(Self::ProjectionAreaDiagnostic),
-            "display-eye-uv-fiducial"
-            | "display-eye-screen-uv-fiducial"
-            | "display-eye-uv-map"
-            | "mirror-mapping-fiducial" => Some(Self::DisplayEyeUvFiducial),
-            "projection-content-uv-fiducial"
-            | "post-offset-content-uv-fiducial"
-            | "content-uv-map"
-            | "projection-area-content-uv-map" => Some(Self::ProjectionContentUvFiducial),
-            "source-sampling-witness"
-            | "source-uv-sampling-witness"
-            | "source-sampling-overlay"
-            | "source-uv-map" => Some(Self::SourceSamplingWitness),
+            "border-composite" => Some(Self::BorderComposite),
+            "raw-projection" => Some(Self::RawProjection),
+            "projection-area-diagnostic" => Some(Self::ProjectionAreaDiagnostic),
+            "display-eye-uv-fiducial" => Some(Self::DisplayEyeUvFiducial),
+            "projection-content-uv-fiducial" => Some(Self::ProjectionContentUvFiducial),
+            "source-sampling-witness" => Some(Self::SourceSamplingWitness),
+            "full-frame-stimulus-surface-mapping" => Some(Self::FullFrameStimulusSurfaceMapping),
             _ => None,
         }
     }
@@ -183,89 +152,36 @@ impl CameraProjectionEffectMode {
     pub(crate) const fn stable_id(self) -> &'static str {
         match self {
             Self::BorderComposite => "border-composite",
-            Self::RawProjectionFast => "raw-projection-fast",
-            Self::RawProjectionSolidRed => "raw-projection-solid-red",
-            Self::RawProjectionInvalidFill => "raw-projection-invalid-fill",
-            Self::RawProjectionPerimeterFill => "raw-projection-perimeter-fill",
-            Self::RawProjectionSoftBorder => "raw-projection-soft-border",
-            Self::RawProjectionStrongBorder => "raw-projection-strong-border",
-            Self::RawProjectionDynamicBorder => "raw-projection-dynamic-border",
-            Self::RawProjectionWarmBorder => "raw-projection-warm-border",
-            Self::RawProjectionCyclingBorder => "raw-projection-cycling-border",
-            Self::RawProjectionUnderlay => "raw-projection-underlay",
-            Self::RawProjectionCameraFootprintUnderlay => {
-                "raw-projection-camera-footprint-underlay"
-            }
+            Self::RawProjection => "raw-projection",
             Self::ProjectionAreaDiagnostic => "projection-area-diagnostic",
             Self::DisplayEyeUvFiducial => "display-eye-uv-fiducial",
             Self::ProjectionContentUvFiducial => "projection-content-uv-fiducial",
             Self::SourceSamplingWitness => "source-sampling-witness",
+            Self::FullFrameStimulusSurfaceMapping => "full-frame-stimulus-surface-mapping",
         }
     }
 
     pub(crate) const fn shader_bit(self) -> u32 {
         match self {
             Self::BorderComposite => 0,
-            Self::RawProjectionFast => CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST,
-            Self::RawProjectionSolidRed => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL
-            }
-            Self::RawProjectionInvalidFill => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_INVALID_FILL
-            }
-            Self::RawProjectionPerimeterFill => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_PERIMETER_FILL
-            }
-            Self::RawProjectionSoftBorder => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_SOFT_BORDER
-            }
-            Self::RawProjectionStrongBorder => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_STRONG_BORDER
-            }
-            Self::RawProjectionDynamicBorder => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_DYNAMIC_BORDER
-            }
-            Self::RawProjectionWarmBorder => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_WARM_BORDER
-            }
-            Self::RawProjectionCyclingBorder => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_RAW_PROJECTION_CYCLING_BORDER
-            }
-            Self::RawProjectionUnderlay => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA
-            }
-            Self::RawProjectionCameraFootprintUnderlay => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA
-            }
+            Self::RawProjection => CAMERA_SHADER_FLAG_RAW_PROJECTION,
             Self::ProjectionAreaDiagnostic => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
+                CAMERA_SHADER_FLAG_RAW_PROJECTION | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
             }
             Self::DisplayEyeUvFiducial => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
-                    | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
+                CAMERA_SHADER_FLAG_RAW_PROJECTION | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
             }
             Self::ProjectionContentUvFiducial => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                CAMERA_SHADER_FLAG_RAW_PROJECTION
                     | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
                     | CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING
             }
             Self::SourceSamplingWitness => {
-                CAMERA_SHADER_FLAG_RAW_PROJECTION_FAST
+                CAMERA_SHADER_FLAG_RAW_PROJECTION
                     | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
                     | CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING
             }
+            Self::FullFrameStimulusSurfaceMapping => CAMERA_SHADER_FLAG_RAW_PROJECTION,
         }
     }
 
@@ -274,7 +190,7 @@ impl CameraProjectionEffectMode {
             Self::DisplayEyeUvFiducial => 1.0,
             Self::ProjectionContentUvFiducial => 2.0,
             Self::SourceSamplingWitness => 3.0,
-            Self::RawProjectionCameraFootprintUnderlay => 4.0,
+            Self::FullFrameStimulusSurfaceMapping => 4.0,
             _ => 0.0,
         }
     }
@@ -288,21 +204,22 @@ impl CameraProjectionEffectMode {
         )
     }
 
-    pub(crate) const fn uses_fast_projection_pipeline(self) -> bool {
+    pub(crate) const fn uses_raw_projection_pipeline(self) -> bool {
         matches!(
             self,
-            Self::RawProjectionFast
+            Self::RawProjection
                 | Self::ProjectionAreaDiagnostic
                 | Self::DisplayEyeUvFiducial
                 | Self::ProjectionContentUvFiducial
                 | Self::SourceSamplingWitness
+                | Self::FullFrameStimulusSurfaceMapping
         )
     }
 
-    pub(crate) const fn uses_passthrough_underlay_alpha(self) -> bool {
+    pub(crate) const fn uses_projection_border_policy(self) -> bool {
         matches!(
             self,
-            Self::RawProjectionUnderlay | Self::RawProjectionCameraFootprintUnderlay
+            Self::RawProjection | Self::FullFrameStimulusSurfaceMapping
         )
     }
 }

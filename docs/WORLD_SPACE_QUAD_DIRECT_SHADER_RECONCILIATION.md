@@ -104,7 +104,7 @@ The direct path has these owned stages:
 
 | Stage | Owner | Required evidence |
 | --- | --- | --- |
-| Projection-area mask | Rusty XR projection-area contract | center, scale, radius, opacity, invalid-region policy |
+| Projection-area mask | Rusty XR projection-area contract | center, scale, radius, opacity, projection exterior fill policy |
 | Screen to surface | App geometry collapse of the quad path | `screen_to_surface` or equivalent rows |
 | Surface to camera | Source-camera projection model | `surface_to_camera`, `screen_to_camera`, valid rect |
 | Texture/upload transform | Backend import/upload path | OES transform matrix, HWB import convention, CPU-YUV stride/upload rect, sampler origin |

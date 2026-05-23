@@ -1,8 +1,8 @@
 param(
     [string]$SdkPath,
-    [string]$PackageName = "com.example.rustyxr.makepad.alignment",
-    [string]$AppLabel = "Rusty XR Makepad Alignment",
-    [string]$CargoPackage = "rusty-xr-makepad-q2q-camera-shell",
+    [string]$PackageName = "io.github.mesmerprism.rustyxr.makepad.camera",
+    [string]$AppLabel = "Rusty XR Makepad Camera",
+    [string]$CargoPackage = "rusty-xr-makepad-camera-shell",
     [ValidateSet("display-left-from-left-source", "display-left-from-right-source")]
     [string]$DisplaySourceEyeMapping = "display-left-from-left-source",
     [string]$WslDistro,

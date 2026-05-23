@@ -261,7 +261,7 @@ Initial Phase 1 manifests now live beside the current public examples:
 - `examples/quest-composite-layer-apk/build-manifest.public.json`
 - `examples/quest-broker-apk/build-manifest.public.json`
 - `examples/quest-broker-shell-helper/build-manifest.public.json`
-- `examples/makepad-q2q-camera-shell/build-manifest.public.json`
+- `examples/makepad-camera-shell/build-manifest.public.json`
 
 They use schema version `rusty.xr.android-build-manifest.v1` and record source
 inputs, generated build inputs, external tool/library inputs, generated
@@ -273,7 +273,7 @@ keystore paths, device serials, or run artifacts.
 Validate them with:
 
 ```powershell
-python tools\schema\check_android_build_manifest.py examples\quest-minimal-apk\build-manifest.public.json examples\quest-composite-layer-apk\build-manifest.public.json examples\quest-broker-apk\build-manifest.public.json examples\quest-broker-shell-helper\build-manifest.public.json examples\makepad-q2q-camera-shell\build-manifest.public.json
+python tools\schema\check_android_build_manifest.py examples\quest-minimal-apk\build-manifest.public.json examples\quest-composite-layer-apk\build-manifest.public.json examples\quest-broker-apk\build-manifest.public.json examples\quest-broker-shell-helper\build-manifest.public.json examples\makepad-camera-shell\build-manifest.public.json
 ```
 
 The validator checks the public manifest shape, verifies required source files
@@ -287,7 +287,7 @@ path hints in portable fields.
 The first standalone Makepad shell now lives at:
 
 ```text
-examples/makepad-q2q-camera-shell/
+examples/makepad-camera-shell/
 ```
 
 It intentionally does not attempt the full camera stack yet. The current
@@ -354,7 +354,7 @@ use the direct generated-XR paired import/projection marker path before
 interpreting projection or renderer measurements from this lane.
 
 The Makepad-vs-current affordance and cost ledger is tracked in
-[MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md](MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md).
+[MAKEPAD_CAMERA_PARALLEL_APPROACH_COMPARISON.md](MAKEPAD_CAMERA_PARALLEL_APPROACH_COMPARISON.md).
 The active Makepad XR GPU fault isolation log is tracked in
 [MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md](MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md).
 
@@ -486,7 +486,7 @@ rules.
 A future Makepad-compatible example could use this shape:
 
 ```text
-examples/makepad-q2q-camera-shell/
+examples/makepad-camera-shell/
   Cargo.toml
   README.md
   src/
@@ -499,7 +499,7 @@ examples/makepad-q2q-camera-shell/
     AndroidManifest.xml
     permissions.md
   catalog/
-    rusty-xr-makepad-q2q.catalog.json
+    rusty-xr-makepad-camera.catalog.json
 ```
 
 The catalog should keep the same conceptual profiles:

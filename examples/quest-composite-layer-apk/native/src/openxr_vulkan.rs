@@ -3427,7 +3427,7 @@ unsafe fn run_vulkan(
                                     || controls.left_texture_transform.shader_flags() != 0
                                     || controls.right_texture_transform.shader_flags() != 0;
                             log_info(format!(
-                                "Rusty XR GPU stereo camera draw prepared frame {} requestedTier={} activeTier={} alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true cpuUploadCount=0 poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck={} orientationAccepted={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} importCacheSize={} stereoDescriptorCacheSize={} projectionShaderPath={} projectionMetadataReady={} fallbackReason={}",
+                                "Rusty XR GPU stereo camera draw prepared frame {} requestedTier={} activeTier={} alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true cpuUploadCount=0 poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} {} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck={} orientationAccepted={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} importCacheSize={} stereoDescriptorCacheSize={} projectionShaderPath={} projectionMetadataReady={} fallbackReason={}",
                                 stereo_frame.index,
                                 config.camera_tier.stable_id(),
                                 if projection_active {
@@ -3445,6 +3445,7 @@ unsafe fn run_vulkan(
                                 config.camera_feed_pipeline_mode.stable_id(),
                                 config.camera_color_mode.stable_id(),
                                 config.camera_color_mode.shader_bit(),
+                                config.hwb_source_color_contract_fields(),
                                 config.camera_color_contrast,
                                 config.camera_color_brightness,
                                 config.camera_color_saturation,
@@ -3572,7 +3573,7 @@ unsafe fn run_vulkan(
                                 ));
                             }
                             log_info(format!(
-                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
+                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} {} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
                                 stereo_frame.index,
                                 frame_count,
                                 session_focused,
@@ -3586,6 +3587,7 @@ unsafe fn run_vulkan(
                                 config.camera_feed_pipeline_mode.stable_id(),
                                 config.camera_color_mode.stable_id(),
                                 config.camera_color_mode.shader_bit(),
+                                config.hwb_source_color_contract_fields(),
                                 config.camera_color_contrast,
                                 config.camera_color_brightness,
                                 config.camera_color_saturation,
@@ -5640,7 +5642,6 @@ impl GpuCameraRenderer {
                 CameraProjectionPush::from_stereo_frame(frame, config, &controls, views, resolution)
             };
         let projection_active = projection_homographies.is_some();
-        let uniforms = uniforms.with_border_cycle_phase(config, frame_count);
         let accepted_flat_visual_check = config.visual_release_accepted
             && controls.left_texture_transform.is_explicit_visual_check()
             && controls.right_texture_transform.is_explicit_visual_check();
@@ -5775,7 +5776,7 @@ struct GpuCameraPipelineResources {
     descriptor_pool: vk::DescriptorPool,
     pipeline_layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
-    fast_pipeline: vk::Pipeline,
+    direct_pipeline: vk::Pipeline,
     projection_uniform_buffer: vk::Buffer,
     projection_uniform_memory: vk::DeviceMemory,
     projection_uniform_stride: vk::DeviceSize,
@@ -5784,7 +5785,7 @@ struct GpuCameraPipelineResources {
 
 impl GpuCameraPipelineResources {
     unsafe fn destroy(self, device: &ash::Device) {
-        device.destroy_pipeline(self.fast_pipeline, None);
+        device.destroy_pipeline(self.direct_pipeline, None);
         device.destroy_pipeline(self.pipeline, None);
         device.destroy_pipeline_layout(self.pipeline_layout, None);
         device.destroy_descriptor_pool(self.descriptor_pool, None);
@@ -5804,13 +5805,14 @@ impl GpuCameraPipelineResources {
         if config
             .camera_processing_layer
             .requires_full_projection_pipeline()
+            || config.camera_projection_border_policy_requires_full_pipeline()
         {
             self.pipeline
         } else if config
             .camera_projection_effect_mode
-            .uses_fast_projection_pipeline()
+            .uses_raw_projection_pipeline()
         {
-            self.fast_pipeline
+            self.direct_pipeline
         } else {
             self.pipeline
         }
@@ -5989,11 +5991,6 @@ impl CameraProjectionUniforms {
         self
     }
 
-    fn with_border_cycle_phase(mut self, config: &crate::RuntimeConfig, frame_count: u64) -> Self {
-        self.color_offset[3] = config.camera_border_cycle_phase(frame_count);
-        self
-    }
-
     fn with_source_uv_rects(mut self, left: [f32; 4], right: [f32; 4]) -> Self {
         self.left_source_uv_rect = left;
         self.right_source_uv_rect = right;
@@ -6007,7 +6004,8 @@ impl CameraProjectionPush {
         let packed_flags = (mono_flags | (mono_flags << 5))
             | config.camera_color_mode.shader_bit()
             | config.camera_feed_pipeline_mode.shader_bit()
-            | config.camera_projection_effect_mode.shader_bit();
+            | config.camera_projection_effect_mode.shader_bit()
+            | config.camera_projection_border_policy_shader_bit();
         let content_uv_scale = full_view_content_uv_scale(
             config.camera_full_view_overlay_overscan,
             config.camera_raw_overlay_overscan,
@@ -6058,7 +6056,8 @@ impl CameraProjectionPush {
                 (controls.packed_shader_flags()
                     | config.camera_color_mode.shader_bit()
                     | config.camera_feed_pipeline_mode.shader_bit()
-                    | config.camera_projection_effect_mode.shader_bit()) as f32,
+                    | config.camera_projection_effect_mode.shader_bit()
+                    | config.camera_projection_border_policy_shader_bit()) as f32,
             ],
             color_adjust: config.camera_color_adjust_push(),
             effect_params: config.camera_effect_params_push(),
@@ -6134,6 +6133,7 @@ impl CameraProjectionPush {
                     | config.camera_color_mode.shader_bit()
                     | config.camera_feed_pipeline_mode.shader_bit()
                     | config.camera_projection_effect_mode.shader_bit()
+                    | config.camera_projection_border_policy_shader_bit()
                     | full_frame_mapping_flags) as f32,
             ],
             color_adjust: config.camera_color_adjust_push(),
@@ -6781,8 +6781,12 @@ fn projection_area_target_marker_fields(config: &crate::RuntimeConfig) -> String
     let left_feed_rect = projection_area_screen_uv_rect(left_offset, radius, scale);
     let right_feed_rect = projection_area_screen_uv_rect(right_offset, radius, scale);
     format!(
-        "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionAreaOffsetResponseCoordinateSpace=display-eye-screen-uv projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv_div_projectionAreaScaleUv projectionAreaShaderScreenBaseFormula=screenBase=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 projectionAreaFullFrameContentFormula=contentUv=(screenBase-offsetUv-(0.5-radiusUv))/(2*radiusUv) projectionAreaSourceToScreenGainUv={} surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=canvas-or-layer-covers-target-fov feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_surface borderRegionSemantics=surface_minus_feed borderFillPolicy=source-invalid-fill projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} leftProjectionAreaOffsetUv={} rightProjectionAreaOffsetUv={} leftProjectionAreaOffsetResponseUv={} rightProjectionAreaOffsetResponseUv={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+        "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionAreaOffsetResponseCoordinateSpace=display-eye-screen-uv projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv_div_projectionAreaScaleUv projectionAreaShaderScreenBaseFormula=screenBase=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 projectionAreaFullFrameContentFormula=contentUv=(screenBase-offsetUv-(0.5-radiusUv))/(2*radiusUv) projectionAreaSourceToScreenGainUv={} surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=canvas-or-layer-covers-target-fov feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_surface borderRegionSemantics=surface_minus_feed projectionBorderPolicy={} borderFillPolicy={} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} leftProjectionAreaOffsetUv={} rightProjectionAreaOffsetUv={} leftProjectionAreaOffsetResponseUv={} rightProjectionAreaOffsetResponseUv={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
         screen_uv_vec2_token(source_to_screen_gain),
+        config.camera_projection_border_policy.stable_id(),
+        config
+            .camera_projection_border_policy
+            .shared_fill_policy_id(),
         config.camera_projection_depth_meters,
         config.camera_preview_fov_y_degrees,
         config.camera_preview_offset_y_meters,
@@ -7781,7 +7785,7 @@ unsafe fn create_gpu_camera_pipeline_resources(
         format_key.sampler_binding_mode,
         false,
     )?;
-    let fast_pipeline = match create_gpu_camera_pipeline(
+    let direct_pipeline = match create_gpu_camera_pipeline(
         device,
         render_pass,
         pipeline_layout,
@@ -7803,7 +7807,7 @@ unsafe fn create_gpu_camera_pipeline_resources(
         descriptor_pool,
         pipeline_layout,
         pipeline,
-        fast_pipeline,
+        direct_pipeline,
         projection_uniform_buffer,
         projection_uniform_memory,
         projection_uniform_stride,
@@ -8105,19 +8109,22 @@ unsafe fn create_gpu_camera_pipeline(
     render_pass: vk::RenderPass,
     pipeline_layout: vk::PipelineLayout,
     sampler_binding_mode: crate::CameraSamplerBindingMode,
-    fast_raw_projection: bool,
+    direct_raw_projection: bool,
 ) -> Result<vk::Pipeline, String> {
     let vertex_words = spirv_words(include_bytes!(concat!(
         env!("OUT_DIR"),
         "/camera_projection.vert.spv"
     )))?;
-    let fragment_words = match (sampler_binding_mode, fast_raw_projection) {
+    let fragment_words = match (sampler_binding_mode, direct_raw_projection) {
         (crate::CameraSamplerBindingMode::CombinedImmutableSampler, false) => spirv_words(
             include_bytes!(concat!(env!("OUT_DIR"), "/camera_projection.frag.spv")),
         )?,
-        (crate::CameraSamplerBindingMode::CombinedImmutableSampler, true) => spirv_words(
-            include_bytes!(concat!(env!("OUT_DIR"), "/camera_projection_fast.frag.spv")),
-        )?,
+        (crate::CameraSamplerBindingMode::CombinedImmutableSampler, true) => {
+            spirv_words(include_bytes!(concat!(
+                env!("OUT_DIR"),
+                "/camera_projection_direct.frag.spv"
+            )))?
+        }
         (crate::CameraSamplerBindingMode::SeparateImageSampler, false) => {
             spirv_words(include_bytes!(concat!(
                 env!("OUT_DIR"),
@@ -8127,7 +8134,7 @@ unsafe fn create_gpu_camera_pipeline(
         (crate::CameraSamplerBindingMode::SeparateImageSampler, true) => {
             spirv_words(include_bytes!(concat!(
                 env!("OUT_DIR"),
-                "/camera_projection_fast_separate_sampler.frag.spv"
+                "/camera_projection_direct_separate_sampler.frag.spv"
             )))?
         }
     };

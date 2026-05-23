@@ -461,8 +461,6 @@ pub enum ProjectionBorderFillPolicy {
     SolidColor,
     Transparent,
     PassthroughUnderlay,
-    DiagnosticSplit,
-    SourceInvalidFill,
 }
 
 impl ProjectionBorderFillPolicy {
@@ -471,8 +469,6 @@ impl ProjectionBorderFillPolicy {
             Self::SolidColor => "solid-color",
             Self::Transparent => "transparent",
             Self::PassthroughUnderlay => "passthrough-underlay",
-            Self::DiagnosticSplit => "diagnostic-split",
-            Self::SourceInvalidFill => "source-invalid-fill",
         }
     }
 }

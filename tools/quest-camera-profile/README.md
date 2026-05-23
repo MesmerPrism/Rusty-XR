@@ -20,8 +20,8 @@ For the current screen-space plus blur ordering, start from
 `diagnostic-grid` and `motion-bar` first, raw projection area before blur, and
 physical Brave stimulus only after the deterministic packets are coherent.
 
-For suite runs with solid-red invalid fill, analyze the resulting screenshot
-coordinate coverage with:
+For suite runs with solid-red projection exterior fill, analyze the resulting
+screenshot coordinate coverage with:
 
 ```powershell
 python .\tools\quest-camera-profile\Analyze-RawStackScreenSpace.py `
@@ -56,10 +56,9 @@ source of truth. For `full-frame-diagnostic`, the analyzer uses the
 renderer-authored full-frame intent to measure the visible stimulus envelope,
 so backend color/decoder differences do not turn a disconnected top diagnostic
 band into a false vertical-placement failure. If a full-frame lane has no
-meaningful red invalid-fill area because the renderer-authored source-valid
-footprint fills the projection area, the strict path can use the cyan/yellow
-guide signal as the diagnostic mask evidence; this is not the visible-content
-fallback.
+meaningful red exterior area because the renderer-authored source-valid
+footprint fills the projection area, the lane is blocked for strict mask
+segmentation instead of falling back to guide colors.
 
 Projection-coordinate contracts also include a `source_sampling` record when
 renderers log the source sample boundary. Use this to keep architecture
@@ -202,7 +201,8 @@ before using native passthrough as the target:
 The first profile draws the depth-1.0 head-anchored surface as real quad
 geometry. The second profile should match it while using
 `cameraProjectionMode=display-screen-homography` and
-`raw-projection-camera-footprint-underlay-unorm`: the shader maps display-eye
+`cameraPipelinePreset=raw-projection-unorm` with
+`projectionBorderPolicy=passthrough-underlay`: the shader maps display-eye
 screen UV through `screen_to_surface`, then through `surface_to_camera`, and
 alpha-disables pixels outside the valid camera footprint to reveal the
 passthrough underlay. Treat `camera-stereo-gpu-composite-full-feed-control` as
@@ -256,8 +256,9 @@ visible in logs as `requestedTier=cpu-diagnostic-flat-copy`,
 `requestedAeFpsRange=device-controlled`, and `gpuImportSuccess=0`. A clean
 reference launch keeps `cameraTier=gpu-projected`,
 `cameraStereoLayout=separate`, `cameraSourceEyeMapping=left-right`,
-`cameraTargetFps=72`, `cameraPipelinePreset=raw-projection-underlay-unorm`,
-`cameraColorMode=external-rgb`, `cameraAllowCpuFallback=false`, and
+`cameraTargetFps=72`, `cameraPipelinePreset=raw-projection-unorm`,
+`projectionBorderPolicy=passthrough-underlay`, `cameraColorMode=external-rgb`,
+`cameraAllowCpuFallback=false`, and
 `cameraCpuUploadHz=0`; validation should then show stereo-left/right Camera2
 streams, GPU import cache activity, camera cadence around the applied AE range,
 and OpenXR cadence returning to display rate after warmup.
@@ -444,37 +445,20 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
 ```
 
 Current public presets are `projected-srgb`, `raw-feed-unorm`,
-`projected-unorm`, `raw-feed-srgb`, `shader-decode-unorm`, and
-`separate-decode-unorm`. The `raw-projection-fast-unorm` preset keeps the raw
-feed and UNORM swapchain but skips the public border/effect shader for
-performance isolation. The `raw-projection-invalid-fill-unorm` preset keeps
-that fast path and only undims invalid projected-camera fallback pixels for
-perimeter/background A/B tests without enabling the full border composite. The
-`raw-projection-perimeter-fill-unorm` preset adds a one-sample geometry rim fill
-between that invalid-only probe and the full border composite. The
-`raw-projection-soft-border-unorm` preset reuses the public border mask with a
-single projected inward sample to test lower/perimeter coverage without the full
-border composite. The `raw-projection-strong-border-unorm` preset keeps that
-single-sample shape but uses a stronger generic border mix for A/B runs where
-the soft variant does not move the lower/perimeter region enough. The
-`raw-projection-dynamic-border-unorm` preset keeps the strong-border geometry
-and adds a cheap dynamic color-feedback term for border color A/B tests. The
-`raw-projection-warm-border-unorm` preset keeps the same geometry while using a
-luma-preserving warm feedback term for border-color A/B tests. The
-`raw-projection-cycling-border-unorm` preset keeps that geometry and adds a
-phase-cycled generic color term for testing temporal border-color feedback; use
-`-Override 'rustyxr.cameraBorderCycleHz=<rate>'` to adjust the cycle rate in the
-same APK. The
-`raw-projection-solid-red-unorm` preset is the clean projection-area alignment
-probe: valid projected camera pixels inside the hard public projection-area mask
-stay raw, and every pixel outside that area is opaque red for segmentation and
-operator checks. The
-`raw-projection-underlay-unorm` preset submits a public
-OpenXR passthrough underlay and makes that same outside-projection area
-transparent, which is useful when comparing background composition separately
-from raw camera sampling. The `rustyxr.processingLayer=blur` setting keeps the
-selected projection-area policy but runs the valid camera samples through a
-generic 25-tap diagnostic blur.
+`projected-unorm`, `raw-feed-srgb`, `shader-decode-unorm`,
+`separate-decode-unorm`, and `raw-projection-unorm`. The
+`raw-projection-unorm` preset keeps the raw feed and UNORM swapchain on the
+direct raw-projection shader path; projection exterior fill is selected
+separately with `rustyxr.projectionBorderPolicy`. The
+`projectionBorderPolicy=solid-red` setting is the clean projection-area
+alignment probe: valid projected camera pixels inside the hard public
+projection-area mask stay raw, and every pixel outside that area is opaque red
+for segmentation and operator checks. `projectionBorderPolicy=passthrough-underlay`
+submits a public OpenXR passthrough underlay and makes that same
+outside-projection area transparent, which is useful when comparing background
+composition separately from raw camera sampling. The `rustyxr.processingLayer=blur`
+setting keeps the selected projection-area policy but runs the valid camera
+samples through a generic 25-tap diagnostic blur.
 HWB, OES, and Makepad normalize the diagnostic blur texel step against the same
 1280x1280 source domain used by the broker camera and synthetic diagnostic feed.
 Use `rustyxr.cameraBlurRadiusPx` to adjust the visual sample radius for stack
@@ -511,7 +495,8 @@ integrations on these stable keys instead of duplicating shader-specific state:
 
 | Key | Type | Purpose |
 | --- | --- | --- |
-| `rustyxr.cameraPipelinePreset` | string | Selects the complete feed/sampler/effect/color-format preset, for example `raw-projection-solid-red-unorm`, `raw-projection-underlay-unorm`, `raw-projection-camera-footprint-underlay-unorm`, `raw-projection-strong-border-unorm`, `raw-projection-warm-border-unorm`, `raw-projection-cycling-border-unorm`, `display-eye-uv-fiducial-unorm`, `projection-content-uv-fiducial-unorm`, or `source-sampling-witness-unorm`. |
+| `rustyxr.cameraPipelinePreset` | string | Selects the feed/sampler/effect/color-format preset, for example `raw-projection-unorm`, `display-eye-uv-fiducial-unorm`, `projection-content-uv-fiducial-unorm`, or `source-sampling-witness-unorm`. |
+| `rustyxr.projectionBorderPolicy` | string | Selects the projection exterior fill policy independently from the camera pipeline preset: `solid-red` or `passthrough-underlay`. |
 | `rustyxr.processingLayer` | string | Selects the diagnostic content-processing layer. Use `raw` for unprocessed camera content or `blur` for the public diagnostic blur. |
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `world-canvas`, `display-screen-homography`, or `quad-surface`. |
 | `rustyxr.cameraProjectionGeometryProfile` | string | Selects direct Camera2 source/content geometry metadata. Active direct lanes accept `full-frame-diagnostic` for full-frame-to-projection-area checks and `camera-projection` for per-eye screen-to-camera homography checks; other values are rejected or reported as unsupported. |
@@ -532,7 +517,6 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.projectionAlphaMode` | string | Shared color-derived alpha mode: `fixed`, RGB, luma, or inverse variants. |
 | `rustyxr.projectionAlphaScale` | float | Shared multiplier applied to the selected alpha mask, clamped to `0..4`. |
 | `rustyxr.projectionAlphaBias` | float | Shared bias applied after alpha-mask scaling, clamped to `-1..1`. |
-| `rustyxr.cameraBorderCycleHz` | float | Adjusts the generic phase-cycled border-color rate used by `raw-projection-cycling-border-unorm`; ignored by static border presets. |
 | `rustyxr.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in 1280x1280 source pixels when `rustyxr.processingLayer=blur`. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
 | `rustyxr.openxrPassthroughProbe` | string | Keeps native passthrough checks separate from camera projection: `off`, `warmup`, `client`, or `underlay`. |
@@ -582,8 +566,8 @@ Native acquisition and OpenXR passthrough-client state are separate axes. To
 test runtime passthrough exposure without adding a catalog profile, use
 `-Override 'rustyxr.openxrPassthroughProbe=warmup'` or
 `-Override 'rustyxr.openxrPassthroughProbe=client'`. Use
-`raw-projection-underlay-unorm` when the passthrough layer should be submitted
-as a visible underlay. Always compare those runs
+`projectionBorderPolicy=passthrough-underlay` when the passthrough layer should
+be submitted as a visible underlay. Always compare those runs
 against camera-frame progression; passthrough-client state is not a substitute
 for live camera delivery.
 

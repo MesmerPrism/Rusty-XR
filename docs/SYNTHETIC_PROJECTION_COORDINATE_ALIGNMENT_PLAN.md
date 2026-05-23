@@ -119,7 +119,7 @@ camera-matched synthetic source than another renderer.
 
 ## Profile Naming Rule
 
-Do not use `fast075` profiles for synthetic coordinate alignment. Those profile
+Do not use `scale075` profiles for synthetic coordinate alignment. Those profile
 names came from performance comparisons at `0.75` render/projection scale and
 are ambiguous for the current goal.
 
@@ -162,7 +162,7 @@ Known confusing settings:
 
 | Setting/surface | Current risk | Alignment rule |
 | --- | --- | --- |
-| `fast075` profile names | Historical performance profile names look like geometry intent | Never use for coordinate gates |
+| `scale075` profile names | Historical performance profile names look like geometry intent | Never use for coordinate gates |
 | `rustyxr.cameraProjectionScale` | Changes HWB camera source surface before shader sampling | Log and tune separately from projection-area scale |
 | `rustyxr.projectionAreaScaleUv` / `projection_area_scale_*` | Changes where the intended projection area lands on screen | Use for screen-footprint scale, not source crop |
 | `contentUvScale=1.6000` | Makepad logs/hotloads it, but the active shader path does not use it as the projection footprint control | Do not tune until wired or renamed inactive |
@@ -184,7 +184,7 @@ Trace these fields in order:
    `*ProjectionAreaOffsetResponseUv` fields;
 7. shader decision between intended mask and invalid-source fill.
 
-The old `fast075` launch hypothesis and the earlier HWB source-crop diagnosis
+The old `scale075` launch hypothesis and the earlier HWB source-crop diagnosis
 are superseded by the 2026-05-19 camera-matched sweep. HWB now has full visible
 coverage and center parity, so the next HWB work is not a projection-area scale
 tune. It is to log a renderer-authored camera-matched expected source-valid
@@ -284,9 +284,9 @@ blur tuning or physical-camera passthrough alignment.
 The first cleanup split compatibility/performance profiles from alignment
 profiles:
 
-- `camera-stereo-gpu-composite-fast075` remains a compatibility/performance
+- `camera-stereo-gpu-composite-scale075` remains a compatibility/performance
   profile.
-- `broker-h264-stereo-live-openxr-projection-fast075-probe` remains a
+- `broker-h264-stereo-live-openxr-projection-scale075-probe` remains a
   compatibility/performance profile.
 - `camera-stereo-gpu-composite-full-feed-control` is the direct HWB
   raw-stack transport/parity control.
@@ -296,7 +296,7 @@ profiles:
 The raw-stack suite should launch the full-feed control profiles for HWB and
 then pass explicit overrides for processing layer, border policy, projection
 scale, projection-area scale, radius, corner radius, opacity, and offsets. If a
-future screenshot name still contains `fast075`, the suite is launching the
+future screenshot name still contains `scale075`, the suite is launching the
 wrong profile or the catalog/profile resolver returned stale data.
 
 Public default projection scale is now full-feed (`1.0`). Any `0.75` projection
@@ -311,9 +311,10 @@ footprint. The current custom-footprint gate is the depth-1.0 pair:
 first renders the camera-content surface as a real world canvas; the second
 should reproduce that result through the collapsed fullscreen shader by mapping
 display-eye screen UV to the same surface before source sampling. The collapsed
-profile uses `raw-projection-camera-footprint-underlay-unorm` so the full
-Camera2 frame remains the source input while only the valid reconstructed
-camera footprint contributes color.
+profile uses `cameraPipelinePreset=raw-projection-unorm` with
+`projectionBorderPolicy=passthrough-underlay` so the full Camera2 frame remains
+the source input while only the valid reconstructed camera footprint contributes
+color.
 
 The depth-1.0 canvas/collapsed comparison is now the handoff point between
 internal lane parity and native-passthrough alignment. With matching
@@ -396,7 +397,7 @@ Current architecture risks to fix:
    Android extras, Android system properties, Rust defaults, Java defaults,
    Makepad live uniforms, and analyzer defaults.
 2. Some names describe implementation history rather than current intent:
-   `fast075`, `TARGET_FULL_VIEW_CONTENT_UV_SCALE`, and `contentUvScale=1.6000`
+   `scale075`, `TARGET_FULL_VIEW_CONTENT_UV_SCALE`, and `contentUvScale=1.6000`
    are easy to misread during alignment work.
 3. `contentUvScale` is currently logged/hotloaded in Makepad but is not used by
    the active shader path. Until it is either wired into the mapping or renamed

@@ -81,7 +81,7 @@ not in base crates.
 | `examples/quest-gl-openxr-video-stack-apk/native` | OpenGL ES and OpenXR video-stack implementation lane. |
 | `examples/quest-broker-apk` | Quest broker sidecar source tree and build helpers. |
 | `examples/quest-broker-shell-helper` | Source-only Developer Mode shell-helper example. |
-| `examples/makepad-q2q-camera-shell` | Excluded Makepad-first comparison lane. |
+| `examples/makepad-camera-shell` | Excluded Makepad-first comparison lane. |
 
 See [EXAMPLES_MATRIX.md](EXAMPLES_MATRIX.md) for validation commands and what
 each example proves.

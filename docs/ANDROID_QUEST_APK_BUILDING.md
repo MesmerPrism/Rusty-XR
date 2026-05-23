@@ -33,9 +33,9 @@ For a Makepad-compatible Android build path that uses Makepad's own packager and
 prepares for Makepad Live/hotpatch iteration, see
 [MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md](MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md).
 The current Makepad-first comparison lane is tracked in
-[MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md](MAKEPAD_Q2Q_PARALLEL_APPROACH_COMPARISON.md)
+[MAKEPAD_CAMERA_PARALLEL_APPROACH_COMPARISON.md](MAKEPAD_CAMERA_PARALLEL_APPROACH_COMPARISON.md)
 and starts with
-`examples/makepad-q2q-camera-shell/build-manifest.public.json`.
+`examples/makepad-camera-shell/build-manifest.public.json`.
 The current public examples also carry source-only Android build manifests:
 `examples/quest-minimal-apk/build-manifest.public.json`,
 `examples/quest-composite-layer-apk/build-manifest.public.json`,
@@ -49,7 +49,7 @@ changing the existing build scripts.
 Validate the manifests with:
 
 ```powershell
-python tools\schema\check_android_build_manifest.py examples\quest-minimal-apk\build-manifest.public.json examples\quest-composite-layer-apk\build-manifest.public.json examples\quest-gl-openxr-video-stack-apk\build-manifest.public.json examples\quest-broker-apk\build-manifest.public.json examples\quest-broker-shell-helper\build-manifest.public.json examples\makepad-q2q-camera-shell\build-manifest.public.json
+python tools\schema\check_android_build_manifest.py examples\quest-minimal-apk\build-manifest.public.json examples\quest-composite-layer-apk\build-manifest.public.json examples\quest-gl-openxr-video-stack-apk\build-manifest.public.json examples\quest-broker-apk\build-manifest.public.json examples\quest-broker-shell-helper\build-manifest.public.json examples\makepad-camera-shell\build-manifest.public.json
 ```
 
 ## Android Toolchain Resolution
@@ -81,7 +81,7 @@ lifecycle, and renderer surface match the custom Rusty XR path on Quest.
 Prefer the example wrapper for local Makepad evidence builds:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 -SdkPath <host-matched-sdk> -MakepadSourceRoot <makepad-fork-checkout>
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 -SdkPath <host-matched-sdk> -MakepadSourceRoot <makepad-fork-checkout>
 ```
 
 The wrapper performs host/profile-aware preflight before invoking cargo. WSL or
@@ -95,7 +95,7 @@ When a prepared Windows-host SDK is the selected Rusty XR evidence lane, make
 that explicit in the command:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
   -UseWindowsHost `
   -SdkPath <windows-host-sdk> `
   -MakepadSourceRoot <makepad-fork-checkout> `
@@ -104,7 +104,7 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\too
 
 If a WSL/Linux-host rebuild fails in Makepad's packager while removing a missing
 bundled font asset even after the concrete
-`examples/makepad-q2q-camera-shell/target/android/makepad-android-apk/` output
+`examples/makepad-camera-shell/target/android/makepad-android-apk/` output
 subtree has been cleaned once, do not keep cycling staging cleanup as the
 primary fix. Treat that as a host-packager-route failure, switch to the
 Windows-host wrapper lane, or document that Linux-host Makepad packaging is the
@@ -128,19 +128,19 @@ pass `-PatchMakepadXrFromSource` when the app must also consume uncommitted
 Makepad dependency source from the same checkout.
 
 For the public Makepad comparison example, run the Makepad build from
-`examples/makepad-q2q-camera-shell` and pass Android options before the
+`examples/makepad-camera-shell` and pass Android options before the
 `build`/`run` subcommand. Direct `cargo makepad` remains useful for upstream or
 portable Makepad workflows, but the caller is responsible for passing a
 host-matched SDK path. The tested command shape is:
 
 ```powershell
-cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" build -p rusty-xr-makepad-q2q-camera-shell --release
+cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Camera" build -p rusty-xr-makepad-camera-shell --release
 ```
 
 For run/install:
 
 ```powershell
-cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" run -p rusty-xr-makepad-q2q-camera-shell --release
+cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Camera" run -p rusty-xr-makepad-camera-shell --release
 ```
 
 Before using a Makepad APK as evidence, remove or timestamp the expected output
@@ -150,7 +150,7 @@ native-library strings. Remove generated Makepad `target/` output before public
 pushes and public boundary scans.
 
 The current Makepad Android packager writes the generated APK below
-`examples/makepad-q2q-camera-shell/target/android/makepad-android-apk/`. Clean
+`examples/makepad-camera-shell/target/android/makepad-android-apk/`. Clean
 that concrete output folder before a rebuild; cleaning an older
 `target/makepad-android-apk/` path is not sufficient evidence that the next APK
 is fresh.
@@ -159,7 +159,7 @@ The Makepad comparison example is standalone rather than a root-workspace
 package. Validate source with:
 
 ```powershell
-cargo check --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml
+cargo check --manifest-path examples\makepad-camera-shell\Cargo.toml
 ```
 
 or by running `cargo check` from the example directory. Do not use root
@@ -168,7 +168,7 @@ or by running `cargo check` from the example directory. Do not use root
 For Makepad Android, split validation into two gates:
 
 1. Host Rust gate: `cargo check --manifest-path
-   examples\makepad-q2q-camera-shell\Cargo.toml` and focused host tests cover
+   examples\makepad-camera-shell\Cargo.toml` and focused host tests cover
    parser, metadata, and projection-math changes.
 2. Android/package gate: `Build-MakepadStereoAlignmentApk.ps1`, preferably with
    `-MakepadSourceRoot <makepad-fork-checkout>`, is the target acceptance gate
@@ -181,7 +181,7 @@ valid.
 
 Optional Android-target Rust probe: when a change touches Android-only Rust in
 the Makepad example, `cargo test --manifest-path
-examples\makepad-q2q-camera-shell\Cargo.toml --target aarch64-linux-android
+examples\makepad-camera-shell\Cargo.toml --target aarch64-linux-android
 --no-run` can be used as extra evidence. Treat it as a probe, not a required
 gate. If it compiles the edited Rust modules and then fails only at final test
 linking because no target `cc`/NDK linker is configured, report that as
@@ -194,7 +194,7 @@ linker configuration such as `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER` as a
 separate toolchain requirement.
 
 For headset gates, prefer
-`examples/makepad-q2q-camera-shell/tools/Invoke-MakepadQ2QDeviceGate.ps1`.
+`examples/makepad-camera-shell/tools/Invoke-MakepadCameraDeviceGate.ps1`.
 It records whether the app reached XR on the first launcher attempt, a second
 launcher retry, or direct generated-XR fallback, so first-launch loading
 failures are not hidden by a later successful launch. The harness also records
@@ -603,7 +603,7 @@ powershell -ExecutionPolicy Bypass -File .\examples\quest-broker-shell-helper\to
 ```
 
 The source-first Makepad comparison example is
-`examples/makepad-q2q-camera-shell/`. It is a standalone package that uses
+`examples/makepad-camera-shell/`. It is a standalone package that uses
 `cargo-makepad android --variant=quest` to generate the Android manifest, Java
 activities, OpenXR loader packaging, signing, APK output, install, and run
 surface. The lane started as a synthetic smoke app, then added Camera2

@@ -6,7 +6,7 @@ app-specific visual effects.
 
 Rusty XR is the canonical place to finish this base work. Downstream apps should
 return to their custom effect stacks only after the public raw lanes agree on
-screen-space coverage, invalid-region policy, stereo orientation, and the
+screen-space coverage, projection exterior fill policy, stereo orientation, and the
 generic blur diagnostic.
 
 The active synthetic-first coordinate gate is tracked in
@@ -31,14 +31,14 @@ This workflow owns:
   Makepad CPU-YUV lanes;
 - the two-area render convention: full submitted XR surface, with camera pixels
   only inside the projected camera region;
-- invalid-region policy: solid diagnostic color for segmentation or transparent
+- projection exterior fill policy: solid diagnostic color for segmentation or transparent
   passthrough underlay for operator alignment;
 - independent opacity controls for the projected camera area and the surrounding
   border/matte region, so the same full submitted surface can be compared
   against native passthrough without changing geometry;
 - broker-synthetic H.264 stimuli for deterministic projection, color/luma,
   temporal, and blur checks;
-- the public 9-tap diagnostic blur layer as a processing-stack witness;
+- the public 25-tap diagnostic blur layer as a processing-stack witness;
 - the later physical-screen stimulus procedure used to compare custom camera
   projection against native passthrough.
 
@@ -112,13 +112,13 @@ Synthetic source geometry is explicit:
 All three profiles must still respect the two-area render convention: the
 submitted XR surface can be full size, while the camera/projection content is
 visible only inside the projection area and the surrounding matte/border remains
-under the selected invalid-region policy.
+under the selected projection exterior fill policy.
 
 ## Projection Area Pass
 
 For screen-space alignment, keep the processing layer set to `raw`.
 
-Use `solid-red` invalid-region policy for automated analysis:
+Use `solid-red` projection exterior fill for automated analysis:
 
 - image-derived active fraction;
 - bounding boxes;
@@ -131,17 +131,17 @@ The solid-red policy must be a hard projection-area mask. If the captured
 outside-projection region contains feedback color, feathering, or camera samples,
 reject the run and fix the border-mode routing before measuring offsets.
 
-Use `passthrough-underlay` invalid-region policy for operator alignment against
+Use `passthrough-underlay` projection exterior fill for operator alignment against
 native passthrough:
 
 - the submitted XR surface remains full size;
 - the camera projection remains a sub-area;
-- invalid projected pixels write transparent alpha so the native passthrough
+- outside-projection pixels write transparent alpha so the native passthrough
   underlay can show through;
 - changing the border policy must not move, scale, or crop the camera
   projection area.
 
-For red-border passthrough alignment, keep the invalid-region policy at
+For red-border passthrough alignment, keep the projection exterior fill at
 `solid-red`, enable the native passthrough underlay, and sweep projection-area
 opacity from `1.0` to `0.0`. The border opacity is a separate control. This mode
 is useful when the operator needs to see the exact projected-camera window
@@ -160,8 +160,8 @@ Only after the raw projection area is classified, switch the processing layer to
 
 The public blur layer is a generic diagnostic witness:
 
-- valid camera samples are blurred with a small 9-tap kernel;
-- invalid projected pixels keep the selected border policy;
+- valid camera samples are blurred with the shared public 25-tap diagnostic kernel;
+- outside-projection pixels keep the selected border policy;
 - the blur radius is controlled by the lane's public runtime key;
 - the layer is intended for comparing processing-stack behavior, not for
   reproducing a downstream app's effect recipe.
@@ -185,11 +185,27 @@ footprint, then measures high-frequency edge-energy loss inside the synthetic
 valid-content crop. Treat a geometry shift as a projection contract regression,
 not as blur evidence.
 
+## Terminology Guardrails
+
+Keep source kind, processing layer, and projection exterior fill independent:
+
+- physical camera, broker camera, and broker-synthetic inputs select the source
+  frames and source metadata;
+- `processingLayer=blur` selects the content processing applied inside the
+  valid feed footprint;
+- `projectionBorderPolicy` selects the `surface_minus_feed` exterior fill for
+  the submitted projection surface.
+
+The solid-red fill is not a diagnostic guide border. It is the current hard
+matte for pixels outside the camera-feed footprint. Fiducials and source-sampling
+witness overlays are separate diagnostic modes and should not be present in
+solid-red parity runs.
+
 ## Public Control Map
 
 | Renderer family | Raw border control | Projection-area opacity | Border opacity | Color-derived alpha | Blur control |
 | --- | --- | --- | --- | --- | --- |
-| Vulkan/HWB | `rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.projectionAlphaMode`, `rustyxr.projectionAlphaScale`, `rustyxr.projectionAlphaBias` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
+| Vulkan/HWB | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` with `rustyxr.cameraPipelinePreset=raw-projection-unorm` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.projectionAlphaMode`, `rustyxr.projectionAlphaScale`, `rustyxr.projectionAlphaBias` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.projectionAlphaMode`, `rustyxr.projectionAlphaScale`, `rustyxr.projectionAlphaBias` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
 | Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.projection.area.opacity` | `debug.rustyxr.makepad.projection.border.opacity` | `debug.rustyxr.makepad.projection.alpha.mode`, `.scale`, `.bias` | `debug.rustyxr.makepad.processing.layer=blur`, plus `debug.rustyxr.makepad.blur.radius.px` |
 
@@ -215,7 +231,7 @@ property. Use lane-specific depth overrides only as named architecture
 experiments; otherwise all three lanes should share the same projection plane
 before alignment offsets are measured.
 
-For alignment runs, do not launch `fast075` HWB profiles. Those names belong to
+For alignment runs, do not launch `scale075` HWB profiles. Those names belong to
 older performance comparisons and can hide a `cameraProjectionScale=0.75`
 footprint. Use the full-feed alignment profiles selected by the suite and keep
 any deliberate scale or depth reduction explicit in the command summary.
@@ -265,8 +281,8 @@ For each alignment slice, keep the generated evidence under ignored
 - whether the evidence came from broker synthetic input or physical camera
   input.
 
-For raw-stack suite runs that use `solid-red` invalid fill, derive repeatable
-screen-space coordinates from the captured screenshot pixels:
+For raw-stack suite runs that use `solid-red` projection exterior fill, derive
+repeatable screen-space coordinates from the captured screenshot pixels:
 
 ```powershell
 python .\tools\quest-camera-profile\Analyze-RawStackScreenSpace.py `
@@ -278,7 +294,7 @@ The analyzer writes `screen-space-analysis\screen-space-summary.md`,
 the screenshot output space with origin at the top left, `x` increasing right,
 and `y` increasing down. Positive vertical center offset means the detected
 camera projection area is below the center of that eye's screenshot half.
-If solid-red invalid fill is not present in a `solid-red` lane, the analyzer
+If solid-red exterior fill is not present in a `solid-red` lane, the analyzer
 marks the lane ambiguous. Visible-content fallback is reserved for transparent
 underlay/operator runs and must not be treated as a strict valid-mask footprint.
 When logcat evidence is present in the lane artifact, the analyzer also records

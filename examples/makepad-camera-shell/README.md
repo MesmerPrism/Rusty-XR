@@ -1,4 +1,4 @@
-# Rusty XR Makepad Q2Q Camera Shell
+# Rusty XR Makepad Camera Camera Shell
 
 This is a standalone Makepad-first Quest lane. It exists so Rusty XR can compare
 the current custom Android APK workflow with Makepad's generated Android/OpenXR
@@ -33,7 +33,7 @@ fork-patch policy are documented in
   cube marker, `XrPermissionsFlow`, and an empty root.
 - Reads its startup marker values through `rusty-xr-runtime-config`, so this
   shell is already attached to a framework-neutral Rusty XR core crate.
-- Emits `RUSTY_XR_MAKEPAD_Q2Q_STATUS` and
+- Emits `RUSTY_XR_MAKEPAD_CAMERA_STATUS` and
   `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` on startup.
 - On Android, emits those startup markers directly through logcat under a
   Rusty XR tag so device smoke tests have a reliable startup signal.
@@ -96,7 +96,7 @@ Build the Quest APK from this example directory with a host-matched Android
 SDK:
 
 ```powershell
-cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" build -p rusty-xr-makepad-q2q-camera-shell --release
+cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Camera" build -p rusty-xr-makepad-camera-shell --release
 ```
 
 For local evidence builds, prefer the wrapper because it preflights the selected
@@ -104,7 +104,7 @@ SDK before cargo runs and can run the maintained fork's `cargo-makepad` tool
 without rewriting this example's app dependencies:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
   -SdkPath <host-matched-sdk> `
   -MakepadSourceRoot <makepad-fork-checkout>
 ```
@@ -130,10 +130,10 @@ Makepad fork whose packager resolves installed SDK tools and host executable
 names from `--sdk-path`.
 
 For projection-footprint alignment work, build a distinct alignment APK rather
-than reusing the Q2Q package identity:
+than reusing a broker transport package identity:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
   -SdkPath <local-makepad-android-sdk>
 ```
 
@@ -159,7 +159,7 @@ the reset/default state keeps keystone and bow neutral because the Rusty XR
 reference path does not apply an equivalent pre-homography screen-domain warp.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Send-MakepadQ2QHorizontalOffset.ps1 `
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Send-MakepadCameraControls.ps1 `
   -ProjectionAreaDiagnostic 2 `
   -ProjectionAreaLeftUv <left-eye-uv-offset> `
   -ProjectionAreaRightUv <right-eye-uv-offset> `
@@ -181,20 +181,20 @@ For final screenshot comparison, disable the red border after reset so visual
 analyzers compare camera content instead of the diagnostic outline:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Send-MakepadQ2QHorizontalOffset.ps1 `
-  -ProjectionBorderStrength 0
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Send-MakepadCameraControls.ps1 `
+  -ProjectionBorderOpacity 0
 ```
 
 Run on a selected Quest device:
 
 ```powershell
-cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Q2Q" run -p rusty-xr-makepad-q2q-camera-shell --release
+cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Camera" run -p rusty-xr-makepad-camera-shell --release
 ```
 
 This example is not a root-workspace member. Use
-`cargo check --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml` from
+`cargo check --manifest-path examples\makepad-camera-shell\Cargo.toml` from
 the repository root, or plain `cargo check` from this directory; do not use
-`cargo check -p rusty-xr-makepad-q2q-camera-shell` from the root workspace.
+`cargo check -p rusty-xr-makepad-camera-shell` from the root workspace.
 Treat that as the host-side Rust validation gate for parser, metadata, and
 projection-math changes. Do not use a plain
 `cargo check --target aarch64-linux-android` as the Android acceptance gate for
@@ -208,7 +208,7 @@ When Android-only Rust in this example changes, an optional no-run probe can
 add partial target coverage:
 
 ```powershell
-cargo test --manifest-path examples\makepad-q2q-camera-shell\Cargo.toml --target aarch64-linux-android --no-run
+cargo test --manifest-path examples\makepad-camera-shell\Cargo.toml --target aarch64-linux-android --no-run
 ```
 
 This is not a required gate and not a package validation. If the probe compiles
@@ -240,7 +240,7 @@ runtime grants, but it should report a blocked MediaProjection consent state
 instead of claiming it can bypass the headset prompt.
 
 The generated APK lands under
-`target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/apk/`.
+`target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/apk/`.
 
 The Makepad runner starts the generated launcher activity. Use the launcher or
 normal generated activity for active XR presentation; with `XrPermissionsFlow`
@@ -256,7 +256,7 @@ For end-user startup gates, prefer the guarded launcher harness over one-off
 `monkey` or single `am start` commands:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1 `
   -Serial <quest-serial> `
   -Apk <fresh-makepad-apk> `
   -PackageName <public-example-package> `
@@ -276,7 +276,7 @@ For presentation controls where the normal launcher hop is not the test subject,
 start the generated XR activity first:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1 `
   -Serial <quest-serial> `
   -Apk <fresh-makepad-apk> `
   -PackageName <public-example-package> `
@@ -293,7 +293,7 @@ deterministic source/projection checks:
 ```powershell
 adb -s <quest-serial> shell am start -n <broker-package>/<broker-activity>
 
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1 `
   -Serial <quest-serial> `
   -Apk <fresh-makepad-apk> `
   -PackageName <public-example-package> `
@@ -307,7 +307,7 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\too
 Use broker-camera for a physical Camera2 -> H.264 -> MediaCodec CPU-YUV run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1 `
   -Serial <quest-serial> `
   -Apk <fresh-makepad-apk> `
   -PackageName <public-example-package> `
@@ -328,7 +328,7 @@ as a transparent border over native passthrough:
 
 ```powershell
 # Direct Camera2, solid diagnostic border.
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1 `
   -Serial <quest-serial> `
   -Apk <fresh-makepad-apk> `
   -PackageName <public-example-package> `
@@ -338,7 +338,7 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\too
   -ProjectionBorderPolicy solid-red
 
 # Direct Camera2, passthrough underlay border.
-powershell -ExecutionPolicy Bypass -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1 `
   -Serial <quest-serial> `
   -Apk <fresh-makepad-apk> `
   -PackageName <public-example-package> `
@@ -381,13 +381,13 @@ itself is the variable under test.
 Add `-ProjectionAlphaMode red|green|blue|luma` or an inverse variant when the
 valid camera window should reveal native passthrough based on source color.
 The Makepad path uses premultiplied RGB, so alpha-zero mask regions do not leak
-camera color. `tools\Send-MakepadQ2QHorizontalOffset.ps1` accepts the same
+camera color. `tools\Send-MakepadCameraControls.ps1` accepts the same
 alpha mode, scale, and bias properties for short headset A/B checks.
 Add `-ProcessingLayer blur -BlurRadiusPx 2.0` to enable the public diagnostic
 blur layer for valid camera samples while keeping the same projection border
 policy. The gate writes `debug.rustyxr.makepad.processing.layer` and
 `debug.rustyxr.makepad.blur.radius.px`, and the running app also accepts those
-properties through `tools\Send-MakepadQ2QHorizontalOffset.ps1` for short
+properties through `tools\Send-MakepadCameraControls.ps1` for short
 operator A/B checks.
 
 The default broker-H.264 gate uses `127.0.0.1:8765`, left/right stream ports
@@ -431,11 +431,11 @@ counters. Record whether the run was
   extras into Makepad Rust. This smoke pass reads environment variables for
   desktop/tooling runs. The camera-alignment lane also has a narrow Android
   property hotload adapter for live headset tuning:
-  `tools/Send-MakepadQ2QHorizontalOffset.ps1` writes `debug.rustyxr` properties
+  `tools/Send-MakepadCameraControls.ps1` writes `debug.rustyxr` properties
   for horizontal alignment strength, additive left/right/vertical UV offsets,
   projection-footprint offsets/scales/X-keystone/midpoint bow, the synthetic
   projection-area diagnostic toggle, camera-window content scale,
-  projection-border strength, and projection-border policy; the running app
+  projection-border opacity, and projection-border policy; the running app
   polls those values. The
   projection-footprint keystone and bow controls are pre-homography diagnostics
   and reset to neutral.
@@ -603,7 +603,7 @@ counters. Record whether the run was
   captured six byte-distinct screenshots, and stayed fault-clean; treat S91 as
   best-effort until the next headset review.
 - Quest launcher run: installs, starts, emits Java activity, native bootstrap,
-  `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
+  `RUSTY_XR_MAKEPAD_CAMERA_STATUS`, and
   `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` startup markers, switches into active
   XR presentation through `XrPermissionsFlow`, and shows the synthetic stereo
   scene in headset. The S14 launcher pass retained app/`XrUpdate`/draw cadence

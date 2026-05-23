@@ -1,4 +1,4 @@
-# Makepad Q2Q Parallel Approach Comparison
+# Makepad camera Parallel Approach Comparison
 
 This document tracks the Makepad-first Quest lane beside the current Rusty XR
 custom Android APK lane. The goal is not to pick a winner yet. The goal is to
@@ -132,7 +132,7 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 3. Android build: `cargo makepad android --variant=quest build` produces a Quest
    APK and bundles required native shared libraries.
 4. Launcher startup smoke: install/run on a selected Quest and confirm Java
-   activity, native bootstrap, `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
+   activity, native bootstrap, `RUSTY_XR_MAKEPAD_CAMERA_STATUS`, and
    `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` markers in a short log window.
 5. Generated-XR startup smoke: launch the generated XR activity directly and
    confirm the same marker chain, focused immersive activity, and absence of
@@ -161,7 +161,7 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
   Windows packaging fixes for generated wrapper paths and dependent Rust shared
   libraries.
 - The generated launcher activity starts and emits Java activity, native
-  bootstrap, `RUSTY_XR_MAKEPAD_Q2Q_STATUS`, and
+  bootstrap, `RUSTY_XR_MAKEPAD_CAMERA_STATUS`, and
   `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` markers in a short startup capture.
 - The generated XR activity can be launched directly, becomes the focused
   headset activity, emits the same marker chain, and reaches Vulkan ready /

@@ -34,7 +34,7 @@ before reading chronological plans or investigation logs.
   source-only Developer Mode shell-helper example.
 - [Broker client probe](../examples/broker-client-probe/README.md):
   source-only Rust client probe for broker status and commands.
-- [Makepad comparison shell](../examples/makepad-q2q-camera-shell/README.md):
+- [Makepad comparison shell](../examples/makepad-camera-shell/README.md):
   standalone Makepad-first comparison lane.
 - [Unity example integration](UNITY_EXAMPLE_INTEGRATION.md): relationship with
   the canonical public Unity comparison target.

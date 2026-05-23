@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Apk,
 
-    [string]$PackageName = "com.example.rustyxr.makepad.alignment",
+    [string]$PackageName = "io.github.mesmerprism.rustyxr.makepad.camera",
     [string]$LauncherActivity = ("." + "Makepad" + "App"),
     [string]$XrActivity = ("." + "Makepad" + "App" + "Xr"),
     [string]$OutDir = "",
@@ -100,7 +100,7 @@ function Restart-BrokerForRow {
 }
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
-$makepadGate = Join-Path $repoRoot "examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1"
+$makepadGate = Join-Path $repoRoot "examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1"
 if (-not (Test-Path -LiteralPath $makepadGate)) {
     throw "Makepad device gate not found: $makepadGate"
 }

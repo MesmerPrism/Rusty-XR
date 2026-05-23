@@ -5,8 +5,8 @@ param(
     [string]$RunRoot = "artifacts\canvas-custom-projection-parity-suite",
     [string]$HwbApk = "examples\quest-composite-layer-apk\build\outputs\rusty-xr-quest-composite-layer-debug.apk",
     [string]$GlesApk = "examples\quest-gl-openxr-video-stack-apk\build\outputs\rusty-xr-quest-gl-openxr-video-stack-debug.apk",
-    [string]$MakepadApk = "examples\makepad-q2q-camera-shell\target\android\makepad-android-apk\rusty_xr_makepad_q2q_camera_shell\apk\rustyx_rmakepadalignment.apk",
-    [string]$MakepadPackageName = "com.example.rustyxr.makepad.alignment",
+    [string]$MakepadApk = "examples\makepad-camera-shell\target\android\makepad-android-apk\rusty_xr_makepad_camera_shell\apk\rustyx_rmakepadcamera.apk",
+    [string]$MakepadPackageName = "io.github.mesmerprism.rustyxr.makepad.camera",
     [int]$WarmupSeconds = 12,
     [int]$MakepadStartupTimeoutSeconds = 60,
     [int]$MakepadSampleSeconds = 32,
@@ -65,7 +65,7 @@ $receiver = Join-Path $repoRoot "tools\media-pipeline\frame_receiver.py"
 $converter = Join-Path $repoRoot "tools\media-pipeline\Convert-RgbaFrameToPng.py"
 $contactSheetBuilder = Join-Path $repoRoot "tools\quest-camera-profile\Build-CanvasCustomParityContactSheet.py"
 $profileRunner = Join-Path $repoRoot "tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1"
-$makepadRunner = Join-Path $repoRoot "examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1"
+$makepadRunner = Join-Path $repoRoot "examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1"
 
 $surfaceOverride = @(
     "rustyxr.projectionDepthMeters=1.434085",
@@ -137,13 +137,15 @@ function Get-BrokerH264Override {
 
 function Get-HwbProjectionStyleOverride {
     param([string]$Mode)
-    if ($ProjectionBorderPolicy -eq "solid-red") {
-        return "rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,$projectionOpacityOverride,$processingLayerOverride"
+    $passthroughOverride = if ($ProjectionBorderPolicy -eq "passthrough-underlay" -or
+        $ProjectionAreaOpacity -lt 1.0 -or
+        $ProjectionBorderOpacity -lt 1.0) {
+        "rustyxr.openxrPassthroughProbe=underlay"
     }
-    if ($Mode -eq "custom") {
-        return "rustyxr.cameraPipelinePreset=raw-projection-camera-footprint-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-camera-footprint-underlay,rustyxr.openxrPassthroughProbe=underlay,$projectionOpacityOverride,$processingLayerOverride"
+    else {
+        "rustyxr.openxrPassthroughProbe=off"
     }
-    return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,rustyxr.openxrPassthroughProbe=underlay,$projectionOpacityOverride,$processingLayerOverride"
+    return "rustyxr.cameraPipelinePreset=raw-projection-unorm,rustyxr.cameraProjectionEffectMode=raw-projection,$passthroughOverride,$projectionOpacityOverride,$processingLayerOverride"
 }
 
 function Get-GlesProjectionStyleOverride {

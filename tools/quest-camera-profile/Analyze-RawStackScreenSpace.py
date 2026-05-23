@@ -137,7 +137,6 @@ SOURCE_FIELD_KEYS = (
     "projectionAreaCornerRadiusUv",
     "nativePassthroughRequested",
     "projectionBorderPolicy",
-    "projectionInvalidFillPolicy",
     "passthroughUnderlay",
     "projectionAreaOpacity",
     "projectionBorderOpacity",
@@ -751,8 +750,8 @@ def summarize_eye(
     legacy_red = red_invalid_mask(rgb)
     intended_mask = intended_projection_mask(rgb)
     guide_mask = diagnostic_guide_mask(rgb)
-    diagnostic_mask = legacy_red | intended_mask | guide_mask
-    diagnostic_fill = legacy_red | intended_mask
+    diagnostic_mask = legacy_red
+    diagnostic_fill = legacy_red
     red_fraction = float(legacy_red.mean())
     intended_mask_fraction = float(intended_mask.mean())
     guide_fraction = float(guide_mask.mean())
@@ -765,8 +764,7 @@ def summarize_eye(
         intended_mask,
     )
     diagnostic_fill_present = diagnostic_fill_fraction >= 0.001
-    diagnostic_guide_present = prefer_full_frame_envelope and guide_fraction >= 0.001
-    diagnostic_signal_present = diagnostic_fill_present or diagnostic_guide_present
+    diagnostic_signal_present = diagnostic_fill_present
     if expected_solid_red and not diagnostic_signal_present:
         return {
             "eye": eye,
@@ -782,11 +780,7 @@ def summarize_eye(
             "eye_rect_px": [x_offset, 0, rgb.shape[1], rgb.shape[0]],
         }
     candidate = visible & ~diagnostic_mask
-    strategy = (
-        "valid-projection-vs-diagnostic-guide-mask"
-        if diagnostic_guide_present and not diagnostic_fill_present
-        else "valid-projection-vs-diagnostic-mask"
-    )
+    strategy = "valid-projection-vs-diagnostic-mask"
     component = None
     component_candidates: list[dict[str, Any]] = []
     if diagnostic_signal_present:
@@ -2033,7 +2027,6 @@ def app_projection_record(fields: dict[str, str], stages: dict[str, Any], eye: s
         "native_passthrough_requested": parse_bool_value(fields.get("nativePassthroughRequested")),
         "passthrough_underlay": parse_bool_value(fields.get("passthroughUnderlay")),
         "projection_border_policy": fields.get("projectionBorderPolicy"),
-        "projection_invalid_fill_policy": fields.get("projectionInvalidFillPolicy"),
         "expected_source_valid_footprint_source": fields.get("expectedSourceValidFootprintSource"),
         "expected_source_valid_footprint_stage": fields.get("expectedSourceValidFootprintStage"),
         "expected_source_valid_footprint_coordinate_space": fields.get(
@@ -3282,8 +3275,7 @@ def build_projection_coordinate_contracts(
                 "openxr": openxr_record(fields),
                 "transforms": transform_contract(stages),
                 "mask_and_processing": {
-                    "invalid_region_policy": first_field(fields, "projectionInvalidFillPolicy")
-                    or first_field(fields, "projectionBorderPolicy")
+                    "projection_border_policy": first_field(fields, "projectionBorderPolicy")
                     or report.get("projection_border_policy"),
                     "projection_area_opacity": number_field(fields, "projectionAreaOpacity", "cameraProjectionAreaOpacity"),
                     "projection_border_opacity": number_field(
@@ -3440,7 +3432,7 @@ def load_suite_context(suite_root: Path) -> dict[str, Any]:
 def build_markdown(report: dict[str, Any]) -> str:
     if report.get("allow_visible_fallback"):
         segmentation_note = "visible-content envelope fallback explicitly enabled for lanes without a diagnostic mask."
-    elif report.get("projection_border_policy") in {"solid-red", "diagnostic-split"}:
+    elif report.get("projection_border_policy") == "solid-red":
         segmentation_note = "strict diagnostic-mask segmentation only; no visible-content fallback."
     else:
         segmentation_note = "visible-content envelope fallback allowed for transparent-underlay/operator runs."
@@ -3714,7 +3706,7 @@ def build_markdown(report: dict[str, Any]) -> str:
             "- Cross-lane parity compares measured valid-content footprint, center, and orientation across lanes in the same suite. A parity failure means the evidence is usable but not aligned.",
             "- When renderer-authored expected source-valid fields are present, the analyzer projects them into screenshot pixels and keeps the `screen_to_camera` derivation only as a model check. Without those fields, the analyzer still derives a model source-valid footprint by inverting `screen_to_camera`; that fallback is evidence, not an expected projection target.",
             "- Render surface and valid projection coverage are reported separately: the render surface is the visible diagnostic/camera layer envelope, while valid projection coverage is the camera/stimulus area inside it.",
-            "- In split diagnostic runs, intended outside-projection mask and true source-UV/mapping failure are different colors. In older solid-red runs, red may still conflate both cases.",
+            "- In solid-red runs, the red projection exterior and source-UV/mapping failure fill are intentionally the same visible policy; use logged source-valid footprint fields to distinguish those cases.",
             "- If a diagnostic-mask run does not contain the expected mask/background signal, the lane is blocked instead of silently treating the full visible envelope as a strict projection measurement.",
             "- Visible-content fallback is repeatable for transparent-underlay/operator runs, but it measures a content envelope rather than a strict valid mask.",
         ]
@@ -3740,7 +3732,7 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     context = load_suite_context(suite_root)
     expected_solid_red = (
-        context.get("projection_border_policy") in {"solid-red", "diagnostic-split"}
+        context.get("projection_border_policy") == "solid-red"
         and not args.allow_visible_fallback
     )
 

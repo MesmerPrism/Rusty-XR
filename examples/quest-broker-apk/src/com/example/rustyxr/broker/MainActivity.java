@@ -55,7 +55,7 @@ public final class MainActivity extends Activity {
     private static final long DEFAULT_STATUS_REFRESH_MS = 2_000L;
     private static final long POLAR_STATUS_REFRESH_MS = 500L;
     private static final long EXPERIMENT_STATUS_REFRESH_MS = 1_000L;
-    private static final String DEFAULT_EXPERIMENT_TARGET_PACKAGE = "io.github.mesmerprism.rustyxr.makepad.q2q";
+    private static final String DEFAULT_EXPERIMENT_TARGET_PACKAGE = "io.github.mesmerprism.rustyxr.makepad.camera";
     private static final String DEFAULT_EXPERIMENT_TARGET_ACTIVITY = "";
     private static final int DEFAULT_EXPERIMENT_LAUNCH_GUARD_TIMEOUT_MS = 20_000;
     private static final boolean DEFAULT_EXPERIMENT_LAUNCH_GUARD_PREVIEW_TIMEOUT_ENABLED = false;

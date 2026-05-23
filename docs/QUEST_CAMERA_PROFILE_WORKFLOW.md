@@ -163,7 +163,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-Que
   -FreshnessIntervalMs 1000
 ```
 
-Use the `fast075` profiles only for compatibility or performance comparisons.
+Use the `scale075` profiles only for compatibility or performance comparisons.
 Coordinate-alignment work should use the full-feed raw-stack suite or the
 `*-full-feed-control` HWB profiles so missing launch extras cannot silently
 return to the older clipped `0.75` geometry.
@@ -179,7 +179,8 @@ delivered source-frame aspect, and `cameraRawOverlayOverscan=1.06`. The
 world-canvas profile exposes the surface as real quad geometry; the
 camera-footprint profile should match it through the collapsed
 `display-screen-homography` path with
-`raw-projection-camera-footprint-underlay-unorm` and keep passthrough visible
+`cameraPipelinePreset=raw-projection-unorm` and
+`projectionBorderPolicy=passthrough-underlay` to keep passthrough visible
 outside the valid camera footprint.
 
 The generated freshness summary records per-frame SHA-256 hashes and flags

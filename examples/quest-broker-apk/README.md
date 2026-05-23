@@ -439,7 +439,7 @@ broker console Activity while leaving the broker foreground service running;
 they do not start or relaunch a target app.
 
 The `Experiment` page is a headset-local manual tuning surface. It stores a
-target package/activity, a focus-guardian mode, and the public Makepad Q2Q
+target package/activity, a focus-guardian mode, and the public Makepad camera
 hotload knobs for horizontal strength, global/left/right/symmetric/vertical UV
 offsets, and content scale. The broker APK itself does not have permission to
 write Android system properties, so knob changes become active when an

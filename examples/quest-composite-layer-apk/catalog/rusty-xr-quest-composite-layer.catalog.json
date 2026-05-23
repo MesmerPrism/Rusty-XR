@@ -390,7 +390,7 @@
       "description": "Runs the same live-bounded broker app-camera H.264 stereo OpenXR projection path as the default live profile, but lowers the XR render scale to 0.65 so transport, decode, pair delivery, and GPU import can be compared against the render-cost-limited 0.75 profile."
     },
     {
-      "id": "broker-h264-stereo-live-openxr-projection-fast065-probe",
+      "id": "broker-h264-stereo-live-openxr-projection-scale065-probe",
       "label": "Broker H.264 stereo live OpenXR projection probe (fast scale 0.65)",
       "values": {
         "rustyxr.example": "quest-composite-layer-apk",
@@ -410,8 +410,8 @@
         "rustyxr.cameraRawOverlayOverscan": "1.06",
         "rustyxr.cameraFullViewOverlayOverscan": "2.10",
         "rustyxr.cameraEdgeFade": "0.12",
-        "rustyxr.cameraPipelinePreset": "raw-projection-fast-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-fast",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
@@ -423,19 +423,19 @@
         "rustyxr.cameraTextureFlipX": "false",
         "rustyxr.cameraTextureFlipY": "false",
         "rustyxr.cameraTextureMirror": "false",
-        "rustyxr.cameraTextureTransformSource": "public-broker-h264-live-stereo-fast065-visual-check",
-        "rustyxr.cameraTextureTransformReason": "Broker live-bounded H.264 decoded stereo hardware-buffer projection performance diagnostic using the fast public raw-projection shader path.",
+        "rustyxr.cameraTextureTransformSource": "public-broker-h264-live-stereo-scale065-visual-check",
+        "rustyxr.cameraTextureTransformReason": "Broker live-bounded H.264 decoded stereo hardware-buffer projection performance diagnostic using the direct raw-projection shader path.",
         "rustyxr.leftCameraTextureRotation": "rotate0",
         "rustyxr.leftCameraTextureFlipX": "false",
         "rustyxr.leftCameraTextureFlipY": "false",
         "rustyxr.leftCameraTextureMirror": "false",
-        "rustyxr.leftCameraTextureTransformSource": "public-broker-h264-live-fast065-left-visual-check",
+        "rustyxr.leftCameraTextureTransformSource": "public-broker-h264-live-scale065-left-visual-check",
         "rustyxr.leftCameraTextureTransformReason": "Left live-decoded broker H.264 hardware buffer is visually checked upright before release.",
         "rustyxr.rightCameraTextureRotation": "rotate0",
         "rustyxr.rightCameraTextureFlipX": "false",
         "rustyxr.rightCameraTextureFlipY": "false",
         "rustyxr.rightCameraTextureMirror": "false",
-        "rustyxr.rightCameraTextureTransformSource": "public-broker-h264-live-fast065-right-visual-check",
+        "rustyxr.rightCameraTextureTransformSource": "public-broker-h264-live-scale065-right-visual-check",
         "rustyxr.rightCameraTextureTransformReason": "Right live-decoded broker H.264 hardware buffer is visually checked upright before release.",
         "rustyxr.visualReleaseAccepted": "false",
         "rustyxr.brokerH264Consumer": "true",
@@ -460,10 +460,10 @@
         "rustyxr.brokerH264StereoPairingMode": "frame-order",
         "rustyxr.brokerH264LivePairQueueLimit": "8"
       },
-      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, frame-order live stereo pairing, render scale 0.65, and the fast public raw-projection shader variant so renderer overhead can be compared against the accepted soft-border visual path without changing GPU-import behavior."
+      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, frame-order live stereo pairing, render scale 0.65, and the direct raw-projection shader variant so renderer overhead can be compared against the accepted soft-border visual path without changing GPU-import behavior."
     },
     {
-      "id": "broker-h264-stereo-live-openxr-projection-fast075-probe",
+      "id": "broker-h264-stereo-live-openxr-projection-scale075-probe",
       "label": "Broker H.264 stereo live OpenXR projection probe (fast scale 0.75)",
       "values": {
         "rustyxr.example": "quest-composite-layer-apk",
@@ -483,8 +483,8 @@
         "rustyxr.cameraRawOverlayOverscan": "1.06",
         "rustyxr.cameraFullViewOverlayOverscan": "2.10",
         "rustyxr.cameraEdgeFade": "0.12",
-        "rustyxr.cameraPipelinePreset": "raw-projection-fast-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-fast",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
@@ -496,19 +496,19 @@
         "rustyxr.cameraTextureFlipX": "false",
         "rustyxr.cameraTextureFlipY": "false",
         "rustyxr.cameraTextureMirror": "false",
-        "rustyxr.cameraTextureTransformSource": "public-broker-h264-live-stereo-fast075-visual-check",
-        "rustyxr.cameraTextureTransformReason": "Broker live-bounded H.264 decoded stereo hardware-buffer projection performance diagnostic using the fast public raw-projection shader path at the visual-quality render scale.",
+        "rustyxr.cameraTextureTransformSource": "public-broker-h264-live-stereo-scale075-visual-check",
+        "rustyxr.cameraTextureTransformReason": "Broker live-bounded H.264 decoded stereo hardware-buffer projection performance diagnostic using the direct raw-projection shader path at the visual-quality render scale.",
         "rustyxr.leftCameraTextureRotation": "rotate0",
         "rustyxr.leftCameraTextureFlipX": "false",
         "rustyxr.leftCameraTextureFlipY": "false",
         "rustyxr.leftCameraTextureMirror": "false",
-        "rustyxr.leftCameraTextureTransformSource": "public-broker-h264-live-fast075-left-visual-check",
+        "rustyxr.leftCameraTextureTransformSource": "public-broker-h264-live-scale075-left-visual-check",
         "rustyxr.leftCameraTextureTransformReason": "Left live-decoded broker H.264 hardware buffer is visually checked upright before release.",
         "rustyxr.rightCameraTextureRotation": "rotate0",
         "rustyxr.rightCameraTextureFlipX": "false",
         "rustyxr.rightCameraTextureFlipY": "false",
         "rustyxr.rightCameraTextureMirror": "false",
-        "rustyxr.rightCameraTextureTransformSource": "public-broker-h264-live-fast075-right-visual-check",
+        "rustyxr.rightCameraTextureTransformSource": "public-broker-h264-live-scale075-right-visual-check",
         "rustyxr.rightCameraTextureTransformReason": "Right live-decoded broker H.264 hardware buffer is visually checked upright before release.",
         "rustyxr.visualReleaseAccepted": "true",
         "rustyxr.brokerH264Consumer": "true",
@@ -533,7 +533,7 @@
         "rustyxr.brokerH264StereoPairingMode": "frame-order",
         "rustyxr.brokerH264LivePairQueueLimit": "8"
       },
-      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, frame-order live stereo pairing, render scale 0.75, and the fast public raw-projection shader variant. Use this as the Q2Q renderer-parity profile before reintroducing the accepted soft-border visual path."
+      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, frame-order live stereo pairing, render scale 0.75, and the direct raw-projection shader variant. Use this as the Q2Q renderer-parity profile before reintroducing the accepted soft-border visual path."
     },
     {
       "id": "broker-h264-stereo-live-openxr-projection-full-feed-control",
@@ -556,8 +556,9 @@
         "rustyxr.cameraRawOverlayOverscan": "1.06",
         "rustyxr.cameraFullViewOverlayOverscan": "2.10",
         "rustyxr.cameraEdgeFade": "0.12",
-        "rustyxr.cameraPipelinePreset": "raw-projection-solid-red-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-solid-red",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
+        "rustyxr.projectionBorderPolicy": "solid-red",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
@@ -570,7 +571,7 @@
         "rustyxr.cameraTextureFlipY": "false",
         "rustyxr.cameraTextureMirror": "false",
         "rustyxr.cameraTextureTransformSource": "public-broker-h264-live-full-feed-control",
-        "rustyxr.cameraTextureTransformReason": "Broker H.264 hardware-buffer projection alignment profile with full camera projection scale and explicit split diagnostic policy supplied by the launcher.",
+        "rustyxr.cameraTextureTransformReason": "Broker H.264 hardware-buffer projection alignment profile with full camera projection scale and explicit solid-red projection exterior fill supplied by the launcher.",
         "rustyxr.leftCameraTextureRotation": "rotate0",
         "rustyxr.leftCameraTextureFlipX": "false",
         "rustyxr.leftCameraTextureFlipY": "false",
@@ -639,8 +640,8 @@
         "rustyxr.projectionAreaCornerRadiusUv": "0.0",
         "rustyxr.projectionAreaOpacity": "1.0",
         "rustyxr.projectionBorderOpacity": "0.0",
-        "rustyxr.cameraPipelinePreset": "raw-projection-fast-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-fast",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
@@ -688,7 +689,7 @@
       "description": "Diagnostic profile for solving projection-surface depth and aspect before further per-eye tuning. It draws the live broker Camera2 streams on an actual head-anchored world canvas at the named projection depth, keeps the projection area full and unshifted, and enables MediaProjection so the final rendered canvas can be captured as one machine-readable display stream."
     },
     {
-      "id": "broker-h264-stereo-live-temporal-screen-clamp-fast075-probe",
+      "id": "broker-h264-stereo-live-temporal-screen-clamp-scale075-probe",
       "label": "Broker H.264 stereo live temporal screen clamp probe (fast scale 0.75)",
       "values": {
         "rustyxr.example": "quest-composite-layer-apk",
@@ -708,8 +709,8 @@
         "rustyxr.cameraRawOverlayOverscan": "1.06",
         "rustyxr.cameraFullViewOverlayOverscan": "2.10",
         "rustyxr.cameraEdgeFade": "0.12",
-        "rustyxr.cameraPipelinePreset": "raw-projection-fast-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-fast",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
@@ -721,19 +722,19 @@
         "rustyxr.cameraTextureFlipX": "false",
         "rustyxr.cameraTextureFlipY": "false",
         "rustyxr.cameraTextureMirror": "false",
-        "rustyxr.cameraTextureTransformSource": "public-broker-h264-live-stereo-temporal-screen-clamp-fast075",
+        "rustyxr.cameraTextureTransformSource": "public-broker-h264-live-stereo-temporal-screen-clamp-scale075",
         "rustyxr.cameraTextureTransformReason": "Broker live-bounded H.264 decoded stereo hardware-buffer projection with screen-space temporal projection clamping at render scale 0.75.",
         "rustyxr.leftCameraTextureRotation": "rotate0",
         "rustyxr.leftCameraTextureFlipX": "false",
         "rustyxr.leftCameraTextureFlipY": "false",
         "rustyxr.leftCameraTextureMirror": "false",
-        "rustyxr.leftCameraTextureTransformSource": "public-broker-h264-live-temporal-fast075-left-visual-check",
+        "rustyxr.leftCameraTextureTransformSource": "public-broker-h264-live-temporal-scale075-left-visual-check",
         "rustyxr.leftCameraTextureTransformReason": "Left live-decoded broker H.264 hardware buffer is visually checked upright before temporal projection clamping.",
         "rustyxr.rightCameraTextureRotation": "rotate0",
         "rustyxr.rightCameraTextureFlipX": "false",
         "rustyxr.rightCameraTextureFlipY": "false",
         "rustyxr.rightCameraTextureMirror": "false",
-        "rustyxr.rightCameraTextureTransformSource": "public-broker-h264-live-temporal-fast075-right-visual-check",
+        "rustyxr.rightCameraTextureTransformSource": "public-broker-h264-live-temporal-scale075-right-visual-check",
         "rustyxr.rightCameraTextureTransformReason": "Right live-decoded broker H.264 hardware buffer is visually checked upright before temporal projection clamping.",
         "rustyxr.visualReleaseAccepted": "true",
         "rustyxr.brokerH264Consumer": "true",
@@ -767,7 +768,7 @@
         "rustyxr.cameraTemporalStereoLockstep": "true",
         "rustyxr.cameraTemporalEdgeMode": "clamp-soft"
       },
-      "description": "Runs the broker app-camera H.264 stereo live OpenXR projection path with the fast075 renderer and the same experimental screen-space temporal projection clamp used by the direct Camera2 profile. Use it to compare direct-camera and streamed Q2Q receiver behavior under one temporal policy."
+      "description": "Runs the broker app-camera H.264 stereo live OpenXR projection path with the scale075 renderer and the same experimental screen-space temporal projection clamp used by the direct Camera2 profile. Use it to compare direct-camera and streamed Q2Q receiver behavior under one temporal policy."
     },
     {
       "id": "osc-udp-listener",
@@ -1080,7 +1081,7 @@
       "description": "Performance diagnostic profile. It keeps the aligned Vulkan RGB path, CPU uploads disabled, fixed foveation off, and the same projection/border settings, but lowers only the OpenXR render scale to test fragment-load headroom."
     },
     {
-      "id": "camera-stereo-gpu-composite-fast075",
+      "id": "camera-stereo-gpu-composite-scale075",
       "label": "Camera stereo GPU composite, fast projection scale 0.75",
       "values": {
         "rustyxr.example": "quest-composite-layer-apk",
@@ -1094,8 +1095,8 @@
         "rustyxr.cameraPreviewFovYDegrees": "60",
         "rustyxr.cameraProjectionScale": "0.75",
         "rustyxr.cameraTargetFps": "72",
-        "rustyxr.cameraPipelinePreset": "raw-projection-fast-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-fast",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
@@ -1107,8 +1108,8 @@
         "rustyxr.cameraTextureFlipX": "false",
         "rustyxr.cameraTextureFlipY": "false",
         "rustyxr.cameraTextureMirror": "false",
-        "rustyxr.cameraTextureTransformSource": "public-quest-direct-fast075-visual-check",
-        "rustyxr.cameraTextureTransformReason": "Direct Camera2 hardware-buffer stereo projection using the fast public raw-projection shader path at render scale 0.75.",
+        "rustyxr.cameraTextureTransformSource": "public-quest-direct-scale075-visual-check",
+        "rustyxr.cameraTextureTransformReason": "Direct Camera2 hardware-buffer stereo projection using the direct raw-projection shader path at render scale 0.75.",
         "rustyxr.leftCameraTextureRotation": "rotate0",
         "rustyxr.leftCameraTextureFlipX": "false",
         "rustyxr.leftCameraTextureFlipY": "false",
@@ -1131,7 +1132,7 @@
         "rustyxr.source": "headset-camera",
         "rustyxr.depth": "off"
       },
-      "description": "Direct in-app Camera2 stereo projection with the fast public raw-projection shader at render scale 0.75. Use it to compare the direct capture/render path against the Q2Q fast profile without changing camera geometry or stereo mapping."
+      "description": "Direct in-app Camera2 stereo projection with the direct raw-projection shader at render scale 0.75. Use it to compare the direct capture/render path against the broker renderer-parity profile without changing camera geometry or stereo mapping."
     },
     {
       "id": "camera-stereo-gpu-composite-full-feed-control",
@@ -1148,8 +1149,9 @@
         "rustyxr.cameraPreviewFovYDegrees": "60",
         "rustyxr.cameraProjectionScale": "1.0",
         "rustyxr.cameraTargetFps": "72",
-        "rustyxr.cameraPipelinePreset": "raw-projection-solid-red-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-solid-red",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
+        "rustyxr.projectionBorderPolicy": "solid-red",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
@@ -1205,8 +1207,8 @@
         "rustyxr.projectionDepthMeters": "0.75",
         "rustyxr.cameraProjectionScale": "1.0",
         "rustyxr.cameraTargetFps": "72",
-        "rustyxr.cameraPipelinePreset": "raw-projection-fast-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-fast",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
@@ -1269,8 +1271,9 @@
         "rustyxr.projectionDepthMeters": "1.0",
         "rustyxr.cameraProjectionScale": "1.0",
         "rustyxr.cameraTargetFps": "72",
-        "rustyxr.cameraPipelinePreset": "raw-projection-underlay-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-underlay",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
+        "rustyxr.projectionBorderPolicy": "passthrough-underlay",
         "rustyxr.openxrPassthroughProbe": "underlay",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
@@ -1336,8 +1339,9 @@
         "rustyxr.projectionDepthMeters": "1.434085",
         "rustyxr.cameraProjectionScale": "1.0",
         "rustyxr.cameraTargetFps": "72",
-        "rustyxr.cameraPipelinePreset": "raw-projection-underlay-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-underlay",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
+        "rustyxr.projectionBorderPolicy": "passthrough-underlay",
         "rustyxr.openxrPassthroughProbe": "underlay",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
@@ -1404,8 +1408,9 @@
         "rustyxr.projectionDepthMeters": "1.434085",
         "rustyxr.cameraProjectionScale": "1.0",
         "rustyxr.cameraTargetFps": "72",
-        "rustyxr.cameraPipelinePreset": "raw-projection-camera-footprint-underlay-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-camera-footprint-underlay",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
+        "rustyxr.projectionBorderPolicy": "passthrough-underlay",
         "rustyxr.openxrPassthroughProbe": "underlay",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
@@ -1453,7 +1458,7 @@
       "description": "Custom projection comparison profile for the camera-footprint contract. The profile id is preserved for compatibility with older depth-1 capture scripts, but the values now match the native-passthrough aligned world-canvas reference. It should match the native-aligned world-canvas MediaProjection and HzDB geometry when the fullscreen collapsed path is equivalent to the explicit canvas; passthrough remains visible outside the valid camera footprint through source alpha, not by stretching the camera feed."
     },
     {
-      "id": "camera-stereo-temporal-pose-clamp-fast075",
+      "id": "camera-stereo-temporal-pose-clamp-scale075",
       "label": "Camera stereo temporal pose clamp, fast projection scale 0.75",
       "values": {
         "rustyxr.example": "quest-composite-layer-apk",
@@ -1467,8 +1472,8 @@
         "rustyxr.cameraPreviewFovYDegrees": "60",
         "rustyxr.cameraProjectionScale": "0.75",
         "rustyxr.cameraTargetFps": "72",
-        "rustyxr.cameraPipelinePreset": "raw-projection-fast-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-fast",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
@@ -1480,7 +1485,7 @@
         "rustyxr.cameraTextureFlipX": "false",
         "rustyxr.cameraTextureFlipY": "false",
         "rustyxr.cameraTextureMirror": "false",
-        "rustyxr.cameraTextureTransformSource": "public-quest-direct-temporal-pose-clamp-fast075",
+        "rustyxr.cameraTextureTransformSource": "public-quest-direct-temporal-pose-clamp-scale075",
         "rustyxr.cameraTextureTransformReason": "Direct Camera2 hardware-buffer stereo projection with pose-delta temporal projection clamping at render scale 0.75.",
         "rustyxr.leftCameraTextureRotation": "rotate0",
         "rustyxr.leftCameraTextureFlipX": "false",
@@ -1513,10 +1518,10 @@
         "rustyxr.cameraTemporalStereoLockstep": "true",
         "rustyxr.cameraTemporalEdgeMode": "clamp-soft"
       },
-      "description": "Direct in-app Camera2 stereo projection with the fast public raw-projection shader and an experimental pose-delta temporal projection clamp. Use it to prove lockstep left/right smoothing and residual metrics before the screen-motion clamp is tuned visually."
+      "description": "Direct in-app Camera2 stereo projection with the direct raw-projection shader and an experimental pose-delta temporal projection clamp. Use it to prove lockstep left/right smoothing and residual metrics before the screen-motion clamp is tuned visually."
     },
     {
-      "id": "camera-stereo-temporal-screen-clamp-fast075",
+      "id": "camera-stereo-temporal-screen-clamp-scale075",
       "label": "Camera stereo temporal screen clamp, fast projection scale 0.75",
       "values": {
         "rustyxr.example": "quest-composite-layer-apk",
@@ -1530,8 +1535,8 @@
         "rustyxr.cameraPreviewFovYDegrees": "60",
         "rustyxr.cameraProjectionScale": "0.75",
         "rustyxr.cameraTargetFps": "72",
-        "rustyxr.cameraPipelinePreset": "raw-projection-fast-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-fast",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
@@ -1543,7 +1548,7 @@
         "rustyxr.cameraTextureFlipX": "false",
         "rustyxr.cameraTextureFlipY": "false",
         "rustyxr.cameraTextureMirror": "false",
-        "rustyxr.cameraTextureTransformSource": "public-quest-direct-temporal-screen-clamp-fast075",
+        "rustyxr.cameraTextureTransformSource": "public-quest-direct-temporal-screen-clamp-scale075",
         "rustyxr.cameraTextureTransformReason": "Direct Camera2 hardware-buffer stereo projection with screen-space temporal projection clamping at render scale 0.75.",
         "rustyxr.leftCameraTextureRotation": "rotate0",
         "rustyxr.leftCameraTextureFlipX": "false",
@@ -1576,10 +1581,10 @@
         "rustyxr.cameraTemporalStereoLockstep": "true",
         "rustyxr.cameraTemporalEdgeMode": "clamp-soft"
       },
-      "description": "Direct in-app Camera2 stereo projection with the fast public raw-projection shader and an experimental screen-space temporal projection clamp. Use it against the fast075 baseline to measure projection residual, visual lag, and visible stability before carrying the policy into streamed Q2Q profiles."
+      "description": "Direct in-app Camera2 stereo projection with the direct raw-projection shader and an experimental screen-space temporal projection clamp. Use it against the scale075 baseline to measure projection residual, visual lag, and visible stability before carrying the policy into streamed Q2Q profiles."
     },
     {
-      "id": "camera-stereo-projection-area-diagnostic-fast075",
+      "id": "camera-stereo-projection-area-diagnostic-scale075",
       "label": "Camera stereo projection-area diagnostic, fast projection scale 0.75",
       "values": {
         "rustyxr.example": "quest-composite-layer-apk",
@@ -1606,8 +1611,8 @@
         "rustyxr.cameraTextureFlipX": "false",
         "rustyxr.cameraTextureFlipY": "false",
         "rustyxr.cameraTextureMirror": "false",
-        "rustyxr.cameraTextureTransformSource": "public-quest-projection-area-diagnostic-fast075",
-        "rustyxr.cameraTextureTransformReason": "Projection-area diagnostic keeps the validated fast075 camera geometry but renders a synthetic footprint target instead of live camera pixels.",
+        "rustyxr.cameraTextureTransformSource": "public-quest-projection-area-diagnostic-scale075",
+        "rustyxr.cameraTextureTransformReason": "Projection-area diagnostic keeps the validated scale075 camera geometry but renders a synthetic footprint target instead of live camera pixels.",
         "rustyxr.leftCameraTextureRotation": "rotate0",
         "rustyxr.leftCameraTextureFlipX": "false",
         "rustyxr.leftCameraTextureFlipY": "false",
@@ -1630,10 +1635,10 @@
         "rustyxr.source": "headset-camera",
         "rustyxr.depth": "off"
       },
-      "description": "Synthetic projection-footprint witness for the validated direct Camera2 stereo geometry. It keeps the same fast075 camera acquisition, stereo mapping, overscan, and render scale as the live target, but the shader draws a high-contrast diagnostic inside the valid projected camera footprint and a cyan border around that footprint."
+      "description": "Synthetic projection-footprint witness for the validated direct Camera2 stereo geometry. It keeps the same scale075 camera acquisition, stereo mapping, overscan, and render scale as the live target, but the shader draws a high-contrast diagnostic inside the valid projected camera footprint and a cyan border around that footprint."
     },
     {
-      "id": "camera-stereo-gpu-composite-fast065",
+      "id": "camera-stereo-gpu-composite-scale065",
       "label": "Camera stereo GPU composite, fast projection scale 0.65",
       "values": {
         "rustyxr.example": "quest-composite-layer-apk",
@@ -1647,8 +1652,8 @@
         "rustyxr.cameraPreviewFovYDegrees": "60",
         "rustyxr.cameraProjectionScale": "0.75",
         "rustyxr.cameraTargetFps": "72",
-        "rustyxr.cameraPipelinePreset": "raw-projection-fast-unorm",
-        "rustyxr.cameraProjectionEffectMode": "raw-projection-fast",
+        "rustyxr.cameraPipelinePreset": "raw-projection-unorm",
+        "rustyxr.cameraProjectionEffectMode": "raw-projection",
         "rustyxr.cameraColorMode": "external-rgb",
         "rustyxr.cameraColorContrast": "1.0",
         "rustyxr.cameraColorBrightness": "0.0",
@@ -1660,8 +1665,8 @@
         "rustyxr.cameraTextureFlipX": "false",
         "rustyxr.cameraTextureFlipY": "false",
         "rustyxr.cameraTextureMirror": "false",
-        "rustyxr.cameraTextureTransformSource": "public-quest-direct-fast065-visual-check",
-        "rustyxr.cameraTextureTransformReason": "Direct Camera2 hardware-buffer stereo projection using the fast public raw-projection shader path at render scale 0.65.",
+        "rustyxr.cameraTextureTransformSource": "public-quest-direct-scale065-visual-check",
+        "rustyxr.cameraTextureTransformReason": "Direct Camera2 hardware-buffer stereo projection using the direct raw-projection shader path at render scale 0.65.",
         "rustyxr.leftCameraTextureRotation": "rotate0",
         "rustyxr.leftCameraTextureFlipX": "false",
         "rustyxr.leftCameraTextureFlipY": "false",
@@ -1684,7 +1689,7 @@
         "rustyxr.source": "headset-camera",
         "rustyxr.depth": "off"
       },
-      "description": "Direct in-app Camera2 stereo projection with the fast public raw-projection shader at render scale 0.65 for fragment-load headroom checks."
+      "description": "Direct in-app Camera2 stereo projection with the direct raw-projection shader at render scale 0.65 for fragment-load headroom checks."
     },
     {
       "id": "camera-stereo-gpu-composite-no-ae-target-065",

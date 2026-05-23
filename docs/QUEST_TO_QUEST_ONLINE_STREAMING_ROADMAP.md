@@ -163,7 +163,7 @@ Repeat the same path in reverse for two-way sessions.
 Before every network change, keep a short local loopback gate working with the
 same receiver profile:
 
-- `camera-stereo-gpu-composite-fast075`
+- `camera-stereo-gpu-composite-scale075`
 - `rustyxr.camera=false`
 - `rustyxr.brokerH264Consumer=true`
 - `rustyxr.brokerH264Stereo=true`
@@ -242,8 +242,8 @@ Runtime media controls should start as local broker commands:
 Finish the runtime smoothing lane before making two-headset transport the only
 moving part. The first public profiles should be:
 
-- `camera-stereo-temporal-pose-clamp-fast075`
-- `camera-stereo-temporal-screen-clamp-fast075`
+- `camera-stereo-temporal-pose-clamp-scale075`
+- `camera-stereo-temporal-screen-clamp-scale075`
 
 The screen-motion clamp is the important user-facing smoother. Start with:
 
@@ -401,7 +401,7 @@ Track per direction:
 - screenshot freshness
 
 The first two-way target should be conservative: `720x720` or `960x960`, 15 to
-30 fps, lower bitrate per eye, and `fast065` before `fast075`. Enable temporal
+30 fps, lower bitrate per eye, and `scale065` before `scale075`. Enable temporal
 screen clamp only after the baseline two-way run renders in both directions.
 
 ### Phase 7: Online Relay MVP

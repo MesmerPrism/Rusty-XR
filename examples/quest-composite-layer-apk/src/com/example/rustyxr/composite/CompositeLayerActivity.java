@@ -58,6 +58,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_CORNER_RADIUS_UV = 0.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_OPACITY = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_BORDER_OPACITY = 1.0f;
+    private static final String DEFAULT_PROJECTION_BORDER_POLICY = "solid-red";
     private static final String DEFAULT_CAMERA_PROJECTION_ALPHA_MODE = "fixed";
     private static final float DEFAULT_CAMERA_PROJECTION_ALPHA_SCALE = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_ALPHA_BIAS = 0.0f;
@@ -78,7 +79,6 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_CAMERA_COLOR_CONTRAST = 1.0f;
     private static final float DEFAULT_CAMERA_COLOR_BRIGHTNESS = 0.0f;
     private static final float DEFAULT_CAMERA_COLOR_SATURATION = 1.0f;
-    private static final float DEFAULT_CAMERA_BORDER_CYCLE_HZ = 0.18f;
     private static final float DEFAULT_CAMERA_BLUR_RADIUS_PX = 2.0f;
     private static final boolean DEFAULT_CAMERA_TEMPORAL_PROJECTION_ENABLED = false;
     private static final String DEFAULT_CAMERA_TEMPORAL_MODE = "off";
@@ -449,6 +449,8 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"projectionAreaOpacity\":").append(floatJson(floatExtra("rustyxr.projectionAreaOpacity", DEFAULT_CAMERA_PROJECTION_AREA_OPACITY)));
         builder.append(",\"projectionBorderOpacity\":").append(floatJson(floatExtra("rustyxr.projectionBorderOpacity", DEFAULT_CAMERA_PROJECTION_BORDER_OPACITY)));
         builder.append(',');
+        appendJsonString(builder, "projectionBorderPolicy", stringExtra("rustyxr.projectionBorderPolicy", DEFAULT_PROJECTION_BORDER_POLICY));
+        builder.append(',');
         appendJsonString(builder, "projectionAlphaMode", stringExtra("rustyxr.projectionAlphaMode", DEFAULT_CAMERA_PROJECTION_ALPHA_MODE));
         builder.append(",\"projectionAlphaScale\":").append(floatJson(floatExtra("rustyxr.projectionAlphaScale", DEFAULT_CAMERA_PROJECTION_ALPHA_SCALE)));
         builder.append(",\"projectionAlphaBias\":").append(floatJson(floatExtra("rustyxr.projectionAlphaBias", DEFAULT_CAMERA_PROJECTION_ALPHA_BIAS)));
@@ -479,7 +481,6 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraColorContrast\":").append(floatJson(floatExtra("rustyxr.cameraColorContrast", DEFAULT_CAMERA_COLOR_CONTRAST)));
         builder.append(",\"cameraColorBrightness\":").append(floatJson(floatExtra("rustyxr.cameraColorBrightness", DEFAULT_CAMERA_COLOR_BRIGHTNESS)));
         builder.append(",\"cameraColorSaturation\":").append(floatJson(floatExtra("rustyxr.cameraColorSaturation", DEFAULT_CAMERA_COLOR_SATURATION)));
-        builder.append(",\"cameraBorderCycleHz\":").append(floatJson(floatExtra("rustyxr.cameraBorderCycleHz", DEFAULT_CAMERA_BORDER_CYCLE_HZ)));
         builder.append(",\"cameraBlurRadiusPx\":").append(floatJson(floatExtra("rustyxr.cameraBlurRadiusPx", DEFAULT_CAMERA_BLUR_RADIUS_PX)));
         builder.append(",\"cameraTemporalProjectionEnabled\":").append(booleanExtra("rustyxr.cameraTemporalProjectionEnabled", DEFAULT_CAMERA_TEMPORAL_PROJECTION_ENABLED));
         builder.append(',');

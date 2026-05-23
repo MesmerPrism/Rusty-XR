@@ -588,7 +588,7 @@ def compare_projection_to_depth(
             "passthrough-is-physical-witness",
             "Native passthrough is included as a physical witness, not as app-owned source UV truth.",
             {
-                "invalid_region_policy": projection["mask_and_processing"].get("invalid_region_policy"),
+                "projection_border_policy": projection["mask_and_processing"].get("projection_border_policy"),
                 "projection_area_opacity": projection["mask_and_processing"].get("projection_area_opacity"),
                 "projection_border_opacity": projection["mask_and_processing"].get("projection_border_opacity"),
             },

@@ -1,17 +1,17 @@
 {
   "schemaVersion": "rusty.xr.android-build-manifest.v1",
-  "exampleId": "makepad-q2q-camera-shell",
+  "exampleId": "makepad-camera-shell",
   "artifactKind": "apk",
   "artifact": {
     "kind": "apk",
-    "outputPath": "build/outputs/rusty-xr-makepad-q2q-release.apk"
+    "outputPath": "build/outputs/rusty-xr-makepad-camera-release.apk"
   },
   "android": {
     "generatedManifest": {
-      "path": "target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/tmp/AndroidManifest.xml",
-      "producedBy": "cargo makepad android --variant=quest --no-icon build -p rusty-xr-makepad-q2q-camera-shell --release"
+      "path": "target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/tmp/AndroidManifest.xml",
+      "producedBy": "cargo makepad android --variant=quest --no-icon build -p rusty-xr-makepad-camera-shell --release"
     },
-    "packageName": "io.github.mesmerprism.rustyxr.makepad.q2q",
+    "packageName": "io.github.mesmerprism.rustyxr.makepad.camera",
     "minSdk": 1,
     "targetSdk": 33,
     "abi": "arm64-v8a",
@@ -98,25 +98,25 @@
     {
       "label": "Generated Android manifest",
       "kind": "android-manifest",
-      "path": "target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/tmp/AndroidManifest.xml",
+      "path": "target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/tmp/AndroidManifest.xml",
       "producedBy": "cargo makepad android --variant=quest --no-icon build"
     },
     {
       "label": "Generated Java activities",
       "kind": "java-source",
-      "path": "target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/tmp/io/github/mesmerprism/rustyxr/makepad/q2q",
+      "path": "target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/tmp/io/github/mesmerprism/rustyxr/makepad/camera",
       "producedBy": "cargo makepad android --variant=quest --no-icon build"
     },
     {
       "label": "Rust shared library",
       "kind": "shared-library",
-      "path": "target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/apk/lib/arm64-v8a/libmakepad.so",
+      "path": "target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/apk/lib/arm64-v8a/libmakepad.so",
       "producedBy": "cargo makepad android --variant=quest --no-icon build"
     },
     {
       "label": "Signed Quest APK",
       "kind": "apk",
-      "path": "target/android/makepad-android-apk/rusty_xr_makepad_q2q_camera_shell/apk/rustyx_rmakepadq2_q.apk",
+      "path": "target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/apk/rustyx_rmakepadcamera.apk",
       "producedBy": "cargo makepad android --variant=quest --no-icon build"
     }
   ],
@@ -133,7 +133,7 @@
     "makepad-projection-border-policy-toggle",
     "makepad-native-passthrough-underlay-toggle",
     "broker-h264-mediacodec-cpu-yuv-stereo",
-    "synthetic-q2q-status-log",
+    "synthetic-camera-status-log",
     "synthetic-stereo-comparison-log",
     "camera2-metadata-log",
     "camera2-acquisition-log",

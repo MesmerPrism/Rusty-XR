@@ -5,7 +5,7 @@ param(
     [string]$CompositeApk = "",
     [string]$GlesApk = "",
     [string]$MakepadApk = "",
-    [string]$MakepadPackageName = "com.example.rustyxr.makepad.alignment",
+    [string]$MakepadPackageName = "io.github.mesmerprism.rustyxr.makepad.camera",
     [string]$MakepadLauncherActivity = ("." + "Makepad" + "App"),
     [string]$MakepadXrActivity = ("." + "Makepad" + "App" + "Xr"),
     [string]$RunRoot = "artifacts\raw-stack-suite",
@@ -37,7 +37,7 @@ param(
     [string]$BrokerPackageName = "com.example.rustyxr.broker",
     [string]$BrokerActivityName = ".MainActivity",
     [int]$BrokerRestartSettleSeconds = 8,
-    [ValidateSet("solid-red", "diagnostic-split", "passthrough-underlay")]
+    [ValidateSet("solid-red", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("raw", "blur")]
     [string]$ProcessingLayer = "raw",
@@ -193,7 +193,7 @@ $usesBrokerH264Modes = @($Mode | Where-Object { $_ -like "*broker-h264*" }).Coun
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $cameraProfileRunner = Join-Path $PSScriptRoot "Invoke-QuestCameraProfileRun.ps1"
-$makepadRunner = Join-Path $repoRoot "examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1"
+$makepadRunner = Join-Path $repoRoot "examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1"
 $compositeCatalog = Join-Path $repoRoot "examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json"
 $glesCatalog = Join-Path $repoRoot "examples\quest-gl-openxr-video-stack-apk\catalog\rusty-xr-quest-gl-openxr-video-stack.catalog.json"
 $resolvedRunRoot = if ([System.IO.Path]::IsPathRooted($RunRoot)) {
@@ -803,10 +803,7 @@ function Get-VulkanProjectionBorderOverride {
     else {
         "rustyxr.openxrPassthroughProbe=off"
     }
-    if ($ProjectionBorderPolicy -eq "passthrough-underlay") {
-        return "rustyxr.cameraPipelinePreset=raw-projection-underlay-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-underlay,$passthroughOverride,$commonOverride"
-    }
-    return "rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,$passthroughOverride,$commonOverride"
+    return "rustyxr.cameraPipelinePreset=raw-projection-unorm,rustyxr.cameraProjectionEffectMode=raw-projection,rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy,$passthroughOverride,$commonOverride"
 }
 
 function Get-GlesProjectionBorderOverride {
@@ -1463,14 +1460,14 @@ $lines = [System.Collections.Generic.List[string]]::new()
 $lines.Add("# Raw Camera Stack Alignment Suite")
 $lines.Add("")
 $lines.Add(("- Session: ``{0}``" -f $sessionId))
-$lines.Add(("- Border policy: ``{0}``" -f $ProjectionBorderPolicy))
+$lines.Add(("- Projection exterior fill policy: ``{0}``" -f $ProjectionBorderPolicy))
 $lines.Add(("- Processing layer: ``{0}``" -f $ProcessingLayer))
 $lines.Add(("- Blur radius px: ``{0}``" -f (Format-InvariantDouble -Value $BlurRadiusPx)))
 $lines.Add(("- Selected modes: ``{0}``" -f ($Mode -join ", ")))
 if ($usesBrokerH264Modes) {
     $lines.Add(("- Broker H.264 source mode: ``{0}``" -f $BrokerH264SourceMode))
     $lines.Add(("- Broker H.264 projection geometry profile: ``{0}``" -f (Resolve-BrokerH264ProjectionGeometryProfile)))
-    $lines.Add(("- Broker H.264 synthetic projection profile alias: ``{0}``" -f $BrokerH264SyntheticProjectionProfile))
+    $lines.Add(("- Broker H.264 synthetic projection profile: ``{0}``" -f $BrokerH264SyntheticProjectionProfile))
 }
 else {
     $lines.Add("- Broker H.264 transport: not used by selected modes")
@@ -1626,7 +1623,7 @@ if ($stateIssueRows.Count -gt 0) {
     }
 }
 $lines.Add("")
-$lines.Add("Use diagnostic-split or solid-red borders for image-derived footprint work and passthrough-underlay borders for operator alignment against native passthrough.")
+$lines.Add("Use solid-red projection exterior fill for image-derived footprint work and passthrough-underlay exterior fill for operator alignment against native passthrough.")
 $lines | Set-Content -Path $summaryMd -Encoding UTF8
 
 Write-Host "Raw camera stack suite summary:"

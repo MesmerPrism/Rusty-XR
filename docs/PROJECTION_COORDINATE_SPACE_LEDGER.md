@@ -161,11 +161,10 @@ The resolved mismatch owners are:
 - False GL/OES right-eye row selection: analyzer evidence. The green-cross
   detector chooses a strong axis near the green target median instead of the
   raw maximum row or column when other green target features are present.
-- Full-frame GL/OES broker guide-only segmentation: analyzer evidence. When a
-  renderer-authored full-frame source-valid footprint leaves no meaningful red
-  invalid-fill region, the strict analyzer may use the cyan/yellow diagnostic
-  guide signal plus the logged full-frame footprint. That is still diagnostic
-  mask evidence, not a visible-content fallback.
+- Full-frame broker segmentation: analyzer evidence. When a renderer-authored
+  full-frame source-valid footprint leaves no meaningful red exterior region,
+  the strict analyzer blocks the lane rather than falling back to guide colors;
+  the logged full-frame footprint remains the coordinate source of truth.
 
 The follow-up source-sampling audit keeps that owner model explicit.
 Broker-synthetic runs place the dominant green feature at the same rows across
@@ -210,7 +209,7 @@ The same term must not mean different things in different lanes.
 | Camera/source UV | Camera projection model | Normalized camera image sample domain after source orientation and valid rect are applied. | Log `surface_to_camera`, `screen_to_camera`, source invalid-fill policy, and source rect clipping. |
 | Content surface UV | Rusty XR projection model | Normalized coordinates on the intended camera/content surface. | Log content rect, content aspect, projection profile, and any overscan or scale. |
 | Full submitted surface UV | Renderer/OpenXR swapchain image | Normalized coordinates over the full submitted eye surface or layer image. | Log full surface size, viewport, scissor, matte/border policy, and full-to-content mapping. |
-| Projection-area UV | Rusty XR projection-area mask | Normalized intended visible camera area inside the submitted surface. | Log projection-area center, radius/scale, corner radius, opacity, target screen-UV rect/center, and invalid-region policy. |
+| Projection-area UV | Rusty XR projection-area mask | Normalized intended visible camera area inside the submitted surface. | Log projection-area center, radius/scale, corner radius, opacity, target screen-UV rect/center, and projection exterior fill policy. |
 | Display-eye screen UV | Final per-eye submitted image before screenshot | Normalized screen-space domain per eye. | Log `surface_to_screen`, `screen_to_surface`, renderer-authored expected source-valid box, observed box, per-eye tokens, and display-eye UV fiducials when comparing against mirror screenshot pixels. |
 | OpenXR view tangent space | OpenXR view pose/FOV | Eye-local rays derived from `XrView.pose` and `XrView.fov`. | Log display time, reference space, per-eye pose, and FOV angles. |
 | OpenXR app reference space | App-chosen `LOCAL`, `STAGE`, or other reference space | Meters, runtime-defined origin for the chosen reference space. | Log reference-space type, pose composition, and any head-anchored surface pose. |
@@ -304,8 +303,9 @@ The current world-canvas comparison values have different authority levels:
 
 The custom camera-footprint path should be equivalent to the world canvas when
 it uses the same depth/FOV/aspect/overscan values and the
-`raw-projection-camera-footprint-underlay-unorm` preset to algebraically
-collapse the surface into the fullscreen shader:
+`cameraPipelinePreset=raw-projection-unorm` path with
+`projectionBorderPolicy=passthrough-underlay` to algebraically collapse the
+surface into the fullscreen shader:
 
 ```text
 display-eye screen UV
@@ -631,7 +631,7 @@ The schema name is currently `rusty.xr.projection-coordinate-contract.v1`.
     "texture_transform": "logged-row-token-or-not-applicable"
   },
   "mask_and_processing": {
-    "invalid_region_policy": "solid-diagnostic-or-transparent-underlay",
+    "projection_border_policy": "solid-red-or-passthrough-underlay",
     "projection_alpha_mode": "fixed-red-green-blue-luma-or-inverse",
     "projection_alpha_scale": 1.0,
     "projection_alpha_bias": 0.0,

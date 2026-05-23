@@ -111,10 +111,11 @@ Both comparison profiles use `projectionDepthMeters=1.0`,
 `cameraRawOverlayOverscan` value. For the strict geometry handoff gate, override
 `cameraRawOverlayOverscan=1.0` in both profiles so the visible canvas and the
 collapsed shader use the same unpadded surface. The camera-footprint profile uses
-`raw-projection-camera-footprint-underlay-unorm`: it samples the full live
-Camera2 source but only emits color inside the reconstructed valid footprint;
-outside that footprint it uses passthrough-underlay alpha rather than clamping
-or stretching camera pixels over the full eye.
+`cameraPipelinePreset=raw-projection-unorm` with
+`projectionBorderPolicy=passthrough-underlay`: it samples the full live Camera2
+source but only emits color inside the reconstructed valid footprint; outside
+that footprint it uses passthrough-underlay alpha rather than clamping or
+stretching camera pixels over the full eye.
 
 Once this pair agrees in MediaProjection and HzDB, use the `world-canvas` lane
 as the native-passthrough alignment workbench. The canvas and collapsed custom
@@ -199,7 +200,8 @@ numbers. The clean reference must be launched through the catalog profile, or
 through an equivalent launcher that supplies the complete runtime profile:
 `cameraTier=gpu-projected`, `cameraStereoLayout=separate`,
 `cameraSourceEyeMapping=left-right`, `cameraTargetFps=72`,
-`cameraPipelinePreset=raw-projection-underlay-unorm`,
+`cameraPipelinePreset=raw-projection-unorm`,
+`projectionBorderPolicy=passthrough-underlay`,
 `cameraColorMode=external-rgb`, `cameraAllowCpuFallback=false`, and
 `cameraCpuUploadHz=0`.
 
@@ -338,7 +340,7 @@ Makepad CPU-YUV APK:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File .\examples\makepad-q2q-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
+  -File .\examples\makepad-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
   -UseWindowsHost `
   -SdkPath <makepad-android-sdk-path> `
   -MakepadSourceRoot <makepad-fork-checkout> `
@@ -404,7 +406,7 @@ route is resolved.
 
 Use `tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1` for the
 Vulkan/HWB and GL/OES APKs. Use
-`examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1` for
+`examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1` for
 the Makepad APK.
 
 Vulkan/HWB direct Camera2:
@@ -416,7 +418,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
   -RuntimeProfile camera-stereo-gpu-composite-full-feed-control `
-  -Override rustyxr.cameraTargetFps=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.projectionDepthMeters=1,rustyxr.projectionAreaScaleUv=1,rustyxr.projectionAreaRadiusXUv=0.5,rustyxr.projectionAreaRadiusYUv=0.5,rustyxr.projectionAreaCornerRadiusUv=0 `
+  -Override rustyxr.cameraTargetFps=50,rustyxr.cameraPipelinePreset=raw-projection-unorm,rustyxr.cameraProjectionEffectMode=raw-projection,rustyxr.projectionBorderPolicy=solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.projectionDepthMeters=1,rustyxr.projectionAreaScaleUv=1,rustyxr.projectionAreaRadiusXUv=0.5,rustyxr.projectionAreaRadiusYUv=0.5,rustyxr.projectionAreaCornerRadiusUv=0 `
   -FreshnessFrames 6
 ```
 
@@ -429,7 +431,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
   -RuntimeProfile broker-h264-stereo-live-openxr-projection-full-feed-control `
-  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.cameraPipelinePreset=raw-projection-solid-red-unorm,rustyxr.cameraProjectionEffectMode=raw-projection-solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.projectionDepthMeters=1,rustyxr.projectionAreaScaleUv=1,rustyxr.projectionAreaRadiusXUv=0.5,rustyxr.projectionAreaRadiusYUv=0.5,rustyxr.projectionAreaCornerRadiusUv=0 `
+  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.cameraPipelinePreset=raw-projection-unorm,rustyxr.cameraProjectionEffectMode=raw-projection,rustyxr.projectionBorderPolicy=solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.projectionDepthMeters=1,rustyxr.projectionAreaScaleUv=1,rustyxr.projectionAreaRadiusXUv=0.5,rustyxr.projectionAreaRadiusYUv=0.5,rustyxr.projectionAreaCornerRadiusUv=0 `
   -FreshnessFrames 6
 ```
 
@@ -463,7 +465,7 @@ Makepad direct Camera2:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+  -File .\examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1 `
   -Serial <quest-serial> `
   -Apk <makepad-apk> `
   -PackageName <makepad-package> `
@@ -478,7 +480,7 @@ Makepad broker Camera2 -> H.264:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File .\examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1 `
+  -File .\examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1 `
   -Serial <quest-serial> `
   -Apk <makepad-apk> `
   -PackageName <makepad-package> `
@@ -569,7 +571,7 @@ The suite applies the same policy to every public lane:
 
 | Renderer family | Border mapping | Blur mapping |
 | --- | --- | --- |
-| Vulkan/HWB | `raw-projection-solid-red-unorm` or `raw-projection-underlay-unorm` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
+| Vulkan/HWB | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` with `rustyxr.cameraPipelinePreset=raw-projection-unorm` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
 | Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.processing.layer=blur` plus `debug.rustyxr.makepad.blur.radius.px` |
 
@@ -692,7 +694,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 ```
 
 The public Makepad example defaults to package
-`com.example.rustyxr.makepad.alignment` and its generated launcher/XR
+`io.github.mesmerprism.rustyxr.makepad.camera` and its generated launcher/XR
 activities; pass the Makepad identity flags only for a differently packaged
 APK.
 
@@ -873,7 +875,7 @@ Useful tools:
 - `tools\quest-visual-stimulus\run-sync-stimulus.py` for browser-driven
   physical stimulus sessions. Treat its event log as correlation evidence, not
   proof of submitted per-eye render targets.
-- `examples\makepad-q2q-camera-shell\tools\Invoke-MakepadQ2QDeviceGate.ps1` for
+- `examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1` for
   Makepad direct and broker camera gates.
 
 Record these fields for each lane:
@@ -897,6 +899,15 @@ outside-projection region with the border policy:
 - `passthrough-underlay`: best for manual alignment to native passthrough;
 - transparent or underlay borders should not change the actual projection
   coordinates.
+
+In this workflow, `projectionBorderPolicy` is the projection exterior fill
+policy: it controls the `surface_minus_feed` region inside the submitted
+projection surface. That exterior fill is part of the projection-surface
+witness, even when the current fill is solid red. It is separate from
+diagnostic guide borders, fiducials, source-validity overlays, and source-sampling
+witnesses. A `solid-red` parity run should have no cyan/yellow guide overlays;
+if those guides are visible, treat the run as diagnostic-overlay evidence
+rather than hard-mask footprint evidence.
 
 Reject mixed evidence: a `solid-red` run with feedback-colored, feathered, or
 camera-sampled border pixels is a border-policy failure, not a valid projection

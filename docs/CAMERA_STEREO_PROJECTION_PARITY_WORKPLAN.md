@@ -56,17 +56,17 @@ policy unless new evidence shows projection-row drift.
 
 The current renderer-parity profiles are:
 
-- `camera-stereo-gpu-composite-fast075`: direct in-app Camera2 stereo
-  projection with the same Quest custom stereo geometry and the fast public
+- `camera-stereo-gpu-composite-scale075`: direct in-app Camera2 stereo
+  projection with the same Quest custom stereo geometry and the direct
   raw-projection shader at render scale `0.75`.
-- `camera-stereo-gpu-composite-fast065`: the same direct fast renderer path at
+- `camera-stereo-gpu-composite-scale065`: the same direct raw-projection renderer path at
   render scale `0.65`.
-- `broker-h264-stereo-live-openxr-projection-fast075-probe`: broker-owned
+- `broker-h264-stereo-live-openxr-projection-scale075-probe`: broker-owned
   Camera2 `50`/`51` capture, square `1280x1280` H.264 frames, hardware-buffer
-  decode/import, frame-order live stereo pairing, and the fast public
+  decode/import, frame-order live stereo pairing, and the direct
   raw-projection shader at render scale `0.75`.
-- `broker-h264-stereo-live-openxr-projection-fast065-probe`: the same broker
-  fast path at render scale `0.65`.
+- `broker-h264-stereo-live-openxr-projection-scale065-probe`: the same broker
+  direct raw-projection path at render scale `0.65`.
 
 Use the fast `0.75` profiles as the public renderer-parity lane. They hold
 stereo geometry, GPU import, decode mode, and camera IDs constant while
@@ -315,7 +315,7 @@ zero. Visual review showed a live projected camera surface in the same
 low-in-frame headset-pose class as the refreshed public fast `0.75` target.
 The next visual delta is no longer activity handoff, texture binding, or
 Makepad fork eye-state exposure; it is shader policy for invalid projected UVs.
-The public fast shader falls back to an oriented content-surface sample and
+The public direct shader falls back to an oriented content-surface sample and
 dims it, while S87 returned black. S88 ports that fallback policy while keeping
 the S87 runtime OpenXR view/FOV rows, source-eye mapping, and device-gate
 counters unchanged.
@@ -326,7 +326,7 @@ guarded launcher path, emitted runtime-view and homography-ready markers, kept
 six screenshot frames byte-distinct, and stayed app/global GPU-fault plus fatal
 clean while the small hardware-buffer warning class remained visible. Visual
 review kept live projected camera content and made invalid/edge regions follow
-the public fast shader policy more closely. This is still not a performance
+the public direct shader policy more closely. This is still not a performance
 parity claim because the Makepad sample presented near 90Hz while the refreshed
 public fast target sample presented near 72Hz. The next gate is S89: compare
 the S88 runtime-view homography and sampling chain directly against the
@@ -790,7 +790,7 @@ Acceptance for this gate is geometric, not photographic:
    slice, and keep the release gate on visible stereo, zero CPU uploads, no
    import churn, no app fatal/GPU-fault signatures, no final stale/tear, and
    clear GPU headroom.
-10. Keep the fast raw-projection profiles in the catalog as the stable parity
+10. Keep the direct raw-projection profiles in the catalog as the stable parity
    reference while future work reintroduces public border/feedback styling or
    adds stream-latency compensation.
 
