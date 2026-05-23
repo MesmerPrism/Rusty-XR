@@ -105,6 +105,32 @@ impl CameraProjectionBorderPolicy {
         }
     }
 
+    pub(crate) fn from_legacy_projection_value(value: &str) -> Option<Self> {
+        let normalized = value.trim().to_ascii_lowercase();
+        if normalized.contains("underlay") {
+            Some(Self::PassthroughUnderlay)
+        } else if normalized.contains("solid-red")
+            || normalized.contains("red-border")
+            || normalized.contains("invalid-fill")
+            || normalized.contains("coverage-fill")
+            || normalized.contains("perimeter-fill")
+            || normalized.contains("rim-fill")
+            || normalized.contains("soft-border")
+            || normalized.contains("cheap-border")
+            || normalized.contains("strong-border")
+            || normalized.contains("dynamic-border")
+            || normalized.contains("feedback-border")
+            || normalized.contains("warm-border")
+            || normalized.contains("cycling-border")
+            || normalized.contains("cycle-border")
+            || normalized.contains("spectral-border")
+        {
+            Some(Self::SolidRed)
+        } else {
+            None
+        }
+    }
+
     pub(crate) const fn stable_id(self) -> &'static str {
         match self {
             Self::SolidRed => "solid-red",
@@ -139,7 +165,58 @@ impl CameraProjectionEffectMode {
     pub(crate) fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "border-composite" => Some(Self::BorderComposite),
-            "raw-projection" => Some(Self::RawProjection),
+            "raw-projection"
+            | "raw-projection-fast"
+            | "direct-raw-projection"
+            | "raw-direct"
+            | "fast-raw"
+            | "raw-projection-solid-red"
+            | "raw-projection-red-border"
+            | "direct-raw-projection-solid-red"
+            | "fast-raw-solid-red"
+            | "raw-projection-invalid-fill"
+            | "raw-projection-invalid-only-fill"
+            | "direct-raw-projection-invalid-fill"
+            | "fast-raw-invalid-fill"
+            | "raw-projection-fill"
+            | "raw-projection-coverage-fill"
+            | "raw-projection-fast-fill"
+            | "direct-raw-projection-fill"
+            | "fast-raw-fill"
+            | "raw-projection-perimeter-fill"
+            | "raw-projection-rim-fill"
+            | "direct-raw-projection-perimeter-fill"
+            | "fast-raw-perimeter-fill"
+            | "raw-projection-soft-border"
+            | "raw-projection-cheap-border"
+            | "direct-raw-projection-soft-border"
+            | "fast-raw-soft-border"
+            | "raw-projection-strong-border"
+            | "raw-projection-strong-cheap-border"
+            | "direct-raw-projection-strong-border"
+            | "fast-raw-strong-border"
+            | "raw-projection-dynamic-border"
+            | "raw-projection-feedback-border"
+            | "direct-raw-projection-dynamic-border"
+            | "fast-raw-dynamic-border"
+            | "raw-projection-warm-border"
+            | "raw-projection-warm-feedback-border"
+            | "direct-raw-projection-warm-border"
+            | "fast-raw-warm-border"
+            | "raw-projection-cycling-border"
+            | "raw-projection-cycle-border"
+            | "raw-projection-spectral-border"
+            | "direct-raw-projection-cycling-border"
+            | "fast-raw-cycling-border"
+            | "raw-projection-underlay"
+            | "raw-projection-alpha-underlay"
+            | "direct-raw-projection-underlay"
+            | "fast-raw-underlay"
+            | "raw-projection-camera-footprint-underlay"
+            | "raw-projection-projection-area-bounded-underlay"
+            | "raw-projection-bounded-footprint-underlay"
+            | "camera-footprint-underlay"
+            | "projection-area-bounded-underlay" => Some(Self::RawProjection),
             "projection-area-diagnostic" => Some(Self::ProjectionAreaDiagnostic),
             "display-eye-uv-fiducial" => Some(Self::DisplayEyeUvFiducial),
             "projection-content-uv-fiducial" => Some(Self::ProjectionContentUvFiducial),

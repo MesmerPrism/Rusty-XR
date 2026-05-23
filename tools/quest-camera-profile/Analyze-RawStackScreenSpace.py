@@ -863,14 +863,6 @@ def summarize_eye(
     )
     measured_component = source_content_component
     measured_strategy_suffix = "stimulus-envelope-union"
-    if prefer_full_frame_envelope:
-        stimulus_envelope_component = mask_bbox_component(
-            visible,
-            max(200, int(visible.size * 0.00005)),
-        )
-        if stimulus_envelope_component is not None:
-            measured_component = stimulus_envelope_component
-            measured_strategy_suffix = "full-frame-visible-surface-bbox"
     x, y, width, height = measured_component["bbox_px"]
     cx, cy = measured_component["centroid_px"]
     full_bbox = [x_offset + x, y, width, height]
@@ -3397,9 +3389,33 @@ def load_suite_rows(suite_root: Path) -> list[dict[str, Any]]:
             rows = data
         if isinstance(rows, list):
             return [row for row in rows if isinstance(row, dict)]
+    canvas_summary_path = suite_root / "canvas-custom-projection-parity-suite-summary.json"
+    if canvas_summary_path.exists():
+        data = read_json(canvas_summary_path)
+        if isinstance(data, dict):
+            rows = data.get("records") or []
+            normalized_rows = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                normalized = dict(row)
+                if not normalized.get("mode"):
+                    normalized["mode"] = normalized.get("id") or "unknown"
+                elif normalized.get("id"):
+                    normalized["mode"] = normalized["id"]
+                artifact_root = normalized.get("artifactRoot") or normalized.get("artifactDir")
+                if artifact_root:
+                    normalized["artifactRoot"] = artifact_root
+                    normalized["latestRun"] = normalized.get("latestRun") or artifact_root
+                hzdb = normalized.get("hzdb")
+                if hzdb:
+                    normalized["imagePath"] = hzdb
+                normalized_rows.append(normalized)
+            return normalized_rows
     rows = []
+    ignored_dirs = {"state-snapshots", "awake-guard"}
     for child in sorted(suite_root.iterdir()):
-        if child.is_dir() and child.name not in {"state-snapshots", "awake-guard", "screen-space-analysis"}:
+        if child.is_dir() and child.name not in ignored_dirs and not child.name.startswith("screen-space-analysis"):
             rows.append({"mode": child.name, "artifactRoot": str(child), "latestRun": str(child)})
     return rows
 
@@ -3415,6 +3431,16 @@ def load_suite_context(suite_root: Path) -> dict[str, Any]:
         layer = re.search(r"- Processing layer:\s+`([^`]+)`", text)
         if layer:
             context["processing_layer"] = layer.group(1)
+    canvas_summary_path = suite_root / "canvas-custom-projection-parity-suite-summary.json"
+    if canvas_summary_path.exists():
+        data = read_json(canvas_summary_path)
+        if isinstance(data, dict):
+            geometry = data.get("geometry") or {}
+            if isinstance(geometry, dict):
+                if geometry.get("projectionBorderPolicy"):
+                    context["projection_border_policy"] = geometry.get("projectionBorderPolicy")
+                if geometry.get("processingLayer"):
+                    context["processing_layer"] = geometry.get("processingLayer")
     status_path = suite_root / "state-snapshots" / "final" / "broker-status.json"
     if status_path.exists():
         try:
@@ -3698,7 +3724,7 @@ def build_markdown(report: dict[str, Any]) -> str:
             "",
             "- Positive `dy` means the detected projection component is below the vertical center of the eye half.",
             "- Horizontal alignment is recorded but not tuned by this report.",
-            "- The main per-eye projection box is the union of dense valid stimulus components. For renderer-authored full-frame diagnostics, the projection box can use the visible full-frame surface so disconnected diagnostic bands are still part of the full-frame measurement.",
+            "- The main per-eye projection box is the source-content footprint. The visible full-frame render surface is reported separately so camera/source coverage and surface coverage do not get conflated.",
             "- Overlay colors: cyan/yellow are the observed full stimulus envelope for left/right eyes, purple is the visible render surface, green is the expected source-valid footprint (renderer-authored when available, otherwise analyzer model), orange is the projection footprint record, and blue marks the source-content envelope excluding red/purple diagnostic matte. The largest single connected component remains in JSON evidence only so split synthetic stimuli do not draw a misleading checkerboard-sized blue box. Coincident same-orientation sides are drawn as color stripes; simple crossings are not striped.",
             "- Broker synthetic orientation markers are pixel-checked as top-left green `TOP` and bottom-left red `BOT`; explicit stimulus metadata is preferred, and missing metadata is recorded as a default/fallback condition.",
             "- Projection mapping records connect content metadata, app projection fields, homography availability, model checks, observed screenshot bbox, and a conservative verdict.",
@@ -3740,7 +3766,10 @@ def main() -> int:
     for row in load_suite_rows(suite_root):
         mode = row.get("mode") or "unknown"
         artifact_root = Path(row.get("latestRun") or row.get("artifactRoot") or suite_root / mode)
-        image_path = find_image_for_run(artifact_root)
+        explicit_image = row.get("imagePath") or row.get("hzdb")
+        image_path = Path(explicit_image) if explicit_image else find_image_for_run(artifact_root)
+        if image_path and not image_path.exists():
+            image_path = find_image_for_run(artifact_root)
         lane: dict[str, Any] = {
             "mode": mode,
             "suite_status": row.get("status"),

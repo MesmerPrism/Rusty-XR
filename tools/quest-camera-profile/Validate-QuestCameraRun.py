@@ -62,6 +62,13 @@ NATIVE_ACQUISITION_RE = re.compile(
     r"sourceMode=(?P<source_mode>\S+) singleCameraMirror=(?P<single_camera_mirror>true|false)"
 )
 
+OPENXR_GLES_RENDERED_RE = re.compile(r"Rusty XR OpenXR GLES rendered eye=")
+OPENXR_GLES_LOOP_FAILED_RE = re.compile(r"Rusty XR OpenXR GLES loop failed: (?P<reason>.*)")
+OPENXR_INVALID_VIEW_SKIP_RE = re.compile(
+    r"Rusty XR OpenXR GLES skipped composition frame (?P<frame>\d+) "
+    r"because OpenXR view pose is not valid yet viewFlags=(?P<flags>.*)"
+)
+
 
 def filesystem_path(path: Path | str) -> str:
     text = str(path)
@@ -353,6 +360,71 @@ def summarize_projection_progress(text: str) -> dict:
     }
 
 
+def summarize_openxr_gles_progress(text: str) -> dict:
+    rendered_count = len(OPENXR_GLES_RENDERED_RE.findall(text))
+    skipped = [
+        {
+            "frame": int(match.group("frame")),
+            "viewFlags": match.group("flags").strip(),
+        }
+        for match in OPENXR_INVALID_VIEW_SKIP_RE.finditer(text)
+    ]
+    loop_failures = [
+        match.group("reason").strip()
+        for match in OPENXR_GLES_LOOP_FAILED_RE.finditer(text)
+    ]
+
+    if loop_failures:
+        return {
+            "status": "invalid",
+            "reason": "openxr-gles-loop-failed",
+            "renderedCount": rendered_count,
+            "invalidViewSkipCount": len(skipped),
+            "firstInvalidViewSkip": skipped[0] if skipped else None,
+            "lastInvalidViewSkip": skipped[-1] if skipped else None,
+            "loopFailures": loop_failures,
+        }
+    if skipped and rendered_count == 0:
+        return {
+            "status": "invalid",
+            "reason": "openxr-view-pose-invalid",
+            "renderedCount": rendered_count,
+            "invalidViewSkipCount": len(skipped),
+            "firstInvalidViewSkip": skipped[0],
+            "lastInvalidViewSkip": skipped[-1],
+            "loopFailures": [],
+        }
+    if skipped:
+        return {
+            "status": "warning",
+            "reason": "openxr-view-pose-transiently-invalid",
+            "renderedCount": rendered_count,
+            "invalidViewSkipCount": len(skipped),
+            "firstInvalidViewSkip": skipped[0],
+            "lastInvalidViewSkip": skipped[-1],
+            "loopFailures": [],
+        }
+    if rendered_count:
+        return {
+            "status": "ok",
+            "reason": "openxr-gles-rendered",
+            "renderedCount": rendered_count,
+            "invalidViewSkipCount": 0,
+            "firstInvalidViewSkip": None,
+            "lastInvalidViewSkip": None,
+            "loopFailures": [],
+        }
+    return {
+        "status": "warning",
+        "reason": "missing-openxr-gles-render-progress",
+        "renderedCount": 0,
+        "invalidViewSkipCount": 0,
+        "firstInvalidViewSkip": None,
+        "lastInvalidViewSkip": None,
+        "loopFailures": [],
+    }
+
+
 def summarize_native_side_frames(text: str) -> dict:
     acquisition_matches = [
         {
@@ -441,16 +513,26 @@ def summarize_log(path: Path) -> dict:
     critical = match_patterns(text, CRITICAL_LOG_PATTERNS)
     warnings = match_patterns(text, WARNING_LOG_PATTERNS)
     projection_progress = summarize_projection_progress(text)
+    openxr_gles_progress = summarize_openxr_gles_progress(text)
     native_side_frames = summarize_native_side_frames(text)
     if critical:
         status = "invalid"
         reason = "critical-power-or-session-log-signal"
+    elif openxr_gles_progress["status"] == "invalid":
+        status = "invalid"
+        reason = openxr_gles_progress["reason"]
     elif projection_progress["status"] == "invalid":
         status = "invalid"
         reason = projection_progress["reason"]
-    elif projection_progress["status"] == "warning":
+    elif (
+        projection_progress["status"] == "warning"
+        and openxr_gles_progress["status"] != "ok"
+    ):
         status = "warning"
         reason = projection_progress["reason"]
+    elif openxr_gles_progress["status"] == "warning":
+        status = "warning"
+        reason = openxr_gles_progress["reason"]
     elif warnings:
         status = "warning"
         reason = "warning-log-signal"
@@ -464,6 +546,7 @@ def summarize_log(path: Path) -> dict:
         "criticalMatches": critical,
         "warningMatches": warnings,
         "projectionProgress": projection_progress,
+        "openxrGlesProgress": openxr_gles_progress,
         "nativeSideFrames": native_side_frames,
     }
 

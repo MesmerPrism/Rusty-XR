@@ -276,10 +276,13 @@ function Set-MakepadBrokerH264Profile {
     elseif ($UseBrokerH264Camera) {
         $CameraProjectionGeometryProfile
     }
-    else {
+    elseif ($brokerRequested) {
         $BrokerH264SyntheticProjectionProfile
     }
-    $syntheticProjectionProfile = if ($UseBrokerH264Camera) {
+    else {
+        $CameraProjectionGeometryProfile
+    }
+    $syntheticProjectionProfile = if ($UseBrokerH264Camera -or -not $brokerRequested) {
         $projectionGeometryProfile
     }
     else {
@@ -849,10 +852,13 @@ $resolvedBrokerH264ProjectionGeometryProfile = if ($BrokerH264ProjectionGeometry
 elseif ($UseBrokerH264Camera) {
     $CameraProjectionGeometryProfile
 }
-else {
+elseif ($UseBrokerH264Synthetic) {
     $BrokerH264SyntheticProjectionProfile
 }
-$resolvedBrokerH264SyntheticProjectionProfile = if ($UseBrokerH264Camera) {
+else {
+    $CameraProjectionGeometryProfile
+}
+$resolvedBrokerH264SyntheticProjectionProfile = if ($UseBrokerH264Camera -or -not ($UseBrokerH264Synthetic -or $UseBrokerH264Camera)) {
     $resolvedBrokerH264ProjectionGeometryProfile
 }
 else {

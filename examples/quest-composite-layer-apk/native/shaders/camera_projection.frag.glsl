@@ -1083,6 +1083,16 @@ void main() {
     }
 
 #ifdef RUSTY_XR_CAMERA_PROJECTION_DIRECT_ONLY
+    bool direct_projection_border_solid_red =
+        (packed_flags & CAMERA_FLAG_PROJECTION_BORDER_SOLID_RED) != 0;
+    bool direct_passthrough_underlay_alpha =
+        (packed_flags & CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA) != 0;
+    bool direct_projection_area_mask =
+        direct_projection_border_solid_red || direct_passthrough_underlay_alpha;
+    float direct_projection_area_distance = resolve_camera_oval_distance(projection_area_domain_uv);
+    bool direct_projection_area_inside = direct_projection_area_distance <= 1.0;
+    bool direct_masked_projection_valid =
+        projection_valid && (!direct_projection_area_mask || direct_projection_area_inside);
     float direct_surface_edge_distance = min(
         min(v_surface_uv.x, 1.0 - v_surface_uv.x),
         min(v_surface_uv.y, 1.0 - v_surface_uv.y)
@@ -1091,8 +1101,29 @@ void main() {
         ? mix(0.90, 1.0, smoothstep(0.0, edge_fade, direct_surface_edge_distance))
         : 1.0;
     float direct_source_edge_dim = mix(0.94, 1.0, coverage);
-    vec3 direct_color = clamp01(center_color * direct_surface_edge_dim * direct_source_edge_dim);
-    out_color = vec4(clamp01(direct_color), 1.0);
+    vec3 direct_diagnostic_color = vec3(1.0, 0.0, 0.0);
+    vec3 direct_color = direct_projection_border_solid_red && !direct_masked_projection_valid
+        ? direct_diagnostic_color
+        : center_color;
+    float direct_out_alpha = 1.0;
+    if (direct_projection_area_mask) {
+        direct_out_alpha = direct_masked_projection_valid
+            ? projection_color_alpha(direct_color, projection_area_opacity)
+            : (direct_passthrough_underlay_alpha ? 0.0 : projection_border_opacity);
+    }
+    vec3 direct_final_color = direct_projection_border_solid_red && !direct_masked_projection_valid
+        ? direct_diagnostic_color
+        : clamp01(direct_color * direct_surface_edge_dim * direct_source_edge_dim);
+    bool direct_source_alpha_output =
+        direct_projection_area_mask &&
+        (direct_passthrough_underlay_alpha ||
+            projection_area_opacity < 0.999 ||
+            projection_border_opacity < 0.999 ||
+            int(floor(pc.alpha_params.x + 0.5)) != 0);
+    if (direct_source_alpha_output) {
+        direct_final_color *= direct_out_alpha;
+    }
+    out_color = vec4(clamp01(direct_final_color), direct_out_alpha);
     return;
 #endif
 

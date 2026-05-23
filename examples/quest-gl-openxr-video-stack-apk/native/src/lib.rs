@@ -1215,9 +1215,31 @@ mod android {
 
             let mut projection_views = Vec::new();
             if frame_state.should_render {
-                let (_, views) = session
+                let (view_state_flags, views) = session
                     .locate_views(VIEW_TYPE, frame_state.predicted_display_time, &stage)
                     .map_err(|error| format!("locate OpenXR views: {error}"))?;
+                let views_valid = view_state_flags.contains(xr::ViewStateFlags::ORIENTATION_VALID)
+                    && view_state_flags.contains(xr::ViewStateFlags::POSITION_VALID)
+                    && views.iter().all(view_pose_is_submit_valid);
+                if !views_valid {
+                    if frame_count.is_multiple_of(120) {
+                        log_info(format!(
+                            "Rusty XR OpenXR GLES skipped composition frame {} because OpenXR view pose is not valid yet viewFlags={:?}",
+                            frame_count, view_state_flags
+                        ));
+                    }
+                    frame_stream
+                        .end(
+                            frame_state.predicted_display_time,
+                            environment_blend_mode,
+                            &[],
+                        )
+                        .map_err(|error| {
+                            format!("end OpenXR frame without valid view pose: {error}")
+                        })?;
+                    frame_count = frame_count.saturating_add(1);
+                    continue;
+                }
                 if let Some(probe) = surface_texture_oes_probe.as_mut() {
                     probe.update_textures(&egl, frame_count);
                 }
@@ -3267,6 +3289,15 @@ void main() {
                 ])
         }
 
+        fn requests_explicit_full_frame_content_mapping(&self) -> bool {
+            self.content_mapping_intent_is_any(&[
+                "map-full-frame-stimulus-to-projection-surface",
+                "map-full-frame-stimulus-to-projection-area",
+                "map-full-frame-content-to-projection-surface",
+                "map-full-frame-content-to-projection-area",
+            ])
+        }
+
         fn requests_head_anchored_projection_area_mapping(&self) -> bool {
             self.projection_profile_is("head-anchored-virtual-camera")
                 || self.content_mapping_intent_is_any(&[
@@ -3853,10 +3884,16 @@ void main() {
             {
                 return None;
             }
-            if camera_projection_mode.uses_world_canvas()
-                && left.has_metadata_backed_camera_projection()
-                && right.has_metadata_backed_camera_projection()
-            {
+            let metadata_backed_projection = left.has_metadata_backed_camera_projection()
+                && right.has_metadata_backed_camera_projection();
+            let camera_projection_mapping = left.requests_camera_projection_mapping()
+                && right.requests_camera_projection_mapping();
+            let full_frame_diagnostic_profile = left.is_full_frame_diagnostic_projection()
+                && right.is_full_frame_diagnostic_projection();
+            let explicit_full_frame_content_mapping = left
+                .requests_explicit_full_frame_content_mapping()
+                && right.requests_explicit_full_frame_content_mapping();
+            if camera_projection_mode.uses_world_canvas() && metadata_backed_projection {
                 camera2_projection_plan_from_xr_views(
                     left,
                     right,
@@ -3874,9 +3911,9 @@ void main() {
                     projection_preview_offset_y_meters,
                     projection_raw_overscan,
                 )
-            } else if camera_projection_mode.uses_world_canvas()
-                || (left.is_full_frame_diagnostic_projection()
-                    && right.is_full_frame_diagnostic_projection())
+            } else if explicit_full_frame_content_mapping
+                || camera_projection_mode.uses_world_canvas()
+                || (full_frame_diagnostic_profile && !metadata_backed_projection)
             {
                 broker_full_frame_projection_plan_from_xr_views(
                     left,
@@ -3895,10 +3932,8 @@ void main() {
                     projection_preview_offset_y_meters,
                     projection_raw_overscan,
                 )
-            } else if left.requests_camera_projection_mapping()
-                && right.requests_camera_projection_mapping()
-                && left.has_camera2_projection()
-                && right.has_camera2_projection()
+            } else if metadata_backed_projection
+                && (camera_projection_mapping || full_frame_diagnostic_profile)
             {
                 camera2_projection_plan_from_xr_views(
                     left,
@@ -6626,6 +6661,27 @@ void main() {
             pose.orientation.z,
             pose.orientation.w,
         ]
+    }
+
+    fn view_pose_is_submit_valid(view: &xr::View) -> bool {
+        let pose = view.pose;
+        let values = [
+            pose.position.x,
+            pose.position.y,
+            pose.position.z,
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w,
+        ];
+        if values.iter().any(|value| !value.is_finite()) {
+            return false;
+        }
+        let orientation_norm_squared = pose.orientation.x * pose.orientation.x
+            + pose.orientation.y * pose.orientation.y
+            + pose.orientation.z * pose.orientation.z
+            + pose.orientation.w * pose.orientation.w;
+        orientation_norm_squared.is_finite() && orientation_norm_squared > 0.0
     }
 
     fn openxr_projection_contract_fields(

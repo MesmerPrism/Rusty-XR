@@ -451,7 +451,57 @@ impl CameraPipelinePreset {
             "raw-feed-srgb" => Some(Self::RawFeedSrgb),
             "shader-decode-unorm" => Some(Self::ShaderDecodeUnorm),
             "separate-decode-unorm" => Some(Self::SeparateDecodeUnorm),
-            "raw-projection-unorm" => Some(Self::RawProjectionUnorm),
+            "raw-projection-unorm"
+            | "raw-projection-fast-unorm"
+            | "direct-raw-projection-unorm"
+            | "fast-raw-unorm"
+            | "raw-projection-solid-red-unorm"
+            | "raw-projection-red-border-unorm"
+            | "direct-raw-projection-solid-red-unorm"
+            | "fast-raw-solid-red-unorm"
+            | "raw-projection-invalid-fill-unorm"
+            | "raw-projection-invalid-only-fill-unorm"
+            | "direct-raw-projection-invalid-fill-unorm"
+            | "fast-raw-invalid-fill-unorm"
+            | "raw-projection-fill-unorm"
+            | "raw-projection-coverage-fill-unorm"
+            | "raw-projection-fast-fill-unorm"
+            | "direct-raw-projection-fill-unorm"
+            | "fast-raw-fill-unorm"
+            | "raw-projection-perimeter-fill-unorm"
+            | "raw-projection-rim-fill-unorm"
+            | "direct-raw-projection-perimeter-fill-unorm"
+            | "fast-raw-perimeter-fill-unorm"
+            | "raw-projection-soft-border-unorm"
+            | "raw-projection-cheap-border-unorm"
+            | "direct-raw-projection-soft-border-unorm"
+            | "fast-raw-soft-border-unorm"
+            | "raw-projection-strong-border-unorm"
+            | "raw-projection-strong-cheap-border-unorm"
+            | "direct-raw-projection-strong-border-unorm"
+            | "fast-raw-strong-border-unorm"
+            | "raw-projection-dynamic-border-unorm"
+            | "raw-projection-feedback-border-unorm"
+            | "direct-raw-projection-dynamic-border-unorm"
+            | "fast-raw-dynamic-border-unorm"
+            | "raw-projection-warm-border-unorm"
+            | "raw-projection-warm-feedback-border-unorm"
+            | "direct-raw-projection-warm-border-unorm"
+            | "fast-raw-warm-border-unorm"
+            | "raw-projection-cycling-border-unorm"
+            | "raw-projection-cycle-border-unorm"
+            | "raw-projection-spectral-border-unorm"
+            | "direct-raw-projection-cycling-border-unorm"
+            | "fast-raw-cycling-border-unorm"
+            | "raw-projection-underlay-unorm"
+            | "raw-projection-alpha-underlay-unorm"
+            | "direct-raw-projection-underlay-unorm"
+            | "fast-raw-underlay-unorm"
+            | "raw-projection-camera-footprint-underlay-unorm"
+            | "raw-projection-projection-area-bounded-underlay-unorm"
+            | "raw-projection-bounded-footprint-underlay-unorm"
+            | "camera-footprint-underlay-unorm"
+            | "projection-area-bounded-underlay-unorm" => Some(Self::RawProjectionUnorm),
             "projection-area-diagnostic-unorm" => Some(Self::ProjectionAreaDiagnosticUnorm),
             "display-eye-uv-fiducial-unorm" => Some(Self::DisplayEyeUvFiducialUnorm),
             "projection-content-uv-fiducial-unorm" => Some(Self::ProjectionContentUvFiducialUnorm),
@@ -2889,6 +2939,18 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             .projection_border_policy
             .as_deref()
             .and_then(CameraProjectionBorderPolicy::parse)
+            .or_else(|| {
+                bridge
+                    .camera_projection_effect_mode
+                    .as_deref()
+                    .and_then(CameraProjectionBorderPolicy::from_legacy_projection_value)
+            })
+            .or_else(|| {
+                bridge
+                    .camera_pipeline_preset
+                    .as_deref()
+                    .and_then(CameraProjectionBorderPolicy::from_legacy_projection_value)
+            })
             .unwrap_or_default(),
         camera_processing_layer: bridge
             .processing_layer
@@ -5262,6 +5324,12 @@ mod tests {
             config.camera_projection_border_policy,
             CameraProjectionBorderPolicy::SolidRed
         );
+        assert!(config.camera_projection_border_policy_active());
+        assert!(config.camera_projection_border_policy_requires_full_pipeline());
+        assert_eq!(
+            config.camera_projection_border_policy_shader_bit(),
+            super::camera_color_pipeline::CAMERA_SHADER_FLAG_PROJECTION_BORDER_SOLID_RED
+        );
         assert_eq!(
             config.camera_feed_pipeline_mode,
             CameraFeedPipelineMode::RawFeed
@@ -5278,6 +5346,57 @@ mod tests {
         assert_eq!(
             config.xr_color_format_mode,
             OpenXrColorFormatMode::Rgba8Unorm
+        );
+    }
+
+    #[test]
+    fn runtime_config_legacy_solid_red_projection_aliases_resolve_to_current_policy() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-solid-red-unorm".to_string()),
+            camera_projection_effect_mode: Some("raw-projection-solid-red".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjection
+        );
+        assert_eq!(
+            config.camera_projection_border_policy,
+            CameraProjectionBorderPolicy::SolidRed
+        );
+        assert!(config.camera_projection_border_policy_active());
+        assert!(config.camera_projection_border_policy_requires_full_pipeline());
+    }
+
+    #[test]
+    fn runtime_config_legacy_underlay_projection_aliases_resolve_to_current_policy() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-underlay-unorm".to_string()),
+            camera_projection_effect_mode: Some("raw-projection-underlay".to_string()),
+            openxr_passthrough_probe: Some("off".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_pipeline_preset,
+            CameraPipelinePreset::RawProjectionUnorm
+        );
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjection
+        );
+        assert_eq!(
+            config.camera_projection_border_policy,
+            CameraProjectionBorderPolicy::PassthroughUnderlay
+        );
+        assert_eq!(
+            config.openxr_passthrough_probe,
+            OpenXrPassthroughProbeMode::Underlay
         );
     }
 

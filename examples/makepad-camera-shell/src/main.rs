@@ -21,9 +21,9 @@ use rusty_xr_camera_model::{
     homography_unit_square_bounding_rect, rect_xywh, source_valid_screen_uv_footprint,
     uv_rect_token, Rect2, Vec2,
 };
+use rusty_xr_runtime_config as rxrc;
 #[cfg(target_os = "android")]
 use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
-use rusty_xr_runtime_config as rxrc;
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 use serde_json::Value as JsonValue;
 use std::{
@@ -2921,6 +2921,11 @@ impl App {
         }
         let full_frame_projection = left_metadata.is_full_frame_diagnostic_projection()
             && right_metadata.is_full_frame_diagnostic_projection();
+        let explicit_full_frame_content_mapping = left_metadata
+            .requests_explicit_full_frame_content_mapping()
+            && right_metadata.requests_explicit_full_frame_content_mapping();
+        let metadata_backed_projection = left_metadata.has_camera_projection_metadata()
+            && right_metadata.has_camera_projection_metadata();
         let camera_projection_mapping = left_metadata.requests_camera_projection_mapping()
             && right_metadata.requests_camera_projection_mapping();
         let head_anchored_projection = left_metadata
@@ -2929,7 +2934,9 @@ impl App {
         let camera_matched = camera_projection_mapping
             && left_metadata.projection_profile_is("camera-matched")
             && right_metadata.projection_profile_is("camera-matched");
-        let Some(plan) = (if full_frame_projection {
+        let Some(plan) = (if explicit_full_frame_content_mapping
+            || (full_frame_projection && !metadata_backed_projection)
+        {
             android_camera_probe::broker_full_frame_projection_plan_from_xr_views(
                 &left_metadata.camera_id,
                 &right_metadata.camera_id,
@@ -2938,7 +2945,8 @@ impl App {
                 views,
             )
             .map(Camera2StereoPlan::from)
-        } else if camera_projection_mapping {
+        } else if (metadata_backed_projection && full_frame_projection) || camera_projection_mapping
+        {
             left_metadata
                 .android_projection_source()
                 .zip(right_metadata.android_projection_source())
@@ -3046,6 +3054,12 @@ impl App {
         pair.openxr_contract = plan.openxr_contract.clone();
         if !self.broker_h264_projection_plan_logged {
             self.broker_h264_projection_plan_logged = true;
+            let config = Self::runtime_config();
+            Self::emit_projection_runtime_manifest_marker(
+                "broker-h264-projection-plan",
+                &config,
+                Self::horizontal_alignment_tuning(),
+            );
             Self::emit_stereo_projection_marker(&format!(
                     "phase=broker-h264-projection-plan status=ok projectionMetadataReady={} runtimeXrViewStateReady={} poseSource={} poseCoordinateConvention={} sourceEyeMapping={} sourceBindingMode={} coordinateChain={} projection_profile={} geometry_profile={} leftCameraId={} rightCameraId={} width={} height={} leftMetadataBytes={} rightMetadataBytes={} leftMetadataSource={} rightMetadataSource={} leftProjectionGeometryProfile={} rightProjectionGeometryProfile={} leftSourceValidUvRect={} rightSourceValidUvRect={} leftSyntheticPattern={} rightSyntheticPattern={} leftOrientationKind={} rightOrientationKind={} leftRasterOrientation={} rightRasterOrientation={} leftUprightMarker={} rightUprightMarker={} leftOrientationMetadataSource={} rightOrientationMetadataSource={} leftOrientationDefault={} rightOrientationDefault={} leftStimulusRasterOrientation={} rightStimulusRasterOrientation={} leftStimulusUprightMarker={} rightStimulusUprightMarker={} {} {}",
                 pair.projection_metadata_ready,
@@ -4684,6 +4698,11 @@ impl App {
         visible_projection_ready: bool,
     ) {
         let config = Self::runtime_config();
+        Self::emit_projection_runtime_manifest_marker(
+            phase,
+            &config,
+            Self::horizontal_alignment_tuning(),
+        );
         emit_marker_line(&format!(
             "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} sourceEyeMapping={} projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightCameraFrames=true alignedProjection={} visibleCameraProjectionReady={} renderPath=makepad-xr projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} makepadForkBranch={} makepadForkCommit={} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDefaults=deprecated panelTargetFields=runtime diagnosticVisualLayer=none neutralWaitingPanel=true visualIsolation=s118_projected_footprint_solid_red_exterior depthClip=false environmentDepthClip=false cpuUploadPath=makepad-camera-cpu-yuv-plane drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false",
             phase,
@@ -5217,6 +5236,16 @@ impl BrokerH264ProjectionMetadata {
                 "map-full-frame-stimulus-to-projection-area",
                 "map-full-frame-content-to-projection-area",
             ])
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    fn requests_explicit_full_frame_content_mapping(&self) -> bool {
+        self.content_mapping_intent_is_any(&[
+            "map-full-frame-stimulus-to-projection-surface",
+            "map-full-frame-stimulus-to-projection-area",
+            "map-full-frame-content-to-projection-surface",
+            "map-full-frame-content-to-projection-area",
+        ])
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -6543,6 +6572,63 @@ mod tests {
     }
 
     #[test]
+    fn broker_full_frame_camera_metadata_keeps_projection_metadata_authoritative() {
+        let metadata = BrokerH264ProjectionMetadata::parse(
+            r#"{
+                "source": "broker_app.camera2_h264_stream",
+                "cameraId": "50",
+                "deliveredWidth": 1280,
+                "deliveredHeight": 1280,
+                "projectionGeometryProfile": "full-frame-diagnostic",
+                "contentMappingIntent": "map-camera-frame-to-full-frame-projection-area",
+                "projectionMetadataReady": true,
+                "poseSource": "platform",
+                "poseCoordinateConvention": "android-camera2-lens-pose-reference-from-camera",
+                "intrinsics": {
+                    "fx": 1024.0,
+                    "fy": 1024.0,
+                    "cx": 640.0,
+                    "cy": 640.0
+                },
+                "extrinsics": {
+                    "px": 0.01,
+                    "py": 0.02,
+                    "pz": 0.03,
+                    "qx": 0.0,
+                    "qy": 0.0,
+                    "qz": 0.0,
+                    "qw": 1.0
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert!(metadata.is_full_frame_diagnostic_projection());
+        assert!(metadata.has_camera_projection_metadata());
+        assert!(!metadata.requests_explicit_full_frame_content_mapping());
+    }
+
+    #[test]
+    fn broker_explicit_full_frame_content_intent_is_distinct_from_profile_label() {
+        let metadata = BrokerH264ProjectionMetadata::parse(
+            r#"{
+                "source": "broker_app.synthetic_h264_stream",
+                "cameraId": "synthetic-left",
+                "deliveredWidth": 1280,
+                "deliveredHeight": 1280,
+                "projectionGeometryProfile": "full-frame-diagnostic",
+                "contentMappingIntent": "map-full-frame-stimulus-to-projection-surface",
+                "projectionMetadataReady": true
+            }"#,
+        )
+        .unwrap();
+
+        assert!(metadata.is_full_frame_diagnostic_projection());
+        assert!(metadata.requests_explicit_full_frame_content_mapping());
+        assert!(!metadata.has_camera_projection_metadata());
+    }
+
+    #[test]
     fn broker_orientation_sampling_uses_stimulus_metadata_only() {
         let metadata = BrokerH264ProjectionMetadata::parse(
             r#"{
@@ -7197,7 +7283,11 @@ fn makepad_projection_runtime_env_config() -> rxrc::RuntimeConfig {
     let values = rxrc::PROJECTION_RUNTIME_KEY_ALIASES
         .iter()
         .filter(|alias| alias.source == rxrc::RuntimeKeyAliasSource::EnvironmentVariable)
-        .filter_map(|alias| std::env::var(alias.alias).ok().map(|value| (alias.alias, value)))
+        .filter_map(|alias| {
+            std::env::var(alias.alias)
+                .ok()
+                .map(|value| (alias.alias, value))
+        })
         .collect::<Vec<_>>();
     makepad_projection_runtime_alias_config(rxrc::RuntimeConfigSource::Environment, values)
 }
@@ -7210,7 +7300,9 @@ fn makepad_projection_runtime_android_property_config(
         .filter(|alias| {
             alias.source == rxrc::RuntimeKeyAliasSource::AndroidProperty && alias.status == status
         })
-        .filter_map(|alias| android_system_property_value(alias.alias).map(|value| (alias.alias, value)))
+        .filter_map(|alias| {
+            android_system_property_value(alias.alias).map(|value| (alias.alias, value))
+        })
         .collect::<Vec<_>>();
     makepad_projection_runtime_alias_config(rxrc::RuntimeConfigSource::AndroidProperty, values)
 }
@@ -7221,7 +7313,8 @@ fn makepad_projection_runtime_alias_config(
 ) -> rxrc::RuntimeConfig {
     let mut config = rxrc::RuntimeConfig::new();
     for (key, value) in values {
-        let Ok(parsed) = rxrc::parse_projection_runtime_pairs(source.clone(), [(key, value.as_str())])
+        let Ok(parsed) =
+            rxrc::parse_projection_runtime_pairs(source.clone(), [(key, value.as_str())])
         else {
             continue;
         };
@@ -7232,12 +7325,7 @@ fn makepad_projection_runtime_alias_config(
     config
 }
 
-fn makepad_current_projection_runtime_float(
-    key: &str,
-    fallback: f32,
-    min: f32,
-    max: f32,
-) -> f32 {
+fn makepad_current_projection_runtime_float(key: &str, fallback: f32, min: f32, max: f32) -> f32 {
     let config = App::runtime_config();
     let legacy = App::legacy_horizontal_alignment_tuning();
     let runtime = makepad_projection_runtime_resolution(&config, legacy);
@@ -7282,13 +7370,12 @@ fn makepad_horizontal_alignment_tuning_from_resolution(
     mut tuning: HorizontalAlignmentTuning,
     resolution: &rxrc::RuntimeConfigResolution,
 ) -> HorizontalAlignmentTuning {
-    let global_offset_x_uv =
-        makepad_projection_runtime_optional_float(
-            resolution,
-            rxrc::KEY_PROJECTION_AREA_OFFSET_X_UV,
-            -0.5,
-            0.5,
-        );
+    let global_offset_x_uv = makepad_projection_runtime_optional_float(
+        resolution,
+        rxrc::KEY_PROJECTION_AREA_OFFSET_X_UV,
+        -0.5,
+        0.5,
+    );
     let left_offset_x_uv = makepad_projection_runtime_optional_float(
         resolution,
         rxrc::KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
@@ -7314,13 +7401,12 @@ fn makepad_horizontal_alignment_tuning_from_resolution(
         -0.5,
         0.5,
     );
-    let uniform_scale =
-        makepad_projection_runtime_optional_float(
-            resolution,
-            rxrc::KEY_PROJECTION_AREA_SCALE_UV,
-            0.5,
-            1.5,
-        );
+    let uniform_scale = makepad_projection_runtime_optional_float(
+        resolution,
+        rxrc::KEY_PROJECTION_AREA_SCALE_UV,
+        0.5,
+        1.5,
+    );
     tuning.projection_area_scale_x = makepad_projection_runtime_optional_float(
         resolution,
         rxrc::KEY_PROJECTION_AREA_SCALE_X,
@@ -7372,11 +7458,15 @@ fn makepad_horizontal_alignment_tuning_from_resolution(
         0.0,
         1.0,
     );
-    if let Some(policy) = makepad_projection_runtime_text(resolution, rxrc::KEY_PROJECTION_BORDER_POLICY) {
+    if let Some(policy) =
+        makepad_projection_runtime_text(resolution, rxrc::KEY_PROJECTION_BORDER_POLICY)
+    {
         tuning.projection_border_policy =
             MakepadProjectionBorderPolicy::from_stable_id(policy).shader_code();
     }
-    if let Some(alpha_mode) = makepad_projection_runtime_text(resolution, rxrc::KEY_PROJECTION_ALPHA_MODE) {
+    if let Some(alpha_mode) =
+        makepad_projection_runtime_text(resolution, rxrc::KEY_PROJECTION_ALPHA_MODE)
+    {
         tuning.projection_alpha_mode =
             MakepadProjectionAlphaMode::from_stable_id(alpha_mode).shader_code();
     }

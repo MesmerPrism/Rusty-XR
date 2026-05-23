@@ -14,6 +14,7 @@ param(
     [int]$MediaProjectionPort = 8787,
     [int]$MediaProjectionMaxFrames = 0,
     [int]$MediaProjectionDrainMs = 1500,
+    [switch]$SkipMediaProjection,
     [ValidateSet("direct-camera", "broker-camera", "broker-synthetic")]
     [string]$SourceMode = "direct-camera",
     [ValidateSet("passthrough-underlay", "solid-red")]
@@ -26,6 +27,7 @@ param(
     [double]$ProjectionAreaOpacity = 1.0,
     [double]$ProjectionBorderOpacity = 1.0,
     [switch]$BoundedCanvasProjectionArea,
+    [switch]$UseResolvedProjectionRuntime,
     [string]$BrokerPackageName = "com.example.rustyxr.broker",
     [string]$BrokerActivityName = ".BrokerStartActivity",
     [int]$BrokerRestartSettleSeconds = 3,
@@ -64,19 +66,34 @@ New-Item -ItemType Directory -Force -Path $screenshotsRoot, $profileRunRoot, $ma
 $receiver = Join-Path $repoRoot "tools\media-pipeline\frame_receiver.py"
 $converter = Join-Path $repoRoot "tools\media-pipeline\Convert-RgbaFrameToPng.py"
 $contactSheetBuilder = Join-Path $repoRoot "tools\quest-camera-profile\Build-CanvasCustomParityContactSheet.py"
+$screenSpaceAnalyzer = Join-Path $repoRoot "tools\quest-camera-profile\Analyze-RawStackScreenSpace.py"
 $profileRunner = Join-Path $repoRoot "tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1"
 $makepadRunner = Join-Path $repoRoot "examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1"
+$projectionRuntimeResolutionEnabledValue = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
 
-$surfaceOverride = @(
+function Format-LaunchFloat {
+    param([double]$Value)
+    return $Value.ToString("0.0#####", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+$surfaceOverrideValues = @(
     "rustyxr.projectionDepthMeters=1.434085",
     "rustyxr.cameraPreviewFovYDegrees=69.763084",
     "rustyxr.cameraPreviewOffsetYMeters=-0.168832",
     "rustyxr.cameraRawOverlayOverscan=1.0",
-    "rustyxr.mediaProjection=true",
-    ("rustyxr.mediaProjectionPort={0}" -f $MediaProjectionPort),
-    "rustyxr.mediaProjectionWidth=512",
-    "rustyxr.mediaProjectionHeight=288"
-) -join ","
+    ("rustyxr.projectionRuntimeResolutionEnabled={0}" -f $projectionRuntimeResolutionEnabledValue)
+)
+if ($SkipMediaProjection) {
+    $surfaceOverrideValues += "rustyxr.mediaProjection=false"
+} else {
+    $surfaceOverrideValues += @(
+        "rustyxr.mediaProjection=true",
+        ("rustyxr.mediaProjectionPort={0}" -f $MediaProjectionPort),
+        "rustyxr.mediaProjectionWidth=512",
+        "rustyxr.mediaProjectionHeight=288"
+    )
+}
+$surfaceOverride = $surfaceOverrideValues -join ","
 
 $boundedProjectionAreaOverride = @(
     "rustyxr.projectionAreaOffsetXUv=0.0",
@@ -87,12 +104,16 @@ $boundedProjectionAreaOverride = @(
     "rustyxr.projectionAreaCornerRadiusUv=0.08"
 ) -join ","
 
+$projectionAreaRadiusXUv = if ($BoundedCanvasProjectionArea) { "0.47" } else { "0.5" }
+$projectionAreaRadiusYUv = if ($BoundedCanvasProjectionArea) { "0.36" } else { "0.5" }
+$projectionAreaCornerRadiusUv = if ($BoundedCanvasProjectionArea) { "0.08" } else { "0.0" }
+
 $projectionOpacityOverride = @(
-    ("rustyxr.projectionAreaOpacity={0}" -f $ProjectionAreaOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture)),
-    ("rustyxr.projectionBorderOpacity={0}" -f $ProjectionBorderOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture)),
+    ("rustyxr.projectionAreaOpacity={0}" -f (Format-LaunchFloat -Value $ProjectionAreaOpacity)),
+    ("rustyxr.projectionBorderOpacity={0}" -f (Format-LaunchFloat -Value $ProjectionBorderOpacity)),
     ("rustyxr.projectionBorderPolicy={0}" -f $ProjectionBorderPolicy)
 ) -join ","
-$blurRadiusPxText = $BlurRadiusPx.ToString("0.0#####", [System.Globalization.CultureInfo]::InvariantCulture)
+$blurRadiusPxText = Format-LaunchFloat -Value $BlurRadiusPx
 $processingLayerOverride = @(
     ("rustyxr.processingLayer={0}" -f $ProcessingLayer),
     ("rustyxr.cameraBlurRadiusPx={0}" -f $blurRadiusPxText)
@@ -205,6 +226,58 @@ function Invoke-Adb {
     }
 }
 
+function Get-LocalTcpListeners {
+    param([int]$Port)
+    @(
+        Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                $processName = ""
+                try {
+                    $processName = (Get-Process -Id $_.OwningProcess -ErrorAction Stop).ProcessName
+                } catch {
+                    $processName = "unknown"
+                }
+                [pscustomobject]@{
+                    LocalAddress = $_.LocalAddress
+                    LocalPort = $_.LocalPort
+                    OwningProcess = $_.OwningProcess
+                    ProcessName = $processName
+                }
+            }
+    )
+}
+
+function Format-LocalTcpListeners {
+    param([object[]]$Listeners)
+    if ($null -eq $Listeners -or $Listeners.Count -eq 0) {
+        return "none"
+    }
+    return (($Listeners | ForEach-Object {
+        "{0}:{1} pid={2} process={3}" -f $_.LocalAddress, $_.LocalPort, $_.OwningProcess, $_.ProcessName
+    }) -join "; ")
+}
+
+function Read-ReceiverLogTail {
+    param([string]$Dir)
+    $parts = @()
+    foreach ($name in @("receiver-stdout.txt", "receiver-stderr.txt")) {
+        $path = Join-Path $Dir $name
+        if (Test-Path -LiteralPath $path) {
+            $tail = @(
+                Get-Content -LiteralPath $path -Tail 12 -ErrorAction SilentlyContinue |
+                    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+            )
+            if ($tail.Count -gt 0) {
+                $parts += ("{0}: {1}" -f $name, ($tail -join " | "))
+            }
+        }
+    }
+    if ($parts.Count -eq 0) {
+        return "receiver logs are empty"
+    }
+    return ($parts -join " ; ")
+}
+
 function Invoke-AdbCapture {
     param(
         [string]$OutputPath,
@@ -259,6 +332,11 @@ function Restart-BrokerForCase {
 function Start-MediaProjectionReceiver {
     param([string]$Dir)
     New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+    $preExistingListeners = @(Get-LocalTcpListeners -Port $MediaProjectionPort)
+    if ($preExistingListeners.Count -gt 0) {
+        throw "MediaProjection host port $MediaProjectionPort is already listening before receiver start: $(Format-LocalTcpListeners -Listeners $preExistingListeners). Choose -MediaProjectionPort for this run."
+    }
+    Remove-MediaProjectionReverse
     $null = Invoke-Adb -Arguments @("reverse", "tcp:$MediaProjectionPort", "tcp:$MediaProjectionPort")
     $stdout = Join-Path $Dir "receiver-stdout.txt"
     $stderr = Join-Path $Dir "receiver-stderr.txt"
@@ -269,7 +347,19 @@ function Start-MediaProjectionReceiver {
         -WindowStyle Hidden `
         -RedirectStandardOutput $stdout `
         -RedirectStandardError $stderr
-    Start-Sleep -Milliseconds 900
+    $deadline = (Get-Date).AddSeconds(8)
+    $listening = $false
+    do {
+        Start-Sleep -Milliseconds 150
+        if ($process.HasExited) {
+            throw "MediaProjection receiver exited before listening on $MediaProjectionPort. $(Read-ReceiverLogTail -Dir $Dir)"
+        }
+        $listeners = @(Get-LocalTcpListeners -Port $MediaProjectionPort)
+        $listening = @($listeners | Where-Object { $_.OwningProcess -eq $process.Id }).Count -gt 0
+    } while ((-not $listening) -and ((Get-Date) -lt $deadline))
+    if (-not $listening) {
+        throw "MediaProjection receiver did not start listening on $MediaProjectionPort. Current listeners: $(Format-LocalTcpListeners -Listeners $listeners). $(Read-ReceiverLogTail -Dir $Dir)"
+    }
     return $process
 }
 
@@ -284,10 +374,13 @@ function Stop-MediaProjectionReceiver {
 }
 
 function Remove-MediaProjectionReverse {
-    if ($Serial) {
-        & $Adb -s $Serial reverse --remove "tcp:$MediaProjectionPort" 2>$null | Out-Null
-    } else {
-        & $Adb reverse --remove "tcp:$MediaProjectionPort" 2>$null | Out-Null
+    try {
+        if ($Serial) {
+            & $Adb -s $Serial reverse --remove "tcp:$MediaProjectionPort" 2>&1 | Out-Null
+        } else {
+            & $Adb reverse --remove "tcp:$MediaProjectionPort" 2>&1 | Out-Null
+        }
+    } catch {
     }
 }
 
@@ -303,7 +396,7 @@ function Complete-MediaProjectionCapture {
         Start-Sleep -Milliseconds 250
     }
     if (-not (Test-Path -LiteralPath $frames)) {
-        throw "MediaProjection receiver did not receive a frame for $OutputPng. PROJECT_MEDIA app-op pregrant did not produce a capture frame; if a Meta selector is visible in-headset, grant MediaProjection manually and rerun."
+        throw "MediaProjection receiver did not receive a frame for $OutputPng. Current listeners: $(Format-LocalTcpListeners -Listeners @(Get-LocalTcpListeners -Port $MediaProjectionPort)). $(Read-ReceiverLogTail -Dir $Dir). PROJECT_MEDIA app-op pregrant did not produce a capture frame; if a Meta selector is visible in-headset, grant MediaProjection manually and rerun."
     }
     if ($MediaProjectionDrainMs -gt 0 -and (-not $Process.HasExited)) {
         Start-Sleep -Milliseconds $MediaProjectionDrainMs
@@ -586,7 +679,8 @@ function Assert-BoundedFootprintEvidence {
     $evidence | ConvertTo-Json -Depth 5 | Set-Content -Path $evidencePath -Encoding UTF8
 
     if ($null -eq $leftExpected -or $null -eq $rightExpected) {
-        throw "[$CaseId] no left/right expected source-valid footprint was logged; cannot prove bounded geometry."
+        Write-Warning "[$CaseId] no left/right expected source-valid footprint was logged; analyzer overlay evidence will be used for this case. See $evidencePath"
+        return
     }
     if ((Test-FullscreenRect $leftExpected) -or (Test-FullscreenRect $rightExpected)) {
         throw "[$CaseId] effective source-valid footprint is fullscreen; rejecting parity evidence. See $evidencePath"
@@ -643,7 +737,11 @@ function Invoke-HwbOrGlesCase {
         [string]$Override
     )
     $caseId = "$Lane-$Mode"
-    Write-Host "[$caseId] MediaProjection receiver starting"
+    if ($SkipMediaProjection) {
+        Write-Host "[$caseId] HzDB capture starting"
+    } else {
+        Write-Host "[$caseId] MediaProjection receiver starting"
+    }
     $caseRoot = Join-Path $profileRunRoot $caseId
     $mediaRoot = Join-Path $sessionRoot "mediaprojection\$caseId"
     $mediaPng = Join-Path $screenshotsRoot "$caseId-mediaprojection.png"
@@ -673,27 +771,33 @@ function Invoke-HwbOrGlesCase {
     }
     try {
         Restart-BrokerForCase -CaseId $caseId
-        $receiverProcess = Start-MediaProjectionReceiver -Dir $mediaRoot
+        if (-not $SkipMediaProjection) {
+            $receiverProcess = Start-MediaProjectionReceiver -Dir $mediaRoot
+        }
         & powershell @args | ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) {
             throw "$caseId profile run failed"
         }
-        Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng
+        if (-not $SkipMediaProjection) {
+            Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng
+        }
         $artifactDir = Copy-HzdbFromProfileRun -ProfileRoot $caseRoot -RuntimeProfile $RuntimeProfile -OutputPng $hzdbPng
         Assert-BoundedFootprintEvidence -CaseId $caseId -ArtifactDir $artifactDir
     }
     finally {
-        Stop-MediaProjectionReceiver -Process $receiverProcess
-        Remove-MediaProjectionReverse
+        if (-not $SkipMediaProjection) {
+            Stop-MediaProjectionReceiver -Process $receiverProcess
+            Remove-MediaProjectionReverse
+        }
     }
-    Write-Host "[$caseId] captured MediaProjection and HzDB"
+    Write-Host "[$caseId] captured HzDB"
     return [ordered]@{
         id = $caseId
         lane = $Lane
         mode = $Mode
         runtimeProfile = $RuntimeProfile
         artifactDir = $artifactDir
-        mediaProjection = $mediaPng
+        mediaProjection = if ($SkipMediaProjection) { $null } else { $mediaPng }
         hzdb = $hzdbPng
         brokerH264SourceMode = $SourceMode
         brokerH264SyntheticPattern = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticPattern } else { $null }
@@ -711,7 +815,11 @@ function Invoke-MakepadCase {
         [string]$CaseSourceMode = "direct-camera"
     )
     $caseId = "makepad-$Mode"
-    Write-Host "[$caseId] MediaProjection receiver starting"
+    if ($SkipMediaProjection) {
+        Write-Host "[$caseId] HzDB capture starting"
+    } else {
+        Write-Host "[$caseId] MediaProjection receiver starting"
+    }
     $caseRoot = Join-Path $makepadRunRoot $caseId
     $mediaRoot = Join-Path $sessionRoot "mediaprojection\$caseId"
     $mediaPng = Join-Path $screenshotsRoot "$caseId-mediaprojection.png"
@@ -750,17 +858,24 @@ function Invoke-MakepadCase {
         "-ProjectionAreaOffsetYUv", "0.0",
         "-ProjectionAreaScaleX", "1.0",
         "-ProjectionAreaScaleY", "1.0",
-        "-ProjectionAreaRadiusXUv", "0.47",
-        "-ProjectionAreaRadiusYUv", "0.36",
-        "-ProjectionAreaCornerRadiusUv", "0.08",
-        "-ProjectionAreaOpacity", $ProjectionAreaOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture),
-        "-ProjectionBorderOpacity", $ProjectionBorderOpacity.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture),
+        "-ProjectionAreaRadiusXUv", $projectionAreaRadiusXUv,
+        "-ProjectionAreaRadiusYUv", $projectionAreaRadiusYUv,
+        "-ProjectionAreaCornerRadiusUv", $projectionAreaCornerRadiusUv,
+        "-ProjectionAreaOpacity", (Format-LaunchFloat -Value $ProjectionAreaOpacity),
+        "-ProjectionBorderOpacity", (Format-LaunchFloat -Value $ProjectionBorderOpacity),
         "-ProjectionBorderPolicy", $ProjectionBorderPolicy,
         "-ProcessingLayer", $ProcessingLayer,
-        "-BlurRadiusPx", $blurRadiusPxText,
-        "-MediaProjection",
-        "-MediaProjectionPort", $MediaProjectionPort.ToString()
+        "-BlurRadiusPx", $blurRadiusPxText
     )
+    if (-not $SkipMediaProjection) {
+        $args += @(
+            "-MediaProjection",
+            "-MediaProjectionPort", $MediaProjectionPort.ToString()
+        )
+    }
+    if ($UseResolvedProjectionRuntime) {
+        $args += "-UseResolvedProjectionRuntime"
+    }
     if (Get-MakepadNativePassthroughRequested) {
         $args += "-EnableNativePassthrough"
     }
@@ -799,7 +914,9 @@ function Invoke-MakepadCase {
     }
     try {
         Restart-BrokerForCase -CaseId $caseId
-        $receiverProcess = Start-MediaProjectionReceiver -Dir $mediaRoot
+        if (-not $SkipMediaProjection) {
+            $receiverProcess = Start-MediaProjectionReceiver -Dir $mediaRoot
+        }
         & powershell @args | ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) {
             throw "$caseId Makepad run failed"
@@ -817,14 +934,18 @@ function Invoke-MakepadCase {
             throw "$caseId HzDB capture failed"
         }
         Assert-MakepadNoApplicationError -CaseId $caseId -CaseRoot $caseRoot
-        Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng
+        if (-not $SkipMediaProjection) {
+            Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng
+        }
         Assert-BoundedFootprintEvidence -CaseId $caseId -ArtifactDir $caseRoot
     }
     finally {
-        Stop-MediaProjectionReceiver -Process $receiverProcess
-        Remove-MediaProjectionReverse
+        if (-not $SkipMediaProjection) {
+            Stop-MediaProjectionReceiver -Process $receiverProcess
+            Remove-MediaProjectionReverse
+        }
     }
-    Write-Host "[$caseId] captured MediaProjection and HzDB"
+    Write-Host "[$caseId] captured HzDB"
     return [ordered]@{
         id = $caseId
         lane = "makepad"
@@ -832,7 +953,7 @@ function Invoke-MakepadCase {
         cameraProjectionMode = $CameraProjectionMode
         runtimeProfile = $ProjectionGeometryProfile
         artifactDir = $caseRoot
-        mediaProjection = $mediaPng
+        mediaProjection = if ($SkipMediaProjection) { $null } else { $mediaPng }
         hzdb = $hzdbPng
         brokerH264SourceMode = $SourceMode
         brokerH264SyntheticPattern = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticPattern } else { $null }
@@ -864,16 +985,22 @@ else {
 $glesCanvasRuntimeProfile = if ($brokerSourceRequested) {
     "gles-broker-camera-h264-oes-projection"
 }
+elseif ($SkipMediaProjection) {
+    "gles-direct-camera2-oes-projection"
+}
 else {
     "gles-direct-camera2-oes-world-canvas-mediaprojection"
 }
 $glesCustomRuntimeProfile = if ($brokerSourceRequested) {
     "gles-broker-camera-h264-oes-projection"
 }
+elseif ($SkipMediaProjection) {
+    "gles-direct-camera2-oes-projection"
+}
 else {
     "gles-direct-camera2-oes-camera-projection-mediaprojection"
 }
-$canvasProjectionAreaOverride = if ($BoundedCanvasProjectionArea) { $boundedProjectionAreaOverride } else { "" }
+$projectionAreaOverride = if ($BoundedCanvasProjectionArea) { $boundedProjectionAreaOverride } else { "" }
 $hwbCanvasSourceOverride = if ($brokerSourceRequested) { Get-BrokerH264Override -ProjectionGeometryProfile "full-frame-diagnostic" } else { "" }
 $hwbCustomSourceOverride = if ($brokerSourceRequested) { Get-BrokerH264Override -ProjectionGeometryProfile "camera-projection" } else { "" }
 $glesCanvasSourceOverride = if ($brokerSourceRequested) { Get-BrokerH264Override -ProjectionGeometryProfile "full-frame-diagnostic" } else { "" }
@@ -892,7 +1019,7 @@ if (Test-LaneEnabled -Lane "hwb") {
             "rustyxr.cameraProjectionMode=world-canvas",
             "rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic",
             (Get-HwbProjectionStyleOverride -Mode "canvas"),
-            $canvasProjectionAreaOverride,
+            $projectionAreaOverride,
             $hwbCanvasSourceOverride,
             $surfaceOverride
         ))
@@ -908,7 +1035,7 @@ if (Test-LaneEnabled -Lane "hwb") {
             "rustyxr.cameraProjectionMode=display-screen-homography",
             "rustyxr.cameraProjectionGeometryProfile=camera-projection",
             (Get-HwbProjectionStyleOverride -Mode "custom"),
-            $boundedProjectionAreaOverride,
+            $projectionAreaOverride,
             $hwbCustomSourceOverride,
             $surfaceOverride
         ))
@@ -927,7 +1054,7 @@ if (Test-LaneEnabled -Lane "oes") {
             "rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic",
             "rustyxr.directCamera2OesProjectionGeometryProfile=full-frame-diagnostic",
             (Get-GlesProjectionStyleOverride),
-            $canvasProjectionAreaOverride,
+            $projectionAreaOverride,
             $glesCanvasSourceOverride,
             $surfaceOverride
         ))
@@ -944,7 +1071,7 @@ if (Test-LaneEnabled -Lane "oes") {
             "rustyxr.cameraProjectionGeometryProfile=camera-projection",
             "rustyxr.directCamera2OesProjectionGeometryProfile=camera-projection",
             (Get-GlesProjectionStyleOverride),
-            $boundedProjectionAreaOverride,
+            $projectionAreaOverride,
             $glesCustomSourceOverride,
             $surfaceOverride
         ))
@@ -955,10 +1082,7 @@ if (Test-LaneEnabled -Lane "makepad") {
 }
 
 $contactSheetPath = Join-Path $sessionRoot "canvas-custom-projection-parity-results.png"
-& python $contactSheetBuilder --session-root $sessionRoot --output $contactSheetPath | ForEach-Object { Write-Host $_ }
-if ($LASTEXITCODE -ne 0) {
-    throw "Canvas/custom parity contact sheet generation failed"
-}
+$screenSpaceAnalysisDir = Join-Path $sessionRoot "screen-space-analysis"
 
 $summary = [ordered]@{
     schemaVersion = "rusty.xr.canvas-custom-projection-parity-suite.v1"
@@ -968,6 +1092,7 @@ $summary = [ordered]@{
     sessionRoot = $sessionRoot
     screenshotsRoot = $screenshotsRoot
     contactSheet = $contactSheetPath
+    screenSpaceAnalysis = $screenSpaceAnalysisDir
     geometry = [ordered]@{
         projectionDepthMeters = 1.434085
         cameraPreviewFovYDegrees = 69.763084
@@ -979,9 +1104,11 @@ $summary = [ordered]@{
         projectionAreaOpacity = $ProjectionAreaOpacity
         projectionBorderOpacity = $ProjectionBorderOpacity
         boundedCanvasProjectionArea = [bool]$BoundedCanvasProjectionArea
-        boundedProjectionAreaRadiusXUv = 0.47
-        boundedProjectionAreaRadiusYUv = 0.36
-        boundedProjectionAreaCornerRadiusUv = 0.08
+        skipMediaProjection = [bool]$SkipMediaProjection
+        useResolvedProjectionRuntime = [bool]$UseResolvedProjectionRuntime
+        projectionAreaRadiusXUv = [double]$projectionAreaRadiusXUv
+        projectionAreaRadiusYUv = [double]$projectionAreaRadiusYUv
+        projectionAreaCornerRadiusUv = [double]$projectionAreaCornerRadiusUv
         makepadStartupTimeoutSeconds = $MakepadStartupTimeoutSeconds
         makepadSampleSeconds = [Math]::Max($MakepadSampleSeconds, $WarmupSeconds)
         makepadPostRunSettleSeconds = $MakepadPostRunSettleSeconds
@@ -1003,13 +1130,28 @@ $summary = [ordered]@{
         syntheticNote = if ($SourceMode -eq "broker-synthetic") { "Synthetic diagnostic stimulus uses the requested broker synthetic projection metadata profile and the same broker H.264 decode/render stack as broker-camera; with camera-matched metadata, source pixels are diagnostic blur data while camera-derived projection metadata stays comparable." } else { $null }
     }
     captureRouteNotes = @(
-        "HWB and GLES/OES MediaProjection captures are latest-frame app-frame evidence for the rendered camera window after the profile run.",
-        "Makepad MediaProjection currently captures the Makepad Android/window surface rather than the submitted OpenXR compositor layer; use HzDB for Makepad geometry until this capture-route difference is resolved.",
-        "MediaProjection is display/app-window mirror evidence and may visually align with a different HzDB eye by renderer; do not use its apparent eye index as source-eye parity proof.",
+        $(if ($SkipMediaProjection) { "MediaProjection capture is disabled for this run; HzDB is the only image evidence." } else { "MediaProjection captures are latest-frame app/display-capture evidence for the rendered camera window after the profile run." }),
+        "HzDB captures are the geometry authority for per-eye footprint diagnostics; the contact sheet overlays analyzer boxes on the HzDB column.",
+        $(if ($SkipMediaProjection) { "Projection parity should be judged from headset capture only." } else { "MediaProjection is display/app-window mirror evidence and may visually align with a different HzDB eye by renderer; do not use its apparent eye index as source-eye parity proof." }),
         "Broker-source runs restart the broker service before each condition. Broker-camera requests physical Camera2 H.264 streams; broker-synthetic requests the diagnostic H.264 stimulus with camera-matched metadata for synthetic blur evidence."
     )
     records = $records
 }
 $summaryPath = Join-Path $sessionRoot "canvas-custom-projection-parity-suite-summary.json"
 $summary | ConvertTo-Json -Depth 7 | Set-Content -Path $summaryPath -Encoding UTF8
+
+$analysisArgs = @($sessionRoot, "--out-dir", $screenSpaceAnalysisDir)
+if ($ProjectionBorderPolicy -ne "solid-red") {
+    $analysisArgs += "--allow-visible-fallback"
+}
+& python $screenSpaceAnalyzer @analysisArgs | ForEach-Object { Write-Host $_ }
+if ($LASTEXITCODE -ne 0) {
+    throw "Canvas/custom screen-space analysis failed"
+}
+
+& python $contactSheetBuilder --session-root $sessionRoot --analysis-dir $screenSpaceAnalysisDir --output $contactSheetPath | ForEach-Object { Write-Host $_ }
+if ($LASTEXITCODE -ne 0) {
+    throw "Canvas/custom parity contact sheet generation failed"
+}
+
 $summary | ConvertTo-Json -Depth 7

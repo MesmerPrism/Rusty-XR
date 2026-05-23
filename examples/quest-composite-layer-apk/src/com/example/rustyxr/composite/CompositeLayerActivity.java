@@ -1150,9 +1150,9 @@ public final class CompositeLayerActivity extends NativeActivity {
         serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_RESULT_CODE, resultCode);
         serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_RESULT_DATA, data);
         serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_HOST, "127.0.0.1");
-        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_PORT, 8787);
-        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_WIDTH, 512);
-        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_HEIGHT, 288);
+        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_PORT, intExtra("rustyxr.mediaProjectionPort", 8787));
+        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_WIDTH, intExtra("rustyxr.mediaProjectionWidth", 512));
+        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_HEIGHT, intExtra("rustyxr.mediaProjectionHeight", 288));
         startForegroundService(serviceIntent);
         sendNativeEvent("mediaProjectionGranted");
     }
