@@ -146,6 +146,7 @@ cargo test --doc --workspace --all-features
 python tools/docs/check_links.py --repo-root .
 python tools/workflow/check_powershell_workflow_safety.py --repo-root .
 python tools/schema/export_schemas.py --check
+python tools/quest-camera-profile/Validate-CanvasCustomParityArtifacts.py --self-test
 python tools/schema/check_quest_app_catalog.py tools/schema/fixtures/quest-app-catalog.example.json
 python tools/boundary-scan/rusty_xr_boundary_scan.py --repo-root .
 ```

@@ -53,6 +53,25 @@ def array(items: dict) -> dict:
     return {"type": "array", "items": items}
 
 
+def object_map(value_schema: dict) -> dict:
+    return {"type": "object", "additionalProperties": value_schema}
+
+
+def loose_object() -> dict:
+    return {"type": "object", "additionalProperties": True}
+
+
+def open_obj(title: str, properties: dict, required: list[str] | None = None) -> dict:
+    return {
+        "$schema": SCHEMA_VERSION,
+        "title": title,
+        "type": "object",
+        "additionalProperties": True,
+        "properties": properties,
+        "required": required or list(properties.keys()),
+    }
+
+
 def vec2() -> dict:
     return obj("Vec2", {"x": number(), "y": number()})
 
@@ -1726,6 +1745,214 @@ def schemas() -> dict[str, dict]:
             "stages": array(depth_world_space_stage),
         },
     )
+    parity_capture_provider = enum("ParitySuiteHeadsetCaptureProvider", ["fast-adb", "hzdb"])
+    parity_source_mode = enum("ParitySuiteSourceMode", ["direct-camera", "broker-camera", "broker-synthetic"])
+    parity_evidence_mode = enum("ParitySuiteEvidenceMode", ["custom", "fast-visual", "full-evidence"])
+    parity_status = enum("ParitySuiteStatus", ["pending", "ok", "failed", "skipped"])
+    parity_timing_record = open_obj(
+        "CanvasCustomProjectionParitySuiteTimingRecord",
+        {
+            "caseId": string(),
+            "step": string(),
+            "status": enum("ParitySuiteTimingStatus", ["ok", "failed"]),
+            "startedAt": string(),
+            "endedAt": string(),
+            "startElapsedMs": integer(0),
+            "endElapsedMs": integer(0),
+            "durationMs": integer(0),
+            "error": string(),
+        },
+    )
+    parity_timing_step_summary = open_obj(
+        "CanvasCustomProjectionParitySuiteTimingStepSummary",
+        {
+            "step": string(),
+            "count": integer(0),
+            "totalMs": integer(0),
+            "minMs": integer(0),
+            "maxMs": integer(0),
+            "avgMs": number(),
+            "failures": integer(0),
+        },
+    )
+    parity_timing_summary = open_obj(
+        "CanvasCustomProjectionParitySuiteTimingSummary",
+        {
+            "schemaVersion": {"const": "rusty.xr.canvas-custom-projection-parity-suite.timing.v1"},
+            "totalElapsedMs": integer(0),
+            "timingJsonl": string(),
+            "records": array(parity_timing_record),
+            "byStep": array(parity_timing_step_summary),
+        },
+    )
+    parity_case_record = open_obj(
+        "CanvasCustomProjectionParitySuiteCaseRecord",
+        {
+            "id": string(),
+            "lane": enum("ParitySuiteLane", ["hwb", "oes", "makepad"]),
+            "mode": enum("ParitySuiteProjectionMode", ["canvas", "custom"]),
+            "runtimeProfile": string(),
+            "artifactDir": string(),
+            "mediaProjection": {"type": ["string", "null"]},
+            "hzdb": string(),
+            "headsetCapture": string(),
+            "headsetCaptureProvider": parity_capture_provider,
+            "brokerH264SourceMode": parity_source_mode,
+            "processingLayer": enum("ParitySuiteProcessingLayer", ["raw", "blur"]),
+            "blurRadiusPx": number(),
+        },
+    )
+    parity_capture_contract = open_obj(
+        "CanvasCustomProjectionParitySuiteCaptureContract",
+        {
+            "evidenceMode": parity_evidence_mode,
+            "mediaProjectionEnabled": boolean(),
+            "analyzerEnabled": boolean(),
+            "contactSheetEnabled": boolean(),
+            "timingEnabled": boolean(),
+            "geometryWitness": string(),
+            "modeSemantics": string(),
+        },
+    )
+    parity_summary = open_obj(
+        "CanvasCustomProjectionParitySuiteSummary",
+        {
+            "schemaVersion": {"const": "rusty.xr.canvas-custom-projection-parity-suite.v1"},
+            "capturedAt": string(),
+            "serial": string(),
+            "sourceMode": parity_source_mode,
+            "evidenceMode": parity_evidence_mode,
+            "sessionRoot": string(),
+            "screenshotsRoot": string(),
+            "contactSheet": string(),
+            "screenSpaceAnalysis": string(),
+            "timingJsonl": string(),
+            "timingSummary": string(),
+            "headsetCaptureProvider": parity_capture_provider,
+            "captureContract": parity_capture_contract,
+            "geometry": open_obj(
+                "CanvasCustomProjectionParitySuiteGeometry",
+                {
+                    "projectionDepthMeters": number(),
+                    "cameraPreviewFovYDegrees": number(),
+                    "cameraPreviewOffsetYMeters": number(),
+                    "cameraRawOverlayOverscan": number(),
+                    "projectionBorderPolicy": enum("ProjectionBorderPolicy", ["passthrough-underlay", "solid-red"]),
+                    "processingLayer": enum("ParitySuiteGeometryProcessingLayer", ["raw", "blur"]),
+                    "blurRadiusPx": number(),
+                    "projectionAreaOpacity": number(),
+                    "projectionBorderOpacity": number(),
+                    "boundedCanvasProjectionArea": boolean(),
+                    "skipMediaProjection": boolean(),
+                    "useResolvedProjectionRuntime": boolean(),
+                    "projectionAreaRadiusXUv": number(),
+                    "projectionAreaRadiusYUv": number(),
+                    "projectionAreaCornerRadiusUv": number(),
+                    "makepadStartupTimeoutSeconds": integer(0),
+                    "makepadSampleSeconds": integer(0),
+                    "makepadPostRunSettleSeconds": integer(0),
+                    "expectedMakepadSourceEyeMapping": string(),
+                    "failOnAnalyzerIssue": boolean(),
+                    "skipAnalyzer": boolean(),
+                },
+            ),
+            "brokerH264": loose_object(),
+            "captureRouteNotes": array(string()),
+            "boundedFootprintEvidence": array(loose_object()),
+            "records": array(parity_case_record),
+            "analysis": open_obj(
+                "CanvasCustomProjectionParitySuiteAnalysisStatus",
+                {"skipped": boolean(), "status": parity_status, "outDir": string(), "error": string()},
+            ),
+            "contactSheetStatus": open_obj(
+                "CanvasCustomProjectionParitySuiteContactSheetStatus",
+                {"skipped": boolean(), "status": parity_status, "path": string(), "error": string()},
+            ),
+            "timing": open_obj(
+                "CanvasCustomProjectionParitySuiteTimingPointer",
+                {"totalElapsedMs": integer(0), "jsonl": string(), "summary": string()},
+            ),
+            "artifactValidation": open_obj(
+                "CanvasCustomProjectionParitySuiteArtifactValidationStatus",
+                {"skipped": boolean(), "status": parity_status, "validator": string(), "error": string()},
+            ),
+        },
+    )
+    screen_space_report = open_obj(
+        "RawStackScreenSpaceReport",
+        {
+            "schema_version": {"const": "rusty.xr.raw-stack-screen-space.v1"},
+            "suite_root": string(),
+            "out_dir": string(),
+            "projection_border_policy": string(),
+            "processing_layer": string(),
+            "allow_visible_fallback": boolean(),
+            "lanes": array(loose_object()),
+            "projection_mapping_schema_version": {"const": "rusty.xr.projection-mapping-run-record.v1"},
+            "projection_mapping_summary": loose_object(),
+            "projection_coordinate_contract_schema_version": {"const": "rusty.xr.projection-coordinate-contract.v1"},
+            "projection_coordinate_contract_summary": loose_object(),
+        },
+    )
+    projection_mapping_record = open_obj(
+        "ProjectionMappingRunRecord",
+        {
+            "schema_version": {"const": "rusty.xr.projection-mapping-run-record.v1"},
+            "suite_root": string(),
+            "mode": string(),
+            "eye": eye,
+            "artifact_root": string(),
+            "image_path": string(),
+            "log_path": {"type": ["string", "null"]},
+            "content": loose_object(),
+            "orientation": loose_object(),
+            "app_projection": loose_object(),
+            "expected_screenshot": loose_object(),
+            "observed_screenshot": loose_object(),
+            "verdict": loose_object(),
+        },
+    )
+    projection_mapping_summary = open_obj(
+        "ProjectionMappingSummary",
+        {
+            "schema_version": {"const": "rusty.xr.projection-mapping-run-record.v1"},
+            "record_count": integer(0),
+            "verdict_counts": object_map(integer(0)),
+            "modes": object_map(loose_object()),
+            "parity_checks": array(loose_object()),
+        },
+    )
+    projection_coordinate_contract = open_obj(
+        "ProjectionCoordinateContract",
+        {
+            "schema_version": {"const": "rusty.xr.projection-coordinate-contract.v1"},
+            "suite_root": string(),
+            "mode": string(),
+            "status": enum("ProjectionCoordinateContractStatus", ["ready", "needs-evidence", "blocked"]),
+            "lane": loose_object(),
+            "run_request": loose_object(),
+            "source": loose_object(),
+            "metadata": loose_object(),
+            "texture_or_upload": loose_object(),
+            "source_sampling": loose_object(),
+            "projection": loose_object(),
+            "openxr": loose_object(),
+            "transforms": loose_object(),
+            "mask_and_processing": loose_object(),
+            "analysis": loose_object(),
+            "gaps": array(string()),
+        },
+    )
+    projection_coordinate_contract_summary = open_obj(
+        "ProjectionCoordinateContractSummary",
+        {
+            "schema_version": {"const": "rusty.xr.projection-coordinate-contract.v1"},
+            "record_count": integer(0),
+            "status_counts": object_map(integer(0)),
+            "gap_counts": object_map(integer(0)),
+            "modes": object_map(loose_object()),
+        },
+    )
     return {
         "runtime-config.schema.json": obj(
             "RuntimeConfig",
@@ -1822,6 +2049,14 @@ def schemas() -> dict[str, dict]:
             },
         ),
         "depth-world-space-contract.schema.json": depth_world_space_contract,
+        "canvas-custom-projection-parity-suite-summary.schema.json": parity_summary,
+        "canvas-custom-projection-parity-suite-timing-summary.schema.json": parity_timing_summary,
+        "canvas-custom-projection-parity-suite-timing-record.schema.json": parity_timing_record,
+        "raw-stack-screen-space-report.schema.json": screen_space_report,
+        "projection-mapping-run-record.schema.json": projection_mapping_record,
+        "projection-mapping-summary.schema.json": projection_mapping_summary,
+        "projection-coordinate-contract.schema.json": projection_coordinate_contract,
+        "projection-coordinate-contract-summary.schema.json": projection_coordinate_contract_summary,
         "plain-stereo-layer.schema.json": obj(
             "PlainStereoLayer",
             {

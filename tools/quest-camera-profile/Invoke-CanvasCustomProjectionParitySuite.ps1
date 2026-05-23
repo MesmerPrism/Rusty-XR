@@ -118,6 +118,7 @@ $receiver = Join-Path $repoRoot "tools\media-pipeline\frame_receiver.py"
 $converter = Join-Path $repoRoot "tools\media-pipeline\Convert-RgbaFrameToPng.py"
 $contactSheetBuilder = Join-Path $repoRoot "tools\quest-camera-profile\Build-CanvasCustomParityContactSheet.py"
 $screenSpaceAnalyzer = Join-Path $repoRoot "tools\quest-camera-profile\Analyze-RawStackScreenSpace.py"
+$artifactValidator = Join-Path $repoRoot "tools\quest-camera-profile\Validate-CanvasCustomParityArtifacts.py"
 $profileRunner = Join-Path $repoRoot "tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1"
 $makepadRunner = Join-Path $repoRoot "examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1"
 $projectionRuntimeResolutionEnabledValue = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
@@ -1369,6 +1370,12 @@ $contactSheetStatus = [ordered]@{
     path = $contactSheetPath
     error = ""
 }
+$artifactValidationStatus = [ordered]@{
+    skipped = $false
+    status = "pending"
+    validator = $artifactValidator
+    error = ""
+}
 
 if (-not $SkipAnalyzer) {
     try {
@@ -1419,5 +1426,22 @@ $summary["timing"] = [ordered]@{
     jsonl = $timingPath
     summary = $timingSummaryPath
 }
+$summary["artifactValidation"] = $artifactValidationStatus
+$summary | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryPath -Encoding UTF8
+
+try {
+    & python $artifactValidator --suite-root $sessionRoot | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) {
+        throw "Canvas/custom parity artifact validation failed with exit code $LASTEXITCODE"
+    }
+    $artifactValidationStatus["status"] = "ok"
+} catch {
+    $artifactValidationStatus["status"] = "failed"
+    $artifactValidationStatus["error"] = $_.Exception.Message
+    $summary["artifactValidation"] = $artifactValidationStatus
+    $summary | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryPath -Encoding UTF8
+    throw
+}
+$summary["artifactValidation"] = $artifactValidationStatus
 $summary | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryPath -Encoding UTF8
 $summary | ConvertTo-Json -Depth 7

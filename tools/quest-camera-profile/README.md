@@ -317,6 +317,14 @@ switches for mixed investigations. The summary writes `step-timings.jsonl` and
 `step-timing-summary.json` so launch, MediaProjection receiver, headset
 capture, analyzer, and contact-sheet time can be compared per case.
 
+The suite validates its JSON/JSONL artifact contract before returning. To check
+a saved run manually:
+
+```powershell
+python .\tools\quest-camera-profile\Validate-CanvasCustomParityArtifacts.py `
+  --suite-root .\artifacts\canvas-custom-projection-parity-suite\<run>
+```
+
 Treat HWB and GLES/OES MediaProjection rows as app-frame evidence for the
 rendered camera window. The Makepad MediaProjection row is currently a
 capture-route diagnostic only: it captures the Makepad Android/window surface
