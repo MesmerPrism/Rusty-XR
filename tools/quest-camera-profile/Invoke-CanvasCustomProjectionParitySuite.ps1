@@ -126,13 +126,24 @@ function Invoke-TimedStep {
     }
 }
 
+function Get-TimingRecordValue {
+    param(
+        [object]$Record,
+        [string]$Name
+    )
+    if ($Record -is [System.Collections.IDictionary]) {
+        return $Record[$Name]
+    }
+    return $Record.$Name
+}
+
 function New-TimingSummary {
     $records = @($script:timingRecords)
     $byStep = @(
         $records |
-            Group-Object -Property step |
+            Group-Object -Property { Get-TimingRecordValue -Record $_ -Name "step" } |
             ForEach-Object {
-                $durations = @($_.Group | ForEach-Object { [double]$_.durationMs })
+                $durations = @($_.Group | ForEach-Object { [double](Get-TimingRecordValue -Record $_ -Name "durationMs") })
                 $durationStats = $durations | Measure-Object -Sum -Minimum -Maximum -Average
                 [ordered]@{
                     step = $_.Name
@@ -141,7 +152,7 @@ function New-TimingSummary {
                     minMs = if ($durations.Count -gt 0) { [long]$durationStats.Minimum } else { 0 }
                     maxMs = if ($durations.Count -gt 0) { [long]$durationStats.Maximum } else { 0 }
                     avgMs = if ($durations.Count -gt 0) { [Math]::Round([double]$durationStats.Average, 1) } else { 0.0 }
-                    failures = @($_.Group | Where-Object { $_.status -ne "ok" }).Count
+                    failures = @($_.Group | Where-Object { (Get-TimingRecordValue -Record $_ -Name "status") -ne "ok" }).Count
                 }
             }
     )
@@ -865,7 +876,7 @@ function Invoke-HwbOrGlesCase {
     $headsetPng = Join-Path $screenshotsRoot "$caseId-headset.png"
     $receiverProcess = $null
 
-    $args = @(
+    $profileArgs = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass",
         "-File", $profileRunner,
         "-Serial", $Serial,
@@ -883,10 +894,10 @@ function Invoke-HwbOrGlesCase {
         "-Override", $Override
     )
     if ($HeadsetCaptureProvider -eq "hzdb") {
-        $args += "-CaptureHzdbScreencap"
+        $profileArgs += "-CaptureHzdbScreencap"
     }
     if ($Install) {
-        $args += @("-Install", "-Apk", (Resolve-RepoPath $Apk))
+        $profileArgs += @("-Install", "-Apk", (Resolve-RepoPath $Apk))
     }
     try {
         Invoke-TimedStep -CaseId $caseId -Step "broker-restart" -Action { Restart-BrokerForCase -CaseId $caseId }
@@ -894,7 +905,7 @@ function Invoke-HwbOrGlesCase {
             $receiverProcess = Invoke-TimedStep -CaseId $caseId -Step "mediaprojection-receiver-start" -Action { Start-MediaProjectionReceiver -Dir $mediaRoot }
         }
         Invoke-TimedStep -CaseId $caseId -Step "launch-settle-adb-capture" -Action {
-            & powershell @args | ForEach-Object { Write-Host $_ }
+            & powershell @profileArgs | ForEach-Object { Write-Host $_ }
             if ($LASTEXITCODE -ne 0) {
                 throw "$caseId profile run failed"
             }
@@ -961,7 +972,7 @@ function Invoke-MakepadCase {
         $env:PATH = "$adbDir;$env:PATH"
     }
     $makepadSampleSecondsForRun = [Math]::Max($MakepadSampleSeconds, $WarmupSeconds)
-    $args = @(
+    $makepadArgs = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass",
         "-File", $makepadRunner,
         "-Serial", $Serial,
@@ -993,19 +1004,19 @@ function Invoke-MakepadCase {
         "-BlurRadiusPx", $blurRadiusPxText
     )
     if (-not $SkipMediaProjection) {
-        $args += @(
+        $makepadArgs += @(
             "-MediaProjection",
             "-MediaProjectionPort", $MediaProjectionPort.ToString()
         )
     }
     if ($UseResolvedProjectionRuntime) {
-        $args += "-UseResolvedProjectionRuntime"
+        $makepadArgs += "-UseResolvedProjectionRuntime"
     }
     if (Get-MakepadNativePassthroughRequested) {
-        $args += "-EnableNativePassthrough"
+        $makepadArgs += "-EnableNativePassthrough"
     }
     if ($CaseSourceMode -eq "broker-camera") {
-        $args += @(
+        $makepadArgs += @(
             "-UseBrokerH264Camera",
             "-BrokerH264LeftCameraId", $BrokerH264LeftCameraId,
             "-BrokerH264RightCameraId", $BrokerH264RightCameraId,
@@ -1019,7 +1030,7 @@ function Invoke-MakepadCase {
         )
     }
     elseif ($CaseSourceMode -eq "broker-synthetic") {
-        $args += @(
+        $makepadArgs += @(
             "-UseBrokerH264Synthetic",
             "-BrokerH264SyntheticPattern", $BrokerH264SyntheticPattern,
             "-BrokerH264SyntheticProjectionProfile", $BrokerH264SyntheticProjectionProfile,
@@ -1035,7 +1046,7 @@ function Invoke-MakepadCase {
         )
     }
     if (-not $Install) {
-        $args += "-SkipInstall"
+        $makepadArgs += "-SkipInstall"
     }
     try {
         Invoke-TimedStep -CaseId $caseId -Step "broker-restart" -Action { Restart-BrokerForCase -CaseId $caseId }
@@ -1043,7 +1054,7 @@ function Invoke-MakepadCase {
             $receiverProcess = Invoke-TimedStep -CaseId $caseId -Step "mediaprojection-receiver-start" -Action { Start-MediaProjectionReceiver -Dir $mediaRoot }
         }
         Invoke-TimedStep -CaseId $caseId -Step "makepad-gate-launch-adb-capture" -Action {
-            & powershell @args | ForEach-Object { Write-Host $_ }
+            & powershell @makepadArgs | ForEach-Object { Write-Host $_ }
             if ($LASTEXITCODE -ne 0) {
                 throw "$caseId Makepad run failed"
             }
