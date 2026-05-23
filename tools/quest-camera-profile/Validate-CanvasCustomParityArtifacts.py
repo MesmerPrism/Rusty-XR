@@ -22,6 +22,7 @@ REQUIRED_EXPORTED_SCHEMAS = {
     "canvas-custom-projection-parity-suite-timing-summary.schema.json",
     "canvas-custom-projection-parity-suite-timing-record.schema.json",
     "raw-stack-screen-space-report.schema.json",
+    "projection-property-hygiene.schema.json",
     "projection-mapping-run-record.schema.json",
     "projection-mapping-summary.schema.json",
     "projection-coordinate-contract.schema.json",
@@ -253,6 +254,7 @@ def validate_suite_summary(value: Any) -> dict[str, Any]:
     analyzer_enabled = require_bool(contract.get("analyzerEnabled"), "summary.captureContract.analyzerEnabled")
     require_bool(contract.get("contactSheetEnabled"), "summary.captureContract.contactSheetEnabled")
     require_bool(contract.get("timingEnabled"), "summary.captureContract.timingEnabled")
+    require_enum(contract.get("projectionPropertyHygiene"), "summary.captureContract.projectionPropertyHygiene", {"fail", "clear", "ignore"})
 
     geometry = require_object(summary["geometry"], "summary.geometry")
     border_policy = require_enum(geometry.get("projectionBorderPolicy"), "summary.geometry.projectionBorderPolicy", {"passthrough-underlay", "solid-red"})
@@ -440,6 +442,7 @@ def write_self_test_fixture(root: Path) -> None:
             "analyzerEnabled": True,
             "contactSheetEnabled": True,
             "timingEnabled": True,
+            "projectionPropertyHygiene": "clear",
             "geometryWitness": "HzDB screencap",
             "modeSemantics": "fixture",
         },

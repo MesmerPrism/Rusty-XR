@@ -27,6 +27,8 @@ param(
     [int]$FreshnessIntervalMs = 1000,
     [switch]$FailOnPowerStateDrift,
     [int]$LogcatLines = 12000,
+    [ValidateSet("fail", "clear", "ignore")]
+    [string]$ProjectionPropertyHygiene = "fail",
     [string]$Validator = ""
 )
 
@@ -40,6 +42,8 @@ $proximityHoldRequested = [bool]$UseProximityHold
 if (-not $Validator) {
     $Validator = Join-Path $PSScriptRoot "Validate-QuestCameraRun.py"
 }
+$projectionPropertyHygieneHelper = Join-Path $PSScriptRoot "ProjectionPropertyHygiene.ps1"
+. $projectionPropertyHygieneHelper
 
 function Resolve-InputPath {
     param([string]$Path)
@@ -691,6 +695,11 @@ if ($CameraProjectionMode) {
 }
 
 Write-Utf8TextFile -Path (Join-Path $dir "adb-devices.txt") -Value ((Invoke-Adb -Arguments @("devices")) -join [Environment]::NewLine)
+$projectionPropertyHygieneSummary = Invoke-RustyXrProjectionPropertyHygiene `
+    -Adb $Adb `
+    -Serial $Serial `
+    -Mode $ProjectionPropertyHygiene `
+    -OutputPath (Join-Path $dir "projection-property-hygiene.json")
 
 if ($Install) {
     $apkPath = $Apk
@@ -768,6 +777,7 @@ $manifest = [ordered]@{
     freshnessFrames = $FreshnessFrames
     freshnessIntervalMs = $FreshnessIntervalMs
     failOnPowerStateDrift = [bool]$FailOnPowerStateDrift
+    projectionPropertyHygiene = $projectionPropertyHygieneSummary
     overrides = $Override
     values = $values
     artifactDir = $dir

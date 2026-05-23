@@ -88,6 +88,8 @@ The initial export covers:
 - Effect-stack descriptors and comparison reports.
 - Canvas/custom projection parity suite summaries, timing records, screen-space
   reports, projection mapping records, and projection-coordinate contracts.
+- Projection property hygiene summaries for launch wrappers that clear or gate
+  persistent `debug.rustyxr.*` projection properties.
 
 Future schemas should be added only after the corresponding contract has tests
 and a clear downstream use.

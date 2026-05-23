@@ -73,10 +73,15 @@ param(
     [int]$MediaProjectionWidth = 512,
     [int]$MediaProjectionHeight = 288,
     [int]$MediaProjectionDelayMs = 1600,
+    [ValidateSet("fail", "clear", "ignore")]
+    [string]$ProjectionPropertyHygiene = "clear",
     [switch]$EnableNativePassthrough
 )
 
 $ErrorActionPreference = "Stop"
+$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
+$projectionPropertyHygieneHelper = Join-Path $repoRoot "tools\quest-camera-profile\ProjectionPropertyHygiene.ps1"
+. $projectionPropertyHygieneHelper
 
 function Invoke-Adb {
     param([string[]]$Arguments)
@@ -766,6 +771,11 @@ if (-not $OutDir) {
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 Invoke-Adb -Arguments @("devices") | Set-Content -Path (Join-Path $OutDir "adb-devices.txt") -Encoding UTF8
+$projectionPropertyHygieneSummary = Invoke-RustyXrProjectionPropertyHygiene `
+    -Adb "adb" `
+    -Serial $Serial `
+    -Mode $ProjectionPropertyHygiene `
+    -OutputPath (Join-Path $OutDir "projection-property-hygiene.json")
 Install-Apk
 Grant-RuntimePermissions
 Set-MakepadProjectionTargetProfile
@@ -883,11 +893,12 @@ $summary = [ordered]@{
     nativePassthroughRequested = [bool]($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0 -or $ProjectionAlphaMode -ne "fixed")
     projectionAreaOpacity = $ProjectionAreaOpacity
     projectionBorderOpacity = $ProjectionBorderOpacity
-        projectionAlphaMode = $ProjectionAlphaMode
-        projectionAlphaScale = $ProjectionAlphaScale
-        projectionAlphaBias = $ProjectionAlphaBias
-        useResolvedProjectionRuntime = [bool]$UseResolvedProjectionRuntime
-        mediaProjection = [bool]$MediaProjection
+    projectionAlphaMode = $ProjectionAlphaMode
+    projectionAlphaScale = $ProjectionAlphaScale
+    projectionAlphaBias = $ProjectionAlphaBias
+    useResolvedProjectionRuntime = [bool]$UseResolvedProjectionRuntime
+    mediaProjection = [bool]$MediaProjection
+    projectionPropertyHygiene = $projectionPropertyHygieneSummary
     mediaProjectionPort = $MediaProjectionPort
     mediaProjectionWidth = $MediaProjectionWidth
     mediaProjectionHeight = $MediaProjectionHeight

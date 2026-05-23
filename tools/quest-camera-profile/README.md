@@ -33,6 +33,12 @@ ports, pass `-RestartBrokerBeforeBrokerModes` to
 `Invoke-RawCameraStackAlignmentSuite.ps1`. It restarts the broker console before
 each broker lane and writes `broker-restarts\` snapshots, which keeps stale
 unbounded stream sockets from looking like black-frame receiver failures.
+For controlled profile launches, keep `-ProjectionPropertyHygiene fail` on
+`Invoke-QuestCameraProfileRun.ps1` unless the wrapper owns the full run state.
+This fails before launch when persistent `debug.rustyxr.*` projection properties
+would compete with launch extras. The raw-stack and canvas/custom parity suites
+own the full state and use `clear`, writing `projection-property-hygiene.json`
+under each case root before launching.
 For deterministic projection work, pass
 `-BrokerH264SourceMode broker-synthetic -BrokerH264SyntheticPattern diagnostic-grid`.
 Add `-BrokerH264SyntheticProjectionProfile camera-matched` when the synthetic

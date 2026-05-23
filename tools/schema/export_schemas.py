@@ -1749,6 +1749,31 @@ def schemas() -> dict[str, dict]:
     parity_source_mode = enum("ParitySuiteSourceMode", ["direct-camera", "broker-camera", "broker-synthetic"])
     parity_evidence_mode = enum("ParitySuiteEvidenceMode", ["custom", "fast-visual", "full-evidence"])
     parity_status = enum("ParitySuiteStatus", ["pending", "ok", "failed", "skipped"])
+    projection_property_hygiene_mode = enum("ProjectionPropertyHygieneMode", ["fail", "clear", "ignore"])
+    projection_property_hygiene_value = open_obj(
+        "ProjectionPropertyHygieneValue",
+        {
+            "property": string(),
+            "value": string(),
+            "nonEmpty": boolean(),
+        },
+    )
+    projection_property_hygiene_summary = open_obj(
+        "ProjectionPropertyHygieneSummary",
+        {
+            "schemaVersion": {"const": "rusty.xr.projection-property-hygiene.v1"},
+            "checkedAt": string(),
+            "mode": projection_property_hygiene_mode,
+            "keyCount": integer(0),
+            "staleBeforeCount": integer(0),
+            "staleBefore": array(projection_property_hygiene_value),
+            "clearedCount": integer(0),
+            "clearedProperties": array(string()),
+            "afterNonEmptyCount": integer(0),
+            "afterNonEmpty": array(projection_property_hygiene_value),
+            "status": enum("ProjectionPropertyHygieneStatus", ["ok", "failed"]),
+        },
+    )
     parity_timing_record = open_obj(
         "CanvasCustomProjectionParitySuiteTimingRecord",
         {
@@ -1810,6 +1835,7 @@ def schemas() -> dict[str, dict]:
             "analyzerEnabled": boolean(),
             "contactSheetEnabled": boolean(),
             "timingEnabled": boolean(),
+            "projectionPropertyHygiene": projection_property_hygiene_mode,
             "geometryWitness": string(),
             "modeSemantics": string(),
         },
@@ -2053,6 +2079,7 @@ def schemas() -> dict[str, dict]:
         "canvas-custom-projection-parity-suite-timing-summary.schema.json": parity_timing_summary,
         "canvas-custom-projection-parity-suite-timing-record.schema.json": parity_timing_record,
         "raw-stack-screen-space-report.schema.json": screen_space_report,
+        "projection-property-hygiene.schema.json": projection_property_hygiene_summary,
         "projection-mapping-run-record.schema.json": projection_mapping_record,
         "projection-mapping-summary.schema.json": projection_mapping_summary,
         "projection-coordinate-contract.schema.json": projection_coordinate_contract,

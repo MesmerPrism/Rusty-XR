@@ -983,6 +983,8 @@ function Invoke-QuestProfileMode {
     $argList.Add($DeviceProfile)
     $argList.Add("-RuntimeProfile")
     $argList.Add($RuntimeProfile)
+    $argList.Add("-ProjectionPropertyHygiene")
+    $argList.Add("clear")
     if ($Override) {
         $argList.Add("-Override")
         $argList.Add($Override)
@@ -1164,6 +1166,8 @@ function Invoke-MakepadMode {
     $argList.Add((Format-InvariantDouble -Value $ProjectionAlphaScale))
     $argList.Add("-ProjectionAlphaBias")
     $argList.Add((Format-InvariantDouble -Value $ProjectionAlphaBias))
+    $argList.Add("-ProjectionPropertyHygiene")
+    $argList.Add("clear")
     if ($EnableNativePassthroughUnderlay) {
         $argList.Add("-EnableNativePassthrough")
     }

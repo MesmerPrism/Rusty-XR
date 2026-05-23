@@ -940,6 +940,7 @@ function Invoke-HwbOrGlesCase {
         "-FreshnessFrames", "1",
         "-SkipProximityHold",
         "-LogcatLines", "16000",
+        "-ProjectionPropertyHygiene", "clear",
         "-Override", $Override
     )
     if ($HeadsetCaptureProvider -eq "hzdb") {
@@ -1050,6 +1051,7 @@ function Invoke-MakepadCase {
         "-ProjectionBorderOpacity", (Format-LaunchFloat -Value $ProjectionBorderOpacity),
         "-ProjectionBorderPolicy", $ProjectionBorderPolicy,
         "-ProcessingLayer", $ProcessingLayer,
+        "-ProjectionPropertyHygiene", "clear",
         "-BlurRadiusPx", $blurRadiusPxText
     )
     if (-not $SkipMediaProjection) {
@@ -1301,6 +1303,7 @@ $summary = [ordered]@{
         analyzerEnabled = -not [bool]$SkipAnalyzer
         contactSheetEnabled = $true
         timingEnabled = $true
+        projectionPropertyHygiene = "clear"
         geometryWitness = $headsetCaptureLabel
         modeSemantics = switch ($EvidenceMode) {
             "fast-visual" { "Fast operator-inspection mode: fast ADB headset screenshots only, no MediaProjection receiver, no analyzer, solid-red projection border." }
