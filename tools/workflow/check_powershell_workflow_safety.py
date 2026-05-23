@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 import sys
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
@@ -213,19 +214,95 @@ def parse_args() -> argparse.Namespace:
         help="Repository root to scan.",
     )
     parser.add_argument(
+        "--github-annotations",
+        action="store_true",
+        help="Emit GitHub Actions error annotations for findings.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Emit findings as JSON instead of text.",
     )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run the checker against built-in fixtures.",
+    )
     return parser.parse_args()
+
+
+def run_self_test() -> int:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "safe.ps1").write_text(
+            "\n".join(
+                [
+                    "$childArgs = @('-NoProfile')",
+                    "$childArgs += '-File'",
+                    "$null = Invoke-Thing",
+                    "& powershell @childArgs",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        (root / "unsafe.ps1").write_text(
+            "\n".join(
+                [
+                    "$args = @('-NoProfile')",
+                    "$args += '-File'",
+                    "$profile = 'camera'",
+                    "& powershell @args",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        findings: list[Finding] = []
+        for path in iter_powershell_files(root):
+            findings.extend(scan_file(path, root))
+
+    actual = {(finding.path, finding.line, finding.code, finding.variable.lower()) for finding in findings}
+    expected = {
+        ("unsafe.ps1", 1, "PSW001", "$args"),
+        ("unsafe.ps1", 2, "PSW002", "$args"),
+        ("unsafe.ps1", 3, "PSW001", "$profile"),
+        ("unsafe.ps1", 4, "PSW003", "$args"),
+    }
+    if actual != expected:
+        print("PowerShell workflow safety self-test failed.")
+        print("expected:")
+        print(json.dumps(sorted(expected), indent=2))
+        print("actual:")
+        print(json.dumps(sorted(actual), indent=2))
+        return 1
+    print("PowerShell workflow safety self-test: ok")
+    return 0
+
+
+def github_escape(value: str) -> str:
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def emit_github_annotations(findings: Iterable[Finding]) -> None:
+    for finding in findings:
+        message = github_escape(f"{finding.code}: {finding.message} ({finding.text})")
+        print(
+            f"::error file={github_escape(finding.path)},line={finding.line},"
+            f"title={finding.code}::{message}"
+        )
 
 
 def main() -> int:
     args = parse_args()
+    if args.self_test:
+        return run_self_test()
+
     repo_root = args.repo_root.resolve()
     findings: list[Finding] = []
     for path in iter_powershell_files(repo_root):
         findings.extend(scan_file(path, repo_root))
+
+    if args.github_annotations and findings:
+        emit_github_annotations(findings)
 
     if args.json:
         print(json.dumps([asdict(finding) for finding in findings], indent=2))

@@ -37,9 +37,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Compile Python utilities
-        run: python -m py_compile tools/docs/check_links.py tools/schema/export_schemas.py tools/schema/check_quest_app_catalog.py tools/boundary-scan/rusty_xr_boundary_scan.py
+        run: python -m py_compile tools/docs/check_links.py tools/schema/export_schemas.py tools/schema/check_quest_app_catalog.py tools/boundary-scan/rusty_xr_boundary_scan.py tools/workflow/check_powershell_workflow_safety.py
       - name: Check local docs and Pages links
         run: python tools/docs/check_links.py --repo-root .
+      - name: Check PowerShell workflow safety
+        run: |
+          python tools/workflow/check_powershell_workflow_safety.py --self-test
+          python tools/workflow/check_powershell_workflow_safety.py --repo-root . --github-annotations
       - name: Check schema export
         run: python tools/schema/export_schemas.py --check
       - name: Check Quest app catalog fixture
