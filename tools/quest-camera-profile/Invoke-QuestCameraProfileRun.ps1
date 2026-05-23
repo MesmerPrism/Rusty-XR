@@ -662,8 +662,8 @@ $app = $catalogObject.apps | Where-Object { $_.id -eq $AppId } | Select-Object -
 if (-not $app) {
     throw "App '$AppId' not found in $catalogPath"
 }
-$profile = $catalogObject.runtimeProfiles | Where-Object { $_.id -eq $RuntimeProfile } | Select-Object -First 1
-if (-not $profile) {
+$runtimeProfile = $catalogObject.runtimeProfiles | Where-Object { $_.id -eq $RuntimeProfile } | Select-Object -First 1
+if (-not $runtimeProfile) {
     throw "Runtime profile '$RuntimeProfile' not found in $catalogPath"
 }
 $device = $catalogObject.deviceProfiles | Where-Object { $_.id -eq $DeviceProfile } | Select-Object -First 1
@@ -677,7 +677,7 @@ if ($LaunchActivity) {
     $component = Resolve-ActivityComponent -PackageName $packageName -ActivityName $LaunchActivity
 }
 $values = @{}
-foreach ($property in $profile.values.PSObject.Properties) {
+foreach ($property in $runtimeProfile.values.PSObject.Properties) {
     $values[$property.Name] = [string]$property.Value
 }
 foreach ($entry in (Convert-Overrides -Items $Override).GetEnumerator()) {

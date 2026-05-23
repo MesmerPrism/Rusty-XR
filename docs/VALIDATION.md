@@ -6,6 +6,7 @@ was skipped and why.
 ## Docs-Only Changes
 
 ```powershell
+python tools\workflow\check_powershell_workflow_safety.py --repo-root .
 python tools\docs\check_links.py --repo-root .
 python tools\boundary-scan\rusty_xr_boundary_scan.py --repo-root .
 ```
@@ -15,6 +16,7 @@ python tools\boundary-scan\rusty_xr_boundary_scan.py --repo-root .
 ```powershell
 cargo fmt --all --check
 cargo test --workspace
+python tools\workflow\check_powershell_workflow_safety.py --repo-root .
 python tools\schema\export_schemas.py --check
 python tools\boundary-scan\rusty_xr_boundary_scan.py --repo-root .
 ```
@@ -30,6 +32,7 @@ cargo test --doc --workspace --all-features
 ## Schema And Catalog Changes
 
 ```powershell
+python tools\workflow\check_powershell_workflow_safety.py --repo-root .
 python tools\schema\export_schemas.py --check
 python tools\schema\check_quest_app_catalog.py tools\schema\fixtures\quest-app-catalog.example.json
 python tools\boundary-scan\rusty_xr_boundary_scan.py --repo-root .

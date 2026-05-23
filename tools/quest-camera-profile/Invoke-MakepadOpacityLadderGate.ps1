@@ -124,7 +124,7 @@ foreach ($laneName in $Lane) {
             $null
         }
 
-        $args = @(
+        $makepadGateArgs = @(
             "-NoProfile", "-ExecutionPolicy", "Bypass",
             "-File", $makepadGate,
             "-Serial", $Serial,
@@ -152,10 +152,10 @@ foreach ($laneName in $Lane) {
             "-BrokerH264ReadyTimeoutSeconds", $BrokerH264ReadyTimeoutSeconds
         )
         if ($SkipInstall) {
-            $args += "-SkipInstall"
+            $makepadGateArgs += "-SkipInstall"
         }
         if ($laneName -eq "broker") {
-            $args += @(
+            $makepadGateArgs += @(
                 "-UseBrokerH264Camera",
                 "-BrokerH264CaptureMs", $BrokerH264CaptureMs,
                 "-BrokerH264MaxPackets", $BrokerH264MaxPackets,
@@ -177,7 +177,7 @@ foreach ($laneName in $Lane) {
             if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
                 $PSNativeCommandUseErrorActionPreference = $false
             }
-            $consoleOutput = & powershell @args 2>&1
+            $consoleOutput = & powershell @makepadGateArgs 2>&1
             $exitCode = $LASTEXITCODE
         }
         finally {
