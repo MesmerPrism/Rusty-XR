@@ -305,12 +305,23 @@ the latest recorded frame, not the first frame observed during startup. It
 prunes older raw payload files while retaining the frame ledger.
 
 The suite writes a labeled `canvas-custom-projection-parity-results.png`
-contact sheet into the run root. Treat HWB and GLES/OES MediaProjection rows as
-app-frame evidence for the rendered camera window. The Makepad MediaProjection
-row is currently a capture-route diagnostic only: it captures the Makepad
-Android/window surface instead of the submitted OpenXR compositor layer, so
-HzDB remains the geometry witness for Makepad canvas/custom parity until that
-MediaProjection route is understood.
+contact sheet into the run root. `-HeadsetCaptureProvider fast-adb` is the
+default geometry witness and copies the same fast direct ADB screenshot path
+used by the low-latency manual sweep; `-HeadsetCaptureProvider hzdb` keeps the
+older HzDB screenshot route available for provider comparisons. The summary
+also writes `step-timings.jsonl` and `step-timing-summary.json` so launch,
+MediaProjection receiver, headset capture, analyzer, and contact-sheet time can
+be compared per case.
+
+Treat HWB and GLES/OES MediaProjection rows as app-frame evidence for the
+rendered camera window. The Makepad MediaProjection row is currently a
+capture-route diagnostic only: it captures the Makepad Android/window surface
+instead of the submitted OpenXR compositor layer, so headset capture remains
+the geometry witness for Makepad canvas/custom parity until that
+MediaProjection route is understood. By default the analyzer and contact-sheet
+builder report failures into the summary without aborting an otherwise clean
+capture sweep; pass `-FailOnAnalyzerIssue` when those reporting checks should
+gate the run.
 
 ## Camera Readiness Preflight
 

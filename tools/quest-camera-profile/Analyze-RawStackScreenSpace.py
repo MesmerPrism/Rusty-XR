@@ -3290,7 +3290,7 @@ def build_projection_coordinate_contracts(
                     ),
                 },
                 "analysis": {
-                    "capture_method": "hzdb-or-suite-screencap",
+                    "capture_method": "headset-or-suite-screencap",
                     "freshness_status": lane.get("freshness_status"),
                     "camera_feed_status": lane.get("camera_feed_status"),
                     "overlay_path": lane.get("overlay_path"),
@@ -3407,9 +3407,9 @@ def load_suite_rows(suite_root: Path) -> list[dict[str, Any]]:
                 if artifact_root:
                     normalized["artifactRoot"] = artifact_root
                     normalized["latestRun"] = normalized.get("latestRun") or artifact_root
-                hzdb = normalized.get("hzdb")
-                if hzdb:
-                    normalized["imagePath"] = hzdb
+                headset_capture = normalized.get("headsetCapture") or normalized.get("hzdb")
+                if headset_capture:
+                    normalized["imagePath"] = headset_capture
                 normalized_rows.append(normalized)
             return normalized_rows
     rows = []
@@ -3766,7 +3766,7 @@ def main() -> int:
     for row in load_suite_rows(suite_root):
         mode = row.get("mode") or "unknown"
         artifact_root = Path(row.get("latestRun") or row.get("artifactRoot") or suite_root / mode)
-        explicit_image = row.get("imagePath") or row.get("hzdb")
+        explicit_image = row.get("imagePath") or row.get("headsetCapture") or row.get("hzdb")
         image_path = Path(explicit_image) if explicit_image else find_image_for_run(artifact_root)
         if image_path and not image_path.exists():
             image_path = find_image_for_run(artifact_root)

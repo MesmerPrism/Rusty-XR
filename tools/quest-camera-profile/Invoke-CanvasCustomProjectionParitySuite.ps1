@@ -15,6 +15,10 @@ param(
     [int]$MediaProjectionMaxFrames = 0,
     [int]$MediaProjectionDrainMs = 1500,
     [switch]$SkipMediaProjection,
+    [ValidateSet("fast-adb", "hzdb")]
+    [string]$HeadsetCaptureProvider = "fast-adb",
+    [switch]$SkipAnalyzer,
+    [switch]$FailOnAnalyzerIssue,
     [ValidateSet("direct-camera", "broker-camera", "broker-synthetic")]
     [string]$SourceMode = "direct-camera",
     [ValidateSet("passthrough-underlay", "solid-red")]
@@ -63,6 +67,12 @@ $profileRunRoot = Join-Path $sessionRoot "profile-runs"
 $makepadRunRoot = Join-Path $sessionRoot "makepad-runs"
 New-Item -ItemType Directory -Force -Path $screenshotsRoot, $profileRunRoot, $makepadRunRoot | Out-Null
 
+$timingPath = Join-Path $sessionRoot "step-timings.jsonl"
+$timingSummaryPath = Join-Path $sessionRoot "step-timing-summary.json"
+$script:suiteStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$script:timingRecords = [System.Collections.Generic.List[object]]::new()
+$script:boundedFootprintEvidenceRecords = [System.Collections.Generic.List[object]]::new()
+
 $receiver = Join-Path $repoRoot "tools\media-pipeline\frame_receiver.py"
 $converter = Join-Path $repoRoot "tools\media-pipeline\Convert-RgbaFrameToPng.py"
 $contactSheetBuilder = Join-Path $repoRoot "tools\quest-camera-profile\Build-CanvasCustomParityContactSheet.py"
@@ -74,6 +84,74 @@ $projectionRuntimeResolutionEnabledValue = if ($UseResolvedProjectionRuntime) { 
 function Format-LaunchFloat {
     param([double]$Value)
     return $Value.ToString("0.0#####", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Add-TimingRecord {
+    param([object]$Record)
+    $script:timingRecords.Add($Record)
+    $Record | ConvertTo-Json -Depth 5 -Compress | Add-Content -Path $timingPath -Encoding UTF8
+}
+
+function Invoke-TimedStep {
+    param(
+        [string]$CaseId,
+        [string]$Step,
+        [scriptblock]$Action
+    )
+    $startedAt = Get-Date
+    $startedElapsedMs = $script:suiteStopwatch.ElapsedMilliseconds
+    $status = "ok"
+    $errorMessage = ""
+    try {
+        & $Action
+    } catch {
+        $status = "failed"
+        $errorMessage = $_.Exception.Message
+        throw
+    } finally {
+        $endedAt = Get-Date
+        $endedElapsedMs = $script:suiteStopwatch.ElapsedMilliseconds
+        Add-TimingRecord -Record ([ordered]@{
+            caseId = $CaseId
+            step = $Step
+            status = $status
+            startedAt = $startedAt.ToString("o")
+            endedAt = $endedAt.ToString("o")
+            startElapsedMs = $startedElapsedMs
+            endElapsedMs = $endedElapsedMs
+            durationMs = $endedElapsedMs - $startedElapsedMs
+            error = $errorMessage
+        })
+        Write-Host ("[timing] {0} {1} {2}ms {3}" -f $CaseId, $Step, ($endedElapsedMs - $startedElapsedMs), $status)
+    }
+}
+
+function New-TimingSummary {
+    $records = @($script:timingRecords)
+    $byStep = @(
+        $records |
+            Group-Object -Property step |
+            ForEach-Object {
+                $durations = @($_.Group | ForEach-Object { [double]$_.durationMs })
+                $durationStats = $durations | Measure-Object -Sum -Minimum -Maximum -Average
+                [ordered]@{
+                    step = $_.Name
+                    count = $_.Count
+                    totalMs = if ($durations.Count -gt 0) { [long]$durationStats.Sum } else { 0 }
+                    minMs = if ($durations.Count -gt 0) { [long]$durationStats.Minimum } else { 0 }
+                    maxMs = if ($durations.Count -gt 0) { [long]$durationStats.Maximum } else { 0 }
+                    avgMs = if ($durations.Count -gt 0) { [Math]::Round([double]$durationStats.Average, 1) } else { 0.0 }
+                    failures = @($_.Group | Where-Object { $_.status -ne "ok" }).Count
+                }
+            }
+    )
+    return [ordered]@{
+        schemaVersion = "rusty.xr.canvas-custom-projection-parity-suite.timing.v1"
+        totalElapsedMs = $script:suiteStopwatch.ElapsedMilliseconds
+        timingJsonl = $timingPath
+        records = $records
+        byStep = $byStep
+    }
 }
 
 $surfaceOverrideValues = @(
@@ -491,7 +569,7 @@ function Assert-MakepadNoApplicationError {
         [string]$CaseId,
         [string]$CaseRoot
     )
-    $stateRoot = Join-Path $CaseRoot "post-hzdb-state"
+    $stateRoot = Join-Path $CaseRoot "post-headset-capture-state"
     New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
     $activityPath = Join-Path $stateRoot "activity.txt"
     $windowPath = Join-Path $stateRoot "window.txt"
@@ -509,7 +587,7 @@ function Assert-MakepadNoApplicationError {
         (($logcatText -match "FATAL EXCEPTION") -and ($logcatText -match "Process:\s*$packagePattern"))
     )
     if ($appError) {
-        throw "$CaseId Makepad app error was visible after HzDB capture; see $stateRoot"
+        throw "$CaseId Makepad app error was visible after headset capture; see $stateRoot"
     }
 }
 
@@ -674,28 +752,44 @@ function Assert-BoundedFootprintEvidence {
         rightExpectedSourceValidScreenUvRect = $rightExpected
         projectionAreaFullscreen = (Test-FullscreenRect $leftProjectionArea) -or (Test-FullscreenRect $rightProjectionArea)
         effectiveFootprintFullscreen = (Test-FullscreenRect $leftExpected) -or (Test-FullscreenRect $rightExpected)
+        status = "ok"
+        issues = @()
     }
+    $issues = @()
     $evidencePath = Join-Path $sessionRoot ("bounded-footprint-evidence-$CaseId.json")
-    $evidence | ConvertTo-Json -Depth 5 | Set-Content -Path $evidencePath -Encoding UTF8
 
     if ($null -eq $leftExpected -or $null -eq $rightExpected) {
-        Write-Warning "[$CaseId] no left/right expected source-valid footprint was logged; analyzer overlay evidence will be used for this case. See $evidencePath"
-        return
+        $issues += "missing-expected-source-valid-footprint"
     }
-    if ((Test-FullscreenRect $leftExpected) -or (Test-FullscreenRect $rightExpected)) {
-        throw "[$CaseId] effective source-valid footprint is fullscreen; rejecting parity evidence. See $evidencePath"
+    elseif ((Test-FullscreenRect $leftExpected) -or (Test-FullscreenRect $rightExpected)) {
+        $issues += "effective-source-valid-footprint-fullscreen"
     }
     if ((Test-FullscreenRect $leftProjectionArea) -or (Test-FullscreenRect $rightProjectionArea)) {
-        Write-Warning "[$CaseId] shader projectionAreaScreenUvRect is fullscreen; accepting only because effective source-valid footprint is bounded. See $evidencePath"
+        $issues += "shader-projection-area-fullscreen"
+    }
+
+    $evidence["status"] = if ($issues.Count -eq 0) { "ok" } elseif ($issues -contains "effective-source-valid-footprint-fullscreen") { "invalid" } else { "warning" }
+    $evidence["issues"] = $issues
+    $evidence | ConvertTo-Json -Depth 5 | Set-Content -Path $evidencePath -Encoding UTF8
+    $script:boundedFootprintEvidenceRecords.Add($evidence)
+
+    if ($issues.Count -gt 0) {
+        $message = "[$CaseId] bounded footprint evidence status=$($evidence["status"]) issues=$($issues -join ','); see $evidencePath"
+        if ($FailOnAnalyzerIssue -and $evidence["status"] -eq "invalid") {
+            throw $message
+        }
+        Write-Warning $message
     }
 }
 
-function Copy-HzdbFromProfileRun {
+function Copy-HeadsetCaptureFromProfileRun {
     param(
         [string]$ProfileRoot,
         [string]$RuntimeProfile,
         [string]$OutputPng
     )
+    $capturePattern = if ($HeadsetCaptureProvider -eq "hzdb") { "*-hzdb-screencap.png" } else { "*-screencap.png" }
+    $captureLabel = if ($HeadsetCaptureProvider -eq "hzdb") { "HzDB screenshot" } else { "fast ADB screenshot" }
     $lastError = $null
     for ($attempt = 0; $attempt -lt 120; $attempt++) {
         try {
@@ -705,7 +799,11 @@ function Copy-HzdbFromProfileRun {
             if (-not $latest) {
                 $lastError = "No profile run directory found under $ProfileRoot"
             } else {
-                $source = Get-ChildItem -LiteralPath (ConvertTo-WindowsLongPath $latest.FullName) -Filter "*-hzdb-screencap.png" -ErrorAction Stop |
+                $sourceCandidates = Get-ChildItem -LiteralPath (ConvertTo-WindowsLongPath $latest.FullName) -Filter $capturePattern -ErrorAction Stop
+                if ($HeadsetCaptureProvider -eq "fast-adb") {
+                    $sourceCandidates = @($sourceCandidates | Where-Object { $_.Name -notlike "*-hzdb-screencap.png" })
+                }
+                $source = $sourceCandidates |
                     Sort-Object LastWriteTime -Descending |
                     Select-Object -First 1
                 if ($source) {
@@ -715,7 +813,7 @@ function Copy-HzdbFromProfileRun {
                         $true)
                     return $latest.FullName
                 }
-                $lastError = "HzDB screenshot not found under $($latest.FullName)"
+                $lastError = "$captureLabel not found under $($latest.FullName)"
             }
         } catch {
             $lastError = $_.Exception.Message
@@ -723,6 +821,25 @@ function Copy-HzdbFromProfileRun {
         Start-Sleep -Milliseconds 500
     }
     throw $lastError
+}
+
+function Copy-HeadsetCaptureFromMakepadRun {
+    param(
+        [string]$CaseRoot,
+        [string]$OutputPng
+    )
+    $source = Get-ChildItem -LiteralPath (ConvertTo-WindowsLongPath $CaseRoot) -Recurse -Filter "*.png" -ErrorAction Stop |
+        Where-Object { $_.FullName -match "\\screenshots\\" -and $_.Name -match "frame-00\.png$" } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if (-not $source) {
+        throw "Makepad fast ADB screenshot not found under $CaseRoot"
+    }
+    [System.IO.File]::Copy(
+        (ConvertTo-WindowsLongPath $source.FullName),
+        (ConvertTo-WindowsLongPath $OutputPng),
+        $true)
+    return $source.FullName
 }
 
 function Invoke-HwbOrGlesCase {
@@ -737,15 +854,15 @@ function Invoke-HwbOrGlesCase {
         [string]$Override
     )
     $caseId = "$Lane-$Mode"
-    if ($SkipMediaProjection) {
-        Write-Host "[$caseId] HzDB capture starting"
+    if ($HeadsetCaptureProvider -eq "fast-adb") {
+        Write-Host "[$caseId] fast ADB headset capture starting"
     } else {
-        Write-Host "[$caseId] MediaProjection receiver starting"
+        Write-Host "[$caseId] HzDB headset capture starting"
     }
     $caseRoot = Join-Path $profileRunRoot $caseId
     $mediaRoot = Join-Path $sessionRoot "mediaprojection\$caseId"
     $mediaPng = Join-Path $screenshotsRoot "$caseId-mediaprojection.png"
-    $hzdbPng = Join-Path $screenshotsRoot "$caseId-hzdb.png"
+    $headsetPng = Join-Path $screenshotsRoot "$caseId-headset.png"
     $receiverProcess = $null
 
     $args = @(
@@ -760,37 +877,43 @@ function Invoke-HwbOrGlesCase {
         "-RuntimeProfile", $RuntimeProfile,
         "-RunRoot", $caseRoot,
         "-WarmupSeconds", $WarmupSeconds.ToString(),
-        "-CaptureHzdbScreencap",
         "-FreshnessFrames", "1",
         "-SkipProximityHold",
         "-LogcatLines", "16000",
         "-Override", $Override
     )
+    if ($HeadsetCaptureProvider -eq "hzdb") {
+        $args += "-CaptureHzdbScreencap"
+    }
     if ($Install) {
         $args += @("-Install", "-Apk", (Resolve-RepoPath $Apk))
     }
     try {
-        Restart-BrokerForCase -CaseId $caseId
+        Invoke-TimedStep -CaseId $caseId -Step "broker-restart" -Action { Restart-BrokerForCase -CaseId $caseId }
         if (-not $SkipMediaProjection) {
-            $receiverProcess = Start-MediaProjectionReceiver -Dir $mediaRoot
+            $receiverProcess = Invoke-TimedStep -CaseId $caseId -Step "mediaprojection-receiver-start" -Action { Start-MediaProjectionReceiver -Dir $mediaRoot }
         }
-        & powershell @args | ForEach-Object { Write-Host $_ }
-        if ($LASTEXITCODE -ne 0) {
-            throw "$caseId profile run failed"
+        Invoke-TimedStep -CaseId $caseId -Step "launch-settle-adb-capture" -Action {
+            & powershell @args | ForEach-Object { Write-Host $_ }
+            if ($LASTEXITCODE -ne 0) {
+                throw "$caseId profile run failed"
+            }
         }
         if (-not $SkipMediaProjection) {
-            Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng
+            Invoke-TimedStep -CaseId $caseId -Step "mediaprojection-complete" -Action { Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng }
         }
-        $artifactDir = Copy-HzdbFromProfileRun -ProfileRoot $caseRoot -RuntimeProfile $RuntimeProfile -OutputPng $hzdbPng
-        Assert-BoundedFootprintEvidence -CaseId $caseId -ArtifactDir $artifactDir
+        $artifactDir = Invoke-TimedStep -CaseId $caseId -Step "headset-capture-copy" -Action { Copy-HeadsetCaptureFromProfileRun -ProfileRoot $caseRoot -RuntimeProfile $RuntimeProfile -OutputPng $headsetPng }
+        Invoke-TimedStep -CaseId $caseId -Step "bounded-footprint-evidence" -Action { Assert-BoundedFootprintEvidence -CaseId $caseId -ArtifactDir $artifactDir }
     }
     finally {
         if (-not $SkipMediaProjection) {
-            Stop-MediaProjectionReceiver -Process $receiverProcess
-            Remove-MediaProjectionReverse
+            Invoke-TimedStep -CaseId $caseId -Step "mediaprojection-cleanup" -Action {
+                Stop-MediaProjectionReceiver -Process $receiverProcess
+                Remove-MediaProjectionReverse
+            }
         }
     }
-    Write-Host "[$caseId] captured HzDB"
+    Write-Host "[$caseId] captured headset provider=$HeadsetCaptureProvider"
     return [ordered]@{
         id = $caseId
         lane = $Lane
@@ -798,7 +921,9 @@ function Invoke-HwbOrGlesCase {
         runtimeProfile = $RuntimeProfile
         artifactDir = $artifactDir
         mediaProjection = if ($SkipMediaProjection) { $null } else { $mediaPng }
-        hzdb = $hzdbPng
+        hzdb = $headsetPng
+        headsetCapture = $headsetPng
+        headsetCaptureProvider = $HeadsetCaptureProvider
         brokerH264SourceMode = $SourceMode
         brokerH264SyntheticPattern = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticPattern } else { $null }
         brokerH264SyntheticProjectionProfile = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticProjectionProfile } else { $null }
@@ -815,15 +940,15 @@ function Invoke-MakepadCase {
         [string]$CaseSourceMode = "direct-camera"
     )
     $caseId = "makepad-$Mode"
-    if ($SkipMediaProjection) {
-        Write-Host "[$caseId] HzDB capture starting"
+    if ($HeadsetCaptureProvider -eq "fast-adb") {
+        Write-Host "[$caseId] fast ADB headset capture starting"
     } else {
-        Write-Host "[$caseId] MediaProjection receiver starting"
+        Write-Host "[$caseId] HzDB headset capture starting"
     }
     $caseRoot = Join-Path $makepadRunRoot $caseId
     $mediaRoot = Join-Path $sessionRoot "mediaprojection\$caseId"
     $mediaPng = Join-Path $screenshotsRoot "$caseId-mediaprojection.png"
-    $hzdbPng = Join-Path $screenshotsRoot "$caseId-hzdb.png"
+    $headsetPng = Join-Path $screenshotsRoot "$caseId-headset.png"
     $receiverProcess = $null
 
     $adbPath = if (Test-Path -LiteralPath $Adb) {
@@ -913,39 +1038,49 @@ function Invoke-MakepadCase {
         $args += "-SkipInstall"
     }
     try {
-        Restart-BrokerForCase -CaseId $caseId
+        Invoke-TimedStep -CaseId $caseId -Step "broker-restart" -Action { Restart-BrokerForCase -CaseId $caseId }
         if (-not $SkipMediaProjection) {
-            $receiverProcess = Start-MediaProjectionReceiver -Dir $mediaRoot
+            $receiverProcess = Invoke-TimedStep -CaseId $caseId -Step "mediaprojection-receiver-start" -Action { Start-MediaProjectionReceiver -Dir $mediaRoot }
         }
-        & powershell @args | ForEach-Object { Write-Host $_ }
-        if ($LASTEXITCODE -ne 0) {
-            throw "$caseId Makepad run failed"
+        Invoke-TimedStep -CaseId $caseId -Step "makepad-gate-launch-adb-capture" -Action {
+            & powershell @args | ForEach-Object { Write-Host $_ }
+            if ($LASTEXITCODE -ne 0) {
+                throw "$caseId Makepad run failed"
+            }
         }
-        Assert-MakepadSourceEyeMapping -CaseId $caseId -CaseRoot $caseRoot
-        Wait-MakepadForegroundForHzdb -CaseId $caseId -CaseRoot $caseRoot
+        Invoke-TimedStep -CaseId $caseId -Step "makepad-source-eye-gate" -Action { Assert-MakepadSourceEyeMapping -CaseId $caseId -CaseRoot $caseRoot }
 
-        $hzdbArgs = @("-y", "@meta-quest/hzdb", "capture", "screenshot")
-        if ($Serial) {
-            $hzdbArgs += @("--device", $Serial)
+        if ($HeadsetCaptureProvider -eq "hzdb") {
+            Invoke-TimedStep -CaseId $caseId -Step "makepad-foreground-before-hzdb" -Action { Wait-MakepadForegroundForHzdb -CaseId $caseId -CaseRoot $caseRoot }
+            Invoke-TimedStep -CaseId $caseId -Step "hzdb-screencap" -Action {
+                $hzdbArgs = @("-y", "@meta-quest/hzdb", "capture", "screenshot")
+                if ($Serial) {
+                    $hzdbArgs += @("--device", $Serial)
+                }
+                $hzdbArgs += @("--method", "screencap", "--output", $headsetPng)
+                & $Npx @hzdbArgs | ForEach-Object { Write-Host $_ }
+                if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $headsetPng)) {
+                    throw "$caseId HzDB capture failed"
+                }
+            }
+        } else {
+            Invoke-TimedStep -CaseId $caseId -Step "headset-capture-copy" -Action { Copy-HeadsetCaptureFromMakepadRun -CaseRoot $caseRoot -OutputPng $headsetPng | Out-Null }
         }
-        $hzdbArgs += @("--method", "screencap", "--output", $hzdbPng)
-        & $Npx @hzdbArgs | ForEach-Object { Write-Host $_ }
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $hzdbPng)) {
-            throw "$caseId HzDB capture failed"
-        }
-        Assert-MakepadNoApplicationError -CaseId $caseId -CaseRoot $caseRoot
+        Invoke-TimedStep -CaseId $caseId -Step "makepad-application-error-check" -Action { Assert-MakepadNoApplicationError -CaseId $caseId -CaseRoot $caseRoot }
         if (-not $SkipMediaProjection) {
-            Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng
+            Invoke-TimedStep -CaseId $caseId -Step "mediaprojection-complete" -Action { Complete-MediaProjectionCapture -Process $receiverProcess -Dir $mediaRoot -OutputPng $mediaPng }
         }
-        Assert-BoundedFootprintEvidence -CaseId $caseId -ArtifactDir $caseRoot
+        Invoke-TimedStep -CaseId $caseId -Step "bounded-footprint-evidence" -Action { Assert-BoundedFootprintEvidence -CaseId $caseId -ArtifactDir $caseRoot }
     }
     finally {
         if (-not $SkipMediaProjection) {
-            Stop-MediaProjectionReceiver -Process $receiverProcess
-            Remove-MediaProjectionReverse
+            Invoke-TimedStep -CaseId $caseId -Step "mediaprojection-cleanup" -Action {
+                Stop-MediaProjectionReceiver -Process $receiverProcess
+                Remove-MediaProjectionReverse
+            }
         }
     }
-    Write-Host "[$caseId] captured HzDB"
+    Write-Host "[$caseId] captured headset provider=$HeadsetCaptureProvider"
     return [ordered]@{
         id = $caseId
         lane = "makepad"
@@ -954,7 +1089,9 @@ function Invoke-MakepadCase {
         runtimeProfile = $ProjectionGeometryProfile
         artifactDir = $caseRoot
         mediaProjection = if ($SkipMediaProjection) { $null } else { $mediaPng }
-        hzdb = $hzdbPng
+        hzdb = $headsetPng
+        headsetCapture = $headsetPng
+        headsetCaptureProvider = $HeadsetCaptureProvider
         brokerH264SourceMode = $SourceMode
         brokerH264SyntheticPattern = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticPattern } else { $null }
         brokerH264SyntheticProjectionProfile = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticProjectionProfile } else { $null }
@@ -1083,6 +1220,7 @@ if (Test-LaneEnabled -Lane "makepad") {
 
 $contactSheetPath = Join-Path $sessionRoot "canvas-custom-projection-parity-results.png"
 $screenSpaceAnalysisDir = Join-Path $sessionRoot "screen-space-analysis"
+$headsetCaptureLabel = if ($HeadsetCaptureProvider -eq "fast-adb") { "fast ADB screencap" } else { "HzDB screencap" }
 
 $summary = [ordered]@{
     schemaVersion = "rusty.xr.canvas-custom-projection-parity-suite.v1"
@@ -1093,6 +1231,9 @@ $summary = [ordered]@{
     screenshotsRoot = $screenshotsRoot
     contactSheet = $contactSheetPath
     screenSpaceAnalysis = $screenSpaceAnalysisDir
+    timingJsonl = $timingPath
+    timingSummary = $timingSummaryPath
+    headsetCaptureProvider = $HeadsetCaptureProvider
     geometry = [ordered]@{
         projectionDepthMeters = 1.434085
         cameraPreviewFovYDegrees = 69.763084
@@ -1113,6 +1254,8 @@ $summary = [ordered]@{
         makepadSampleSeconds = [Math]::Max($MakepadSampleSeconds, $WarmupSeconds)
         makepadPostRunSettleSeconds = $MakepadPostRunSettleSeconds
         expectedMakepadSourceEyeMapping = $ExpectedMakepadSourceEyeMapping
+        failOnAnalyzerIssue = [bool]$FailOnAnalyzerIssue
+        skipAnalyzer = [bool]$SkipAnalyzer
     }
     brokerH264 = [ordered]@{
         sourceMode = $SourceMode
@@ -1130,28 +1273,78 @@ $summary = [ordered]@{
         syntheticNote = if ($SourceMode -eq "broker-synthetic") { "Synthetic diagnostic stimulus uses the requested broker synthetic projection metadata profile and the same broker H.264 decode/render stack as broker-camera; with camera-matched metadata, source pixels are diagnostic blur data while camera-derived projection metadata stays comparable." } else { $null }
     }
     captureRouteNotes = @(
-        $(if ($SkipMediaProjection) { "MediaProjection capture is disabled for this run; HzDB is the only image evidence." } else { "MediaProjection captures are latest-frame app/display-capture evidence for the rendered camera window after the profile run." }),
-        "HzDB captures are the geometry authority for per-eye footprint diagnostics; the contact sheet overlays analyzer boxes on the HzDB column.",
-        $(if ($SkipMediaProjection) { "Projection parity should be judged from headset capture only." } else { "MediaProjection is display/app-window mirror evidence and may visually align with a different HzDB eye by renderer; do not use its apparent eye index as source-eye parity proof." }),
+        $(if ($SkipMediaProjection) { "MediaProjection capture is disabled for this run; $headsetCaptureLabel is the only image evidence." } else { "MediaProjection captures are latest-frame app/display-capture evidence for the rendered camera window after the profile run." }),
+        "Headset captures use provider '$HeadsetCaptureProvider' ($headsetCaptureLabel); this is the geometry authority for per-eye footprint diagnostics, and the contact sheet overlays analyzer boxes on that column.",
+        $(if ($SkipMediaProjection) { "Projection parity should be judged from headset capture only." } else { "MediaProjection is display/app-window mirror evidence and may visually align with a different headset eye by renderer; do not use its apparent eye index as source-eye parity proof." }),
         "Broker-source runs restart the broker service before each condition. Broker-camera requests physical Camera2 H.264 streams; broker-synthetic requests the diagnostic H.264 stimulus with camera-matched metadata for synthetic blur evidence."
     )
+    boundedFootprintEvidence = @($script:boundedFootprintEvidenceRecords)
     records = $records
 }
 $summaryPath = Join-Path $sessionRoot "canvas-custom-projection-parity-suite-summary.json"
 $summary | ConvertTo-Json -Depth 7 | Set-Content -Path $summaryPath -Encoding UTF8
 
-$analysisArgs = @($sessionRoot, "--out-dir", $screenSpaceAnalysisDir)
-if ($ProjectionBorderPolicy -ne "solid-red") {
-    $analysisArgs += "--allow-visible-fallback"
+$analysisStatus = [ordered]@{
+    skipped = [bool]$SkipAnalyzer
+    status = if ($SkipAnalyzer) { "skipped" } else { "pending" }
+    outDir = $screenSpaceAnalysisDir
+    error = ""
 }
-& python $screenSpaceAnalyzer @analysisArgs | ForEach-Object { Write-Host $_ }
-if ($LASTEXITCODE -ne 0) {
-    throw "Canvas/custom screen-space analysis failed"
+$contactSheetStatus = [ordered]@{
+    skipped = $false
+    status = "pending"
+    path = $contactSheetPath
+    error = ""
 }
 
-& python $contactSheetBuilder --session-root $sessionRoot --analysis-dir $screenSpaceAnalysisDir --output $contactSheetPath | ForEach-Object { Write-Host $_ }
-if ($LASTEXITCODE -ne 0) {
-    throw "Canvas/custom parity contact sheet generation failed"
+if (-not $SkipAnalyzer) {
+    try {
+        $analysisArgs = @($sessionRoot, "--out-dir", $screenSpaceAnalysisDir)
+        if ($ProjectionBorderPolicy -ne "solid-red") {
+            $analysisArgs += "--allow-visible-fallback"
+        }
+        Invoke-TimedStep -CaseId "suite" -Step "screen-space-analysis" -Action {
+            & python $screenSpaceAnalyzer @analysisArgs | ForEach-Object { Write-Host $_ }
+            if ($LASTEXITCODE -ne 0) {
+                throw "Canvas/custom screen-space analysis failed with exit code $LASTEXITCODE"
+            }
+        }
+        $analysisStatus["status"] = "ok"
+    } catch {
+        $analysisStatus["status"] = "failed"
+        $analysisStatus["error"] = $_.Exception.Message
+        Write-Warning $analysisStatus["error"]
+        if ($FailOnAnalyzerIssue) {
+            throw
+        }
+    }
 }
 
+try {
+    Invoke-TimedStep -CaseId "suite" -Step "contact-sheet" -Action {
+        & python $contactSheetBuilder --session-root $sessionRoot --analysis-dir $screenSpaceAnalysisDir --output $contactSheetPath | ForEach-Object { Write-Host $_ }
+        if ($LASTEXITCODE -ne 0) {
+            throw "Canvas/custom parity contact sheet generation failed with exit code $LASTEXITCODE"
+        }
+    }
+    $contactSheetStatus["status"] = "ok"
+} catch {
+    $contactSheetStatus["status"] = "failed"
+    $contactSheetStatus["error"] = $_.Exception.Message
+    Write-Warning $contactSheetStatus["error"]
+    if ($FailOnAnalyzerIssue) {
+        throw
+    }
+}
+
+$timingSummary = New-TimingSummary
+$timingSummary | ConvertTo-Json -Depth 8 | Set-Content -Path $timingSummaryPath -Encoding UTF8
+$summary["analysis"] = $analysisStatus
+$summary["contactSheetStatus"] = $contactSheetStatus
+$summary["timing"] = [ordered]@{
+    totalElapsedMs = $timingSummary.totalElapsedMs
+    jsonl = $timingPath
+    summary = $timingSummaryPath
+}
+$summary | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryPath -Encoding UTF8
 $summary | ConvertTo-Json -Depth 7

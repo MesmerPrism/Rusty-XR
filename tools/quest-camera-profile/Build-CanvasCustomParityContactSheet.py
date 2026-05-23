@@ -12,12 +12,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 FALLBACK_ROWS = [
-    ("hwb-canvas", "HWB / canvas", "hwb-canvas-mediaprojection.png", "hwb-canvas-hzdb.png"),
-    ("hwb-custom", "HWB / custom", "hwb-custom-mediaprojection.png", "hwb-custom-hzdb.png"),
-    ("oes-canvas", "OES / canvas", "oes-canvas-mediaprojection.png", "oes-canvas-hzdb.png"),
-    ("oes-custom", "OES / custom", "oes-custom-mediaprojection.png", "oes-custom-hzdb.png"),
-    ("makepad-canvas", "Makepad / canvas", "makepad-canvas-mediaprojection.png", "makepad-canvas-hzdb.png"),
-    ("makepad-custom", "Makepad / custom", "makepad-custom-mediaprojection.png", "makepad-custom-hzdb.png"),
+    ("hwb-canvas", "HWB / canvas", "hwb-canvas-mediaprojection.png", "hwb-canvas-headset.png"),
+    ("hwb-custom", "HWB / custom", "hwb-custom-mediaprojection.png", "hwb-custom-headset.png"),
+    ("oes-canvas", "OES / canvas", "oes-canvas-mediaprojection.png", "oes-canvas-headset.png"),
+    ("oes-custom", "OES / custom", "oes-custom-mediaprojection.png", "oes-custom-headset.png"),
+    ("makepad-canvas", "Makepad / canvas", "makepad-canvas-mediaprojection.png", "makepad-canvas-headset.png"),
+    ("makepad-custom", "Makepad / custom", "makepad-custom-mediaprojection.png", "makepad-custom-headset.png"),
 ]
 
 OVERLAY_LEGEND = [
@@ -85,7 +85,9 @@ def load_rows(session_root: Path) -> list[dict[str, Any]]:
                         "id": row_id,
                         "label": label,
                         "media_projection": Path(record["mediaProjection"]) if record.get("mediaProjection") else None,
-                        "hzdb": Path(record["hzdb"]) if record.get("hzdb") else None,
+                        "hzdb": Path(record.get("headsetCapture") or record.get("hzdb"))
+                        if record.get("headsetCapture") or record.get("hzdb")
+                        else None,
                     }
                 )
             if rows:
@@ -256,14 +258,14 @@ def main() -> int:
     header_y = max(title_height - 36, legend_bottom + 4)
     draw.text(
         (margin + left_width + column_gap, header_y),
-        "MediaProjection" if has_media_projection else "HzDB diagnostic overlay",
+        "MediaProjection" if has_media_projection else "Headset diagnostic overlay",
         fill=accent,
         font=header_font,
     )
     if has_media_projection:
         draw.text(
             (margin + left_width + column_gap + column_width + column_gap, header_y),
-            "HzDB diagnostic overlay",
+            "Headset diagnostic overlay",
             fill=accent,
             font=header_font,
         )
