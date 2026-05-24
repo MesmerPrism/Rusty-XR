@@ -996,6 +996,54 @@ pub(crate) fn makepad_visible_panel_bound_marker_fields(
     )
 }
 
+pub(crate) fn makepad_projection_complete_marker_fields(
+    pair: &MakepadCameraPair,
+    paired_streams_ready: bool,
+    broker_h264_surface_texture: bool,
+    aligned_projection: bool,
+    visible_projection_ready: bool,
+    projection_mode: &str,
+    left_rotation_steps: f32,
+    right_rotation_steps: f32,
+    projection_scale: f64,
+    xr_render_scale: f64,
+) -> String {
+    let homography_marker_fields = projection_homography_marker_fields(pair);
+    let fallback_reason = marker_token(&pair.fallback_reason);
+    let cpu_upload_path = if broker_h264_surface_texture {
+        "broker-h264-mediacodec-cpu-yuv"
+    } else {
+        "makepad-camera-cpu-yuv-plane"
+    };
+    complete_marker_fields(CompleteMarkerFields {
+        paired_streams_ready,
+        broker_h264_surface_texture,
+        projection_mapping_ready: pair.projection_homography_ready,
+        aligned_projection,
+        visible_projection_ready,
+        projection_metadata_ready: pair.projection_metadata_ready,
+        pose_source: &pair.pose_source,
+        source_eye_mapping: &pair.source_eye_mapping,
+        coordinate_chain: &pair.coordinate_chain,
+        projection_mode,
+        left_source_index: pair.left.source_index,
+        right_source_index: pair.right.source_index,
+        left_source_class: pair.left.source_class,
+        right_source_class: pair.right.source_class,
+        left_width: pair.left.width,
+        left_height: pair.left.height,
+        right_width: pair.right.width,
+        right_height: pair.right.height,
+        left_rotation_steps,
+        right_rotation_steps,
+        projection_scale,
+        xr_render_scale,
+        homography_marker_fields: &homography_marker_fields,
+        cpu_upload_path,
+        fallback_reason: &fallback_reason,
+    })
+}
+
 fn draw_vars_bound_marker_fields(
     yuv_mode: bool,
     broker_h264_surface_texture: bool,
@@ -1012,6 +1060,65 @@ fn draw_vars_bound_marker_fields(
         single_stream_visual_proof,
         updated_stream_visual_proof_side,
         homography_marker_fields,
+    )
+}
+
+struct CompleteMarkerFields<'a> {
+    paired_streams_ready: bool,
+    broker_h264_surface_texture: bool,
+    projection_mapping_ready: bool,
+    aligned_projection: bool,
+    visible_projection_ready: bool,
+    projection_metadata_ready: bool,
+    pose_source: &'a str,
+    source_eye_mapping: &'a str,
+    coordinate_chain: &'a str,
+    projection_mode: &'a str,
+    left_source_index: usize,
+    right_source_index: usize,
+    left_source_class: &'a str,
+    right_source_class: &'a str,
+    left_width: usize,
+    left_height: usize,
+    right_width: usize,
+    right_height: usize,
+    left_rotation_steps: f32,
+    right_rotation_steps: f32,
+    projection_scale: f64,
+    xr_render_scale: f64,
+    homography_marker_fields: &'a str,
+    cpu_upload_path: &'a str,
+    fallback_reason: &'a str,
+}
+
+fn complete_marker_fields(fields: CompleteMarkerFields<'_>) -> String {
+    format!(
+        "phase=complete status=ok pairedLeftRightCameraFrames={} brokerH264SurfaceTexture={} makepadVulkanImport=false projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionMode={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftRotationSteps={:.0} rightRotationSteps={:.0} projectionScale={:.2} xrRenderScale={:.2} renderPath=makepad-xr projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDefaults=deprecated panelTargetFields=runtime cpuUploadPath={} diagnosticVisualLayer=none neutralWaitingPanel=true visualIsolation=s118_projected_footprint_solid_red_exterior depthClip=false environmentDepthClip=false drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false fallbackReason={}",
+        fields.paired_streams_ready,
+        fields.broker_h264_surface_texture,
+        fields.projection_mapping_ready,
+        fields.aligned_projection,
+        fields.visible_projection_ready,
+        fields.projection_metadata_ready,
+        fields.pose_source,
+        fields.source_eye_mapping,
+        fields.coordinate_chain,
+        fields.projection_mode,
+        fields.left_source_index,
+        fields.right_source_index,
+        fields.left_source_class,
+        fields.right_source_class,
+        fields.left_width,
+        fields.left_height,
+        fields.right_width,
+        fields.right_height,
+        fields.left_rotation_steps,
+        fields.right_rotation_steps,
+        fields.projection_scale,
+        fields.xr_render_scale,
+        fields.homography_marker_fields,
+        fields.cpu_upload_path,
+        fields.fallback_reason,
     )
 }
 
@@ -1391,7 +1498,10 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{draw_vars_bound_marker_fields, visible_panel_bound_marker_fields};
+    use super::{
+        complete_marker_fields, draw_vars_bound_marker_fields, visible_panel_bound_marker_fields,
+        CompleteMarkerFields,
+    };
 
     #[test]
     fn draw_vars_bound_marker_keeps_projection_contract_shape() {
@@ -1439,5 +1549,51 @@ mod tests {
         assert!(fields
             .contains("singleStreamVisualProof=false updatedStreamVisualProofSide=paired"));
         assert!(fields.ends_with("visualInspection=required visualReleaseAccepted=false"));
+    }
+
+    #[test]
+    fn complete_marker_keeps_projection_contract_shape() {
+        let fields = complete_marker_fields(CompleteMarkerFields {
+            paired_streams_ready: true,
+            broker_h264_surface_texture: false,
+            projection_mapping_ready: true,
+            aligned_projection: true,
+            visible_projection_ready: true,
+            projection_metadata_ready: true,
+            pose_source: "camera2-openxr-view",
+            source_eye_mapping: "left-right",
+            coordinate_chain: "camera2-to-shader-surface",
+            projection_mode: "camera",
+            left_source_index: 0,
+            right_source_index: 1,
+            left_source_class: "back",
+            right_source_class: "back",
+            left_width: 1280,
+            left_height: 1280,
+            right_width: 1280,
+            right_height: 1280,
+            left_rotation_steps: 90.0,
+            right_rotation_steps: 270.0,
+            projection_scale: 1.25,
+            xr_render_scale: 1.5,
+            homography_marker_fields: "projectionHomographyReady=true runtimeXrViewStateReady=true",
+            cpu_upload_path: "makepad-camera-cpu-yuv-plane",
+            fallback_reason: "none",
+        });
+
+        assert!(fields.starts_with(
+            "phase=complete status=ok pairedLeftRightCameraFrames=true"
+        ));
+        assert!(fields.contains(
+            "projectionMappingReady=true alignedProjection=true visibleCameraProjectionReady=true"
+        ));
+        assert!(fields.contains(
+            "projectionMode=camera leftEyeSource=makepad-camera-source-0 rightEyeSource=makepad-camera-source-1"
+        ));
+        assert!(fields.contains("leftRotationSteps=90 rightRotationSteps=270"));
+        assert!(fields.contains("projectionScale=1.25 xrRenderScale=1.50"));
+        assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
+        assert!(fields.contains("cpuUploadPath=makepad-camera-cpu-yuv-plane"));
+        assert!(fields.ends_with("fallbackReason=none"));
     }
 }

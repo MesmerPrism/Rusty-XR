@@ -10,8 +10,8 @@ mod projection_geometry;
 mod source_metadata;
 use projection_geometry::{
     makepad_draw_vars_bound_marker_fields, makepad_projection_target_marker_fields,
-    makepad_visible_panel_bound_marker_fields, projection_homography_marker_fields,
-    MakepadOpenXrProjectionContract,
+    makepad_projection_complete_marker_fields, makepad_visible_panel_bound_marker_fields,
+    projection_homography_marker_fields, MakepadOpenXrProjectionContract,
 };
 #[cfg(target_os = "android")]
 use projection_geometry::broker_projection_plan_marker_fields;
@@ -4583,37 +4583,17 @@ impl App {
         self.paired_import_finished = true;
         let aligned_projection = pair.projection_homography_ready && paired_streams_ready;
         let visible_projection_ready = self.bind_camera_projection_panel(cx);
-        Self::emit_stereo_projection_marker(&format!(
-            "phase=complete status=ok pairedLeftRightCameraFrames={} brokerH264SurfaceTexture={} makepadVulkanImport=false projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} projectionMode={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftRotationSteps={:.0} rightRotationSteps={:.0} projectionScale={:.2} xrRenderScale={:.2} renderPath=makepad-xr projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDefaults=deprecated panelTargetFields=runtime cpuUploadPath={} diagnosticVisualLayer=none neutralWaitingPanel=true visualIsolation=s118_projected_footprint_solid_red_exterior depthClip=false environmentDepthClip=false drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false fallbackReason={}",
+        Self::emit_stereo_projection_marker(&makepad_projection_complete_marker_fields(
+            &pair,
             paired_streams_ready,
             broker_h264_enabled,
-            pair.projection_homography_ready,
             aligned_projection,
             visible_projection_ready,
-            pair.projection_metadata_ready,
-            pair.pose_source,
-            pair.source_eye_mapping,
-            pair.coordinate_chain,
-            runtime_text(&Self::runtime_config(), KEY_CAMERA_PROJECTION_MODE),
-            pair.left.source_index,
-            pair.right.source_index,
-            pair.left.source_class,
-            pair.right.source_class,
-            pair.left.width,
-            pair.left.height,
-            pair.right.width,
-            pair.right.height,
+            &runtime_text(&Self::runtime_config(), KEY_CAMERA_PROJECTION_MODE),
             self.paired_import_left_rotation_steps,
             self.paired_import_right_rotation_steps,
             runtime_float(&Self::runtime_config(), KEY_PROJECTION_SCALE),
             runtime_float(&Self::runtime_config(), KEY_XR_RENDER_SCALE),
-            projection_homography_marker_fields(&pair),
-            if broker_h264_enabled {
-                "broker-h264-mediacodec-cpu-yuv"
-            } else {
-                "makepad-camera-cpu-yuv-plane"
-            },
-            marker_token(&pair.fallback_reason),
         ));
         Self::emit_stereo_comparison_parity_marker(
             "paired-projection-ready",
