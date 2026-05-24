@@ -8,7 +8,7 @@ use rusty_xr_camera_model::{
 };
 use rusty_xr_contracts::{
     Eye, InvalidProjectionFillPolicy, ProjectionFootprintRowSpan, ProjectionFootprintSummary,
-    ProjectionGuideDomain,
+    ProjectionGuideDomain, ProjectionStageKind,
 };
 
 use super::{
@@ -16,7 +16,7 @@ use super::{
         projection_source_label, projection_surface_aspect_from_metadata, OesProjectionMetadata,
     },
     OesCameraProjectionMode, OesContentMappingMode, OesProjectionAlphaMode,
-    OesProjectionBorderPolicy,
+    OesProjectionBorderPolicy, OES_COPY_RENDER_PATH, OES_PROJECTED_RENDER_PATH,
 };
 
 const PROJECTION_FOOTPRINT_GRID: usize = 64;
@@ -218,6 +218,91 @@ pub(super) fn projected_footprint_summary(
         };
     }
     footprint
+}
+
+pub(super) fn projection_stage_rows(
+    projection: Option<&OesEyeProjection>,
+) -> [(ProjectionStageKind, [[f32; 3]; 3]); 4] {
+    projection
+        .map(|projection| {
+            [
+                (
+                    ProjectionStageKind::SurfaceToScreen,
+                    projection.surface_to_screen_h,
+                ),
+                (
+                    ProjectionStageKind::ScreenToSurface,
+                    projection.screen_to_surface_h,
+                ),
+                (
+                    ProjectionStageKind::SurfaceToCamera,
+                    projection.surface_to_camera_h,
+                ),
+                (
+                    ProjectionStageKind::ScreenToCamera,
+                    projection.screen_to_camera_h,
+                ),
+            ]
+        })
+        .unwrap_or([
+            (ProjectionStageKind::SurfaceToScreen, identity_homography()),
+            (ProjectionStageKind::ScreenToSurface, identity_homography()),
+            (ProjectionStageKind::SurfaceToCamera, identity_homography()),
+            (ProjectionStageKind::ScreenToCamera, identity_homography()),
+        ])
+}
+
+pub(super) fn projection_source_contract_fields(
+    projection: Option<&OesEyeProjection>,
+    frame_count: u64,
+    source_sequence: u64,
+) -> String {
+    projection
+        .map(|projection| {
+            format!(
+                "{} {} source_eye={}:content_mapping={}:frame={frame_count}:source_sequence={source_sequence}",
+                projection.source_label,
+                expected_source_valid_footprint_fields(projection),
+                projection.source_eye,
+                projection.content_mapping_mode.stable_id()
+            )
+        })
+        .unwrap_or_else(|| {
+            format!("{OES_COPY_RENDER_PATH}:frame={frame_count}:source_sequence={source_sequence}")
+        })
+}
+
+pub(super) fn projection_stage_source_label(
+    projection: Option<&OesEyeProjection>,
+    frame_count: u64,
+    source_sequence: u64,
+) -> String {
+    projection
+        .map(|projection| {
+            format!(
+                "{OES_PROJECTED_RENDER_PATH}:source_eye={}:frame={frame_count}:source_sequence={source_sequence}",
+                projection.source_eye
+            )
+        })
+        .unwrap_or_else(|| {
+            format!("{OES_COPY_RENDER_PATH}:frame={frame_count}:source_sequence={source_sequence}")
+        })
+}
+
+pub(super) fn source_sampling_projection_contract_log_message(
+    source_contract_fields: &str,
+) -> String {
+    format!(
+        "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-sampling status=ready {} projectionHomographyReady=true projectionMappingReady=true visibleCameraProjectionReady=true",
+        source_contract_fields.replace(':', " ")
+    )
+}
+
+pub(super) fn projection_coordinate_contract_log_message(phase: &str, fields: &str) -> String {
+    format!(
+        "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase={} status=ready {}",
+        phase, fields
+    )
 }
 
 pub(super) fn raw_copy_footprint_summary(frame_count: u64) -> ProjectionFootprintSummary {

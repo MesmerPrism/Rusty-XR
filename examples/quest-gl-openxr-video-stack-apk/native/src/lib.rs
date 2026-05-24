@@ -64,9 +64,7 @@ mod android {
     use rusty_xr_camera_model::{
         ColorRgba, ProjectionBorderDescriptor, ProjectionBorderFillPolicy,
     };
-    use rusty_xr_contracts::{
-        Eye, InvalidProjectionFillPolicy, ProjectionStageKind, ProjectionStageTokenRow,
-    };
+    use rusty_xr_contracts::{Eye, InvalidProjectionFillPolicy, ProjectionStageTokenRow};
     use rusty_xr_quest_diagnostics::{
         EglGlesContextStatus, FrameRateSummary, GlFramebufferCompleteness,
         OpenXrGlesExtensionStatus, OpenXrGlesFeasibilityState, OpenXrGlesGraphicsRequirements,
@@ -89,10 +87,11 @@ mod android {
     mod projection_runtime;
     mod source_metadata;
     use projection_geometry::{
-        expected_source_valid_footprint_fields, identity_homography,
-        openxr_projection_contract_fields, projected_footprint_summary,
-        projection_area_target_marker_fields, projection_plan_from_metadata,
-        raw_copy_footprint_summary, OesEyeProjection, OesProjectionPlan,
+        identity_homography, openxr_projection_contract_fields, projected_footprint_summary,
+        projection_area_target_marker_fields, projection_coordinate_contract_log_message,
+        projection_plan_from_metadata, projection_source_contract_fields, projection_stage_rows,
+        projection_stage_source_label, raw_copy_footprint_summary,
+        source_sampling_projection_contract_log_message, OesEyeProjection, OesProjectionPlan,
     };
     use projection_runtime::{
         log_oes_projection_runtime_manifest, oes_projection_runtime_resolution_enabled,
@@ -4545,74 +4544,25 @@ void main() {
         let Some(eye) = eye_from_view_index(view_index) else {
             return;
         };
-        let identity = identity_homography();
-        let stage_rows = projection
-            .map(|projection| {
-                [
-                    (
-                        ProjectionStageKind::SurfaceToScreen,
-                        projection.surface_to_screen_h,
-                    ),
-                    (
-                        ProjectionStageKind::ScreenToSurface,
-                        projection.screen_to_surface_h,
-                    ),
-                    (
-                        ProjectionStageKind::SurfaceToCamera,
-                        projection.surface_to_camera_h,
-                    ),
-                    (
-                        ProjectionStageKind::ScreenToCamera,
-                        projection.screen_to_camera_h,
-                    ),
-                ]
-            })
-            .unwrap_or([
-                (ProjectionStageKind::SurfaceToScreen, identity),
-                (ProjectionStageKind::ScreenToSurface, identity),
-                (ProjectionStageKind::SurfaceToCamera, identity),
-                (ProjectionStageKind::ScreenToCamera, identity),
-            ]);
-        let source_contract_fields = projection
-            .map(|projection| {
-                format!(
-                    "{} {} source_eye={}:content_mapping={}:frame={frame_count}:source_sequence={source_sequence}",
-                    projection.source_label,
-                    expected_source_valid_footprint_fields(projection),
-                    projection.source_eye,
-                    projection.content_mapping_mode.stable_id()
-                )
-            })
-            .unwrap_or_else(|| {
-                format!(
-                    "{OES_COPY_RENDER_PATH}:frame={frame_count}:source_sequence={source_sequence}"
-                )
-            });
-        let compact_source_label = projection
-            .map(|projection| {
-                format!(
-                    "{OES_PROJECTED_RENDER_PATH}:source_eye={}:frame={frame_count}:source_sequence={source_sequence}",
-                    projection.source_eye
-                )
-            })
-            .unwrap_or_else(|| {
-                format!("{OES_COPY_RENDER_PATH}:frame={frame_count}:source_sequence={source_sequence}")
-            });
-        log_info(format!(
-            "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-sampling status=ready {} projectionHomographyReady=true projectionMappingReady=true visibleCameraProjectionReady=true",
-            source_contract_fields.replace(':', " ")
+        let stage_rows = projection_stage_rows(projection);
+        let source_contract_fields =
+            projection_source_contract_fields(projection, frame_count, source_sequence);
+        let compact_source_label =
+            projection_stage_source_label(projection, frame_count, source_sequence);
+        log_info(source_sampling_projection_contract_log_message(
+            &source_contract_fields,
         ));
-        log_info(format!(
-            "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-color status=ready {}",
-            source_color_contract_fields(camera_color_controls, swapchain_color_format)
+        log_info(projection_coordinate_contract_log_message(
+            "source-color",
+            &source_color_contract_fields(camera_color_controls, swapchain_color_format),
         ));
-        log_info(format!(
-            "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=projection-plan status=ready {}",
-            openxr_projection_fields
+        log_info(projection_coordinate_contract_log_message(
+            "projection-plan",
+            openxr_projection_fields,
         ));
-        log_info(format!(
-            "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=draw-vars-bound status=ready {}",
-            projection_area_target_fields
+        log_info(projection_coordinate_contract_log_message(
+            "draw-vars-bound",
+            projection_area_target_fields,
         ));
         for (stage, rows) in stage_rows {
             let row = ProjectionStageTokenRow::new("rusty_xr_gl_oes", eye, stage)
