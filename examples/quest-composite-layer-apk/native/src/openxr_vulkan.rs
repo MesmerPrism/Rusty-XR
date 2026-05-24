@@ -9,9 +9,10 @@ use crate::{
     apply_camera_alignment_tuning, diagnostic_hud_snapshot, gpu_probe_counters,
     latest_headset_camera_frame, latest_headset_camera_gpu_frame,
     latest_headset_stereo_camera_gpu_frame, log_error, log_info, runtime_config,
-    CameraAlignmentTuningUpdate, EnvironmentDepthMode, HandParticleMode, HeadsetCameraFrame,
-    HeadsetCameraFrameDiagnostics, HeadsetCameraGpuFrame, OpenXrColorFormatMode,
-    OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
+    source_sampling::HwbSourceSamplingHandoff, CameraAlignmentTuningUpdate, EnvironmentDepthMode,
+    HandParticleMode, HeadsetCameraFrame, HeadsetCameraFrameDiagnostics, HeadsetCameraGpuFrame,
+    OpenXrColorFormatMode, OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode, RuntimeConfig,
+    StereoGpuCameraFrame,
 };
 use android_activity::{InputStatus, MainEvent, PollEvent};
 use ash::vk::{self, Handle};
@@ -3556,11 +3557,8 @@ unsafe fn run_vulkan(
                             log_info(format!(
                                 "Rusty XR HWB source sampling detail frame={} {}",
                                 stereo_frame.index,
-                                projection_hwb_source_sampling_detail_marker_fields(
-                                    &stereo_frame,
-                                    &controls,
-                                    &config,
-                                )
+                                HwbSourceSamplingHandoff::new(&stereo_frame, &controls, &config)
+                                    .marker_fields()
                             ));
                             let display_eye_uv_fiducial_fields =
                                 display_eye_uv_fiducial_marker_fields(&config);
@@ -6975,92 +6973,6 @@ fn uv_rect_token(rect: [f32; 4]) -> String {
 fn pixel_rect_token(rect: Option<[u32; 4]>) -> String {
     rect.map(|[left, top, right, bottom]| format!("{left},{top},{right},{bottom}"))
         .unwrap_or_else(|| "not-logged".to_string())
-}
-
-fn optional_u64_token(value: Option<u64>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "not-logged".to_string())
-}
-
-fn optional_u32_token(value: Option<u32>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "not-logged".to_string())
-}
-
-fn projection_hardware_buffer_marker_fields(frame: &StereoGpuCameraFrame) -> String {
-    format!(
-        "leftHardwareBufferWidth={} leftHardwareBufferHeight={} leftHardwareBufferNativeFormat={} leftHardwareBufferUsage={} leftHardwareBufferLayers={} leftHardwareBufferStridePx={} leftHardwareBufferId={} rightHardwareBufferWidth={} rightHardwareBufferHeight={} rightHardwareBufferNativeFormat={} rightHardwareBufferUsage={} rightHardwareBufferLayers={} rightHardwareBufferStridePx={} rightHardwareBufferId={}",
-        frame.left.width,
-        frame.left.height,
-        optional_u64_token(frame.left.descriptor.native_format),
-        optional_u64_token(frame.left.descriptor.usage_flags),
-        optional_u32_token(frame.left.descriptor.layer_count),
-        optional_u32_token(frame.left.descriptor.stride_px),
-        optional_u64_token(frame.left.descriptor.buffer_id),
-        frame.right.width,
-        frame.right.height,
-        optional_u64_token(frame.right.descriptor.native_format),
-        optional_u64_token(frame.right.descriptor.usage_flags),
-        optional_u32_token(frame.right.descriptor.layer_count),
-        optional_u32_token(frame.right.descriptor.stride_px),
-        optional_u64_token(frame.right.descriptor.buffer_id),
-    )
-}
-
-fn projection_hwb_source_sampling_detail_marker_fields(
-    frame: &StereoGpuCameraFrame,
-    controls: &crate::StereoProjectionControls,
-    config: &crate::RuntimeConfig,
-) -> String {
-    let left_source_uv_rect = source_uv_rect_ltrb_for_diagnostics(&frame.left.diagnostics);
-    let right_source_uv_rect = source_uv_rect_ltrb_for_diagnostics(&frame.right.diagnostics);
-    let content_uv_rect = if left_source_uv_rect == right_source_uv_rect {
-        left_source_uv_rect
-    } else {
-        full_source_uv_rect_ltrb()
-    };
-    let source_crop_rect_state = marker_token(
-        frame
-            .left
-            .diagnostics
-            .source_crop_rect_state
-            .as_deref()
-            .or(frame.right.diagnostics.source_crop_rect_state.as_deref()),
-        "not-logged",
-    );
-    let source_crop_rect_owner = marker_token(
-        frame
-            .left
-            .diagnostics
-            .source_crop_rect_owner
-            .as_deref()
-            .or(frame.right.diagnostics.source_crop_rect_owner.as_deref()),
-        "not-logged",
-    );
-    format!(
-        "schema=rusty.xr.hwb-source-sampling.v1 phase=source-sampling status=ok sourceEyeMapping={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined contentUvRect={} sourceVisibleUvRect={} sourceCropRectState={} sourceCropRectOwner={} leftSourceVisibleUvRect={} rightSourceVisibleUvRect={} leftSourceCropRectPx={} rightSourceCropRectPx={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} {}",
-        controls.source_eye_mapping.stable_id(),
-        source_uv_rect_transform_applied(frame)
-            || controls.left_texture_transform.shader_flags() != 0
-            || controls.right_texture_transform.shader_flags() != 0,
-        uv_rect_token(content_uv_rect),
-        uv_rect_token(content_uv_rect),
-        source_crop_rect_state,
-        source_crop_rect_owner,
-        uv_rect_token(left_source_uv_rect),
-        uv_rect_token(right_source_uv_rect),
-        pixel_rect_token(frame.left.diagnostics.source_crop_rect_px),
-        pixel_rect_token(frame.right.diagnostics.source_crop_rect_px),
-        controls.left_label(),
-        controls.right_label(),
-        controls.left_texture_transform.shader_flags(),
-        controls.right_texture_transform.shader_flags(),
-        config.camera_texture_transform.source_label.as_str(),
-        config.camera_texture_transform.reason.as_str(),
-        projection_hardware_buffer_marker_fields(frame),
-    )
 }
 
 fn projection_source_metadata_marker_fields(

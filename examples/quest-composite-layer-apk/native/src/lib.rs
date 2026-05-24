@@ -43,6 +43,8 @@ pub(crate) use camera_color_pipeline::{
     CameraProjectionEffectMode, OpenXrColorFormatMode,
 };
 
+mod source_sampling;
+
 #[cfg(target_os = "android")]
 mod acamera_sys;
 

@@ -4,6 +4,7 @@ pub use makepad_xr::makepad_widgets;
 mod acamera_sys;
 #[cfg(target_os = "android")]
 mod android_camera_probe;
+mod source_sampling;
 
 use makepad_widgets::makepad_platform::{
     event::video_playback::{
@@ -26,6 +27,7 @@ use rusty_xr_runtime_config as rxrc;
 use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 use serde_json::Value as JsonValue;
+use source_sampling::MakepadSourceSamplingHandoff;
 use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     thread,
@@ -4544,32 +4546,18 @@ impl App {
                 &pair.projection_geometry_profile,
             )
         };
-        Self::emit_stereo_projection_marker(&format!(
-            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} sourceEyeMapping={} sourceUvContract=screen_to_camera_content_uv_to_makepad_video_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_yuv_sample sourceSampleTransform={} sourceSampleTransformOwner=makepad-shader-source_sample_uv sourceSampleTransformApplied={} sourceSampleOutputUv=makepad-video-sampler-uv sourceSamplerUvOrigin=makepad-video-sampler sourceSamplerYAxis=makepad-sampler-origin-convention sourceTextureTransformStage=post_homography_pre_yuv_sample sourceTextureTransformOwner=makepad-shader-source_sample_uv diagnosticUvTransform={} sourceRasterYMappingStage={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv {}",
+        let source_sampling_fields = MakepadSourceSamplingHandoff::new(
             broker_h264_enabled,
             explicit_top_left_broker_stimulus,
-            marker_token(&orientation_decision.orientation_kind),
-            marker_token(&orientation_decision.raster_orientation),
-            marker_token(&orientation_decision.upright_marker),
-            marker_token(&orientation_decision.metadata_source),
-            orientation_decision.orientation_default,
-            marker_token(&orientation_decision.fallback_reason),
-            source_sample_y_flip,
-            marker_token(&orientation_decision.source_sample_y_flip_reason),
-            if projection_content_mapping_mode >= 0.5 {
-                "full-frame-stimulus-to-projection-area"
-            } else if full_frame_diagnostic {
-                "full-frame-stimulus-to-surface-homography"
-            } else {
-                "camera-projection-homography"
-            },
-            marker_token(&pair.source_eye_mapping),
+            &orientation_decision,
+            projection_content_mapping_mode,
+            full_frame_diagnostic,
+            &pair.source_eye_mapping,
             source_sample_transform,
-            source_sample_y_flip >= 0.5,
-            source_sample_transform,
-            source_sample_transform,
-            content_geometry_fields,
-        ));
+            &content_geometry_fields,
+        )
+        .marker_fields();
+        Self::emit_stereo_projection_marker(&source_sampling_fields);
         Self::emit_stereo_projection_marker(&format!(
             "phase=draw-vars-bound status=ok cameraReady=true yuvMode={} neutralWaitingPanel=true textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping drawVarsTextureRedraw=true shaderAreaStateUpdate=true leftYuvTextureBound={} rightYuvTextureBound={} brokerH264SurfaceTexture={} singleStreamVisualProof={} updatedStreamVisualProofSide={} visibleCameraProjectionReady=true sceneOwnedPanel=true projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDefaults=deprecated panelTargetFields=runtime diagnosticVisualLayer=none depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
             !broker_h264_enabled || broker_h264_cpu_yuv_decode,
