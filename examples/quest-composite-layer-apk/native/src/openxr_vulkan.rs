@@ -3538,6 +3538,7 @@ unsafe fn run_vulkan(
                                     stereo_frame.left.height,
                                     stereo_frame.right.width,
                                     stereo_frame.right.height,
+                                    config.camera_projection_mode,
                                 );
                             let openxr_contract_fields = projection_openxr_contract_fields(
                                 reference_space_label,

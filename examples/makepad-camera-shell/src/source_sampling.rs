@@ -20,6 +20,7 @@ pub(crate) struct MakepadSourceSamplingHandoff<'a> {
     source_eye_mapping: &'a str,
     source_sample_transform: &'a str,
     content_geometry_fields: &'a str,
+    source_color_contract_fields: &'a str,
 }
 
 impl<'a> MakepadSourceSamplingHandoff<'a> {
@@ -33,6 +34,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
         source_eye_mapping: &'a str,
         source_sample_transform: &'a str,
         content_geometry_fields: &'a str,
+        source_color_contract_fields: &'a str,
     ) -> Self {
         Self {
             broker_h264_enabled,
@@ -43,6 +45,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
             source_eye_mapping,
             source_sample_transform,
             content_geometry_fields,
+            source_color_contract_fields,
         }
     }
 
@@ -74,7 +77,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
     pub(crate) fn marker_fields(&self) -> String {
         let contract = self.contract();
         format!(
-            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} diagnosticUvTransform={} sourceRasterYMappingStage={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv {}",
+            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} diagnosticUvTransform={} sourceRasterYMappingStage={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv {} {}",
             self.broker_h264_enabled,
             self.explicit_top_left_broker_stimulus,
             marker_token(&self.orientation_decision.orientation_kind),
@@ -100,6 +103,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
             contract.transform_label,
             contract.transform_label,
             self.content_geometry_fields,
+            self.source_color_contract_fields,
         )
     }
 
@@ -170,6 +174,7 @@ mod tests {
             "display-left-from-left-source",
             "identity-top-left-stimulus-raster",
             "projectionMetadataReady=true",
+            "sourceColorTransformApplied=false",
         )
         .marker_fields();
         let contract = MakepadSourceSamplingHandoff::new(
@@ -181,6 +186,7 @@ mod tests {
             "display-left-from-left-source",
             "identity-top-left-stimulus-raster",
             "projectionMetadataReady=true",
+            "sourceColorTransformApplied=false",
         )
         .contract();
         assert!(contract.is_valid());
@@ -198,6 +204,7 @@ mod tests {
             "sourceUvContract=screen_to_camera_content_uv_to_makepad_video_sampler"
         ));
         assert!(fields.contains("sourceSampleTransformApplied=false"));
+        assert!(fields.contains("sourceColorTransformApplied=false"));
         assert!(fields.contains("projectionContentMappingMode=camera-projection-homography"));
         assert!(fields.contains("sourceEyeMapping=display-left-from-left-source"));
     }
@@ -214,6 +221,7 @@ mod tests {
             "display-left-from-right-source",
             "stimulus-raster-y-flip",
             "projectionMetadataReady=true",
+            "sourceColorTransformApplied=true",
         )
         .marker_fields();
         let contract = MakepadSourceSamplingHandoff::new(
@@ -225,6 +233,7 @@ mod tests {
             "display-left-from-right-source",
             "stimulus-raster-y-flip",
             "projectionMetadataReady=true",
+            "sourceColorTransformApplied=true",
         )
         .contract();
         assert_eq!(
@@ -236,6 +245,7 @@ mod tests {
         assert!(fields.contains("explicitTopLeftBrokerStimulus=true"));
         assert!(fields.contains("orientationKind=broker_stimulus"));
         assert!(fields.contains("sourceSampleTransformApplied=true"));
+        assert!(fields.contains("sourceColorTransformApplied=true"));
         assert!(fields
             .contains("projectionContentMappingMode=full-frame-stimulus-to-surface-homography"));
     }

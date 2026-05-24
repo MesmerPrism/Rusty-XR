@@ -1,4 +1,4 @@
-use crate::HeadsetCameraFrameDiagnostics;
+use crate::{CameraProjectionMode, HeadsetCameraFrameDiagnostics};
 
 use super::{
     full_source_uv_rect_ltrb, marker_bool, marker_f32, marker_token,
@@ -12,6 +12,7 @@ pub(super) fn projection_source_metadata_marker_fields(
     left_height: u32,
     right_width: u32,
     right_height: u32,
+    camera_projection_mode: CameraProjectionMode,
 ) -> String {
     let source = marker_token(
         left.source.as_deref().or(right.source.as_deref()),
@@ -30,7 +31,7 @@ pub(super) fn projection_source_metadata_marker_fields(
             .or(left.synthetic_projection_profile.as_deref())
             .or(right.projection_geometry_profile.as_deref())
             .or(right.synthetic_projection_profile.as_deref()),
-        "unknown",
+        fallback_projection_geometry_profile(camera_projection_mode),
     );
     let synthetic_pattern = marker_token(
         left.synthetic_pattern
@@ -221,6 +222,16 @@ pub(super) fn projection_source_metadata_marker_fields(
         pixel_rect_token(left.source_crop_rect_px),
         pixel_rect_token(right.source_crop_rect_px),
     )
+}
+
+fn fallback_projection_geometry_profile(
+    camera_projection_mode: CameraProjectionMode,
+) -> &'static str {
+    if camera_projection_mode.uses_world_canvas() {
+        "full-frame-diagnostic"
+    } else {
+        "camera-projection"
+    }
 }
 
 fn pixel_rect_token(rect: Option<[u32; 4]>) -> String {

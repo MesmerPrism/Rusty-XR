@@ -4550,6 +4550,7 @@ impl App {
                 &pair.projection_geometry_profile,
             )
         };
+        let source_color_contract = makepad_current_source_color_contract_fields();
         let source_sampling_fields = MakepadSourceSamplingHandoff::new(
             broker_h264_enabled,
             explicit_top_left_broker_stimulus,
@@ -4559,6 +4560,7 @@ impl App {
             &pair.source_eye_mapping,
             source_sample_transform,
             &content_geometry_fields,
+            &source_color_contract,
         )
         .marker_fields();
         Self::emit_stereo_projection_marker(&source_sampling_fields);
@@ -6717,6 +6719,10 @@ fn makepad_source_color_contract_fields(transfer: MakepadSourceColorTransfer) ->
     )
 }
 
+fn makepad_current_source_color_contract_fields() -> String {
+    makepad_source_color_contract_fields(MakepadSourceColorTransfer::Identity)
+}
+
 fn makepad_projection_depth_meters() -> f32 {
     if makepad_projection_runtime_resolution_enabled() {
         return makepad_current_projection_runtime_float(
@@ -6870,7 +6876,6 @@ fn makepad_projection_target_marker_fields() -> String {
     let tuning = App::horizontal_alignment_tuning();
     let policy = MakepadProjectionBorderPolicy::from_shader_code(tuning.projection_border_policy);
     let processing_layer = MakepadProcessingLayer::current();
-    let source_color_transfer = MakepadSourceColorTransfer::Identity;
     let alpha_mode = MakepadProjectionAlphaMode::from_shader_code(tuning.projection_alpha_mode);
     let opacity_needs_passthrough =
         tuning.projection_area_opacity < 0.999 || tuning.projection_border_opacity < 0.999;
@@ -6924,7 +6929,7 @@ fn makepad_projection_target_marker_fields() -> String {
         projection_area_scale_x,
         projection_area_scale_y,
     );
-    let source_color_contract = makepad_source_color_contract_fields(source_color_transfer);
+    let source_color_contract = makepad_current_source_color_contract_fields();
     format!(
         "nativePassthroughRequested={} projectionBorderPolicy={} passthroughUnderlay={} projectionDepthMeters={:.3} panelTargetDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} panelTargetAspect={:.3} panelTargetWidthMeters={:.3} panelTargetHeightMeters={:.3} panelTargetCenterYMeters={:.3} panelTargetZMeters={:.3} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} processingLayer={} blurRadiusPx={:.2} {} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=panel-covers-target-fov feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_panel borderRegionSemantics=surface_minus_feed borderFillPolicy={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv",
         native_passthrough,

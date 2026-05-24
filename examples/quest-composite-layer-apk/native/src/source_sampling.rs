@@ -103,8 +103,13 @@ impl<'a> HwbSourceSamplingHandoff<'a> {
                     .as_deref()),
             "not-logged",
         );
+        let source_mode = source_mode_for_frame(self.frame);
+        let geometry_profile = projection_geometry_profile_for_frame(self.frame, self.config);
         format!(
-            "schema=rusty.xr.hwb-source-sampling.v1 phase=source-sampling status=ok sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} contentUvRect={} sourceVisibleUvRect={} sourceCropRectState={} sourceCropRectOwner={} leftSourceVisibleUvRect={} rightSourceVisibleUvRect={} leftSourceCropRectPx={} rightSourceCropRectPx={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} {}",
+            "schema=rusty.xr.hwb-source-sampling.v1 phase=source-sampling status=ok sourceMode={} projectionGeometryProfile={} geometry_profile={} sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} contentUvRect={} sourceVisibleUvRect={} sourceCropRectState={} sourceCropRectOwner={} leftSourceVisibleUvRect={} rightSourceVisibleUvRect={} leftSourceCropRectPx={} rightSourceCropRectPx={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} {}",
+            source_mode,
+            geometry_profile,
+            geometry_profile,
             contract.source_eye_mapping.stable_id(),
             HWB_SOURCE_UV_CONTRACT,
             legacy_transform_stage_token(contract.transform_stage),
@@ -133,6 +138,58 @@ impl<'a> HwbSourceSamplingHandoff<'a> {
             projection_hardware_buffer_marker_fields(self.frame),
         )
     }
+}
+
+fn source_mode_for_frame(frame: &StereoGpuCameraFrame) -> &'static str {
+    let source = frame
+        .left
+        .diagnostics
+        .source
+        .as_deref()
+        .or(frame.right.diagnostics.source.as_deref())
+        .unwrap_or("direct-camera2")
+        .to_ascii_lowercase();
+    if source.contains("synthetic") {
+        "broker-synthetic"
+    } else if source.contains("broker") {
+        "broker-h264"
+    } else {
+        "direct-camera2"
+    }
+}
+
+fn projection_geometry_profile_for_frame(
+    frame: &StereoGpuCameraFrame,
+    config: &RuntimeConfig,
+) -> String {
+    let fallback = if config.camera_projection_mode.uses_world_canvas() {
+        "full-frame-diagnostic"
+    } else {
+        "camera-projection"
+    };
+    marker_token(
+        frame
+            .left
+            .diagnostics
+            .projection_geometry_profile
+            .as_deref()
+            .or(frame
+                .left
+                .diagnostics
+                .synthetic_projection_profile
+                .as_deref())
+            .or(frame
+                .right
+                .diagnostics
+                .projection_geometry_profile
+                .as_deref())
+            .or(frame
+                .right
+                .diagnostics
+                .synthetic_projection_profile
+                .as_deref()),
+        fallback,
+    )
 }
 
 fn marker_token(value: Option<&str>, fallback: &str) -> String {
@@ -251,8 +308,8 @@ fn projection_hardware_buffer_marker_fields(frame: &StereoGpuCameraFrame) -> Str
 mod tests {
     use super::*;
     use crate::{
-        CameraOrientationDiagnosticMode, HeadsetCameraGpuFrame, RuntimeConfig,
-        StereoGpuCameraFrame, StereoProjectionControls,
+        CameraOrientationDiagnosticMode, CameraProjectionMode, HeadsetCameraGpuFrame,
+        RuntimeConfig, StereoGpuCameraFrame, StereoProjectionControls,
     };
     use rusty_xr_contracts::{
         CameraCompositeTier, CameraFrameMetadata, CameraGpuBufferDescriptor, CameraSourceId,
@@ -371,6 +428,8 @@ mod tests {
         );
         assert_eq!(contract.sampler_y_axis, SourceSamplerYAxis::RendererDefined);
         assert!(fields.contains("schema=rusty.xr.hwb-source-sampling.v1"));
+        assert!(fields.contains("sourceMode=direct-camera2"));
+        assert!(fields.contains("projectionGeometryProfile=camera-projection"));
         assert!(fields
             .contains("sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler"));
         assert!(fields.contains("sourceEyeMapping=display-left-from-left-source"));
@@ -378,6 +437,17 @@ mod tests {
         assert!(fields.contains("sourceTextureTransformStage=post_homography_pre_texture_sample"));
         assert!(fields.contains("contentUvRect=0.000000,0.000000,1.000000,1.000000"));
         assert!(fields.contains("leftHardwareBufferWidth=1280"));
+    }
+
+    #[test]
+    fn hwb_handoff_reports_world_canvas_geometry_profile() {
+        let frame = stereo_frame(None);
+        let controls = controls();
+        let mut config = RuntimeConfig::default();
+        config.camera_projection_mode = CameraProjectionMode::WorldCanvas;
+        let fields = HwbSourceSamplingHandoff::new(&frame, &controls, &config).marker_fields();
+        assert!(fields.contains("projectionGeometryProfile=full-frame-diagnostic"));
+        assert!(fields.contains("geometry_profile=full-frame-diagnostic"));
     }
 
     #[test]
