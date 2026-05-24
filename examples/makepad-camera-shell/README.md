@@ -195,8 +195,10 @@ This example is not a root-workspace member. Use
 `cargo check --manifest-path examples\makepad-camera-shell\Cargo.toml` from
 the repository root, or plain `cargo check` from this directory; do not use
 `cargo check -p rusty-xr-makepad-camera-shell` from the root workspace.
-Treat that as the host-side Rust validation gate for parser, metadata, and
-projection-math changes. Do not use a plain
+For source changes, run
+`cargo test --locked --manifest-path examples\makepad-camera-shell\Cargo.toml`
+as the host-side Rust validation gate for parser, metadata, projection math,
+and committed lockfile resolution. Do not use a plain
 `cargo check --target aarch64-linux-android` as the Android acceptance gate for
 this Makepad lane; it can stop at Makepad's generated Android entrypoint model
 and does not exercise the actual packager. Android acceptance is a successful

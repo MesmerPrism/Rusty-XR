@@ -54,7 +54,7 @@ For source changes in this example, run:
 
 ```powershell
 cargo check --manifest-path examples\makepad-camera-shell\Cargo.toml
-cargo check --locked --manifest-path examples\makepad-camera-shell\Cargo.toml
+cargo test --locked --manifest-path examples\makepad-camera-shell\Cargo.toml
 python tools\docs\check_links.py --repo-root .
 python tools\schema\check_android_build_manifest.py examples\makepad-camera-shell\build-manifest.public.json
 ```
@@ -93,7 +93,7 @@ the primary fix. Select or update the maintained Makepad fork/tool so the
 packager and wrapper agree on the same SDK profile.
 
 The Makepad revision in this example's `Cargo.lock` controls Rust dependency
-resolution. Keep `cargo check --locked` passing and commit intentional lockfile
+resolution. Keep the locked host test passing and commit intentional lockfile
 updates when the maintained fork branch moves. Android APK generation uses the
 installed `cargo-makepad` binary; after changing the maintained Makepad fork,
 refresh that installed tool from the same checkout before rebuilding an APK so

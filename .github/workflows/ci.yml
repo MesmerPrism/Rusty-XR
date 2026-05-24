@@ -14,6 +14,8 @@ jobs:
         run: rustup component add rustfmt clippy
       - name: Format
         run: cargo fmt --all --check
+      - name: Check standalone Makepad lockfile
+        run: cargo metadata --locked --manifest-path examples/makepad-camera-shell/Cargo.toml --format-version=1 --no-deps
       - name: Test default features
         run: cargo test --workspace
       - name: Test all features

@@ -55,7 +55,11 @@ cargo run -p rusty-xr-particles --example hand_mesh_dynamic_collider
 cargo run -p rusty-xr-particles --example hand_mesh_sdf_attraction
 cargo run -p rusty-xr-quest-diagnostics --example quest_provider_snapshot
 cargo run -p rusty-xr-broker-client-probe -- status
+cargo test --locked --manifest-path examples\makepad-camera-shell\Cargo.toml
 ```
+
+The Makepad camera shell is intentionally outside the root workspace, so use
+the manifest-path command for source changes in that example.
 
 Android source builds:
 

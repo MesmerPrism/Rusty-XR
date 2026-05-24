@@ -160,16 +160,18 @@ package. Validate source with:
 
 ```powershell
 cargo check --manifest-path examples\makepad-camera-shell\Cargo.toml
+cargo test --locked --manifest-path examples\makepad-camera-shell\Cargo.toml
 ```
 
-or by running `cargo check` from the example directory. Do not use root
-`cargo check -p` for this example.
+or by running the equivalent commands from the example directory. Do not use
+root `cargo check -p` for this example.
 
 For Makepad Android, split validation into two gates:
 
 1. Host Rust gate: `cargo check --manifest-path
-   examples\makepad-camera-shell\Cargo.toml` and focused host tests cover
-   parser, metadata, and projection-math changes.
+   examples\makepad-camera-shell\Cargo.toml` plus `cargo test --locked
+   --manifest-path examples\makepad-camera-shell\Cargo.toml` cover parser,
+   metadata, projection-math changes, and committed lockfile resolution.
 2. Android/package gate: `Build-MakepadStereoAlignmentApk.ps1`, preferably with
    `-MakepadSourceRoot <makepad-fork-checkout>`, is the target acceptance gate
    because it exercises Makepad's generated Android activity model and packager.
