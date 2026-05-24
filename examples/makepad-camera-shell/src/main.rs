@@ -8,7 +8,10 @@ mod source_sampling;
 mod projection_runtime;
 mod projection_geometry;
 mod source_metadata;
-use projection_geometry::{makepad_projection_target_marker_fields, projection_homography_marker_fields};
+use projection_geometry::{
+    makepad_projection_target_marker_fields, projection_homography_marker_fields,
+    MakepadOpenXrProjectionContract,
+};
 use projection_runtime::{
     makepad_current_projection_runtime_float, makepad_horizontal_alignment_tuning_from_resolution,
     makepad_projection_runtime_manifest_lines, makepad_projection_runtime_resolution,
@@ -5575,68 +5578,6 @@ impl MakepadCameraYuvTextures {
 }
 
 #[derive(Clone)]
-struct MakepadOpenXrProjectionContract {
-    reference_space: String,
-    openxr_reference_space: String,
-    display_time_source: String,
-    predicted_display_time_ns: Option<i64>,
-    view_pose_fov_source: String,
-    projection_depth_meters: Option<f32>,
-    projection_preview_fov_y_degrees: Option<f32>,
-    projection_preview_offset_y_meters: Option<f32>,
-    projection_raw_overscan: Option<f32>,
-    left_render_fov_tangents: Option<[f32; 4]>,
-    right_render_fov_tangents: Option<[f32; 4]>,
-    left_render_position: Option<[f32; 4]>,
-    right_render_position: Option<[f32; 4]>,
-    left_render_orientation: Option<[f32; 4]>,
-    right_render_orientation: Option<[f32; 4]>,
-}
-
-impl MakepadOpenXrProjectionContract {
-    fn missing() -> Self {
-        Self {
-            reference_space: "not-logged".to_string(),
-            openxr_reference_space: "not-logged".to_string(),
-            display_time_source: "not-logged".to_string(),
-            predicted_display_time_ns: None,
-            view_pose_fov_source: "not-logged".to_string(),
-            projection_depth_meters: None,
-            projection_preview_fov_y_degrees: None,
-            projection_preview_offset_y_meters: None,
-            projection_raw_overscan: None,
-            left_render_fov_tangents: None,
-            right_render_fov_tangents: None,
-            left_render_position: None,
-            right_render_position: None,
-            left_render_orientation: None,
-            right_render_orientation: None,
-        }
-    }
-
-    #[cfg(target_os = "android")]
-    fn from_android(contract: android_camera_probe::XrProjectionContract) -> Self {
-        Self {
-            reference_space: contract.reference_space.to_string(),
-            openxr_reference_space: contract.openxr_reference_space.to_string(),
-            display_time_source: contract.display_time_source.to_string(),
-            predicted_display_time_ns: contract.predicted_display_time_ns,
-            view_pose_fov_source: contract.view_pose_fov_source.to_string(),
-            projection_depth_meters: contract.projection_depth_meters,
-            projection_preview_fov_y_degrees: contract.projection_preview_fov_y_degrees,
-            projection_preview_offset_y_meters: contract.projection_preview_offset_y_meters,
-            projection_raw_overscan: contract.projection_raw_overscan,
-            left_render_fov_tangents: contract.left_render_fov_tangents,
-            right_render_fov_tangents: contract.right_render_fov_tangents,
-            left_render_position: contract.left_render_position,
-            right_render_position: contract.right_render_position,
-            left_render_orientation: contract.left_render_orientation,
-            right_render_orientation: contract.right_render_orientation,
-        }
-    }
-}
-
-#[derive(Clone)]
 struct MakepadCameraPair {
     left: MakepadCameraChoice,
     right: MakepadCameraChoice,
@@ -6058,14 +5999,6 @@ fn pixel_format_label(format: VideoPixelFormat) -> &'static str {
         VideoPixelFormat::MJPEG => "mjpeg",
         VideoPixelFormat::Unsupported(_) => "unsupported",
     }
-}
-
-fn homography_token(rows: [[f32; 3]; 3]) -> String {
-    rows.iter()
-        .flat_map(|row| row.iter())
-        .map(|value| format!("{value:.6}"))
-        .collect::<Vec<_>>()
-        .join(",")
 }
 
 fn frame_rate_token(frame_rate: Option<f64>) -> String {

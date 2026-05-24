@@ -4,12 +4,12 @@ use rusty_xr_camera_model::{
 };
 
 use super::{
-    homography_token, hotload_bool, hotload_f32, makepad_blur_radius_px,
-    makepad_current_source_color_contract_fields, makepad_projection_depth_meters,
+    hotload_bool, hotload_f32, makepad_blur_radius_px, makepad_current_source_color_contract_fields,
+    makepad_projection_depth_meters,
     makepad_projection_panel_geometry, makepad_projection_preview_fov_y_degrees,
     makepad_projection_preview_offset_y_meters, makepad_projection_raw_overscan, marker_token, App,
-    MakepadCameraPair, MakepadOpenXrProjectionContract, MakepadProcessingLayer,
-    MakepadProjectionAlphaMode, MakepadProjectionBorderPolicy,
+    MakepadCameraPair, MakepadProcessingLayer, MakepadProjectionAlphaMode,
+    MakepadProjectionBorderPolicy,
     KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED, KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV,
     KEY_MAKEPAD_PROJECTION_AREA_OFFSET_RIGHT_UV, KEY_MAKEPAD_PROJECTION_AREA_OFFSET_VERTICAL_UV,
     KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV, KEY_MAKEPAD_PROJECTION_AREA_RADIUS_Y_UV,
@@ -19,6 +19,68 @@ use super::{
     TARGET_PROJECTION_AREA_RADIUS_X_UV, TARGET_PROJECTION_AREA_RADIUS_Y_UV,
     TARGET_PROJECTION_AREA_SCALE_X, TARGET_PROJECTION_AREA_SCALE_Y,
 };
+
+#[derive(Clone)]
+pub(crate) struct MakepadOpenXrProjectionContract {
+    reference_space: String,
+    openxr_reference_space: String,
+    display_time_source: String,
+    predicted_display_time_ns: Option<i64>,
+    view_pose_fov_source: String,
+    projection_depth_meters: Option<f32>,
+    projection_preview_fov_y_degrees: Option<f32>,
+    projection_preview_offset_y_meters: Option<f32>,
+    projection_raw_overscan: Option<f32>,
+    left_render_fov_tangents: Option<[f32; 4]>,
+    right_render_fov_tangents: Option<[f32; 4]>,
+    left_render_position: Option<[f32; 4]>,
+    right_render_position: Option<[f32; 4]>,
+    left_render_orientation: Option<[f32; 4]>,
+    right_render_orientation: Option<[f32; 4]>,
+}
+
+impl MakepadOpenXrProjectionContract {
+    pub(crate) fn missing() -> Self {
+        Self {
+            reference_space: "not-logged".to_string(),
+            openxr_reference_space: "not-logged".to_string(),
+            display_time_source: "not-logged".to_string(),
+            predicted_display_time_ns: None,
+            view_pose_fov_source: "not-logged".to_string(),
+            projection_depth_meters: None,
+            projection_preview_fov_y_degrees: None,
+            projection_preview_offset_y_meters: None,
+            projection_raw_overscan: None,
+            left_render_fov_tangents: None,
+            right_render_fov_tangents: None,
+            left_render_position: None,
+            right_render_position: None,
+            left_render_orientation: None,
+            right_render_orientation: None,
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    pub(crate) fn from_android(contract: super::android_camera_probe::XrProjectionContract) -> Self {
+        Self {
+            reference_space: contract.reference_space.to_string(),
+            openxr_reference_space: contract.openxr_reference_space.to_string(),
+            display_time_source: contract.display_time_source.to_string(),
+            predicted_display_time_ns: contract.predicted_display_time_ns,
+            view_pose_fov_source: contract.view_pose_fov_source.to_string(),
+            projection_depth_meters: contract.projection_depth_meters,
+            projection_preview_fov_y_degrees: contract.projection_preview_fov_y_degrees,
+            projection_preview_offset_y_meters: contract.projection_preview_offset_y_meters,
+            projection_raw_overscan: contract.projection_raw_overscan,
+            left_render_fov_tangents: contract.left_render_fov_tangents,
+            right_render_fov_tangents: contract.right_render_fov_tangents,
+            left_render_position: contract.left_render_position,
+            right_render_position: contract.right_render_position,
+            left_render_orientation: contract.left_render_orientation,
+            right_render_orientation: contract.right_render_orientation,
+        }
+    }
+}
 
 pub(crate) fn projection_homography_marker_fields(pair: &MakepadCameraPair) -> String {
     format!(
@@ -202,6 +264,14 @@ fn screen_uv_rect_token(rect: [f32; 4]) -> String {
 
 fn screen_uv_vec2_token(value: [f32; 2]) -> String {
     format!("{:.6},{:.6}", value[0], value[1])
+}
+
+fn homography_token(rows: [[f32; 3]; 3]) -> String {
+    rows.iter()
+        .flat_map(|row| row.iter())
+        .map(|value| format!("{value:.6}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn projection_area_screen_uv_rect(
