@@ -40,10 +40,12 @@ pub use camera::{
     CameraIntrinsics, CameraPixelDomain, CameraPixelDomainKind, CameraPoseSource,
     CameraProjectionState, CameraProjectionStatus, CameraSourceDiagnostic,
     CameraSourceDiagnosticsReport, CameraSourceId, CameraTextureTransform, ImageSize,
-    ProjectionTargetState, StereoCameraCalibrationProfile, StereoCameraCandidateDiagnostic,
-    StereoCameraFrameMetadata, StereoCameraFramePair, StereoSourceEyeMapping,
-    TemporalProjectionEdgeMode, TemporalProjectionMetrics, TemporalProjectionMode,
-    TemporalProjectionPolicy, VisualProjectionState,
+    ProjectionTargetState, SourceSamplerYAxis, SourceSamplingContract,
+    SourceSamplingTransformStage, SourceUvRect, StereoCameraCalibrationProfile,
+    StereoCameraCandidateDiagnostic, StereoCameraFrameMetadata, StereoCameraFramePair,
+    StereoSourceEyeMapping, TemporalProjectionEdgeMode, TemporalProjectionMetrics,
+    TemporalProjectionMode, TemporalProjectionPolicy, VisualProjectionState,
+    SOURCE_SAMPLING_CONTRACT_SCHEMA,
 };
 pub use depth::{
     depth_view_position_from_uv, reference_space_point_from_depth_uv,

@@ -44,7 +44,16 @@ Makepad `setprop`/`getprop` readback files, against the resolved
 `RUSTY_XR_PROJECTION_RUNTIME_MANIFEST` fields in logcat. The profile runner
 accepts `-ProjectionRuntimeReadback skip|warn|required`; the canvas/custom
 suite upgrades the default `warn` mode to `required` when
-`-UseResolvedProjectionRuntime` is enabled.
+resolved projection runtime consumption is enabled, which is the suite default.
+The HWB/OES profile runner clears logcat before launch, starts a bounded
+`adb logcat` process before `am start`, and stops it after screen capture. The
+artifact keeps the historical `<runtime-profile>-logcat-tail.txt` filename for
+tool compatibility, but it is a launch-to-capture window rather than a
+post-run `logcat -d -t` tail.
+The validator treats backend scope as part of the contract: if a log bundle
+contains multiple backends for the same expected key, the caller must pass an
+expected backend instead of letting one renderer's manifest satisfy another
+renderer's launch/readback values.
 For deterministic projection work, pass
 `-BrokerH264SourceMode broker-synthetic -BrokerH264SyntheticPattern diagnostic-grid`.
 Add `-BrokerH264SyntheticProjectionProfile camera-matched` when the synthetic
@@ -393,7 +402,7 @@ For unattended camera sessions, use the explicit broker shell-helper watchdog
 instead of relying on passive status refresh:
 
 ```powershell
-dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root . --proximity-watchdog --proximity-watchdog-until-stopped --proximity-watchdog-ensure-stay-awake --json
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <serial> --rusty-xr-root . --no-broker-report --skip-status --proximity-watchdog --proximity-watchdog-until-stopped --proximity-watchdog-ensure-stay-awake --json
 ```
 
 That mode is an active operator-owned guard. It preserves `Virtual proximity
@@ -557,7 +566,9 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
 | `rustyxr.openxrPassthroughProbe` | string | Keeps native passthrough checks separate from camera projection: `off`, `warmup`, `client`, or `underlay`. |
 
-Makepad uses the same public runtime-key contract through Android properties.
+Makepad uses the same public runtime-key contract through current Android
+properties. Stale `debug.rustyxr.makepad.projection.*` projection aliases are
+cleared by hygiene but are not accepted as projection-runtime inputs.
 `debug.rustyxr.makepad.camera.projection.geometry.profile` selects direct
 Camera2 `full-frame-diagnostic` geometry, while
 `debug.rustyxr.projection.depth.meters` controls the head-anchored projection
@@ -656,6 +667,10 @@ python .\tools\quest-camera-profile\Validate-QuestCameraRun.py `
   --sequence-dir .\artifacts\quest-camera-profile-runs\<run>\<label>-freshness-frames `
   --out .\artifacts\quest-camera-profile-runs\<run>\<label>-validation.json
 ```
+
+The `*-logcat-tail.txt` name is retained for existing tools. New profile runs
+write it from a bounded launch-to-capture `adb logcat` process so early runtime
+manifest markers are part of the validation window.
 
 The validator rejects obvious black-camera screenshots, log windows with
 screen-off, power-sleep, session-exit, or automation-disable signals, and runs

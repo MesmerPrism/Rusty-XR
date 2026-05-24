@@ -33,7 +33,7 @@ param(
     [double]$ProjectionAreaOpacity = 1.0,
     [double]$ProjectionBorderOpacity = 1.0,
     [switch]$BoundedCanvasProjectionArea,
-    [switch]$UseResolvedProjectionRuntime,
+    [switch]$UseResolvedProjectionRuntime = $true,
     [ValidateSet("skip", "warn", "required")]
     [string]$ProjectionRuntimeReadback = "warn",
     [string]$BrokerPackageName = "com.example.rustyxr.broker",

@@ -7258,16 +7258,6 @@ fn makepad_projection_runtime_resolution(
         .push_layer("makepad-env", 20, env_config)
         .expect("manifest owner should be valid");
 
-    let legacy_property_config =
-        makepad_projection_runtime_android_property_config(rxrc::RuntimeKeyAliasStatus::Legacy);
-    builder
-        .push_layer(
-            "makepad-legacy-android-properties",
-            25,
-            legacy_property_config,
-        )
-        .expect("manifest owner should be valid");
-
     let current_property_config =
         makepad_projection_runtime_android_property_config(rxrc::RuntimeKeyAliasStatus::Current);
     builder
@@ -7786,21 +7776,6 @@ fn makepad_projection_alias_records() -> Vec<rxrc::RuntimeKeyAliasRecord> {
         "debug.rustyxr.projection.alpha.mode",
         "debug.rustyxr.projection.alpha.scale",
         "debug.rustyxr.projection.alpha.bias",
-        "debug.rustyxr.makepad.camera.projection.geometry.profile",
-        "debug.rustyxr.makepad.projection.area.offset.left.uv",
-        "debug.rustyxr.makepad.projection.area.offset.right.uv",
-        "debug.rustyxr.makepad.projection.area.offset.vertical.uv",
-        "debug.rustyxr.makepad.projection.area.scale.x",
-        "debug.rustyxr.makepad.projection.area.scale.y",
-        "debug.rustyxr.makepad.projection.area.radius.x.uv",
-        "debug.rustyxr.makepad.projection.area.radius.y.uv",
-        "debug.rustyxr.makepad.projection.area.corner.radius.uv",
-        "debug.rustyxr.makepad.projection.area.opacity",
-        "debug.rustyxr.makepad.projection.border.opacity",
-        "debug.rustyxr.makepad.projection.border.policy",
-        "debug.rustyxr.makepad.projection.alpha.mode",
-        "debug.rustyxr.makepad.projection.alpha.scale",
-        "debug.rustyxr.makepad.projection.alpha.bias",
     ]
     .into_iter()
     .filter_map(|key| rxrc::resolve_projection_runtime_key(key).ok())

@@ -18,6 +18,10 @@ SCHEMA_VERSION = "rusty.xr.projection-runtime-readback.v1"
 RUNTIME_MANIFEST_MARKER = "RUSTY_XR_PROJECTION_RUNTIME_MANIFEST"
 RUNTIME_MANIFEST_SCHEMA = "rusty.xr.projection-runtime-manifest.v1"
 NUMERIC_TOLERANCE = 1.0e-5
+SOURCE_METADATA_SELECTOR_KEYS = {
+    "projection_geometry_profile",
+    "synthetic_projection_profile",
+}
 
 
 @dataclass
@@ -48,6 +52,8 @@ class ResolvedRuntimeValue:
     raw_value: str
     default: str
     candidates: str
+    backend: str
+    phase: str
     logcat_path: str
     line_index: int
 
@@ -82,9 +88,12 @@ class Issue:
 @dataclass
 class ValidationState:
     expected: list[ExpectedRuntimeValue] = field(default_factory=list)
+    manifest_values: list[ResolvedRuntimeValue] = field(default_factory=list)
     resolved: dict[str, ResolvedRuntimeValue] = field(default_factory=dict)
     issues: list[Issue] = field(default_factory=list)
     logcat_paths: list[str] = field(default_factory=list)
+    expected_backend: str = "any"
+    expected_phase: str = "any"
 
     def add_issue(
         self,
@@ -151,7 +160,7 @@ def load_projection_runtime_aliases(source_path: Path | None = None) -> dict[str
         )
 
     alias_re = re.compile(
-        r"(launch_alias|property_alias|env_alias|legacy_property_alias|legacy_property_alias_with_transform)"
+        r"(launch_alias|property_alias|env_alias)"
         r'\s*\(\s*"([^"]+)"\s*,\s*(KEY_[A-Z0-9_]+)'
         r"(?:\s*,\s*RuntimeKeyAliasValueTransform::([A-Za-z0-9_]+))?\s*,?\s*\)",
         re.S,
@@ -160,8 +169,6 @@ def load_projection_runtime_aliases(source_path: Path | None = None) -> dict[str
         "launch_alias": "command-line",
         "property_alias": "android-property",
         "env_alias": "environment",
-        "legacy_property_alias": "android-property",
-        "legacy_property_alias_with_transform": "android-property",
     }
     transform_by_name = {
         None: "identity",
@@ -256,6 +263,8 @@ def collect_run_manifest_expected(
         alias = canonicalize_input_key(key, aliases)
         if alias is None or alias.source not in {"command-line", "any"}:
             continue
+        if alias.canonical_key in SOURCE_METADATA_SELECTOR_KEYS:
+            continue
         expected_source = forced_source if forced_source != "alias" else alias.source
         if expected_source == "alias":
             expected_source = "command-line"
@@ -330,6 +339,8 @@ def collect_property_expected(
         alias = canonicalize_input_key(key, aliases)
         if alias is None or alias.source not in {"android-property", "any"}:
             continue
+        if alias.canonical_key in SOURCE_METADATA_SELECTOR_KEYS:
+            continue
         if expected_raw is None:
             state.add_issue(
                 "error",
@@ -378,6 +389,8 @@ def parse_marker_value(raw: str) -> tuple[str, Any]:
 def parse_manifest_field_token(
     token: str,
     *,
+    backend: str,
+    phase: str,
     logcat_path: str,
     line_index: int,
 ) -> ResolvedRuntimeValue | None:
@@ -402,9 +415,16 @@ def parse_manifest_field_token(
         raw_value=raw_resolved,
         default=attrs.get("default", ""),
         candidates=attrs.get("candidates", ""),
+        backend=backend,
+        phase=phase,
         logcat_path=logcat_path,
         line_index=line_index,
     )
+
+
+def marker_line_attr(line: str, key: str) -> str:
+    match = re.search(rf"\b{re.escape(key)}=([^\s]+)", line)
+    return match.group(1) if match else ""
 
 
 def parse_logcat_manifests(logcat_paths: list[Path], state: ValidationState) -> None:
@@ -429,6 +449,16 @@ def parse_logcat_manifests(logcat_paths: list[Path], state: ValidationState) -> 
                     path=f"{path}:{line_index}",
                 )
                 continue
+            backend = marker_line_attr(line, "backend")
+            phase = marker_line_attr(line, "phase")
+            if not backend or not phase:
+                state.add_issue(
+                    "error",
+                    "runtime-manifest-scope-missing",
+                    "runtime manifest marker is missing backend or phase scope",
+                    path=f"{path}:{line_index}",
+                )
+                continue
             match = re.search(r"\bfields=([^\r\n]*)", line)
             if not match:
                 continue
@@ -438,11 +468,13 @@ def parse_logcat_manifests(logcat_paths: list[Path], state: ValidationState) -> 
             for token in fields_text.split(";"):
                 field_value = parse_manifest_field_token(
                     token,
+                    backend=backend,
+                    phase=phase,
                     logcat_path=str(path),
                     line_index=line_index,
                 )
                 if field_value is not None:
-                    state.resolved[field_value.key] = field_value
+                    state.manifest_values.append(field_value)
 
 
 def parse_bool_text(value: str) -> bool | None:
@@ -509,18 +541,99 @@ def resolved_value_json(resolved: ResolvedRuntimeValue) -> dict[str, Any]:
         "rawValue": resolved.raw_value,
         "default": resolved.default,
         "candidates": resolved.candidates,
+        "backend": resolved.backend,
+        "phase": resolved.phase,
         "logcatPath": resolved.logcat_path,
         "lineIndex": resolved.line_index,
     }
 
 
+def manifest_scope_matches(value: ResolvedRuntimeValue, expected_backend: str, expected_phase: str) -> bool:
+    if expected_backend != "any" and value.backend != expected_backend:
+        return False
+    if expected_phase != "any" and value.phase != expected_phase:
+        return False
+    return True
+
+
+def manifest_value_signature(value: ResolvedRuntimeValue) -> tuple[str, str]:
+    return (value.source, value.raw_value)
+
+
+def select_resolved_manifest_scope(
+    state: ValidationState,
+    *,
+    expected_backend: str,
+    expected_phase: str,
+) -> None:
+    state.expected_backend = expected_backend
+    state.expected_phase = expected_phase
+    expected_keys = {expected.canonical_key for expected in state.expected}
+    target_keys = expected_keys or {value.key for value in state.manifest_values}
+    scoped_values = [
+        value
+        for value in state.manifest_values
+        if value.key in target_keys and manifest_scope_matches(value, expected_backend, expected_phase)
+    ]
+    if state.manifest_values and not scoped_values:
+        state.add_issue(
+            "error",
+            "runtime-manifest-scope-empty",
+            "no projection runtime manifest fields matched the expected backend/phase scope",
+            expected={"backend": expected_backend, "phase": expected_phase},
+            actual=sorted(
+                {
+                    f"{value.backend}:{value.phase}"
+                    for value in state.manifest_values
+                    if value.key in target_keys
+                }
+            ),
+        )
+        return
+
+    by_key: dict[str, list[ResolvedRuntimeValue]] = {}
+    for value in scoped_values:
+        by_key.setdefault(value.key, []).append(value)
+
+    for key, values in sorted(by_key.items()):
+        backends = {value.backend for value in values}
+        if expected_backend == "any" and len(backends) > 1:
+            state.add_issue(
+                "error",
+                "runtime-manifest-backend-ambiguous",
+                "multiple backends emitted the same expected runtime key; select --expected-backend",
+                key=key,
+                actual=[resolved_value_json(value) for value in values],
+            )
+            continue
+        signatures = {manifest_value_signature(value) for value in values}
+        if len(signatures) > 1:
+            state.add_issue(
+                "error",
+                "runtime-manifest-value-conflict",
+                "multiple runtime manifest fields in the selected scope resolved the same key differently",
+                key=key,
+                actual=[resolved_value_json(value) for value in values],
+            )
+            continue
+        state.resolved[key] = values[-1]
+
+
 def validate_expected_against_resolved(state: ValidationState, allow_missing_manifest: bool) -> None:
     if not state.resolved:
+        if any(issue.severity == "error" for issue in state.issues):
+            return
         severity = "warning" if allow_missing_manifest else "error"
+        code = "runtime-manifest-selection-empty" if state.manifest_values else "runtime-manifest-missing"
+        message = (
+            "no projection runtime manifest fields survived backend/phase selection"
+            if state.manifest_values
+            else "no projection runtime manifest fields were found in logcat"
+        )
         state.add_issue(
             severity,
-            "runtime-manifest-missing",
-            "no projection runtime manifest fields were found in logcat",
+            code,
+            message,
         )
         return
     if not state.expected:
@@ -599,12 +712,17 @@ def build_report(state: ValidationState) -> dict[str, Any]:
         "errorCount": error_count,
         "warningCount": warning_count,
         "expectedCount": len(state.expected),
+        "manifestValueCount": len(state.manifest_values),
         "resolvedCount": len(state.resolved),
         "comparedCount": len(compared_keys),
         "comparedKeys": compared_keys,
+        "expectedBackend": state.expected_backend,
+        "expectedPhase": state.expected_phase,
+        "manifestScopes": sorted({f"{value.backend}:{value.phase}" for value in state.manifest_values}),
         "logcatPaths": state.logcat_paths,
         "expected": [expected_value_json(expected) for expected in state.expected],
         "resolved": {key: resolved_value_json(value) for key, value in sorted(state.resolved.items())},
+        "manifestValues": [resolved_value_json(value) for value in state.manifest_values],
         "issues": [issue.to_json() for issue in state.issues],
     }
 
@@ -615,6 +733,8 @@ def validate_projection_runtime_readback(
     expected_properties: list[Path],
     logcat_paths: list[Path],
     expected_source: str,
+    expected_backend: str,
+    expected_phase: str,
     allow_missing_manifest: bool,
     runtime_config_source: Path | None = None,
 ) -> dict[str, Any]:
@@ -625,6 +745,11 @@ def validate_projection_runtime_readback(
     for property_path in expected_properties:
         collect_property_expected(property_path, aliases, expected_source, state)
     parse_logcat_manifests(logcat_paths, state)
+    select_resolved_manifest_scope(
+        state,
+        expected_backend=expected_backend,
+        expected_phase=expected_phase,
+    )
     validate_expected_against_resolved(state, allow_missing_manifest)
     return build_report(state)
 
@@ -640,6 +765,7 @@ def write_self_test_fixture(root: Path) -> tuple[Path, Path, Path]:
                 "values": {
                     "rustyxr.projectionDepthMeters": "1.234",
                     "rustyxr.projectionBorderPolicy": "solid-red",
+                    "rustyxr.cameraProjectionGeometryProfile": "full-frame-diagnostic",
                 },
                 "overrides": ["rustyxr.projectionAreaRadiusXUv=0.47"],
             }
@@ -650,7 +776,7 @@ def write_self_test_fixture(root: Path) -> tuple[Path, Path, Path]:
         json.dumps(
             [
                 {
-                    "property": "debug.rustyxr.makepad.projection.area.offset.left.uv",
+                    "property": "debug.rustyxr.projection.area.left.offset.x.uv",
                     "expected": "0.125",
                     "actual": "0.125",
                 }
@@ -662,7 +788,7 @@ def write_self_test_fixture(root: Path) -> tuple[Path, Path, Path]:
         "\n".join(
             [
                 "I/RustyXR: RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend=hwb phase=test part=1/2 section=fields fieldCount=4 aliasCount=0 aliases=none fields=projection_depth_meters[owner=hwb-launch-effective,resolved=float:1.234000,source=command-line,default=float:1.000000,candidates=10:hwb-launch-effective:command-line:float:1.234000];projection_border_policy[owner=hwb-launch-effective,resolved=text:solid-red,source=command-line,default=text:passthrough-underlay,candidates=10:hwb-launch-effective:command-line:text:solid-red]",
-                "I/RustyXR: RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend=hwb phase=test part=2/2 section=fields fieldCount=4 aliasCount=0 aliases=none fields=projection_area_radius_x_uv[owner=hwb-launch-effective,resolved=float:0.470000,source=command-line,default=float:0.500000,candidates=10:hwb-launch-effective:command-line:float:0.470000];projection_area_left_offset_x_uv[owner=makepad-legacy-android-properties,resolved=float:-0.125000,source=android-property,default=float:0.000000,candidates=25:makepad-legacy-android-properties:android-property:float:-0.125000]",
+                "I/RustyXR: RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend=hwb phase=test part=2/2 section=fields fieldCount=4 aliasCount=0 aliases=none fields=projection_area_radius_x_uv[owner=hwb-launch-effective,resolved=float:0.470000,source=command-line,default=float:0.500000,candidates=10:hwb-launch-effective:command-line:float:0.470000];projection_area_left_offset_x_uv[owner=makepad-android-properties,resolved=float:0.125000,source=android-property,default=float:0.000000,candidates=30:makepad-android-properties:android-property:float:0.125000]",
             ]
         )
         + "\n",
@@ -671,15 +797,45 @@ def write_self_test_fixture(root: Path) -> tuple[Path, Path, Path]:
     return run_manifest, props, logcat
 
 
+def write_ambiguous_backend_fixture(root: Path) -> tuple[Path, Path]:
+    run_manifest = root / "ambiguous-run-manifest.json"
+    logcat = root / "ambiguous-logcat.txt"
+    run_manifest.write_text(
+        json.dumps(
+            {
+                "schemaVersion": "rusty.xr.quest-camera-profile-run.v1",
+                "values": {
+                    "rustyxr.projectionDepthMeters": "1.234",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    logcat.write_text(
+        "\n".join(
+            [
+                "I/RustyXR: RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend=hwb phase=test part=1/1 section=fields fieldCount=1 aliasCount=0 aliases=none fields=projection_depth_meters[owner=hwb-launch-effective,resolved=float:1.234000,source=command-line,default=float:1.000000,candidates=10:hwb-launch-effective:command-line:float:1.234000]",
+                "I/RustyXR: RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend=oes phase=test part=1/1 section=fields fieldCount=1 aliasCount=0 aliases=none fields=projection_depth_meters[owner=oes-activity-effective,resolved=float:2.000000,source=command-line,default=float:1.000000,candidates=10:oes-activity-effective:command-line:float:2.000000]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return run_manifest, logcat
+
+
 def run_self_test() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         run_manifest, props, logcat = write_self_test_fixture(root)
+        ambiguous_manifest, ambiguous_logcat = write_ambiguous_backend_fixture(root)
         launch_report = validate_projection_runtime_readback(
             run_manifest=run_manifest,
             expected_properties=[],
             logcat_paths=[logcat],
             expected_source="command-line",
+            expected_backend="hwb",
+            expected_phase="test",
             allow_missing_manifest=False,
         )
         if launch_report["status"] != "ok":
@@ -689,10 +845,37 @@ def run_self_test() -> int:
             expected_properties=[props],
             logcat_paths=[logcat],
             expected_source="android-property",
+            expected_backend="hwb",
+            expected_phase="test",
             allow_missing_manifest=False,
         )
         if property_report["status"] != "ok":
             raise AssertionError(json.dumps(property_report, indent=2))
+        ambiguous_report = validate_projection_runtime_readback(
+            run_manifest=ambiguous_manifest,
+            expected_properties=[],
+            logcat_paths=[ambiguous_logcat],
+            expected_source="command-line",
+            expected_backend="any",
+            expected_phase="test",
+            allow_missing_manifest=False,
+        )
+        if ambiguous_report["status"] != "failed" or not any(
+            issue["code"] == "runtime-manifest-backend-ambiguous"
+            for issue in ambiguous_report["issues"]
+        ):
+            raise AssertionError(json.dumps(ambiguous_report, indent=2))
+        scoped_report = validate_projection_runtime_readback(
+            run_manifest=ambiguous_manifest,
+            expected_properties=[],
+            logcat_paths=[ambiguous_logcat],
+            expected_source="command-line",
+            expected_backend="hwb",
+            expected_phase="test",
+            allow_missing_manifest=False,
+        )
+        if scoped_report["status"] != "ok":
+            raise AssertionError(json.dumps(scoped_report, indent=2))
     print("projection runtime readback validation self-test: ok")
     return 0
 
@@ -714,6 +897,16 @@ def main(argv: list[str] | None = None) -> int:
         default="alias",
         help="Expected source for compared values. 'alias' uses launch/property alias source.",
     )
+    parser.add_argument(
+        "--expected-backend",
+        default="any",
+        help="Expected runtime manifest backend, such as hwb, oes, or makepad. Default rejects ambiguous mixed-backend matches.",
+    )
+    parser.add_argument(
+        "--expected-phase",
+        default="any",
+        help="Expected runtime manifest phase. Default accepts any phase after backend disambiguation.",
+    )
     parser.add_argument("--allow-missing-manifest", action="store_true", help="Report missing runtime manifest as warning.")
     parser.add_argument("--out", type=Path, help="Write JSON report to this path.")
     parser.add_argument("--self-test", action="store_true", help="Run an embedded synthetic validation fixture.")
@@ -731,6 +924,8 @@ def main(argv: list[str] | None = None) -> int:
             expected_properties=[path.resolve() for path in args.expected_properties],
             logcat_paths=[path.resolve() for path in args.logcat],
             expected_source=args.expected_source,
+            expected_backend=args.expected_backend,
+            expected_phase=args.expected_phase,
             allow_missing_manifest=args.allow_missing_manifest,
         )
     except Exception as error:

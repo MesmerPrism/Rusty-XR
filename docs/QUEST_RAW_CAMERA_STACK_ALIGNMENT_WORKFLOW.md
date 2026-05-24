@@ -295,18 +295,16 @@ Launch/profile behavior:
   `rustyxr.projectionAreaLeftOffsetYUv`,
   `rustyxr.projectionAreaRightOffsetXUv`, and
   `rustyxr.projectionAreaRightOffsetYUv`. The shorter
-  `rustyxr.projectionArea*` names are the cross-renderer contract,
-  `debug.rustyxr.makepad.projection.area.offset.left.uv`,
-  `debug.rustyxr.makepad.projection.area.offset.right.uv`, or
-  `debug.rustyxr.makepad.projection.area.offset.vertical.uv`;
+  `rustyxr.projectionArea*` launch names and matching
+  `debug.rustyxr.projection.area.*` Android properties are the cross-renderer
+  contract. Makepad-specific projection-area aliases are stale hygiene keys,
+  not accepted runtime inputs;
 - independent projection-area and border opacity values such as
   `rustyxr.projectionAreaOpacity`, `rustyxr.projectionBorderOpacity`, and the
-  matching Makepad
-  `debug.rustyxr.makepad.projection.*.opacity` properties;
+  matching `debug.rustyxr.projection.*.opacity` Android properties;
 - color-derived projection alpha controls such as
-  `rustyxr.projectionAlphaMode` and
-  `debug.rustyxr.makepad.projection.alpha.mode`, with shared scale/bias
-  controls;
+  `rustyxr.projectionAlphaMode` and `debug.rustyxr.projection.alpha.mode`,
+  with shared scale/bias controls;
 - synthetic pattern selection when running broker-synthetic validation;
 - screenshot, HzDB, logcat, freshness, visual-stimulus, and comparison capture
   options.
@@ -408,6 +406,12 @@ Use `tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1` for the
 Vulkan/HWB and GL/OES APKs. Use
 `examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1` for
 the Makepad APK.
+
+For HWB/OES projection-runtime readback, the profile runner owns the logcat
+window: it clears logcat, starts a bounded `adb logcat` process before launch,
+and stops it after the screenshot/device captures. The artifact is still named
+`<runtime-profile>-logcat-tail.txt` for compatibility, but new runs should be
+interpreted as launch-to-capture windows, not post-run logcat tails.
 
 Vulkan/HWB direct Camera2:
 
@@ -573,7 +577,7 @@ The suite applies the same policy to every public lane:
 | --- | --- | --- |
 | Vulkan/HWB | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` with `rustyxr.cameraPipelinePreset=raw-projection-unorm` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
-| Makepad CPU-YUV | `debug.rustyxr.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.processing.layer=blur` plus `debug.rustyxr.makepad.blur.radius.px` |
+| Makepad CPU-YUV | `debug.rustyxr.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.processing.layer=blur` plus `debug.rustyxr.makepad.blur.radius.px` |
 
 Use `-ProjectionAreaOffsetXUv <value>` and `-ProjectionAreaOffsetYUv <value>`
 on the suite to run repeatable centering sweeps. The suite-level contract uses
@@ -581,9 +585,9 @@ screen/screenshot coordinates: positive X moves the projection area right and
 positive Y moves it down. Renderer-specific sign or viewport conventions must
 be normalized at the renderer/profile boundary before the app is launched.
 Prefer those suite-level controls for cross-lane work. The Makepad launcher
-wrapper normalizes the native horizontal projection-area properties into the
-public positive-X-right contract; its native vertical projection-area property
-already uses the public positive-Y-down contract.
+wrapper writes the same current `debug.rustyxr.projection.area.*` properties as
+the other Android-property paths; stale Makepad-specific projection-area
+aliases are hygiene-only cleanup keys.
 Treat these values as projection-area placement controls; do not hide
 source-crop, texture-origin, or analyzer problems behind them.
 Use `-ProjectionAreaOpacity` for the projection-window fade and
@@ -664,7 +668,7 @@ state all need active enforcement until an operator stops it, start the broker
 shell-helper watchdog before the matrix:
 
 ```powershell
-dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <quest-serial> --rusty-xr-root . --proximity-watchdog --proximity-watchdog-until-stopped --proximity-watchdog-ensure-stay-awake --json
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- broker shell-helper start --serial <quest-serial> --rusty-xr-root . --no-broker-report --skip-status --proximity-watchdog --proximity-watchdog-until-stopped --proximity-watchdog-ensure-stay-awake --json
 ```
 
 That is an explicit active guard, separate from passive state snapshots. Stop

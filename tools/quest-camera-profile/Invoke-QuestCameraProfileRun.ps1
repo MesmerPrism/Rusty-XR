@@ -51,6 +51,16 @@ if (-not $ProjectionRuntimeReadbackValidator) {
 $projectionPropertyHygieneHelper = Join-Path $PSScriptRoot "ProjectionPropertyHygiene.ps1"
 . $projectionPropertyHygieneHelper
 
+function Get-ProjectionRuntimeExpectedBackend {
+    if ($AppId -match "gl-openxr-video-stack" -or $Catalog -match "quest-gl-openxr-video-stack") {
+        return "oes"
+    }
+    if ($AppId -match "composite-layer" -or $Catalog -match "quest-composite-layer") {
+        return "hwb"
+    }
+    return "any"
+}
+
 function Resolve-InputPath {
     param([string]$Path)
     if ([System.IO.Path]::IsPathRooted($Path)) {
@@ -61,7 +71,19 @@ function Resolve-InputPath {
 
 function Convert-ToExtendedWindowsPath {
     param([string]$Path)
-    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "Cannot normalize an empty path."
+    }
+    try {
+        $fullPath = [System.IO.Path]::GetFullPath($Path)
+    }
+    catch {
+        $preview = $Path.Replace("`0", "<NUL>")
+        if ($preview.Length -gt 240) {
+            $preview = $preview.Substring(0, 240) + "..."
+        }
+        throw "Failed to normalize path (length=$($Path.Length), preview='$preview'): $($_.Exception.Message)"
+    }
     if ($env:OS -eq "Windows_NT" -and -not $fullPath.StartsWith("\\?\")) {
         return "\\?\$fullPath"
     }
@@ -125,6 +147,87 @@ function Save-AdbTextCapture {
         [string]$OutputPath
     )
     Write-Utf8TextFile -Path $OutputPath -Value ((Invoke-Adb -Arguments $Arguments) -join [Environment]::NewLine)
+}
+
+function Get-ProfileRunLogcatPath {
+    param(
+        [string]$Dir,
+        [string]$Label
+    )
+
+    # Historical filename, but this is now a bounded launch-to-capture window.
+    return Join-Path $Dir "$Label-logcat-tail.txt"
+}
+
+function Start-AdbLogcatWindowCapture {
+    param(
+        [string]$Dir,
+        [string]$Label
+    )
+
+    $logcatPath = Get-ProfileRunLogcatPath -Dir $Dir -Label $Label
+    $stderrPath = Join-Path $Dir "$Label-logcat-window-stderr.txt"
+    $commandPath = Join-Path $Dir "$Label-logcat-window-command.txt"
+    $adbArguments = @(Get-AdbArguments -Arguments @("logcat", "-v", "threadtime"))
+    $resolvedAdb = Resolve-ProcessFileName -FileName $Adb
+    Write-Utf8TextFile -Path $commandPath -Value ("$resolvedAdb $($adbArguments -join ' ')")
+
+    $process = Start-Process `
+        -FilePath $resolvedAdb `
+        -ArgumentList $adbArguments `
+        -RedirectStandardOutput $logcatPath `
+        -RedirectStandardError $stderrPath `
+        -WindowStyle Hidden `
+        -PassThru
+    Start-Sleep -Milliseconds 250
+
+    return [ordered]@{
+        schemaVersion = "rusty.xr.quest-camera-logcat-window.v1"
+        mode = "bounded-window"
+        path = $logcatPath
+        stderrPath = $stderrPath
+        commandPath = $commandPath
+        processId = $process.Id
+        startedAt = (Get-Date).ToString("o")
+        stoppedAt = ""
+        exitCode = $null
+        bytes = 0
+        stopError = ""
+        process = $process
+    }
+}
+
+function Stop-AdbLogcatWindowCapture {
+    param([object]$Capture)
+
+    if (-not $Capture) {
+        return $null
+    }
+
+    $process = $Capture.process
+    try {
+        if ($process -and -not $process.HasExited) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        }
+        if ($process) {
+            $process.WaitForExit(3000) | Out-Null
+            if ($process.HasExited) {
+                $Capture.exitCode = $process.ExitCode
+            }
+        }
+    }
+    catch {
+        $Capture.stopError = $_.Exception.Message
+    }
+    finally {
+        $Capture.stoppedAt = (Get-Date).ToString("o")
+        if (Test-Path -LiteralPath $Capture.path) {
+            $Capture.bytes = (Get-Item -LiteralPath $Capture.path).Length
+        }
+        $Capture.Remove("process")
+    }
+
+    return $Capture
 }
 
 function Test-TruthyLaunchValue {
@@ -258,60 +361,77 @@ function Invoke-AdbBinaryCapture {
     param(
         [string[]]$Arguments,
         [string]$OutputPath,
-        [int]$TimeoutSeconds = 30
+        [int]$TimeoutSeconds = 30,
+        [int]$RetryCount = 2
     )
 
-    $argumentList = Get-AdbArguments -Arguments $Arguments
-    $quotedArguments = $argumentList | ForEach-Object {
-        if ($_ -match '\s') {
-            '"' + ($_ -replace '"', '\"') + '"'
+    $lastError = ""
+    for ($attempt = 1; $attempt -le ($RetryCount + 1); $attempt++) {
+        $argumentList = Get-AdbArguments -Arguments $Arguments
+        $quotedArguments = $argumentList | ForEach-Object {
+            if ($_ -match '\s') {
+                '"' + ($_ -replace '"', '\"') + '"'
+            }
+            else {
+                $_
+            }
+        }
+
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = Resolve-ProcessFileName -FileName $Adb
+        $startInfo.Arguments = $quotedArguments -join " "
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) {
+            throw "Failed to start adb for binary capture."
+        }
+
+        $outputDirectory = Split-Path -Path $OutputPath -Parent
+        if ($outputDirectory) {
+            [System.IO.Directory]::CreateDirectory((Convert-ToExtendedWindowsPath -Path $outputDirectory)) | Out-Null
+        }
+        $fileStream = [System.IO.File]::Create((Convert-ToExtendedWindowsPath -Path $OutputPath))
+        try {
+            $process.StandardOutput.BaseStream.CopyTo($fileStream)
+        }
+        finally {
+            $fileStream.Dispose()
+        }
+
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            try {
+                $process.Kill($true)
+            }
+            catch {
+            }
+            $lastError = "adb binary capture timed out after $TimeoutSeconds seconds"
         }
         else {
-            $_
+            $stderr = $process.StandardError.ReadToEnd()
+            if ($process.ExitCode -eq 0) {
+                if ($attempt -gt 1) {
+                    Write-Utf8TextFile -Path "$OutputPath.retry.txt" -Value "adb binary capture succeeded on attempt $attempt."
+                }
+                return
+            }
+
+            $attemptStderrPath = "$OutputPath.stderr.attempt-$attempt.txt"
+            Write-Utf8TextFile -Path $attemptStderrPath -Value $stderr
+            $lastError = "adb binary capture failed with exit code $($process.ExitCode); see $attemptStderrPath"
+        }
+
+        if ($attempt -le $RetryCount) {
+            Start-Sleep -Milliseconds ([Math]::Min(2000, 500 * $attempt))
         }
     }
 
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = Resolve-ProcessFileName -FileName $Adb
-    $startInfo.Arguments = $quotedArguments -join " "
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-
-    $process = [System.Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    if (-not $process.Start()) {
-        throw "Failed to start adb for binary capture."
-    }
-
-    $outputDirectory = Split-Path -Path $OutputPath -Parent
-    if ($outputDirectory) {
-        [System.IO.Directory]::CreateDirectory((Convert-ToExtendedWindowsPath -Path $outputDirectory)) | Out-Null
-    }
-    $fileStream = [System.IO.File]::Create((Convert-ToExtendedWindowsPath -Path $OutputPath))
-    try {
-        $process.StandardOutput.BaseStream.CopyTo($fileStream)
-    }
-    finally {
-        $fileStream.Dispose()
-    }
-
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        try {
-            $process.Kill($true)
-        }
-        catch {
-        }
-        throw "adb binary capture timed out after $TimeoutSeconds seconds"
-    }
-
-    $stderr = $process.StandardError.ReadToEnd()
-    if ($process.ExitCode -ne 0) {
-        $stderrPath = "$OutputPath.stderr.txt"
-        Write-Utf8TextFile -Path $stderrPath -Value $stderr
-        throw "adb binary capture failed with exit code $($process.ExitCode); see $stderrPath"
-    }
+    Write-Utf8TextFile -Path "$OutputPath.stderr.txt" -Value $lastError
+    throw $lastError
 }
 
 function Add-AmExtra {
@@ -548,7 +668,7 @@ function Invoke-RunValidation {
     if (-not (Test-Path $imagePath)) {
         $imagePath = Join-Path $Dir "$Label-screencap.png"
     }
-    $logcatPath = Join-Path $Dir "$Label-logcat-tail.txt"
+    $logcatPath = Get-ProfileRunLogcatPath -Dir $Dir -Label $Label
     $validationPath = Join-Path $Dir "$Label-validation.json"
     $sequenceDir = Join-Path $Dir "$Label-freshness-frames"
 
@@ -581,9 +701,9 @@ function Invoke-ProjectionRuntimeReadbackValidation {
         [string]$ManifestPath
     )
 
-    $outPath = Join-Path $Dir "$Label-projection-runtime-readback.json"
-    $stdoutPath = Join-Path $Dir "$Label-projection-runtime-readback-stdout.txt"
-    $errorPath = Join-Path $Dir "$Label-projection-runtime-readback-error.txt"
+    $outPath = Join-Path $Dir "projection-runtime-readback.json"
+    $stdoutPath = Join-Path $Dir "projection-runtime-readback-stdout.txt"
+    $errorPath = Join-Path $Dir "projection-runtime-readback-error.txt"
 
     if ($ProjectionRuntimeReadback -eq "skip") {
         $skipped = [ordered]@{
@@ -612,7 +732,7 @@ function Invoke-ProjectionRuntimeReadbackValidation {
         return $missing
     }
 
-    $logcatPath = Join-Path $Dir "$Label-logcat-tail.txt"
+    $logcatPath = Get-ProfileRunLogcatPath -Dir $Dir -Label $Label
     $validatorArgs = @(
         $ProjectionRuntimeReadbackValidator,
         "--run-manifest", $ManifestPath,
@@ -620,14 +740,25 @@ function Invoke-ProjectionRuntimeReadbackValidation {
         "--out", $outPath,
         "--expected-source", "command-line"
     )
+    $expectedBackend = Get-ProjectionRuntimeExpectedBackend
+    if ($expectedBackend -ne "any") {
+        $validatorArgs += @("--expected-backend", $expectedBackend)
+    }
     if ($ProjectionRuntimeReadback -eq "warn") {
         $validatorArgs += "--allow-missing-manifest"
     }
 
     $output = @()
     try {
-        $output = @(& python @validatorArgs 2>&1 | ForEach-Object { [string]$_ })
-        $exitCode = $LASTEXITCODE
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            $output = @(& python @validatorArgs 2>&1 | ForEach-Object { [string]$_ })
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
         Write-Utf8TextFile -Path $stdoutPath -Value $output
         if ($exitCode -ne 0) {
             $message = "projection runtime readback validation failed with exit code $exitCode; see $outPath"
@@ -672,7 +803,9 @@ function Capture-Artifacts {
     param(
         [string]$Dir,
         [string]$Label,
-        [string]$Package
+        [string]$Package,
+        [switch]$SkipLogcatCapture,
+        [switch]$SkipRunValidation
     )
 
     Invoke-AdbBinaryCapture -Arguments @("exec-out", "screencap", "-p") -OutputPath (Join-Path $Dir "$Label-screencap.png")
@@ -743,7 +876,9 @@ function Capture-Artifacts {
         }
     }
 
-    Save-AdbTextCapture -Arguments @("logcat", "-d", "-t", $LogcatLines.ToString()) -OutputPath (Join-Path $Dir "$Label-logcat-tail.txt")
+    if (-not $SkipLogcatCapture) {
+        Save-AdbTextCapture -Arguments @("logcat", "-d", "-t", $LogcatLines.ToString()) -OutputPath (Get-ProfileRunLogcatPath -Dir $Dir -Label $Label)
+    }
     Save-AdbTextCapture -Arguments @("shell", "pidof", $Package) -OutputPath (Join-Path $Dir "$Label-pid.txt")
     Save-AdbTextCapture -Arguments @("shell", "dumpsys", "activity", "activities") -OutputPath (Join-Path $Dir "$Label-activity.txt")
     Save-AdbTextCapture -Arguments @("shell", "dumpsys", "window") -OutputPath (Join-Path $Dir "$Label-window.txt")
@@ -752,7 +887,9 @@ function Capture-Artifacts {
     Save-AdbTextCapture -Arguments @("shell", "dumpsys", "vrpowermanager") -OutputPath (Join-Path $Dir "$Label-vrpowermanager.txt")
     Save-OptionalRunAsFileCapture -Package $Package -RemotePath "files/camera-source-diagnostics.json" -OutputPath (Join-Path $Dir "$Label-camera-source-diagnostics.json")
     Save-OptionalRunAsFileCapture -Package $Package -RemotePath "files/controller-tuning-state.json" -OutputPath (Join-Path $Dir "$Label-controller-tuning-state.json")
-    Invoke-RunValidation -Dir $Dir -Label $Label
+    if (-not $SkipRunValidation) {
+        Invoke-RunValidation -Dir $Dir -Label $Label
+    }
 }
 
 $catalogPath = Resolve-InputPath $Catalog
@@ -766,8 +903,8 @@ $app = $catalogObject.apps | Where-Object { $_.id -eq $AppId } | Select-Object -
 if (-not $app) {
     throw "App '$AppId' not found in $catalogPath"
 }
-$runtimeProfile = $catalogObject.runtimeProfiles | Where-Object { $_.id -eq $RuntimeProfile } | Select-Object -First 1
-if (-not $runtimeProfile) {
+$runtimeProfileEntry = $catalogObject.runtimeProfiles | Where-Object { $_.id -eq $RuntimeProfile } | Select-Object -First 1
+if (-not $runtimeProfileEntry) {
     throw "Runtime profile '$RuntimeProfile' not found in $catalogPath"
 }
 $device = $catalogObject.deviceProfiles | Where-Object { $_.id -eq $DeviceProfile } | Select-Object -First 1
@@ -781,7 +918,7 @@ if ($LaunchActivity) {
     $component = Resolve-ActivityComponent -PackageName $packageName -ActivityName $LaunchActivity
 }
 $values = @{}
-foreach ($property in $runtimeProfile.values.PSObject.Properties) {
+foreach ($property in $runtimeProfileEntry.values.PSObject.Properties) {
     $values[$property.Name] = [string]$property.Value
 }
 foreach ($entry in (Convert-Overrides -Items $Override).GetEnumerator()) {
@@ -833,6 +970,9 @@ if ($proximityHoldRequested) {
 }
 Capture-PowerSnapshot -Dir $dir -Prefix "post-proximity-hold"
 
+$label = $RuntimeProfile
+$logcatWindowCapture = $null
+
 $launchArgs = [System.Collections.Generic.List[string]]::new()
 foreach ($item in @("shell", "am", "start", "-S", "-a", "android.intent.action.MAIN", "-c", $LaunchCategory, "-n", $component)) {
     $launchArgs.Add($item)
@@ -842,11 +982,18 @@ foreach ($key in ($values.Keys | Sort-Object)) {
 }
 
 Write-Utf8TextFile -Path (Join-Path $dir "launch-command.txt") -Value ($launchArgs -join " ")
-Save-AdbTextCapture -Arguments $launchArgs.ToArray() -OutputPath (Join-Path $dir "launch.txt")
+$logcatWindowCapture = Start-AdbLogcatWindowCapture -Dir $dir -Label $label
+try {
+    Save-AdbTextCapture -Arguments $launchArgs.ToArray() -OutputPath (Join-Path $dir "launch.txt")
 
-Start-Sleep -Seconds $WarmupSeconds
-$label = $RuntimeProfile
-Capture-Artifacts -Dir $dir -Label $label -Package $packageName
+    Start-Sleep -Seconds $WarmupSeconds
+    Capture-Artifacts -Dir $dir -Label $label -Package $packageName -SkipLogcatCapture -SkipRunValidation
+}
+finally {
+    $logcatWindowCapture = Stop-AdbLogcatWindowCapture -Capture $logcatWindowCapture
+    Write-Utf8TextFile -Path (Join-Path $dir "logcat-window-summary.json") -Value ($logcatWindowCapture | ConvertTo-Json -Depth 5)
+}
+Invoke-RunValidation -Dir $dir -Label $label
 $powerStateSummary = New-PowerStateSummary -Dir $dir -BaselinePrefix "post-proximity-hold" -FinalPrefix $label
 if ($powerStateSummary.status -ne "ok") {
     Write-Warning "Power/proximity state drift detected; see $dir\power-state-summary.json."
@@ -879,6 +1026,8 @@ $manifest = [ordered]@{
     failOnPowerStateDrift = [bool]$FailOnPowerStateDrift
     projectionPropertyHygiene = $projectionPropertyHygieneSummary
     projectionRuntimeReadbackMode = $ProjectionRuntimeReadback
+    logcatCapture = $logcatWindowCapture
+    logcatLines = $LogcatLines
     overrides = $Override
     values = $values
     artifactDir = $dir

@@ -954,76 +954,6 @@ pub const PROJECTION_RUNTIME_KEY_ALIASES: &[RuntimeKeyAlias] = &[
         "RUSTY_XR_CAMERA_RAW_OVERLAY_OVERSCAN",
         KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
     ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.camera.projection.geometry.profile",
-        KEY_PROJECTION_GEOMETRY_PROFILE,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.broker.h264.projection.geometry.profile",
-        KEY_PROJECTION_GEOMETRY_PROFILE,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.broker.h264.synthetic.projection.profile",
-        KEY_SYNTHETIC_PROJECTION_PROFILE,
-    ),
-    legacy_property_alias_with_transform(
-        "debug.rustyxr.makepad.projection.area.offset.left.uv",
-        KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
-        RuntimeKeyAliasValueTransform::NegateNumber,
-    ),
-    legacy_property_alias_with_transform(
-        "debug.rustyxr.makepad.projection.area.offset.right.uv",
-        KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV,
-        RuntimeKeyAliasValueTransform::NegateNumber,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.area.offset.vertical.uv",
-        KEY_PROJECTION_AREA_OFFSET_Y_UV,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.area.scale.x",
-        KEY_PROJECTION_AREA_SCALE_X,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.area.scale.y",
-        KEY_PROJECTION_AREA_SCALE_Y,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.area.radius.x.uv",
-        KEY_PROJECTION_AREA_RADIUS_X_UV,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.area.radius.y.uv",
-        KEY_PROJECTION_AREA_RADIUS_Y_UV,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.area.corner.radius.uv",
-        KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.area.opacity",
-        KEY_PROJECTION_AREA_OPACITY,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.border.opacity",
-        KEY_PROJECTION_BORDER_OPACITY,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.border.policy",
-        KEY_PROJECTION_BORDER_POLICY,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.alpha.mode",
-        KEY_PROJECTION_ALPHA_MODE,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.alpha.scale",
-        KEY_PROJECTION_ALPHA_SCALE,
-    ),
-    legacy_property_alias(
-        "debug.rustyxr.makepad.projection.alpha.bias",
-        KEY_PROJECTION_ALPHA_BIAS,
-    ),
 ];
 
 const fn launch_alias(alias: &'static str, canonical_key: &'static str) -> RuntimeKeyAlias {
@@ -1053,31 +983,6 @@ const fn env_alias(alias: &'static str, canonical_key: &'static str) -> RuntimeK
         source: RuntimeKeyAliasSource::EnvironmentVariable,
         status: RuntimeKeyAliasStatus::Current,
         value_transform: RuntimeKeyAliasValueTransform::Identity,
-    }
-}
-
-const fn legacy_property_alias(
-    alias: &'static str,
-    canonical_key: &'static str,
-) -> RuntimeKeyAlias {
-    legacy_property_alias_with_transform(
-        alias,
-        canonical_key,
-        RuntimeKeyAliasValueTransform::Identity,
-    )
-}
-
-const fn legacy_property_alias_with_transform(
-    alias: &'static str,
-    canonical_key: &'static str,
-    value_transform: RuntimeKeyAliasValueTransform,
-) -> RuntimeKeyAlias {
-    RuntimeKeyAlias {
-        alias,
-        canonical_key,
-        source: RuntimeKeyAliasSource::AndroidProperty,
-        status: RuntimeKeyAliasStatus::Legacy,
-        value_transform,
     }
 }
 
@@ -1765,6 +1670,37 @@ mod tests {
     }
 
     #[test]
+    fn projection_runtime_keeps_source_kind_out_of_projection_math() {
+        let source_sampling_keys = PROJECTION_RUNTIME_KEY_DEFINITIONS
+            .iter()
+            .filter(|definition| definition.owner == ProjectionRuntimeKeyOwner::SourceSampling)
+            .map(|definition| definition.key)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            source_sampling_keys,
+            [
+                KEY_SOURCE_EYE_MAPPING,
+                KEY_SOURCE_TEXTURE_ROTATION,
+                KEY_SOURCE_TEXTURE_FLIP_X,
+                KEY_SOURCE_TEXTURE_FLIP_Y,
+                KEY_SOURCE_TEXTURE_MIRROR,
+                KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+                KEY_SOURCE_TEXTURE_TRANSFORM_REASON,
+                KEY_LEFT_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+                KEY_RIGHT_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+                KEY_SOURCE_VISIBLE_RECT_X_UV,
+                KEY_SOURCE_VISIBLE_RECT_Y_UV,
+                KEY_SOURCE_VISIBLE_RECT_WIDTH_UV,
+                KEY_SOURCE_VISIBLE_RECT_HEIGHT_UV,
+            ]
+        );
+        assert!(projection_runtime_key_definition("source_kind").is_none());
+        assert!(projection_runtime_key_definition("camera_source_kind").is_none());
+        assert!(projection_runtime_key_definition("synthetic_source_kind").is_none());
+    }
+
+    #[test]
     fn parses_projection_runtime_pairs_with_alias_evidence() {
         let parsed = parse_projection_runtime_pairs(
             RuntimeConfigSource::CommandLine,
@@ -1829,24 +1765,21 @@ mod tests {
     }
 
     #[test]
-    fn parses_legacy_makepad_horizontal_projection_offsets_with_sign_transform() {
-        let parsed = parse_projection_runtime_pairs(
+    fn rejects_makepad_legacy_projection_aliases() {
+        let error = parse_projection_runtime_pairs(
             RuntimeConfigSource::AndroidProperty,
             [(
                 "debug.rustyxr.makepad.projection.area.offset.left.uv",
                 "0.125",
             )],
         )
-        .expect("legacy Makepad offset should parse");
+        .unwrap_err();
 
         assert_eq!(
-            parsed.config.get(KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV),
-            Some(&RuntimeValue::Float(-0.125))
-        );
-        assert_eq!(parsed.aliases[0].status, RuntimeKeyAliasStatus::Legacy);
-        assert_eq!(
-            parsed.aliases[0].value_transform,
-            RuntimeKeyAliasValueTransform::NegateNumber
+            error,
+            RuntimeConfigError::UnknownRuntimeKeyAlias(
+                "debug.rustyxr.makepad.projection.area.offset.left.uv".to_string()
+            )
         );
     }
 
@@ -1928,6 +1861,258 @@ mod tests {
         assert!(joined.contains("backend=oes"));
         assert!(joined.contains("owner=android-properties"));
         assert!(joined.contains("resolved=float:1.250000"));
+    }
+
+    fn projection_runtime_golden_snapshot(
+        backend: &str,
+        launch_pairs: &[(&'static str, &'static str)],
+        property_pairs: &[(&'static str, &'static str)],
+    ) -> Vec<(&'static str, RuntimeValue)> {
+        let defaults = parse_projection_runtime_pairs(
+            RuntimeConfigSource::Default,
+            [
+                (KEY_CAMERA_PROJECTION_MODE, "display-screen-homography"),
+                (KEY_PROJECTION_DEPTH_METERS, "1.0"),
+                (KEY_CAMERA_PREVIEW_FOV_Y_DEGREES, "60.0"),
+                (KEY_CAMERA_PREVIEW_OFFSET_Y_METERS, "0.0"),
+                (KEY_CAMERA_RAW_OVERLAY_OVERSCAN, "1.06"),
+                (KEY_PROJECTION_AREA_SCALE_X, "1.0"),
+                (KEY_PROJECTION_AREA_SCALE_Y, "1.0"),
+                (KEY_PROJECTION_AREA_OFFSET_X_UV, "0.0"),
+                (KEY_PROJECTION_AREA_OFFSET_Y_UV, "0.0"),
+                (KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV, "0.0"),
+                (KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV, "0.0"),
+                (KEY_PROJECTION_AREA_RADIUS_X_UV, "0.47"),
+                (KEY_PROJECTION_AREA_RADIUS_Y_UV, "0.36"),
+                (KEY_PROJECTION_AREA_OPACITY, "1.0"),
+                (KEY_PROJECTION_BORDER_OPACITY, "1.0"),
+                (KEY_PROJECTION_BORDER_POLICY, "solid-red"),
+                (KEY_PROJECTION_ALPHA_MODE, "fixed"),
+                (KEY_PROJECTION_ALPHA_SCALE, "1.0"),
+                (KEY_PROJECTION_ALPHA_BIAS, "0.0"),
+                (KEY_SOURCE_EYE_MAPPING, "left-right"),
+                (KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE, "metadata"),
+                (KEY_SOURCE_VISIBLE_RECT_X_UV, "0.0"),
+                (KEY_SOURCE_VISIBLE_RECT_Y_UV, "0.0"),
+                (KEY_SOURCE_VISIBLE_RECT_WIDTH_UV, "1.0"),
+                (KEY_SOURCE_VISIBLE_RECT_HEIGHT_UV, "1.0"),
+            ],
+        )
+        .expect("golden defaults should parse");
+        let launch = parse_projection_runtime_pairs(
+            RuntimeConfigSource::CommandLine,
+            launch_pairs.iter().copied(),
+        )
+        .expect("golden launch pairs should parse");
+        let properties = parse_projection_runtime_pairs(
+            RuntimeConfigSource::AndroidProperty,
+            property_pairs.iter().copied(),
+        )
+        .expect("golden property pairs should parse");
+        let runtime = ProjectionRuntimeConfigBuilder::new()
+            .with_layer(format!("{backend}-defaults"), 0, defaults.config)
+            .expect("default layer should be valid")
+            .with_layer(format!("{backend}-launch"), 10, launch.config)
+            .expect("launch layer should be valid")
+            .with_layer(format!("{backend}-properties"), 20, properties.config)
+            .expect("property layer should be valid")
+            .with_aliases(launch.aliases)
+            .with_aliases(properties.aliases)
+            .resolve();
+        [
+            KEY_CAMERA_PROJECTION_MODE,
+            KEY_PROJECTION_DEPTH_METERS,
+            KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
+            KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
+            KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
+            KEY_PROJECTION_AREA_SCALE_X,
+            KEY_PROJECTION_AREA_SCALE_Y,
+            KEY_PROJECTION_AREA_OFFSET_X_UV,
+            KEY_PROJECTION_AREA_OFFSET_Y_UV,
+            KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
+            KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV,
+            KEY_PROJECTION_AREA_RADIUS_X_UV,
+            KEY_PROJECTION_AREA_RADIUS_Y_UV,
+            KEY_PROJECTION_AREA_OPACITY,
+            KEY_PROJECTION_BORDER_OPACITY,
+            KEY_PROJECTION_BORDER_POLICY,
+            KEY_PROJECTION_ALPHA_MODE,
+            KEY_PROJECTION_ALPHA_SCALE,
+            KEY_PROJECTION_ALPHA_BIAS,
+            KEY_SOURCE_EYE_MAPPING,
+            KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+            KEY_SOURCE_VISIBLE_RECT_X_UV,
+            KEY_SOURCE_VISIBLE_RECT_Y_UV,
+            KEY_SOURCE_VISIBLE_RECT_WIDTH_UV,
+            KEY_SOURCE_VISIBLE_RECT_HEIGHT_UV,
+        ]
+        .into_iter()
+        .map(|key| {
+            (
+                key,
+                runtime
+                    .resolution
+                    .resolved()
+                    .get(key)
+                    .unwrap_or_else(|| panic!("{key} should resolve"))
+                    .clone(),
+            )
+        })
+        .collect()
+    }
+
+    #[test]
+    fn projection_runtime_golden_matrix_is_backend_neutral_for_equivalent_metadata() {
+        let launch_alias_snapshot = projection_runtime_golden_snapshot(
+            "hwb",
+            &[
+                ("rustyxr.cameraProjectionMode", "display-screen-homography"),
+                ("rustyxr.projectionDepthMeters", "1.25"),
+                ("rustyxr.cameraPreviewFovYDegrees", "63.0"),
+                ("rustyxr.cameraPreviewOffsetYMeters", "0.08"),
+                ("rustyxr.cameraRawOverlayOverscan", "1.12"),
+                ("rustyxr.projectionAreaScaleX", "0.82"),
+                ("rustyxr.projectionAreaScaleY", "0.74"),
+                ("rustyxr.projectionAreaOffsetXUv", "0.03"),
+                ("rustyxr.projectionAreaOffsetYUv", "-0.02"),
+                ("rustyxr.projectionAreaLeftOffsetXUv", "-0.04"),
+                ("rustyxr.projectionAreaRightOffsetXUv", "0.04"),
+                ("rustyxr.projectionAreaRadiusXUv", "0.44"),
+                ("rustyxr.projectionAreaRadiusYUv", "0.31"),
+                ("rustyxr.projectionAreaOpacity", "0.90"),
+                ("rustyxr.projectionBorderOpacity", "0.80"),
+                ("rustyxr.projectionBorderPolicy", "solid-red"),
+                ("rustyxr.projectionAlphaMode", "fixed"),
+                ("rustyxr.projectionAlphaScale", "1.10"),
+                ("rustyxr.projectionAlphaBias", "-0.05"),
+                ("rustyxr.cameraSourceEyeMapping", "left-right"),
+                ("rustyxr.cameraTextureTransformSource", "metadata"),
+                (KEY_SOURCE_VISIBLE_RECT_X_UV, "0.10"),
+                (KEY_SOURCE_VISIBLE_RECT_Y_UV, "0.20"),
+                (KEY_SOURCE_VISIBLE_RECT_WIDTH_UV, "0.80"),
+                (KEY_SOURCE_VISIBLE_RECT_HEIGHT_UV, "0.60"),
+            ],
+            &[],
+        );
+        let canonical_snapshot = projection_runtime_golden_snapshot(
+            "oes",
+            &[
+                (KEY_CAMERA_PROJECTION_MODE, "display-screen-homography"),
+                (KEY_PROJECTION_DEPTH_METERS, "1.25"),
+                (KEY_CAMERA_PREVIEW_FOV_Y_DEGREES, "63.0"),
+                (KEY_CAMERA_PREVIEW_OFFSET_Y_METERS, "0.08"),
+                (KEY_CAMERA_RAW_OVERLAY_OVERSCAN, "1.12"),
+                (KEY_PROJECTION_AREA_SCALE_X, "0.82"),
+                (KEY_PROJECTION_AREA_SCALE_Y, "0.74"),
+                (KEY_PROJECTION_AREA_OFFSET_X_UV, "0.03"),
+                (KEY_PROJECTION_AREA_OFFSET_Y_UV, "-0.02"),
+                (KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV, "-0.04"),
+                (KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV, "0.04"),
+                (KEY_PROJECTION_AREA_RADIUS_X_UV, "0.44"),
+                (KEY_PROJECTION_AREA_RADIUS_Y_UV, "0.31"),
+                (KEY_PROJECTION_AREA_OPACITY, "0.90"),
+                (KEY_PROJECTION_BORDER_OPACITY, "0.80"),
+                (KEY_PROJECTION_BORDER_POLICY, "solid-red"),
+                (KEY_PROJECTION_ALPHA_MODE, "fixed"),
+                (KEY_PROJECTION_ALPHA_SCALE, "1.10"),
+                (KEY_PROJECTION_ALPHA_BIAS, "-0.05"),
+                (KEY_SOURCE_EYE_MAPPING, "left-right"),
+                (KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE, "metadata"),
+                (KEY_SOURCE_VISIBLE_RECT_X_UV, "0.10"),
+                (KEY_SOURCE_VISIBLE_RECT_Y_UV, "0.20"),
+                (KEY_SOURCE_VISIBLE_RECT_WIDTH_UV, "0.80"),
+                (KEY_SOURCE_VISIBLE_RECT_HEIGHT_UV, "0.60"),
+            ],
+            &[],
+        );
+        let property_snapshot = projection_runtime_golden_snapshot(
+            "makepad",
+            &[],
+            &[
+                (
+                    "debug.rustyxr.camera.projection.mode",
+                    "display-screen-homography",
+                ),
+                ("debug.rustyxr.projection.depth.meters", "1.25"),
+                ("debug.rustyxr.camera.preview.fov.y.degrees", "63.0"),
+                ("debug.rustyxr.camera.preview.offset.y.meters", "0.08"),
+                ("debug.rustyxr.camera.raw.overlay.overscan", "1.12"),
+                ("debug.rustyxr.projection.area.scale.x", "0.82"),
+                ("debug.rustyxr.projection.area.scale.y", "0.74"),
+                ("debug.rustyxr.projection.area.offset.x.uv", "0.03"),
+                ("debug.rustyxr.projection.area.offset.y.uv", "-0.02"),
+                ("debug.rustyxr.projection.area.left.offset.x.uv", "-0.04"),
+                ("debug.rustyxr.projection.area.right.offset.x.uv", "0.04"),
+                ("debug.rustyxr.projection.area.radius.x.uv", "0.44"),
+                ("debug.rustyxr.projection.area.radius.y.uv", "0.31"),
+                ("debug.rustyxr.projection.area.opacity", "0.90"),
+                ("debug.rustyxr.projection.border.opacity", "0.80"),
+                ("debug.rustyxr.projection.border.policy", "solid-red"),
+                ("debug.rustyxr.projection.alpha.mode", "fixed"),
+                ("debug.rustyxr.projection.alpha.scale", "1.10"),
+                ("debug.rustyxr.projection.alpha.bias", "-0.05"),
+                ("debug.rustyxr.source.eye.mapping", "left-right"),
+                ("debug.rustyxr.source.texture.transform.source", "metadata"),
+                ("debug.rustyxr.source.visible.rect.x.uv", "0.10"),
+                ("debug.rustyxr.source.visible.rect.y.uv", "0.20"),
+                ("debug.rustyxr.source.visible.rect.width.uv", "0.80"),
+                ("debug.rustyxr.source.visible.rect.height.uv", "0.60"),
+            ],
+        );
+
+        assert_eq!(launch_alias_snapshot, canonical_snapshot);
+        assert_eq!(canonical_snapshot, property_snapshot);
+        assert!(
+            parse_projection_runtime_pairs(
+                RuntimeConfigSource::CommandLine,
+                [("source_kind", "synthetic")]
+            )
+            .is_err(),
+            "source kind must not become a projection-runtime key"
+        );
+    }
+
+    #[test]
+    fn projection_runtime_golden_matrix_covers_canvas_and_underlay_profiles() {
+        let canvas = projection_runtime_golden_snapshot(
+            "hwb",
+            &[
+                ("rustyxr.cameraProjectionMode", "world-canvas"),
+                ("rustyxr.projectionAreaScaleX", "0.70"),
+                ("rustyxr.projectionAreaScaleY", "0.55"),
+                ("rustyxr.projectionBorderPolicy", "solid-red"),
+            ],
+            &[],
+        );
+        assert!(canvas.contains(&(
+            KEY_CAMERA_PROJECTION_MODE,
+            RuntimeValue::Text("world-canvas".to_string())
+        )));
+        assert!(canvas.contains(&(
+            KEY_PROJECTION_BORDER_POLICY,
+            RuntimeValue::Text("solid-red".to_string())
+        )));
+
+        let underlay = projection_runtime_golden_snapshot(
+            "oes",
+            &[
+                ("rustyxr.projectionBorderPolicy", "passthrough-underlay"),
+                ("rustyxr.projectionAreaOpacity", "0.65"),
+                ("rustyxr.projectionBorderOpacity", "0.0"),
+                ("rustyxr.projectionAlphaMode", "luma"),
+            ],
+            &[],
+        );
+        assert!(underlay.contains(&(
+            KEY_PROJECTION_BORDER_POLICY,
+            RuntimeValue::Text("passthrough-underlay".to_string())
+        )));
+        assert!(underlay.contains(&(KEY_PROJECTION_AREA_OPACITY, RuntimeValue::Float(0.65))));
+        assert!(underlay.contains(&(KEY_PROJECTION_BORDER_OPACITY, RuntimeValue::Float(0.0))));
+        assert!(underlay.contains(&(
+            KEY_PROJECTION_ALPHA_MODE,
+            RuntimeValue::Text("luma".to_string())
+        )));
     }
 
     #[test]

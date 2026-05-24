@@ -30,7 +30,7 @@ param(
     [double]$ProjectionAlphaScale = [double]::NaN,
     [double]$ProjectionAlphaBias = [double]::NaN,
     [ValidateSet("", "true", "false")]
-    [string]$UseResolvedProjectionRuntime = "",
+    [string]$UseResolvedProjectionRuntime = "true",
     [switch]$Reset
 )
 
@@ -80,39 +80,26 @@ $properties = [ordered]@{
     RightUv = "debug.rustyxr.makepad.horizontal.offset.right.uv"
     VerticalUv = "debug.rustyxr.makepad.vertical.offset.uv"
     ContentScale = "debug.rustyxr.makepad.content.uv.scale"
-    ProjectionBorderOpacity = "debug.rustyxr.makepad.projection.border.opacity"
-    ProjectionBorderOpacityCurrent = "debug.rustyxr.projection.border.opacity"
-    ProjectionBorderPolicy = "debug.rustyxr.makepad.projection.border.policy"
-    ProjectionBorderPolicyCurrent = "debug.rustyxr.projection.border.policy"
+    ProjectionBorderOpacity = "debug.rustyxr.projection.border.opacity"
+    ProjectionBorderPolicy = "debug.rustyxr.projection.border.policy"
     NativePassthroughEnabled = "debug.rustyxr.makepad.native.passthrough.enabled"
     ProcessingLayer = "debug.rustyxr.makepad.processing.layer"
     BlurRadiusPx = "debug.rustyxr.makepad.blur.radius.px"
     ProjectionDepthMeters = "debug.rustyxr.projection.depth.meters"
     ProjectionAreaDiagnostic = "debug.rustyxr.makepad.projection.area.diagnostic"
-    ProjectionAreaLeftUv = "debug.rustyxr.makepad.projection.area.offset.left.uv"
-    ProjectionAreaLeftOffsetXUvCurrent = "debug.rustyxr.projection.area.left.offset.x.uv"
-    ProjectionAreaRightUv = "debug.rustyxr.makepad.projection.area.offset.right.uv"
-    ProjectionAreaRightOffsetXUvCurrent = "debug.rustyxr.projection.area.right.offset.x.uv"
-    ProjectionAreaVerticalUv = "debug.rustyxr.makepad.projection.area.offset.vertical.uv"
-    ProjectionAreaOffsetYUvCurrent = "debug.rustyxr.projection.area.offset.y.uv"
-    ProjectionAreaScaleX = "debug.rustyxr.makepad.projection.area.scale.x"
-    ProjectionAreaScaleXCurrent = "debug.rustyxr.projection.area.scale.x"
-    ProjectionAreaScaleY = "debug.rustyxr.makepad.projection.area.scale.y"
-    ProjectionAreaScaleYCurrent = "debug.rustyxr.projection.area.scale.y"
-    ProjectionAreaRadiusXUv = "debug.rustyxr.makepad.projection.area.radius.x.uv"
-    ProjectionAreaRadiusXUvCurrent = "debug.rustyxr.projection.area.radius.x.uv"
-    ProjectionAreaRadiusYUv = "debug.rustyxr.makepad.projection.area.radius.y.uv"
-    ProjectionAreaRadiusYUvCurrent = "debug.rustyxr.projection.area.radius.y.uv"
-    ProjectionAreaCornerRadiusUv = "debug.rustyxr.makepad.projection.area.corner.radius.uv"
-    ProjectionAreaCornerRadiusUvCurrent = "debug.rustyxr.projection.area.corner.radius.uv"
+    ProjectionAreaLeftOffsetXUv = "debug.rustyxr.projection.area.left.offset.x.uv"
+    ProjectionAreaRightOffsetXUv = "debug.rustyxr.projection.area.right.offset.x.uv"
+    ProjectionAreaOffsetYUv = "debug.rustyxr.projection.area.offset.y.uv"
+    ProjectionAreaScaleX = "debug.rustyxr.projection.area.scale.x"
+    ProjectionAreaScaleY = "debug.rustyxr.projection.area.scale.y"
+    ProjectionAreaRadiusXUv = "debug.rustyxr.projection.area.radius.x.uv"
+    ProjectionAreaRadiusYUv = "debug.rustyxr.projection.area.radius.y.uv"
+    ProjectionAreaCornerRadiusUv = "debug.rustyxr.projection.area.corner.radius.uv"
     ProjectionAreaKeystoneX = "debug.rustyxr.makepad.projection.area.keystone.x"
     ProjectionAreaBowX = "debug.rustyxr.makepad.projection.area.bow.x"
-    ProjectionAlphaMode = "debug.rustyxr.makepad.projection.alpha.mode"
-    ProjectionAlphaModeCurrent = "debug.rustyxr.projection.alpha.mode"
-    ProjectionAlphaScale = "debug.rustyxr.makepad.projection.alpha.scale"
-    ProjectionAlphaScaleCurrent = "debug.rustyxr.projection.alpha.scale"
-    ProjectionAlphaBias = "debug.rustyxr.makepad.projection.alpha.bias"
-    ProjectionAlphaBiasCurrent = "debug.rustyxr.projection.alpha.bias"
+    ProjectionAlphaMode = "debug.rustyxr.projection.alpha.mode"
+    ProjectionAlphaScale = "debug.rustyxr.projection.alpha.scale"
+    ProjectionAlphaBias = "debug.rustyxr.projection.alpha.bias"
     ResolvedProjectionRuntime = "debug.rustyxr.makepad.projection.runtime.resolution.enabled"
 }
 
@@ -142,7 +129,7 @@ if ($Reset) {
     $ProjectionAlphaMode = "fixed"
     $ProjectionAlphaScale = 1.0
     $ProjectionAlphaBias = 0.0
-    $UseResolvedProjectionRuntime = "false"
+    $UseResolvedProjectionRuntime = "true"
 }
 
 if (-not [double]::IsNaN($SymmetricUv)) {
@@ -194,17 +181,14 @@ if (-not [double]::IsNaN($ContentScale)) {
 }
 if (-not [double]::IsNaN($ProjectionBorderOpacity)) {
     Set-Prop -Name $properties.ProjectionBorderOpacity -Value $ProjectionBorderOpacity
-    Set-Prop -Name $properties.ProjectionBorderOpacityCurrent -Value $ProjectionBorderOpacity
 }
 if ($ProjectionBorderPolicy) {
     Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionBorderPolicy, $ProjectionBorderPolicy)
-    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionBorderPolicyCurrent, $ProjectionBorderPolicy)
     $nativePassthrough = if ($ProjectionBorderPolicy -eq "passthrough-underlay") { "true" } else { "false" }
     Invoke-Adb -Arguments @("shell", "setprop", $properties.NativePassthroughEnabled, $nativePassthrough)
 }
 if ($ProjectionAlphaMode) {
     Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionAlphaMode, $ProjectionAlphaMode)
-    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionAlphaModeCurrent, $ProjectionAlphaMode)
     if ($ProjectionAlphaMode -ne "fixed") {
         Invoke-Adb -Arguments @("shell", "setprop", $properties.NativePassthroughEnabled, "true")
     }
@@ -222,36 +206,28 @@ if (-not [double]::IsNaN($ProjectionAreaDiagnostic)) {
     Set-Prop -Name $properties.ProjectionAreaDiagnostic -Value $ProjectionAreaDiagnostic
 }
 if (-not [double]::IsNaN($ProjectionAreaLeftUv)) {
-    Set-Prop -Name $properties.ProjectionAreaLeftUv -Value $ProjectionAreaLeftUv
-    Set-Prop -Name $properties.ProjectionAreaLeftOffsetXUvCurrent -Value (-$ProjectionAreaLeftUv)
+    Set-Prop -Name $properties.ProjectionAreaLeftOffsetXUv -Value (-$ProjectionAreaLeftUv)
 }
 if (-not [double]::IsNaN($ProjectionAreaRightUv)) {
-    Set-Prop -Name $properties.ProjectionAreaRightUv -Value $ProjectionAreaRightUv
-    Set-Prop -Name $properties.ProjectionAreaRightOffsetXUvCurrent -Value (-$ProjectionAreaRightUv)
+    Set-Prop -Name $properties.ProjectionAreaRightOffsetXUv -Value (-$ProjectionAreaRightUv)
 }
 if (-not [double]::IsNaN($ProjectionAreaVerticalUv)) {
-    Set-Prop -Name $properties.ProjectionAreaVerticalUv -Value $ProjectionAreaVerticalUv
-    Set-Prop -Name $properties.ProjectionAreaOffsetYUvCurrent -Value $ProjectionAreaVerticalUv
+    Set-Prop -Name $properties.ProjectionAreaOffsetYUv -Value $ProjectionAreaVerticalUv
 }
 if (-not [double]::IsNaN($ProjectionAreaScaleX)) {
     Set-Prop -Name $properties.ProjectionAreaScaleX -Value $ProjectionAreaScaleX
-    Set-Prop -Name $properties.ProjectionAreaScaleXCurrent -Value $ProjectionAreaScaleX
 }
 if (-not [double]::IsNaN($ProjectionAreaScaleY)) {
     Set-Prop -Name $properties.ProjectionAreaScaleY -Value $ProjectionAreaScaleY
-    Set-Prop -Name $properties.ProjectionAreaScaleYCurrent -Value $ProjectionAreaScaleY
 }
 if (-not [double]::IsNaN($ProjectionAreaRadiusXUv)) {
     Set-Prop -Name $properties.ProjectionAreaRadiusXUv -Value $ProjectionAreaRadiusXUv
-    Set-Prop -Name $properties.ProjectionAreaRadiusXUvCurrent -Value $ProjectionAreaRadiusXUv
 }
 if (-not [double]::IsNaN($ProjectionAreaRadiusYUv)) {
     Set-Prop -Name $properties.ProjectionAreaRadiusYUv -Value $ProjectionAreaRadiusYUv
-    Set-Prop -Name $properties.ProjectionAreaRadiusYUvCurrent -Value $ProjectionAreaRadiusYUv
 }
 if (-not [double]::IsNaN($ProjectionAreaCornerRadiusUv)) {
     Set-Prop -Name $properties.ProjectionAreaCornerRadiusUv -Value $ProjectionAreaCornerRadiusUv
-    Set-Prop -Name $properties.ProjectionAreaCornerRadiusUvCurrent -Value $ProjectionAreaCornerRadiusUv
 }
 if (-not [double]::IsNaN($ProjectionAreaKeystoneX)) {
     Set-Prop -Name $properties.ProjectionAreaKeystoneX -Value $ProjectionAreaKeystoneX
@@ -261,11 +237,9 @@ if (-not [double]::IsNaN($ProjectionAreaBowX)) {
 }
 if (-not [double]::IsNaN($ProjectionAlphaScale)) {
     Set-Prop -Name $properties.ProjectionAlphaScale -Value $ProjectionAlphaScale
-    Set-Prop -Name $properties.ProjectionAlphaScaleCurrent -Value $ProjectionAlphaScale
 }
 if (-not [double]::IsNaN($ProjectionAlphaBias)) {
     Set-Prop -Name $properties.ProjectionAlphaBias -Value $ProjectionAlphaBias
-    Set-Prop -Name $properties.ProjectionAlphaBiasCurrent -Value $ProjectionAlphaBias
 }
 if ($UseResolvedProjectionRuntime) {
     Invoke-Adb -Arguments @(

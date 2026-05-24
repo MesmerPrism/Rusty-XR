@@ -457,6 +457,222 @@ impl Default for CameraTextureTransform {
     }
 }
 
+pub const SOURCE_SAMPLING_CONTRACT_SCHEMA: &str = "rusty.xr.source-sampling-contract.v1";
+
+/// Normalized UV rectangle in the source image domain.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SourceUvRect {
+    pub origin_uv: Vec2,
+    pub size_uv: Vec2,
+}
+
+impl SourceUvRect {
+    pub const FULL: Self = Self::new(Vec2::ZERO, Vec2::ONE);
+
+    pub const fn new(origin_uv: Vec2, size_uv: Vec2) -> Self {
+        Self { origin_uv, size_uv }
+    }
+
+    pub fn is_valid(self) -> bool {
+        const EPSILON: f32 = 1.0e-5;
+        self.origin_uv.is_finite()
+            && self.size_uv.is_finite()
+            && self.origin_uv.x >= -EPSILON
+            && self.origin_uv.y >= -EPSILON
+            && self.size_uv.x > 0.0
+            && self.size_uv.y > 0.0
+            && self.origin_uv.x + self.size_uv.x <= 1.0 + EPSILON
+            && self.origin_uv.y + self.size_uv.y <= 1.0 + EPSILON
+    }
+}
+
+impl Default for SourceUvRect {
+    fn default() -> Self {
+        Self::FULL
+    }
+}
+
+/// Stage where renderer source-sampling transforms are applied.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SourceSamplingTransformStage {
+    #[default]
+    None,
+    PostHomographyPreTextureSample,
+    PostHomographyPreOesSample,
+    PostHomographyPreYuvSample,
+    PostHomographyPreSourceVisibleRectThenTextureSample,
+    Other,
+}
+
+impl SourceSamplingTransformStage {
+    pub const fn stable_id(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::PostHomographyPreTextureSample => "post-homography-pre-texture-sample",
+            Self::PostHomographyPreOesSample => "post-homography-pre-oes-sample",
+            Self::PostHomographyPreYuvSample => "post-homography-pre-yuv-sample",
+            Self::PostHomographyPreSourceVisibleRectThenTextureSample => {
+                "post-homography-pre-source-visible-rect-then-texture-sample"
+            }
+            Self::Other => "other",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "none" | "off" => Some(Self::None),
+            "post-homography-pre-texture-sample" | "post_homography_pre_texture_sample" => {
+                Some(Self::PostHomographyPreTextureSample)
+            }
+            "post-homography-pre-oes-sample" | "post_homography_pre_oes_sample" => {
+                Some(Self::PostHomographyPreOesSample)
+            }
+            "post-homography-pre-yuv-sample" | "post_homography_pre_yuv_sample" => {
+                Some(Self::PostHomographyPreYuvSample)
+            }
+            "post-homography-pre-source-visible-rect-then-texture-sample"
+            | "post_homography_pre_source_visible_rect_then_texture_sample" => {
+                Some(Self::PostHomographyPreSourceVisibleRectThenTextureSample)
+            }
+            "other" => Some(Self::Other),
+            _ => None,
+        }
+    }
+}
+
+/// Y-axis convention observed at the final sampler input.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SourceSamplerYAxis {
+    #[default]
+    RendererDefined,
+    SurfaceTextureTransformDefined,
+    MakepadSamplerOriginConvention,
+    Other,
+}
+
+impl SourceSamplerYAxis {
+    pub const fn stable_id(self) -> &'static str {
+        match self {
+            Self::RendererDefined => "renderer-defined",
+            Self::SurfaceTextureTransformDefined => "surface-texture-transform-defined",
+            Self::MakepadSamplerOriginConvention => "makepad-sampler-origin-convention",
+            Self::Other => "other",
+        }
+    }
+}
+
+/// Backend-neutral source-sampling contract for a resolved projection path.
+///
+/// This records how content UV becomes sampler UV. It intentionally does not
+/// include a source-kind switch; projection behavior should come from source
+/// metadata and resolved rectangles/transforms.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SourceSamplingContract {
+    pub schema_version: String,
+    pub backend: String,
+    pub mode: String,
+    pub source_eye_mapping: StereoSourceEyeMapping,
+    pub content_uv_rect: SourceUvRect,
+    pub source_visible_uv_rect: SourceUvRect,
+    pub transform_stage: SourceSamplingTransformStage,
+    pub transform_label: String,
+    pub transform_owner: String,
+    pub transform_applied: bool,
+    pub output_uv_label: String,
+    pub sampler_uv_origin: String,
+    pub sampler_y_axis: SourceSamplerYAxis,
+    pub texture_transform_stage: SourceSamplingTransformStage,
+    pub texture_transform_owner: String,
+}
+
+impl SourceSamplingContract {
+    pub fn new(
+        backend: impl Into<String>,
+        mode: impl Into<String>,
+        source_eye_mapping: StereoSourceEyeMapping,
+        transform_stage: SourceSamplingTransformStage,
+    ) -> Self {
+        Self {
+            schema_version: SOURCE_SAMPLING_CONTRACT_SCHEMA.to_string(),
+            backend: backend.into(),
+            mode: mode.into(),
+            source_eye_mapping,
+            content_uv_rect: SourceUvRect::FULL,
+            source_visible_uv_rect: SourceUvRect::FULL,
+            transform_stage,
+            transform_label: "identity".to_string(),
+            transform_owner: "renderer".to_string(),
+            transform_applied: false,
+            output_uv_label: "sampler-uv".to_string(),
+            sampler_uv_origin: "renderer-defined".to_string(),
+            sampler_y_axis: SourceSamplerYAxis::RendererDefined,
+            texture_transform_stage: SourceSamplingTransformStage::PostHomographyPreTextureSample,
+            texture_transform_owner: "renderer".to_string(),
+        }
+    }
+
+    pub const fn with_content_uv_rect(mut self, rect: SourceUvRect) -> Self {
+        self.content_uv_rect = rect;
+        self
+    }
+
+    pub const fn with_source_visible_uv_rect(mut self, rect: SourceUvRect) -> Self {
+        self.source_visible_uv_rect = rect;
+        self
+    }
+
+    pub fn with_transform(
+        mut self,
+        label: impl Into<String>,
+        owner: impl Into<String>,
+        applied: bool,
+    ) -> Self {
+        self.transform_label = label.into();
+        self.transform_owner = owner.into();
+        self.transform_applied = applied;
+        self
+    }
+
+    pub fn with_sampler(
+        mut self,
+        output_uv_label: impl Into<String>,
+        sampler_uv_origin: impl Into<String>,
+        sampler_y_axis: SourceSamplerYAxis,
+    ) -> Self {
+        self.output_uv_label = output_uv_label.into();
+        self.sampler_uv_origin = sampler_uv_origin.into();
+        self.sampler_y_axis = sampler_y_axis;
+        self
+    }
+
+    pub fn with_texture_transform(
+        mut self,
+        stage: SourceSamplingTransformStage,
+        owner: impl Into<String>,
+    ) -> Self {
+        self.texture_transform_stage = stage;
+        self.texture_transform_owner = owner.into();
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema_version == SOURCE_SAMPLING_CONTRACT_SCHEMA
+            && !self.backend.trim().is_empty()
+            && !self.mode.trim().is_empty()
+            && self.content_uv_rect.is_valid()
+            && self.source_visible_uv_rect.is_valid()
+            && !self.transform_label.trim().is_empty()
+            && !self.transform_owner.trim().is_empty()
+            && !self.output_uv_label.trim().is_empty()
+            && !self.sampler_uv_origin.trim().is_empty()
+            && !self.texture_transform_owner.trim().is_empty()
+    }
+}
+
 /// Public diagnostics for deciding whether a camera frame can be projected.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1444,6 +1660,46 @@ mod tests {
     }
 
     #[test]
+    fn source_sampling_contract_validates_metadata_driven_shape() {
+        let contract = SourceSamplingContract::new(
+            "hwb",
+            "canvas",
+            StereoSourceEyeMapping::DisplayLeftFromLeftSource,
+            SourceSamplingTransformStage::PostHomographyPreSourceVisibleRectThenTextureSample,
+        )
+        .with_source_visible_uv_rect(SourceUvRect::new(Vec2::new(0.1, 0.2), Vec2::new(0.8, 0.7)))
+        .with_transform(
+            "sourceVisibleUvRect+textureTransform",
+            "renderer-source-metadata",
+            true,
+        )
+        .with_sampler(
+            "hardware-buffer-sampler-uv",
+            "hardware-buffer-import-convention",
+            SourceSamplerYAxis::RendererDefined,
+        )
+        .with_texture_transform(
+            SourceSamplingTransformStage::PostHomographyPreTextureSample,
+            "renderer-texture-transform",
+        );
+
+        assert!(contract.is_valid());
+        assert_eq!(
+            SourceSamplingTransformStage::parse(
+                "post_homography_pre_source_visible_rect_then_texture_sample"
+            ),
+            Some(SourceSamplingTransformStage::PostHomographyPreSourceVisibleRectThenTextureSample)
+        );
+        assert_eq!(contract.sampler_y_axis.stable_id(), "renderer-defined");
+
+        let invalid = contract.with_source_visible_uv_rect(SourceUvRect::new(
+            Vec2::new(0.8, 0.0),
+            Vec2::new(0.4, 1.0),
+        ));
+        assert!(!invalid.is_valid());
+    }
+
+    #[test]
     fn stereo_source_eye_mapping_parses_public_aliases() {
         assert_eq!(
             StereoSourceEyeMapping::parse("left-right"),
@@ -1653,6 +1909,34 @@ mod tests {
             serde_json::from_str(&encoded).expect("metadata should deserialize");
 
         assert_eq!(decoded, metadata);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn source_sampling_contract_round_trips_with_serde() {
+        let contract = SourceSamplingContract::new(
+            "oes",
+            "custom",
+            StereoSourceEyeMapping::DisplayLeftFromRightSource,
+            SourceSamplingTransformStage::PostHomographyPreOesSample,
+        )
+        .with_transform("surface-texture-transform", "android-surface-texture", true)
+        .with_sampler(
+            "oes-external-sampler-uv",
+            "android-surface-texture",
+            SourceSamplerYAxis::SurfaceTextureTransformDefined,
+        )
+        .with_texture_transform(
+            SourceSamplingTransformStage::PostHomographyPreOesSample,
+            "android-surface-texture",
+        );
+
+        let encoded = serde_json::to_string(&contract).expect("source sampling should serialize");
+        let decoded: SourceSamplingContract =
+            serde_json::from_str(&encoded).expect("source sampling should deserialize");
+
+        assert_eq!(decoded, contract);
+        assert!(decoded.is_valid());
     }
 
     #[cfg(feature = "serde")]

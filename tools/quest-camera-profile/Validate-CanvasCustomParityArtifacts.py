@@ -18,6 +18,20 @@ MAPPING_SCHEMA = "rusty.xr.projection-mapping-run-record.v1"
 COORDINATE_CONTRACT_SCHEMA = "rusty.xr.projection-coordinate-contract.v1"
 SOURCE_SAMPLING_CONTRACT_SCHEMA = "rusty.xr.source-sampling-contract.v1"
 
+READY_SOURCE_SAMPLING_STRING_FIELDS = (
+    "contract",
+    "homography_output_uv",
+    "sample_input_uv",
+    "sample_transform_stage",
+    "sample_transform",
+    "sample_transform_owner",
+    "sample_output_uv",
+    "sampler_uv_origin",
+    "sampler_y_axis",
+    "texture_transform_stage",
+    "texture_transform_owner",
+)
+
 REQUIRED_EXPORTED_SCHEMAS = {
     "canvas-custom-projection-parity-suite-summary.schema.json",
     "canvas-custom-projection-parity-suite-timing-summary.schema.json",
@@ -412,7 +426,7 @@ def validate_source_sampling_contract(value: Any, path: str) -> None:
     require_version(record.get("schema_version"), f"{path}.schema_version", SOURCE_SAMPLING_CONTRACT_SCHEMA)
     require_string(record.get("suite_root"), f"{path}.suite_root")
     require_string(record.get("mode"), f"{path}.mode")
-    require_enum(record.get("status"), f"{path}.status", {"ready", "needs-evidence", "blocked"})
+    status = require_enum(record.get("status"), f"{path}.status", {"ready", "needs-evidence", "blocked"})
     for key in (
         "lane",
         "run_request",
@@ -423,8 +437,19 @@ def validate_source_sampling_contract(value: Any, path: str) -> None:
         "evidence",
     ):
         require_object(record.get(key), f"{path}.{key}")
-    for index, gap in enumerate(require_array(record.get("gaps"), f"{path}.gaps")):
+    source_sampling = require_object(record.get("source_sampling"), f"{path}.source_sampling")
+    gaps = require_array(record.get("gaps"), f"{path}.gaps")
+    for index, gap in enumerate(gaps):
         require_string(gap, f"{path}.gaps[{index}]")
+    if status == "ready":
+        if gaps:
+            raise ValidationError(f"{path}.gaps must be empty when status is ready")
+        for key in READY_SOURCE_SAMPLING_STRING_FIELDS:
+            require_string(source_sampling.get(key), f"{path}.source_sampling.{key}")
+        require_bool(
+            source_sampling.get("sample_transform_applied"),
+            f"{path}.source_sampling.sample_transform_applied",
+        )
 
 
 def validate_suite_root(suite_root: Path) -> None:
@@ -599,7 +624,20 @@ def write_self_test_fixture(root: Path) -> None:
         "source": {},
         "metadata": {},
         "texture_or_upload": {},
-        "source_sampling": {},
+        "source_sampling": {
+            "contract": "screen_to_camera_content_uv_to_hardware_buffer_sampler",
+            "homography_output_uv": "content-normalized-top-left-y-down",
+            "sample_input_uv": "screen-to-camera-homography-output",
+            "sample_transform_stage": "post_homography_pre_source_visible_rect_then_texture_sample",
+            "sample_transform": "sourceVisibleUvRect+cameraTextureTransformFlags",
+            "sample_transform_owner": "fixture-renderer",
+            "sample_transform_applied": True,
+            "sample_output_uv": "hardware-buffer-sampler-uv",
+            "sampler_uv_origin": "hardware-buffer-import-convention",
+            "sampler_y_axis": "renderer-defined",
+            "texture_transform_stage": "post_homography_pre_texture_sample",
+            "texture_transform_owner": "fixture-renderer",
+        },
         "evidence": {},
         "gaps": [],
     }

@@ -17,6 +17,37 @@ pub fn status_json() -> String {
     serde_json::to_string_pretty(&status).expect("OpenXR/GLES status should serialize")
 }
 
+fn current_android_projection_property_config<'a>(
+    pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> rusty_xr_runtime_config::RuntimeConfigAliasParse {
+    use rusty_xr_runtime_config as rxrc;
+
+    let mut config = rxrc::RuntimeConfig::new();
+    let mut aliases = Vec::new();
+    for (key, value) in pairs {
+        let Ok(alias) = rxrc::resolve_projection_runtime_key(key) else {
+            continue;
+        };
+        if alias.source != rxrc::RuntimeKeyAliasSource::AndroidProperty
+            || alias.status != rxrc::RuntimeKeyAliasStatus::Current
+        {
+            continue;
+        }
+        let Ok(parsed) = rxrc::parse_projection_runtime_pairs(
+            rxrc::RuntimeConfigSource::AndroidProperty,
+            [(key, value)],
+        ) else {
+            continue;
+        };
+        for setting in parsed.config.iter() {
+            config.insert(setting.clone());
+        }
+        aliases.extend(parsed.aliases);
+    }
+
+    rxrc::RuntimeConfigAliasParse { config, aliases }
+}
+
 #[cfg(target_os = "android")]
 mod android {
     use super::*;
@@ -478,6 +509,32 @@ mod android {
         }
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct OesProjectionRuntimeState {
+        tuning: OesProjectionTuning,
+        projection_area_offset_uv: [f32; 2],
+        projection_area_eye_offset_uv: [[f32; 2]; 2],
+        projection_area_scale: [f32; 2],
+        projection_area_radius: [f32; 2],
+        projection_area_corner_radius_uv: f32,
+        projection_area_opacity: f32,
+        projection_border_opacity: f32,
+        projection_alpha_mode: OesProjectionAlphaMode,
+        projection_alpha_scale: f32,
+        projection_alpha_bias: f32,
+        camera_projection_mode: OesCameraProjectionMode,
+        projection_border_policy: OesProjectionBorderPolicy,
+    }
+
+    impl OesProjectionRuntimeState {
+        fn with_legacy_system_properties(self) -> Self {
+            Self {
+                tuning: self.tuning.with_system_properties(),
+                ..self
+            }
+        }
+    }
+
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     enum OesProcessingLayer {
         #[default]
@@ -784,143 +841,72 @@ mod android {
         let processing_layer = processing_layer_from_activity(&app);
         let blur_radius_px = blur_radius_px_from_activity(&app);
         let base_projection_tuning = OesProjectionTuning::from_activity(&app);
-        let mut active_projection_tuning = base_projection_tuning.with_system_properties();
         let projection_area_offset_x_uv = projection_area_offset_x_uv_from_activity(&app);
         let projection_area_offset_y_uv = projection_area_offset_y_uv_from_activity(&app);
-        let mut projection_area_offset_uv =
-            [projection_area_offset_x_uv, projection_area_offset_y_uv];
-        let mut projection_area_eye_offset_uv =
-            projection_area_eye_offset_uv_from_activity(&app, projection_area_offset_uv);
-        let mut projection_area_scale = projection_area_scale_from_activity(&app);
-        let mut projection_area_radius = projection_area_radius_from_activity(&app);
-        let mut projection_area_corner_radius_uv =
-            projection_area_corner_radius_uv_from_activity(&app);
-        let mut projection_area_opacity = projection_area_opacity_from_activity(&app);
-        let mut projection_border_opacity = projection_border_opacity_from_activity(&app);
-        let mut projection_alpha_mode = projection_alpha_mode_from_activity(&app);
-        let mut projection_alpha_scale = projection_alpha_scale_from_activity(&app);
-        let mut projection_alpha_bias = projection_alpha_bias_from_activity(&app);
-        let camera_color_controls = camera_color_controls_from_activity(&app);
-        let mut camera_projection_mode = camera_projection_mode_from_activity(&app);
-        let mut projection_border_policy = projection_border_policy_from_activity(&app);
-        let projection_runtime = oes_projection_runtime_resolution(
-            base_projection_tuning,
+        let projection_area_offset_uv = [projection_area_offset_x_uv, projection_area_offset_y_uv];
+        let activity_projection_state = OesProjectionRuntimeState {
+            tuning: base_projection_tuning,
             projection_area_offset_uv,
-            projection_area_eye_offset_uv,
-            projection_area_scale,
-            projection_area_radius,
-            projection_area_corner_radius_uv,
-            projection_area_opacity,
-            projection_border_opacity,
-            projection_alpha_mode,
-            projection_alpha_scale,
-            projection_alpha_bias,
-            camera_projection_mode,
-            projection_border_policy,
-        );
+            projection_area_eye_offset_uv: projection_area_eye_offset_uv_from_activity(
+                &app,
+                projection_area_offset_uv,
+            ),
+            projection_area_scale: projection_area_scale_from_activity(&app),
+            projection_area_radius: projection_area_radius_from_activity(&app),
+            projection_area_corner_radius_uv: projection_area_corner_radius_uv_from_activity(&app),
+            projection_area_opacity: projection_area_opacity_from_activity(&app),
+            projection_border_opacity: projection_border_opacity_from_activity(&app),
+            projection_alpha_mode: projection_alpha_mode_from_activity(&app),
+            projection_alpha_scale: projection_alpha_scale_from_activity(&app),
+            projection_alpha_bias: projection_alpha_bias_from_activity(&app),
+            camera_projection_mode: camera_projection_mode_from_activity(&app),
+            projection_border_policy: projection_border_policy_from_activity(&app),
+        };
+        let camera_color_controls = camera_color_controls_from_activity(&app);
+        let projection_runtime =
+            oes_projection_runtime_resolution_from_state(activity_projection_state);
         let projection_runtime_resolution_enabled = oes_projection_runtime_resolution_enabled(&app);
-        if projection_runtime_resolution_enabled {
-            active_projection_tuning = oes_projection_tuning_from_resolution(
-                base_projection_tuning,
+        let mut projection_state = if projection_runtime_resolution_enabled {
+            oes_projection_runtime_state_from_resolution(
+                activity_projection_state,
                 &projection_runtime.resolution,
-            );
-            projection_area_offset_uv = oes_projection_area_offset_from_resolution(
-                projection_area_offset_uv,
-                &projection_runtime.resolution,
-            );
-            projection_area_eye_offset_uv = oes_projection_area_eye_offset_from_resolution(
-                projection_area_eye_offset_uv,
-                projection_area_offset_uv,
-                &projection_runtime.resolution,
-            );
-            projection_area_scale = oes_projection_area_scale_from_resolution(
-                projection_area_scale,
-                &projection_runtime.resolution,
-            );
-            projection_area_radius = oes_projection_area_radius_from_resolution(
-                projection_area_radius,
-                &projection_runtime.resolution,
-            );
-            projection_area_corner_radius_uv = oes_projection_runtime_float(
-                &projection_runtime.resolution,
-                rxrc::KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
-                projection_area_corner_radius_uv,
-                0.0,
-                0.5,
-            );
-            projection_area_opacity = oes_projection_runtime_float(
-                &projection_runtime.resolution,
-                rxrc::KEY_PROJECTION_AREA_OPACITY,
-                projection_area_opacity,
-                0.0,
-                1.0,
-            );
-            projection_border_opacity = oes_projection_runtime_float(
-                &projection_runtime.resolution,
-                rxrc::KEY_PROJECTION_BORDER_OPACITY,
-                projection_border_opacity,
-                0.0,
-                1.0,
-            );
-            projection_alpha_mode = oes_projection_runtime_text(
-                &projection_runtime.resolution,
-                rxrc::KEY_PROJECTION_ALPHA_MODE,
             )
-            .and_then(OesProjectionAlphaMode::parse)
-            .unwrap_or(projection_alpha_mode);
-            projection_alpha_scale = oes_projection_runtime_float(
-                &projection_runtime.resolution,
-                rxrc::KEY_PROJECTION_ALPHA_SCALE,
-                projection_alpha_scale,
-                0.0,
-                4.0,
-            );
-            projection_alpha_bias = oes_projection_runtime_float(
-                &projection_runtime.resolution,
-                rxrc::KEY_PROJECTION_ALPHA_BIAS,
-                projection_alpha_bias,
-                -1.0,
-                1.0,
-            );
-            camera_projection_mode = oes_projection_runtime_text(
-                &projection_runtime.resolution,
-                rxrc::KEY_CAMERA_PROJECTION_MODE,
-            )
-            .and_then(OesCameraProjectionMode::parse)
-            .unwrap_or(camera_projection_mode);
-            projection_border_policy = oes_projection_runtime_text(
-                &projection_runtime.resolution,
-                rxrc::KEY_PROJECTION_BORDER_POLICY,
-            )
-            .and_then(OesProjectionBorderPolicy::parse)
-            .unwrap_or(projection_border_policy);
-        }
+        } else {
+            activity_projection_state.with_legacy_system_properties()
+        };
         log_oes_projection_runtime_manifest(
             "startup",
             &projection_runtime,
             projection_runtime_resolution_enabled,
         );
-        let projection_depth_meters = active_projection_tuning.projection_depth_meters;
-        let projection_preview_fov_y_degrees =
-            active_projection_tuning.camera_preview_fov_y_degrees;
+        let projection_depth_meters = projection_state.tuning.projection_depth_meters;
+        let projection_preview_fov_y_degrees = projection_state.tuning.camera_preview_fov_y_degrees;
         let projection_preview_offset_y_meters =
-            active_projection_tuning.camera_preview_offset_y_meters;
-        let projection_raw_overscan = active_projection_tuning.camera_raw_overlay_overscan;
-        let projection_area_offset_x_uv = projection_area_offset_uv[0];
-        let projection_area_offset_y_uv = projection_area_offset_uv[1];
-        let projection_uses_source_alpha = projection_border_policy.needs_source_alpha(
-            projection_area_opacity,
-            projection_border_opacity,
-            projection_alpha_mode,
-        );
+            projection_state.tuning.camera_preview_offset_y_meters;
+        let projection_raw_overscan = projection_state.tuning.camera_raw_overlay_overscan;
+        let projection_area_offset_x_uv = projection_state.projection_area_offset_uv[0];
+        let projection_area_offset_y_uv = projection_state.projection_area_offset_uv[1];
+        let projection_uses_source_alpha = projection_state
+            .projection_border_policy
+            .needs_source_alpha(
+                projection_state.projection_area_opacity,
+                projection_state.projection_border_opacity,
+                projection_state.projection_alpha_mode,
+            );
         let native_passthrough_underlay_requested = projection_uses_source_alpha;
-        if active_projection_tuning != base_projection_tuning {
+        if projection_state.tuning != base_projection_tuning {
+            let tuning_source = if projection_runtime_resolution_enabled {
+                "resolved-projection-runtime"
+            } else {
+                "android-system-property"
+            };
             log_info(format!(
-                "Rusty XR OpenXR GLES projection tuning hotload source=android-system-property frame=0 projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} propertyPrefix=debug.rustyxr",
-                active_projection_tuning.projection_depth_meters,
-                active_projection_tuning.camera_preview_fov_y_degrees,
-                active_projection_tuning.camera_preview_offset_y_meters,
-                active_projection_tuning.camera_raw_overlay_overscan
+                "Rusty XR OpenXR GLES projection tuning hotload source={} frame=0 projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} propertyPrefix=debug.rustyxr",
+                tuning_source,
+                projection_state.tuning.projection_depth_meters,
+                projection_state.tuning.camera_preview_fov_y_degrees,
+                projection_state.tuning.camera_preview_offset_y_meters,
+                projection_state.tuning.camera_raw_overlay_overscan
             ));
         }
 
@@ -995,18 +981,26 @@ mod android {
             "Rusty XR OpenXR GLES runtime name={} version={}",
             properties.runtime_name, properties.runtime_version
         ));
+        // Repeat the resolved runtime manifest at lifecycle boundaries where
+        // OpenXR state has changed. The validation harness owns log capture
+        // timing; renderer cadence must not be changed just to satisfy a tail.
+        log_oes_projection_runtime_manifest(
+            "openxr-runtime",
+            &projection_runtime,
+            projection_runtime_resolution_enabled,
+        );
 
         let system = xr_instance
             .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
             .map_err(|error| format!("get HMD system: {error}"))?;
         let projection_area_target_fields = projection_area_target_marker_fields(
-            projection_area_eye_offset_uv[0],
-            projection_area_eye_offset_uv[1],
-            projection_area_radius,
-            projection_area_scale,
-            projection_alpha_mode,
-            projection_alpha_scale,
-            projection_alpha_bias,
+            projection_state.projection_area_eye_offset_uv[0],
+            projection_state.projection_area_eye_offset_uv[1],
+            projection_state.projection_area_radius,
+            projection_state.projection_area_scale,
+            projection_state.projection_alpha_mode,
+            projection_state.projection_alpha_scale,
+            projection_state.projection_alpha_bias,
             projection_depth_meters,
             projection_preview_fov_y_degrees,
             projection_preview_offset_y_meters,
@@ -1014,9 +1008,9 @@ mod android {
         );
         log_info(format!(
             "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraProjectionMode={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} oesSourceColorTransfer={} sourceColorInputEncoding={} sourceColorOutputEncoding={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
-            projection_border_policy.stable_id(),
+            projection_state.projection_border_policy.stable_id(),
             processing_layer.stable_id(),
-            camera_projection_mode.stable_id(),
+            projection_state.camera_projection_mode.stable_id(),
             blur_radius_px,
             projection_depth_meters,
             projection_preview_fov_y_degrees,
@@ -1024,20 +1018,20 @@ mod android {
             projection_raw_overscan,
             projection_area_offset_x_uv,
             projection_area_offset_y_uv,
-            projection_area_eye_offset_uv[0][0],
-            projection_area_eye_offset_uv[0][1],
-            projection_area_eye_offset_uv[1][0],
-            projection_area_eye_offset_uv[1][1],
-            projection_area_scale[0],
-            projection_area_scale[1],
-            projection_area_radius[0],
-            projection_area_radius[1],
-            projection_area_corner_radius_uv,
-            projection_area_opacity,
-            projection_border_opacity,
-            projection_alpha_mode.stable_id(),
-            projection_alpha_scale,
-            projection_alpha_bias,
+            projection_state.projection_area_eye_offset_uv[0][0],
+            projection_state.projection_area_eye_offset_uv[0][1],
+            projection_state.projection_area_eye_offset_uv[1][0],
+            projection_state.projection_area_eye_offset_uv[1][1],
+            projection_state.projection_area_scale[0],
+            projection_state.projection_area_scale[1],
+            projection_state.projection_area_radius[0],
+            projection_state.projection_area_radius[1],
+            projection_state.projection_area_corner_radius_uv,
+            projection_state.projection_area_opacity,
+            projection_state.projection_border_opacity,
+            projection_state.projection_alpha_mode.stable_id(),
+            projection_state.projection_alpha_scale,
+            projection_state.projection_alpha_bias,
             projection_area_target_fields,
             native_passthrough_underlay_requested,
             enabled_extensions.fb_passthrough,
@@ -1054,7 +1048,7 @@ mod android {
             &xr_instance,
             system,
             &mut status,
-            projection_border_policy,
+            projection_state.projection_border_policy,
             projection_uses_source_alpha,
         )?;
         let requirements = xr_instance
@@ -1091,6 +1085,11 @@ mod android {
         };
         status.state = OpenXrGlesFeasibilityState::SessionReady;
         log_status(&status);
+        log_oes_projection_runtime_manifest(
+            "session-ready",
+            &projection_runtime,
+            projection_runtime_resolution_enabled,
+        );
         let native_passthrough_underlay = if native_passthrough_underlay_requested {
             match create_openxr_gles_passthrough_underlay(&xr_instance, &session) {
                 Ok(underlay) => {
@@ -1243,73 +1242,73 @@ mod android {
                 if let Some(probe) = surface_texture_oes_probe.as_mut() {
                     probe.update_textures(&egl, frame_count);
                 }
-                let projection_tuning = if projection_runtime_resolution_enabled {
-                    let runtime = oes_projection_runtime_resolution(
-                        base_projection_tuning,
-                        projection_area_offset_uv,
-                        projection_area_eye_offset_uv,
-                        projection_area_scale,
-                        projection_area_radius,
-                        projection_area_corner_radius_uv,
-                        projection_area_opacity,
-                        projection_border_opacity,
-                        projection_alpha_mode,
-                        projection_alpha_scale,
-                        projection_alpha_bias,
-                        camera_projection_mode,
-                        projection_border_policy,
-                    );
-                    oes_projection_tuning_from_resolution(
-                        base_projection_tuning,
+                let next_projection_state = if projection_runtime_resolution_enabled {
+                    let runtime =
+                        oes_projection_runtime_resolution_from_state(activity_projection_state);
+                    oes_projection_runtime_state_from_resolution(
+                        activity_projection_state,
                         &runtime.resolution,
                     )
                 } else {
-                    base_projection_tuning.with_system_properties()
+                    activity_projection_state.with_legacy_system_properties()
                 };
-                if projection_tuning != active_projection_tuning {
-                    active_projection_tuning = projection_tuning;
+                if next_projection_state != projection_state {
                     let tuning_source = if projection_runtime_resolution_enabled {
                         "resolved-projection-runtime"
                     } else {
                         "android-system-property"
                     };
+                    projection_state = next_projection_state;
                     log_info(format!(
-                        "Rusty XR OpenXR GLES projection tuning hotload source={} frame={} projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} propertyPrefix=debug.rustyxr",
+                        "Rusty XR OpenXR GLES projection runtime hotload source={} frame={} projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} projectionAreaOffsetUv={:.6},{:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} cameraProjectionMode={} projectionBorderPolicy={} propertyPrefix=debug.rustyxr",
                         tuning_source,
                         frame_count,
-                        active_projection_tuning.projection_depth_meters,
-                        active_projection_tuning.camera_preview_fov_y_degrees,
-                        active_projection_tuning.camera_preview_offset_y_meters,
-                        active_projection_tuning.camera_raw_overlay_overscan
+                        projection_state.tuning.projection_depth_meters,
+                        projection_state.tuning.camera_preview_fov_y_degrees,
+                        projection_state.tuning.camera_preview_offset_y_meters,
+                        projection_state.tuning.camera_raw_overlay_overscan,
+                        projection_state.projection_area_offset_uv[0],
+                        projection_state.projection_area_offset_uv[1],
+                        projection_state.projection_area_scale[0],
+                        projection_state.projection_area_scale[1],
+                        projection_state.projection_area_radius[0],
+                        projection_state.projection_area_radius[1],
+                        projection_state.projection_area_opacity,
+                        projection_state.projection_border_opacity,
+                        projection_state.projection_alpha_mode.stable_id(),
+                        projection_state.projection_alpha_scale,
+                        projection_state.projection_alpha_bias,
+                        projection_state.camera_projection_mode.stable_id(),
+                        projection_state.projection_border_policy.stable_id()
                     ));
                 }
                 let projection_area_target_fields = projection_area_target_marker_fields(
-                    projection_area_eye_offset_uv[0],
-                    projection_area_eye_offset_uv[1],
-                    projection_area_radius,
-                    projection_area_scale,
-                    projection_alpha_mode,
-                    projection_alpha_scale,
-                    projection_alpha_bias,
-                    active_projection_tuning.projection_depth_meters,
-                    active_projection_tuning.camera_preview_fov_y_degrees,
-                    active_projection_tuning.camera_preview_offset_y_meters,
-                    active_projection_tuning.camera_raw_overlay_overscan,
+                    projection_state.projection_area_eye_offset_uv[0],
+                    projection_state.projection_area_eye_offset_uv[1],
+                    projection_state.projection_area_radius,
+                    projection_state.projection_area_scale,
+                    projection_state.projection_alpha_mode,
+                    projection_state.projection_alpha_scale,
+                    projection_state.projection_alpha_bias,
+                    projection_state.tuning.projection_depth_meters,
+                    projection_state.tuning.camera_preview_fov_y_degrees,
+                    projection_state.tuning.camera_preview_offset_y_meters,
+                    projection_state.tuning.camera_raw_overlay_overscan,
                 );
                 let projection_plan = surface_texture_oes_probe.as_ref().and_then(|probe| {
                     probe.projection_plan_from_xr_views(
                         &views,
-                        camera_projection_mode,
-                        projection_area_eye_offset_uv,
-                        projection_area_scale,
-                        projection_area_radius,
-                        projection_area_opacity,
-                        projection_border_policy,
-                        projection_border_opacity,
-                        active_projection_tuning.projection_depth_meters,
-                        active_projection_tuning.camera_preview_fov_y_degrees,
-                        active_projection_tuning.camera_preview_offset_y_meters,
-                        active_projection_tuning.camera_raw_overlay_overscan,
+                        projection_state.camera_projection_mode,
+                        projection_state.projection_area_eye_offset_uv,
+                        projection_state.projection_area_scale,
+                        projection_state.projection_area_radius,
+                        projection_state.projection_area_opacity,
+                        projection_state.projection_border_policy,
+                        projection_state.projection_border_opacity,
+                        projection_state.tuning.projection_depth_meters,
+                        projection_state.tuning.camera_preview_fov_y_degrees,
+                        projection_state.tuning.camera_preview_offset_y_meters,
+                        projection_state.tuning.camera_raw_overlay_overscan,
                     )
                 });
                 let openxr_projection_fields = openxr_projection_contract_fields(
@@ -1326,18 +1325,18 @@ mod android {
                     surface_texture_oes_probe.as_ref(),
                     projection_plan.as_ref(),
                     &mut oes_copy_renderer,
-                    projection_border_policy,
+                    projection_state.projection_border_policy,
                     processing_layer,
                     blur_radius_px,
-                    projection_area_eye_offset_uv,
-                    projection_area_scale,
-                    projection_area_radius,
-                    projection_area_corner_radius_uv,
-                    projection_area_opacity,
-                    projection_border_opacity,
-                    projection_alpha_mode,
-                    projection_alpha_scale,
-                    projection_alpha_bias,
+                    projection_state.projection_area_eye_offset_uv,
+                    projection_state.projection_area_scale,
+                    projection_state.projection_area_radius,
+                    projection_state.projection_area_corner_radius_uv,
+                    projection_state.projection_area_opacity,
+                    projection_state.projection_border_opacity,
+                    projection_state.projection_alpha_mode,
+                    projection_state.projection_alpha_scale,
+                    projection_state.projection_alpha_bias,
                     camera_color_controls,
                     &openxr_projection_fields,
                     &projection_area_target_fields,
@@ -5205,13 +5204,6 @@ void main() {
             .unwrap_or(default)
     }
 
-    fn android_system_property_f32_candidate(name: &str, min: f32, max: f32) -> Option<f32> {
-        android_system_property_value(name)
-            .and_then(|value| value.parse::<f32>().ok())
-            .filter(|value| value.is_finite())
-            .map(|value| value.clamp(min, max))
-    }
-
     fn log_oes_projection_runtime_manifest(
         phase: &str,
         runtime: &rxrc::ProjectionRuntimeConfigResolution,
@@ -5230,6 +5222,39 @@ void main() {
             },
             resolved_manifest_consumption_enabled
         ));
+    }
+
+    fn oes_current_android_projection_property_values() -> Vec<(&'static str, String)> {
+        rxrc::PROJECTION_RUNTIME_KEY_ALIASES
+            .iter()
+            .filter(|alias| {
+                alias.source == rxrc::RuntimeKeyAliasSource::AndroidProperty
+                    && alias.status == rxrc::RuntimeKeyAliasStatus::Current
+            })
+            .filter_map(|alias| {
+                android_system_property_value(alias.alias).map(|value| (alias.alias, value))
+            })
+            .collect()
+    }
+
+    fn oes_projection_runtime_resolution_from_state(
+        state: OesProjectionRuntimeState,
+    ) -> rxrc::ProjectionRuntimeConfigResolution {
+        oes_projection_runtime_resolution(
+            state.tuning,
+            state.projection_area_offset_uv,
+            state.projection_area_eye_offset_uv,
+            state.projection_area_scale,
+            state.projection_area_radius,
+            state.projection_area_corner_radius_uv,
+            state.projection_area_opacity,
+            state.projection_border_opacity,
+            state.projection_alpha_mode,
+            state.projection_alpha_scale,
+            state.projection_alpha_bias,
+            state.camera_projection_mode,
+            state.projection_border_policy,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -5285,35 +5310,11 @@ void main() {
             projection_border_policy,
             rxrc::RuntimeConfigSource::CommandLine,
         );
-        let mut properties = rxrc::RuntimeConfig::new();
-        let mut aliases = Vec::new();
-        push_property_float(
-            &mut properties,
-            &mut aliases,
-            OES_TUNING_PROP_PROJECTION_DEPTH_METERS,
-            0.05,
-            10.0,
-        );
-        push_property_float(
-            &mut properties,
-            &mut aliases,
-            OES_TUNING_PROP_CAMERA_PREVIEW_FOV_Y_DEGREES,
-            1.0,
-            175.0,
-        );
-        push_property_float(
-            &mut properties,
-            &mut aliases,
-            OES_TUNING_PROP_CAMERA_PREVIEW_OFFSET_Y_METERS,
-            -2.0,
-            2.0,
-        );
-        push_property_float(
-            &mut properties,
-            &mut aliases,
-            OES_TUNING_PROP_CAMERA_RAW_OVERLAY_OVERSCAN,
-            1.0,
-            16.0,
+        let property_values = oes_current_android_projection_property_values();
+        let property_parse = current_android_projection_property_config(
+            property_values
+                .iter()
+                .map(|(key, value)| (*key, value.as_str())),
         );
 
         rxrc::ProjectionRuntimeConfigBuilder::new()
@@ -5321,9 +5322,9 @@ void main() {
             .expect("manifest owner should be valid")
             .with_layer("oes-activity-effective", 10, activity)
             .expect("manifest owner should be valid")
-            .with_layer("oes-android-properties", 20, properties)
+            .with_layer("oes-android-properties", 20, property_parse.config)
             .expect("manifest owner should be valid")
-            .with_aliases(aliases)
+            .with_aliases(property_parse.aliases)
             .resolve()
     }
 
@@ -5354,6 +5355,86 @@ void main() {
 
     fn oes_projection_runtime_bool(value: &str) -> Option<bool> {
         rxrc::RuntimeValue::parse_typed(value).as_bool()
+    }
+
+    fn oes_projection_runtime_state_from_resolution(
+        fallback: OesProjectionRuntimeState,
+        resolution: &rxrc::RuntimeConfigResolution,
+    ) -> OesProjectionRuntimeState {
+        let projection_area_offset_uv = oes_projection_area_offset_from_resolution(
+            fallback.projection_area_offset_uv,
+            resolution,
+        );
+        OesProjectionRuntimeState {
+            tuning: oes_projection_tuning_from_resolution(fallback.tuning, resolution),
+            projection_area_offset_uv,
+            projection_area_eye_offset_uv: oes_projection_area_eye_offset_from_resolution(
+                fallback.projection_area_eye_offset_uv,
+                projection_area_offset_uv,
+                resolution,
+            ),
+            projection_area_scale: oes_projection_area_scale_from_resolution(
+                fallback.projection_area_scale,
+                resolution,
+            ),
+            projection_area_radius: oes_projection_area_radius_from_resolution(
+                fallback.projection_area_radius,
+                resolution,
+            ),
+            projection_area_corner_radius_uv: oes_projection_runtime_float(
+                resolution,
+                rxrc::KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
+                fallback.projection_area_corner_radius_uv,
+                0.0,
+                0.5,
+            ),
+            projection_area_opacity: oes_projection_runtime_float(
+                resolution,
+                rxrc::KEY_PROJECTION_AREA_OPACITY,
+                fallback.projection_area_opacity,
+                0.0,
+                1.0,
+            ),
+            projection_border_opacity: oes_projection_runtime_float(
+                resolution,
+                rxrc::KEY_PROJECTION_BORDER_OPACITY,
+                fallback.projection_border_opacity,
+                0.0,
+                1.0,
+            ),
+            projection_alpha_mode: oes_projection_runtime_text(
+                resolution,
+                rxrc::KEY_PROJECTION_ALPHA_MODE,
+            )
+            .and_then(OesProjectionAlphaMode::parse)
+            .unwrap_or(fallback.projection_alpha_mode),
+            projection_alpha_scale: oes_projection_runtime_float(
+                resolution,
+                rxrc::KEY_PROJECTION_ALPHA_SCALE,
+                fallback.projection_alpha_scale,
+                0.0,
+                4.0,
+            ),
+            projection_alpha_bias: oes_projection_runtime_float(
+                resolution,
+                rxrc::KEY_PROJECTION_ALPHA_BIAS,
+                fallback.projection_alpha_bias,
+                -1.0,
+                1.0,
+            ),
+            camera_projection_mode: oes_projection_runtime_text(
+                resolution,
+                rxrc::KEY_CAMERA_PROJECTION_MODE,
+            )
+            .and_then(OesCameraProjectionMode::parse)
+            .unwrap_or(fallback.camera_projection_mode),
+            projection_border_policy: oes_projection_runtime_text(
+                resolution,
+                rxrc::KEY_PROJECTION_BORDER_POLICY,
+            )
+            .and_then(OesProjectionBorderPolicy::parse)
+            .unwrap_or(fallback.projection_border_policy),
+        }
     }
 
     fn oes_projection_tuning_from_resolution(
@@ -5419,7 +5500,7 @@ void main() {
         global_offset_uv: [f32; 2],
         resolution: &rxrc::RuntimeConfigResolution,
     ) -> [[f32; 2]; 2] {
-        [
+        let resolved = [
             [
                 oes_projection_runtime_optional_float(
                     resolution,
@@ -5452,15 +5533,19 @@ void main() {
                 )
                 .unwrap_or(global_offset_uv[1]),
             ],
+        ];
+        [
+            sanitize_projection_eye_offset(resolved[0], fallback[0]),
+            sanitize_projection_eye_offset(resolved[1], fallback[1]),
         ]
-        .map(|eye| [eye[0].clamp(-0.5, 0.5), eye[1].clamp(-0.5, 0.5)])
-        .map(|eye| {
-            if eye[0].is_finite() && eye[1].is_finite() {
-                eye
-            } else {
-                fallback[0]
-            }
-        })
+    }
+
+    fn sanitize_projection_eye_offset(value: [f32; 2], fallback: [f32; 2]) -> [f32; 2] {
+        if value[0].is_finite() && value[1].is_finite() {
+            [value[0].clamp(-0.5, 0.5), value[1].clamp(-0.5, 0.5)]
+        } else {
+            fallback
+        }
     }
 
     fn oes_projection_area_scale_from_resolution(
@@ -5700,26 +5785,6 @@ void main() {
             source,
         );
         config
-    }
-
-    fn push_property_float(
-        config: &mut rxrc::RuntimeConfig,
-        aliases: &mut Vec<rxrc::RuntimeKeyAliasRecord>,
-        alias_key: &'static str,
-        min: f32,
-        max: f32,
-    ) {
-        let Some(value) = android_system_property_f32_candidate(alias_key, min, max) else {
-            return;
-        };
-        if let Ok(alias) = rxrc::resolve_projection_runtime_key(alias_key) {
-            config.insert(rxrc::RuntimeSetting::new(
-                alias.canonical_key.clone(),
-                rxrc::RuntimeValue::Float(f64::from(value)),
-                rxrc::RuntimeConfigSource::AndroidProperty,
-            ));
-            aliases.push(alias);
-        }
     }
 
     fn set_public_text(
@@ -7035,7 +7100,8 @@ void main() {
 
 #[cfg(test)]
 mod tests {
-    use super::status_json;
+    use super::{current_android_projection_property_config, status_json};
+    use rusty_xr_runtime_config as rxrc;
 
     #[test]
     fn status_json_uses_public_schema() {
@@ -7043,5 +7109,86 @@ mod tests {
 
         assert!(json.contains("rusty.xr.quest.openxr_gles_feasibility.v1"));
         assert!(json.contains("XR_KHR_opengl_es_enable"));
+    }
+
+    #[test]
+    fn current_android_projection_properties_cover_canonical_surface() {
+        let parsed = current_android_projection_property_config([
+            ("debug.rustyxr.projection.depth.meters", "1.75"),
+            ("debug.rustyxr.projection.area.radius.x.uv", "0.42"),
+            ("debug.rustyxr.projection.border.policy", "solid-red"),
+            ("debug.rustyxr.projection.alpha.mode", "source-alpha"),
+            ("debug.rustyxr.source.visible.rect.width.uv", "0.875"),
+            ("debug.rustyxr.source.eye.mapping", "right-left"),
+            ("debug.rustyxr.source.texture.transform.source", "metadata"),
+        ]);
+
+        assert_eq!(
+            parsed.config.get(rxrc::KEY_PROJECTION_DEPTH_METERS),
+            Some(&rxrc::RuntimeValue::Float(1.75))
+        );
+        assert_eq!(
+            parsed.config.get(rxrc::KEY_PROJECTION_AREA_RADIUS_X_UV),
+            Some(&rxrc::RuntimeValue::Float(0.42))
+        );
+        assert_eq!(
+            parsed.config.get(rxrc::KEY_PROJECTION_BORDER_POLICY),
+            Some(&rxrc::RuntimeValue::Text("solid-red".to_string()))
+        );
+        assert_eq!(
+            parsed.config.get(rxrc::KEY_PROJECTION_ALPHA_MODE),
+            Some(&rxrc::RuntimeValue::Text("source-alpha".to_string()))
+        );
+        assert_eq!(
+            parsed.config.get(rxrc::KEY_SOURCE_VISIBLE_RECT_WIDTH_UV),
+            Some(&rxrc::RuntimeValue::Float(0.875))
+        );
+        assert_eq!(
+            parsed.config.get(rxrc::KEY_SOURCE_EYE_MAPPING),
+            Some(&rxrc::RuntimeValue::Text("right-left".to_string()))
+        );
+        assert_eq!(
+            parsed.config.get(rxrc::KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE),
+            Some(&rxrc::RuntimeValue::Text("metadata".to_string()))
+        );
+        assert_eq!(parsed.aliases.len(), 7);
+    }
+
+    #[test]
+    fn current_android_projection_properties_reject_legacy_makepad_aliases() {
+        let parsed = current_android_projection_property_config([
+            (
+                "debug.rustyxr.makepad.projection.area.offset.left.uv",
+                "0.125",
+            ),
+            ("debug.rustyxr.projection.area.left.offset.x.uv", "0.25"),
+        ]);
+
+        assert_eq!(
+            parsed
+                .config
+                .get(rxrc::KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV),
+            Some(&rxrc::RuntimeValue::Float(0.25))
+        );
+        assert_eq!(parsed.aliases.len(), 1);
+        assert_eq!(
+            parsed.aliases[0].status,
+            rxrc::RuntimeKeyAliasStatus::Current
+        );
+    }
+
+    #[test]
+    fn current_android_projection_properties_ignore_invalid_values() {
+        let parsed = current_android_projection_property_config([
+            ("debug.rustyxr.projection.depth.meters", "not-a-number"),
+            ("debug.rustyxr.projection.area.radius.x.uv", "0.42"),
+        ]);
+
+        assert_eq!(parsed.config.get(rxrc::KEY_PROJECTION_DEPTH_METERS), None);
+        assert_eq!(
+            parsed.config.get(rxrc::KEY_PROJECTION_AREA_RADIUS_X_UV),
+            Some(&rxrc::RuntimeValue::Float(0.42))
+        );
+        assert_eq!(parsed.aliases.len(), 1);
     }
 }

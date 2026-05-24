@@ -67,7 +67,7 @@ param(
     [string]$ProjectionAlphaMode = "fixed",
     [double]$ProjectionAlphaScale = 1.0,
     [double]$ProjectionAlphaBias = 0.0,
-    [switch]$UseResolvedProjectionRuntime,
+    [switch]$UseResolvedProjectionRuntime = $true,
     [switch]$MediaProjection,
     [int]$MediaProjectionPort = 8787,
     [int]$MediaProjectionWidth = 512,
@@ -279,6 +279,7 @@ function Invoke-ProjectionRuntimeReadbackValidation {
     $validatorArgs = @(
         $projectionRuntimeReadbackValidator,
         "--expected-source", "android-property",
+        "--expected-backend", "makepad",
         "--out", $outPath
     )
     foreach ($propertyPath in @(
@@ -468,13 +469,7 @@ function Set-MakepadProjectionTargetProfile {
     $previewOffsetYMeters = if ([double]::IsNaN($CameraPreviewOffsetYMeters)) { 0.0 } else { $CameraPreviewOffsetYMeters }
     $rawOverlayOverscan = if ([double]::IsNaN($CameraRawOverlayOverscan)) { 1.06 } else { $CameraRawOverlayOverscan }
     $props = [ordered]@{
-        "debug.rustyxr.makepad.projection.border.policy" = $ProjectionBorderPolicy
         "debug.rustyxr.makepad.native.passthrough.enabled" = $nativePassthrough
-        "debug.rustyxr.makepad.projection.border.opacity" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
-        "debug.rustyxr.makepad.projection.area.opacity" = (Format-InvariantDouble -Value $ProjectionAreaOpacity)
-        "debug.rustyxr.makepad.projection.alpha.mode" = $ProjectionAlphaMode
-        "debug.rustyxr.makepad.projection.alpha.scale" = (Format-InvariantDouble -Value $ProjectionAlphaScale)
-        "debug.rustyxr.makepad.projection.alpha.bias" = (Format-InvariantDouble -Value $ProjectionAlphaBias)
         "debug.rustyxr.makepad.projection.runtime.resolution.enabled" = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
         "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
@@ -500,14 +495,6 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.projection.alpha.mode" = $ProjectionAlphaMode
         "debug.rustyxr.projection.alpha.scale" = (Format-InvariantDouble -Value $ProjectionAlphaScale)
         "debug.rustyxr.projection.alpha.bias" = (Format-InvariantDouble -Value $ProjectionAlphaBias)
-        "debug.rustyxr.makepad.projection.area.offset.left.uv" = (Format-InvariantDouble -Value $offsetLeftUv)
-        "debug.rustyxr.makepad.projection.area.offset.right.uv" = (Format-InvariantDouble -Value $offsetRightUv)
-        "debug.rustyxr.makepad.projection.area.offset.vertical.uv" = (Format-InvariantDouble -Value $offsetVerticalUv)
-        "debug.rustyxr.makepad.projection.area.scale.x" = (Format-InvariantDouble -Value $ProjectionAreaScaleX)
-        "debug.rustyxr.makepad.projection.area.scale.y" = (Format-InvariantDouble -Value $ProjectionAreaScaleY)
-        "debug.rustyxr.makepad.projection.area.radius.x.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusXUv)
-        "debug.rustyxr.makepad.projection.area.radius.y.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusYUv)
-        "debug.rustyxr.makepad.projection.area.corner.radius.uv" = (Format-InvariantDouble -Value $ProjectionAreaCornerRadiusUv)
     }
 
     foreach ($entry in $props.GetEnumerator()) {

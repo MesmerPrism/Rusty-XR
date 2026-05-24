@@ -135,7 +135,13 @@ function Invoke-RustyXrProjectionPropertyHygiene {
     $cleared = @()
     if ($Mode -eq "clear") {
         foreach ($entry in $staleBefore) {
-            Invoke-RustyXrProjectionPropertyHygieneAdb -Adb $Adb -Serial $Serial -Arguments @("shell", "setprop", $entry.property, "") | Out-Null
+            if ($entry.property -notmatch '^[A-Za-z0-9_.-]+$') {
+                throw "Refusing to clear invalid Android property name '$($entry.property)'."
+            }
+            # Android setprop requires a non-empty VALUE argument. A single
+            # space is accepted by setprop and is trimmed to empty by the
+            # hygiene reader and runtime property parsers.
+            Invoke-RustyXrProjectionPropertyHygieneAdb -Adb $Adb -Serial $Serial -Arguments @("shell", "setprop $($entry.property) ' '") | Out-Null
             $cleared += $entry.property
         }
     }

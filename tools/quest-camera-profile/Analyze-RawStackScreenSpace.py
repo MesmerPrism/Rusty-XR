@@ -3138,10 +3138,13 @@ def projection_coordinate_gaps(
     for key in (
         "contract",
         "homography_output_uv",
+        "sample_input_uv",
         "sample_transform_stage",
         "sample_transform",
         "sample_transform_owner",
         "sample_output_uv",
+        "texture_transform_stage",
+        "texture_transform_owner",
     ):
         if source_sampling.get(key) in (None, "", "unknown", "not-logged"):
             gaps.append(f"source-sampling-{key.replace('_', '-')}-not-logged")
@@ -3385,7 +3388,10 @@ def source_sampling_status_from_gaps(gaps: list[str]) -> str:
         "source-sampling-sample-transform-stage-not-logged",
         "source-sampling-sample-transform-not-logged",
         "source-sampling-sample-transform-owner-not-logged",
+        "source-sampling-sample-input-uv-not-logged",
         "source-sampling-sample-output-uv-not-logged",
+        "source-sampling-texture-transform-stage-not-logged",
+        "source-sampling-texture-transform-owner-not-logged",
     }
     if any(gap in blocking for gap in gaps):
         return "blocked"
