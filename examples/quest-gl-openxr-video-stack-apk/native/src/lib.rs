@@ -67,9 +67,9 @@ mod android {
         head_anchored_preview_surface_corners, invert_homography, rect_xywh,
         scale_intrinsics_to_image, screen_to_camera_uv_homography, surface_to_camera_uv_homography,
         surface_to_eye_screen_uv_homography, uv_rect_token, CameraBasis, CameraExtrinsics,
-        CameraIntrinsics, ColorRgba, FeedPlacementDescriptor, ImageSize, PerEyeVideoProjectionPlan,
+        CameraIntrinsics, ColorRgba, ImageSize, PerEyeVideoProjectionPlan,
         ProjectionBorderDescriptor, ProjectionBorderFillPolicy, Quat, Rect2, TrackingBasis, Vec2,
-        Vec3, VideoProjectionMapping,
+        Vec3,
     };
     use rusty_xr_contracts::{
         Eye, InvalidProjectionFillPolicy, ProjectionStageKind, ProjectionStageTokenRow,
@@ -99,6 +99,7 @@ mod android {
         array_rect_xywh, expected_source_valid_footprint_fields, openxr_projection_contract_fields,
         projected_footprint_summary, projection_area_screen_uv_rect,
         projection_area_target_marker_fields, raw_copy_footprint_summary,
+        shared_per_eye_projection_plan,
     };
     use projection_runtime::{
         log_oes_projection_runtime_manifest, oes_projection_runtime_resolution_enabled,
@@ -165,7 +166,6 @@ mod android {
     const PROJECTION_PREVIEW_FOV_Y_DEGREES: f32 = 60.0;
     const PROJECTION_RAW_OVERSCAN: f32 = 1.06;
     const PROJECTION_SOURCE_ASPECT: f32 = 1.0;
-    const PROJECTION_FOOTPRINT_GRID: usize = 64;
 
     fn diagnostic_blur_source_texel_size() -> [f32; 2] {
         [
@@ -4178,60 +4178,6 @@ void main() {
             *corner = *corner + offset;
         }
         Some(surface)
-    }
-
-    fn shared_projection_mapping(mode: OesContentMappingMode) -> VideoProjectionMapping {
-        match mode {
-            OesContentMappingMode::CameraProjection => {
-                VideoProjectionMapping::ScreenToSourceHomography
-            }
-            OesContentMappingMode::FullFrameStimulusToProjectionArea => {
-                VideoProjectionMapping::FullFrameSurface
-            }
-            OesContentMappingMode::FullFrameStimulusToSurfaceHomography => {
-                VideoProjectionMapping::SurfaceToSourceHomography
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn shared_per_eye_projection_plan(
-        eye: Eye,
-        content_mapping_mode: OesContentMappingMode,
-        surface_to_screen_h: [[f32; 3]; 3],
-        screen_to_surface_h: [[f32; 3]; 3],
-        surface_to_camera_h: [[f32; 3]; 3],
-        screen_to_camera_h: [[f32; 3]; 3],
-        projection_area_offset_uv: [f32; 2],
-        projection_area_scale: [f32; 2],
-        projection_area_radius: [f32; 2],
-        projection_area_opacity: f32,
-        projection_border_policy: OesProjectionBorderPolicy,
-        projection_border_opacity: f32,
-        source_valid_uv_rect: Rect2,
-    ) -> Option<PerEyeVideoProjectionPlan> {
-        let feed_rect = array_rect_xywh(projection_area_screen_uv_rect(
-            projection_area_offset_uv,
-            projection_area_radius,
-            projection_area_scale,
-        ));
-        let feed = FeedPlacementDescriptor::new(
-            Rect2::UNIT,
-            feed_rect,
-            projection_area_opacity.clamp(0.0, 1.0),
-        );
-        PerEyeVideoProjectionPlan::from_homographies(
-            eye,
-            shared_projection_mapping(content_mapping_mode),
-            surface_to_screen_h,
-            screen_to_surface_h,
-            surface_to_camera_h,
-            screen_to_camera_h,
-            feed,
-            source_valid_uv_rect,
-            projection_border_policy.shared_descriptor(projection_border_opacity),
-            PROJECTION_FOOTPRINT_GRID,
-        )
     }
 
     fn broker_synthetic_projection_plan_from_xr_views(

@@ -1,11 +1,17 @@
 use openxr as xr;
-use rusty_xr_camera_model::{Rect2, Vec2};
+use rusty_xr_camera_model::{
+    FeedPlacementDescriptor, PerEyeVideoProjectionPlan, Rect2, Vec2, VideoProjectionMapping,
+};
 use rusty_xr_contracts::{
     Eye, InvalidProjectionFillPolicy, ProjectionFootprintRowSpan, ProjectionFootprintSummary,
     ProjectionGuideDomain,
 };
 
-use super::{OesEyeProjection, OesProjectionAlphaMode, OesProjectionBorderPolicy};
+use super::{
+    OesContentMappingMode, OesEyeProjection, OesProjectionAlphaMode, OesProjectionBorderPolicy,
+};
+
+const PROJECTION_FOOTPRINT_GRID: usize = 64;
 
 pub(super) fn projected_footprint_summary(
     projection: &OesEyeProjection,
@@ -57,6 +63,58 @@ pub(super) fn raw_copy_footprint_summary(frame_count: u64) -> ProjectionFootprin
 
 pub(super) fn array_rect_xywh(rect: [f32; 4]) -> Rect2 {
     Rect2::new(Vec2::new(rect[0], rect[1]), Vec2::new(rect[2], rect[3]))
+}
+
+pub(super) fn shared_projection_mapping(mode: OesContentMappingMode) -> VideoProjectionMapping {
+    match mode {
+        OesContentMappingMode::CameraProjection => VideoProjectionMapping::ScreenToSourceHomography,
+        OesContentMappingMode::FullFrameStimulusToProjectionArea => {
+            VideoProjectionMapping::FullFrameSurface
+        }
+        OesContentMappingMode::FullFrameStimulusToSurfaceHomography => {
+            VideoProjectionMapping::SurfaceToSourceHomography
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn shared_per_eye_projection_plan(
+    eye: Eye,
+    content_mapping_mode: OesContentMappingMode,
+    surface_to_screen_h: [[f32; 3]; 3],
+    screen_to_surface_h: [[f32; 3]; 3],
+    surface_to_camera_h: [[f32; 3]; 3],
+    screen_to_camera_h: [[f32; 3]; 3],
+    projection_area_offset_uv: [f32; 2],
+    projection_area_scale: [f32; 2],
+    projection_area_radius: [f32; 2],
+    projection_area_opacity: f32,
+    projection_border_policy: OesProjectionBorderPolicy,
+    projection_border_opacity: f32,
+    source_valid_uv_rect: Rect2,
+) -> Option<PerEyeVideoProjectionPlan> {
+    let feed_rect = array_rect_xywh(projection_area_screen_uv_rect(
+        projection_area_offset_uv,
+        projection_area_radius,
+        projection_area_scale,
+    ));
+    let feed = FeedPlacementDescriptor::new(
+        Rect2::UNIT,
+        feed_rect,
+        projection_area_opacity.clamp(0.0, 1.0),
+    );
+    PerEyeVideoProjectionPlan::from_homographies(
+        eye,
+        shared_projection_mapping(content_mapping_mode),
+        surface_to_screen_h,
+        screen_to_surface_h,
+        surface_to_camera_h,
+        screen_to_camera_h,
+        feed,
+        source_valid_uv_rect,
+        projection_border_policy.shared_descriptor(projection_border_opacity),
+        PROJECTION_FOOTPRINT_GRID,
+    )
 }
 
 pub(super) fn projection_area_screen_uv_rect(
