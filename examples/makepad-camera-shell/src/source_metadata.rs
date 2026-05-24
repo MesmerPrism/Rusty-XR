@@ -433,39 +433,156 @@ impl BrokerH264ProjectionMetadata {
     }
 }
 
+#[derive(Clone, Debug)]
+struct ContentGeometryRecord {
+    kind: String,
+    width: u32,
+    height: u32,
+    aspect_ratio: f64,
+    desired_display_aspect_ratio: f64,
+    desired_projection_aspect_ratio: f64,
+    coordinate_space: String,
+    origin: String,
+    x_axis: String,
+    y_axis: String,
+    mapping_intent: String,
+    metadata_source: String,
+    metadata_default: bool,
+}
+
+impl ContentGeometryRecord {
+    fn from_broker_metadata(metadata: &BrokerH264ProjectionMetadata) -> Self {
+        Self {
+            kind: metadata.content_kind.clone(),
+            width: metadata.content_width,
+            height: metadata.content_height,
+            aspect_ratio: metadata.content_aspect_ratio,
+            desired_display_aspect_ratio: metadata.desired_display_aspect_ratio,
+            desired_projection_aspect_ratio: metadata.desired_projection_aspect_ratio,
+            coordinate_space: metadata.content_coordinate_space.clone(),
+            origin: metadata.content_origin.clone(),
+            x_axis: metadata.content_x_axis.clone(),
+            y_axis: metadata.content_y_axis.clone(),
+            mapping_intent: metadata.content_mapping_intent.clone(),
+            metadata_source: metadata.content_geometry_metadata_source.clone(),
+            metadata_default: metadata.content_geometry_default,
+        }
+    }
+
+    fn direct_camera2(width: u32, height: u32, mapping_intent: &str) -> Self {
+        let aspect_ratio = aspect_ratio_u32(width, height);
+        Self {
+            kind: "camera-frame".to_string(),
+            width,
+            height,
+            aspect_ratio,
+            desired_display_aspect_ratio: aspect_ratio,
+            desired_projection_aspect_ratio: aspect_ratio,
+            coordinate_space: "normalized-uv".to_string(),
+            origin: "top-left".to_string(),
+            x_axis: "right".to_string(),
+            y_axis: "down".to_string(),
+            mapping_intent: mapping_intent.to_string(),
+            metadata_source: "makepad-direct-camera2-import".to_string(),
+            metadata_default: false,
+        }
+    }
+
+    fn missing_broker() -> Self {
+        Self {
+            kind: "default-fallback".to_string(),
+            width: 0,
+            height: 0,
+            aspect_ratio: 1.0,
+            desired_display_aspect_ratio: 1.0,
+            desired_projection_aspect_ratio: 1.0,
+            coordinate_space: "normalized-uv".to_string(),
+            origin: "top-left".to_string(),
+            x_axis: "right".to_string(),
+            y_axis: "down".to_string(),
+            mapping_intent: "standard-missing-metadata-fallback".to_string(),
+            metadata_source: "missing".to_string(),
+            metadata_default: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct StereoContentGeometryRecord {
+    left: ContentGeometryRecord,
+    right: ContentGeometryRecord,
+    fallback_reason: &'static str,
+}
+
+impl StereoContentGeometryRecord {
+    fn from_broker_pair(
+        left: &BrokerH264ProjectionMetadata,
+        right: &BrokerH264ProjectionMetadata,
+    ) -> Self {
+        Self {
+            left: ContentGeometryRecord::from_broker_metadata(left),
+            right: ContentGeometryRecord::from_broker_metadata(right),
+            fallback_reason: "none",
+        }
+    }
+
+    fn direct_camera2(width: u32, height: u32, mapping_intent: &str) -> Self {
+        let left = ContentGeometryRecord::direct_camera2(width, height, mapping_intent);
+        Self {
+            right: left.clone(),
+            left,
+            fallback_reason: "none",
+        }
+    }
+
+    fn missing_broker() -> Self {
+        let left = ContentGeometryRecord::missing_broker();
+        Self {
+            right: left.clone(),
+            left,
+            fallback_reason: "broker-h264-content-geometry-metadata-missing",
+        }
+    }
+
+    fn marker_fields(&self) -> String {
+        format!(
+            "leftContentKind={} rightContentKind={} leftContentWidth={} leftContentHeight={} rightContentWidth={} rightContentHeight={} leftContentAspectRatio={:.6} rightContentAspectRatio={:.6} leftDesiredDisplayAspectRatio={:.6} rightDesiredDisplayAspectRatio={:.6} leftDesiredProjectionAspectRatio={:.6} rightDesiredProjectionAspectRatio={:.6} leftContentCoordinateSpace={} rightContentCoordinateSpace={} leftContentOrigin={} rightContentOrigin={} leftContentXAxis={} rightContentXAxis={} leftContentYAxis={} rightContentYAxis={} leftContentMappingIntent={} rightContentMappingIntent={} leftContentGeometryMetadataSource={} rightContentGeometryMetadataSource={} leftContentGeometryDefault={} rightContentGeometryDefault={} contentGeometryFallbackReason={}",
+            marker_token(&self.left.kind),
+            marker_token(&self.right.kind),
+            self.left.width,
+            self.left.height,
+            self.right.width,
+            self.right.height,
+            self.left.aspect_ratio,
+            self.right.aspect_ratio,
+            self.left.desired_display_aspect_ratio,
+            self.right.desired_display_aspect_ratio,
+            self.left.desired_projection_aspect_ratio,
+            self.right.desired_projection_aspect_ratio,
+            marker_token(&self.left.coordinate_space),
+            marker_token(&self.right.coordinate_space),
+            marker_token(&self.left.origin),
+            marker_token(&self.right.origin),
+            marker_token(&self.left.x_axis),
+            marker_token(&self.right.x_axis),
+            marker_token(&self.left.y_axis),
+            marker_token(&self.right.y_axis),
+            marker_token(&self.left.mapping_intent),
+            marker_token(&self.right.mapping_intent),
+            marker_token(&self.left.metadata_source),
+            marker_token(&self.right.metadata_source),
+            self.left.metadata_default,
+            self.right.metadata_default,
+            self.fallback_reason,
+        )
+    }
+}
+
 pub(crate) fn broker_pair_content_geometry_marker_fields(
     left: &BrokerH264ProjectionMetadata,
     right: &BrokerH264ProjectionMetadata,
 ) -> String {
-    format!(
-        "leftContentKind={} rightContentKind={} leftContentWidth={} leftContentHeight={} rightContentWidth={} rightContentHeight={} leftContentAspectRatio={:.6} rightContentAspectRatio={:.6} leftDesiredDisplayAspectRatio={:.6} rightDesiredDisplayAspectRatio={:.6} leftDesiredProjectionAspectRatio={:.6} rightDesiredProjectionAspectRatio={:.6} leftContentCoordinateSpace={} rightContentCoordinateSpace={} leftContentOrigin={} rightContentOrigin={} leftContentXAxis={} rightContentXAxis={} leftContentYAxis={} rightContentYAxis={} leftContentMappingIntent={} rightContentMappingIntent={} leftContentGeometryMetadataSource={} rightContentGeometryMetadataSource={} leftContentGeometryDefault={} rightContentGeometryDefault={} contentGeometryFallbackReason=none",
-        marker_token(&left.content_kind),
-        marker_token(&right.content_kind),
-        left.content_width,
-        left.content_height,
-        right.content_width,
-        right.content_height,
-        left.content_aspect_ratio,
-        right.content_aspect_ratio,
-        left.desired_display_aspect_ratio,
-        right.desired_display_aspect_ratio,
-        left.desired_projection_aspect_ratio,
-        right.desired_projection_aspect_ratio,
-        marker_token(&left.content_coordinate_space),
-        marker_token(&right.content_coordinate_space),
-        marker_token(&left.content_origin),
-        marker_token(&right.content_origin),
-        marker_token(&left.content_x_axis),
-        marker_token(&right.content_x_axis),
-        marker_token(&left.content_y_axis),
-        marker_token(&right.content_y_axis),
-        marker_token(&left.content_mapping_intent),
-        marker_token(&right.content_mapping_intent),
-        marker_token(&left.content_geometry_metadata_source),
-        marker_token(&right.content_geometry_metadata_source),
-        left.content_geometry_default,
-        right.content_geometry_default,
-    )
+    StereoContentGeometryRecord::from_broker_pair(left, right).marker_fields()
 }
 
 pub(crate) fn normalize_direct_camera_projection_geometry_profile(value: &str) -> String {
@@ -491,7 +608,6 @@ pub(crate) fn direct_camera2_content_geometry_marker_fields(
 ) -> String {
     let content_width = u32::try_from(width).unwrap_or(0);
     let content_height = u32::try_from(height).unwrap_or(0);
-    let aspect_ratio = aspect_ratio_u32(content_width, content_height);
     let projection_geometry_profile =
         normalize_direct_camera_projection_geometry_profile(projection_geometry_profile);
     let content_mapping_intent = match projection_geometry_profile.as_str() {
@@ -499,27 +615,18 @@ pub(crate) fn direct_camera2_content_geometry_marker_fields(
         "camera-projection" => "map-camera-frame-through-screen-to-camera-homography",
         _ => "unsupported-direct-camera-projection-geometry-profile",
     };
+    let content_geometry =
+        StereoContentGeometryRecord::direct_camera2(content_width, content_height, content_mapping_intent);
     format!(
-        "projectionGeometryProfile={} geometry_profile={} leftContentKind=camera-frame rightContentKind=camera-frame leftContentWidth={} leftContentHeight={} rightContentWidth={} rightContentHeight={} leftContentAspectRatio={:.6} rightContentAspectRatio={:.6} leftDesiredDisplayAspectRatio={:.6} rightDesiredDisplayAspectRatio={:.6} leftDesiredProjectionAspectRatio={:.6} rightDesiredProjectionAspectRatio={:.6} leftContentCoordinateSpace=normalized-uv rightContentCoordinateSpace=normalized-uv leftContentOrigin=top-left rightContentOrigin=top-left leftContentXAxis=right rightContentXAxis=right leftContentYAxis=down rightContentYAxis=down leftContentMappingIntent={} rightContentMappingIntent={} leftContentGeometryMetadataSource=makepad-direct-camera2-import rightContentGeometryMetadataSource=makepad-direct-camera2-import leftContentGeometryDefault=false rightContentGeometryDefault=false contentGeometryFallbackReason=none",
+        "projectionGeometryProfile={} geometry_profile={} {}",
         projection_geometry_profile,
         projection_geometry_profile,
-        content_width,
-        content_height,
-        content_width,
-        content_height,
-        aspect_ratio,
-        aspect_ratio,
-        aspect_ratio,
-        aspect_ratio,
-        aspect_ratio,
-        aspect_ratio,
-        content_mapping_intent,
-        content_mapping_intent,
+        content_geometry.marker_fields(),
     )
 }
 
 pub(crate) fn missing_broker_content_geometry_marker_fields() -> String {
-    "leftContentKind=default-fallback rightContentKind=default-fallback leftContentWidth=0 leftContentHeight=0 rightContentWidth=0 rightContentHeight=0 leftContentAspectRatio=1.000000 rightContentAspectRatio=1.000000 leftDesiredDisplayAspectRatio=1.000000 rightDesiredDisplayAspectRatio=1.000000 leftDesiredProjectionAspectRatio=1.000000 rightDesiredProjectionAspectRatio=1.000000 leftContentCoordinateSpace=normalized-uv rightContentCoordinateSpace=normalized-uv leftContentOrigin=top-left rightContentOrigin=top-left leftContentXAxis=right rightContentXAxis=right leftContentYAxis=down rightContentYAxis=down leftContentMappingIntent=standard-missing-metadata-fallback rightContentMappingIntent=standard-missing-metadata-fallback leftContentGeometryMetadataSource=missing rightContentGeometryMetadataSource=missing leftContentGeometryDefault=true rightContentGeometryDefault=true contentGeometryFallbackReason=broker-h264-content-geometry-metadata-missing".to_string()
+    StereoContentGeometryRecord::missing_broker().marker_fields()
 }
 
 fn json_string_any<'a>(
@@ -656,4 +763,72 @@ fn parse_broker_pixel_domain(value: Option<&JsonValue>) -> Option<BrokerH264Pixe
     let width = json_u32(object.get("width"))?;
     let height = json_u32(object.get("height"))?;
     (width > 0 && height > 0).then_some(BrokerH264PixelDomain { width, height })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn direct_camera2_content_geometry_uses_stereo_record() {
+        let fields = direct_camera2_content_geometry_marker_fields(
+            1280,
+            720,
+            "camera2-platform-unprofiled",
+        );
+
+        assert_eq!(
+            fields,
+            "projectionGeometryProfile=camera-projection geometry_profile=camera-projection leftContentKind=camera-frame rightContentKind=camera-frame leftContentWidth=1280 leftContentHeight=720 rightContentWidth=1280 rightContentHeight=720 leftContentAspectRatio=1.777778 rightContentAspectRatio=1.777778 leftDesiredDisplayAspectRatio=1.777778 rightDesiredDisplayAspectRatio=1.777778 leftDesiredProjectionAspectRatio=1.777778 rightDesiredProjectionAspectRatio=1.777778 leftContentCoordinateSpace=normalized-uv rightContentCoordinateSpace=normalized-uv leftContentOrigin=top-left rightContentOrigin=top-left leftContentXAxis=right rightContentXAxis=right leftContentYAxis=down rightContentYAxis=down leftContentMappingIntent=map-camera-frame-through-screen-to-camera-homography rightContentMappingIntent=map-camera-frame-through-screen-to-camera-homography leftContentGeometryMetadataSource=makepad-direct-camera2-import rightContentGeometryMetadataSource=makepad-direct-camera2-import leftContentGeometryDefault=false rightContentGeometryDefault=false contentGeometryFallbackReason=none"
+        );
+    }
+
+    #[test]
+    fn missing_broker_content_geometry_uses_fallback_record() {
+        assert_eq!(
+            missing_broker_content_geometry_marker_fields(),
+            "leftContentKind=default-fallback rightContentKind=default-fallback leftContentWidth=0 leftContentHeight=0 rightContentWidth=0 rightContentHeight=0 leftContentAspectRatio=1.000000 rightContentAspectRatio=1.000000 leftDesiredDisplayAspectRatio=1.000000 rightDesiredDisplayAspectRatio=1.000000 leftDesiredProjectionAspectRatio=1.000000 rightDesiredProjectionAspectRatio=1.000000 leftContentCoordinateSpace=normalized-uv rightContentCoordinateSpace=normalized-uv leftContentOrigin=top-left rightContentOrigin=top-left leftContentXAxis=right rightContentXAxis=right leftContentYAxis=down rightContentYAxis=down leftContentMappingIntent=standard-missing-metadata-fallback rightContentMappingIntent=standard-missing-metadata-fallback leftContentGeometryMetadataSource=missing rightContentGeometryMetadataSource=missing leftContentGeometryDefault=true rightContentGeometryDefault=true contentGeometryFallbackReason=broker-h264-content-geometry-metadata-missing"
+        );
+    }
+
+    #[test]
+    fn broker_content_geometry_marker_fields_use_parsed_records() {
+        let left = BrokerH264ProjectionMetadata::parse(
+            r#"{
+                "projectionMetadataReady": true,
+                "contentKind": "broker synthetic",
+                "contentWidth": 640,
+                "contentHeight": 480,
+                "contentAspectRatio": 1.333333,
+                "desiredDisplayAspectRatio": 1.333333,
+                "desiredProjectionAspectRatio": 1.333333,
+                "contentMappingIntent": "map broker stimulus",
+                "contentGeometryMetadataSource": "stream header",
+                "contentGeometryDefault": false
+            }"#,
+        )
+        .unwrap();
+        let right = BrokerH264ProjectionMetadata::parse(
+            r#"{
+                "projectionMetadataReady": true,
+                "contentKind": "broker camera",
+                "contentWidth": 800,
+                "contentHeight": 600,
+                "contentMappingIntent": "map broker camera",
+                "contentGeometryMetadataSource": "stream header",
+                "contentGeometryDefault": false
+            }"#,
+        )
+        .unwrap();
+
+        let fields = broker_pair_content_geometry_marker_fields(&left, &right);
+
+        assert!(fields.contains("leftContentKind=broker_synthetic"));
+        assert!(fields.contains("rightContentKind=broker_camera"));
+        assert!(fields.contains("leftContentWidth=640 leftContentHeight=480"));
+        assert!(fields.contains("rightContentWidth=800 rightContentHeight=600"));
+        assert!(fields.contains("leftContentMappingIntent=map_broker_stimulus"));
+        assert!(fields.contains("rightContentMappingIntent=map_broker_camera"));
+        assert!(fields.contains("contentGeometryFallbackReason=none"));
+    }
 }
