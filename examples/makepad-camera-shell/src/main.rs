@@ -9,12 +9,14 @@ mod projection_runtime;
 mod projection_geometry;
 mod source_metadata;
 use projection_geometry::{
-    makepad_draw_vars_bound_marker_fields, makepad_paired_projection_progress_marker_fields,
-    makepad_projection_complete_marker_fields, makepad_projection_enumerated_marker_fields,
-    makepad_projection_start_marker_fields, makepad_projection_target_marker_fields,
-    makepad_single_stream_proof_wait_marker_fields, makepad_stereo_comparison_marker_line,
-    makepad_visible_panel_bound_marker_fields, MakepadOpenXrProjectionContract,
-    MakepadStereoComparisonMarkerInputs,
+    makepad_draw_vars_bound_marker_fields, makepad_native_video_widget_reset_error_marker_fields,
+    makepad_native_video_widget_reset_waiting_marker_fields,
+    makepad_native_video_widget_surface_marker_fields,
+    makepad_paired_projection_progress_marker_fields, makepad_projection_complete_marker_fields,
+    makepad_projection_enumerated_marker_fields, makepad_projection_start_marker_fields,
+    makepad_projection_target_marker_fields, makepad_single_stream_proof_wait_marker_fields,
+    makepad_stereo_comparison_marker_line, makepad_visible_panel_bound_marker_fields,
+    MakepadOpenXrProjectionContract, MakepadStereoComparisonMarkerInputs,
 };
 #[cfg(target_os = "android")]
 use projection_geometry::broker_projection_plan_marker_fields;
@@ -4118,8 +4120,8 @@ impl App {
         let right_unprepared = right_video.is_unprepared();
         if !left_unprepared || !right_unprepared {
             if self.native_video_widget_retry_count >= NATIVE_VIDEO_WIDGET_MAX_RESETS {
-                Self::emit_stereo_projection_marker(&format!(
-                    "phase=native-video-widget-reset status=error leftUnprepared={} rightUnprepared={} leftPlaying={} rightPlaying={} leftCleaningUp={} rightCleaningUp={} resetCount={} fallbackReason=makepad_video_widget_not_unprepared",
+                Self::emit_stereo_projection_marker(
+                    &makepad_native_video_widget_reset_error_marker_fields(
                     left_unprepared,
                     right_unprepared,
                     left_video.is_playing(),
@@ -4127,7 +4129,8 @@ impl App {
                     left_video.is_cleaning_up(),
                     right_video.is_cleaning_up(),
                     self.native_video_widget_retry_count,
-                ));
+                    ),
+                );
                 return true;
             }
 
@@ -4142,8 +4145,8 @@ impl App {
             self.native_video_widget_retry_pair = Some(pair.clone());
             self.native_video_widget_retry_timer =
                 cx.start_timeout(NATIVE_VIDEO_WIDGET_RETRY_SECONDS);
-            Self::emit_stereo_projection_marker(&format!(
-                "phase=native-video-widget-reset status=waiting leftUnprepared={} rightUnprepared={} leftPlaying={} rightPlaying={} leftCleaningUp={} rightCleaningUp={} resetCount={} retrySeconds={:.1} fallbackReason=makepad_video_widget_not_unprepared",
+            Self::emit_stereo_projection_marker(
+                &makepad_native_video_widget_reset_waiting_marker_fields(
                 left_unprepared,
                 right_unprepared,
                 left_video.is_playing(),
@@ -4152,7 +4155,8 @@ impl App {
                 right_video.is_cleaning_up(),
                 self.native_video_widget_retry_count,
                 NATIVE_VIDEO_WIDGET_RETRY_SECONDS,
-            ));
+                ),
+            );
             return false;
         }
 
@@ -4168,14 +4172,8 @@ impl App {
         right_video.begin_playback(cx);
         self.native_video_widget_started = true;
 
-        Self::emit_stereo_projection_marker(&format!(
-            "phase=native-video-widget-surface status=started renderPath=makepad-xr-view-video-widget visibleCameraProjectionReady=false leftSourceIndex={} rightSourceIndex={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} resetCount={} projectionShaderPath=makepad-video-widget-yuv visualInspection=required visualReleaseAccepted=false",
-            pair.left.source_index,
-            pair.right.source_index,
-            pair.left.width,
-            pair.left.height,
-            pair.right.width,
-            pair.right.height,
+        Self::emit_stereo_projection_marker(&makepad_native_video_widget_surface_marker_fields(
+            pair,
             self.native_video_widget_retry_count,
         ));
         true

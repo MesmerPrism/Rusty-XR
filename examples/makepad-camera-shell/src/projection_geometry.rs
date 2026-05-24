@@ -1144,6 +1144,67 @@ pub(crate) fn makepad_projection_enumerated_marker_fields(
     )
 }
 
+pub(crate) fn makepad_native_video_widget_reset_error_marker_fields(
+    left_unprepared: bool,
+    right_unprepared: bool,
+    left_playing: bool,
+    right_playing: bool,
+    left_cleaning_up: bool,
+    right_cleaning_up: bool,
+    reset_count: usize,
+) -> String {
+    native_video_widget_reset_marker_fields(
+        "error",
+        left_unprepared,
+        right_unprepared,
+        left_playing,
+        right_playing,
+        left_cleaning_up,
+        right_cleaning_up,
+        reset_count,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn makepad_native_video_widget_reset_waiting_marker_fields(
+    left_unprepared: bool,
+    right_unprepared: bool,
+    left_playing: bool,
+    right_playing: bool,
+    left_cleaning_up: bool,
+    right_cleaning_up: bool,
+    reset_count: usize,
+    retry_seconds: f64,
+) -> String {
+    native_video_widget_reset_marker_fields(
+        "waiting",
+        left_unprepared,
+        right_unprepared,
+        left_playing,
+        right_playing,
+        left_cleaning_up,
+        right_cleaning_up,
+        reset_count,
+        Some(retry_seconds),
+    )
+}
+
+pub(crate) fn makepad_native_video_widget_surface_marker_fields(
+    pair: &MakepadCameraPair,
+    reset_count: usize,
+) -> String {
+    native_video_widget_surface_marker_fields(
+        pair.left.source_index,
+        pair.right.source_index,
+        pair.left.width,
+        pair.left.height,
+        pair.right.width,
+        pair.right.height,
+        reset_count,
+    )
+}
+
 pub(crate) struct MakepadStereoComparisonMarkerInputs<'a> {
     pub(crate) phase: &'a str,
     pub(crate) runtime_profile: &'a str,
@@ -1189,6 +1250,56 @@ fn draw_vars_bound_marker_fields(
         single_stream_visual_proof,
         updated_stream_visual_proof_side,
         homography_marker_fields,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn native_video_widget_reset_marker_fields(
+    status: &str,
+    left_unprepared: bool,
+    right_unprepared: bool,
+    left_playing: bool,
+    right_playing: bool,
+    left_cleaning_up: bool,
+    right_cleaning_up: bool,
+    reset_count: usize,
+    retry_seconds: Option<f64>,
+) -> String {
+    let retry_fields = retry_seconds
+        .map(|retry_seconds| format!(" retrySeconds={retry_seconds:.1}"))
+        .unwrap_or_default();
+    format!(
+        "phase=native-video-widget-reset status={} leftUnprepared={} rightUnprepared={} leftPlaying={} rightPlaying={} leftCleaningUp={} rightCleaningUp={} resetCount={}{} fallbackReason=makepad_video_widget_not_unprepared",
+        status,
+        left_unprepared,
+        right_unprepared,
+        left_playing,
+        right_playing,
+        left_cleaning_up,
+        right_cleaning_up,
+        reset_count,
+        retry_fields,
+    )
+}
+
+fn native_video_widget_surface_marker_fields(
+    left_source_index: usize,
+    right_source_index: usize,
+    left_width: usize,
+    left_height: usize,
+    right_width: usize,
+    right_height: usize,
+    reset_count: usize,
+) -> String {
+    format!(
+        "phase=native-video-widget-surface status=started renderPath=makepad-xr-view-video-widget visibleCameraProjectionReady=false leftSourceIndex={} rightSourceIndex={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} resetCount={} projectionShaderPath=makepad-video-widget-yuv visualInspection=required visualReleaseAccepted=false",
+        left_source_index,
+        right_source_index,
+        left_width,
+        left_height,
+        right_width,
+        right_height,
+        reset_count,
     )
 }
 
@@ -1808,6 +1919,7 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
 mod tests {
     use super::{
         complete_marker_fields, draw_vars_bound_marker_fields,
+        native_video_widget_reset_marker_fields, native_video_widget_surface_marker_fields,
         paired_projection_progress_marker_fields, projection_enumerated_marker_fields,
         projection_start_marker_fields, single_stream_proof_wait_marker_fields,
         stereo_comparison_marker_line_fields, visible_panel_bound_marker_fields,
@@ -2059,5 +2171,37 @@ mod tests {
         assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
         assert!(fields.contains("makepadForkBranch=branch makepadForkCommit=commit"));
         assert!(fields.ends_with("visualInspection=required visualReleaseAccepted=false"));
+    }
+
+    #[test]
+    fn native_video_widget_markers_keep_projection_contract_shape() {
+        let error =
+            native_video_widget_reset_marker_fields("error", false, true, true, false, false, true, 3, None);
+        assert!(error.starts_with(
+            "phase=native-video-widget-reset status=error leftUnprepared=false"
+        ));
+        assert!(!error.contains("retrySeconds="));
+        assert!(error.ends_with("fallbackReason=makepad_video_widget_not_unprepared"));
+
+        let waiting = native_video_widget_reset_marker_fields(
+            "waiting",
+            false,
+            false,
+            true,
+            true,
+            false,
+            false,
+            1,
+            Some(0.5),
+        );
+        assert!(waiting.contains("status=waiting"));
+        assert!(waiting.contains("resetCount=1 retrySeconds=0.5"));
+
+        let surface = native_video_widget_surface_marker_fields(0, 1, 1280, 720, 1280, 720, 1);
+        assert!(surface.starts_with(
+            "phase=native-video-widget-surface status=started renderPath=makepad-xr-view-video-widget"
+        ));
+        assert!(surface.contains("leftSourceIndex=0 rightSourceIndex=1"));
+        assert!(surface.ends_with("visualInspection=required visualReleaseAccepted=false"));
     }
 }
