@@ -597,6 +597,9 @@ left stick X adjusts `cameraPreviewFovYDegrees`, right stick Y adjusts
 and the right primary button toggles `projectionLayerVisible`. The app writes
 the current values to `files/controller-tuning-state.json`; this runner copies
 that file into each run as `<label>-controller-tuning-state.json` when present.
+When optional app-private diagnostics are absent, the runner records a
+`<label>-*.missing.txt` sidecar instead of printing `run-as cat` errors or
+treating the absence as a gate failure.
 
 The app-parsed runtime config log is the authority for whether a switch was
 actually applied. It reports the requested preset and the resolved feed,

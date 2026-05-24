@@ -335,7 +335,36 @@ function Save-OptionalRunAsFileCapture {
         [string]$RemotePath,
         [string]$OutputPath
     )
-    Save-AdbTextCapture -Arguments @("shell", "run-as", $Package, "cat", $RemotePath) -OutputPath $OutputPath
+
+    $probeOutput = @(Invoke-Adb -Arguments @("shell", "run-as", $Package, "ls", $RemotePath) 2>&1 | ForEach-Object { [string]$_ })
+    $probeExitCode = $LASTEXITCODE
+    if ($probeExitCode -ne 0) {
+        Write-Utf8TextFile -Path "$OutputPath.missing.txt" -Value @(
+            "Optional run-as file was not captured.",
+            "package=$Package",
+            "remotePath=$RemotePath",
+            "probeExitCode=$probeExitCode",
+            "probeOutput:",
+            $probeOutput
+        )
+        return
+    }
+
+    $captureOutput = @(Invoke-Adb -Arguments @("shell", "run-as", $Package, "cat", $RemotePath) 2>&1 | ForEach-Object { [string]$_ })
+    $captureExitCode = $LASTEXITCODE
+    if ($captureExitCode -ne 0) {
+        Write-Utf8TextFile -Path "$OutputPath.error.txt" -Value @(
+            "Optional run-as file probe succeeded, but capture failed.",
+            "package=$Package",
+            "remotePath=$RemotePath",
+            "captureExitCode=$captureExitCode",
+            "captureOutput:",
+            $captureOutput
+        )
+        return
+    }
+
+    Write-Utf8TextFile -Path $OutputPath -Value $captureOutput
 }
 
 function Resolve-ProcessFileName {
