@@ -62,7 +62,7 @@ mod android {
     use openxr as xr;
     use openxr::sys::Handle as _;
     use rusty_xr_camera_model::{
-        rect_xywh, uv_rect_token, ColorRgba, ProjectionBorderDescriptor, ProjectionBorderFillPolicy,
+        ColorRgba, ProjectionBorderDescriptor, ProjectionBorderFillPolicy,
     };
     use rusty_xr_contracts::{
         Eye, InvalidProjectionFillPolicy, ProjectionStageKind, ProjectionStageTokenRow,
@@ -98,7 +98,7 @@ mod android {
         log_oes_projection_runtime_manifest, oes_projection_runtime_resolution_enabled,
         oes_projection_runtime_resolution_from_state, oes_projection_runtime_state_from_resolution,
     };
-    use source_metadata::OesProjectionMetadata;
+    use source_metadata::{stream_projection_metadata_log_message, OesProjectionMetadata};
 
     const VIEW_COUNT: usize = 2;
     const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
@@ -3494,37 +3494,8 @@ void main() {
             else {
                 return;
             };
-            log_info(format!(
-                "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentSize={}x{} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={}",
-                view_index,
-                metadata.source,
-                metadata.camera_id,
-                metadata.projection_metadata_ready,
-                metadata.delivered_width,
-                metadata.delivered_height,
-                metadata.synthetic_pattern,
-                metadata.orientation_kind,
-                metadata.raster_orientation,
-                metadata.upright_marker,
-                metadata.orientation_metadata_source,
-                metadata.orientation_default,
-                metadata.stimulus_raster_orientation,
-                metadata.stimulus_upright_marker,
-                metadata.stimulus_orientation_default,
-                metadata.content_kind,
-                metadata.content_width,
-                metadata.content_height,
-                metadata.content_aspect_ratio,
-                metadata.desired_display_aspect_ratio,
-                metadata.desired_projection_aspect_ratio,
-                metadata.content_coordinate_space,
-                metadata.content_origin,
-                metadata.content_x_axis,
-                metadata.content_y_axis,
-                metadata.content_mapping_intent,
-                metadata.content_geometry_metadata_source,
-                metadata.content_geometry_default,
-                uv_rect_token(rect_xywh(metadata.source_valid_uv_rect)),
+            log_info(stream_projection_metadata_log_message(
+                view_index, &metadata,
             ));
             if let Some(slot) = self.projection_metadata.get_mut(view_index) {
                 *slot = Some(metadata);

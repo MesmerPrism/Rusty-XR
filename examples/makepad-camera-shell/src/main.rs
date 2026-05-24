@@ -12,6 +12,8 @@ use projection_geometry::{
     makepad_projection_target_marker_fields, projection_homography_marker_fields,
     MakepadOpenXrProjectionContract,
 };
+#[cfg(target_os = "android")]
+use projection_geometry::broker_projection_plan_marker_fields;
 use projection_runtime::{
     makepad_current_projection_runtime_float, makepad_horizontal_alignment_tuning_from_resolution,
     makepad_projection_runtime_manifest_lines, makepad_projection_runtime_resolution,
@@ -20,6 +22,7 @@ use projection_runtime::{
 use source_metadata::{
     broker_pair_content_geometry_marker_fields, direct_camera2_content_geometry_marker_fields,
     missing_broker_content_geometry_marker_fields, normalize_direct_camera_projection_geometry_profile,
+    stream_header_metadata_marker_fields,
     BrokerH264ProjectionMetadata,
 };
 
@@ -35,7 +38,7 @@ use makepad_widgets::makepad_platform::{
 };
 use makepad_widgets::*;
 use makepad_xr::scene::{xr_widget_world_transform, XrNode};
-use rusty_xr_camera_model::{rect_xywh, uv_rect_token, Rect2};
+use rusty_xr_camera_model::Rect2;
 use rusty_xr_runtime_config as rxrc;
 #[cfg(target_os = "android")]
 use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
@@ -3074,47 +3077,11 @@ impl App {
                 &config,
                 Self::horizontal_alignment_tuning(),
             );
-            Self::emit_stereo_projection_marker(&format!(
-                    "phase=broker-h264-projection-plan status=ok projectionMetadataReady={} runtimeXrViewStateReady={} poseSource={} poseCoordinateConvention={} sourceEyeMapping={} sourceBindingMode={} coordinateChain={} projection_profile={} geometry_profile={} leftCameraId={} rightCameraId={} width={} height={} leftMetadataBytes={} rightMetadataBytes={} leftMetadataSource={} rightMetadataSource={} leftProjectionGeometryProfile={} rightProjectionGeometryProfile={} leftSourceValidUvRect={} rightSourceValidUvRect={} leftSyntheticPattern={} rightSyntheticPattern={} leftOrientationKind={} rightOrientationKind={} leftRasterOrientation={} rightRasterOrientation={} leftUprightMarker={} rightUprightMarker={} leftOrientationMetadataSource={} rightOrientationMetadataSource={} leftOrientationDefault={} rightOrientationDefault={} leftStimulusRasterOrientation={} rightStimulusRasterOrientation={} leftStimulusUprightMarker={} rightStimulusUprightMarker={} {} {}",
-                pair.projection_metadata_ready,
-                pair.runtime_xr_view_state_ready,
-                marker_token(&pair.pose_source),
-                marker_token(&left_metadata.pose_coordinate_convention),
-                marker_token(&pair.source_eye_mapping),
-                marker_token(&pair.source_binding_mode),
-                marker_token(&pair.coordinate_chain),
-                marker_token(&left_metadata.synthetic_projection_profile),
-                marker_token(&left_metadata.projection_geometry_profile),
-                marker_token(&plan.left_camera_id),
-                marker_token(&plan.right_camera_id),
-                plan.width,
-                plan.height,
-                left_metadata.metadata_bytes,
-                right_metadata.metadata_bytes,
-                marker_token(&left_metadata.source),
-                marker_token(&right_metadata.source),
-                marker_token(&left_metadata.projection_geometry_profile),
-                marker_token(&right_metadata.projection_geometry_profile),
-                uv_rect_token(rect_xywh(left_metadata.source_valid_uv_rect)),
-                uv_rect_token(rect_xywh(right_metadata.source_valid_uv_rect)),
-                marker_token(&left_metadata.synthetic_pattern),
-                marker_token(&right_metadata.synthetic_pattern),
-                marker_token(&left_metadata.orientation_kind),
-                marker_token(&right_metadata.orientation_kind),
-                marker_token(&left_metadata.raster_orientation),
-                marker_token(&right_metadata.raster_orientation),
-                marker_token(&left_metadata.upright_marker),
-                marker_token(&right_metadata.upright_marker),
-                marker_token(&left_metadata.orientation_metadata_source),
-                marker_token(&right_metadata.orientation_metadata_source),
-                left_metadata.orientation_default,
-                right_metadata.orientation_default,
-                marker_token(&left_metadata.stimulus_raster_orientation),
-                marker_token(&right_metadata.stimulus_raster_orientation),
-                marker_token(&left_metadata.stimulus_upright_marker),
-                marker_token(&right_metadata.stimulus_upright_marker),
-                broker_pair_content_geometry_marker_fields(left_metadata, right_metadata),
-                projection_homography_marker_fields(pair),
+            Self::emit_stereo_projection_marker(&broker_projection_plan_marker_fields(
+                pair,
+                &plan,
+                left_metadata,
+                right_metadata,
             ));
         }
         true
@@ -3667,42 +3634,9 @@ impl App {
                         "broker_stream_metadata_not_projection_ready".to_string()
                     };
                 }
-                Self::emit_hardware_buffer_import_marker(&format!(
-                    "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} projectionGeometryProfile={} geometry_profile={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+                Self::emit_hardware_buffer_import_marker(&stream_header_metadata_marker_fields(
                     side.label(),
-                    metadata.metadata_bytes,
-                    marker_token(&metadata.camera_id),
-                    metadata.projection_metadata_ready,
-                    marker_token(&metadata.pose_source),
-                    marker_token(&metadata.pose_coordinate_convention),
-                    marker_token(&metadata.source),
-                    marker_token(&metadata.projection_geometry_profile),
-                    marker_token(&metadata.projection_geometry_profile),
-                    marker_token(&metadata.synthetic_pattern),
-                    marker_token(&metadata.orientation_kind),
-                    marker_token(&metadata.raster_orientation),
-                    marker_token(&metadata.upright_marker),
-                    marker_token(&metadata.orientation_metadata_source),
-                    metadata.orientation_default,
-                    marker_token(&metadata.stimulus_raster_orientation),
-                    marker_token(&metadata.stimulus_upright_marker),
-                    metadata.stimulus_orientation_default,
-                    metadata.delivered_width,
-                    metadata.delivered_height,
-                    marker_token(&metadata.content_kind),
-                    metadata.content_width,
-                    metadata.content_height,
-                    metadata.content_aspect_ratio,
-                    metadata.desired_display_aspect_ratio,
-                    metadata.desired_projection_aspect_ratio,
-                    marker_token(&metadata.content_coordinate_space),
-                    marker_token(&metadata.content_origin),
-                    marker_token(&metadata.content_x_axis),
-                    marker_token(&metadata.content_y_axis),
-                    marker_token(&metadata.content_mapping_intent),
-                    marker_token(&metadata.content_geometry_metadata_source),
-                    metadata.content_geometry_default,
-                    uv_rect_token(rect_xywh(metadata.source_valid_uv_rect)),
+                    &metadata,
                 ));
             }
             Err(error) => {

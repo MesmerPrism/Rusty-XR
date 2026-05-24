@@ -610,3 +610,42 @@ pub(super) fn projection_source_label(
         source_sampling_fields,
     )
 }
+
+pub(super) fn stream_projection_metadata_log_message(
+    view_index: usize,
+    metadata: &OesProjectionMetadata,
+) -> String {
+    let content_geometry = ContentGeometryRecord::from_metadata(metadata);
+    format!(
+        "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentSize={}x{} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={}",
+        view_index,
+        metadata.source,
+        metadata.camera_id,
+        metadata.projection_metadata_ready,
+        metadata.delivered_width,
+        metadata.delivered_height,
+        metadata.synthetic_pattern,
+        metadata.orientation_kind,
+        metadata.raster_orientation,
+        metadata.upright_marker,
+        metadata.orientation_metadata_source,
+        metadata.orientation_default,
+        metadata.stimulus_raster_orientation,
+        metadata.stimulus_upright_marker,
+        metadata.stimulus_orientation_default,
+        content_geometry.kind,
+        content_geometry.width,
+        content_geometry.height,
+        content_geometry.aspect_ratio,
+        content_geometry.desired_display_aspect_ratio,
+        content_geometry.desired_projection_aspect_ratio,
+        content_geometry.coordinate_space,
+        content_geometry.origin,
+        content_geometry.x_axis,
+        content_geometry.y_axis,
+        content_geometry.mapping_intent,
+        content_geometry.metadata_source,
+        content_geometry.metadata_default,
+        uv_rect_token(rect_xywh(content_geometry.source_valid_uv_rect)),
+    )
+}

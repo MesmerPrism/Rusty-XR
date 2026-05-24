@@ -30,6 +30,12 @@ use super::{
     TARGET_PROJECTION_AREA_SCALE_X, TARGET_PROJECTION_AREA_SCALE_Y,
 };
 #[cfg(target_os = "android")]
+use super::Camera2StereoPlan;
+#[cfg(target_os = "android")]
+use super::source_metadata::{
+    broker_pair_content_geometry_marker_fields, BrokerH264ProjectionMetadata,
+};
+#[cfg(target_os = "android")]
 use crate::acamera_sys::ACAMERA_LENS_FACING_BACK;
 
 #[cfg(target_os = "android")]
@@ -952,6 +958,57 @@ pub(crate) fn projection_homography_marker_fields(pair: &MakepadCameraPair) -> S
         homography_token(pair.right_screen_to_surface_h),
         expected_source_valid_footprint_marker_fields(pair),
         makepad_projection_target_marker_fields()
+    )
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn broker_projection_plan_marker_fields(
+    pair: &MakepadCameraPair,
+    plan: &Camera2StereoPlan,
+    left_metadata: &BrokerH264ProjectionMetadata,
+    right_metadata: &BrokerH264ProjectionMetadata,
+) -> String {
+    format!(
+        "phase=broker-h264-projection-plan status=ok projectionMetadataReady={} runtimeXrViewStateReady={} poseSource={} poseCoordinateConvention={} sourceEyeMapping={} sourceBindingMode={} coordinateChain={} projection_profile={} geometry_profile={} leftCameraId={} rightCameraId={} width={} height={} leftMetadataBytes={} rightMetadataBytes={} leftMetadataSource={} rightMetadataSource={} leftProjectionGeometryProfile={} rightProjectionGeometryProfile={} leftSourceValidUvRect={} rightSourceValidUvRect={} leftSyntheticPattern={} rightSyntheticPattern={} leftOrientationKind={} rightOrientationKind={} leftRasterOrientation={} rightRasterOrientation={} leftUprightMarker={} rightUprightMarker={} leftOrientationMetadataSource={} rightOrientationMetadataSource={} leftOrientationDefault={} rightOrientationDefault={} leftStimulusRasterOrientation={} rightStimulusRasterOrientation={} leftStimulusUprightMarker={} rightStimulusUprightMarker={} {} {}",
+        pair.projection_metadata_ready,
+        pair.runtime_xr_view_state_ready,
+        marker_token(&pair.pose_source),
+        marker_token(&left_metadata.pose_coordinate_convention),
+        marker_token(&pair.source_eye_mapping),
+        marker_token(&pair.source_binding_mode),
+        marker_token(&pair.coordinate_chain),
+        marker_token(&left_metadata.synthetic_projection_profile),
+        marker_token(&left_metadata.projection_geometry_profile),
+        marker_token(&plan.left_camera_id),
+        marker_token(&plan.right_camera_id),
+        plan.width,
+        plan.height,
+        left_metadata.metadata_bytes,
+        right_metadata.metadata_bytes,
+        marker_token(&left_metadata.source),
+        marker_token(&right_metadata.source),
+        marker_token(&left_metadata.projection_geometry_profile),
+        marker_token(&right_metadata.projection_geometry_profile),
+        uv_rect_token(rect_xywh(left_metadata.source_valid_uv_rect)),
+        uv_rect_token(rect_xywh(right_metadata.source_valid_uv_rect)),
+        marker_token(&left_metadata.synthetic_pattern),
+        marker_token(&right_metadata.synthetic_pattern),
+        marker_token(&left_metadata.orientation_kind),
+        marker_token(&right_metadata.orientation_kind),
+        marker_token(&left_metadata.raster_orientation),
+        marker_token(&right_metadata.raster_orientation),
+        marker_token(&left_metadata.upright_marker),
+        marker_token(&right_metadata.upright_marker),
+        marker_token(&left_metadata.orientation_metadata_source),
+        marker_token(&right_metadata.orientation_metadata_source),
+        left_metadata.orientation_default,
+        right_metadata.orientation_default,
+        marker_token(&left_metadata.stimulus_raster_orientation),
+        marker_token(&right_metadata.stimulus_raster_orientation),
+        marker_token(&left_metadata.stimulus_upright_marker),
+        marker_token(&right_metadata.stimulus_upright_marker),
+        broker_pair_content_geometry_marker_fields(left_metadata, right_metadata),
+        projection_homography_marker_fields(pair),
     )
 }
 

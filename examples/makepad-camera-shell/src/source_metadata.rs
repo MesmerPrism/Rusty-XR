@@ -1,4 +1,4 @@
-use rusty_xr_camera_model::{Rect2, Vec2};
+use rusty_xr_camera_model::{rect_xywh, uv_rect_token, Rect2, Vec2};
 use serde_json::Value as JsonValue;
 
 use super::{
@@ -629,6 +629,50 @@ pub(crate) fn missing_broker_content_geometry_marker_fields() -> String {
     StereoContentGeometryRecord::missing_broker().marker_fields()
 }
 
+pub(crate) fn stream_header_metadata_marker_fields(
+    side_label: &str,
+    metadata: &BrokerH264ProjectionMetadata,
+) -> String {
+    let content_geometry = ContentGeometryRecord::from_broker_metadata(metadata);
+    format!(
+        "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} projectionGeometryProfile={} geometry_profile={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+        side_label,
+        metadata.metadata_bytes,
+        marker_token(&metadata.camera_id),
+        metadata.projection_metadata_ready,
+        marker_token(&metadata.pose_source),
+        marker_token(&metadata.pose_coordinate_convention),
+        marker_token(&metadata.source),
+        marker_token(&metadata.projection_geometry_profile),
+        marker_token(&metadata.projection_geometry_profile),
+        marker_token(&metadata.synthetic_pattern),
+        marker_token(&metadata.orientation_kind),
+        marker_token(&metadata.raster_orientation),
+        marker_token(&metadata.upright_marker),
+        marker_token(&metadata.orientation_metadata_source),
+        metadata.orientation_default,
+        marker_token(&metadata.stimulus_raster_orientation),
+        marker_token(&metadata.stimulus_upright_marker),
+        metadata.stimulus_orientation_default,
+        metadata.delivered_width,
+        metadata.delivered_height,
+        marker_token(&content_geometry.kind),
+        content_geometry.width,
+        content_geometry.height,
+        content_geometry.aspect_ratio,
+        content_geometry.desired_display_aspect_ratio,
+        content_geometry.desired_projection_aspect_ratio,
+        marker_token(&content_geometry.coordinate_space),
+        marker_token(&content_geometry.origin),
+        marker_token(&content_geometry.x_axis),
+        marker_token(&content_geometry.y_axis),
+        marker_token(&content_geometry.mapping_intent),
+        marker_token(&content_geometry.metadata_source),
+        content_geometry.metadata_default,
+        uv_rect_token(rect_xywh(metadata.source_valid_uv_rect)),
+    )
+}
+
 fn json_string_any<'a>(
     object: &'a serde_json::Map<String, JsonValue>,
     keys: &[&str],
@@ -830,5 +874,39 @@ mod tests {
         assert!(fields.contains("leftContentMappingIntent=map_broker_stimulus"));
         assert!(fields.contains("rightContentMappingIntent=map_broker_camera"));
         assert!(fields.contains("contentGeometryFallbackReason=none"));
+    }
+
+    #[test]
+    fn stream_header_metadata_marker_uses_content_geometry_record() {
+        let metadata = BrokerH264ProjectionMetadata::parse(
+            r#"{
+                "projectionMetadataReady": true,
+                "cameraId": "left camera",
+                "source": "broker_app.synthetic_h264_stream",
+                "poseSource": "stream header",
+                "poseCoordinateConvention": "camera2 lens",
+                "projectionGeometryProfile": "full-frame-diagnostic",
+                "syntheticPattern": "uv grid",
+                "contentKind": "broker synthetic",
+                "contentWidth": 640,
+                "contentHeight": 480,
+                "contentMappingIntent": "map full frame content",
+                "contentGeometryMetadataSource": "stream header",
+                "contentGeometryDefault": false,
+                "sourceValidUvRect": [0.1, 0.2, 0.8, 0.6]
+            }"#,
+        )
+        .unwrap();
+
+        let fields = stream_header_metadata_marker_fields("left", &metadata);
+
+        assert!(fields.starts_with("phase=stream-header-metadata status=ok side=left"));
+        assert!(fields.contains("cameraId=left_camera"));
+        assert!(fields.contains("source=broker_app.synthetic_h264_stream"));
+        assert!(fields.contains("contentKind=broker_synthetic"));
+        assert!(fields.contains("contentWidth=640 contentHeight=480"));
+        assert!(fields.contains("contentMappingIntent=map_full_frame_content"));
+        assert!(fields.contains("sourceValidUvRect=0.100000,0.200000,0.800000,0.600000"));
+        assert!(fields.ends_with("importPlan=broker-h264-stereo-mediacodec-yuv-texture"));
     }
 }
