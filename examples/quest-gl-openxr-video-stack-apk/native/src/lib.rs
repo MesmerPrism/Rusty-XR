@@ -105,7 +105,9 @@ mod android {
         log_oes_projection_runtime_manifest, oes_projection_runtime_resolution_enabled,
         oes_projection_runtime_resolution_from_state, oes_projection_runtime_state_from_resolution,
     };
-    use source_metadata::{projection_source_label, projection_surface_aspect_from_metadata};
+    use source_metadata::{
+        aspect_ratio_u32, projection_source_label, projection_surface_aspect_from_metadata,
+    };
 
     const VIEW_COUNT: usize = 2;
     const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
@@ -3426,14 +3428,6 @@ void main() {
             ))
         } else {
             None
-        }
-    }
-
-    fn aspect_ratio_u32(width: u32, height: u32) -> f32 {
-        if width > 0 && height > 0 {
-            width as f32 / height as f32
-        } else {
-            1.0
         }
     }
 

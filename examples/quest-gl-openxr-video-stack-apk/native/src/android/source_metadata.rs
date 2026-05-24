@@ -1,9 +1,17 @@
 use rusty_xr_camera_model::{rect_xywh, uv_rect_token};
 
 use super::{
-    aspect_ratio_u32, OesProjectionMetadata, DIRECT_CAMERA2_OES_SOURCE, OES_PROJECTED_RENDER_PATH,
+    OesProjectionMetadata, DIRECT_CAMERA2_OES_SOURCE, OES_PROJECTED_RENDER_PATH,
     PROJECTION_SOURCE_ASPECT,
 };
+
+pub(super) fn aspect_ratio_u32(width: u32, height: u32) -> f32 {
+    if width > 0 && height > 0 {
+        width as f32 / height as f32
+    } else {
+        1.0
+    }
+}
 
 pub(super) fn projection_surface_aspect_from_metadata(
     left: &OesProjectionMetadata,
