@@ -2866,6 +2866,12 @@ def summarize_projection_mapping_records(records: list[dict[str, Any]]) -> dict[
 
 
 def infer_lane_architecture(mode: str, fields: dict[str, str]) -> str:
+    if mode.startswith("hwb-"):
+        return "gpu-projected"
+    if mode.startswith("oes-"):
+        return "opengles"
+    if mode.startswith("makepad-"):
+        return "makepad-xr"
     if mode.startswith("vulkan-hwb"):
         return "vulkan-hardware-buffer"
     if mode.startswith("gles-oes"):

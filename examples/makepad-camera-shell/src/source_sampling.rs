@@ -1,7 +1,15 @@
 use crate::FrameOrientationDecision;
+use rusty_xr_contracts::{
+    SourceSamplerYAxis, SourceSamplingContract, SourceSamplingTransformStage, StereoSourceEyeMapping,
+};
 
 pub(crate) const MAKEPAD_SOURCE_UV_CONTRACT: &str =
     "screen_to_camera_content_uv_to_makepad_video_sampler";
+const MAKEPAD_SOURCE_SAMPLING_BACKEND: &str = "makepad";
+const MAKEPAD_SOURCE_SAMPLING_MODE: &str = "makepad-runtime";
+const MAKEPAD_SAMPLE_TRANSFORM_OWNER: &str = "makepad-shader-source_sample_uv";
+const MAKEPAD_OUTPUT_UV_LABEL: &str = "makepad-video-sampler-uv";
+const MAKEPAD_SAMPLER_UV_ORIGIN: &str = "makepad-video-sampler";
 
 pub(crate) struct MakepadSourceSamplingHandoff<'a> {
     broker_h264_enabled: bool,
@@ -38,9 +46,35 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
         }
     }
 
+    pub(crate) fn contract(&self) -> SourceSamplingContract {
+        let source_eye_mapping =
+            StereoSourceEyeMapping::parse(self.source_eye_mapping).unwrap_or_default();
+        SourceSamplingContract::new(
+            MAKEPAD_SOURCE_SAMPLING_BACKEND,
+            MAKEPAD_SOURCE_SAMPLING_MODE,
+            source_eye_mapping,
+            SourceSamplingTransformStage::PostHomographyPreYuvSample,
+        )
+        .with_transform(
+            self.source_sample_transform,
+            MAKEPAD_SAMPLE_TRANSFORM_OWNER,
+            self.orientation_decision.source_sample_y_flip >= 0.5,
+        )
+        .with_sampler(
+            MAKEPAD_OUTPUT_UV_LABEL,
+            MAKEPAD_SAMPLER_UV_ORIGIN,
+            SourceSamplerYAxis::MakepadSamplerOriginConvention,
+        )
+        .with_texture_transform(
+            SourceSamplingTransformStage::PostHomographyPreYuvSample,
+            MAKEPAD_SAMPLE_TRANSFORM_OWNER,
+        )
+    }
+
     pub(crate) fn marker_fields(&self) -> String {
+        let contract = self.contract();
         format!(
-            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_yuv_sample sourceSampleTransform={} sourceSampleTransformOwner=makepad-shader-source_sample_uv sourceSampleTransformApplied={} sourceSampleOutputUv=makepad-video-sampler-uv sourceSamplerUvOrigin=makepad-video-sampler sourceSamplerYAxis=makepad-sampler-origin-convention sourceTextureTransformStage=post_homography_pre_yuv_sample sourceTextureTransformOwner=makepad-shader-source_sample_uv diagnosticUvTransform={} sourceRasterYMappingStage={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv {}",
+            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} diagnosticUvTransform={} sourceRasterYMappingStage={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv {}",
             self.broker_h264_enabled,
             self.explicit_top_left_broker_stimulus,
             marker_token(&self.orientation_decision.orientation_kind),
@@ -52,12 +86,19 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
             self.orientation_decision.source_sample_y_flip,
             marker_token(&self.orientation_decision.source_sample_y_flip_reason),
             self.projection_content_mapping_label(),
-            marker_token(self.source_eye_mapping),
+            contract.source_eye_mapping.stable_id(),
             MAKEPAD_SOURCE_UV_CONTRACT,
-            self.source_sample_transform,
-            self.orientation_decision.source_sample_y_flip >= 0.5,
-            self.source_sample_transform,
-            self.source_sample_transform,
+            legacy_transform_stage_token(contract.transform_stage),
+            contract.transform_label,
+            contract.transform_owner,
+            contract.transform_applied,
+            contract.output_uv_label,
+            contract.sampler_uv_origin,
+            contract.sampler_y_axis.stable_id(),
+            legacy_transform_stage_token(contract.texture_transform_stage),
+            contract.texture_transform_owner,
+            contract.transform_label,
+            contract.transform_label,
             self.content_geometry_fields,
         )
     }
@@ -75,6 +116,25 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
 
 fn marker_token(value: &str) -> String {
     value.replace(char::is_whitespace, "_")
+}
+
+fn legacy_transform_stage_token(stage: SourceSamplingTransformStage) -> &'static str {
+    match stage {
+        SourceSamplingTransformStage::None => "none",
+        SourceSamplingTransformStage::PostHomographyPreTextureSample => {
+            "post_homography_pre_texture_sample"
+        }
+        SourceSamplingTransformStage::PostHomographyPreOesSample => {
+            "post_homography_pre_oes_sample"
+        }
+        SourceSamplingTransformStage::PostHomographyPreYuvSample => {
+            "post_homography_pre_yuv_sample"
+        }
+        SourceSamplingTransformStage::PostHomographyPreSourceVisibleRectThenTextureSample => {
+            "post_homography_pre_source_visible_rect_then_texture_sample"
+        }
+        SourceSamplingTransformStage::Other => "other",
+    }
 }
 
 #[cfg(test)]
@@ -112,6 +172,27 @@ mod tests {
             "projectionMetadataReady=true",
         )
         .marker_fields();
+        let contract = MakepadSourceSamplingHandoff::new(
+            false,
+            false,
+            &decision,
+            0.0,
+            false,
+            "display-left-from-left-source",
+            "identity-top-left-stimulus-raster",
+            "projectionMetadataReady=true",
+        )
+        .contract();
+        assert!(contract.is_valid());
+        assert_eq!(contract.backend, "makepad");
+        assert_eq!(
+            contract.transform_stage,
+            SourceSamplingTransformStage::PostHomographyPreYuvSample
+        );
+        assert_eq!(
+            contract.sampler_y_axis,
+            SourceSamplerYAxis::MakepadSamplerOriginConvention
+        );
         assert!(fields.contains("phase=source-sampling status=ok"));
         assert!(fields.contains(
             "sourceUvContract=screen_to_camera_content_uv_to_makepad_video_sampler"
@@ -135,6 +216,22 @@ mod tests {
             "projectionMetadataReady=true",
         )
         .marker_fields();
+        let contract = MakepadSourceSamplingHandoff::new(
+            true,
+            true,
+            &decision,
+            0.0,
+            true,
+            "display-left-from-right-source",
+            "stimulus-raster-y-flip",
+            "projectionMetadataReady=true",
+        )
+        .contract();
+        assert_eq!(
+            contract.source_eye_mapping,
+            StereoSourceEyeMapping::DisplayLeftFromRightSource
+        );
+        assert!(contract.transform_applied);
         assert!(fields.contains("brokerH264Enabled=true"));
         assert!(fields.contains("explicitTopLeftBrokerStimulus=true"));
         assert!(fields.contains("orientationKind=broker_stimulus"));

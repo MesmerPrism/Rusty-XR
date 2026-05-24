@@ -1057,6 +1057,7 @@ dependencies = [
  "makepad-xr",
  "ndk-sys",
  "rusty-xr-camera-model",
+ "rusty-xr-contracts",
  "rusty-xr-runtime-config",
  "serde_json",
 ]

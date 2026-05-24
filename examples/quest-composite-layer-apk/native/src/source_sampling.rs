@@ -1,9 +1,20 @@
 use crate::{
     HeadsetCameraFrameDiagnostics, RuntimeConfig, StereoGpuCameraFrame, StereoProjectionControls,
 };
+use rusty_xr_contracts::{
+    SourceSamplerYAxis, SourceSamplingContract, SourceSamplingTransformStage, SourceUvRect, Vec2,
+};
 
 pub(crate) const HWB_SOURCE_UV_CONTRACT: &str =
     "screen_to_camera_content_uv_to_hardware_buffer_sampler";
+const HWB_SOURCE_SAMPLING_BACKEND: &str = "hwb";
+const HWB_SOURCE_SAMPLING_MODE: &str = "hwb-runtime";
+const HWB_SAMPLE_TRANSFORM: &str = "sourceVisibleUvRect+cameraTextureTransformFlags";
+const HWB_SAMPLE_TRANSFORM_OWNER: &str =
+    "android-media-image-crop-rect+vulkan-hwb-camera_projection_shader";
+const HWB_OUTPUT_UV_LABEL: &str = "hardware-buffer-sampler-uv";
+const HWB_SAMPLER_UV_ORIGIN: &str = "hardware-buffer-import-convention";
+const HWB_TEXTURE_TRANSFORM_OWNER: &str = "vulkan-hwb-camera_projection_shader";
 
 pub(crate) struct HwbSourceSamplingHandoff<'a> {
     frame: &'a StereoGpuCameraFrame,
@@ -24,7 +35,7 @@ impl<'a> HwbSourceSamplingHandoff<'a> {
         }
     }
 
-    pub(crate) fn marker_fields(self) -> String {
+    pub(crate) fn contract(&self) -> SourceSamplingContract {
         let left_source_uv_rect = source_uv_rect_ltrb_for_diagnostics(&self.frame.left.diagnostics);
         let right_source_uv_rect =
             source_uv_rect_ltrb_for_diagnostics(&self.frame.right.diagnostics);
@@ -33,6 +44,37 @@ impl<'a> HwbSourceSamplingHandoff<'a> {
         } else {
             full_source_uv_rect_ltrb()
         };
+        SourceSamplingContract::new(
+            HWB_SOURCE_SAMPLING_BACKEND,
+            HWB_SOURCE_SAMPLING_MODE,
+            self.controls.source_eye_mapping,
+            SourceSamplingTransformStage::PostHomographyPreSourceVisibleRectThenTextureSample,
+        )
+        .with_content_uv_rect(source_uv_rect_from_ltrb(content_uv_rect))
+        .with_source_visible_uv_rect(source_uv_rect_from_ltrb(content_uv_rect))
+        .with_transform(
+            HWB_SAMPLE_TRANSFORM,
+            HWB_SAMPLE_TRANSFORM_OWNER,
+            source_uv_rect_transform_applied(self.frame)
+                || self.controls.left_texture_transform.shader_flags() != 0
+                || self.controls.right_texture_transform.shader_flags() != 0,
+        )
+        .with_sampler(
+            HWB_OUTPUT_UV_LABEL,
+            HWB_SAMPLER_UV_ORIGIN,
+            SourceSamplerYAxis::RendererDefined,
+        )
+        .with_texture_transform(
+            SourceSamplingTransformStage::PostHomographyPreTextureSample,
+            HWB_TEXTURE_TRANSFORM_OWNER,
+        )
+    }
+
+    pub(crate) fn marker_fields(&self) -> String {
+        let contract = self.contract();
+        let left_source_uv_rect = source_uv_rect_ltrb_for_diagnostics(&self.frame.left.diagnostics);
+        let right_source_uv_rect =
+            source_uv_rect_ltrb_for_diagnostics(&self.frame.right.diagnostics);
         let source_crop_rect_state = marker_token(
             self.frame
                 .left
@@ -62,14 +104,20 @@ impl<'a> HwbSourceSamplingHandoff<'a> {
             "not-logged",
         );
         format!(
-            "schema=rusty.xr.hwb-source-sampling.v1 phase=source-sampling status=ok sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined contentUvRect={} sourceVisibleUvRect={} sourceCropRectState={} sourceCropRectOwner={} leftSourceVisibleUvRect={} rightSourceVisibleUvRect={} leftSourceCropRectPx={} rightSourceCropRectPx={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} {}",
-            self.controls.source_eye_mapping.stable_id(),
+            "schema=rusty.xr.hwb-source-sampling.v1 phase=source-sampling status=ok sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} contentUvRect={} sourceVisibleUvRect={} sourceCropRectState={} sourceCropRectOwner={} leftSourceVisibleUvRect={} rightSourceVisibleUvRect={} leftSourceCropRectPx={} rightSourceCropRectPx={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} {}",
+            contract.source_eye_mapping.stable_id(),
             HWB_SOURCE_UV_CONTRACT,
-            source_uv_rect_transform_applied(self.frame)
-                || self.controls.left_texture_transform.shader_flags() != 0
-                || self.controls.right_texture_transform.shader_flags() != 0,
-            uv_rect_token(content_uv_rect),
-            uv_rect_token(content_uv_rect),
+            legacy_transform_stage_token(contract.transform_stage),
+            contract.transform_label,
+            contract.transform_owner,
+            contract.transform_applied,
+            contract.output_uv_label,
+            contract.sampler_uv_origin,
+            contract.sampler_y_axis.stable_id(),
+            legacy_transform_stage_token(contract.texture_transform_stage),
+            contract.texture_transform_owner,
+            uv_rect_token(source_uv_rect_to_ltrb(contract.content_uv_rect)),
+            uv_rect_token(source_uv_rect_to_ltrb(contract.source_visible_uv_rect)),
             source_crop_rect_state,
             source_crop_rect_owner,
             uv_rect_token(left_source_uv_rect),
@@ -96,6 +144,22 @@ fn marker_token(value: Option<&str>, fallback: &str) -> String {
 
 fn full_source_uv_rect_ltrb() -> [f32; 4] {
     [0.0, 0.0, 1.0, 1.0]
+}
+
+fn source_uv_rect_from_ltrb(rect: [f32; 4]) -> SourceUvRect {
+    SourceUvRect::new(
+        Vec2::new(rect[0], rect[1]),
+        Vec2::new(rect[2] - rect[0], rect[3] - rect[1]),
+    )
+}
+
+fn source_uv_rect_to_ltrb(rect: SourceUvRect) -> [f32; 4] {
+    [
+        rect.origin_uv.x,
+        rect.origin_uv.y,
+        rect.origin_uv.x + rect.size_uv.x,
+        rect.origin_uv.y + rect.size_uv.y,
+    ]
 }
 
 fn source_uv_rect_ltrb_for_diagnostics(diagnostics: &HeadsetCameraFrameDiagnostics) -> [f32; 4] {
@@ -142,6 +206,25 @@ fn optional_u32_token(value: Option<u32>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "not-logged".to_string())
+}
+
+fn legacy_transform_stage_token(stage: SourceSamplingTransformStage) -> &'static str {
+    match stage {
+        SourceSamplingTransformStage::None => "none",
+        SourceSamplingTransformStage::PostHomographyPreTextureSample => {
+            "post_homography_pre_texture_sample"
+        }
+        SourceSamplingTransformStage::PostHomographyPreOesSample => {
+            "post_homography_pre_oes_sample"
+        }
+        SourceSamplingTransformStage::PostHomographyPreYuvSample => {
+            "post_homography_pre_yuv_sample"
+        }
+        SourceSamplingTransformStage::PostHomographyPreSourceVisibleRectThenTextureSample => {
+            "post_homography_pre_source_visible_rect_then_texture_sample"
+        }
+        SourceSamplingTransformStage::Other => "other",
+    }
 }
 
 fn projection_hardware_buffer_marker_fields(frame: &StereoGpuCameraFrame) -> String {
@@ -271,13 +354,28 @@ mod tests {
     #[test]
     fn hwb_handoff_reports_identity_full_rect_contract() {
         let frame = stereo_frame(None);
-        let fields = HwbSourceSamplingHandoff::new(&frame, &controls(), &RuntimeConfig::default())
-            .marker_fields();
+        let controls = controls();
+        let config = RuntimeConfig::default();
+        let handoff = HwbSourceSamplingHandoff::new(&frame, &controls, &config);
+        let contract = handoff.contract();
+        let fields = handoff.marker_fields();
+        assert!(contract.is_valid());
+        assert_eq!(contract.backend, "hwb");
+        assert_eq!(
+            contract.transform_stage,
+            SourceSamplingTransformStage::PostHomographyPreSourceVisibleRectThenTextureSample
+        );
+        assert_eq!(
+            contract.texture_transform_stage,
+            SourceSamplingTransformStage::PostHomographyPreTextureSample
+        );
+        assert_eq!(contract.sampler_y_axis, SourceSamplerYAxis::RendererDefined);
         assert!(fields.contains("schema=rusty.xr.hwb-source-sampling.v1"));
         assert!(fields
             .contains("sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler"));
         assert!(fields.contains("sourceEyeMapping=display-left-from-left-source"));
         assert!(fields.contains("sourceSampleTransformApplied=false"));
+        assert!(fields.contains("sourceTextureTransformStage=post_homography_pre_texture_sample"));
         assert!(fields.contains("contentUvRect=0.000000,0.000000,1.000000,1.000000"));
         assert!(fields.contains("leftHardwareBufferWidth=1280"));
     }
@@ -285,8 +383,17 @@ mod tests {
     #[test]
     fn hwb_handoff_reports_source_visible_rect_transform() {
         let frame = stereo_frame(Some([0.1, 0.2, 0.9, 0.8]));
-        let fields = HwbSourceSamplingHandoff::new(&frame, &controls(), &RuntimeConfig::default())
-            .marker_fields();
+        let controls = controls();
+        let config = RuntimeConfig::default();
+        let handoff = HwbSourceSamplingHandoff::new(&frame, &controls, &config);
+        let contract = handoff.contract();
+        let fields = handoff.marker_fields();
+        let visible_rect = source_uv_rect_to_ltrb(contract.source_visible_uv_rect);
+        assert!((visible_rect[0] - 0.1).abs() < 0.0001);
+        assert!((visible_rect[1] - 0.2).abs() < 0.0001);
+        assert!((visible_rect[2] - 0.9).abs() < 0.0001);
+        assert!((visible_rect[3] - 0.8).abs() < 0.0001);
+        assert!(contract.transform_applied);
         assert!(fields.contains("sourceSampleTransformApplied=true"));
         assert!(fields.contains("sourceVisibleUvRect=0.100000,0.200000,0.900000,0.800000"));
         assert!(fields.contains("sourceCropRectState=metadata_ready"));
