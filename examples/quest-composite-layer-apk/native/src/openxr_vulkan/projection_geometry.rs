@@ -1,3 +1,4 @@
+use ash::vk;
 use openxr as xr;
 use rusty_xr_camera_model::{source_valid_screen_uv_footprint, Rect2};
 
@@ -37,6 +38,84 @@ pub(super) fn projected_homographies_with_screen_to_camera(
             ..homographies.right
         },
     }
+}
+
+pub(super) fn identity_homography() -> [[f32; 3]; 3] {
+    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+}
+
+pub(super) fn full_target_canvas_clip() -> [[f32; 4]; 4] {
+    [
+        [-1.0, -1.0, 0.0, 1.0],
+        [1.0, -1.0, 0.0, 1.0],
+        [1.0, 1.0, 0.0, 1.0],
+        [-1.0, 1.0, 0.0, 1.0],
+    ]
+}
+
+pub(super) fn full_target_canvas_aspect(
+    display_view: &xr::View,
+    resolution: vk::Extent2D,
+) -> (f32, &'static str) {
+    if let Some(aspect) = fov_aspect(display_view.fov) {
+        return (aspect.clamp(0.25, 4.0), "display-eye-fov");
+    }
+    if resolution.height > 0 {
+        return (
+            (resolution.width as f32 / resolution.height as f32).clamp(0.25, 4.0),
+            "swapchain-resolution-fallback",
+        );
+    }
+    (1.0, "square-fallback")
+}
+
+pub(super) fn content_surface_aspect(
+    width: f32,
+    height: f32,
+    resolution: vk::Extent2D,
+) -> (f32, &'static str) {
+    if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+        return ((width / height).clamp(0.25, 4.0), "camera-content-size");
+    }
+    if resolution.height > 0 {
+        return (
+            (resolution.width as f32 / resolution.height as f32).clamp(0.25, 4.0),
+            "swapchain-resolution-fallback",
+        );
+    }
+    (1.0, "square-fallback")
+}
+
+pub(super) fn pack_homography_row(row: [f32; 3]) -> [f32; 4] {
+    [row[0], row[1], row[2], 0.0]
+}
+
+pub(super) fn screen_to_domain_with_visual_offset(
+    mut rows: [[f32; 3]; 3],
+    offset_x_uv: f32,
+    offset_y_uv: f32,
+) -> [[f32; 3]; 3] {
+    let input_x_offset = -offset_x_uv.clamp(-0.5, 0.5);
+    let input_y_offset = -offset_y_uv.clamp(-0.5, 0.5);
+    for row in &mut rows {
+        row[2] += row[0] * input_x_offset + row[1] * input_y_offset;
+    }
+    rows
+}
+
+pub(super) fn domain_to_screen_with_visual_offset(
+    mut rows: [[f32; 3]; 3],
+    offset_x_uv: f32,
+    offset_y_uv: f32,
+) -> [[f32; 3]; 3] {
+    let output_x_offset = offset_x_uv.clamp(-0.5, 0.5);
+    let output_y_offset = offset_y_uv.clamp(-0.5, 0.5);
+    let projective_row = rows[2];
+    for (column, projective_value) in projective_row.into_iter().enumerate() {
+        rows[0][column] += projective_value * output_x_offset;
+        rows[1][column] += projective_value * output_y_offset;
+    }
+    rows
 }
 
 pub(super) fn projected_homography_marker_fields(
@@ -85,6 +164,16 @@ fn homography_token(rows: [[f32; 3]; 3]) -> String {
         .map(|value| format!("{value:.6}"))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn fov_aspect(fov: xr::Fovf) -> Option<f32> {
+    let width = fov.angle_right.tan() - fov.angle_left.tan();
+    let height = fov.angle_up.tan() - fov.angle_down.tan();
+    if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+        Some(width / height)
+    } else {
+        None
+    }
 }
 
 fn screen_uv_rect_token(rect: [f32; 4]) -> String {

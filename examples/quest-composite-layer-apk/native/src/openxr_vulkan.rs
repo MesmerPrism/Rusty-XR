@@ -41,8 +41,11 @@ use rusty_xr_particles::{
 mod projection_geometry;
 mod source_metadata;
 use projection_geometry::{
+    content_surface_aspect, domain_to_screen_with_visual_offset, full_target_canvas_aspect,
+    full_target_canvas_clip, identity_homography, pack_homography_row,
     projected_homographies_with_screen_to_camera, projected_homography_marker_fields,
-    projection_openxr_contract_fields, DisplayEyeProjectionMapping, ProjectedStereoHomographies,
+    projection_openxr_contract_fields, screen_to_domain_with_visual_offset,
+    DisplayEyeProjectionMapping, ProjectedStereoHomographies,
 };
 use source_metadata::projection_source_metadata_marker_fields;
 
@@ -6654,39 +6657,6 @@ fn optional_ms_metric_label(value: Option<f64>) -> String {
         .unwrap_or_else(|| "unavailable".to_string())
 }
 
-fn identity_homography() -> [[f32; 3]; 3] {
-    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
-}
-
-fn full_target_canvas_clip() -> [[f32; 4]; 4] {
-    [
-        [-1.0, -1.0, 0.0, 1.0],
-        [1.0, -1.0, 0.0, 1.0],
-        [1.0, 1.0, 0.0, 1.0],
-        [-1.0, 1.0, 0.0, 1.0],
-    ]
-}
-
-fn full_target_canvas_aspect(
-    display_view: &xr::View,
-    resolution: vk::Extent2D,
-) -> (f32, &'static str) {
-    if let Some(aspect) = fov_aspect(display_view.fov) {
-        return (aspect.clamp(0.25, 4.0), "display-eye-fov");
-    }
-    if resolution.height > 0 {
-        return (
-            (resolution.width as f32 / resolution.height as f32).clamp(0.25, 4.0),
-            "swapchain-resolution-fallback",
-        );
-    }
-    (1.0, "square-fallback")
-}
-
-fn pack_homography_row(row: [f32; 3]) -> [f32; 4] {
-    [row[0], row[1], row[2], 0.0]
-}
-
 fn display_eye_uv_fiducial_marker_fields(config: &crate::RuntimeConfig) -> &'static str {
     use crate::camera_color_pipeline::CameraProjectionEffectMode;
     match config.camera_projection_effect_mode {
@@ -6695,34 +6665,6 @@ fn display_eye_uv_fiducial_marker_fields(config: &crate::RuntimeConfig) -> &'sta
         CameraProjectionEffectMode::SourceSamplingWitness => "displayEyeUvFiducialActive=true displayEyeUvFiducialSchema=rusty.xr.source_sampling_witness.v1 displayEyeUvFiducialCoordinateSpace=source-sampling-witness displayEyeUvFiducialUvBasis=actual-source-image+full_frame_content_uv+hardware-buffer-sampler-uv displayEyeUvFiducialShaderFormula=contentUv=(projectionScreenUv-(0.5-radiusUv))/(2*radiusUv);sourceSamplerUv=cameraTextureTransform(sourceVisibleUvRect(contentUv)) displayEyeUvFiducialMarkersUv=content_grid_yellow_white@0.125,0.250,0.500;source_sampler_grid_cyan_magenta@0.125,0.250,0.500",
         _ => "displayEyeUvFiducialActive=false",
     }
-}
-
-fn screen_to_domain_with_visual_offset(
-    mut rows: [[f32; 3]; 3],
-    offset_x_uv: f32,
-    offset_y_uv: f32,
-) -> [[f32; 3]; 3] {
-    let input_x_offset = -offset_x_uv.clamp(-0.5, 0.5);
-    let input_y_offset = -offset_y_uv.clamp(-0.5, 0.5);
-    for row in &mut rows {
-        row[2] += row[0] * input_x_offset + row[1] * input_y_offset;
-    }
-    rows
-}
-
-fn domain_to_screen_with_visual_offset(
-    mut rows: [[f32; 3]; 3],
-    offset_x_uv: f32,
-    offset_y_uv: f32,
-) -> [[f32; 3]; 3] {
-    let output_x_offset = offset_x_uv.clamp(-0.5, 0.5);
-    let output_y_offset = offset_y_uv.clamp(-0.5, 0.5);
-    let projective_row = rows[2];
-    for (column, projective_value) in projective_row.into_iter().enumerate() {
-        rows[0][column] += projective_value * output_x_offset;
-        rows[1][column] += projective_value * output_y_offset;
-    }
-    rows
 }
 
 fn marker_token(value: Option<&str>, fallback: &str) -> String {
@@ -7129,23 +7071,6 @@ fn fov_aspect(fov: xr::Fovf) -> Option<f32> {
     } else {
         None
     }
-}
-
-fn content_surface_aspect(
-    width: f32,
-    height: f32,
-    resolution: vk::Extent2D,
-) -> (f32, &'static str) {
-    if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
-        return ((width / height).clamp(0.25, 4.0), "camera-content-size");
-    }
-    if resolution.height > 0 {
-        return (
-            (resolution.width as f32 / resolution.height as f32).clamp(0.25, 4.0),
-            "swapchain-resolution-fallback",
-        );
-    }
-    (1.0, "square-fallback")
 }
 
 unsafe fn create_gpu_camera_pipeline_resources(
