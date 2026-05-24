@@ -1,3 +1,4 @@
+use openxr as xr;
 use rusty_xr_camera_model::{source_valid_screen_uv_footprint, Rect2};
 
 use super::{DisplayEyeProjectionMapping, ProjectedStereoHomographies};
@@ -164,4 +165,65 @@ fn expected_source_valid_footprint_marker_fields(
         screen_uv_rect_token(expected_source_valid_screen_uv_rect(&homographies.left)),
         screen_uv_rect_token(expected_source_valid_screen_uv_rect(&homographies.right)),
     )
+}
+
+pub(super) fn projection_openxr_contract_fields(
+    openxr_reference_space: &str,
+    predicted_display_time: xr::Time,
+    views: &[xr::View],
+) -> String {
+    let Some(left) = views.first() else {
+        return format!(
+            "referenceSpace=app-reference-space openxrReferenceSpace={} displayTimeSource=not-logged predictedDisplayTimeSource=not-logged predictedDisplayTimeNs=not-logged viewPoseFovSource=not-logged",
+            marker_token(Some(openxr_reference_space), "unknown")
+        );
+    };
+    let right = views.get(1).unwrap_or(left);
+    format!(
+        "referenceSpace=app-reference-space openxrReferenceSpace={} displayTimeSource=predicted-display-time predictedDisplayTimeSource=predicted-display-time predictedDisplayTimeNs={} viewPoseFovSource=xrLocateViews leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
+        marker_token(Some(openxr_reference_space), "unknown"),
+        predicted_display_time.as_nanos(),
+        format_vec4(fov_tangents(left.fov)),
+        format_vec4(fov_tangents(right.fov)),
+        format_vec4(pose_position(left.pose)),
+        format_vec4(pose_position(right.pose)),
+        format_vec4(pose_orientation(left.pose)),
+        format_vec4(pose_orientation(right.pose))
+    )
+}
+
+fn marker_token(value: Option<&str>, fallback: &str) -> String {
+    value
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback)
+        .replace(char::is_whitespace, "_")
+}
+
+fn format_vec4(values: [f32; 4]) -> String {
+    format!(
+        "[{:.6},{:.6},{:.6},{:.6}]",
+        values[0], values[1], values[2], values[3]
+    )
+}
+
+fn fov_tangents(fov: xr::sys::Fovf) -> [f32; 4] {
+    [
+        fov.angle_left.tan(),
+        fov.angle_right.tan(),
+        fov.angle_up.tan(),
+        fov.angle_down.tan(),
+    ]
+}
+
+fn pose_position(pose: xr::sys::Posef) -> [f32; 4] {
+    [pose.position.x, pose.position.y, pose.position.z, 1.0]
+}
+
+fn pose_orientation(pose: xr::sys::Posef) -> [f32; 4] {
+    [
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+        pose.orientation.w,
+    ]
 }

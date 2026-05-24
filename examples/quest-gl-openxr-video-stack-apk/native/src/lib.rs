@@ -96,9 +96,9 @@ mod android {
     mod projection_runtime;
     mod source_metadata;
     use projection_geometry::{
-        array_rect_xywh, expected_source_valid_footprint_fields, projected_footprint_summary,
-        projection_area_screen_uv_rect, projection_area_target_marker_fields,
-        raw_copy_footprint_summary,
+        array_rect_xywh, expected_source_valid_footprint_fields, openxr_projection_contract_fields,
+        projected_footprint_summary, projection_area_screen_uv_rect,
+        projection_area_target_marker_fields, raw_copy_footprint_summary,
     };
     use projection_runtime::{
         log_oes_projection_runtime_manifest, oes_projection_runtime_resolution_enabled,
@@ -5898,35 +5898,6 @@ void main() {
         }
     }
 
-    fn vec4_token(values: [f32; 4]) -> String {
-        format!(
-            "[{:.6},{:.6},{:.6},{:.6}]",
-            values[0], values[1], values[2], values[3]
-        )
-    }
-
-    fn fov_tangents(fov: xr::Fovf) -> [f32; 4] {
-        [
-            fov.angle_left.tan(),
-            fov.angle_right.tan(),
-            fov.angle_up.tan(),
-            fov.angle_down.tan(),
-        ]
-    }
-
-    fn pose_position(pose: xr::Posef) -> [f32; 4] {
-        [pose.position.x, pose.position.y, pose.position.z, 1.0]
-    }
-
-    fn pose_orientation(pose: xr::Posef) -> [f32; 4] {
-        [
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-            pose.orientation.w,
-        ]
-    }
-
     fn view_pose_is_submit_valid(view: &xr::View) -> bool {
         let pose = view.pose;
         let values = [
@@ -5946,29 +5917,6 @@ void main() {
             + pose.orientation.z * pose.orientation.z
             + pose.orientation.w * pose.orientation.w;
         orientation_norm_squared.is_finite() && orientation_norm_squared > 0.0
-    }
-
-    fn openxr_projection_contract_fields(
-        openxr_reference_space: &str,
-        predicted_display_time: xr::Time,
-        views: &[xr::View],
-    ) -> String {
-        let Some(left) = views.first() else {
-            return format!(
-                "referenceSpace=app-reference-space openxrReferenceSpace={openxr_reference_space} displayTimeSource=not-logged predictedDisplayTimeSource=not-logged predictedDisplayTimeNs=not-logged viewPoseFovSource=not-logged"
-            );
-        };
-        let right = views.get(1).unwrap_or(left);
-        format!(
-            "referenceSpace=app-reference-space openxrReferenceSpace={openxr_reference_space} displayTimeSource=predicted-display-time predictedDisplayTimeSource=predicted-display-time predictedDisplayTimeNs={} viewPoseFovSource=xrLocateViews leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
-            predicted_display_time.as_nanos(),
-            vec4_token(fov_tangents(left.fov)),
-            vec4_token(fov_tangents(right.fov)),
-            vec4_token(pose_position(left.pose)),
-            vec4_token(pose_position(right.pose)),
-            vec4_token(pose_orientation(left.pose)),
-            vec4_token(pose_orientation(right.pose))
-        )
     }
 
     fn eye_from_view_index(view_index: usize) -> Option<Eye> {

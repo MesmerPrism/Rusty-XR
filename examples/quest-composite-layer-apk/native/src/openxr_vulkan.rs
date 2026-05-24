@@ -40,7 +40,7 @@ use rusty_xr_particles::{
 
 mod projection_geometry;
 mod source_metadata;
-use projection_geometry::projected_homography_marker_fields;
+use projection_geometry::{projected_homography_marker_fields, projection_openxr_contract_fields};
 use source_metadata::projection_source_metadata_marker_fields;
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
@@ -10770,31 +10770,6 @@ fn format_vec4(values: [f32; 4]) -> String {
     format!(
         "[{:.6},{:.6},{:.6},{:.6}]",
         values[0], values[1], values[2], values[3]
-    )
-}
-
-fn projection_openxr_contract_fields(
-    openxr_reference_space: &str,
-    predicted_display_time: xr::Time,
-    views: &[xr::View],
-) -> String {
-    let Some(left) = views.first() else {
-        return format!(
-            "referenceSpace=app-reference-space openxrReferenceSpace={} displayTimeSource=not-logged predictedDisplayTimeSource=not-logged predictedDisplayTimeNs=not-logged viewPoseFovSource=not-logged",
-            marker_token(Some(openxr_reference_space), "unknown")
-        );
-    };
-    let right = views.get(1).unwrap_or(left);
-    format!(
-        "referenceSpace=app-reference-space openxrReferenceSpace={} displayTimeSource=predicted-display-time predictedDisplayTimeSource=predicted-display-time predictedDisplayTimeNs={} viewPoseFovSource=xrLocateViews leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
-        marker_token(Some(openxr_reference_space), "unknown"),
-        predicted_display_time.as_nanos(),
-        format_vec4(fov_tangents(left.fov)),
-        format_vec4(fov_tangents(right.fov)),
-        format_vec4(pose_position(left.pose)),
-        format_vec4(pose_position(right.pose)),
-        format_vec4(pose_orientation(left.pose)),
-        format_vec4(pose_orientation(right.pose))
     )
 }
 

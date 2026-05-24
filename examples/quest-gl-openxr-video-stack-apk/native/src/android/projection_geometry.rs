@@ -1,3 +1,4 @@
+use openxr as xr;
 use rusty_xr_camera_model::{Rect2, Vec2};
 use rusty_xr_contracts::{
     Eye, InvalidProjectionFillPolicy, ProjectionFootprintRowSpan, ProjectionFootprintSummary,
@@ -145,6 +146,58 @@ fn projection_area_center_uv(offset_uv: [f32; 2], scale_uv: [f32; 2]) -> [f32; 2
     [
         0.5 + offset_uv[0].clamp(-0.5, 0.5) / scale_uv[0].clamp(0.05, 4.0),
         0.5 + offset_uv[1].clamp(-0.5, 0.5) / scale_uv[1].clamp(0.05, 4.0),
+    ]
+}
+
+pub(super) fn openxr_projection_contract_fields(
+    openxr_reference_space: &str,
+    predicted_display_time: xr::Time,
+    views: &[xr::View],
+) -> String {
+    let Some(left) = views.first() else {
+        return format!(
+            "referenceSpace=app-reference-space openxrReferenceSpace={openxr_reference_space} displayTimeSource=not-logged predictedDisplayTimeSource=not-logged predictedDisplayTimeNs=not-logged viewPoseFovSource=not-logged"
+        );
+    };
+    let right = views.get(1).unwrap_or(left);
+    format!(
+        "referenceSpace=app-reference-space openxrReferenceSpace={openxr_reference_space} displayTimeSource=predicted-display-time predictedDisplayTimeSource=predicted-display-time predictedDisplayTimeNs={} viewPoseFovSource=xrLocateViews leftRenderFovTangents={} rightRenderFovTangents={} leftRenderPosition={} rightRenderPosition={} leftRenderOrientation={} rightRenderOrientation={}",
+        predicted_display_time.as_nanos(),
+        vec4_token(fov_tangents(left.fov)),
+        vec4_token(fov_tangents(right.fov)),
+        vec4_token(pose_position(left.pose)),
+        vec4_token(pose_position(right.pose)),
+        vec4_token(pose_orientation(left.pose)),
+        vec4_token(pose_orientation(right.pose))
+    )
+}
+
+fn vec4_token(values: [f32; 4]) -> String {
+    format!(
+        "[{:.6},{:.6},{:.6},{:.6}]",
+        values[0], values[1], values[2], values[3]
+    )
+}
+
+fn fov_tangents(fov: xr::Fovf) -> [f32; 4] {
+    [
+        fov.angle_left.tan(),
+        fov.angle_right.tan(),
+        fov.angle_up.tan(),
+        fov.angle_down.tan(),
+    ]
+}
+
+fn pose_position(pose: xr::Posef) -> [f32; 4] {
+    [pose.position.x, pose.position.y, pose.position.z, 1.0]
+}
+
+fn pose_orientation(pose: xr::Posef) -> [f32; 4] {
+    [
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+        pose.orientation.w,
     ]
 }
 
