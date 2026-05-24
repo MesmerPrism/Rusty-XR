@@ -7,11 +7,39 @@ use rusty_xr_contracts::{
     ProjectionGuideDomain,
 };
 
-use super::{
-    OesContentMappingMode, OesEyeProjection, OesProjectionAlphaMode, OesProjectionBorderPolicy,
-};
+use super::{OesContentMappingMode, OesProjectionAlphaMode, OesProjectionBorderPolicy};
 
 const PROJECTION_FOOTPRINT_GRID: usize = 64;
+
+#[derive(Clone, Debug)]
+pub(super) struct OesProjectionPlan {
+    pub(super) left: OesEyeProjection,
+    pub(super) right: OesEyeProjection,
+}
+
+impl OesProjectionPlan {
+    pub(super) fn eye(&self, view_index: usize) -> Option<&OesEyeProjection> {
+        match view_index {
+            0 => Some(&self.left),
+            1 => Some(&self.right),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct OesEyeProjection {
+    pub(super) eye: Eye,
+    pub(super) surface_to_screen_h: [[f32; 3]; 3],
+    pub(super) screen_to_surface_h: [[f32; 3]; 3],
+    pub(super) surface_to_camera_h: [[f32; 3]; 3],
+    pub(super) screen_to_camera_h: [[f32; 3]; 3],
+    pub(super) source_label: String,
+    pub(super) source_eye: String,
+    pub(super) use_surface_texture_transform: bool,
+    pub(super) content_mapping_mode: OesContentMappingMode,
+    pub(super) geometry_plan: PerEyeVideoProjectionPlan,
+}
 
 pub(super) fn projected_footprint_summary(
     projection: &OesEyeProjection,

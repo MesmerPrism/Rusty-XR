@@ -99,7 +99,7 @@ mod android {
         array_rect_xywh, expected_source_valid_footprint_fields, openxr_projection_contract_fields,
         projected_footprint_summary, projection_area_screen_uv_rect,
         projection_area_target_marker_fields, raw_copy_footprint_summary,
-        shared_per_eye_projection_plan,
+        shared_per_eye_projection_plan, OesEyeProjection, OesProjectionPlan,
     };
     use projection_runtime::{
         log_oes_projection_runtime_manifest, oes_projection_runtime_resolution_enabled,
@@ -3497,36 +3497,6 @@ void main() {
             ],
         )
         .ok()
-    }
-
-    #[derive(Clone, Debug)]
-    struct OesProjectionPlan {
-        left: OesEyeProjection,
-        right: OesEyeProjection,
-    }
-
-    impl OesProjectionPlan {
-        fn eye(&self, view_index: usize) -> Option<&OesEyeProjection> {
-            match view_index {
-                0 => Some(&self.left),
-                1 => Some(&self.right),
-                _ => None,
-            }
-        }
-    }
-
-    #[derive(Clone, Debug)]
-    struct OesEyeProjection {
-        eye: Eye,
-        surface_to_screen_h: [[f32; 3]; 3],
-        screen_to_surface_h: [[f32; 3]; 3],
-        surface_to_camera_h: [[f32; 3]; 3],
-        screen_to_camera_h: [[f32; 3]; 3],
-        source_label: String,
-        source_eye: String,
-        use_surface_texture_transform: bool,
-        content_mapping_mode: OesContentMappingMode,
-        geometry_plan: PerEyeVideoProjectionPlan,
     }
 
     impl OesEyeProjection {
