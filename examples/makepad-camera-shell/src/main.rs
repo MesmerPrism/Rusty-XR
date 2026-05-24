@@ -11,8 +11,9 @@ mod source_metadata;
 use projection_geometry::{
     makepad_draw_vars_bound_marker_fields, makepad_paired_projection_progress_marker_fields,
     makepad_projection_complete_marker_fields, makepad_projection_start_marker_fields,
-    makepad_projection_target_marker_fields, makepad_visible_panel_bound_marker_fields,
-    projection_homography_marker_fields, MakepadOpenXrProjectionContract,
+    makepad_projection_target_marker_fields, makepad_single_stream_proof_wait_marker_fields,
+    makepad_visible_panel_bound_marker_fields, projection_homography_marker_fields,
+    MakepadOpenXrProjectionContract,
 };
 #[cfg(target_os = "android")]
 use projection_geometry::broker_projection_plan_marker_fields;
@@ -4551,16 +4552,17 @@ impl App {
             let visible_projection_ready = self.bind_camera_projection_panel(cx);
             if !self.camera_projection_single_stream_logged {
                 self.camera_projection_single_stream_logged = true;
-                Self::emit_stereo_projection_marker(&format!(
-                    "phase=single-stream-proof status=waiting pairedLeftRightCameraFrames=false singleStreamCameraPixels=true leftUpdated={} rightUpdated={} leftYuvReady={} rightYuvReady={} projectionMappingReady={} alignedProjection=false visibleCameraProjectionReady={} sceneOwnedPanel=true projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDefaults=deprecated panelTargetFields=runtime diagnosticVisualLayer=none neutralWaitingPanel=true depthClip=false environmentDepthClip=false drawVarsTextureRedraw=true shaderAreaStateUpdate=true updatedStreamVisualProofSide={} visualInspection=required visualReleaseAccepted=false fallbackReason=waiting_for_second_cpu_yuv_stream",
-                    self.paired_import_left_updated,
-                    self.paired_import_right_updated,
-                    self.paired_import_left_yuv_textures.is_some(),
-                    self.paired_import_right_yuv_textures.is_some(),
-                    pair.projection_homography_ready,
-                    visible_projection_ready,
-                    updated_stream_visual_proof_side,
-                ));
+                Self::emit_stereo_projection_marker(
+                    &makepad_single_stream_proof_wait_marker_fields(
+                        self.paired_import_left_updated,
+                        self.paired_import_right_updated,
+                        self.paired_import_left_yuv_textures.is_some(),
+                        self.paired_import_right_yuv_textures.is_some(),
+                        pair.projection_homography_ready,
+                        visible_projection_ready,
+                        updated_stream_visual_proof_side,
+                    ),
+                );
             }
             return;
         }
