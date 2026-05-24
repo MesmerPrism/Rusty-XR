@@ -2356,6 +2356,54 @@ def rect_delta(a: list[float] | None, b: list[float] | list[int] | None) -> list
     return [float(b[index]) - float(a[index]) for index in range(4)]
 
 
+def rect_comparison_in_render_surface(
+    expected_px: list[float] | None,
+    observed_bbox: list[float] | list[int] | None,
+    render_bbox: list[float] | list[int] | None,
+) -> dict[str, Any]:
+    if (
+        not isinstance(expected_px, list)
+        or not isinstance(observed_bbox, list)
+        or not isinstance(render_bbox, list)
+        or len(expected_px) != 4
+        or len(observed_bbox) != 4
+        or len(render_bbox) != 4
+    ):
+        return {}
+    _, _, rw, rh = [float(v) for v in render_bbox]
+    if rw <= 0.0 or rh <= 0.0:
+        return {}
+    ex, ey, ew, eh = [float(v) for v in expected_px]
+    ox, oy, ow, oh = [float(v) for v in observed_bbox]
+    delta_px = [ox - ex, oy - ey, ow - ew, oh - eh]
+    expected_center = [ex + ew * 0.5, ey + eh * 0.5]
+    observed_center = [ox + ow * 0.5, oy + oh * 0.5]
+    center_delta_px = [
+        expected_center[0] - observed_center[0],
+        expected_center[1] - observed_center[1],
+    ]
+    size_delta_px = [ew - ow, eh - oh]
+    return {
+        "observed_rect_delta_px": delta_px,
+        "observed_rect_delta_fraction_of_render_surface": [
+            delta_px[0] / rw,
+            delta_px[1] / rh,
+            delta_px[2] / rw,
+            delta_px[3] / rh,
+        ],
+        "expected_center_delta_px": center_delta_px,
+        "expected_center_delta_fraction_of_render_surface": [
+            center_delta_px[0] / rw,
+            center_delta_px[1] / rh,
+        ],
+        "expected_size_delta_px": size_delta_px,
+        "expected_size_delta_fraction_of_render_surface": [
+            size_delta_px[0] / rw,
+            size_delta_px[1] / rh,
+        ],
+    }
+
+
 def authored_source_valid_footprint_record(
     eye_report: dict[str, Any],
     app_projection: dict[str, Any],
@@ -2376,10 +2424,11 @@ def authored_source_valid_footprint_record(
     if isinstance(analyzer_model, dict):
         model_rect = analyzer_model.get("source_domain_screen_uv_bbox_clipped")
         model_iou = bbox_iou(clipped, model_rect)
+    comparison = rect_comparison_in_render_surface(expected_px, observed_bbox, render_bbox)
     return {
         "status": "renderer-authored-source-valid-footprint" if expected_px else "blocked",
         "reason": None if expected_px else "render-surface-bbox-required-for-renderer-authored-rect",
-        "coordinate_note": "Renderer-authored source-valid footprint in display-eye screen UV; analyzer only projects it into screenshot pixels and compares it with observed evidence.",
+        "coordinate_note": "Renderer-authored source-valid footprint in display-eye screen UV; analyzer projects it into screenshot pixels through the measured render-surface bbox for evidence only. Treat normalized deltas as a guardrail before changing renderer math.",
         "renderer_authored": True,
         "expected_source_valid_footprint_source": source,
         "expected_source_valid_footprint_stage": app_projection.get("expected_source_valid_footprint_stage"),
@@ -2399,7 +2448,6 @@ def authored_source_valid_footprint_record(
         "source_domain_screen_uv_bbox_clipped": clipped,
         "rect_px": expected_px,
         "rect_iou_with_observed": bbox_iou(expected_px, observed_bbox),
-        "observed_rect_delta_px": rect_delta(expected_px, observed_bbox),
         "analyzer_model_check": (
             {
                 "status": analyzer_model.get("status"),
@@ -2411,6 +2459,7 @@ def authored_source_valid_footprint_record(
             if isinstance(analyzer_model, dict)
             else None
         ),
+        **comparison,
     }
 
 
