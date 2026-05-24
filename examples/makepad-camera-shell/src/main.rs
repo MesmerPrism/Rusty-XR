@@ -9,10 +9,10 @@ mod projection_runtime;
 mod projection_geometry;
 mod source_metadata;
 use projection_geometry::{
-    makepad_draw_vars_bound_marker_fields, makepad_projection_target_marker_fields,
+    makepad_draw_vars_bound_marker_fields, makepad_paired_projection_progress_marker_fields,
     makepad_projection_complete_marker_fields, makepad_projection_start_marker_fields,
-    makepad_visible_panel_bound_marker_fields, projection_homography_marker_fields,
-    MakepadOpenXrProjectionContract,
+    makepad_projection_target_marker_fields, makepad_visible_panel_bound_marker_fields,
+    projection_homography_marker_fields, MakepadOpenXrProjectionContract,
 };
 #[cfg(target_os = "android")]
 use projection_geometry::broker_projection_plan_marker_fields;
@@ -4247,21 +4247,13 @@ impl App {
         let Some(pair) = &self.paired_import_choice else {
             return;
         };
-        Self::emit_stereo_projection_marker(&format!(
-            "phase={} status=progress leftPrepared={} rightPrepared={} leftUpdated={} rightUpdated={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} {} leftSourceIndex={} rightSourceIndex={} fallbackReason={}",
+        Self::emit_stereo_projection_marker(&makepad_paired_projection_progress_marker_fields(
+            pair,
             phase,
             self.paired_import_left_prepared,
             self.paired_import_right_prepared,
             self.paired_import_left_updated,
             self.paired_import_right_updated,
-            pair.projection_homography_ready,
-            pair.projection_metadata_ready,
-            pair.pose_source,
-            pair.source_eye_mapping,
-            projection_homography_marker_fields(pair),
-            pair.left.source_index,
-            pair.right.source_index,
-            marker_token(&pair.fallback_reason),
         ));
     }
 

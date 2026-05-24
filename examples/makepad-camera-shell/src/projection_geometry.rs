@@ -1068,6 +1068,33 @@ pub(crate) fn makepad_projection_start_marker_fields(
     )
 }
 
+pub(crate) fn makepad_paired_projection_progress_marker_fields(
+    pair: &MakepadCameraPair,
+    phase: &str,
+    left_prepared: bool,
+    right_prepared: bool,
+    left_updated: bool,
+    right_updated: bool,
+) -> String {
+    let homography_marker_fields = projection_homography_marker_fields(pair);
+    let fallback_reason = marker_token(&pair.fallback_reason);
+    paired_projection_progress_marker_fields(
+        phase,
+        left_prepared,
+        right_prepared,
+        left_updated,
+        right_updated,
+        pair.projection_homography_ready,
+        pair.projection_metadata_ready,
+        &pair.pose_source,
+        &pair.source_eye_mapping,
+        &homography_marker_fields,
+        pair.left.source_index,
+        pair.right.source_index,
+        &fallback_reason,
+    )
+}
+
 fn draw_vars_bound_marker_fields(
     yuv_mode: bool,
     broker_h264_surface_texture: bool,
@@ -1084,6 +1111,39 @@ fn draw_vars_bound_marker_fields(
         single_stream_visual_proof,
         updated_stream_visual_proof_side,
         homography_marker_fields,
+    )
+}
+
+fn paired_projection_progress_marker_fields(
+    phase: &str,
+    left_prepared: bool,
+    right_prepared: bool,
+    left_updated: bool,
+    right_updated: bool,
+    projection_mapping_ready: bool,
+    projection_metadata_ready: bool,
+    pose_source: &str,
+    source_eye_mapping: &str,
+    homography_marker_fields: &str,
+    left_source_index: usize,
+    right_source_index: usize,
+    fallback_reason: &str,
+) -> String {
+    format!(
+        "phase={} status=progress leftPrepared={} rightPrepared={} leftUpdated={} rightUpdated={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} {} leftSourceIndex={} rightSourceIndex={} fallbackReason={}",
+        phase,
+        left_prepared,
+        right_prepared,
+        left_updated,
+        right_updated,
+        projection_mapping_ready,
+        projection_metadata_ready,
+        pose_source,
+        source_eye_mapping,
+        homography_marker_fields,
+        left_source_index,
+        right_source_index,
+        fallback_reason,
     )
 }
 
@@ -1554,7 +1614,8 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        complete_marker_fields, draw_vars_bound_marker_fields, projection_start_marker_fields,
+        complete_marker_fields, draw_vars_bound_marker_fields,
+        paired_projection_progress_marker_fields, projection_start_marker_fields,
         visible_panel_bound_marker_fields, CompleteMarkerFields,
     };
 
@@ -1679,5 +1740,37 @@ mod tests {
         assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
         assert!(fields.contains("projectionMode=camera projectionScale=1.25 xrRenderScale=1.50"));
         assert!(fields.ends_with("fallbackReason=none"));
+    }
+
+    #[test]
+    fn paired_projection_progress_marker_keeps_projection_contract_shape() {
+        let fields = paired_projection_progress_marker_fields(
+            "texture-updated",
+            true,
+            false,
+            true,
+            false,
+            true,
+            true,
+            "camera2-openxr-view",
+            "left-right",
+            "projectionHomographyReady=true runtimeXrViewStateReady=true",
+            0,
+            1,
+            "waiting_for_right",
+        );
+
+        assert!(fields.starts_with(
+            "phase=texture-updated status=progress leftPrepared=true rightPrepared=false"
+        ));
+        assert!(fields.contains("leftUpdated=true rightUpdated=false"));
+        assert!(fields.contains(
+            "projectionMappingReady=true alignedProjection=false projectionMetadataReady=true"
+        ));
+        assert!(fields.contains("poseSource=camera2-openxr-view sourceEyeMapping=left-right"));
+        assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
+        assert!(fields.ends_with(
+            "leftSourceIndex=0 rightSourceIndex=1 fallbackReason=waiting_for_right"
+        ));
     }
 }
