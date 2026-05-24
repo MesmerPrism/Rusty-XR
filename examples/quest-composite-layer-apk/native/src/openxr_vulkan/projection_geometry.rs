@@ -657,6 +657,23 @@ pub(super) fn projection_openxr_contract_fields(
     )
 }
 
+pub(super) fn projection_openxr_contract_log_message(
+    frame_index: u64,
+    openxr_frame_count: u64,
+    aligned_projection: bool,
+    openxr_reference_space: &str,
+    predicted_display_time: xr::Time,
+    views: &[xr::View],
+) -> String {
+    format!(
+        "Rusty XR OpenXR projection contract frame={} openXrFrameCount={} activeTier=gpu-projected alignedProjection={} {}",
+        frame_index,
+        openxr_frame_count,
+        aligned_projection,
+        projection_openxr_contract_fields(openxr_reference_space, predicted_display_time, views)
+    )
+}
+
 fn marker_token(value: Option<&str>, fallback: &str) -> String {
     value
         .filter(|value| !value.is_empty())

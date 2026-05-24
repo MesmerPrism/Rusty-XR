@@ -40,11 +40,12 @@ use projection_geometry::{
     camera_preview_surface_corners, eye_basis_from_view, fov_aspect, identity_homography,
     pack_homography_row, projected_homographies_with_screen_to_camera,
     projected_homography_marker_fields, projected_stereo_homographies,
-    projection_openxr_contract_fields, tracking_basis_from_views, DisplayEyeProjectionMapping,
+    projection_openxr_contract_log_message, tracking_basis_from_views, DisplayEyeProjectionMapping,
     ProjectedStereoHomographies,
 };
 use source_metadata::{
-    projection_source_metadata_marker_fields, source_uv_rect_ltrb_for_diagnostics,
+    hwb_source_metadata_log_message, projection_source_metadata_marker_fields,
+    source_uv_rect_ltrb_for_diagnostics,
 };
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
@@ -3462,22 +3463,17 @@ unsafe fn run_vulkan(
                                     stereo_frame.right.height,
                                     config.camera_projection_mode,
                                 );
-                            log_info(format!(
-                                "Rusty XR HWB source metadata frame={} schema=rusty.xr.hwb-source-metadata.v1 phase=source-metadata status=ok sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler {}",
+                            log_info(hwb_source_metadata_log_message(
                                 stereo_frame.index,
-                                projection_source_metadata_fields
+                                &projection_source_metadata_fields,
                             ));
-                            let openxr_contract_fields = projection_openxr_contract_fields(
-                                reference_space_label,
-                                frame_state.predicted_display_time,
-                                &views,
-                            );
-                            log_info(format!(
-                                "Rusty XR OpenXR projection contract frame={} openXrFrameCount={} activeTier=gpu-projected alignedProjection={} {}",
+                            log_info(projection_openxr_contract_log_message(
                                 stereo_frame.index,
                                 frame_count,
                                 aligned_projection,
-                                openxr_contract_fields
+                                reference_space_label,
+                                frame_state.predicted_display_time,
+                                &views,
                             ));
                             let orientation_accepted =
                                 controls.left_texture_transform.is_explicit_visual_check()

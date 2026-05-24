@@ -273,6 +273,13 @@ pub(super) fn projection_source_metadata_marker_fields(
     )
 }
 
+pub(super) fn hwb_source_metadata_log_message(frame_index: u64, marker_fields: &str) -> String {
+    format!(
+        "Rusty XR HWB source metadata frame={} schema=rusty.xr.hwb-source-metadata.v1 phase=source-metadata status=ok sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler {}",
+        frame_index, marker_fields
+    )
+}
+
 fn fallback_projection_geometry_profile(
     camera_projection_mode: CameraProjectionMode,
 ) -> &'static str {
