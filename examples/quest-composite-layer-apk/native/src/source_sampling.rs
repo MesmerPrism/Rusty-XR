@@ -140,6 +140,111 @@ impl<'a> HwbSourceSamplingHandoff<'a> {
     }
 }
 
+pub(crate) fn hwb_stereo_draw_prepared_log_message(
+    frame: &StereoGpuCameraFrame,
+    controls: &StereoProjectionControls,
+    config: &RuntimeConfig,
+    projection_active: bool,
+    display_left_camera_id: &str,
+    display_right_camera_id: &str,
+    import_cache_size: usize,
+    stereo_descriptor_cache_size: usize,
+) -> String {
+    let explicit_visual_check = controls.left_texture_transform.is_explicit_visual_check()
+        && controls.right_texture_transform.is_explicit_visual_check();
+    let accepted_flat_visual_check =
+        !projection_active && config.visual_release_accepted && explicit_visual_check;
+    let orientation_accepted =
+        explicit_visual_check && (projection_active || accepted_flat_visual_check);
+    let pose_source = frame
+        .left
+        .diagnostics
+        .pose_source
+        .as_deref()
+        .unwrap_or("missing");
+    let pose_reference = frame
+        .left
+        .diagnostics
+        .lens_pose_reference_label
+        .as_deref()
+        .unwrap_or("unknown");
+    let pose_convention = frame
+        .left
+        .diagnostics
+        .pose_coordinate_convention
+        .as_deref()
+        .unwrap_or("unknown");
+    let source_sample_transform_applied = source_uv_rect_transform_applied(frame)
+        || controls.left_texture_transform.shader_flags() != 0
+        || controls.right_texture_transform.shader_flags() != 0;
+    let active_tier = if projection_active {
+        "gpu-projected"
+    } else if accepted_flat_visual_check {
+        "gpu-flat-visual-check"
+    } else {
+        "gpu-buffer-probe"
+    };
+    let projection_shader_path = if projection_active {
+        "projected"
+    } else if accepted_flat_visual_check {
+        "flat-visual-check"
+    } else {
+        "flat-probe"
+    };
+    let fallback_reason = if projection_active {
+        if config.visual_release_accepted {
+            "projected shader path active with manual visual acceptance"
+        } else {
+            "projected shader path active; visual orientation/alignment acceptance still required"
+        }
+    } else if accepted_flat_visual_check {
+        "missing per-eye projection metadata; drawing accepted flat stereo visual-check path"
+    } else {
+        "missing per-eye projection metadata or explicit texture orientation"
+    };
+
+    format!(
+        "Rusty XR GPU stereo camera draw prepared frame {} requestedTier={} activeTier={} alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true cpuUploadCount=0 poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} {} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck={} orientationAccepted={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} importCacheSize={} stereoDescriptorCacheSize={} projectionShaderPath={} projectionMetadataReady={} fallbackReason={}",
+        frame.index,
+        config.camera_tier.stable_id(),
+        active_tier,
+        projection_active,
+        pose_source,
+        pose_reference,
+        pose_convention,
+        config.camera_projection_mode.stable_id(),
+        config.camera_feed_pipeline_mode.stable_id(),
+        config.camera_color_mode.stable_id(),
+        config.camera_color_mode.shader_bit(),
+        config.hwb_source_color_contract_fields(),
+        config.camera_color_contrast,
+        config.camera_color_brightness,
+        config.camera_color_saturation,
+        config.camera_import_image_layout_mode.stable_id(),
+        config.camera_import_cache_limit,
+        controls.source_eye_mapping.stable_id(),
+        display_left_camera_id,
+        display_right_camera_id,
+        controls.left_label(),
+        controls.right_label(),
+        controls.left_texture_transform.shader_flags(),
+        controls.right_texture_transform.shader_flags(),
+        config.camera_texture_transform.source_label.as_str(),
+        config.camera_texture_transform.reason.as_str(),
+        source_sample_transform_applied,
+        config.camera_texture_transform.is_explicit_visual_check(),
+        orientation_accepted,
+        config.visual_release_accepted,
+        controls.diagnostic_mode.stable_id(),
+        controls.diagnostic_step,
+        import_cache_size,
+        stereo_descriptor_cache_size,
+        projection_shader_path,
+        stereo_projection_metadata_ready(frame),
+        fallback_reason
+    )
+}
+
 fn source_mode_for_frame(frame: &StereoGpuCameraFrame) -> &'static str {
     let source = frame
         .left
@@ -239,6 +344,27 @@ fn source_uv_rect_transform_applied(frame: &StereoGpuCameraFrame) -> bool {
         || !source_uv_rect_is_full(source_uv_rect_ltrb_for_diagnostics(
             &frame.right.diagnostics,
         ))
+}
+
+fn stereo_projection_metadata_ready(frame: &StereoGpuCameraFrame) -> bool {
+    let left_pose = frame
+        .left
+        .diagnostics
+        .pose_source
+        .as_deref()
+        .map(|value| matches!(value, "platform" | "estimated-profile"))
+        .unwrap_or(false);
+    let right_pose = frame
+        .right
+        .diagnostics
+        .pose_source
+        .as_deref()
+        .map(|value| matches!(value, "platform" | "estimated-profile"))
+        .unwrap_or(false);
+    frame.left.metadata.has_projection_metadata()
+        && frame.right.metadata.has_projection_metadata()
+        && left_pose
+        && right_pose
 }
 
 fn uv_rect_token(rect: [f32; 4]) -> String {
@@ -468,5 +594,28 @@ mod tests {
         assert!(fields.contains("sourceVisibleUvRect=0.100000,0.200000,0.900000,0.800000"));
         assert!(fields.contains("sourceCropRectState=metadata_ready"));
         assert!(fields.contains("sourceCropRectOwner=android_media_image"));
+    }
+
+    #[test]
+    fn hwb_draw_prepared_marker_uses_source_sampling_record() {
+        let frame = stereo_frame(Some([0.1, 0.2, 0.9, 0.8]));
+        let controls = controls();
+        let config = RuntimeConfig::default();
+
+        let message = hwb_stereo_draw_prepared_log_message(
+            &frame, &controls, &config, true, "50", "51", 3, 2,
+        );
+
+        assert!(message.starts_with("Rusty XR GPU stereo camera draw prepared frame 1"));
+        assert!(message.contains("activeTier=gpu-projected alignedProjection=true"));
+        assert!(message
+            .contains("sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler"));
+        assert!(message.contains("sourceSampleTransformApplied=true"));
+        assert!(message.contains("displayLeftCameraId=50 displayRightCameraId=51"));
+        assert!(message.contains("importCacheSize=3 stereoDescriptorCacheSize=2"));
+        assert!(message.contains("projectionShaderPath=projected"));
+        assert!(message.contains(
+            "fallbackReason=projected shader path active; visual orientation/alignment acceptance still required"
+        ));
     }
 }

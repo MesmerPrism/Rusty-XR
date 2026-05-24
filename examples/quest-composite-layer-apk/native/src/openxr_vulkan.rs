@@ -9,9 +9,10 @@ use crate::{
     apply_camera_alignment_tuning, diagnostic_hud_snapshot, gpu_probe_counters,
     latest_headset_camera_frame, latest_headset_camera_gpu_frame,
     latest_headset_stereo_camera_gpu_frame, log_error, log_info, runtime_config,
-    source_sampling::HwbSourceSamplingHandoff, CameraAlignmentTuningUpdate, EnvironmentDepthMode,
-    HandParticleMode, HeadsetCameraFrame, HeadsetCameraGpuFrame, OpenXrColorFormatMode,
-    OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
+    source_sampling::{hwb_stereo_draw_prepared_log_message, HwbSourceSamplingHandoff},
+    CameraAlignmentTuningUpdate, EnvironmentDepthMode, HandParticleMode, HeadsetCameraFrame,
+    HeadsetCameraGpuFrame, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
+    OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
 };
 use android_activity::{InputStatus, MainEvent, PollEvent};
 use ash::vk::{self, Handle};
@@ -3399,102 +3400,20 @@ unsafe fn run_vulkan(
                         if last_logged_prepared_stereo_frame_index != Some(stereo_frame.index)
                             && stereo_frame.index.is_multiple_of(120)
                         {
-                            let explicit_visual_check =
-                                controls.left_texture_transform.is_explicit_visual_check()
-                                    && controls.right_texture_transform.is_explicit_visual_check();
-                            let accepted_flat_visual_check = !projection_active
-                                && config.visual_release_accepted
-                                && explicit_visual_check;
-                            let orientation_accepted = explicit_visual_check
-                                && (projection_active || accepted_flat_visual_check);
-                            let pose_source = stereo_frame
-                                .left
-                                .diagnostics
-                                .pose_source
-                                .as_deref()
-                                .unwrap_or("missing");
-                            let pose_reference = stereo_frame
-                                .left
-                                .diagnostics
-                                .lens_pose_reference_label
-                                .as_deref()
-                                .unwrap_or("unknown");
-                            let pose_convention = stereo_frame
-                                .left
-                                .diagnostics
-                                .pose_coordinate_convention
-                                .as_deref()
-                                .unwrap_or("unknown");
                             let (display_left_camera_id, display_right_camera_id) =
                                 mapped_display_camera_ids(
                                     &stereo_frame,
                                     controls.source_eye_mapping,
                                 );
-                            let source_sample_transform_applied =
-                                source_uv_rect_transform_applied(&stereo_frame)
-                                    || controls.left_texture_transform.shader_flags() != 0
-                                    || controls.right_texture_transform.shader_flags() != 0;
-                            log_info(format!(
-                                "Rusty XR GPU stereo camera draw prepared frame {} requestedTier={} activeTier={} alignedProjection={} stereoLayout=Separate pairedLeftRightGpuBuffers=true cpuUploadCount=0 poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} {} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck={} orientationAccepted={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} importCacheSize={} stereoDescriptorCacheSize={} projectionShaderPath={} projectionMetadataReady={} fallbackReason={}",
-                                stereo_frame.index,
-                                config.camera_tier.stable_id(),
-                                if projection_active {
-                                    "gpu-projected"
-                                } else if accepted_flat_visual_check {
-                                    "gpu-flat-visual-check"
-                                } else {
-                                    "gpu-buffer-probe"
-                                },
+                            log_info(hwb_stereo_draw_prepared_log_message(
+                                &stereo_frame,
+                                &controls,
+                                &config,
                                 projection_active,
-                                pose_source,
-                                pose_reference,
-                                pose_convention,
-                                config.camera_projection_mode.stable_id(),
-                                config.camera_feed_pipeline_mode.stable_id(),
-                                config.camera_color_mode.stable_id(),
-                                config.camera_color_mode.shader_bit(),
-                                config.hwb_source_color_contract_fields(),
-                                config.camera_color_contrast,
-                                config.camera_color_brightness,
-                                config.camera_color_saturation,
-                                config.camera_import_image_layout_mode.stable_id(),
-                                config.camera_import_cache_limit,
-                                controls.source_eye_mapping.stable_id(),
                                 display_left_camera_id,
                                 display_right_camera_id,
-                                controls.left_label(),
-                                controls.right_label(),
-                                controls.left_texture_transform.shader_flags(),
-                                controls.right_texture_transform.shader_flags(),
-                                config.camera_texture_transform.source_label.as_str(),
-                                config.camera_texture_transform.reason.as_str(),
-                                source_sample_transform_applied,
-                                config.camera_texture_transform.is_explicit_visual_check(),
-                                orientation_accepted,
-                                config.visual_release_accepted,
-                                controls.diagnostic_mode.stable_id(),
-                                controls.diagnostic_step,
                                 gpu_camera_renderer.imports.len(),
                                 gpu_camera_renderer.stereo_descriptors.len(),
-                                if projection_active {
-                                    "projected"
-                                } else if accepted_flat_visual_check {
-                                    "flat-visual-check"
-                                } else {
-                                    "flat-probe"
-                                },
-                                stereo_projection_metadata_ready(&stereo_frame),
-                                if projection_active {
-                                    if config.visual_release_accepted {
-                                        "projected shader path active with manual visual acceptance"
-                                    } else {
-                                        "projected shader path active; visual orientation/alignment acceptance still required"
-                                    }
-                                } else if accepted_flat_visual_check {
-                                    "missing per-eye projection metadata; drawing accepted flat stereo visual-check path"
-                                } else {
-                                    "missing per-eye projection metadata or explicit texture orientation"
-                                }
                             ));
                             last_logged_prepared_stereo_frame_index = Some(stereo_frame.index);
                         }
@@ -4824,27 +4743,6 @@ fn gpu_projection_readiness(frame: &HeadsetCameraGpuFrame) -> ProjectionReadines
                 .to_string(),
         check_label: format!("scaledPrincipal=({:.1},{:.1})", center.x, center.y),
     }
-}
-
-fn stereo_projection_metadata_ready(frame: &StereoGpuCameraFrame) -> bool {
-    let left_pose = frame
-        .left
-        .diagnostics
-        .pose_source
-        .as_deref()
-        .map(|value| matches!(value, "platform" | "estimated-profile"))
-        .unwrap_or(false);
-    let right_pose = frame
-        .right
-        .diagnostics
-        .pose_source
-        .as_deref()
-        .map(|value| matches!(value, "platform" | "estimated-profile"))
-        .unwrap_or(false);
-    frame.left.metadata.has_projection_metadata()
-        && frame.right.metadata.has_projection_metadata()
-        && left_pose
-        && right_pose
 }
 
 fn mapped_display_camera_ids(
