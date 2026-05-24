@@ -47,7 +47,9 @@ use projection_geometry::{
     projection_openxr_contract_fields, screen_to_domain_with_visual_offset,
     DisplayEyeProjectionMapping, ProjectedStereoHomographies,
 };
-use source_metadata::projection_source_metadata_marker_fields;
+use source_metadata::{
+    projection_source_metadata_marker_fields, source_uv_rect_ltrb_for_diagnostics,
+};
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
 const CAMERA_CPU_UPLOAD_MIN_INTERVAL_NS: i64 = 250_000_000;
@@ -6667,38 +6669,8 @@ fn display_eye_uv_fiducial_marker_fields(config: &crate::RuntimeConfig) -> &'sta
     }
 }
 
-fn marker_token(value: Option<&str>, fallback: &str) -> String {
-    value
-        .filter(|value| !value.is_empty())
-        .unwrap_or(fallback)
-        .replace(char::is_whitespace, "_")
-}
-
-fn marker_bool(value: Option<bool>, fallback: bool) -> &'static str {
-    if value.unwrap_or(fallback) {
-        "true"
-    } else {
-        "false"
-    }
-}
-
-fn marker_f32(value: Option<f32>, fallback: f32) -> String {
-    format!("{:.6}", value.unwrap_or(fallback))
-}
-
-fn full_source_uv_rect_ltrb() -> [f32; 4] {
-    [0.0, 0.0, 1.0, 1.0]
-}
-
 fn full_source_uv_rect_xywh() -> [f32; 4] {
     [0.0, 0.0, 1.0, 1.0]
-}
-
-fn source_uv_rect_ltrb_for_diagnostics(diagnostics: &HeadsetCameraFrameDiagnostics) -> [f32; 4] {
-    diagnostics
-        .source_visible_uv_rect
-        .or(diagnostics.content_uv_rect)
-        .unwrap_or_else(full_source_uv_rect_ltrb)
 }
 
 fn source_uv_rect_xywh_for_frame(frame: &HeadsetCameraGpuFrame) -> [f32; 4] {
@@ -6719,13 +6691,6 @@ fn source_uv_rect_transform_applied(frame: &StereoGpuCameraFrame) -> bool {
         || !source_uv_rect_is_full(source_uv_rect_ltrb_for_diagnostics(
             &frame.right.diagnostics,
         ))
-}
-
-fn uv_rect_token(rect: [f32; 4]) -> String {
-    format!(
-        "{:.6},{:.6},{:.6},{:.6}",
-        rect[0], rect[1], rect[2], rect[3]
-    )
 }
 
 fn projected_stereo_homographies(

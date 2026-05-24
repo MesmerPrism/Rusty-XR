@@ -1,10 +1,5 @@
 use crate::{CameraProjectionMode, HeadsetCameraFrameDiagnostics};
 
-use super::{
-    full_source_uv_rect_ltrb, marker_bool, marker_f32, marker_token,
-    source_uv_rect_ltrb_for_diagnostics, uv_rect_token,
-};
-
 pub(super) fn projection_source_metadata_marker_fields(
     left: &HeadsetCameraFrameDiagnostics,
     right: &HeadsetCameraFrameDiagnostics,
@@ -237,4 +232,43 @@ fn fallback_projection_geometry_profile(
 fn pixel_rect_token(rect: Option<[u32; 4]>) -> String {
     rect.map(|[left, top, right, bottom]| format!("{left},{top},{right},{bottom}"))
         .unwrap_or_else(|| "not-logged".to_string())
+}
+
+pub(super) fn full_source_uv_rect_ltrb() -> [f32; 4] {
+    [0.0, 0.0, 1.0, 1.0]
+}
+
+pub(super) fn source_uv_rect_ltrb_for_diagnostics(
+    diagnostics: &HeadsetCameraFrameDiagnostics,
+) -> [f32; 4] {
+    diagnostics
+        .source_visible_uv_rect
+        .or(diagnostics.content_uv_rect)
+        .unwrap_or_else(full_source_uv_rect_ltrb)
+}
+
+fn marker_token(value: Option<&str>, fallback: &str) -> String {
+    value
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback)
+        .replace(char::is_whitespace, "_")
+}
+
+fn marker_bool(value: Option<bool>, fallback: bool) -> &'static str {
+    if value.unwrap_or(fallback) {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+fn marker_f32(value: Option<f32>, fallback: f32) -> String {
+    format!("{:.6}", value.unwrap_or(fallback))
+}
+
+fn uv_rect_token(rect: [f32; 4]) -> String {
+    format!(
+        "{:.6},{:.6},{:.6},{:.6}",
+        rect[0], rect[1], rect[2], rect[3]
+    )
 }
