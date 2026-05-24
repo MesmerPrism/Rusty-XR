@@ -200,26 +200,28 @@ For source changes, run
 as the host-side Rust validation gate for parser, metadata, projection math,
 and committed lockfile resolution. Do not use a plain
 `cargo check --target aarch64-linux-android` as the Android acceptance gate for
-this Makepad lane; it can stop at Makepad's generated Android entrypoint model
-and does not exercise the actual packager. Android acceptance is a successful
-wrapper build through `Build-MakepadStereoAlignmentApk.ps1`, preferably with
-`-MakepadSourceRoot <makepad-fork-checkout>` when Makepad-side packaging or
-bridge code matters.
+this Makepad lane; it only compiles the Rust target and does not exercise the
+actual packager. Android acceptance is a successful wrapper build through
+`Build-MakepadStereoAlignmentApk.ps1`, preferably with `-MakepadSourceRoot
+<makepad-fork-checkout>` when Makepad-side packaging or bridge code matters.
 
-When Android-only Rust in this example changes, an optional no-run probe can
-add partial target coverage:
+When Android-only Rust in this example changes, optional target probes can add
+partial target coverage:
 
 ```powershell
+cargo check --manifest-path examples\makepad-camera-shell\Cargo.toml --target aarch64-linux-android
 cargo test --manifest-path examples\makepad-camera-shell\Cargo.toml --target aarch64-linux-android --no-run
 ```
 
-This is not a required gate and not a package validation. If the probe compiles
-the edited Rust modules and stops only at final test linking because no
-`cc`/NDK target linker is configured, record it as Android-target Rust
-compilation reaching the edited path with a known final linker failure. Do not
-report it as passed tests, and do not add extra linker/toolchain setup only to
-make this optional probe link unless it is later promoted to CI or a required
-local gate.
+These are not required gates and not package validation. The source includes an
+Android-only binary `main` shim so the direct target check can compile
+Android-only modules while Makepad's generated app still launches through the
+JNI entrypoint emitted by `app_main!`. If the no-run test probe compiles the
+edited Rust modules and stops only at final test linking because no `cc`/NDK
+target linker is configured, record it as Android-target Rust compilation
+reaching the edited path with a known final linker failure. Do not report it as
+passed tests, and do not add extra linker/toolchain setup only to make this
+optional probe link unless it is later promoted to CI or a required local gate.
 
 Keep the Makepad options before `build` or `run` and use `--key=value` for
 paths and package/app values. Before treating an APK as fresh evidence, remove

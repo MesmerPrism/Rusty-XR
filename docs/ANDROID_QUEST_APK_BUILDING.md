@@ -177,23 +177,27 @@ For Makepad Android, split validation into two gates:
    because it exercises Makepad's generated Android activity model and packager.
 
 A direct `cargo check --target aarch64-linux-android` is not the authoritative
-Makepad Android gate for this example. It may reach Makepad's generated
-Android entrypoint limitation even when the wrapper build and generated APK are
-valid.
+Makepad Android gate for this example. It compiles the Rust target, but it does
+not exercise Makepad's generated Android activity model and packager.
 
 Optional Android-target Rust probe: when a change touches Android-only Rust in
-the Makepad example, `cargo test --manifest-path
+the Makepad example, `cargo check --manifest-path
+examples\makepad-camera-shell\Cargo.toml --target aarch64-linux-android` can
+compile Android-only Rust modules because the source has an Android-only binary
+`main` shim while Makepad packaging still launches through the JNI entrypoint
+emitted by `app_main!`. `cargo test --manifest-path
 examples\makepad-camera-shell\Cargo.toml --target aarch64-linux-android
---no-run` can be used as extra evidence. Treat it as a probe, not a required
-gate. If it compiles the edited Rust modules and then fails only at final test
-linking because no target `cc`/NDK linker is configured, report that as
-"Android-target Rust compilation reached the edited path; final test-link
-failed due to missing target linker." Do not call that "tests passed," do not
-fail the whole workflow solely for that known linker stop, and do not add local
-linker setup just for the probe unless the project intentionally promotes it to
-a required gate. If it is promoted later, document a deliberate local NDK
-linker configuration such as `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER` as a
-separate toolchain requirement.
+--no-run` can be used as extra evidence. Treat these as probes, not required
+gates. If the no-run test probe compiles the edited Rust modules and then fails
+only at final test linking because no target `cc`/NDK linker is configured,
+report that as "Android-target Rust compilation reached the edited path; final
+test-link failed due to missing target linker." Do not call that "tests
+passed," do not fail the whole workflow solely for that known linker stop, and
+do not add local linker setup just for the probe unless the project
+intentionally promotes it to a required gate. If it is promoted later, document
+a deliberate local NDK linker configuration such as
+`CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER` as a separate toolchain
+requirement.
 
 For headset gates, prefer
 `examples/makepad-camera-shell/tools/Invoke-MakepadCameraDeviceGate.ps1`.

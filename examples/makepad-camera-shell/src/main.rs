@@ -49,6 +49,12 @@ use std::{
 
 app_main!(App);
 
+#[cfg(target_os = "android")]
+fn main() {
+    // Makepad Android launches through the JNI entrypoint emitted by app_main!.
+    // Plain Cargo target checks still compile this source as a binary crate.
+}
+
 static STARTUP_MARKERS_EMITTED: AtomicBool = AtomicBool::new(false);
 static PAIRED_IMPORT_SIGNAL_READY: AtomicBool = AtomicBool::new(false);
 static CAMERA_PANEL_DRAW_MARKER_EMITTED: AtomicBool = AtomicBool::new(false);

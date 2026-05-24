@@ -77,13 +77,15 @@ is under test.
 
 Do not substitute plain `cargo check --target aarch64-linux-android` for the
 Makepad Android gate. This app's Android entrypoint is packaged through
-Makepad's Android build path, and plain Cargo can hit the expected
-`app_main!`/missing-main mismatch. For Android-only Rust edits, an optional
-`cargo test --target aarch64-linux-android --no-run` probe may be useful, but
-label it as partial Android-target Rust compilation evidence. If it reaches the
-edited Rust path and then fails only at final test linking because no target
-`cc`/NDK linker is configured, do not report "tests passed" and do not fail the
-workflow solely on that known linker stop.
+Makepad's Android build path, and plain Cargo does not exercise that generated
+activity/packager path. The source includes an Android-only binary `main` shim
+so direct target checks can compile Android-only Rust modules, but they remain
+target-compilation evidence rather than APK/package evidence. For Android-only
+Rust edits, an optional `cargo test --target aarch64-linux-android --no-run`
+probe may be useful, but label it as partial Android-target Rust compilation
+evidence. If it reaches the edited Rust path and then fails only at final test
+linking because no target `cc`/NDK linker is configured, do not report "tests
+passed" and do not fail the workflow solely on that known linker stop.
 
 The Makepad `cargo_makepad` source used for evidence builds must resolve the
 installed SDK platform/build-tools and host executable names. If it still looks

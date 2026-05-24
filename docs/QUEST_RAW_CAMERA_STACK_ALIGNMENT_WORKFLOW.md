@@ -358,11 +358,12 @@ source-eye mapping is the experiment. Host
 parser/projection code, but plain
 `cargo check --target aarch64-linux-android` is not the Makepad Android
 acceptance gate because it does not exercise the generated activity/packager
-path. For Android-only Rust edits, `cargo test --target
-aarch64-linux-android --no-run` may be used as an optional probe. If that probe
-compiles the edited Rust modules and fails only at final test linking because
-no target linker is configured, record it as partial Android-target Rust
-compilation evidence, not as passed tests and not as an APK/package failure.
+path. For Android-only Rust edits, direct target `cargo check` and
+`cargo test --target aarch64-linux-android --no-run` may be used as optional
+target-compilation probes. If the no-run test probe compiles the edited Rust
+modules and fails only at final test linking because no target linker is
+configured, record it as partial Android-target Rust compilation evidence, not
+as passed tests and not as an APK/package failure.
 If a clean WSL/Linux-host Makepad rebuild repeats a missing bundled font
 asset removal failure, treat it as a packager-route failure rather than hidden
 staging state and switch to the Windows-host wrapper lane unless Linux-host
