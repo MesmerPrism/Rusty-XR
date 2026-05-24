@@ -2,7 +2,8 @@ use rusty_xr_camera_model::{rect_xywh, uv_rect_token, Rect2, Vec2};
 use serde_json::Value as JsonValue;
 
 use super::{
-    marker_token, DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE, FRAME_RASTER_TOP_LEFT_Y_DOWN,
+    marker_token, MakepadCameraPair, DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE,
+    FRAME_RASTER_TOP_LEFT_Y_DOWN,
 };
 
 pub(crate) fn aspect_ratio_u32(width: u32, height: u32) -> f64 {
@@ -11,6 +12,85 @@ pub(crate) fn aspect_ratio_u32(width: u32, height: u32) -> f64 {
     } else {
         1.0
     }
+}
+
+pub(crate) fn makepad_hardware_buffer_import_enumerated_marker_fields(
+    pair: &MakepadCameraPair,
+    source_count: usize,
+    format_count: usize,
+    left_frame_rate: &str,
+    right_frame_rate: &str,
+    pixel_format: &str,
+) -> String {
+    hardware_buffer_import_enumerated_marker_fields(
+        source_count,
+        format_count,
+        &pair.source_binding_mode,
+        pair.left.source_index,
+        pair.right.source_index,
+        pair.left.camera_id.as_deref().unwrap_or("unknown"),
+        pair.right.camera_id.as_deref().unwrap_or("unknown"),
+        pair.left.source_class,
+        pair.right.source_class,
+        pair.left.width,
+        pair.left.height,
+        pair.right.width,
+        pair.right.height,
+        left_frame_rate,
+        right_frame_rate,
+        pixel_format,
+    )
+}
+
+pub(crate) fn makepad_hardware_buffer_import_enumerated_error_marker_fields(
+    source_count: usize,
+    format_count: usize,
+) -> String {
+    format!(
+        "phase=enumerated status=error makepadSourceCount={} makepadFormatCount={} selected=false errorKind=no_yuv420_makepad_camera_stereo_pair",
+        source_count,
+        format_count,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hardware_buffer_import_enumerated_marker_fields(
+    source_count: usize,
+    format_count: usize,
+    source_binding_mode: &str,
+    left_source_index: usize,
+    right_source_index: usize,
+    left_camera_id: &str,
+    right_camera_id: &str,
+    left_source_class: &str,
+    right_source_class: &str,
+    left_width: usize,
+    left_height: usize,
+    right_width: usize,
+    right_height: usize,
+    left_frame_rate: &str,
+    right_frame_rate: &str,
+    pixel_format: &str,
+) -> String {
+    format!(
+        "phase=enumerated status=ok makepadSourceCount={} makepadFormatCount={} selected=true importPlan=paired-makepad-video-hardware-buffer sourceBindingMode={} leftSourceIndex={} rightSourceIndex={} leftCameraId={} rightCameraId={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftFrameRate={} rightFrameRate={} pixelFormat={}",
+        source_count,
+        format_count,
+        source_binding_mode,
+        left_source_index,
+        right_source_index,
+        marker_token(left_camera_id),
+        marker_token(right_camera_id),
+        left_source_class,
+        right_source_class,
+        left_width,
+        left_height,
+        right_width,
+        right_height,
+        left_frame_rate,
+        right_frame_rate,
+        pixel_format,
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -908,5 +988,40 @@ mod tests {
         assert!(fields.contains("contentMappingIntent=map_full_frame_content"));
         assert!(fields.contains("sourceValidUvRect=0.100000,0.200000,0.800000,0.600000"));
         assert!(fields.ends_with("importPlan=broker-h264-stereo-mediacodec-yuv-texture"));
+    }
+
+    #[test]
+    fn hardware_buffer_import_enumerated_markers_keep_source_metadata_shape() {
+        let fields = hardware_buffer_import_enumerated_marker_fields(
+            2,
+            4,
+            "camera2-direct",
+            0,
+            1,
+            "camera 0",
+            "camera 1",
+            "back",
+            "back",
+            1280,
+            720,
+            1280,
+            720,
+            "30.00",
+            "30.00",
+            "YUV420",
+        );
+
+        assert!(fields.starts_with(
+            "phase=enumerated status=ok makepadSourceCount=2 makepadFormatCount=4 selected=true"
+        ));
+        assert!(fields.contains("sourceBindingMode=camera2-direct"));
+        assert!(fields.contains("leftCameraId=camera_0 rightCameraId=camera_1"));
+        assert!(fields.contains("leftFrameRate=30.00 rightFrameRate=30.00 pixelFormat=YUV420"));
+
+        let error = makepad_hardware_buffer_import_enumerated_error_marker_fields(0, 0);
+        assert_eq!(
+            error,
+            "phase=enumerated status=error makepadSourceCount=0 makepadFormatCount=0 selected=false errorKind=no_yuv420_makepad_camera_stereo_pair"
+        );
     }
 }

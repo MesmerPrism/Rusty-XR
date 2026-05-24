@@ -29,9 +29,10 @@ use projection_runtime::{
 };
 use source_metadata::{
     broker_pair_content_geometry_marker_fields, direct_camera2_content_geometry_marker_fields,
+    makepad_hardware_buffer_import_enumerated_error_marker_fields,
+    makepad_hardware_buffer_import_enumerated_marker_fields,
     missing_broker_content_geometry_marker_fields, normalize_direct_camera_projection_geometry_profile,
-    stream_header_metadata_marker_fields,
-    BrokerH264ProjectionMetadata,
+    stream_header_metadata_marker_fields, BrokerH264ProjectionMetadata,
 };
 
 use makepad_widgets::makepad_platform::{
@@ -4160,36 +4161,28 @@ impl App {
         let format_count: usize = inputs.descs.iter().map(|desc| desc.formats.len()).sum();
         match &self.paired_import_choice {
             Some(pair) => {
-                Self::emit_hardware_buffer_import_marker(&format!(
-                "phase=enumerated status=ok makepadSourceCount={} makepadFormatCount={} selected=true importPlan=paired-makepad-video-hardware-buffer sourceBindingMode={} leftSourceIndex={} rightSourceIndex={} leftCameraId={} rightCameraId={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftFrameRate={} rightFrameRate={} pixelFormat={}",
-                source_count,
-                format_count,
-                pair.source_binding_mode,
-                pair.left.source_index,
-                pair.right.source_index,
-                marker_token(pair.left.camera_id.as_deref().unwrap_or("unknown")),
-                marker_token(pair.right.camera_id.as_deref().unwrap_or("unknown")),
-                pair.left.source_class,
-                pair.right.source_class,
-                pair.left.width,
-                pair.left.height,
-                pair.right.width,
-                pair.right.height,
-                frame_rate_token(pair.left.frame_rate),
-                frame_rate_token(pair.right.frame_rate),
-                pixel_format_label(pair.left.pixel_format),
-            ));
+                Self::emit_hardware_buffer_import_marker(
+                    &makepad_hardware_buffer_import_enumerated_marker_fields(
+                        pair,
+                        source_count,
+                        format_count,
+                        &frame_rate_token(pair.left.frame_rate),
+                        &frame_rate_token(pair.right.frame_rate),
+                        pixel_format_label(pair.left.pixel_format),
+                    ),
+                );
                 Self::emit_stereo_projection_marker(&makepad_projection_enumerated_marker_fields(
                     pair,
                     source_count,
                     format_count,
                 ));
             }
-            None => Self::emit_hardware_buffer_import_marker(&format!(
-                "phase=enumerated status=error makepadSourceCount={} makepadFormatCount={} selected=false errorKind=no_yuv420_makepad_camera_stereo_pair",
-                source_count,
-                format_count,
-            )),
+            None => Self::emit_hardware_buffer_import_marker(
+                &makepad_hardware_buffer_import_enumerated_error_marker_fields(
+                    source_count,
+                    format_count,
+                ),
+            ),
         }
     }
 
