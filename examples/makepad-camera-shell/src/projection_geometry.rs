@@ -18,8 +18,8 @@ use super::{
     makepad_projection_depth_meters,
     makepad_projection_panel_geometry, makepad_projection_preview_fov_y_degrees,
     makepad_projection_preview_offset_y_meters, makepad_projection_raw_overscan, marker_token, App,
-    MakepadCameraPair, MakepadProcessingLayer, MakepadProjectionAlphaMode,
-    MakepadProjectionBorderPolicy,
+    HorizontalAlignmentTuning, MakepadCameraPair, MakepadProcessingLayer,
+    MakepadProjectionAlphaMode, MakepadProjectionBorderPolicy,
     KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED, KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV,
     KEY_MAKEPAD_PROJECTION_AREA_OFFSET_RIGHT_UV, KEY_MAKEPAD_PROJECTION_AREA_OFFSET_VERTICAL_UV,
     KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV, KEY_MAKEPAD_PROJECTION_AREA_RADIUS_Y_UV,
@@ -1205,6 +1205,40 @@ pub(crate) fn makepad_native_video_widget_surface_marker_fields(
     )
 }
 
+pub(crate) fn makepad_horizontal_alignment_hotload_marker_fields(
+    tuning: HorizontalAlignmentTuning,
+    panel_bound: bool,
+) -> String {
+    horizontal_alignment_hotload_marker_fields(
+        tuning.projection_border_opacity > 0.0001,
+        &makepad_projection_target_marker_fields(),
+        tuning.strength,
+        tuning.left_offset_uv,
+        tuning.right_offset_uv,
+        tuning.vertical_offset_uv,
+        tuning.content_uv_scale,
+        tuning.projection_border_opacity,
+        tuning.projection_area_opacity,
+        MakepadProjectionAlphaMode::current().stable_id(),
+        tuning.projection_alpha_scale,
+        tuning.projection_alpha_bias,
+        MakepadProcessingLayer::current().stable_id(),
+        tuning.blur_radius_px,
+        tuning.projection_area_diagnostic,
+        tuning.projection_area_offset_left_uv,
+        tuning.projection_area_offset_right_uv,
+        tuning.projection_area_offset_vertical_uv,
+        tuning.projection_area_scale_x,
+        tuning.projection_area_scale_y,
+        tuning.projection_area_radius_x_uv,
+        tuning.projection_area_radius_y_uv,
+        tuning.projection_area_corner_radius_uv,
+        tuning.projection_area_keystone_x,
+        tuning.projection_area_bow_x,
+        panel_bound,
+    )
+}
+
 pub(crate) struct MakepadStereoComparisonMarkerInputs<'a> {
     pub(crate) phase: &'a str,
     pub(crate) runtime_profile: &'a str,
@@ -1300,6 +1334,66 @@ fn native_video_widget_surface_marker_fields(
         right_width,
         right_height,
         reset_count,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn horizontal_alignment_hotload_marker_fields(
+    solid_red_projection_exterior: bool,
+    projection_target_fields: &str,
+    horizontal_alignment_strength: f32,
+    manual_left_uv: f32,
+    manual_right_uv: f32,
+    manual_vertical_uv: f32,
+    content_uv_scale: f32,
+    projection_border_opacity: f32,
+    projection_area_opacity: f32,
+    projection_alpha_mode: &str,
+    projection_alpha_scale: f32,
+    projection_alpha_bias: f32,
+    processing_layer: &str,
+    blur_radius_px: f32,
+    projection_area_diagnostic: f32,
+    projection_area_left_uv: f32,
+    projection_area_right_uv: f32,
+    projection_area_vertical_uv: f32,
+    projection_area_scale_x: f32,
+    projection_area_scale_y: f32,
+    projection_area_radius_x_uv: f32,
+    projection_area_radius_y_uv: f32,
+    projection_area_corner_radius_uv: f32,
+    projection_area_keystone_x: f32,
+    projection_area_bow_x: f32,
+    panel_bound: bool,
+) -> String {
+    format!(
+        "phase=horizontal-alignment-hotload status=applied s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109SolidRedProjectionExterior=true s110VerticalWindowOffsetHotload=true s111ProjectionAreaDiagnostic=true s112ProjectionAreaScreenOffset=true s113ProjectionAreaScreenScale=true s114ProjectionAreaFootprintOnlyDiagnostic=true s115ProjectionAreaKeystone=true s116ProjectionAreaMidpointBow=true s117PreHomographyDiagnosticOnly=true s118ProjectedFootprintLiveWindow=true s119ProcessingLayerHotload=true s120ProjectionAreaOpacityHotload=true s121ProjectionAreaRoundedMaskHotload=true s122ProjectionAlphaMaskHotload=true horizontalAlignmentSource=screen_to_camera_center_delta_projection_area_source_valid_window manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true projectionBorderOpacityHotload=true projectionBorderPolicyHotload=true processingLayerHotload=true projectionAreaDiagnosticHotload=true projectionAreaScreenOffsetHotload=true projectionAreaScreenScaleHotload=true projectionAreaRoundedMaskHotload=true projectionAreaKeystoneHotload=true projectionAreaBowHotload=true projectionAreaOpacityHotload=true projectionAlphaMaskHotload=true projectionAreaTransformStage=pre_homography_screen_uv borderlessWindowMask=false solidRedProjectionExterior={} propertyPrefix=debug.rustyxr {} projectionAreaDiagnosticMode=0_off_1_full_2_footprint_only horizontalAlignmentStrength={:.4} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} projectionBorderOpacity={:.4} projectionAreaOpacity={:.4} projectionAlphaMode={} projectionAlphaScale={:.4} projectionAlphaBias={:.4} processingLayer={} blurRadiusPx={:.2} projectionAreaDiagnostic={:.1} projectionAreaLeftUv={:.4} projectionAreaRightUv={:.4} projectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaKeystoneX={:.4} projectionAreaBowX={:.4} panelBound={} visualInspection=required",
+        solid_red_projection_exterior,
+        projection_target_fields,
+        horizontal_alignment_strength,
+        manual_left_uv,
+        manual_right_uv,
+        manual_vertical_uv,
+        content_uv_scale,
+        projection_border_opacity,
+        projection_area_opacity,
+        projection_alpha_mode,
+        projection_alpha_scale,
+        projection_alpha_bias,
+        processing_layer,
+        blur_radius_px,
+        projection_area_diagnostic,
+        projection_area_left_uv,
+        projection_area_right_uv,
+        projection_area_vertical_uv,
+        projection_area_scale_x,
+        projection_area_scale_y,
+        projection_area_radius_x_uv,
+        projection_area_radius_y_uv,
+        projection_area_corner_radius_uv,
+        projection_area_keystone_x,
+        projection_area_bow_x,
+        panel_bound,
     )
 }
 
@@ -1919,11 +2013,12 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
 mod tests {
     use super::{
         complete_marker_fields, draw_vars_bound_marker_fields,
-        native_video_widget_reset_marker_fields, native_video_widget_surface_marker_fields,
-        paired_projection_progress_marker_fields, projection_enumerated_marker_fields,
-        projection_start_marker_fields, single_stream_proof_wait_marker_fields,
-        stereo_comparison_marker_line_fields, visible_panel_bound_marker_fields,
-        CompleteMarkerFields, MakepadStereoComparisonMarkerInputs, StereoComparisonPairFields,
+        horizontal_alignment_hotload_marker_fields, native_video_widget_reset_marker_fields,
+        native_video_widget_surface_marker_fields, paired_projection_progress_marker_fields,
+        projection_enumerated_marker_fields, projection_start_marker_fields,
+        single_stream_proof_wait_marker_fields, stereo_comparison_marker_line_fields,
+        visible_panel_bound_marker_fields, CompleteMarkerFields,
+        MakepadStereoComparisonMarkerInputs, StereoComparisonPairFields,
     };
 
     #[test]
@@ -2203,5 +2298,46 @@ mod tests {
         ));
         assert!(surface.contains("leftSourceIndex=0 rightSourceIndex=1"));
         assert!(surface.ends_with("visualInspection=required visualReleaseAccepted=false"));
+    }
+
+    #[test]
+    fn horizontal_alignment_hotload_marker_keeps_projection_contract_shape() {
+        let fields = horizontal_alignment_hotload_marker_fields(
+            true,
+            "projectionBorderPolicy=solid-red",
+            1.0,
+            -0.1,
+            0.1,
+            0.0,
+            1.6,
+            1.0,
+            1.0,
+            "none",
+            1.0,
+            0.0,
+            "none",
+            0.0,
+            1.0,
+            -0.1,
+            0.1,
+            0.0,
+            1.0,
+            1.0,
+            0.5,
+            0.5,
+            0.0,
+            0.0,
+            0.0,
+            true,
+        );
+
+        assert!(fields.starts_with(
+            "phase=horizontal-alignment-hotload status=applied"
+        ));
+        assert!(fields.contains("projectionAreaTransformStage=pre_homography_screen_uv"));
+        assert!(fields.contains("projectionBorderPolicy=solid-red"));
+        assert!(fields.contains("horizontalAlignmentStrength=1.0000"));
+        assert!(fields.contains("manualLeftUv=-0.1000 manualRightUv=0.1000"));
+        assert!(fields.ends_with("panelBound=true visualInspection=required"));
     }
 }

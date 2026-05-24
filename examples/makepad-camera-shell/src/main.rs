@@ -9,7 +9,8 @@ mod projection_runtime;
 mod projection_geometry;
 mod source_metadata;
 use projection_geometry::{
-    makepad_draw_vars_bound_marker_fields, makepad_native_video_widget_reset_error_marker_fields,
+    makepad_draw_vars_bound_marker_fields, makepad_horizontal_alignment_hotload_marker_fields,
+    makepad_native_video_widget_reset_error_marker_fields,
     makepad_native_video_widget_reset_waiting_marker_fields,
     makepad_native_video_widget_surface_marker_fields,
     makepad_paired_projection_progress_marker_fields, makepad_projection_complete_marker_fields,
@@ -3378,33 +3379,8 @@ impl App {
         self.projection_alpha_scale = tuning.projection_alpha_scale;
         self.projection_alpha_bias = tuning.projection_alpha_bias;
         let panel_bound = self.apply_horizontal_alignment_tuning_to_panel(cx, tuning);
-        Self::emit_stereo_projection_marker(&format!(
-            "phase=horizontal-alignment-hotload status=applied s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109SolidRedProjectionExterior=true s110VerticalWindowOffsetHotload=true s111ProjectionAreaDiagnostic=true s112ProjectionAreaScreenOffset=true s113ProjectionAreaScreenScale=true s114ProjectionAreaFootprintOnlyDiagnostic=true s115ProjectionAreaKeystone=true s116ProjectionAreaMidpointBow=true s117PreHomographyDiagnosticOnly=true s118ProjectedFootprintLiveWindow=true s119ProcessingLayerHotload=true s120ProjectionAreaOpacityHotload=true s121ProjectionAreaRoundedMaskHotload=true s122ProjectionAlphaMaskHotload=true horizontalAlignmentSource=screen_to_camera_center_delta_projection_area_source_valid_window manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true projectionBorderOpacityHotload=true projectionBorderPolicyHotload=true processingLayerHotload=true projectionAreaDiagnosticHotload=true projectionAreaScreenOffsetHotload=true projectionAreaScreenScaleHotload=true projectionAreaRoundedMaskHotload=true projectionAreaKeystoneHotload=true projectionAreaBowHotload=true projectionAreaOpacityHotload=true projectionAlphaMaskHotload=true projectionAreaTransformStage=pre_homography_screen_uv borderlessWindowMask=false solidRedProjectionExterior={} propertyPrefix=debug.rustyxr {} projectionAreaDiagnosticMode=0_off_1_full_2_footprint_only horizontalAlignmentStrength={:.4} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} projectionBorderOpacity={:.4} projectionAreaOpacity={:.4} projectionAlphaMode={} projectionAlphaScale={:.4} projectionAlphaBias={:.4} processingLayer={} blurRadiusPx={:.2} projectionAreaDiagnostic={:.1} projectionAreaLeftUv={:.4} projectionAreaRightUv={:.4} projectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaKeystoneX={:.4} projectionAreaBowX={:.4} panelBound={} visualInspection=required",
-            tuning.projection_border_opacity > 0.0001,
-            makepad_projection_target_marker_fields(),
-            tuning.strength,
-            tuning.left_offset_uv,
-            tuning.right_offset_uv,
-            tuning.vertical_offset_uv,
-            tuning.content_uv_scale,
-            tuning.projection_border_opacity,
-            tuning.projection_area_opacity,
-            MakepadProjectionAlphaMode::current().stable_id(),
-            tuning.projection_alpha_scale,
-            tuning.projection_alpha_bias,
-            MakepadProcessingLayer::current().stable_id(),
-            tuning.blur_radius_px,
-            tuning.projection_area_diagnostic,
-            tuning.projection_area_offset_left_uv,
-            tuning.projection_area_offset_right_uv,
-            tuning.projection_area_offset_vertical_uv,
-            tuning.projection_area_scale_x,
-            tuning.projection_area_scale_y,
-            tuning.projection_area_radius_x_uv,
-            tuning.projection_area_radius_y_uv,
-            tuning.projection_area_corner_radius_uv,
-            tuning.projection_area_keystone_x,
-            tuning.projection_area_bow_x,
+        Self::emit_stereo_projection_marker(&makepad_horizontal_alignment_hotload_marker_fields(
+            tuning,
             panel_bound,
         ));
     }
