@@ -806,6 +806,35 @@ function Assert-BoundedFootprintEvidence {
     $rightProjectionArea = Parse-Rect (Wait-LatestMarkerField -Root $ArtifactDir -Field "rightProjectionAreaScreenUvRect")
     $leftExpected = Parse-Rect (Wait-LatestMarkerField -Root $ArtifactDir -Field "leftExpectedSourceValidScreenUvRect")
     $rightExpected = Parse-Rect (Wait-LatestMarkerField -Root $ArtifactDir -Field "rightExpectedSourceValidScreenUvRect")
+    $projectionAreaFullscreen = (Test-FullscreenRect $leftProjectionArea) -or (Test-FullscreenRect $rightProjectionArea)
+    $sourceValidFootprintsPresent = ($null -ne $leftExpected) -and ($null -ne $rightExpected)
+    $sourceValidFootprintFullscreen = $sourceValidFootprintsPresent -and ((Test-FullscreenRect $leftExpected) -or (Test-FullscreenRect $rightExpected))
+    $sourceValidFootprintBounded = $sourceValidFootprintsPresent -and -not $sourceValidFootprintFullscreen
+    $sourceValidCoverage = if (-not $sourceValidFootprintsPresent) {
+        "missing"
+    } elseif ($sourceValidFootprintFullscreen) {
+        "fullscreen"
+    } else {
+        "bounded"
+    }
+    $renderSurfaceCoverage = if ($projectionAreaFullscreen) {
+        "fullscreen"
+    } else {
+        "bounded"
+    }
+    $footprintContract = if (-not $sourceValidFootprintsPresent) {
+        "missing-source-valid-footprint"
+    } elseif ($sourceValidFootprintFullscreen) {
+        "fullscreen-source-valid-footprint"
+    } elseif ($projectionAreaFullscreen) {
+        "fullscreen-render-surface-bounded-source-valid-footprint"
+    } else {
+        "bounded-render-surface-bounded-source-valid-footprint"
+    }
+    $contractSignals = @()
+    if ($projectionAreaFullscreen -and $sourceValidFootprintBounded) {
+        $contractSignals += "fullscreen-render-surface-with-bounded-source-valid-footprint"
+    }
 
     $evidence = [ordered]@{
         caseId = $CaseId
@@ -814,8 +843,15 @@ function Assert-BoundedFootprintEvidence {
         rightProjectionAreaScreenUvRect = $rightProjectionArea
         leftExpectedSourceValidScreenUvRect = $leftExpected
         rightExpectedSourceValidScreenUvRect = $rightExpected
-        projectionAreaFullscreen = (Test-FullscreenRect $leftProjectionArea) -or (Test-FullscreenRect $rightProjectionArea)
-        effectiveFootprintFullscreen = (Test-FullscreenRect $leftExpected) -or (Test-FullscreenRect $rightExpected)
+        projectionAreaFullscreen = $projectionAreaFullscreen
+        effectiveFootprintFullscreen = $sourceValidFootprintFullscreen
+        renderSurfaceFullscreen = $projectionAreaFullscreen
+        renderSurfaceUvCoverage = $renderSurfaceCoverage
+        sourceValidFootprintFullscreen = $sourceValidFootprintFullscreen
+        sourceValidFootprintBounded = $sourceValidFootprintBounded
+        sourceValidFootprintUvCoverage = $sourceValidCoverage
+        footprintContract = $footprintContract
+        contractSignals = $contractSignals
         status = "ok"
         issues = @()
     }
@@ -825,11 +861,8 @@ function Assert-BoundedFootprintEvidence {
     if ($null -eq $leftExpected -or $null -eq $rightExpected) {
         $issues += "missing-expected-source-valid-footprint"
     }
-    elseif ((Test-FullscreenRect $leftExpected) -or (Test-FullscreenRect $rightExpected)) {
+    elseif ($sourceValidFootprintFullscreen) {
         $issues += "effective-source-valid-footprint-fullscreen"
-    }
-    if ((Test-FullscreenRect $leftProjectionArea) -or (Test-FullscreenRect $rightProjectionArea)) {
-        $issues += "shader-projection-area-fullscreen"
     }
 
     $evidence["status"] = if ($issues.Count -eq 0) { "ok" } elseif ($issues -contains "effective-source-valid-footprint-fullscreen") { "invalid" } else { "warning" }
@@ -892,12 +925,14 @@ function Copy-HeadsetCaptureFromMakepadRun {
         [string]$CaseRoot,
         [string]$OutputPng
     )
-    $source = Get-ChildItem -LiteralPath (ConvertTo-WindowsLongPath $CaseRoot) -Recurse -Filter "*.png" -ErrorAction Stop |
+    $sourceCandidates = @(Get-ChildItem -LiteralPath (ConvertTo-WindowsLongPath $CaseRoot) -Recurse -Filter "*.png" -ErrorAction Stop |
         Where-Object { $_.FullName -match "\\screenshots\\" -and $_.Name -match "frame-00\.png$" } |
-        Sort-Object LastWriteTime -Descending |
+        Sort-Object LastWriteTime -Descending)
+    $source = $sourceCandidates |
+        Where-Object { $_.FullName -match "\\[^\\]+-final\\screenshots\\" } |
         Select-Object -First 1
     if (-not $source) {
-        throw "Makepad fast ADB screenshot not found under $CaseRoot"
+        throw "Makepad final fast ADB screenshot not found under $CaseRoot"
     }
     [System.IO.File]::Copy(
         (ConvertTo-WindowsLongPath $source.FullName),

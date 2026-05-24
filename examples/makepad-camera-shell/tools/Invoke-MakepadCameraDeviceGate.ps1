@@ -911,10 +911,10 @@ if ($attempts[-1].ready) {
     if ($brokerReadyState) {
         $attempts += $brokerReadyState
     }
-    $frames = Capture-FreshnessFrames -Label $finalLabel
     Start-Sleep -Seconds ([Math]::Max(0, $SampleSeconds - ($FreshnessFrames * $FreshnessIntervalSeconds)))
     $finalState = Capture-LaunchState -Label "$finalLabel-final" -LaunchStartedAt $launchStartedAt
     $attempts += $finalState
+    $frames = Capture-FreshnessFrames -Label "$finalLabel-final"
 } else {
     $frames = @()
 }

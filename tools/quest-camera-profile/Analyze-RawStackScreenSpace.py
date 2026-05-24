@@ -320,6 +320,7 @@ SOURCE_FIELD_KEYS = (
 )
 PHASE_PRIORITY = (
     "source-sampling",
+    "source-metadata",
     "visible-panel-bound",
     "draw-vars-bound",
     "texture-updated",
