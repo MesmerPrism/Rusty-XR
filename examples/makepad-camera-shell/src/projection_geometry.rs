@@ -1115,6 +1115,64 @@ pub(crate) fn makepad_single_stream_proof_wait_marker_fields(
     )
 }
 
+pub(crate) fn makepad_projection_enumerated_marker_fields(
+    pair: &MakepadCameraPair,
+    source_count: usize,
+    format_count: usize,
+) -> String {
+    let homography_marker_fields = projection_homography_marker_fields(pair);
+    let fallback_reason = marker_token(&pair.fallback_reason);
+    projection_enumerated_marker_fields(
+        source_count,
+        format_count,
+        pair.projection_homography_ready,
+        pair.projection_metadata_ready,
+        &pair.pose_source,
+        &pair.source_eye_mapping,
+        &pair.coordinate_chain,
+        &homography_marker_fields,
+        pair.left.source_index,
+        pair.right.source_index,
+        &pair.source_binding_mode,
+        pair.left.source_class,
+        pair.right.source_class,
+        pair.left.width,
+        pair.left.height,
+        pair.right.width,
+        pair.right.height,
+        &fallback_reason,
+    )
+}
+
+pub(crate) struct MakepadStereoComparisonMarkerInputs<'a> {
+    pub(crate) phase: &'a str,
+    pub(crate) runtime_profile: &'a str,
+    pub(crate) comparison_baseline: &'a str,
+    pub(crate) camera_tier: &'a str,
+    pub(crate) acquisition_profile: &'a str,
+    pub(crate) transport_profile: &'a str,
+    pub(crate) projection_mode: &'a str,
+    pub(crate) synthetic_scene: &'a str,
+    pub(crate) projection_scale: f64,
+    pub(crate) xr_render_scale: f64,
+    pub(crate) aligned_projection: bool,
+    pub(crate) visible_projection_ready: bool,
+    pub(crate) makepad_fork_branch: &'a str,
+    pub(crate) makepad_fork_commit: &'a str,
+}
+
+pub(crate) fn makepad_stereo_comparison_marker_line(
+    pair: &MakepadCameraPair,
+    inputs: MakepadStereoComparisonMarkerInputs<'_>,
+) -> String {
+    let homography_marker_fields = projection_homography_marker_fields(pair);
+    stereo_comparison_marker_line(
+        pair,
+        &inputs,
+        &homography_marker_fields,
+    )
+}
+
 fn draw_vars_bound_marker_fields(
     yuv_mode: bool,
     broker_h264_surface_texture: bool,
@@ -1131,6 +1189,50 @@ fn draw_vars_bound_marker_fields(
         single_stream_visual_proof,
         updated_stream_visual_proof_side,
         homography_marker_fields,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn projection_enumerated_marker_fields(
+    source_count: usize,
+    format_count: usize,
+    projection_mapping_ready: bool,
+    projection_metadata_ready: bool,
+    pose_source: &str,
+    source_eye_mapping: &str,
+    coordinate_chain: &str,
+    homography_marker_fields: &str,
+    left_source_index: usize,
+    right_source_index: usize,
+    source_binding_mode: &str,
+    left_source_class: &str,
+    right_source_class: &str,
+    left_width: usize,
+    left_height: usize,
+    right_width: usize,
+    right_height: usize,
+    fallback_reason: &str,
+) -> String {
+    format!(
+        "phase=enumerated status=ok makepadSourceCount={} makepadFormatCount={} pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} {} leftSourceIndex={} rightSourceIndex={} sourceBindingMode={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} fallbackReason={}",
+        source_count,
+        format_count,
+        projection_mapping_ready,
+        projection_metadata_ready,
+        pose_source,
+        source_eye_mapping,
+        coordinate_chain,
+        homography_marker_fields,
+        left_source_index,
+        right_source_index,
+        source_binding_mode,
+        left_source_class,
+        right_source_class,
+        left_width,
+        left_height,
+        right_width,
+        right_height,
+        fallback_reason,
     )
 }
 
@@ -1152,6 +1254,56 @@ fn single_stream_proof_wait_marker_fields(
         projection_mapping_ready,
         visible_projection_ready,
         updated_stream_visual_proof_side,
+    )
+}
+
+fn stereo_comparison_marker_line(
+    pair: &MakepadCameraPair,
+    inputs: &MakepadStereoComparisonMarkerInputs<'_>,
+    homography_marker_fields: &str,
+) -> String {
+    stereo_comparison_marker_line_fields(
+        StereoComparisonPairFields {
+            left_source_index: pair.left.source_index,
+            right_source_index: pair.right.source_index,
+            source_eye_mapping: &pair.source_eye_mapping,
+        },
+        inputs,
+        homography_marker_fields,
+    )
+}
+
+struct StereoComparisonPairFields<'a> {
+    left_source_index: usize,
+    right_source_index: usize,
+    source_eye_mapping: &'a str,
+}
+
+fn stereo_comparison_marker_line_fields(
+    pair: StereoComparisonPairFields<'_>,
+    inputs: &MakepadStereoComparisonMarkerInputs<'_>,
+    homography_marker_fields: &str,
+) -> String {
+    format!(
+        "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} sourceEyeMapping={} projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightCameraFrames=true alignedProjection={} visibleCameraProjectionReady={} renderPath=makepad-xr projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} makepadForkBranch={} makepadForkCommit={} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDefaults=deprecated panelTargetFields=runtime diagnosticVisualLayer=none neutralWaitingPanel=true visualIsolation=s118_projected_footprint_solid_red_exterior depthClip=false environmentDepthClip=false cpuUploadPath=makepad-camera-cpu-yuv-plane drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false",
+        inputs.phase,
+        inputs.runtime_profile,
+        inputs.comparison_baseline,
+        inputs.camera_tier,
+        inputs.acquisition_profile,
+        inputs.transport_profile,
+        inputs.projection_mode,
+        inputs.synthetic_scene,
+        pair.left_source_index,
+        pair.right_source_index,
+        pair.source_eye_mapping,
+        inputs.projection_scale,
+        inputs.xr_render_scale,
+        inputs.aligned_projection,
+        inputs.visible_projection_ready,
+        homography_marker_fields,
+        inputs.makepad_fork_branch,
+        inputs.makepad_fork_commit,
     )
 }
 
@@ -1656,9 +1808,10 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
 mod tests {
     use super::{
         complete_marker_fields, draw_vars_bound_marker_fields,
-        paired_projection_progress_marker_fields, projection_start_marker_fields,
-        single_stream_proof_wait_marker_fields, visible_panel_bound_marker_fields,
-        CompleteMarkerFields,
+        paired_projection_progress_marker_fields, projection_enumerated_marker_fields,
+        projection_start_marker_fields, single_stream_proof_wait_marker_fields,
+        stereo_comparison_marker_line_fields, visible_panel_bound_marker_fields,
+        CompleteMarkerFields, MakepadStereoComparisonMarkerInputs, StereoComparisonPairFields,
     };
 
     #[test]
@@ -1833,5 +1986,78 @@ mod tests {
         ));
         assert!(fields.contains("updatedStreamVisualProofSide=left"));
         assert!(fields.ends_with("fallbackReason=waiting_for_second_cpu_yuv_stream"));
+    }
+
+    #[test]
+    fn projection_enumerated_marker_keeps_projection_contract_shape() {
+        let fields = projection_enumerated_marker_fields(
+            2,
+            4,
+            true,
+            true,
+            "camera2-openxr-view",
+            "left-right",
+            "camera2-to-shader-surface",
+            "projectionHomographyReady=true runtimeXrViewStateReady=true",
+            0,
+            1,
+            "camera2-direct",
+            "back",
+            "back",
+            1280,
+            1280,
+            1280,
+            1280,
+            "none",
+        );
+
+        assert!(fields.starts_with(
+            "phase=enumerated status=ok makepadSourceCount=2 makepadFormatCount=4"
+        ));
+        assert!(fields.contains(
+            "projectionMappingReady=true alignedProjection=false projectionMetadataReady=true"
+        ));
+        assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
+        assert!(fields.contains("sourceBindingMode=camera2-direct leftSourceClass=back"));
+        assert!(fields.ends_with("fallbackReason=none"));
+    }
+
+    #[test]
+    fn stereo_comparison_marker_keeps_projection_contract_shape() {
+        let inputs = MakepadStereoComparisonMarkerInputs {
+            phase: "paired-projection-ready",
+            runtime_profile: "fast-visual",
+            comparison_baseline: "canvas-custom",
+            camera_tier: "direct-camera",
+            acquisition_profile: "camera2",
+            transport_profile: "cpu-yuv",
+            projection_mode: "camera",
+            synthetic_scene: "hidden",
+            projection_scale: 1.25,
+            xr_render_scale: 1.5,
+            aligned_projection: true,
+            visible_projection_ready: true,
+            makepad_fork_branch: "branch",
+            makepad_fork_commit: "commit",
+        };
+        let fields = stereo_comparison_marker_line_fields(
+            StereoComparisonPairFields {
+                left_source_index: 0,
+                right_source_index: 1,
+                source_eye_mapping: "left-right",
+            },
+            &inputs,
+            "projectionHomographyReady=true runtimeXrViewStateReady=true",
+        );
+
+        assert!(fields.starts_with(
+            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1"
+        ));
+        assert!(fields.contains("phase=paired-projection-ready profile=fast-visual"));
+        assert!(fields.contains("projectionMode=camera syntheticScene=hidden"));
+        assert!(fields.contains("projectionScale=1.25 xrRenderScale=1.50"));
+        assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
+        assert!(fields.contains("makepadForkBranch=branch makepadForkCommit=commit"));
+        assert!(fields.ends_with("visualInspection=required visualReleaseAccepted=false"));
     }
 }
