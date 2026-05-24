@@ -29,6 +29,9 @@ param(
     [int]$LogcatLines = 12000,
     [ValidateSet("fail", "clear", "ignore")]
     [string]$ProjectionPropertyHygiene = "fail",
+    [ValidateSet("skip", "warn", "required")]
+    [string]$ProjectionRuntimeReadback = "warn",
+    [string]$ProjectionRuntimeReadbackValidator = "",
     [string]$Validator = ""
 )
 
@@ -41,6 +44,9 @@ $proximityHoldRequested = [bool]$UseProximityHold
 
 if (-not $Validator) {
     $Validator = Join-Path $PSScriptRoot "Validate-QuestCameraRun.py"
+}
+if (-not $ProjectionRuntimeReadbackValidator) {
+    $ProjectionRuntimeReadbackValidator = Join-Path $PSScriptRoot "Validate-ProjectionRuntimeReadback.py"
 }
 $projectionPropertyHygieneHelper = Join-Path $PSScriptRoot "ProjectionPropertyHygiene.ps1"
 . $projectionPropertyHygieneHelper
@@ -568,6 +574,100 @@ function Invoke-RunValidation {
     }
 }
 
+function Invoke-ProjectionRuntimeReadbackValidation {
+    param(
+        [string]$Dir,
+        [string]$Label,
+        [string]$ManifestPath
+    )
+
+    $outPath = Join-Path $Dir "$Label-projection-runtime-readback.json"
+    $stdoutPath = Join-Path $Dir "$Label-projection-runtime-readback-stdout.txt"
+    $errorPath = Join-Path $Dir "$Label-projection-runtime-readback-error.txt"
+
+    if ($ProjectionRuntimeReadback -eq "skip") {
+        $skipped = [ordered]@{
+            schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+            status = "skipped"
+            mode = $ProjectionRuntimeReadback
+            report = $outPath
+            error = ""
+        }
+        Write-Utf8TextFile -Path $outPath -Value ($skipped | ConvertTo-Json -Depth 5)
+        return $skipped
+    }
+
+    if (-not (Test-Path -LiteralPath $ProjectionRuntimeReadbackValidator)) {
+        $missing = [ordered]@{
+            schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+            status = "failed"
+            mode = $ProjectionRuntimeReadback
+            report = $outPath
+            error = "projection runtime readback validator not found: $ProjectionRuntimeReadbackValidator"
+        }
+        Write-Utf8TextFile -Path $outPath -Value ($missing | ConvertTo-Json -Depth 5)
+        if ($ProjectionRuntimeReadback -eq "required") {
+            throw $missing.error
+        }
+        return $missing
+    }
+
+    $logcatPath = Join-Path $Dir "$Label-logcat-tail.txt"
+    $validatorArgs = @(
+        $ProjectionRuntimeReadbackValidator,
+        "--run-manifest", $ManifestPath,
+        "--logcat", $logcatPath,
+        "--out", $outPath,
+        "--expected-source", "command-line"
+    )
+    if ($ProjectionRuntimeReadback -eq "warn") {
+        $validatorArgs += "--allow-missing-manifest"
+    }
+
+    $output = @()
+    try {
+        $output = @(& python @validatorArgs 2>&1 | ForEach-Object { [string]$_ })
+        $exitCode = $LASTEXITCODE
+        Write-Utf8TextFile -Path $stdoutPath -Value $output
+        if ($exitCode -ne 0) {
+            $message = "projection runtime readback validation failed with exit code $exitCode; see $outPath"
+            Write-Utf8TextFile -Path $errorPath -Value $message
+            if ($ProjectionRuntimeReadback -eq "required") {
+                throw $message
+            }
+        }
+    }
+    catch {
+        Write-Utf8TextFile -Path $errorPath -Value @("projection runtime readback validation failed", $_.Exception.Message)
+        if ($ProjectionRuntimeReadback -eq "required") {
+            throw
+        }
+    }
+
+    if (Test-Path -LiteralPath $outPath) {
+        try {
+            return Get-Content -Raw -LiteralPath $outPath | ConvertFrom-Json
+        }
+        catch {
+            return [ordered]@{
+                schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+                status = "failed"
+                mode = $ProjectionRuntimeReadback
+                report = $outPath
+                error = "projection runtime readback report was not readable: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    return [ordered]@{
+        schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+        status = "failed"
+        mode = $ProjectionRuntimeReadback
+        report = $outPath
+        error = "projection runtime readback report was not written"
+    }
+}
+
 function Capture-Artifacts {
     param(
         [string]$Dir,
@@ -778,6 +878,7 @@ $manifest = [ordered]@{
     freshnessIntervalMs = $FreshnessIntervalMs
     failOnPowerStateDrift = [bool]$FailOnPowerStateDrift
     projectionPropertyHygiene = $projectionPropertyHygieneSummary
+    projectionRuntimeReadbackMode = $ProjectionRuntimeReadback
     overrides = $Override
     values = $values
     artifactDir = $dir
@@ -794,5 +895,8 @@ $manifest = [ordered]@{
         }
     })
 }
-Write-Utf8TextFile -Path (Join-Path $dir "run-manifest.json") -Value ($manifest | ConvertTo-Json -Depth 6)
+$manifestPath = Join-Path $dir "run-manifest.json"
+Write-Utf8TextFile -Path $manifestPath -Value ($manifest | ConvertTo-Json -Depth 6)
+$manifest["projectionRuntimeReadback"] = Invoke-ProjectionRuntimeReadbackValidation -Dir $dir -Label $label -ManifestPath $manifestPath
+Write-Utf8TextFile -Path $manifestPath -Value ($manifest | ConvertTo-Json -Depth 8)
 Write-Output $dir

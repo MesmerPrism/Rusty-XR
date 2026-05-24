@@ -87,9 +87,12 @@ The initial export covers:
   settings shortcuts, and focus-recovery events.
 - Effect-stack descriptors and comparison reports.
 - Canvas/custom projection parity suite summaries, timing records, screen-space
-  reports, projection mapping records, and projection-coordinate contracts.
+  reports, projection mapping records, projection-coordinate contracts, and
+  source-sampling contracts.
 - Projection property hygiene summaries for launch wrappers that clear or gate
   persistent `debug.rustyxr.*` projection properties.
+- Projection runtime readback reports that compare launch extras or Android
+  property readbacks against the resolved manifest logged by the renderer.
 
 Future schemas should be added only after the corresponding contract has tests
 and a clear downstream use.

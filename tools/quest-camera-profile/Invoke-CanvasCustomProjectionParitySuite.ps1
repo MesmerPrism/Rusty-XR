@@ -34,6 +34,8 @@ param(
     [double]$ProjectionBorderOpacity = 1.0,
     [switch]$BoundedCanvasProjectionArea,
     [switch]$UseResolvedProjectionRuntime,
+    [ValidateSet("skip", "warn", "required")]
+    [string]$ProjectionRuntimeReadback = "warn",
     [string]$BrokerPackageName = "com.example.rustyxr.broker",
     [string]$BrokerActivityName = ".BrokerStartActivity",
     [int]$BrokerRestartSettleSeconds = 3,
@@ -122,6 +124,7 @@ $artifactValidator = Join-Path $repoRoot "tools\quest-camera-profile\Validate-Ca
 $profileRunner = Join-Path $repoRoot "tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1"
 $makepadRunner = Join-Path $repoRoot "examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1"
 $projectionRuntimeResolutionEnabledValue = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
+$effectiveProjectionRuntimeReadback = if ($ProjectionRuntimeReadback -eq "warn" -and $UseResolvedProjectionRuntime) { "required" } else { $ProjectionRuntimeReadback }
 
 function Format-LaunchFloat {
     param([double]$Value)
@@ -252,12 +255,13 @@ $processingLayerOverride = @(
 $ExpectedMakepadSourceEyeMapping = "display-left-from-left-source"
 $brokerSourceRequested = $SourceMode -eq "broker-camera" -or $SourceMode -eq "broker-synthetic"
 
-Write-Host ("[suite] evidenceMode={0} headsetCaptureProvider={1} mediaProjection={2} analyzer={3} projectionBorderPolicy={4}" -f `
+Write-Host ("[suite] evidenceMode={0} headsetCaptureProvider={1} mediaProjection={2} analyzer={3} projectionBorderPolicy={4} projectionRuntimeReadback={5}" -f `
     $EvidenceMode,
     $HeadsetCaptureProvider,
     (-not [bool]$SkipMediaProjection),
     (-not [bool]$SkipAnalyzer),
-    $ProjectionBorderPolicy)
+    $ProjectionBorderPolicy,
+    $effectiveProjectionRuntimeReadback)
 
 function Test-LaneEnabled {
     param([string]$Lane)
@@ -941,6 +945,7 @@ function Invoke-HwbOrGlesCase {
         "-SkipProximityHold",
         "-LogcatLines", "16000",
         "-ProjectionPropertyHygiene", "clear",
+        "-ProjectionRuntimeReadback", $effectiveProjectionRuntimeReadback,
         "-Override", $Override
     )
     if ($HeadsetCaptureProvider -eq "hzdb") {
@@ -1052,6 +1057,7 @@ function Invoke-MakepadCase {
         "-ProjectionBorderPolicy", $ProjectionBorderPolicy,
         "-ProcessingLayer", $ProcessingLayer,
         "-ProjectionPropertyHygiene", "clear",
+        "-ProjectionRuntimeReadback", $effectiveProjectionRuntimeReadback,
         "-BlurRadiusPx", $blurRadiusPxText
     )
     if (-not $SkipMediaProjection) {
@@ -1304,6 +1310,7 @@ $summary = [ordered]@{
         contactSheetEnabled = $true
         timingEnabled = $true
         projectionPropertyHygiene = "clear"
+        projectionRuntimeReadback = $effectiveProjectionRuntimeReadback
         geometryWitness = $headsetCaptureLabel
         modeSemantics = switch ($EvidenceMode) {
             "fast-visual" { "Fast operator-inspection mode: fast ADB headset screenshots only, no MediaProjection receiver, no analyzer, solid-red projection border." }
@@ -1324,6 +1331,7 @@ $summary = [ordered]@{
         boundedCanvasProjectionArea = [bool]$BoundedCanvasProjectionArea
         skipMediaProjection = [bool]$SkipMediaProjection
         useResolvedProjectionRuntime = [bool]$UseResolvedProjectionRuntime
+        projectionRuntimeReadback = $effectiveProjectionRuntimeReadback
         projectionAreaRadiusXUv = [double]$projectionAreaRadiusXUv
         projectionAreaRadiusYUv = [double]$projectionAreaRadiusYUv
         projectionAreaCornerRadiusUv = [double]$projectionAreaCornerRadiusUv

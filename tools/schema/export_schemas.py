@@ -1918,6 +1918,8 @@ def schemas() -> dict[str, dict]:
             "projection_mapping_summary": loose_object(),
             "projection_coordinate_contract_schema_version": {"const": "rusty.xr.projection-coordinate-contract.v1"},
             "projection_coordinate_contract_summary": loose_object(),
+            "source_sampling_contract_schema_version": {"const": "rusty.xr.source-sampling-contract.v1"},
+            "source_sampling_contract_summary": loose_object(),
         },
     )
     projection_mapping_record = open_obj(
@@ -1978,6 +1980,52 @@ def schemas() -> dict[str, dict]:
             "gap_counts": object_map(integer(0)),
             "modes": object_map(loose_object()),
         },
+    )
+    source_sampling_contract = open_obj(
+        "SourceSamplingContract",
+        {
+            "schema_version": {"const": "rusty.xr.source-sampling-contract.v1"},
+            "suite_root": string(),
+            "mode": string(),
+            "status": enum("SourceSamplingContractStatus", ["ready", "needs-evidence", "blocked"]),
+            "lane": loose_object(),
+            "run_request": loose_object(),
+            "source": loose_object(),
+            "metadata": loose_object(),
+            "texture_or_upload": loose_object(),
+            "source_sampling": loose_object(),
+            "evidence": loose_object(),
+            "gaps": array(string()),
+        },
+    )
+    source_sampling_contract_summary = open_obj(
+        "SourceSamplingContractSummary",
+        {
+            "schema_version": {"const": "rusty.xr.source-sampling-contract.v1"},
+            "record_count": integer(0),
+            "status_counts": object_map(integer(0)),
+            "gap_counts": object_map(integer(0)),
+            "modes": object_map(loose_object()),
+        },
+    )
+    projection_runtime_readback = open_obj(
+        "ProjectionRuntimeReadback",
+        {
+            "schemaVersion": {"const": "rusty.xr.projection-runtime-readback.v1"},
+            "status": enum("ProjectionRuntimeReadbackStatus", ["ok", "warning", "failed", "skipped"]),
+            "issueCount": integer(0),
+            "errorCount": integer(0),
+            "warningCount": integer(0),
+            "expectedCount": integer(0),
+            "resolvedCount": integer(0),
+            "comparedCount": integer(0),
+            "comparedKeys": array(string()),
+            "logcatPaths": array(string()),
+            "expected": array(loose_object()),
+            "resolved": object_map(loose_object()),
+            "issues": array(loose_object()),
+        },
+        required=["schemaVersion", "status"],
     )
     return {
         "runtime-config.schema.json": obj(
@@ -2084,6 +2132,9 @@ def schemas() -> dict[str, dict]:
         "projection-mapping-summary.schema.json": projection_mapping_summary,
         "projection-coordinate-contract.schema.json": projection_coordinate_contract,
         "projection-coordinate-contract-summary.schema.json": projection_coordinate_contract_summary,
+        "source-sampling-contract.schema.json": source_sampling_contract,
+        "source-sampling-contract-summary.schema.json": source_sampling_contract_summary,
+        "projection-runtime-readback.schema.json": projection_runtime_readback,
         "plain-stereo-layer.schema.json": obj(
             "PlainStereoLayer",
             {

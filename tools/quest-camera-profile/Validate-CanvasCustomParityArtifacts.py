@@ -16,6 +16,7 @@ TIMING_SCHEMA = "rusty.xr.canvas-custom-projection-parity-suite.timing.v1"
 SCREEN_SPACE_SCHEMA = "rusty.xr.raw-stack-screen-space.v1"
 MAPPING_SCHEMA = "rusty.xr.projection-mapping-run-record.v1"
 COORDINATE_CONTRACT_SCHEMA = "rusty.xr.projection-coordinate-contract.v1"
+SOURCE_SAMPLING_CONTRACT_SCHEMA = "rusty.xr.source-sampling-contract.v1"
 
 REQUIRED_EXPORTED_SCHEMAS = {
     "canvas-custom-projection-parity-suite-summary.schema.json",
@@ -27,6 +28,9 @@ REQUIRED_EXPORTED_SCHEMAS = {
     "projection-mapping-summary.schema.json",
     "projection-coordinate-contract.schema.json",
     "projection-coordinate-contract-summary.schema.json",
+    "source-sampling-contract.schema.json",
+    "source-sampling-contract-summary.schema.json",
+    "projection-runtime-readback.schema.json",
 }
 
 
@@ -331,6 +335,11 @@ def validate_screen_space_report(value: Any) -> None:
         "screenSpaceReport.projection_coordinate_contract_schema_version",
         COORDINATE_CONTRACT_SCHEMA,
     )
+    require_version(
+        report.get("source_sampling_contract_schema_version"),
+        "screenSpaceReport.source_sampling_contract_schema_version",
+        SOURCE_SAMPLING_CONTRACT_SCHEMA,
+    )
     require_string(report.get("suite_root"), "screenSpaceReport.suite_root")
     require_string(report.get("out_dir"), "screenSpaceReport.out_dir")
     require_bool(report.get("allow_visible_fallback"), "screenSpaceReport.allow_visible_fallback")
@@ -353,6 +362,15 @@ def validate_coordinate_contract_summary(value: Any) -> None:
     require_object(summary.get("status_counts"), "projectionCoordinateContractSummary.status_counts")
     require_object(summary.get("gap_counts"), "projectionCoordinateContractSummary.gap_counts")
     require_object(summary.get("modes"), "projectionCoordinateContractSummary.modes")
+
+
+def validate_source_sampling_contract_summary(value: Any) -> None:
+    summary = require_object(value, "sourceSamplingContractSummary")
+    require_version(summary.get("schema_version"), "sourceSamplingContractSummary.schema_version", SOURCE_SAMPLING_CONTRACT_SCHEMA)
+    require_int(summary.get("record_count"), "sourceSamplingContractSummary.record_count", minimum=0)
+    require_object(summary.get("status_counts"), "sourceSamplingContractSummary.status_counts")
+    require_object(summary.get("gap_counts"), "sourceSamplingContractSummary.gap_counts")
+    require_object(summary.get("modes"), "sourceSamplingContractSummary.modes")
 
 
 def validate_mapping_record(value: Any, path: str) -> None:
@@ -389,6 +407,26 @@ def validate_coordinate_contract(value: Any, path: str) -> None:
         require_string(gap, f"{path}.gaps[{index}]")
 
 
+def validate_source_sampling_contract(value: Any, path: str) -> None:
+    record = require_object(value, path)
+    require_version(record.get("schema_version"), f"{path}.schema_version", SOURCE_SAMPLING_CONTRACT_SCHEMA)
+    require_string(record.get("suite_root"), f"{path}.suite_root")
+    require_string(record.get("mode"), f"{path}.mode")
+    require_enum(record.get("status"), f"{path}.status", {"ready", "needs-evidence", "blocked"})
+    for key in (
+        "lane",
+        "run_request",
+        "source",
+        "metadata",
+        "texture_or_upload",
+        "source_sampling",
+        "evidence",
+    ):
+        require_object(record.get(key), f"{path}.{key}")
+    for index, gap in enumerate(require_array(record.get("gaps"), f"{path}.gaps")):
+        require_string(gap, f"{path}.gaps[{index}]")
+
+
 def validate_suite_root(suite_root: Path) -> None:
     validate_exported_schemas()
     summary = validate_suite_summary(read_json(suite_root / "canvas-custom-projection-parity-suite-summary.json"))
@@ -403,10 +441,13 @@ def validate_suite_root(suite_root: Path) -> None:
         validate_screen_space_report(read_json(analysis_dir / "screen-space-report.json"))
         validate_mapping_summary(read_json(analysis_dir / "projection-mapping-summary.json"))
         validate_coordinate_contract_summary(read_json(analysis_dir / "projection-coordinate-contract-summary.json"))
+        validate_source_sampling_contract_summary(read_json(analysis_dir / "source-sampling-contract-summary.json"))
         for index, record in enumerate(read_jsonl(analysis_dir / "projection-mapping-run-records.jsonl")):
             validate_mapping_record(record, f"projection-mapping-run-records.jsonl[{index}]")
         for index, record in enumerate(read_jsonl(analysis_dir / "projection-coordinate-contracts.jsonl")):
             validate_coordinate_contract(record, f"projection-coordinate-contracts.jsonl[{index}]")
+        for index, record in enumerate(read_jsonl(analysis_dir / "source-sampling-contracts.jsonl")):
+            validate_source_sampling_contract(record, f"source-sampling-contracts.jsonl[{index}]")
 
 
 def write_self_test_fixture(root: Path) -> None:
@@ -512,6 +553,8 @@ def write_self_test_fixture(root: Path) -> None:
         "projection_mapping_summary": {"schema_version": MAPPING_SCHEMA, "record_count": 1, "verdict_counts": {}, "modes": {}, "parity_checks": []},
         "projection_coordinate_contract_schema_version": COORDINATE_CONTRACT_SCHEMA,
         "projection_coordinate_contract_summary": {"schema_version": COORDINATE_CONTRACT_SCHEMA, "record_count": 1, "status_counts": {}, "gap_counts": {}, "modes": {}},
+        "source_sampling_contract_schema_version": SOURCE_SAMPLING_CONTRACT_SCHEMA,
+        "source_sampling_contract_summary": {"schema_version": SOURCE_SAMPLING_CONTRACT_SCHEMA, "record_count": 1, "status_counts": {}, "gap_counts": {}, "modes": {}},
     }
     mapping_record = {
         "schema_version": MAPPING_SCHEMA,
@@ -546,14 +589,30 @@ def write_self_test_fixture(root: Path) -> None:
         "analysis": {},
         "gaps": [],
     }
+    source_sampling_contract = {
+        "schema_version": SOURCE_SAMPLING_CONTRACT_SCHEMA,
+        "suite_root": str(root),
+        "mode": "hwb-canvas",
+        "status": "ready",
+        "lane": {},
+        "run_request": {},
+        "source": {},
+        "metadata": {},
+        "texture_or_upload": {},
+        "source_sampling": {},
+        "evidence": {},
+        "gaps": [],
+    }
     (root / "canvas-custom-projection-parity-suite-summary.json").write_text(json.dumps(summary), encoding="utf-8")
     (root / "step-timing-summary.json").write_text(json.dumps(timing_summary), encoding="utf-8")
     (root / "step-timings.jsonl").write_text(json.dumps(timing_record) + "\n", encoding="utf-8")
     (analysis_dir / "screen-space-report.json").write_text(json.dumps(screen_report), encoding="utf-8")
     (analysis_dir / "projection-mapping-summary.json").write_text(json.dumps(screen_report["projection_mapping_summary"]), encoding="utf-8")
     (analysis_dir / "projection-coordinate-contract-summary.json").write_text(json.dumps(screen_report["projection_coordinate_contract_summary"]), encoding="utf-8")
+    (analysis_dir / "source-sampling-contract-summary.json").write_text(json.dumps(screen_report["source_sampling_contract_summary"]), encoding="utf-8")
     (analysis_dir / "projection-mapping-run-records.jsonl").write_text(json.dumps(mapping_record) + "\n", encoding="utf-8")
     (analysis_dir / "projection-coordinate-contracts.jsonl").write_text(json.dumps(coordinate_contract) + "\n", encoding="utf-8")
+    (analysis_dir / "source-sampling-contracts.jsonl").write_text(json.dumps(source_sampling_contract) + "\n", encoding="utf-8")
 
 
 def run_self_test() -> int:

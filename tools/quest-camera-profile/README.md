@@ -39,6 +39,12 @@ This fails before launch when persistent `debug.rustyxr.*` projection properties
 would compete with launch extras. The raw-stack and canvas/custom parity suites
 own the full state and use `clear`, writing `projection-property-hygiene.json`
 under each case root before launching.
+Projection-runtime readback validation compares those launch extras, or
+Makepad `setprop`/`getprop` readback files, against the resolved
+`RUSTY_XR_PROJECTION_RUNTIME_MANIFEST` fields in logcat. The profile runner
+accepts `-ProjectionRuntimeReadback skip|warn|required`; the canvas/custom
+suite upgrades the default `warn` mode to `required` when
+`-UseResolvedProjectionRuntime` is enabled.
 For deterministic projection work, pass
 `-BrokerH264SourceMode broker-synthetic -BrokerH264SyntheticPattern diagnostic-grid`.
 Add `-BrokerH264SyntheticProjectionProfile camera-matched` when the synthetic
@@ -66,15 +72,16 @@ meaningful red exterior area because the renderer-authored source-valid
 footprint fills the projection area, the lane is blocked for strict mask
 segmentation instead of falling back to guide colors.
 
-Projection-coordinate contracts also include a `source_sampling` record when
-renderers log the source sample boundary. Use this to keep architecture
-differences explicit: HWB reports hardware-buffer sampler transform flags,
-GL/OES reports the Android `SurfaceTexture` transform or identity decision, and
-Makepad reports the CPU-YUV shader `source_sample_uv` convention. The analyzer
-also records dominant green horizontal feature rows from screenshots as
-evidence. If broker-synthetic rows agree but live Camera2 rows diverge, assign
-the first owner to source sampling or texture/upload metadata before touching
-projection-area offsets.
+Projection-coordinate contracts include a `source_sampling` record, and the
+analyzer also emits dedicated `source-sampling-contracts.jsonl` plus
+`source-sampling-contract-summary.json`. Use those contracts to keep
+architecture differences explicit: HWB reports hardware-buffer sampler
+transform flags, GL/OES reports the Android `SurfaceTexture` transform or
+identity decision, and Makepad reports the CPU-YUV shader `source_sample_uv`
+convention. The analyzer also records dominant green horizontal feature rows
+from screenshots as evidence. If broker-synthetic rows agree but live Camera2
+rows diverge, assign the first owner to source sampling or texture/upload
+metadata before touching projection-area offsets.
 GL/OES also logs `sourceColorTransform` and `swapchainColorFormat`; keep those
 as color/texture-upload evidence, separate from coordinate fields.
 

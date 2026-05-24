@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFont
 SCHEMA_VERSION = "rusty.xr.raw-stack-screen-space.v1"
 PROJECTION_MAPPING_SCHEMA_VERSION = "rusty.xr.projection-mapping-run-record.v1"
 PROJECTION_COORDINATE_CONTRACT_SCHEMA_VERSION = "rusty.xr.projection-coordinate-contract.v1"
+SOURCE_SAMPLING_CONTRACT_SCHEMA_VERSION = "rusty.xr.source-sampling-contract.v1"
 ROW_SAMPLE_FRACTIONS = (0.10, 0.25, 0.50, 0.75, 0.90)
 CROSS_LANE_WIDTH_TOLERANCE = 0.035
 CROSS_LANE_HEIGHT_TOLERANCE = 0.035
@@ -3355,6 +3356,124 @@ def summarize_projection_coordinate_contracts(contracts: list[dict[str, Any]]) -
     }
 
 
+def source_sampling_gaps(source_sampling: dict[str, Any], texture_or_upload: dict[str, Any]) -> list[str]:
+    gaps: list[str] = []
+    for key in (
+        "contract",
+        "homography_output_uv",
+        "sample_transform_stage",
+        "sample_transform",
+        "sample_transform_owner",
+        "sample_output_uv",
+    ):
+        if source_sampling.get(key) in (None, "", "unknown", "not-logged"):
+            gaps.append(f"source-sampling-{key.replace('_', '-')}-not-logged")
+    if source_sampling.get("sample_transform_applied") is None:
+        gaps.append("source-sampling-transform-applied-not-logged")
+    if source_sampling.get("sampler_uv_origin") in (None, "", "unknown", "not-logged"):
+        gaps.append("source-sampling-sampler-uv-origin-not-logged")
+    if source_sampling.get("sampler_y_axis") in (None, "", "unknown", "not-logged"):
+        gaps.append("source-sampling-sampler-y-axis-not-logged")
+    if texture_or_upload.get("source_color_transform_applied") is None:
+        gaps.append("source-color-transform-applied-not-logged")
+    return sorted(set(gaps))
+
+
+def source_sampling_status_from_gaps(gaps: list[str]) -> str:
+    blocking = {
+        "source-sampling-contract-not-logged",
+        "source-sampling-sample-transform-stage-not-logged",
+        "source-sampling-sample-transform-not-logged",
+        "source-sampling-sample-transform-owner-not-logged",
+        "source-sampling-sample-output-uv-not-logged",
+    }
+    if any(gap in blocking for gap in gaps):
+        return "blocked"
+    if gaps:
+        return "needs-evidence"
+    return "ready"
+
+
+def build_source_sampling_contracts(
+    coordinate_contracts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    contracts: list[dict[str, Any]] = []
+    for contract in coordinate_contracts:
+        source_sampling = contract.get("source_sampling") or {}
+        texture_or_upload = contract.get("texture_or_upload") or {}
+        if not isinstance(source_sampling, dict):
+            source_sampling = {}
+        if not isinstance(texture_or_upload, dict):
+            texture_or_upload = {}
+        gaps = source_sampling_gaps(source_sampling, texture_or_upload)
+        contracts.append(
+            {
+                "schema_version": SOURCE_SAMPLING_CONTRACT_SCHEMA_VERSION,
+                "suite_root": contract.get("suite_root"),
+                "mode": contract.get("mode"),
+                "status": source_sampling_status_from_gaps(gaps),
+                "lane": contract.get("lane") or {},
+                "run_request": contract.get("run_request") or {},
+                "source": contract.get("source") or {},
+                "metadata": contract.get("metadata") or {},
+                "texture_or_upload": texture_or_upload,
+                "source_sampling": source_sampling,
+                "evidence": {
+                    "projection_coordinate_status": contract.get("status"),
+                    "projection_coordinate_gaps": contract.get("gaps") or [],
+                    "analysis": contract.get("analysis") or {},
+                },
+                "gaps": gaps,
+            }
+        )
+    return contracts
+
+
+def summarize_source_sampling_contracts(contracts: list[dict[str, Any]]) -> dict[str, Any]:
+    status_counts: dict[str, int] = {}
+    gap_counts: dict[str, int] = {}
+    modes: dict[str, Any] = {}
+    for contract in contracts:
+        status = str(contract.get("status") or "unknown")
+        mode = str(contract.get("mode") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        gaps = [str(gap) for gap in contract.get("gaps") or []]
+        for gap in gaps:
+            gap_counts[gap] = gap_counts.get(gap, 0) + 1
+        source_sampling = contract.get("source_sampling") or {}
+        texture_or_upload = contract.get("texture_or_upload") or {}
+        lane = contract.get("lane") or {}
+        source = contract.get("source") or {}
+        modes[mode] = {
+            "status": status,
+            "architecture": lane.get("architecture"),
+            "source_mode": lane.get("source_mode"),
+            "source_transport": lane.get("source_transport"),
+            "source_sampling_contract": source_sampling.get("contract"),
+            "homography_output_uv": source_sampling.get("homography_output_uv"),
+            "sample_transform_stage": source_sampling.get("sample_transform_stage"),
+            "sample_transform_owner": source_sampling.get("sample_transform_owner"),
+            "sample_transform_applied": source_sampling.get("sample_transform_applied"),
+            "sample_output_uv": source_sampling.get("sample_output_uv"),
+            "sampler_uv_origin": source_sampling.get("sampler_uv_origin"),
+            "sampler_y_axis": source_sampling.get("sampler_y_axis"),
+            "source_color_transform_applied": texture_or_upload.get("source_color_transform_applied"),
+            "resolved_source_size": [
+                source.get("resolved_width"),
+                source.get("resolved_height"),
+            ],
+            "gap_count": len(gaps),
+            "gaps": gaps,
+        }
+    return {
+        "schema_version": SOURCE_SAMPLING_CONTRACT_SCHEMA_VERSION,
+        "record_count": len(contracts),
+        "status_counts": status_counts,
+        "gap_counts": gap_counts,
+        "modes": modes,
+    }
+
+
 def lane_status_from_validation(validation: dict[str, Any] | None, freshness: dict[str, Any] | None) -> dict[str, Any]:
     result: dict[str, Any] = {
         "camera_feed_status": "unknown",
@@ -3860,15 +3979,20 @@ def main() -> int:
     }
     mapping_records = build_projection_mapping_records(report)
     coordinate_contracts = build_projection_coordinate_contracts(report, mapping_records)
+    source_sampling_contracts = build_source_sampling_contracts(coordinate_contracts)
     report["projection_mapping_schema_version"] = PROJECTION_MAPPING_SCHEMA_VERSION
     report["projection_mapping_summary"] = summarize_projection_mapping_records(mapping_records)
     report["projection_coordinate_contract_schema_version"] = PROJECTION_COORDINATE_CONTRACT_SCHEMA_VERSION
     report["projection_coordinate_contract_summary"] = summarize_projection_coordinate_contracts(coordinate_contracts)
+    report["source_sampling_contract_schema_version"] = SOURCE_SAMPLING_CONTRACT_SCHEMA_VERSION
+    report["source_sampling_contract_summary"] = summarize_source_sampling_contracts(source_sampling_contracts)
     write_json(out_dir / "screen-space-report.json", report)
     write_jsonl(out_dir / "projection-mapping-run-records.jsonl", mapping_records)
     write_json(out_dir / "projection-mapping-summary.json", report["projection_mapping_summary"])
     write_jsonl(out_dir / "projection-coordinate-contracts.jsonl", coordinate_contracts)
     write_json(out_dir / "projection-coordinate-contract-summary.json", report["projection_coordinate_contract_summary"])
+    write_jsonl(out_dir / "source-sampling-contracts.jsonl", source_sampling_contracts)
+    write_json(out_dir / "source-sampling-contract-summary.json", report["source_sampling_contract_summary"])
     write_text(out_dir / "screen-space-summary.md", build_markdown(report), encoding="utf-8")
     make_contact_sheet(lanes, out_dir / "screen-space-contact-sheet.png")
     print(out_dir / "screen-space-summary.md")

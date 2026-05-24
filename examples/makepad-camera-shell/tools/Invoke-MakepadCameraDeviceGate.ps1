@@ -75,12 +75,15 @@ param(
     [int]$MediaProjectionDelayMs = 1600,
     [ValidateSet("fail", "clear", "ignore")]
     [string]$ProjectionPropertyHygiene = "clear",
+    [ValidateSet("skip", "warn", "required")]
+    [string]$ProjectionRuntimeReadback = "warn",
     [switch]$EnableNativePassthrough
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
 $projectionPropertyHygieneHelper = Join-Path $repoRoot "tools\quest-camera-profile\ProjectionPropertyHygiene.ps1"
+$projectionRuntimeReadbackValidator = Join-Path $repoRoot "tools\quest-camera-profile\Validate-ProjectionRuntimeReadback.py"
 . $projectionPropertyHygieneHelper
 
 function Invoke-Adb {
@@ -215,6 +218,112 @@ function Get-ProjectionRuntimeNumericTypeIssues {
         }
     }
     return @($issues | Select-Object -Unique)
+}
+
+function Invoke-ProjectionRuntimeReadbackValidation {
+    param(
+        [object[]]$Attempts,
+        [string]$Mode
+    )
+
+    $outPath = Join-Path $OutDir "projection-runtime-readback.json"
+    $stdoutPath = Join-Path $OutDir "projection-runtime-readback-stdout.txt"
+    $errorPath = Join-Path $OutDir "projection-runtime-readback-error.txt"
+
+    if ($Mode -eq "skip") {
+        $skipped = [ordered]@{
+            schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+            status = "skipped"
+            mode = $Mode
+            report = $outPath
+            error = ""
+        }
+        $skipped | ConvertTo-Json -Depth 5 | Set-Content -Path $outPath -Encoding UTF8
+        return $skipped
+    }
+
+    if (-not (Test-Path -LiteralPath $projectionRuntimeReadbackValidator)) {
+        $missing = [ordered]@{
+            schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+            status = "failed"
+            mode = $Mode
+            report = $outPath
+            error = "projection runtime readback validator not found: $projectionRuntimeReadbackValidator"
+        }
+        $missing | ConvertTo-Json -Depth 5 | Set-Content -Path $outPath -Encoding UTF8
+        return $missing
+    }
+
+    $logcatPaths = @()
+    foreach ($attempt in $Attempts) {
+        if ($null -eq $attempt -or [string]::IsNullOrWhiteSpace([string]$attempt.label)) {
+            continue
+        }
+        $candidate = Join-Path $OutDir (Join-Path ([string]$attempt.label) "logcat.txt")
+        if (Test-Path -LiteralPath $candidate) {
+            $logcatPaths += $candidate
+        }
+    }
+    if ($logcatPaths.Count -eq 0) {
+        $missingLogs = [ordered]@{
+            schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+            status = "failed"
+            mode = $Mode
+            report = $outPath
+            error = "no Makepad launch logcat files were available for projection runtime readback validation"
+        }
+        $missingLogs | ConvertTo-Json -Depth 5 | Set-Content -Path $outPath -Encoding UTF8
+        return $missingLogs
+    }
+
+    $validatorArgs = @(
+        $projectionRuntimeReadbackValidator,
+        "--expected-source", "android-property",
+        "--out", $outPath
+    )
+    foreach ($propertyPath in @(
+            (Join-Path $OutDir "projection-target-props.json"),
+            (Join-Path $OutDir "broker-h264-props.json")
+        )) {
+        if (Test-Path -LiteralPath $propertyPath) {
+            $validatorArgs += @("--expected-properties", $propertyPath)
+        }
+    }
+    foreach ($logcatPath in ($logcatPaths | Sort-Object -Unique)) {
+        $validatorArgs += @("--logcat", $logcatPath)
+    }
+    if ($Mode -eq "warn") {
+        $validatorArgs += "--allow-missing-manifest"
+    }
+
+    try {
+        $output = @(& python @validatorArgs 2>&1 | ForEach-Object { [string]$_ })
+        $exitCode = $LASTEXITCODE
+        $output | Set-Content -Path $stdoutPath -Encoding UTF8
+        if ($exitCode -ne 0) {
+            "projection runtime readback validation failed with exit code $exitCode; see $outPath" |
+                Set-Content -Path $errorPath -Encoding UTF8
+        }
+    }
+    catch {
+        @("projection runtime readback validation failed", $_.Exception.Message) |
+            Set-Content -Path $errorPath -Encoding UTF8
+    }
+
+    if (Test-Path -LiteralPath $outPath) {
+        try {
+            return Get-Content -Raw -LiteralPath $outPath | ConvertFrom-Json
+        }
+        catch {
+        }
+    }
+    return [ordered]@{
+        schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+        status = "failed"
+        mode = $Mode
+        report = $outPath
+        error = "projection runtime readback report was not written or readable"
+    }
 }
 
 function Get-Sha256Hex {
@@ -769,6 +878,7 @@ if (-not $OutDir) {
     $OutDir = Join-Path (Get-Location) "artifacts/makepad-camera-device-gate-$stamp"
 }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+$effectiveProjectionRuntimeReadback = if ($ProjectionRuntimeReadback -eq "warn" -and $UseResolvedProjectionRuntime) { "required" } else { $ProjectionRuntimeReadback }
 
 Invoke-Adb -Arguments @("devices") | Set-Content -Path (Join-Path $OutDir "adb-devices.txt") -Encoding UTF8
 $projectionPropertyHygieneSummary = Invoke-RustyXrProjectionPropertyHygiene `
@@ -856,6 +966,10 @@ if ($UseResolvedProjectionRuntime) {
         $projectionRuntimeGateFailures += "numeric projection fields resolved as bool"
     }
 }
+$projectionRuntimeReadbackSummary = Invoke-ProjectionRuntimeReadbackValidation -Attempts $attempts -Mode $effectiveProjectionRuntimeReadback
+if ($effectiveProjectionRuntimeReadback -eq "required" -and $projectionRuntimeReadbackSummary.status -ne "ok") {
+    $projectionRuntimeGateFailures += "projection runtime readback validation failed"
+}
 $resolvedBrokerH264ProjectionGeometryProfile = if ($BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) {
     $BrokerH264ProjectionGeometryProfile.Trim()
 }
@@ -899,6 +1013,8 @@ $summary = [ordered]@{
     useResolvedProjectionRuntime = [bool]$UseResolvedProjectionRuntime
     mediaProjection = [bool]$MediaProjection
     projectionPropertyHygiene = $projectionPropertyHygieneSummary
+    projectionRuntimeReadbackMode = $effectiveProjectionRuntimeReadback
+    projectionRuntimeReadback = $projectionRuntimeReadbackSummary
     mediaProjectionPort = $MediaProjectionPort
     mediaProjectionWidth = $MediaProjectionWidth
     mediaProjectionHeight = $MediaProjectionHeight
