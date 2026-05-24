@@ -118,6 +118,55 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
     }
 }
 
+pub(crate) fn makepad_texture_content_probe_missing_marker_fields(
+    side: &str,
+    yuv_enabled: bool,
+    yuv_biplanar: bool,
+    yuv_matrix: f32,
+    rotation_steps: f32,
+) -> String {
+    format!(
+        "phase=texture-content-probe status=missing side={} {} yuvEnabled={} yuvBiplanar={} yuvMatrix={:.1} rotationSteps={:.0} cpuPlaneContentPresent=false visualInspection=required visualReleaseAccepted=false",
+        side,
+        texture_content_probe_contract_fields(),
+        yuv_enabled,
+        yuv_biplanar,
+        yuv_matrix,
+        rotation_steps,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn makepad_texture_content_probe_ok_marker_fields(
+    side: &str,
+    yuv_enabled: bool,
+    yuv_biplanar: bool,
+    yuv_matrix: f32,
+    rotation_steps: f32,
+    cpu_content_present: bool,
+    y_stats_fields: &str,
+    u_stats_fields: &str,
+    v_stats_fields: &str,
+) -> String {
+    format!(
+        "phase=texture-content-probe status=ok side={} {} yuvEnabled={} yuvBiplanar={} yuvMatrix={:.1} rotationSteps={:.0} cpuPlaneContentPresent={} {} {} {} gpuSamplingStillVisual=full-frame-source-display-row-vertical-uv-yuv visualInspection=required visualReleaseAccepted=false",
+        side,
+        texture_content_probe_contract_fields(),
+        yuv_enabled,
+        yuv_biplanar,
+        yuv_matrix,
+        rotation_steps,
+        cpu_content_present,
+        y_stats_fields,
+        u_stats_fields,
+        v_stats_fields,
+    )
+}
+
+fn texture_content_probe_contract_fields() -> &'static str {
+    "textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040"
+}
+
 fn marker_token(value: &str) -> String {
     value.replace(char::is_whitespace, "_")
 }
@@ -248,5 +297,39 @@ mod tests {
         assert!(fields.contains("sourceColorTransformApplied=true"));
         assert!(fields
             .contains("projectionContentMappingMode=full-frame-stimulus-to-surface-homography"));
+    }
+
+    #[test]
+    fn texture_content_probe_markers_keep_source_sampling_shape() {
+        let missing = makepad_texture_content_probe_missing_marker_fields(
+            "left", true, false, 601.0, 90.0,
+        );
+        assert!(missing.starts_with(
+            "phase=texture-content-probe status=missing side=left"
+        ));
+        assert!(missing.contains("textureProbeMode=single-quad-target-screen-uv"));
+        assert!(missing.contains("yuvEnabled=true yuvBiplanar=false yuvMatrix=601.0"));
+        assert!(missing.ends_with(
+            "cpuPlaneContentPresent=false visualInspection=required visualReleaseAccepted=false"
+        ));
+
+        let ok = makepad_texture_content_probe_ok_marker_fields(
+            "right",
+            true,
+            true,
+            601.0,
+            270.0,
+            true,
+            "yReadable=true",
+            "uReadable=true",
+            "vReadable=true",
+        );
+        assert!(ok.starts_with("phase=texture-content-probe status=ok side=right"));
+        assert!(ok.contains(
+            "cpuPlaneContentPresent=true yReadable=true uReadable=true vReadable=true"
+        ));
+        assert!(ok.ends_with(
+            "gpuSamplingStillVisual=full-frame-source-display-row-vertical-uv-yuv visualInspection=required visualReleaseAccepted=false"
+        ));
     }
 }
