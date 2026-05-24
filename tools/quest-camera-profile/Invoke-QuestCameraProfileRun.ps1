@@ -336,8 +336,15 @@ function Save-OptionalRunAsFileCapture {
         [string]$OutputPath
     )
 
-    $probeOutput = @(Invoke-Adb -Arguments @("shell", "run-as", $Package, "ls", $RemotePath) 2>&1 | ForEach-Object { [string]$_ })
-    $probeExitCode = $LASTEXITCODE
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $probeOutput = @(Invoke-Adb -Arguments @("shell", "run-as", $Package, "ls", $RemotePath) 2>&1 | ForEach-Object { [string]$_ })
+        $probeExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($probeExitCode -ne 0) {
         Write-Utf8TextFile -Path "$OutputPath.missing.txt" -Value @(
             "Optional run-as file was not captured.",
@@ -350,8 +357,15 @@ function Save-OptionalRunAsFileCapture {
         return
     }
 
-    $captureOutput = @(Invoke-Adb -Arguments @("shell", "run-as", $Package, "cat", $RemotePath) 2>&1 | ForEach-Object { [string]$_ })
-    $captureExitCode = $LASTEXITCODE
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $captureOutput = @(Invoke-Adb -Arguments @("shell", "run-as", $Package, "cat", $RemotePath) 2>&1 | ForEach-Object { [string]$_ })
+        $captureExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($captureExitCode -ne 0) {
         Write-Utf8TextFile -Path "$OutputPath.error.txt" -Value @(
             "Optional run-as file probe succeeded, but capture failed.",
