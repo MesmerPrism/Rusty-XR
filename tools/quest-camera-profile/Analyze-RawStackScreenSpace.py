@@ -20,11 +20,60 @@ SCHEMA_VERSION = "rusty.xr.raw-stack-screen-space.v1"
 PROJECTION_MAPPING_SCHEMA_VERSION = "rusty.xr.projection-mapping-run-record.v1"
 PROJECTION_COORDINATE_CONTRACT_SCHEMA_VERSION = "rusty.xr.projection-coordinate-contract.v1"
 SOURCE_SAMPLING_CONTRACT_SCHEMA_VERSION = "rusty.xr.source-sampling-contract.v1"
+FULL_SOURCE_UV_RECT = [0.0, 0.0, 1.0, 1.0]
 ROW_SAMPLE_FRACTIONS = (0.10, 0.25, 0.50, 0.75, 0.90)
 CROSS_LANE_WIDTH_TOLERANCE = 0.035
 CROSS_LANE_HEIGHT_TOLERANCE = 0.035
 CROSS_LANE_AREA_TOLERANCE = 0.070
 CROSS_LANE_CENTER_TOLERANCE = 0.030
+SOURCE_EYE_MAPPING_ALIASES = {
+    "left-right": "display-left-from-left-source",
+    "display-left-from-left": "display-left-from-left-source",
+    "display-left-from-left-source": "display-left-from-left-source",
+    "displayleftfromleft": "display-left-from-left-source",
+    "natural": "display-left-from-left-source",
+    "camera50-left": "display-left-from-left-source",
+    "right-left": "display-left-from-right-source",
+    "display-left-from-right": "display-left-from-right-source",
+    "display-left-from-right-source": "display-left-from-right-source",
+    "displayleftfromright": "display-left-from-right-source",
+    "swapped": "display-left-from-right-source",
+    "swap": "display-left-from-right-source",
+    "camera51-left": "display-left-from-right-source",
+}
+SOURCE_SAMPLING_TRANSFORM_STAGE_ALIASES = {
+    "none": "none",
+    "off": "none",
+    "post-homography-pre-texture-sample": "post-homography-pre-texture-sample",
+    "post_homography_pre_texture_sample": "post-homography-pre-texture-sample",
+    "post-homography-pre-oes-sample": "post-homography-pre-oes-sample",
+    "post_homography_pre_oes_sample": "post-homography-pre-oes-sample",
+    "post-homography-pre-yuv-sample": "post-homography-pre-yuv-sample",
+    "post_homography_pre_yuv_sample": "post-homography-pre-yuv-sample",
+    "post-homography-pre-source-visible-rect-then-texture-sample": (
+        "post-homography-pre-source-visible-rect-then-texture-sample"
+    ),
+    "post_homography_pre_source_visible_rect_then_texture_sample": (
+        "post-homography-pre-source-visible-rect-then-texture-sample"
+    ),
+    "other": "other",
+}
+SOURCE_SAMPLER_Y_AXIS_ALIASES = {
+    "renderer-defined": "renderer-defined",
+    "renderer_defined": "renderer-defined",
+    "surface-texture-transform-defined": "surface-texture-transform-defined",
+    "surface_texture_transform_defined": "surface-texture-transform-defined",
+    "content-top-left-y-down": "content-top-left-y-down",
+    "content_top_left_y_down": "content-top-left-y-down",
+    "makepad-sampler-origin-convention": "makepad-sampler-origin-convention",
+    "makepad_sampler_origin_convention": "makepad-sampler-origin-convention",
+    "other": "other",
+}
+SOURCE_UV_CONTRACT_BY_BACKEND = {
+    "hwb": "screen_to_camera_content_uv_to_hardware_buffer_sampler",
+    "oes": "screen_to_camera_content_uv_to_oes_external_sampler",
+    "makepad": "screen_to_camera_content_uv_to_makepad_video_sampler",
+}
 HOMOGRAPHY_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9_]*H)=([-+0-9.eE,]+)")
 FIELD_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9_]*)=([^\s|]+)")
 PROJECTION_STAGE_ROW_RE = re.compile(r"projection stage row (\{.*\})")
@@ -111,6 +160,8 @@ SOURCE_FIELD_KEYS = (
     "runtimeXrViewStateReady",
     "projectionMappingReady",
     "visibleCameraProjectionReady",
+    "cameraSourceEyeMapping",
+    "sourceEyeMapping",
     "pairedLeftRightGpuBuffers",
     "projectionScale",
     "xrRenderScale",
@@ -1009,23 +1060,51 @@ def selected_attempt_root(path: Path, image_path: Path | None) -> Path:
     return path
 
 
-def find_log_for_selected_image(path: Path, image_path: Path | None) -> Path | None:
+def log_contains_expected_backend(path: Path, expected_backend: str | None) -> bool:
+    if expected_backend is None:
+        return True
+    expected_contract = SOURCE_UV_CONTRACT_BY_BACKEND.get(expected_backend)
+    if expected_contract is None:
+        return True
+    try:
+        text = read_text_auto(path)
+    except Exception:
+        return False
+    return expected_contract in text
+
+
+def choose_log_candidate(candidates: list[Path], expected_backend: str | None) -> Path | None:
+    if not candidates:
+        return None
+    matching = [candidate for candidate in candidates if log_contains_expected_backend(candidate, expected_backend)]
+    if matching:
+        return sorted(matching)[-1]
+    return candidates[0]
+
+
+def find_log_for_selected_image(path: Path, image_path: Path | None, expected_backend: str | None = None) -> Path | None:
     attempt_root = selected_attempt_root(path, image_path)
     if attempt_root != path:
         patterns = [
+            "logcat-window.txt",
+            "**/logcat-window.txt",
             "*-logcat.txt",
+            "*-logcat-tail.txt",
             "logcat.txt",
             "*logcat*.txt",
             "**/*-logcat.txt",
+            "**/*-logcat-tail.txt",
             "**/logcat.txt",
             "**/*logcat*.txt",
         ]
         search_root = long_path(attempt_root)
         for pattern in patterns:
-            matches = sorted(candidate for candidate in search_root.glob(pattern) if candidate.is_file())
+            matches = sorted(candidate for candidate in search_root.glob(pattern) if is_logcat_content_path(candidate))
             if matches:
-                return matches[0]
-    return find_log_for_run(path)
+                selected = choose_log_candidate(matches, expected_backend)
+                if selected is not None:
+                    return selected
+    return find_log_for_run(path, expected_backend)
 
 
 def find_validation_for_run(path: Path) -> dict[str, Any] | None:
@@ -1044,20 +1123,35 @@ def find_validation_for_run(path: Path) -> dict[str, Any] | None:
     return None
 
 
-def find_log_for_run(path: Path) -> Path | None:
+def find_log_for_run(path: Path, expected_backend: str | None = None) -> Path | None:
     patterns = [
+        "logcat-window.txt",
+        "**/logcat-window.txt",
         "*-logcat.txt",
+        "*-logcat-tail.txt",
         "logcat.txt",
         "**/*-logcat.txt",
+        "**/*-logcat-tail.txt",
         "**/logcat.txt",
         "**/*logcat*.txt",
     ]
     search_root = long_path(path)
     for pattern in patterns:
-        matches = sorted(candidate for candidate in search_root.glob(pattern) if candidate.is_file())
+        matches = sorted(candidate for candidate in search_root.glob(pattern) if is_logcat_content_path(candidate))
         if matches:
-            return matches[0]
+            selected = choose_log_candidate(matches, expected_backend)
+            if selected is not None:
+                return selected
     return None
+
+
+def is_logcat_content_path(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    name = path.name.lower()
+    if name.endswith("-command.txt") or name.endswith("-stderr.txt") or name.endswith("-error.txt"):
+        return False
+    return "logcat" in name
 
 
 def parse_marker_fields(line: str) -> dict[str, str]:
@@ -1100,6 +1194,19 @@ def latest_phase_fields(marker_records: list[dict[str, Any]]) -> dict[str, dict[
         if isinstance(fields, dict):
             latest[phase] = fields
     return latest
+
+
+def marker_record_matches_backend(record: dict[str, Any], expected_backend: str | None) -> bool:
+    if expected_backend is None:
+        return True
+    expected_contract = SOURCE_UV_CONTRACT_BY_BACKEND.get(expected_backend)
+    if expected_contract is None:
+        return True
+    fields = record.get("fields")
+    if not isinstance(fields, dict):
+        return False
+    contract = fields.get("sourceUvContract")
+    return contract == expected_contract
 
 
 def merge_mapping_fields(source_fields: dict[str, str], marker_records: list[dict[str, Any]]) -> dict[str, str]:
@@ -1343,7 +1450,7 @@ def latest_surface_texture_transform_fields(records: list[dict[str, Any]]) -> di
     return fields
 
 
-def extract_projection_evidence(path: Path) -> dict[str, Any] | None:
+def extract_projection_evidence(path: Path, expected_backend: str | None = None) -> dict[str, Any] | None:
     if not long_path(path).exists():
         return None
     text = read_text_auto(path)
@@ -1352,6 +1459,10 @@ def extract_projection_evidence(path: Path) -> dict[str, Any] | None:
     surface_texture_transforms = extract_surface_texture_transform_records(text)
     source_fields.update(latest_surface_texture_transform_fields(surface_texture_transforms))
     marker_records = extract_projection_marker_records(text)
+    matched_marker_records = [
+        record for record in marker_records if marker_record_matches_backend(record, expected_backend)
+    ]
+    selected_marker_records = matched_marker_records if expected_backend is not None else marker_records
     homographies: dict[str, list[float]] = {}
     for name, values_text in HOMOGRAPHY_RE.findall(text):
         values = parse_homography_values(values_text)
@@ -1381,9 +1492,11 @@ def extract_projection_evidence(path: Path) -> dict[str, Any] | None:
     return {
         "log_path": str(path),
         "source_fields": source_fields,
-        "selected_mapping_fields": merge_mapping_fields(source_fields, marker_records),
-        "latest_phase_fields": latest_phase_fields(marker_records),
-        "marker_record_count": len(marker_records),
+        "selected_mapping_fields": merge_mapping_fields(source_fields, selected_marker_records),
+        "latest_phase_fields": latest_phase_fields(selected_marker_records),
+        "marker_record_count": len(selected_marker_records),
+        "total_marker_record_count": len(marker_records),
+        "backend_matched_marker_record_count": len(matched_marker_records),
         "surface_texture_transform_count": len(surface_texture_transforms),
         "available_homography_keys": sorted(homographies),
         "stages": stages,
@@ -1743,6 +1856,70 @@ def parse_uv_rect(value: Any) -> list[float] | None:
     if values is None or len(values) != 4:
         return None
     return values
+
+
+def stable_alias(value: Any, aliases: dict[str, str]) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return aliases.get(text.lower())
+
+
+def stable_source_eye_mapping(value: Any) -> str | None:
+    return stable_alias(value, SOURCE_EYE_MAPPING_ALIASES)
+
+
+def stable_source_sampling_transform_stage(value: Any) -> str | None:
+    return stable_alias(value, SOURCE_SAMPLING_TRANSFORM_STAGE_ALIASES)
+
+
+def stable_source_sampler_y_axis(value: Any) -> str | None:
+    return stable_alias(value, SOURCE_SAMPLER_Y_AXIS_ALIASES)
+
+
+def source_uv_rect_shape(rect: list[float] | None) -> dict[str, dict[str, float]]:
+    values = rect if rect is not None and len(rect) == 4 else FULL_SOURCE_UV_RECT
+    return {
+        "origin_uv": {"x": float(values[0]), "y": float(values[1])},
+        "size_uv": {"x": float(values[2]), "y": float(values[3])},
+    }
+
+
+def source_uv_rect_is_valid(rect: dict[str, Any]) -> bool:
+    origin = rect.get("origin_uv") if isinstance(rect, dict) else None
+    size = rect.get("size_uv") if isinstance(rect, dict) else None
+    if not isinstance(origin, dict) or not isinstance(size, dict):
+        return False
+    values = [origin.get("x"), origin.get("y"), size.get("x"), size.get("y")]
+    if not all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+        return False
+    x, y, width, height = [float(value) for value in values]
+    epsilon = 1.0e-5
+    return (
+        math.isfinite(x)
+        and math.isfinite(y)
+        and math.isfinite(width)
+        and math.isfinite(height)
+        and x >= -epsilon
+        and y >= -epsilon
+        and width > 0.0
+        and height > 0.0
+        and x + width <= 1.0 + epsilon
+        and y + height <= 1.0 + epsilon
+    )
+
+
+def backend_from_mode(mode: str) -> str:
+    text = str(mode or "").lower()
+    if text.startswith("hwb"):
+        return "hwb"
+    if text.startswith("oes") or text.startswith("gles-oes"):
+        return "oes"
+    if text.startswith("makepad"):
+        return "makepad"
+    return "unknown"
 
 
 def first_field(fields: dict[str, str], *keys: str) -> str | None:
@@ -2919,6 +3096,11 @@ def texture_or_upload_record(mode: str, fields: dict[str, str]) -> dict[str, Any
 def source_sampling_record(fields: dict[str, str]) -> dict[str, Any]:
     values = {
         "contract": first_field(fields, "sourceUvContract"),
+        "source_eye_mapping": first_field(fields, "cameraSourceEyeMapping", "sourceEyeMapping"),
+        "content_uv_rect": parse_uv_rect(first_field(fields, "contentUvRect")),
+        "source_visible_uv_rect": parse_uv_rect(
+            first_field(fields, "sourceVisibleUvRect", "leftSourceVisibleUvRect", "rightSourceVisibleUvRect")
+        ),
         "homography_output_uv": first_field(fields, "sourceHomographyOutputUv"),
         "sample_input_uv": first_field(fields, "sourceSampleInputUv"),
         "sample_transform_stage": first_field(fields, "sourceSampleTransformStage"),
@@ -2943,7 +3125,7 @@ def source_record(mode: str, fields: dict[str, str]) -> dict[str, Any]:
         "format": infer_source_format(mode, fields),
         "source_descriptor": first_field(fields, "source"),
         "synthetic_pattern": first_field(fields, "brokerH264SyntheticPattern", "syntheticPattern", "synthetic_pattern", "pattern"),
-        "source_eye_mapping": first_field(fields, "cameraSourceEyeMapping"),
+        "source_eye_mapping": first_field(fields, "cameraSourceEyeMapping", "sourceEyeMapping"),
         "left_camera_id": first_field(fields, "brokerH264LeftCameraId", "directCamera2OesLeftCameraId"),
         "right_camera_id": first_field(fields, "brokerH264RightCameraId", "directCamera2OesRightCameraId"),
         "timestamp_domain": first_field(fields, "timestampDomain", "poseSource", "pose_source"),
@@ -3359,15 +3541,134 @@ def summarize_projection_coordinate_contracts(contracts: list[dict[str, Any]]) -
     }
 
 
+def first_uv_rect(*values: Any) -> list[float] | None:
+    for value in values:
+        if isinstance(value, list) and len(value) == 4:
+            try:
+                rect = [float(item) for item in value]
+            except (TypeError, ValueError):
+                continue
+            if all(math.isfinite(item) for item in rect):
+                return rect
+    return None
+
+
+def typed_source_sampling_contract(
+    coordinate_contract: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    gaps: list[str] = []
+    mode = str(coordinate_contract.get("mode") or "unknown")
+    backend = backend_from_mode(mode)
+    if backend == "unknown":
+        gaps.append("source-sampling-backend-not-inferred")
+
+    source_sampling = coordinate_contract.get("source_sampling") or {}
+    source = coordinate_contract.get("source") or {}
+    metadata = coordinate_contract.get("metadata") or {}
+    if not isinstance(source_sampling, dict):
+        source_sampling = {}
+    if not isinstance(source, dict):
+        source = {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    expected_contract = SOURCE_UV_CONTRACT_BY_BACKEND.get(backend)
+    observed_contract = source_sampling.get("contract")
+    if expected_contract is not None and observed_contract not in (None, "", "unknown", "not-logged"):
+        if str(observed_contract) != expected_contract:
+            gaps.append("source-sampling-backend-contract-mismatch")
+
+    content_by_eye = source.get("content_by_eye") if isinstance(source.get("content_by_eye"), dict) else {}
+    left_content = content_by_eye.get("left") if isinstance(content_by_eye.get("left"), dict) else {}
+    right_content = content_by_eye.get("right") if isinstance(content_by_eye.get("right"), dict) else {}
+
+    source_eye_mapping = stable_source_eye_mapping(
+        source_sampling.get("source_eye_mapping") or source.get("source_eye_mapping")
+    )
+    if source_eye_mapping is None:
+        source_eye_mapping = "display-left-from-left-source"
+        gaps.append("source-sampling-source-eye-mapping-not-logged")
+
+    content_rect = first_uv_rect(
+        source_sampling.get("content_uv_rect"),
+        left_content.get("uv_rect"),
+        right_content.get("uv_rect"),
+    )
+    if content_rect is None:
+        content_rect = FULL_SOURCE_UV_RECT
+        gaps.append("source-sampling-content-uv-rect-not-logged")
+
+    source_visible_rect = first_uv_rect(
+        source_sampling.get("source_visible_uv_rect"),
+        metadata.get("valid_source_uv_rect"),
+        left_content.get("uv_rect"),
+        right_content.get("uv_rect"),
+    )
+    if source_visible_rect is None:
+        source_visible_rect = FULL_SOURCE_UV_RECT
+        gaps.append("source-sampling-source-visible-uv-rect-not-logged")
+
+    transform_stage = stable_source_sampling_transform_stage(source_sampling.get("sample_transform_stage"))
+    if transform_stage is None:
+        transform_stage = "other"
+        gaps.append("source-sampling-transform-stage-not-shared-enum")
+
+    texture_transform_stage = stable_source_sampling_transform_stage(source_sampling.get("texture_transform_stage"))
+    if texture_transform_stage is None:
+        texture_transform_stage = "other"
+        gaps.append("source-sampling-texture-transform-stage-not-shared-enum")
+
+    sampler_y_axis = stable_source_sampler_y_axis(source_sampling.get("sampler_y_axis"))
+    if sampler_y_axis is None:
+        sampler_y_axis = "other"
+        gaps.append("source-sampling-sampler-y-axis-not-shared-enum")
+
+    transform_label = str(source_sampling.get("sample_transform") or "not-logged")
+    transform_owner = str(source_sampling.get("sample_transform_owner") or "not-logged")
+    output_uv_label = str(source_sampling.get("sample_output_uv") or "not-logged")
+    sampler_uv_origin = str(source_sampling.get("sampler_uv_origin") or "not-logged")
+    texture_transform_owner = str(source_sampling.get("texture_transform_owner") or "not-logged")
+    transform_applied = source_sampling.get("sample_transform_applied")
+    if not isinstance(transform_applied, bool):
+        transform_applied = False
+        gaps.append("source-sampling-transform-applied-not-logged")
+
+    typed = {
+        "schema_version": SOURCE_SAMPLING_CONTRACT_SCHEMA_VERSION,
+        "backend": backend,
+        "mode": mode,
+        "source_eye_mapping": source_eye_mapping,
+        "content_uv_rect": source_uv_rect_shape(content_rect),
+        "source_visible_uv_rect": source_uv_rect_shape(source_visible_rect),
+        "transform_stage": transform_stage,
+        "transform_label": transform_label,
+        "transform_owner": transform_owner,
+        "transform_applied": transform_applied,
+        "output_uv_label": output_uv_label,
+        "sampler_uv_origin": sampler_uv_origin,
+        "sampler_y_axis": sampler_y_axis,
+        "texture_transform_stage": texture_transform_stage,
+        "texture_transform_owner": texture_transform_owner,
+    }
+    if not source_uv_rect_is_valid(typed["content_uv_rect"]):
+        gaps.append("source-sampling-content-uv-rect-invalid")
+    if not source_uv_rect_is_valid(typed["source_visible_uv_rect"]):
+        gaps.append("source-sampling-source-visible-uv-rect-invalid")
+    return typed, sorted(set(gaps))
+
+
 def source_sampling_gaps(source_sampling: dict[str, Any], texture_or_upload: dict[str, Any]) -> list[str]:
     gaps: list[str] = []
     for key in (
         "contract",
         "homography_output_uv",
+        "sample_input_uv",
         "sample_transform_stage",
         "sample_transform",
         "sample_transform_owner",
         "sample_output_uv",
+        "texture_transform_stage",
+        "texture_transform_owner",
     ):
         if source_sampling.get(key) in (None, "", "unknown", "not-logged"):
             gaps.append(f"source-sampling-{key.replace('_', '-')}-not-logged")
@@ -3392,6 +3693,16 @@ def source_sampling_status_from_gaps(gaps: list[str]) -> str:
         "source-sampling-sample-output-uv-not-logged",
         "source-sampling-texture-transform-stage-not-logged",
         "source-sampling-texture-transform-owner-not-logged",
+        "source-sampling-backend-not-inferred",
+        "source-sampling-source-eye-mapping-not-logged",
+        "source-sampling-content-uv-rect-not-logged",
+        "source-sampling-source-visible-uv-rect-not-logged",
+        "source-sampling-transform-stage-not-shared-enum",
+        "source-sampling-texture-transform-stage-not-shared-enum",
+        "source-sampling-sampler-y-axis-not-shared-enum",
+        "source-sampling-content-uv-rect-invalid",
+        "source-sampling-source-visible-uv-rect-invalid",
+        "source-sampling-backend-contract-mismatch",
     }
     if any(gap in blocking for gap in gaps):
         return "blocked"
@@ -3411,12 +3722,11 @@ def build_source_sampling_contracts(
             source_sampling = {}
         if not isinstance(texture_or_upload, dict):
             texture_or_upload = {}
-        gaps = source_sampling_gaps(source_sampling, texture_or_upload)
-        contracts.append(
-            {
-                "schema_version": SOURCE_SAMPLING_CONTRACT_SCHEMA_VERSION,
+        typed_handoff, typed_gaps = typed_source_sampling_contract(contract)
+        gaps = sorted(set(source_sampling_gaps(source_sampling, texture_or_upload) + typed_gaps))
+        record = {
+            **typed_handoff,
                 "suite_root": contract.get("suite_root"),
-                "mode": contract.get("mode"),
                 "status": source_sampling_status_from_gaps(gaps),
                 "lane": contract.get("lane") or {},
                 "run_request": contract.get("run_request") or {},
@@ -3431,7 +3741,7 @@ def build_source_sampling_contracts(
                 },
                 "gaps": gaps,
             }
-        )
+        contracts.append(record)
     return contracts
 
 
@@ -3455,6 +3765,19 @@ def summarize_source_sampling_contracts(contracts: list[dict[str, Any]]) -> dict
             "architecture": lane.get("architecture"),
             "source_mode": lane.get("source_mode"),
             "source_transport": lane.get("source_transport"),
+            "backend": contract.get("backend"),
+            "source_eye_mapping": contract.get("source_eye_mapping"),
+            "content_uv_rect": contract.get("content_uv_rect"),
+            "source_visible_uv_rect": contract.get("source_visible_uv_rect"),
+            "transform_stage": contract.get("transform_stage"),
+            "transform_label": contract.get("transform_label"),
+            "transform_owner": contract.get("transform_owner"),
+            "transform_applied": contract.get("transform_applied"),
+            "output_uv_label": contract.get("output_uv_label"),
+            "sampler_uv_origin": contract.get("sampler_uv_origin"),
+            "sampler_y_axis": contract.get("sampler_y_axis"),
+            "texture_transform_stage": contract.get("texture_transform_stage"),
+            "texture_transform_owner": contract.get("texture_transform_owner"),
             "source_sampling_contract": source_sampling.get("contract"),
             "homography_output_uv": source_sampling.get("homography_output_uv"),
             "sample_transform_stage": source_sampling.get("sample_transform_stage"),
@@ -3904,10 +4227,10 @@ def main() -> int:
         }
         validation = find_validation_for_run(artifact_root)
         freshness = freshness_summary(artifact_root)
-        log_path = find_log_for_selected_image(artifact_root, image_path)
+        log_path = find_log_for_selected_image(artifact_root, image_path, backend_from_mode(str(mode)))
         lane.update(lane_status_from_validation(validation, freshness))
         if log_path:
-            lane["projection_evidence"] = extract_projection_evidence(log_path)
+            lane["projection_evidence"] = extract_projection_evidence(log_path, backend_from_mode(str(mode)))
         manifest_fields = run_manifest_fields(artifact_root)
         if manifest_fields:
             if not isinstance(lane.get("projection_evidence"), dict):

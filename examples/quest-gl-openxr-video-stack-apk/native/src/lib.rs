@@ -12,6 +12,8 @@
 
 use rusty_xr_quest_diagnostics::OpenXrGlesFeasibilityStatus;
 
+mod source_sampling;
+
 pub fn status_json() -> String {
     let status = OpenXrGlesFeasibilityStatus::new();
     serde_json::to_string_pretty(&status).expect("OpenXR/GLES status should serialize")
@@ -4715,23 +4717,11 @@ void main() {
         } else {
             "camera2_stream_header"
         };
-        let source_sample_transform = if use_surface_texture_transform {
-            "surfaceTextureTransformMatrix"
-        } else {
-            "identity"
-        };
-        let source_sample_transform_owner = if use_surface_texture_transform {
-            "android-surface-texture"
-        } else {
-            "stimulus-orientation-metadata"
-        };
-        let source_sampler_y_axis = if use_surface_texture_transform {
-            "surface-texture-transform-defined"
-        } else {
-            "content-top-left-y-down"
-        };
+        let source_sampling_fields =
+            crate::source_sampling::OesSourceSamplingHandoff::new(use_surface_texture_transform)
+                .marker_fields();
         format!(
-            "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:sourceValidUvRect={}:sourceUvContract=screen_to_camera_content_uv_to_oes_external_sampler:sourceHomographyOutputUv=content-normalized-top-left-y-down:sourceSampleInputUv=screen-to-camera-homography-output:sourceSampleTransformStage=post_homography_pre_oes_sample:sourceSampleTransform={}:sourceSampleTransformOwner={}:sourceSampleTransformApplied={}:sourceSampleOutputUv=oes-external-sampler-uv:sourceSamplerUvOrigin=android-surface-texture:sourceSamplerYAxis={}:sourceTextureTransformStage=post_homography_pre_oes_sample:sourceTextureTransformOwner=android-surface-texture:contentUvRect=0,0,1,1",
+            "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:sourceValidUvRect={}:{}",
             metadata_label,
             metadata.source,
             metadata.camera_id,
@@ -4765,10 +4755,7 @@ void main() {
             metadata.content_geometry_metadata_source,
             metadata.content_geometry_default,
             uv_rect_token(rect_xywh(metadata.source_valid_uv_rect)),
-            source_sample_transform,
-            source_sample_transform_owner,
-            use_surface_texture_transform,
-            source_sampler_y_axis,
+            source_sampling_fields,
         )
     }
 

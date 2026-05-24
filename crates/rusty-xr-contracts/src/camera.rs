@@ -323,6 +323,7 @@ impl CameraImageRotation {
 
 /// Mapping from a display eye to the sampled stereo source eye.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum StereoSourceEyeMapping {
     #[default]
@@ -495,6 +496,7 @@ impl Default for SourceUvRect {
 
 /// Stage where renderer source-sampling transforms are applied.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SourceSamplingTransformStage {
     #[default]
@@ -544,11 +546,13 @@ impl SourceSamplingTransformStage {
 
 /// Y-axis convention observed at the final sampler input.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SourceSamplerYAxis {
     #[default]
     RendererDefined,
     SurfaceTextureTransformDefined,
+    ContentTopLeftYDown,
     MakepadSamplerOriginConvention,
     Other,
 }
@@ -558,8 +562,26 @@ impl SourceSamplerYAxis {
         match self {
             Self::RendererDefined => "renderer-defined",
             Self::SurfaceTextureTransformDefined => "surface-texture-transform-defined",
+            Self::ContentTopLeftYDown => "content-top-left-y-down",
             Self::MakepadSamplerOriginConvention => "makepad-sampler-origin-convention",
             Self::Other => "other",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "renderer-defined" | "renderer_defined" => Some(Self::RendererDefined),
+            "surface-texture-transform-defined" | "surface_texture_transform_defined" => {
+                Some(Self::SurfaceTextureTransformDefined)
+            }
+            "content-top-left-y-down" | "content_top_left_y_down" => {
+                Some(Self::ContentTopLeftYDown)
+            }
+            "makepad-sampler-origin-convention" | "makepad_sampler_origin_convention" => {
+                Some(Self::MakepadSamplerOriginConvention)
+            }
+            "other" => Some(Self::Other),
+            _ => None,
         }
     }
 }
@@ -1691,6 +1713,10 @@ mod tests {
             Some(SourceSamplingTransformStage::PostHomographyPreSourceVisibleRectThenTextureSample)
         );
         assert_eq!(contract.sampler_y_axis.stable_id(), "renderer-defined");
+        assert_eq!(
+            SourceSamplerYAxis::parse("content-top-left-y-down"),
+            Some(SourceSamplerYAxis::ContentTopLeftYDown)
+        );
 
         let invalid = contract.with_source_visible_uv_rect(SourceUvRect::new(
             Vec2::new(0.8, 0.0),
@@ -1932,11 +1958,74 @@ mod tests {
         );
 
         let encoded = serde_json::to_string(&contract).expect("source sampling should serialize");
+        assert!(encoded.contains("\"source_eye_mapping\":\"display-left-from-right-source\""));
+        assert!(encoded.contains("\"transform_stage\":\"post-homography-pre-oes-sample\""));
+        assert!(encoded.contains("\"sampler_y_axis\":\"surface-texture-transform-defined\""));
         let decoded: SourceSamplingContract =
             serde_json::from_str(&encoded).expect("source sampling should deserialize");
 
         assert_eq!(decoded, contract);
         assert!(decoded.is_valid());
+
+        let analyzer_record = r#"{
+            "schema_version": "rusty.xr.source-sampling-contract.v1",
+            "backend": "oes",
+            "suite_root": "fixture",
+            "mode": "oes-canvas",
+            "source_eye_mapping": "display-left-from-left-source",
+            "content_uv_rect": {
+                "origin_uv": {"x": 0.0, "y": 0.0},
+                "size_uv": {"x": 1.0, "y": 1.0}
+            },
+            "source_visible_uv_rect": {
+                "origin_uv": {"x": 0.0, "y": 0.0},
+                "size_uv": {"x": 1.0, "y": 1.0}
+            },
+            "transform_stage": "post-homography-pre-oes-sample",
+            "transform_label": "identity",
+            "transform_owner": "stimulus-orientation-metadata",
+            "transform_applied": false,
+            "output_uv_label": "oes-external-sampler-uv",
+            "sampler_uv_origin": "android-surface-texture",
+            "sampler_y_axis": "content-top-left-y-down",
+            "texture_transform_stage": "post-homography-pre-oes-sample",
+            "texture_transform_owner": "android-surface-texture",
+            "status": "ready",
+            "gaps": []
+        }"#;
+        let analyzer_decoded: SourceSamplingContract = serde_json::from_str(analyzer_record)
+            .expect("analyzer record should expose Rust shape");
+        assert!(analyzer_decoded.is_valid());
+        assert_eq!(
+            analyzer_decoded.sampler_y_axis,
+            SourceSamplerYAxis::ContentTopLeftYDown
+        );
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn source_sampling_cross_backend_fixture_deserializes_as_shared_contracts() {
+        use std::collections::BTreeSet;
+
+        let fixture = include_str!(
+            "../../../tools/quest-camera-profile/fixtures/source-sampling-contracts.cross-backend.jsonl"
+        );
+        let mut backends = BTreeSet::new();
+        for (index, line) in fixture
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .enumerate()
+        {
+            let contract: SourceSamplingContract = serde_json::from_str(line)
+                .unwrap_or_else(|error| panic!("fixture line {index} should deserialize: {error}"));
+            assert!(contract.is_valid(), "fixture line {index} should be valid");
+            backends.insert(contract.backend);
+        }
+
+        assert_eq!(
+            backends,
+            BTreeSet::from(["hwb".to_string(), "makepad".to_string(), "oes".to_string()])
+        );
     }
 
     #[cfg(feature = "serde")]

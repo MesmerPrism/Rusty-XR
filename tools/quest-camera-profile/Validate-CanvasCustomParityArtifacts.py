@@ -20,6 +20,7 @@ SOURCE_SAMPLING_CONTRACT_SCHEMA = "rusty.xr.source-sampling-contract.v1"
 
 READY_SOURCE_SAMPLING_STRING_FIELDS = (
     "contract",
+    "source_eye_mapping",
     "homography_output_uv",
     "sample_input_uv",
     "sample_transform_stage",
@@ -29,6 +30,41 @@ READY_SOURCE_SAMPLING_STRING_FIELDS = (
     "sampler_uv_origin",
     "sampler_y_axis",
     "texture_transform_stage",
+    "texture_transform_owner",
+)
+
+SOURCE_EYE_MAPPING_VALUES = {
+    "display-left-from-left-source",
+    "display-left-from-right-source",
+}
+SOURCE_SAMPLING_TRANSFORM_STAGE_VALUES = {
+    "none",
+    "post-homography-pre-texture-sample",
+    "post-homography-pre-oes-sample",
+    "post-homography-pre-yuv-sample",
+    "post-homography-pre-source-visible-rect-then-texture-sample",
+    "other",
+}
+SOURCE_SAMPLER_Y_AXIS_VALUES = {
+    "renderer-defined",
+    "surface-texture-transform-defined",
+    "content-top-left-y-down",
+    "makepad-sampler-origin-convention",
+    "other",
+}
+SOURCE_UV_CONTRACT_BY_BACKEND = {
+    "hwb": "screen_to_camera_content_uv_to_hardware_buffer_sampler",
+    "oes": "screen_to_camera_content_uv_to_oes_external_sampler",
+    "makepad": "screen_to_camera_content_uv_to_makepad_video_sampler",
+}
+BACKEND_VALUES = set(SOURCE_UV_CONTRACT_BY_BACKEND)
+READY_SHARED_SOURCE_SAMPLING_STRING_FIELDS = (
+    "backend",
+    "mode",
+    "transform_label",
+    "transform_owner",
+    "output_uv_label",
+    "sampler_uv_origin",
     "texture_transform_owner",
 )
 
@@ -130,6 +166,22 @@ def require_number(value: Any, path: str) -> float | int:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValidationError(f"{path} must be a number")
     return value
+
+
+def require_uv_rect(value: Any, path: str) -> dict[str, Any]:
+    rect = require_object(value, path)
+    origin = require_object(rect.get("origin_uv"), f"{path}.origin_uv")
+    size = require_object(rect.get("size_uv"), f"{path}.size_uv")
+    x = float(require_number(origin.get("x"), f"{path}.origin_uv.x"))
+    y = float(require_number(origin.get("y"), f"{path}.origin_uv.y"))
+    width = float(require_number(size.get("x"), f"{path}.size_uv.x"))
+    height = float(require_number(size.get("y"), f"{path}.size_uv.y"))
+    epsilon = 1.0e-5
+    if x < -epsilon or y < -epsilon or width <= 0.0 or height <= 0.0:
+        raise ValidationError(f"{path} must be a positive normalized UV rectangle")
+    if x + width > 1.0 + epsilon or y + height > 1.0 + epsilon:
+        raise ValidationError(f"{path} must fit within normalized source UV")
+    return rect
 
 
 def require_version(value: Any, path: str, expected: str) -> None:
@@ -421,6 +473,26 @@ def validate_coordinate_contract(value: Any, path: str) -> None:
         require_string(gap, f"{path}.gaps[{index}]")
 
 
+def validate_shared_source_sampling_contract(record: dict[str, Any], path: str) -> None:
+    require_version(record.get("schema_version"), f"{path}.schema_version", SOURCE_SAMPLING_CONTRACT_SCHEMA)
+    for key in READY_SHARED_SOURCE_SAMPLING_STRING_FIELDS:
+        value = require_string(record.get(key), f"{path}.{key}")
+        if value.strip().lower() in {"unknown", "not-logged"}:
+            raise ValidationError(f"{path}.{key} must not be {value!r}")
+    require_enum(record.get("backend"), f"{path}.backend", BACKEND_VALUES)
+    require_enum(record.get("source_eye_mapping"), f"{path}.source_eye_mapping", SOURCE_EYE_MAPPING_VALUES)
+    require_uv_rect(record.get("content_uv_rect"), f"{path}.content_uv_rect")
+    require_uv_rect(record.get("source_visible_uv_rect"), f"{path}.source_visible_uv_rect")
+    require_enum(record.get("transform_stage"), f"{path}.transform_stage", SOURCE_SAMPLING_TRANSFORM_STAGE_VALUES)
+    require_bool(record.get("transform_applied"), f"{path}.transform_applied")
+    require_enum(record.get("sampler_y_axis"), f"{path}.sampler_y_axis", SOURCE_SAMPLER_Y_AXIS_VALUES)
+    require_enum(
+        record.get("texture_transform_stage"),
+        f"{path}.texture_transform_stage",
+        SOURCE_SAMPLING_TRANSFORM_STAGE_VALUES,
+    )
+
+
 def validate_source_sampling_contract(value: Any, path: str) -> None:
     record = require_object(value, path)
     require_version(record.get("schema_version"), f"{path}.schema_version", SOURCE_SAMPLING_CONTRACT_SCHEMA)
@@ -444,6 +516,14 @@ def validate_source_sampling_contract(value: Any, path: str) -> None:
     if status == "ready":
         if gaps:
             raise ValidationError(f"{path}.gaps must be empty when status is ready")
+        validate_shared_source_sampling_contract(record, path)
+        backend = require_enum(record.get("backend"), f"{path}.backend", BACKEND_VALUES)
+        expected_contract = SOURCE_UV_CONTRACT_BY_BACKEND[backend]
+        observed_contract = require_string(source_sampling.get("contract"), f"{path}.source_sampling.contract")
+        if observed_contract != expected_contract:
+            raise ValidationError(
+                f"{path}.source_sampling.contract must be {expected_contract!r} for backend {backend!r}, got {observed_contract!r}"
+            )
         for key in READY_SOURCE_SAMPLING_STRING_FIELDS:
             require_string(source_sampling.get(key), f"{path}.source_sampling.{key}")
         require_bool(
@@ -616,8 +696,27 @@ def write_self_test_fixture(root: Path) -> None:
     }
     source_sampling_contract = {
         "schema_version": SOURCE_SAMPLING_CONTRACT_SCHEMA,
+        "backend": "hwb",
         "suite_root": str(root),
         "mode": "hwb-canvas",
+        "source_eye_mapping": "display-left-from-left-source",
+        "content_uv_rect": {
+            "origin_uv": {"x": 0.0, "y": 0.0},
+            "size_uv": {"x": 1.0, "y": 1.0},
+        },
+        "source_visible_uv_rect": {
+            "origin_uv": {"x": 0.0, "y": 0.0},
+            "size_uv": {"x": 1.0, "y": 1.0},
+        },
+        "transform_stage": "post-homography-pre-source-visible-rect-then-texture-sample",
+        "transform_label": "sourceVisibleUvRect+cameraTextureTransformFlags",
+        "transform_owner": "fixture-renderer",
+        "transform_applied": True,
+        "output_uv_label": "hardware-buffer-sampler-uv",
+        "sampler_uv_origin": "hardware-buffer-import-convention",
+        "sampler_y_axis": "renderer-defined",
+        "texture_transform_stage": "post-homography-pre-texture-sample",
+        "texture_transform_owner": "fixture-renderer",
         "status": "ready",
         "lane": {},
         "run_request": {},
@@ -626,6 +725,9 @@ def write_self_test_fixture(root: Path) -> None:
         "texture_or_upload": {},
         "source_sampling": {
             "contract": "screen_to_camera_content_uv_to_hardware_buffer_sampler",
+            "source_eye_mapping": "display-left-from-left-source",
+            "content_uv_rect": [0.0, 0.0, 1.0, 1.0],
+            "source_visible_uv_rect": [0.0, 0.0, 1.0, 1.0],
             "homography_output_uv": "content-normalized-top-left-y-down",
             "sample_input_uv": "screen-to-camera-homography-output",
             "sample_transform_stage": "post_homography_pre_source_visible_rect_then_texture_sample",
@@ -658,6 +760,39 @@ def run_self_test() -> int:
         root = Path(tmp)
         write_self_test_fixture(root)
         validate_suite_root(root)
+    fixture_path = repo_root() / "tools" / "quest-camera-profile" / "fixtures" / "source-sampling-contracts.cross-backend.jsonl"
+    fixture_backends = set()
+    for index, record in enumerate(read_jsonl(fixture_path)):
+        validate_source_sampling_contract(record, f"{fixture_path.name}[{index}]")
+        fixture_backends.add(record.get("backend"))
+    if fixture_backends != {"hwb", "oes", "makepad"}:
+        raise ValidationError(f"source-sampling fixture backends were {sorted(fixture_backends)!r}")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        write_self_test_fixture(root)
+        path = root / "screen-space-analysis" / "source-sampling-contracts.jsonl"
+        records = read_jsonl(path)
+        records[0].pop("transform_owner", None)
+        path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+        try:
+            validate_suite_root(root)
+        except ValidationError:
+            pass
+        else:
+            raise ValidationError("source-sampling self-test accepted a record without a typed transform owner")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        write_self_test_fixture(root)
+        path = root / "screen-space-analysis" / "source-sampling-contracts.jsonl"
+        records = read_jsonl(path)
+        records[0]["source_sampling"]["contract"] = "screen_to_camera_content_uv_to_oes_external_sampler"
+        path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+        try:
+            validate_suite_root(root)
+        except ValidationError:
+            pass
+        else:
+            raise ValidationError("source-sampling self-test accepted a backend/contract mismatch")
     print("canvas/custom parity artifact validation self-test: ok")
     return 0
 

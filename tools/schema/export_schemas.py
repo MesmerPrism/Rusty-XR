@@ -1986,6 +1986,9 @@ def schemas() -> dict[str, dict]:
         "additionalProperties": True,
         "properties": {
             "contract": string(),
+            "source_eye_mapping": string(),
+            "content_uv_rect": array(number()),
+            "source_visible_uv_rect": array(number()),
             "homography_output_uv": string(),
             "sample_input_uv": string(),
             "sample_transform_stage": string(),
@@ -1999,12 +2002,52 @@ def schemas() -> dict[str, dict]:
             "texture_transform_owner": string(),
         },
     }
+    source_eye_mapping = enum(
+        "StereoSourceEyeMapping",
+        ["display-left-from-left-source", "display-left-from-right-source"],
+    )
+    source_sampling_transform_stage = enum(
+        "SourceSamplingTransformStage",
+        [
+            "none",
+            "post-homography-pre-texture-sample",
+            "post-homography-pre-oes-sample",
+            "post-homography-pre-yuv-sample",
+            "post-homography-pre-source-visible-rect-then-texture-sample",
+            "other",
+        ],
+    )
+    source_sampler_y_axis = enum(
+        "SourceSamplerYAxis",
+        [
+            "renderer-defined",
+            "surface-texture-transform-defined",
+            "content-top-left-y-down",
+            "makepad-sampler-origin-convention",
+            "other",
+        ],
+    )
+    source_uv_rect = obj("SourceUvRect", {"origin_uv": vec2(), "size_uv": vec2()})
+    source_sampling_backend = enum("SourceSamplingBackend", ["hwb", "oes", "makepad"])
     source_sampling_contract = open_obj(
         "SourceSamplingContract",
         {
             "schema_version": {"const": "rusty.xr.source-sampling-contract.v1"},
+            "backend": source_sampling_backend,
             "suite_root": string(),
             "mode": string(),
+            "source_eye_mapping": source_eye_mapping,
+            "content_uv_rect": source_uv_rect,
+            "source_visible_uv_rect": source_uv_rect,
+            "transform_stage": source_sampling_transform_stage,
+            "transform_label": string(),
+            "transform_owner": string(),
+            "transform_applied": boolean(),
+            "output_uv_label": string(),
+            "sampler_uv_origin": string(),
+            "sampler_y_axis": source_sampler_y_axis,
+            "texture_transform_stage": source_sampling_transform_stage,
+            "texture_transform_owner": string(),
             "status": enum("SourceSamplingContractStatus", ["ready", "needs-evidence", "blocked"]),
             "lane": loose_object(),
             "run_request": loose_object(),

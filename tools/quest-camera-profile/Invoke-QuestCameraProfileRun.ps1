@@ -155,8 +155,20 @@ function Get-ProfileRunLogcatPath {
         [string]$Label
     )
 
-    # Historical filename, but this is now a bounded launch-to-capture window.
-    return Join-Path $Dir "$Label-logcat-tail.txt"
+    return Join-Path $Dir "logcat-window.txt"
+}
+
+function Format-ProcessArguments {
+    param([string[]]$ArgumentList)
+
+    return @($ArgumentList | ForEach-Object {
+        if ($_ -match '\s') {
+            '"' + ($_ -replace '"', '\"') + '"'
+        }
+        else {
+            $_
+        }
+    }) -join " "
 }
 
 function Start-AdbLogcatWindowCapture {
@@ -166,32 +178,72 @@ function Start-AdbLogcatWindowCapture {
     )
 
     $logcatPath = Get-ProfileRunLogcatPath -Dir $Dir -Label $Label
-    $stderrPath = Join-Path $Dir "$Label-logcat-window-stderr.txt"
     $commandPath = Join-Path $Dir "$Label-logcat-window-command.txt"
-    $adbArguments = @(Get-AdbArguments -Arguments @("logcat", "-v", "threadtime"))
+    $stderrPath = Join-Path $Dir "$Label-logcat-window-stderr.txt"
     $resolvedAdb = Resolve-ProcessFileName -FileName $Adb
-    Write-Utf8TextFile -Path $commandPath -Value ("$resolvedAdb $($adbArguments -join ' ')")
+    $clearArguments = @(Get-AdbArguments -Arguments @("logcat", "-c"))
+    $streamArguments = @(Get-AdbArguments -Arguments @("logcat", "-v", "threadtime"))
+    Write-Utf8TextFile -Path $commandPath -Value @(
+        "$resolvedAdb $($clearArguments -join ' ')",
+        "$resolvedAdb $($streamArguments -join ' ') > $logcatPath 2> $stderrPath"
+    )
 
-    $process = Start-Process `
-        -FilePath $resolvedAdb `
-        -ArgumentList $adbArguments `
-        -RedirectStandardOutput $logcatPath `
-        -RedirectStandardError $stderrPath `
-        -WindowStyle Hidden `
-        -PassThru
-    Start-Sleep -Milliseconds 250
+    $clearOutput = @()
+    $clearExitCode = 0
+    try {
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            $clearOutput = @(Invoke-Adb -Arguments @("logcat", "-c") 2>&1 | ForEach-Object { [string]$_ })
+            $clearExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+    }
+    catch {
+        $clearExitCode = 1
+        $clearOutput = @($_.Exception.Message)
+    }
+
+    $process = $null
+    $startError = ""
+    if (Test-Path -LiteralPath $logcatPath) {
+        Remove-Item -LiteralPath $logcatPath -Force
+    }
+    if (Test-Path -LiteralPath $stderrPath) {
+        Remove-Item -LiteralPath $stderrPath -Force
+    }
+    try {
+        $streamArgumentText = Format-ProcessArguments -ArgumentList $streamArguments
+        $process = Start-Process `
+            -FilePath $resolvedAdb `
+            -ArgumentList $streamArgumentText `
+            -RedirectStandardOutput $logcatPath `
+            -RedirectStandardError $stderrPath `
+            -WindowStyle Hidden `
+            -PassThru
+        Start-Sleep -Milliseconds 250
+    }
+    catch {
+        $startError = $_.Exception.Message
+    }
 
     return [ordered]@{
         schemaVersion = "rusty.xr.quest-camera-logcat-window.v1"
-        mode = "bounded-window"
+        mode = "streaming-window"
         path = $logcatPath
         stderrPath = $stderrPath
         commandPath = $commandPath
-        processId = $process.Id
+        clearExitCode = $clearExitCode
+        clearOutput = @($clearOutput)
         startedAt = (Get-Date).ToString("o")
         stoppedAt = ""
+        processId = if ($process) { $process.Id } else { $null }
+        startError = $startError
         exitCode = $null
         bytes = 0
+        stderrBytes = 0
         stopError = ""
         process = $process
     }
@@ -204,27 +256,39 @@ function Stop-AdbLogcatWindowCapture {
         return $null
     }
 
-    $process = $Capture.process
     try {
+        $process = $Capture.process
         if ($process -and -not $process.HasExited) {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        }
-        if ($process) {
-            $process.WaitForExit(3000) | Out-Null
-            if ($process.HasExited) {
-                $Capture.exitCode = $process.ExitCode
+            try {
+                $process.Kill()
             }
+            catch {
+                $Capture.stopError = $_.Exception.Message
+            }
+            try {
+                $process.WaitForExit(5000) | Out-Null
+            }
+            catch {
+            }
+        }
+        if ($process -and $process.HasExited) {
+            $Capture.exitCode = $process.ExitCode
         }
     }
     catch {
         $Capture.stopError = $_.Exception.Message
     }
     finally {
+        if ($Capture.Contains("process")) {
+            $Capture.Remove("process")
+        }
         $Capture.stoppedAt = (Get-Date).ToString("o")
         if (Test-Path -LiteralPath $Capture.path) {
             $Capture.bytes = (Get-Item -LiteralPath $Capture.path).Length
         }
-        $Capture.Remove("process")
+        if ($Capture.stderrPath -and (Test-Path -LiteralPath $Capture.stderrPath)) {
+            $Capture.stderrBytes = (Get-Item -LiteralPath $Capture.stderrPath).Length
+        }
     }
 
     return $Capture
