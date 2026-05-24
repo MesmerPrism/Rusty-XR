@@ -14,10 +14,11 @@ use projection_geometry::{
     makepad_native_video_widget_reset_waiting_marker_fields,
     makepad_native_video_widget_surface_marker_fields,
     makepad_paired_projection_progress_marker_fields, makepad_projection_complete_marker_fields,
-    makepad_projection_enumerated_marker_fields, makepad_projection_start_marker_fields,
-    makepad_projection_target_marker_fields, makepad_single_stream_proof_wait_marker_fields,
-    makepad_stereo_comparison_marker_line, makepad_visible_panel_bound_marker_fields,
-    MakepadOpenXrProjectionContract, MakepadStereoComparisonMarkerInputs,
+    makepad_projection_complete_error_marker_fields, makepad_projection_enumerated_marker_fields,
+    makepad_projection_start_marker_fields, makepad_projection_target_marker_fields,
+    makepad_single_stream_proof_wait_marker_fields, makepad_stereo_comparison_marker_line,
+    makepad_visible_panel_bound_marker_fields, MakepadOpenXrProjectionContract,
+    MakepadStereoComparisonMarkerInputs,
 };
 #[cfg(target_os = "android")]
 use projection_geometry::broker_projection_plan_marker_fields;
@@ -3812,10 +3813,9 @@ impl App {
                         side.label(),
                         marker_token(&error.error),
                     ));
-                    Self::emit_stereo_projection_marker(&format!(
-                        "phase=complete status=error side={} pairedLeftRightGpuBuffers=false projectionMappingReady=false alignedProjection=false fallbackReason=makepad_video_import_failed",
-                        side.label()
-                    ));
+                    Self::emit_stereo_projection_marker(
+                        &makepad_projection_complete_error_marker_fields(side.label()),
+                    );
                 }
             }
             _ => {}

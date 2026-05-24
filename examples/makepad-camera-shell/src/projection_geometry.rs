@@ -1044,6 +1044,10 @@ pub(crate) fn makepad_projection_complete_marker_fields(
     })
 }
 
+pub(crate) fn makepad_projection_complete_error_marker_fields(side: &str) -> String {
+    projection_complete_error_marker_fields(side)
+}
+
 pub(crate) fn makepad_projection_start_marker_fields(
     pair: &MakepadCameraPair,
     projection_mode: &str,
@@ -1576,6 +1580,13 @@ fn projection_start_marker_fields(
     )
 }
 
+fn projection_complete_error_marker_fields(side: &str) -> String {
+    format!(
+        "phase=complete status=error side={} pairedLeftRightGpuBuffers=false projectionMappingReady=false alignedProjection=false fallbackReason=makepad_video_import_failed",
+        side,
+    )
+}
+
 struct CompleteMarkerFields<'a> {
     paired_streams_ready: bool,
     broker_h264_surface_texture: bool,
@@ -2015,9 +2026,10 @@ mod tests {
         complete_marker_fields, draw_vars_bound_marker_fields,
         horizontal_alignment_hotload_marker_fields, native_video_widget_reset_marker_fields,
         native_video_widget_surface_marker_fields, paired_projection_progress_marker_fields,
-        projection_enumerated_marker_fields, projection_start_marker_fields,
-        single_stream_proof_wait_marker_fields, stereo_comparison_marker_line_fields,
-        visible_panel_bound_marker_fields, CompleteMarkerFields,
+        projection_complete_error_marker_fields, projection_enumerated_marker_fields,
+        projection_start_marker_fields, single_stream_proof_wait_marker_fields,
+        stereo_comparison_marker_line_fields, visible_panel_bound_marker_fields,
+        CompleteMarkerFields,
         MakepadStereoComparisonMarkerInputs, StereoComparisonPairFields,
     };
 
@@ -2113,6 +2125,16 @@ mod tests {
         assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
         assert!(fields.contains("cpuUploadPath=makepad-camera-cpu-yuv-plane"));
         assert!(fields.ends_with("fallbackReason=none"));
+    }
+
+    #[test]
+    fn complete_error_marker_keeps_projection_contract_shape() {
+        let fields = projection_complete_error_marker_fields("left");
+
+        assert_eq!(
+            fields,
+            "phase=complete status=error side=left pairedLeftRightGpuBuffers=false projectionMappingReady=false alignedProjection=false fallbackReason=makepad_video_import_failed"
+        );
     }
 
     #[test]
