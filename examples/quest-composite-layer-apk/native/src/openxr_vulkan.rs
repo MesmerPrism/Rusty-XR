@@ -40,7 +40,10 @@ use rusty_xr_particles::{
 
 mod projection_geometry;
 mod source_metadata;
-use projection_geometry::{projected_homography_marker_fields, projection_openxr_contract_fields};
+use projection_geometry::{
+    projected_homographies_with_screen_to_camera, projected_homography_marker_fields,
+    projection_openxr_contract_fields, DisplayEyeProjectionMapping, ProjectedStereoHomographies,
+};
 use source_metadata::projection_source_metadata_marker_fields;
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
@@ -6183,24 +6186,6 @@ impl CameraProjectionPush {
     }
 }
 
-#[derive(Clone, Copy)]
-struct ProjectedStereoHomographies {
-    left: DisplayEyeProjectionMapping,
-    right: DisplayEyeProjectionMapping,
-}
-
-#[derive(Clone, Copy)]
-struct DisplayEyeProjectionMapping {
-    surface_to_camera: [[f32; 3]; 3],
-    screen_to_camera: [[f32; 3]; 3],
-    screen_to_surface: [[f32; 3]; 3],
-    surface_to_screen: [[f32; 3]; 3],
-    canvas_clip: [[f32; 4]; 4],
-    surface_aspect: f32,
-    surface_aspect_source: &'static str,
-    full_frame_stimulus_mapping: bool,
-}
-
 #[derive(Clone, Copy, Default)]
 struct TemporalProjectionMetricsFrame {
     camera_frame_age_ms: Option<f64>,
@@ -6636,22 +6621,6 @@ fn temporal_projection_mode_label(config: &crate::RuntimeConfig) -> &'static str
         config.camera_temporal_mode.stable_id()
     } else {
         "metrics-only"
-    }
-}
-
-fn projected_homographies_with_screen_to_camera(
-    homographies: &ProjectedStereoHomographies,
-    applied: StereoHomographyProjection,
-) -> ProjectedStereoHomographies {
-    ProjectedStereoHomographies {
-        left: DisplayEyeProjectionMapping {
-            screen_to_camera: applied.left_screen_to_camera,
-            ..homographies.left
-        },
-        right: DisplayEyeProjectionMapping {
-            screen_to_camera: applied.right_screen_to_camera,
-            ..homographies.right
-        },
     }
 }
 

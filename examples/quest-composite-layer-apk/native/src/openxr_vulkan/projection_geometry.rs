@@ -1,9 +1,43 @@
 use openxr as xr;
 use rusty_xr_camera_model::{source_valid_screen_uv_footprint, Rect2};
 
-use super::{DisplayEyeProjectionMapping, ProjectedStereoHomographies};
+use super::StereoHomographyProjection;
 
 const SOURCE_VALID_FOOTPRINT_GRID: usize = 64;
+
+#[derive(Clone, Copy)]
+pub(super) struct ProjectedStereoHomographies {
+    pub(super) left: DisplayEyeProjectionMapping,
+    pub(super) right: DisplayEyeProjectionMapping,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct DisplayEyeProjectionMapping {
+    pub(super) surface_to_camera: [[f32; 3]; 3],
+    pub(super) screen_to_camera: [[f32; 3]; 3],
+    pub(super) screen_to_surface: [[f32; 3]; 3],
+    pub(super) surface_to_screen: [[f32; 3]; 3],
+    pub(super) canvas_clip: [[f32; 4]; 4],
+    pub(super) surface_aspect: f32,
+    pub(super) surface_aspect_source: &'static str,
+    pub(super) full_frame_stimulus_mapping: bool,
+}
+
+pub(super) fn projected_homographies_with_screen_to_camera(
+    homographies: &ProjectedStereoHomographies,
+    applied: StereoHomographyProjection,
+) -> ProjectedStereoHomographies {
+    ProjectedStereoHomographies {
+        left: DisplayEyeProjectionMapping {
+            screen_to_camera: applied.left_screen_to_camera,
+            ..homographies.left
+        },
+        right: DisplayEyeProjectionMapping {
+            screen_to_camera: applied.right_screen_to_camera,
+            ..homographies.right
+        },
+    }
+}
 
 pub(super) fn projected_homography_marker_fields(
     homographies: &ProjectedStereoHomographies,
