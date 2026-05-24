@@ -10,8 +10,9 @@ mod projection_geometry;
 mod source_metadata;
 use projection_geometry::{
     makepad_draw_vars_bound_marker_fields, makepad_projection_target_marker_fields,
-    makepad_projection_complete_marker_fields, makepad_visible_panel_bound_marker_fields,
-    projection_homography_marker_fields, MakepadOpenXrProjectionContract,
+    makepad_projection_complete_marker_fields, makepad_projection_start_marker_fields,
+    makepad_visible_panel_bound_marker_fields, projection_homography_marker_fields,
+    MakepadOpenXrProjectionContract,
 };
 #[cfg(target_os = "android")]
 use projection_geometry::broker_projection_plan_marker_fields;
@@ -4056,20 +4057,11 @@ impl App {
             },
             PAIRED_IMPORT_DELAY_SECONDS,
         ));
-        Self::emit_stereo_projection_marker(&format!(
-            "phase=start status=started pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} {} leftSourceIndex={} rightSourceIndex={} projectionMode={} projectionScale={:.2} xrRenderScale={:.2} fallbackReason={}",
-            pair.projection_homography_ready,
-            pair.projection_metadata_ready,
-            pair.pose_source,
-            pair.source_eye_mapping,
-            pair.coordinate_chain,
-            projection_homography_marker_fields(&pair),
-            pair.left.source_index,
-            pair.right.source_index,
-            runtime_text(&Self::runtime_config(), KEY_CAMERA_PROJECTION_MODE),
+        Self::emit_stereo_projection_marker(&makepad_projection_start_marker_fields(
+            &pair,
+            &runtime_text(&Self::runtime_config(), KEY_CAMERA_PROJECTION_MODE),
             runtime_float(&Self::runtime_config(), KEY_PROJECTION_SCALE),
             runtime_float(&Self::runtime_config(), KEY_XR_RENDER_SCALE),
-            marker_token(&pair.fallback_reason),
         ));
 
         if NATIVE_VIDEO_WIDGET_SURFACE_DIAGNOSTIC {

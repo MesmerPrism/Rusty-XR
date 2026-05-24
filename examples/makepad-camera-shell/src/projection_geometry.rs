@@ -1044,6 +1044,30 @@ pub(crate) fn makepad_projection_complete_marker_fields(
     })
 }
 
+pub(crate) fn makepad_projection_start_marker_fields(
+    pair: &MakepadCameraPair,
+    projection_mode: &str,
+    projection_scale: f64,
+    xr_render_scale: f64,
+) -> String {
+    let homography_marker_fields = projection_homography_marker_fields(pair);
+    let fallback_reason = marker_token(&pair.fallback_reason);
+    projection_start_marker_fields(
+        pair.projection_homography_ready,
+        pair.projection_metadata_ready,
+        &pair.pose_source,
+        &pair.source_eye_mapping,
+        &pair.coordinate_chain,
+        &homography_marker_fields,
+        pair.left.source_index,
+        pair.right.source_index,
+        projection_mode,
+        projection_scale,
+        xr_render_scale,
+        &fallback_reason,
+    )
+}
+
 fn draw_vars_bound_marker_fields(
     yuv_mode: bool,
     broker_h264_surface_texture: bool,
@@ -1060,6 +1084,37 @@ fn draw_vars_bound_marker_fields(
         single_stream_visual_proof,
         updated_stream_visual_proof_side,
         homography_marker_fields,
+    )
+}
+
+fn projection_start_marker_fields(
+    projection_mapping_ready: bool,
+    projection_metadata_ready: bool,
+    pose_source: &str,
+    source_eye_mapping: &str,
+    coordinate_chain: &str,
+    homography_marker_fields: &str,
+    left_source_index: usize,
+    right_source_index: usize,
+    projection_mode: &str,
+    projection_scale: f64,
+    xr_render_scale: f64,
+    fallback_reason: &str,
+) -> String {
+    format!(
+        "phase=start status=started pairedLeftRightGpuBuffers=false projectionMappingReady={} alignedProjection=false projectionMetadataReady={} poseSource={} sourceEyeMapping={} coordinateChain={} {} leftSourceIndex={} rightSourceIndex={} projectionMode={} projectionScale={:.2} xrRenderScale={:.2} fallbackReason={}",
+        projection_mapping_ready,
+        projection_metadata_ready,
+        pose_source,
+        source_eye_mapping,
+        coordinate_chain,
+        homography_marker_fields,
+        left_source_index,
+        right_source_index,
+        projection_mode,
+        projection_scale,
+        xr_render_scale,
+        fallback_reason,
     )
 }
 
@@ -1499,8 +1554,8 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        complete_marker_fields, draw_vars_bound_marker_fields, visible_panel_bound_marker_fields,
-        CompleteMarkerFields,
+        complete_marker_fields, draw_vars_bound_marker_fields, projection_start_marker_fields,
+        visible_panel_bound_marker_fields, CompleteMarkerFields,
     };
 
     #[test]
@@ -1594,6 +1649,35 @@ mod tests {
         assert!(fields.contains("projectionScale=1.25 xrRenderScale=1.50"));
         assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
         assert!(fields.contains("cpuUploadPath=makepad-camera-cpu-yuv-plane"));
+        assert!(fields.ends_with("fallbackReason=none"));
+    }
+
+    #[test]
+    fn projection_start_marker_keeps_projection_contract_shape() {
+        let fields = projection_start_marker_fields(
+            true,
+            true,
+            "camera2-openxr-view",
+            "left-right",
+            "camera2-to-shader-surface",
+            "projectionHomographyReady=true runtimeXrViewStateReady=true",
+            0,
+            1,
+            "camera",
+            1.25,
+            1.5,
+            "none",
+        );
+
+        assert!(fields.starts_with(
+            "phase=start status=started pairedLeftRightGpuBuffers=false"
+        ));
+        assert!(fields.contains(
+            "projectionMappingReady=true alignedProjection=false projectionMetadataReady=true"
+        ));
+        assert!(fields.contains("poseSource=camera2-openxr-view sourceEyeMapping=left-right"));
+        assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
+        assert!(fields.contains("projectionMode=camera projectionScale=1.25 xrRenderScale=1.50"));
         assert!(fields.ends_with("fallbackReason=none"));
     }
 }
