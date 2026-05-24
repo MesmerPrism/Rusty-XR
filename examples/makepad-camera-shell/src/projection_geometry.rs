@@ -961,6 +961,41 @@ pub(crate) fn projection_homography_marker_fields(pair: &MakepadCameraPair) -> S
     )
 }
 
+pub(crate) fn makepad_draw_vars_bound_marker_fields(
+    pair: &MakepadCameraPair,
+    yuv_mode: bool,
+    broker_h264_surface_texture: bool,
+    single_stream_visual_proof: bool,
+    updated_stream_visual_proof_side: &str,
+) -> String {
+    draw_vars_bound_marker_fields(
+        yuv_mode,
+        broker_h264_surface_texture,
+        single_stream_visual_proof,
+        updated_stream_visual_proof_side,
+        &projection_homography_marker_fields(pair),
+    )
+}
+
+fn draw_vars_bound_marker_fields(
+    yuv_mode: bool,
+    broker_h264_surface_texture: bool,
+    single_stream_visual_proof: bool,
+    updated_stream_visual_proof_side: &str,
+    homography_marker_fields: &str,
+) -> String {
+    format!(
+        "phase=draw-vars-bound status=ok cameraReady=true yuvMode={} neutralWaitingPanel=true textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping drawVarsTextureRedraw=true shaderAreaStateUpdate=true leftYuvTextureBound={} rightYuvTextureBound={} brokerH264SurfaceTexture={} singleStreamVisualProof={} updatedStreamVisualProofSide={} visibleCameraProjectionReady=true sceneOwnedPanel=true projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDefaults=deprecated panelTargetFields=runtime diagnosticVisualLayer=none depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
+        yuv_mode,
+        yuv_mode,
+        yuv_mode,
+        broker_h264_surface_texture,
+        single_stream_visual_proof,
+        updated_stream_visual_proof_side,
+        homography_marker_fields,
+    )
+}
+
 #[cfg(target_os = "android")]
 pub(crate) fn broker_projection_plan_marker_fields(
     pair: &MakepadCameraPair,
@@ -1310,4 +1345,31 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
         screen_uv_vec2_token(left_projection_area_center),
         screen_uv_vec2_token(right_projection_area_center),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::draw_vars_bound_marker_fields;
+
+    #[test]
+    fn draw_vars_bound_marker_keeps_projection_contract_shape() {
+        let fields = draw_vars_bound_marker_fields(
+            true,
+            false,
+            true,
+            "left",
+            "projectionHomographyReady=true runtimeXrViewStateReady=true",
+        );
+
+        assert!(fields.starts_with(
+            "phase=draw-vars-bound status=ok cameraReady=true yuvMode=true"
+        ));
+        assert!(fields.contains(
+            "leftYuvTextureBound=true rightYuvTextureBound=true brokerH264SurfaceTexture=false"
+        ));
+        assert!(fields
+            .contains("singleStreamVisualProof=true updatedStreamVisualProofSide=left"));
+        assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
+        assert!(fields.ends_with("visualInspection=required visualReleaseAccepted=false"));
+    }
 }
