@@ -67,6 +67,7 @@ mod android {
     mod openxr_gles_config;
     mod openxr_gles_layers;
     mod openxr_gles_passthrough;
+    mod openxr_gles_render_tuning;
     mod openxr_gles_renderer;
     mod openxr_gles_resources;
     mod openxr_gles_session;
@@ -84,7 +85,8 @@ mod android {
     use openxr_gles_config::OesActivityConfig;
     use openxr_gles_layers::projection_views_from_swapchains;
     use openxr_gles_passthrough::create_requested_openxr_gles_passthrough_underlay;
-    use openxr_gles_renderer::{OesRenderFrameInputs, OesRenderResources, OesRenderTuning};
+    use openxr_gles_render_tuning::OesRenderTuning;
+    use openxr_gles_renderer::{OesRenderFrameInputs, OesRenderResources};
     use openxr_gles_resources::{
         create_eye_swapchains, gl_format_label, record_graphics_requirements,
         select_environment_blend_mode,
