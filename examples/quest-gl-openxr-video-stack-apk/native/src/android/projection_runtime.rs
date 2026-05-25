@@ -2,12 +2,13 @@ use super::{
     log_info,
     openxr_gles_config::{
         activity_string_extra, android_system_property_value, OesCameraProjectionMode,
-        OesProjectionAlphaMode, OesProjectionBorderPolicy, OesProjectionRuntimeState,
-        OesProjectionTuning, DEFAULT_PROJECTION_TARGET_DEPTH_METERS,
+        OesColorControls, OesProcessingLayer, OesProjectionAlphaMode, OesProjectionBorderPolicy,
+        OesProjectionRuntimeState, OesProjectionTuning, DEFAULT_PROJECTION_TARGET_DEPTH_METERS,
         OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_EXTRA,
         OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_PROP, PROJECTION_PREVIEW_FOV_Y_DEGREES,
         PROJECTION_RAW_OVERSCAN,
     },
+    projection_geometry::projection_area_target_marker_fields_from_state,
 };
 use crate::current_android_projection_property_config;
 use jni::{objects::JObject, sys::jobject, JavaVM};
@@ -76,6 +77,56 @@ pub(super) fn oes_projection_runtime_hotload_log_message(
         projection_state.camera_projection_mode.stable_id(),
         projection_state.projection_border_policy.stable_id()
     )
+}
+
+pub(super) fn log_oes_projection_startup_summary(
+    projection_state: OesProjectionRuntimeState,
+    processing_layer: OesProcessingLayer,
+    blur_radius_px: f32,
+    native_passthrough_underlay_requested: bool,
+    native_passthrough_extension_enabled: bool,
+    camera_color_controls: OesColorControls,
+) {
+    let projection_area_target_fields =
+        projection_area_target_marker_fields_from_state(projection_state);
+    log_info(format!(
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraProjectionMode={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} oesSourceColorTransfer={} sourceColorInputEncoding={} sourceColorOutputEncoding={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
+            projection_state.projection_border_policy.stable_id(),
+            processing_layer.stable_id(),
+            projection_state.camera_projection_mode.stable_id(),
+            blur_radius_px,
+            projection_state.tuning.projection_depth_meters,
+            projection_state.tuning.camera_preview_fov_y_degrees,
+            projection_state.tuning.camera_preview_offset_y_meters,
+            projection_state.tuning.camera_raw_overlay_overscan,
+            projection_state.projection_area_offset_uv[0],
+            projection_state.projection_area_offset_uv[1],
+            projection_state.projection_area_eye_offset_uv[0][0],
+            projection_state.projection_area_eye_offset_uv[0][1],
+            projection_state.projection_area_eye_offset_uv[1][0],
+            projection_state.projection_area_eye_offset_uv[1][1],
+            projection_state.projection_area_scale[0],
+            projection_state.projection_area_scale[1],
+            projection_state.projection_area_radius[0],
+            projection_state.projection_area_radius[1],
+            projection_state.projection_area_corner_radius_uv,
+            projection_state.projection_area_opacity,
+            projection_state.projection_border_opacity,
+            projection_state.projection_alpha_mode.stable_id(),
+            projection_state.projection_alpha_scale,
+            projection_state.projection_alpha_bias,
+            projection_area_target_fields,
+            native_passthrough_underlay_requested,
+            native_passthrough_extension_enabled,
+            camera_color_controls.source_transfer.stable_id(),
+            camera_color_controls.source_transfer.input_encoding(),
+            camera_color_controls.source_transfer.output_encoding(),
+            camera_color_controls.matrix,
+            camera_color_controls.offset,
+            camera_color_controls.contrast,
+            camera_color_controls.brightness,
+            camera_color_controls.saturation
+        ));
 }
 
 fn oes_current_android_projection_property_values() -> Vec<(&'static str, String)> {

@@ -101,9 +101,10 @@ mod android {
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
     };
     use projection_runtime::{
-        log_oes_projection_runtime_manifest, oes_projection_runtime_hotload_log_message,
-        oes_projection_runtime_resolution_enabled, oes_projection_runtime_resolution_from_state,
-        oes_projection_runtime_state_from_resolution, oes_projection_tuning_hotload_log_message,
+        log_oes_projection_runtime_manifest, log_oes_projection_startup_summary,
+        oes_projection_runtime_hotload_log_message, oes_projection_runtime_resolution_enabled,
+        oes_projection_runtime_resolution_from_state, oes_projection_runtime_state_from_resolution,
+        oes_projection_tuning_hotload_log_message,
     };
     use surface_texture_oes_probe::probe_surface_texture_oes;
 
@@ -258,13 +259,6 @@ mod android {
             &projection_runtime,
             projection_runtime_resolution_enabled,
         );
-        let projection_depth_meters = projection_state.tuning.projection_depth_meters;
-        let projection_preview_fov_y_degrees = projection_state.tuning.camera_preview_fov_y_degrees;
-        let projection_preview_offset_y_meters =
-            projection_state.tuning.camera_preview_offset_y_meters;
-        let projection_raw_overscan = projection_state.tuning.camera_raw_overlay_overscan;
-        let projection_area_offset_x_uv = projection_state.projection_area_offset_uv[0];
-        let projection_area_offset_y_uv = projection_state.projection_area_offset_uv[1];
         let projection_uses_source_alpha = projection_state
             .projection_border_policy
             .needs_source_alpha(
@@ -323,46 +317,14 @@ mod android {
         let system = xr_instance
             .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
             .map_err(|error| format!("get HMD system: {error}"))?;
-        let projection_area_target_fields =
-            projection_area_target_marker_fields_from_state(projection_state);
-        log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraProjectionMode={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} oesSourceColorTransfer={} sourceColorInputEncoding={} sourceColorOutputEncoding={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
-            projection_state.projection_border_policy.stable_id(),
-            processing_layer.stable_id(),
-            projection_state.camera_projection_mode.stable_id(),
+        log_oes_projection_startup_summary(
+            projection_state,
+            processing_layer,
             blur_radius_px,
-            projection_depth_meters,
-            projection_preview_fov_y_degrees,
-            projection_preview_offset_y_meters,
-            projection_raw_overscan,
-            projection_area_offset_x_uv,
-            projection_area_offset_y_uv,
-            projection_state.projection_area_eye_offset_uv[0][0],
-            projection_state.projection_area_eye_offset_uv[0][1],
-            projection_state.projection_area_eye_offset_uv[1][0],
-            projection_state.projection_area_eye_offset_uv[1][1],
-            projection_state.projection_area_scale[0],
-            projection_state.projection_area_scale[1],
-            projection_state.projection_area_radius[0],
-            projection_state.projection_area_radius[1],
-            projection_state.projection_area_corner_radius_uv,
-            projection_state.projection_area_opacity,
-            projection_state.projection_border_opacity,
-            projection_state.projection_alpha_mode.stable_id(),
-            projection_state.projection_alpha_scale,
-            projection_state.projection_alpha_bias,
-            projection_area_target_fields,
             native_passthrough_underlay_requested,
             enabled_extensions.fb_passthrough,
-            camera_color_controls.source_transfer.stable_id(),
-            camera_color_controls.source_transfer.input_encoding(),
-            camera_color_controls.source_transfer.output_encoding(),
-            camera_color_controls.matrix,
-            camera_color_controls.offset,
-            camera_color_controls.contrast,
-            camera_color_controls.brightness,
-            camera_color_controls.saturation
-        ));
+            camera_color_controls,
+        );
         let environment_blend_mode = select_environment_blend_mode(
             &xr_instance,
             system,
