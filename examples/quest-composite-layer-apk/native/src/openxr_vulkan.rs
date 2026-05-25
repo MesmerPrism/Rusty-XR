@@ -41,6 +41,7 @@ use rusty_xr_particles::{
 mod gpu_camera_resources;
 mod projection_geometry;
 mod source_metadata;
+mod swapchain_resources;
 use gpu_camera_resources::{
     GpuCameraFormatKey, GpuCameraImport, GpuCameraImportKey, GpuCameraPipelineResources,
     GpuCameraStereoDescriptor,
@@ -56,6 +57,7 @@ use projection_geometry::{
 use source_metadata::{
     hwb_source_metadata_log_message_from_frame, source_uv_rect_ltrb_for_diagnostics,
 };
+use swapchain_resources::{DepthAttachment, Framebuffer, OpenXrSwapchainImages, Swapchain};
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
 const CAMERA_CPU_UPLOAD_MIN_INTERVAL_NS: i64 = 250_000_000;
@@ -4194,13 +4196,6 @@ unsafe fn ensure_swapchain<'a>(
         .ok_or_else(|| "swapchain was not initialized".to_string())
 }
 
-struct OpenXrSwapchainImages {
-    handle: xr::Swapchain<xr::Vulkan>,
-    color_images: Vec<u64>,
-    fragment_density_images: Vec<u64>,
-    fixed_foveation_enabled: bool,
-}
-
 unsafe fn create_openxr_swapchain(
     xr_instance: &xr::Instance,
     session: &xr::Session<xr::Vulkan>,
@@ -7223,27 +7218,6 @@ struct AndroidForegroundState {
     focused: bool,
     has_window: bool,
     destroyed: bool,
-}
-
-struct Swapchain {
-    handle: xr::Swapchain<xr::Vulkan>,
-    buffers: Vec<Framebuffer>,
-    resolution: vk::Extent2D,
-    foveation_enabled: bool,
-}
-
-struct Framebuffer {
-    framebuffer: vk::Framebuffer,
-    color: vk::ImageView,
-    depth: Option<DepthAttachment>,
-    fragment_density: vk::ImageView,
-    image: vk::Image,
-}
-
-struct DepthAttachment {
-    image: vk::Image,
-    view: vk::ImageView,
-    memory: vk::DeviceMemory,
 }
 
 struct CameraUpload {
