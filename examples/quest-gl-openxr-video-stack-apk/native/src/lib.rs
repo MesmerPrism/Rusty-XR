@@ -78,6 +78,7 @@ mod android {
     mod projection_frame_context;
     mod projection_geometry;
     mod projection_plan_builders;
+    mod projection_plan_profile_builders;
     mod projection_runtime;
     mod source_metadata;
     mod surface_texture_oes_callbacks;
