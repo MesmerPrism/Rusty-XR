@@ -57,8 +57,8 @@ mod android {
     use openxr as xr;
     use openxr::sys::Handle as _;
     use rusty_xr_quest_diagnostics::{
-        FrameRateSummary, OpenXrGlesExtensionStatus, OpenXrGlesFeasibilityState,
-        OpenXrGlesGraphicsRequirements, OPENXR_GLES_EXTENSION,
+        OpenXrGlesExtensionStatus, OpenXrGlesFeasibilityState, OpenXrGlesGraphicsRequirements,
+        OPENXR_GLES_EXTENSION,
     };
     use std::{
         ffi::{CStr, CString},
@@ -89,7 +89,7 @@ mod android {
     use openxr_gles_resources::{
         create_eye_swapchains, gl_format_label, select_environment_blend_mode,
     };
-    use openxr_gles_session::poll_openxr_session_events;
+    use openxr_gles_session::{poll_openxr_session_events, OesFrameRateTracker};
     use projection_geometry::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
     };
@@ -497,8 +497,7 @@ mod android {
         let mut app_running = true;
         let mut session_running = false;
         let mut frame_count = 0_u64;
-        let mut frame_window_start = Instant::now();
-        let mut frame_window_count = 0_u64;
+        let mut frame_rate_tracker = OesFrameRateTracker::new();
 
         'main_loop: loop {
             pump_android_events(&app, &mut app_running);
@@ -666,29 +665,7 @@ mod android {
             }
 
             frame_count = frame_count.saturating_add(1);
-            frame_window_count = frame_window_count.saturating_add(1);
-            if status.state != OpenXrGlesFeasibilityState::Rendering && frame_count > 0 {
-                status.state = OpenXrGlesFeasibilityState::Rendering;
-            }
-            if frame_count == 1 || frame_count.is_multiple_of(120) {
-                let elapsed = frame_window_start.elapsed().as_secs_f32().max(0.001);
-                let fps = frame_window_count as f32 / elapsed;
-                status.frame_rate = Some(FrameRateSummary {
-                    sample_count: frame_count,
-                    average_fps: fps,
-                    min_fps: fps,
-                    max_fps: fps,
-                });
-                log_info(format!(
-                    "Rusty XR OpenXR GLES frame frame={} observedOpenXrFps={:.1} iteration2Ready={}",
-                    frame_count,
-                    fps,
-                    status.is_iteration2_ready()
-                ));
-                log_status(&status);
-                frame_window_start = Instant::now();
-                frame_window_count = 0;
-            }
+            frame_rate_tracker.record_rendered_frame(frame_count, &mut status);
         }
 
         log_info("Rusty XR OpenXR GLES loop exited cleanly");
@@ -914,7 +891,7 @@ mod android {
         orientation_norm_squared.is_finite() && orientation_norm_squared > 0.0
     }
 
-    fn log_status(status: &OpenXrGlesFeasibilityStatus) {
+    pub(super) fn log_status(status: &OpenXrGlesFeasibilityStatus) {
         match serde_json::to_string(status) {
             Ok(json) => log_info(format!("Rusty XR OpenXR GLES feasibility status {json}")),
             Err(error) => log_error(format!(
