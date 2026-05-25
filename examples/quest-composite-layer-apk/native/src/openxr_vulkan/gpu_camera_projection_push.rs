@@ -8,8 +8,9 @@ use super::{
     gpu_camera_projection_uniforms::CameraProjectionUniforms,
     projection_geometry::{projected_stereo_homographies, ProjectedStereoHomographies},
     projection_homography_utils::pack_homography_row,
-    source_content_geometry::source_uv_rect_ltrb_for_diagnostics,
+    source_content_geometry::source_uv_rect_xywh_for_diagnostics,
 };
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub(super) struct CameraProjectionPush {
@@ -110,8 +111,8 @@ impl CameraProjectionPush {
                 push,
                 CameraProjectionUniforms::identity()
                     .with_source_uv_rects(
-                        source_uv_rect_xywh_for_frame(&frame.left),
-                        source_uv_rect_xywh_for_frame(&frame.right),
+                        source_uv_rect_xywh_for_diagnostics(&frame.left.diagnostics),
+                        source_uv_rect_xywh_for_diagnostics(&frame.right.diagnostics),
                     )
                     .with_color_config(config),
                 None,
@@ -130,8 +131,8 @@ impl CameraProjectionPush {
             push,
             CameraProjectionUniforms::identity()
                 .with_source_uv_rects(
-                    source_uv_rect_xywh_for_frame(&frame.left),
-                    source_uv_rect_xywh_for_frame(&frame.right),
+                    source_uv_rect_xywh_for_diagnostics(&frame.left.diagnostics),
+                    source_uv_rect_xywh_for_diagnostics(&frame.right.diagnostics),
                 )
                 .with_color_config(config),
             None,
@@ -200,15 +201,10 @@ impl CameraProjectionPush {
             push,
             CameraProjectionUniforms::from_mappings(&homographies.left, &homographies.right)
                 .with_source_uv_rects(
-                    source_uv_rect_xywh_for_frame(&frame.left),
-                    source_uv_rect_xywh_for_frame(&frame.right),
+                    source_uv_rect_xywh_for_diagnostics(&frame.left.diagnostics),
+                    source_uv_rect_xywh_for_diagnostics(&frame.right.diagnostics),
                 )
                 .with_color_config(config),
         )
     }
-}
-
-pub(super) fn source_uv_rect_xywh_for_frame(frame: &HeadsetCameraGpuFrame) -> [f32; 4] {
-    let [left, top, right, bottom] = source_uv_rect_ltrb_for_diagnostics(&frame.diagnostics);
-    [left, top, (right - left).max(0.0), (bottom - top).max(0.0)]
 }

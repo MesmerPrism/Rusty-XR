@@ -4,7 +4,7 @@ use ash::vk;
 
 use super::{
     gpu_camera_descriptors::{create_camera_descriptor_pool, create_camera_descriptor_set_layout},
-    gpu_camera_projection::CameraProjectionPush,
+    gpu_camera_projection_push::CameraProjectionPush,
     gpu_camera_resources::{GpuCameraFormatKey, GpuCameraPipelineResources},
     gpu_camera_sampler::create_camera_sampler_resources,
     gpu_camera_uniforms::{

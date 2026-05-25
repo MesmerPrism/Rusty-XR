@@ -47,7 +47,7 @@ mod gpu_camera_draw;
 mod gpu_camera_import;
 mod gpu_camera_pipeline;
 mod gpu_camera_prepare;
-mod gpu_camera_projection;
+mod gpu_camera_projection_push;
 mod gpu_camera_projection_uniforms;
 mod gpu_camera_renderer;
 mod gpu_camera_resource_state;
@@ -67,7 +67,7 @@ mod swapchain_resources;
 mod vulkan_capabilities;
 use camera_render_cadence::CameraRenderCadenceStats;
 use camera_upload_resources::{ensure_camera_upload, CameraCopy, CameraUpload};
-use gpu_camera_projection::CameraProjectionPush;
+use gpu_camera_projection_push::CameraProjectionPush;
 use gpu_camera_renderer::GpuCameraRenderer;
 use projection_diagnostics::{
     display_eye_uv_fiducial_contract_log_message, display_eye_uv_fiducial_marker_fields,

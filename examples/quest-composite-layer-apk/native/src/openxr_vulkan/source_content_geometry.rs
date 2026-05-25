@@ -156,6 +156,13 @@ pub(super) fn source_uv_rect_ltrb_for_diagnostics(
         .unwrap_or_else(full_source_uv_rect_ltrb)
 }
 
+pub(super) fn source_uv_rect_xywh_for_diagnostics(
+    diagnostics: &HeadsetCameraFrameDiagnostics,
+) -> [f32; 4] {
+    let [left, top, right, bottom] = source_uv_rect_ltrb_for_diagnostics(diagnostics);
+    [left, top, (right - left).max(0.0), (bottom - top).max(0.0)]
+}
+
 fn marker_token(value: Option<&str>, fallback: &str) -> String {
     value
         .filter(|value| !value.is_empty())

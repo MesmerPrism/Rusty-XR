@@ -5,7 +5,7 @@ use rusty_xr_camera_model::CameraCompositeTier;
 use crate::{HeadsetCameraGpuFrame, StereoGpuCameraFrame};
 
 use super::{
-    gpu_camera_projection::{source_uv_rect_xywh_for_frame, CameraProjectionPush},
+    gpu_camera_projection_push::CameraProjectionPush,
     gpu_camera_projection_uniforms::CameraProjectionUniforms,
     gpu_camera_resources::{
         GpuCameraImport, GpuCameraPipelineResources, GpuCameraStereoDescriptor,
@@ -13,6 +13,7 @@ use super::{
     gpu_camera_uniforms::update_camera_projection_uniforms,
     log_error,
     projection_geometry::ProjectedStereoHomographies,
+    source_content_geometry::source_uv_rect_xywh_for_diagnostics,
 };
 
 pub(super) unsafe fn record_camera_draw(
@@ -37,7 +38,7 @@ pub(super) unsafe fn record_camera_draw(
         extent: resolution,
     }];
     let push = CameraProjectionPush::from_frame(frame, config);
-    let source_uv_rect = source_uv_rect_xywh_for_frame(frame);
+    let source_uv_rect = source_uv_rect_xywh_for_diagnostics(&frame.diagnostics);
     let uniforms = CameraProjectionUniforms::identity()
         .with_source_uv_rects(source_uv_rect, source_uv_rect)
         .with_color_config(config);
