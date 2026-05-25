@@ -92,7 +92,9 @@ mod android {
     use openxr_gles_resources::{
         create_eye_swapchains, gl_format_label, select_environment_blend_mode,
     };
-    use openxr_gles_session::{poll_openxr_session_events, OesFrameRateTracker};
+    use openxr_gles_session::{
+        poll_openxr_session_events, view_pose_is_submit_valid, OesFrameRateTracker,
+    };
     use projection_geometry::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
     };
@@ -871,27 +873,6 @@ mod android {
                 glDeleteShader(shader);
             }
         }
-    }
-
-    fn view_pose_is_submit_valid(view: &xr::View) -> bool {
-        let pose = view.pose;
-        let values = [
-            pose.position.x,
-            pose.position.y,
-            pose.position.z,
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-            pose.orientation.w,
-        ];
-        if values.iter().any(|value| !value.is_finite()) {
-            return false;
-        }
-        let orientation_norm_squared = pose.orientation.x * pose.orientation.x
-            + pose.orientation.y * pose.orientation.y
-            + pose.orientation.z * pose.orientation.z
-            + pose.orientation.w * pose.orientation.w;
-        orientation_norm_squared.is_finite() && orientation_norm_squared > 0.0
     }
 
     pub(super) fn log_status(status: &OpenXrGlesFeasibilityStatus) {
