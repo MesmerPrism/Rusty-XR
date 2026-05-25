@@ -92,6 +92,7 @@ mod android {
     mod surface_texture_oes_gl;
     mod surface_texture_oes_outputs;
     mod surface_texture_oes_probe;
+    mod surface_texture_oes_reports;
     mod surface_texture_oes_sources;
     mod surface_texture_oes_transform;
     use android_activity_events::{

@@ -1,15 +1,12 @@
 use super::openxr_gles_config::activity_string_extra;
 use super::source_metadata::{OesInputSourceKind, OesProjectionMetadata};
-use super::source_metadata_labels::stream_projection_metadata_log_message;
-use super::surface_texture_oes_callbacks::{
-    decode_frame_snapshot, latest_decode_report_after, projection_metadata_report_snapshot,
-    report_view_index, reset_decode_callbacks,
-};
+use super::surface_texture_oes_callbacks::{decode_frame_snapshot, reset_decode_callbacks};
 use super::surface_texture_oes_frame_sources::OesEyeTextureSample;
 use super::surface_texture_oes_gl::identity_texture_transform;
 use super::surface_texture_oes_outputs::{
     SurfaceTextureOesOutputResources, DEFAULT_OES_SURFACE_HEIGHT, DEFAULT_OES_SURFACE_WIDTH,
 };
+use super::surface_texture_oes_reports::SurfaceTextureOesReportState;
 use super::surface_texture_oes_sources::{
     start_broker_h264_oes_decode_probe, start_direct_camera2_oes_probe, BROKER_H264_DEFAULT_HOST,
     BROKER_H264_LEFT_STREAM_PORT, BROKER_H264_RIGHT_STREAM_PORT,
@@ -55,8 +52,7 @@ pub(super) struct SurfaceTextureOesProbe {
     consumed_frame_available_counts: [u64; VIEW_COUNT],
     latest_transform_matrices: [[f32; 16]; VIEW_COUNT],
     update_rate_start: Instant,
-    last_report_sequence: u64,
-    projection_metadata: [Option<OesProjectionMetadata>; VIEW_COUNT],
+    reports: SurfaceTextureOesReportState,
 }
 
 impl SurfaceTextureOesProbe {
@@ -169,13 +165,12 @@ impl SurfaceTextureOesProbe {
             consumed_frame_available_counts: [0; VIEW_COUNT],
             latest_transform_matrices: [identity_texture_transform(); VIEW_COUNT],
             update_rate_start: Instant::now(),
-            last_report_sequence: 0,
-            projection_metadata: std::array::from_fn(|_| None),
+            reports: SurfaceTextureOesReportState::new(),
         })
     }
 
     pub(super) fn update_textures(&mut self, egl: &EglContext, frame_count: u64) {
-        self.apply_latest_decode_report();
+        self.reports.apply_latest_decode_report(&mut self.status);
         let mut updated_any = false;
         for view_index in 0..VIEW_COUNT {
             let (available_count, latest_sequence, latest_pts_us) =
@@ -304,10 +299,7 @@ impl SurfaceTextureOesProbe {
     pub(super) fn projection_metadata_pair(
         &self,
     ) -> Option<(&OesProjectionMetadata, &OesProjectionMetadata)> {
-        Some((
-            self.projection_metadata[0].as_ref()?,
-            self.projection_metadata[1].as_ref()?,
-        ))
+        self.reports.projection_metadata_pair()
     }
 
     fn refresh_texture_update_rate(&mut self) {
@@ -328,94 +320,6 @@ impl SurfaceTextureOesProbe {
             min_fps: average_fps,
             max_fps: average_fps,
         });
-    }
-
-    fn apply_latest_decode_report(&mut self) {
-        let Some(report_json) = latest_decode_report_after(&mut self.last_report_sequence) else {
-            return;
-        };
-        let Ok(report) = serde_json::from_str::<serde_json::Value>(&report_json) else {
-            return;
-        };
-        if let Some(decoder_name) = report.get("decoder_name").and_then(|value| value.as_str()) {
-            if !decoder_name.is_empty() {
-                self.status.codec_name = Some(decoder_name.to_string());
-            }
-        }
-        let event_name = report
-            .get("event")
-            .and_then(|value| value.as_str())
-            .unwrap_or_default();
-        if event_name == "frame_available"
-            && self.status.state == SurfaceTextureOesIngestState::DecoderStarted
-        {
-            self.status.state = SurfaceTextureOesIngestState::FrameAvailable;
-        }
-        let Some(view_index) = report_view_index(&report) else {
-            return;
-        };
-        self.apply_projection_metadata_report(view_index, &report);
-        self.apply_cached_projection_metadata_reports();
-        let Some(eye) = self.status.eyes.get_mut(view_index) else {
-            return;
-        };
-        if let Some(width) = report
-            .get("width")
-            .and_then(|value| value.as_u64())
-            .and_then(|value| u32::try_from(value).ok())
-            .filter(|value| *value > 0)
-        {
-            eye.source_width = Some(width);
-        }
-        if let Some(height) = report
-            .get("height")
-            .and_then(|value| value.as_u64())
-            .and_then(|value| u32::try_from(value).ok())
-            .filter(|value| *value > 0)
-        {
-            eye.source_height = Some(height);
-        }
-        if let Some(error) = report.get("error").and_then(|value| value.as_str()) {
-            eye.decoder_error_count = eye.decoder_error_count.saturating_add(1);
-            eye.latest_decoder_error = Some(error.to_string());
-        } else if let Some(error) = report.get("last_error").and_then(|value| value.as_str()) {
-            eye.latest_decoder_error = Some(error.to_string());
-        }
-    }
-
-    fn apply_cached_projection_metadata_reports(&mut self) {
-        for report_json in projection_metadata_report_snapshot().into_iter().flatten() {
-            let Ok(report) = serde_json::from_str::<serde_json::Value>(&report_json) else {
-                continue;
-            };
-            let Some(view_index) = report_view_index(&report) else {
-                continue;
-            };
-            self.apply_projection_metadata_report(view_index, &report);
-        }
-    }
-
-    fn apply_projection_metadata_report(&mut self, view_index: usize, report: &serde_json::Value) {
-        if self
-            .projection_metadata
-            .get(view_index)
-            .and_then(|value| value.as_ref())
-            .is_some()
-        {
-            return;
-        }
-        let Some(metadata) = report
-            .get("header_projection_metadata")
-            .and_then(|metadata| OesProjectionMetadata::parse(metadata).ok())
-        else {
-            return;
-        };
-        log_info(stream_projection_metadata_log_message(
-            view_index, &metadata,
-        ));
-        if let Some(slot) = self.projection_metadata.get_mut(view_index) {
-            *slot = Some(metadata);
-        }
     }
 }
 
