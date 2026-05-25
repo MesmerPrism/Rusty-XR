@@ -1,32 +1,136 @@
 use std::{
+    ffi::{CStr, CString},
     mem,
-    os::raw::{c_int, c_void},
+    os::raw::{c_char, c_int, c_void},
     ptr,
 };
 
 use rusty_xr_quest_diagnostics::GlFramebufferCompleteness;
 
 use super::{
-    compile_shader, delete_shader, diagnostic_blur_source_texel_size, glActiveTexture,
-    glBindBuffer, glBindFramebuffer, glBindTexture, glBufferData, glCheckFramebufferStatus,
-    glClear, glClearColor, glDeleteBuffers, glDeleteFramebuffers, glDeleteProgram, glDisable,
-    glDisableVertexAttribArray, glDrawArrays, glEnable, glEnableVertexAttribArray,
-    glFramebufferTexture2D, glGenBuffers, glGenFramebuffers, glGetError, glScissor, glUniform1f,
+    diagnostic_blur_source_texel_size, glActiveTexture, glAttachShader, glBindBuffer,
+    glBindFramebuffer, glBindTexture, glBufferData, glCheckFramebufferStatus, glClear,
+    glClearColor, glCompileShader, glCreateProgram, glCreateShader, glDeleteBuffers,
+    glDeleteFramebuffers, glDeleteProgram, glDeleteShader, glDisable, glDisableVertexAttribArray,
+    glDrawArrays, glEnable, glEnableVertexAttribArray, glFramebufferTexture2D, glGenBuffers,
+    glGenFramebuffers, glGetError, glGetProgramInfoLog, glGetProgramiv, glGetShaderInfoLog,
+    glGetShaderiv, glGetUniformLocation, glLinkProgram, glScissor, glShaderSource, glUniform1f,
     glUniform1i, glUniform2f, glUniform3f, glUniform4f, glUniformMatrix4fv, glUseProgram,
-    glVertexAttribPointer, glViewport, link_program,
+    glVertexAttribPointer, glViewport,
     openxr_gles_config::{
         OesColorControls, OesContentMappingMode, OesProcessingLayer, OesProjectionAlphaMode,
         OesProjectionBorderPolicy,
     },
     projection_geometry::identity_homography,
     projection_geometry::OesEyeProjection,
-    uniform_location, GL_ARRAY_BUFFER, GL_COLOR_ATTACHMENT0, GL_COLOR_BUFFER_BIT, GL_FLOAT,
+    GL_ARRAY_BUFFER, GL_COLOR_ATTACHMENT0, GL_COLOR_BUFFER_BIT, GL_COMPILE_STATUS, GL_FLOAT,
     GL_FRAGMENT_SHADER, GL_FRAMEBUFFER, GL_FRAMEBUFFER_COMPLETE,
     GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT, GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT,
-    GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE, GL_FRAMEBUFFER_UNSUPPORTED, GL_NO_ERROR,
-    GL_SCISSOR_TEST, GL_STATIC_DRAW, GL_TEXTURE0, GL_TEXTURE_2D, GL_TEXTURE_EXTERNAL_OES,
-    GL_TRIANGLE_STRIP, GL_VERTEX_SHADER,
+    GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE, GL_FRAMEBUFFER_UNSUPPORTED, GL_INFO_LOG_LENGTH,
+    GL_LINK_STATUS, GL_NO_ERROR, GL_SCISSOR_TEST, GL_STATIC_DRAW, GL_TEXTURE0, GL_TEXTURE_2D,
+    GL_TEXTURE_EXTERNAL_OES, GL_TRIANGLE_STRIP, GL_VERTEX_SHADER,
 };
+
+fn compile_shader(shader_type: u32, source: &str) -> Result<u32, String> {
+    let source = CString::new(source).map_err(|error| format!("shader CString: {error}"))?;
+    unsafe {
+        let shader = glCreateShader(shader_type);
+        if shader == 0 {
+            return Err("glCreateShader returned 0".to_string());
+        }
+        let ptr = source.as_ptr();
+        glShaderSource(shader, 1, &ptr, ptr::null());
+        glCompileShader(shader);
+        let mut compiled = 0;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &mut compiled);
+        if compiled == 0 {
+            let info_log = shader_info_log(shader);
+            glDeleteShader(shader);
+            return Err(format!("OES copy shader compile failed: {info_log}"));
+        }
+        Ok(shader)
+    }
+}
+
+fn link_program(vertex_shader: u32, fragment_shader: u32) -> Result<u32, String> {
+    unsafe {
+        let program = glCreateProgram();
+        if program == 0 {
+            return Err("glCreateProgram returned 0".to_string());
+        }
+        glAttachShader(program, vertex_shader);
+        glAttachShader(program, fragment_shader);
+        glLinkProgram(program);
+        let mut linked = 0;
+        glGetProgramiv(program, GL_LINK_STATUS, &mut linked);
+        if linked == 0 {
+            let info_log = program_info_log(program);
+            glDeleteProgram(program);
+            return Err(format!("OES copy program link failed: {info_log}"));
+        }
+        Ok(program)
+    }
+}
+
+fn uniform_location(program: u32, name: &str) -> Result<c_int, String> {
+    let name_cstring =
+        CString::new(name).map_err(|error| format!("uniform name CString: {error}"))?;
+    let location = unsafe { glGetUniformLocation(program, name_cstring.as_ptr()) };
+    if location < 0 {
+        Err(format!("shader did not expose uniform {name}"))
+    } else {
+        Ok(location)
+    }
+}
+
+fn shader_info_log(shader: u32) -> String {
+    unsafe {
+        let mut length = 0;
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &mut length);
+        if length <= 1 {
+            return String::from("no shader info log");
+        }
+        let mut buffer = vec![0_u8; length as usize];
+        glGetShaderInfoLog(
+            shader,
+            length,
+            ptr::null_mut(),
+            buffer.as_mut_ptr().cast::<c_char>(),
+        );
+        CStr::from_ptr(buffer.as_ptr().cast::<c_char>())
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+fn program_info_log(program: u32) -> String {
+    unsafe {
+        let mut length = 0;
+        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &mut length);
+        if length <= 1 {
+            return String::from("no program info log");
+        }
+        let mut buffer = vec![0_u8; length as usize];
+        glGetProgramInfoLog(
+            program,
+            length,
+            ptr::null_mut(),
+            buffer.as_mut_ptr().cast::<c_char>(),
+        );
+        CStr::from_ptr(buffer.as_ptr().cast::<c_char>())
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+fn delete_shader(shader: u32) {
+    unsafe {
+        if shader != 0 {
+            glDeleteShader(shader);
+        }
+    }
+}
+
 pub(super) struct OesCopyRenderer {
     program: u32,
     vertex_buffer: u32,
