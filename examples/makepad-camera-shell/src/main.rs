@@ -55,7 +55,9 @@ use source_metadata::{
     BrokerH264ProjectionMetadata, MakepadContentGeometrySource,
 };
 #[cfg(target_os = "android")]
-use source_metadata::{broker_projection_plan_decision, BrokerProjectionPlanKind};
+use source_metadata::{
+    broker_projection_plan_decision, BrokerProjectionPlanDecision, BrokerProjectionPlanKind,
+};
 
 use makepad_widgets::makepad_platform::{
     event::video_playback::{
@@ -3017,33 +3019,7 @@ impl App {
             return false;
         };
 
-        pair.left.camera_id = Some(plan.left_camera_id.clone());
-        pair.right.camera_id = Some(plan.right_camera_id.clone());
-        pair.left.width = plan.width as usize;
-        pair.left.height = plan.height as usize;
-        pair.right.width = plan.width as usize;
-        pair.right.height = plan.height as usize;
-        pair.projection_metadata_ready =
-            left_metadata.projection_metadata_ready && right_metadata.projection_metadata_ready;
-        pair.projection_geometry_profile = decision.projection_geometry_profile.clone();
-        pair.pose_source = broker_pair_pose_source(left_metadata, right_metadata);
-        pair.source_eye_mapping = plan.source_eye_mapping.to_string();
-        pair.source_binding_mode = decision.source_binding_mode.to_string();
-        pair.coordinate_chain = plan.coordinate_chain.to_string();
-        pair.fallback_reason = plan.fallback_reason.to_string();
-        pair.left_surface_to_camera_h = plan.left_surface_to_camera_h;
-        pair.right_surface_to_camera_h = plan.right_surface_to_camera_h;
-        pair.left_surface_to_screen_h = plan.left_surface_to_screen_h;
-        pair.right_surface_to_screen_h = plan.right_surface_to_screen_h;
-        pair.left_screen_to_camera_h = plan.left_screen_to_camera_h;
-        pair.right_screen_to_camera_h = plan.right_screen_to_camera_h;
-        pair.left_screen_to_surface_h = plan.left_screen_to_surface_h;
-        pair.right_screen_to_surface_h = plan.right_screen_to_surface_h;
-        pair.left_source_valid_uv_rect = left_metadata.source_valid_uv_rect;
-        pair.right_source_valid_uv_rect = right_metadata.source_valid_uv_rect;
-        pair.projection_homography_ready = plan.projection_homography_ready;
-        pair.runtime_xr_view_state_ready = plan.runtime_xr_view_state_ready;
-        pair.openxr_contract = plan.openxr_contract.clone();
+        pair.apply_broker_projection_plan(&plan, &decision, left_metadata, right_metadata);
         if !self.broker_h264_projection_plan_logged {
             self.broker_h264_projection_plan_logged = true;
             let config = Self::runtime_config();
@@ -5021,6 +4997,43 @@ impl MakepadCameraPair {
             runtime_xr_view_state_ready: false,
             openxr_contract: MakepadOpenXrProjectionContract::missing(),
         })
+    }
+
+    #[cfg(target_os = "android")]
+    fn apply_broker_projection_plan(
+        &mut self,
+        plan: &Camera2StereoPlan,
+        decision: &BrokerProjectionPlanDecision,
+        left_metadata: &BrokerH264ProjectionMetadata,
+        right_metadata: &BrokerH264ProjectionMetadata,
+    ) {
+        self.left.camera_id = Some(plan.left_camera_id.clone());
+        self.right.camera_id = Some(plan.right_camera_id.clone());
+        self.left.width = plan.width as usize;
+        self.left.height = plan.height as usize;
+        self.right.width = plan.width as usize;
+        self.right.height = plan.height as usize;
+        self.projection_metadata_ready =
+            left_metadata.projection_metadata_ready && right_metadata.projection_metadata_ready;
+        self.projection_geometry_profile = decision.projection_geometry_profile.clone();
+        self.pose_source = broker_pair_pose_source(left_metadata, right_metadata);
+        self.source_eye_mapping = plan.source_eye_mapping.clone();
+        self.source_binding_mode = decision.source_binding_mode.to_string();
+        self.coordinate_chain = plan.coordinate_chain.clone();
+        self.fallback_reason = plan.fallback_reason.clone();
+        self.left_surface_to_camera_h = plan.left_surface_to_camera_h;
+        self.right_surface_to_camera_h = plan.right_surface_to_camera_h;
+        self.left_surface_to_screen_h = plan.left_surface_to_screen_h;
+        self.right_surface_to_screen_h = plan.right_surface_to_screen_h;
+        self.left_screen_to_camera_h = plan.left_screen_to_camera_h;
+        self.right_screen_to_camera_h = plan.right_screen_to_camera_h;
+        self.left_screen_to_surface_h = plan.left_screen_to_surface_h;
+        self.right_screen_to_surface_h = plan.right_screen_to_surface_h;
+        self.left_source_valid_uv_rect = left_metadata.source_valid_uv_rect;
+        self.right_source_valid_uv_rect = right_metadata.source_valid_uv_rect;
+        self.projection_homography_ready = plan.projection_homography_ready;
+        self.runtime_xr_view_state_ready = plan.runtime_xr_view_state_ready;
+        self.openxr_contract = plan.openxr_contract.clone();
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
