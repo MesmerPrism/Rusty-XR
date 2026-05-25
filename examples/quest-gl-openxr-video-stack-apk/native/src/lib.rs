@@ -79,6 +79,7 @@ mod android {
     mod source_metadata;
     mod surface_texture_oes_callbacks;
     mod surface_texture_oes_probe;
+    mod surface_texture_oes_sources;
     use egl_gles_context::EglContext;
     use openxr_gles_config::OesActivityConfig;
     use openxr_gles_passthrough::create_openxr_gles_passthrough_underlay;
