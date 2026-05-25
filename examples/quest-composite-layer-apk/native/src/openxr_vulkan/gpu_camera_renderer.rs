@@ -3,12 +3,9 @@ use openxr as xr;
 
 use crate::{HeadsetCameraGpuFrame, StereoGpuCameraFrame};
 
-use super::gpu_camera_resources::{
-    GpuCameraImportKey, GpuCameraPipelineResources, GpuCameraStereoDescriptor,
-};
+use super::gpu_camera_resources::{GpuCameraImportKey, GpuCameraPipelineResources};
 use super::{
     gpu_camera_cache::{GpuCameraImportCache, GpuCameraImportCacheStats},
-    gpu_camera_descriptors::allocate_camera_descriptor_set,
     gpu_camera_draw::{record_camera_draw, record_stereo_camera_draw},
     gpu_camera_import::{
         import_camera_hardware_buffer, query_camera_hardware_buffer_import_plan,
@@ -163,41 +160,18 @@ impl GpuCameraRenderer {
             import_cache_limit,
         )?;
 
-        if let Some(index) = self.cache.stereo_descriptor_index(left_key, right_key) {
-            return Ok(index);
-        }
-
-        let left_image_view = self
-            .cache
-            .import_image_view_for_key(left_key)
-            .ok_or_else(|| {
-                "left stereo camera import was evicted before descriptor binding".to_string()
-            })?;
-        let right_image_view =
-            self.cache
-                .import_image_view_for_key(right_key)
-                .ok_or_else(|| {
-                    "right stereo camera import was evicted before descriptor binding".to_string()
-                })?;
         let resources = self
             .resources
             .as_ref()
             .ok_or_else(|| "GPU camera pipeline resources were not initialized".to_string())?;
 
-        while self.cache.stereo_descriptor_count() >= import_cache_limit {
-            self.cache.evict_oldest_stereo_descriptor(device);
-        }
-
-        let descriptor_set =
-            allocate_camera_descriptor_set(device, resources, left_image_view, right_image_view)?;
-        Ok(self
-            .cache
-            .push_stereo_descriptor(GpuCameraStereoDescriptor {
-                left_key,
-                right_key,
-                descriptor_set,
-                descriptor_pool: resources.descriptor_pool,
-            }))
+        self.cache.ensure_stereo_descriptor(
+            device,
+            resources,
+            left_key,
+            right_key,
+            import_cache_limit,
+        )
     }
 
     unsafe fn prepare_frame_inner(

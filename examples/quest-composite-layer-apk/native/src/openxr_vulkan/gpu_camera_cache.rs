@@ -1,6 +1,11 @@
 use ash::vk;
 
-use super::gpu_camera_resources::{GpuCameraImport, GpuCameraImportKey, GpuCameraStereoDescriptor};
+use super::{
+    gpu_camera_descriptors::allocate_camera_descriptor_set,
+    gpu_camera_resources::{
+        GpuCameraImport, GpuCameraImportKey, GpuCameraPipelineResources, GpuCameraStereoDescriptor,
+    },
+};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct GpuCameraImportCacheStats {
@@ -73,16 +78,6 @@ impl GpuCameraImportCache {
         self.imports.iter().position(|import| import.key == key)
     }
 
-    pub(super) fn stereo_descriptor_index(
-        &self,
-        left_key: GpuCameraImportKey,
-        right_key: GpuCameraImportKey,
-    ) -> Option<usize> {
-        self.stereo_descriptors.iter().position(|descriptor| {
-            descriptor.left_key == left_key && descriptor.right_key == right_key
-        })
-    }
-
     pub(super) fn import_image(&self, index: usize) -> Option<vk::Image> {
         self.imports.get(index).map(|import| import.image)
     }
@@ -100,10 +95,7 @@ impl GpuCameraImportCache {
         }
     }
 
-    pub(super) fn import_image_view_for_key(
-        &self,
-        key: GpuCameraImportKey,
-    ) -> Option<vk::ImageView> {
+    fn import_image_view_for_key(&self, key: GpuCameraImportKey) -> Option<vk::ImageView> {
         self.imports
             .iter()
             .find(|import| import.key == key)
@@ -115,12 +107,44 @@ impl GpuCameraImportCache {
         self.imports.len() - 1
     }
 
-    pub(super) fn push_stereo_descriptor(
-        &mut self,
-        descriptor: GpuCameraStereoDescriptor,
-    ) -> usize {
+    fn push_stereo_descriptor(&mut self, descriptor: GpuCameraStereoDescriptor) -> usize {
         self.stereo_descriptors.push(descriptor);
         self.stereo_descriptors.len() - 1
+    }
+
+    pub(super) unsafe fn ensure_stereo_descriptor(
+        &mut self,
+        device: &ash::Device,
+        resources: &GpuCameraPipelineResources,
+        left_key: GpuCameraImportKey,
+        right_key: GpuCameraImportKey,
+        import_cache_limit: usize,
+    ) -> Result<usize, String> {
+        if let Some(index) = self.stereo_descriptors.iter().position(|descriptor| {
+            descriptor.left_key == left_key && descriptor.right_key == right_key
+        }) {
+            return Ok(index);
+        }
+
+        let left_image_view = self.import_image_view_for_key(left_key).ok_or_else(|| {
+            "left stereo camera import was evicted before descriptor binding".to_string()
+        })?;
+        let right_image_view = self.import_image_view_for_key(right_key).ok_or_else(|| {
+            "right stereo camera import was evicted before descriptor binding".to_string()
+        })?;
+
+        while self.stereo_descriptor_count() >= import_cache_limit {
+            self.evict_oldest_stereo_descriptor(device);
+        }
+
+        let descriptor_set =
+            allocate_camera_descriptor_set(device, resources, left_image_view, right_image_view)?;
+        Ok(self.push_stereo_descriptor(GpuCameraStereoDescriptor {
+            left_key,
+            right_key,
+            descriptor_set,
+            descriptor_pool: resources.descriptor_pool,
+        }))
     }
 
     pub(super) unsafe fn evict_oldest_import(&mut self, device: &ash::Device) {
@@ -130,7 +154,7 @@ impl GpuCameraImportCache {
         self.import_cache_evict_count = self.import_cache_evict_count.saturating_add(1);
     }
 
-    pub(super) unsafe fn evict_oldest_stereo_descriptor(&mut self, device: &ash::Device) {
+    unsafe fn evict_oldest_stereo_descriptor(&mut self, device: &ash::Device) {
         let old = self.stereo_descriptors.remove(0);
         old.destroy(device);
     }
