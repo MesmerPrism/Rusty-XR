@@ -1,7 +1,8 @@
 use openxr as xr;
 use openxr::sys::Handle as _;
 use rusty_xr_quest_diagnostics::{
-    FrameRateSummary, OpenXrGlesFeasibilityState, OpenXrGlesFeasibilityStatus,
+    FrameRateSummary, OpenXrGlesExtensionStatus, OpenXrGlesFeasibilityState,
+    OpenXrGlesFeasibilityStatus,
 };
 use std::{ffi::CString, os::raw::c_char, ptr, time::Instant};
 
@@ -126,6 +127,58 @@ pub(super) fn begin_openxr_frame(
         .begin()
         .map_err(|error| format!("begin OpenXR frame: {error}"))?;
     Ok(frame_state)
+}
+
+pub(super) fn select_openxr_gles_extensions(
+    entry: &xr::Entry,
+    native_passthrough_underlay_requested: bool,
+    status: &mut OpenXrGlesFeasibilityStatus,
+) -> Result<xr::ExtensionSet, String> {
+    let available_extensions = entry
+        .enumerate_extensions()
+        .map_err(|error| format!("enumerate OpenXR extensions: {error}"))?;
+    status.state = OpenXrGlesFeasibilityState::ExtensionsEnumerated;
+    status.required_extensions[0].available = available_extensions.khr_opengl_es_enable;
+    status.required_extensions.push(
+        OpenXrGlesExtensionStatus::optional("XR_FB_passthrough")
+            .with_available(available_extensions.fb_passthrough),
+    );
+    log_info(format!(
+        "Rusty XR OpenXR GLES extensions androidCreateInstance={} openGles={} fbPassthrough={} displayRefresh={}",
+        available_extensions.khr_android_create_instance,
+        available_extensions.khr_opengl_es_enable,
+        available_extensions.fb_passthrough,
+        available_extensions.fb_display_refresh_rate
+    ));
+    log_status(status);
+
+    if !available_extensions.khr_opengl_es_enable {
+        status.state = OpenXrGlesFeasibilityState::Failed;
+        status
+            .issue_codes
+            .push(String::from("missing.XR_KHR_opengl_es_enable"));
+        log_status(status);
+        return Err("OpenXR runtime does not expose XR_KHR_opengl_es_enable".to_string());
+    }
+
+    let mut enabled_extensions = xr::ExtensionSet::default();
+    enabled_extensions.khr_android_create_instance = true;
+    enabled_extensions.khr_opengl_es_enable = true;
+    if native_passthrough_underlay_requested && available_extensions.fb_passthrough {
+        enabled_extensions.fb_passthrough = true;
+    } else if native_passthrough_underlay_requested {
+        status
+            .issue_codes
+            .push(String::from("missing.XR_FB_passthrough"));
+        status.notes.push(String::from(
+            "native passthrough underlay was requested, but XR_FB_passthrough was not available before instance creation",
+        ));
+        log_error(
+            "Rusty XR OpenXR GLES native passthrough underlay requested but XR_FB_passthrough is unavailable",
+        );
+    }
+
+    Ok(enabled_extensions)
 }
 
 pub(super) fn end_empty_openxr_frame(
