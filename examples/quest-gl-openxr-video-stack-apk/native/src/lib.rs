@@ -97,7 +97,9 @@ mod android {
         oes_projection_runtime_resolution_enabled, oes_projection_runtime_resolution_from_state,
         oes_projection_runtime_state_from_resolution, oes_projection_tuning_hotload_log_message,
     };
-    use source_metadata::{stream_projection_metadata_log_message, OesProjectionMetadata};
+    use source_metadata::{
+        stream_projection_metadata_log_message, OesInputSourceKind, OesProjectionMetadata,
+    };
 
     const VIEW_COUNT: usize = 2;
     const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
@@ -2925,38 +2927,6 @@ void main() {
         projection_metadata: [Option<OesProjectionMetadata>; VIEW_COUNT],
     }
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    enum OesInputSourceKind {
-        None,
-        BrokerH264,
-        DirectCamera2,
-    }
-
-    impl OesInputSourceKind {
-        fn from_label(label: Option<&str>) -> Self {
-            let normalized = label.unwrap_or("").trim().to_ascii_lowercase();
-            if normalized == "none" || normalized == "static" {
-                Self::None
-            } else if normalized.contains("direct")
-                || normalized.contains("camera2-oes")
-                || normalized.contains("camera-oes")
-            {
-                Self::DirectCamera2
-            } else {
-                Self::BrokerH264
-            }
-        }
-
-        fn stream_label(self, view_index: usize) -> String {
-            let eye_name = if view_index == 0 { "left" } else { "right" };
-            match self {
-                Self::None => format!("static-grid:{eye_name}"),
-                Self::BrokerH264 => format!("broker-h264-oes:{eye_name}"),
-                Self::DirectCamera2 => format!("direct-camera2-oes:{eye_name}"),
-            }
-        }
-    }
-
     struct OesEyeTextureSample {
         texture: u32,
         source_sequence: u64,
@@ -2996,11 +2966,7 @@ void main() {
             };
             let mut textures = Vec::with_capacity(VIEW_COUNT);
             let mut status = SurfaceTextureOesIngestStatus::new();
-            status.codec_mime = match source_kind {
-                OesInputSourceKind::BrokerH264 => Some(String::from("video/avc")),
-                OesInputSourceKind::DirectCamera2 => Some(String::from("camera2/surface-texture")),
-                OesInputSourceKind::None => None,
-            };
+            status.codec_mime = source_kind.codec_mime().map(String::from);
             status.notes.push(String::from(
                 "Created SurfaceTexture-backed output surfaces; updateTexImage runs on the native GL render thread.",
             ));

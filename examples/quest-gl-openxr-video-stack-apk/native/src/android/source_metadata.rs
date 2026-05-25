@@ -13,6 +13,46 @@ pub(super) fn aspect_ratio_u32(width: u32, height: u32) -> f32 {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum OesInputSourceKind {
+    None,
+    BrokerH264,
+    DirectCamera2,
+}
+
+impl OesInputSourceKind {
+    pub(super) fn from_label(label: Option<&str>) -> Self {
+        let normalized = label.unwrap_or("").trim().to_ascii_lowercase();
+        if normalized == "none" || normalized == "static" {
+            Self::None
+        } else if normalized.contains("direct")
+            || normalized.contains("camera2-oes")
+            || normalized.contains("camera-oes")
+        {
+            Self::DirectCamera2
+        } else {
+            Self::BrokerH264
+        }
+    }
+
+    pub(super) fn codec_mime(self) -> Option<&'static str> {
+        match self {
+            Self::BrokerH264 => Some("video/avc"),
+            Self::DirectCamera2 => Some("camera2/surface-texture"),
+            Self::None => None,
+        }
+    }
+
+    pub(super) fn stream_label(self, view_index: usize) -> String {
+        let eye_name = if view_index == 0 { "left" } else { "right" };
+        match self {
+            Self::None => format!("static-grid:{eye_name}"),
+            Self::BrokerH264 => format!("broker-h264-oes:{eye_name}"),
+            Self::DirectCamera2 => format!("direct-camera2-oes:{eye_name}"),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct OesProjectionMetadata {
     pub(super) camera_id: String,
@@ -738,6 +778,37 @@ mod tests {
             assert!(log_line.contains(&format!("contentKind={kind}")));
             assert!(log_line.contains(&format!("contentMappingIntent={mapping_intent}")));
             assert!(log_line.contains("contentGeometryMetadataSource=stream-header"));
+        }
+    }
+
+    #[test]
+    fn input_source_kind_preserves_stable_labels() {
+        let cases = [
+            (
+                None,
+                OesInputSourceKind::BrokerH264,
+                Some("video/avc"),
+                "broker-h264-oes:left",
+            ),
+            (
+                Some("none"),
+                OesInputSourceKind::None,
+                None,
+                "static-grid:left",
+            ),
+            (
+                Some("camera2-oes"),
+                OesInputSourceKind::DirectCamera2,
+                Some("camera2/surface-texture"),
+                "direct-camera2-oes:left",
+            ),
+        ];
+
+        for (label, expected, mime, stream_label) in cases {
+            let source = OesInputSourceKind::from_label(label);
+            assert_eq!(source, expected);
+            assert_eq!(source.codec_mime(), mime);
+            assert_eq!(source.stream_label(0), stream_label);
         }
     }
 }
