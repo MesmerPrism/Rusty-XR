@@ -30,8 +30,8 @@ use projection_runtime::{
     makepad_projection_runtime_resolution_enabled,
 };
 use source_metadata::{
-    broker_pair_content_geometry_marker_fields, direct_camera2_content_geometry_marker_fields,
     makepad_camera_status_marker_line, makepad_camera2_acquisition_broker_h264_skipped_marker_line,
+    makepad_content_geometry_marker_fields,
     makepad_hardware_buffer_import_marker_line,
     makepad_hardware_buffer_import_broker_h264_prepare_request_marker_fields,
     makepad_hardware_buffer_import_broker_h264_startup_marker_fields,
@@ -51,8 +51,8 @@ use source_metadata::{
     makepad_hardware_buffer_import_yuv_textures_ready_single_stream_marker_fields,
     makepad_stream_header_metadata_error_marker_fields,
     makepad_stream_header_metadata_ignored_marker_fields,
-    missing_broker_content_geometry_marker_fields, normalize_direct_camera_projection_geometry_profile,
-    stream_header_metadata_marker_fields, BrokerH264ProjectionMetadata,
+    normalize_direct_camera_projection_geometry_profile, stream_header_metadata_marker_fields,
+    BrokerH264ProjectionMetadata, MakepadContentGeometrySource,
 };
 
 use makepad_widgets::makepad_platform::{
@@ -4397,21 +4397,16 @@ impl App {
         self.camera_projection_textures_bound = true;
         self.camera_projection_paired_textures_bound = !single_stream_visual_proof;
         let content_geometry_fields = if broker_h264_enabled {
-            match (
-                self.broker_h264_left_projection_metadata.as_ref(),
-                self.broker_h264_right_projection_metadata.as_ref(),
-            ) {
-                (Some(left), Some(right)) => {
-                    broker_pair_content_geometry_marker_fields(left, right)
-                }
-                _ => missing_broker_content_geometry_marker_fields(),
-            }
+            makepad_content_geometry_marker_fields(MakepadContentGeometrySource::BrokerH264 {
+                left: self.broker_h264_left_projection_metadata.as_ref(),
+                right: self.broker_h264_right_projection_metadata.as_ref(),
+            })
         } else {
-            direct_camera2_content_geometry_marker_fields(
-                pair.left.width,
-                pair.left.height,
-                &pair.projection_geometry_profile,
-            )
+            makepad_content_geometry_marker_fields(MakepadContentGeometrySource::DirectCamera2 {
+                width: pair.left.width,
+                height: pair.left.height,
+                projection_geometry_profile: &pair.projection_geometry_profile,
+            })
         };
         let source_color_contract = makepad_current_source_color_contract_fields();
         let source_sampling_fields = MakepadSourceSamplingHandoff::new(

@@ -1002,6 +1002,37 @@ pub(crate) fn broker_pair_content_geometry_marker_fields(
     StereoContentGeometryRecord::from_broker_pair(left, right).marker_fields()
 }
 
+pub(crate) enum MakepadContentGeometrySource<'a> {
+    BrokerH264 {
+        left: Option<&'a BrokerH264ProjectionMetadata>,
+        right: Option<&'a BrokerH264ProjectionMetadata>,
+    },
+    DirectCamera2 {
+        width: usize,
+        height: usize,
+        projection_geometry_profile: &'a str,
+    },
+}
+
+pub(crate) fn makepad_content_geometry_marker_fields(
+    source: MakepadContentGeometrySource<'_>,
+) -> String {
+    match source {
+        MakepadContentGeometrySource::BrokerH264 {
+            left: Some(left),
+            right: Some(right),
+        } => broker_pair_content_geometry_marker_fields(left, right),
+        MakepadContentGeometrySource::BrokerH264 { .. } => {
+            missing_broker_content_geometry_marker_fields()
+        }
+        MakepadContentGeometrySource::DirectCamera2 {
+            width,
+            height,
+            projection_geometry_profile,
+        } => direct_camera2_content_geometry_marker_fields(width, height, projection_geometry_profile),
+    }
+}
+
 pub(crate) fn normalize_direct_camera_projection_geometry_profile(value: &str) -> String {
     match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
         "" => DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE.to_string(),
@@ -1280,6 +1311,30 @@ mod tests {
             missing_broker_content_geometry_marker_fields(),
             "leftContentKind=default-fallback rightContentKind=default-fallback leftContentWidth=0 leftContentHeight=0 rightContentWidth=0 rightContentHeight=0 leftContentAspectRatio=1.000000 rightContentAspectRatio=1.000000 leftDesiredDisplayAspectRatio=1.000000 rightDesiredDisplayAspectRatio=1.000000 leftDesiredProjectionAspectRatio=1.000000 rightDesiredProjectionAspectRatio=1.000000 leftContentCoordinateSpace=normalized-uv rightContentCoordinateSpace=normalized-uv leftContentOrigin=top-left rightContentOrigin=top-left leftContentXAxis=right rightContentXAxis=right leftContentYAxis=down rightContentYAxis=down leftContentMappingIntent=standard-missing-metadata-fallback rightContentMappingIntent=standard-missing-metadata-fallback leftContentGeometryMetadataSource=missing rightContentGeometryMetadataSource=missing leftContentGeometryDefault=true rightContentGeometryDefault=true contentGeometryFallbackReason=broker-h264-content-geometry-metadata-missing"
         );
+    }
+
+    #[test]
+    fn makepad_content_geometry_source_selects_direct_and_missing_broker_records() {
+        let direct = makepad_content_geometry_marker_fields(
+            MakepadContentGeometrySource::DirectCamera2 {
+                width: 1280,
+                height: 720,
+                projection_geometry_profile: "full-frame-diagnostic",
+            },
+        );
+        assert!(direct.contains("projectionGeometryProfile=full-frame-diagnostic"));
+        assert!(direct.contains("leftContentKind=camera-frame"));
+        assert!(direct.contains("contentGeometryFallbackReason=none"));
+
+        let missing =
+            makepad_content_geometry_marker_fields(MakepadContentGeometrySource::BrokerH264 {
+                left: None,
+                right: None,
+            });
+        assert!(missing.contains("leftContentKind=default-fallback"));
+        assert!(missing.contains(
+            "contentGeometryFallbackReason=broker-h264-content-geometry-metadata-missing"
+        ));
     }
 
     #[test]
