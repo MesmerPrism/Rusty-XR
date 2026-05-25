@@ -52,6 +52,7 @@ mod gpu_camera_uniforms;
 mod openxr_swapchain_images;
 mod projection_diagnostics;
 mod projection_geometry;
+mod projection_view_basis;
 mod source_content_geometry;
 mod source_metadata;
 mod swapchain_resources;
@@ -65,9 +66,10 @@ use projection_diagnostics::{
     projected_homography_status_marker_fields, projection_openxr_contract_log_message,
 };
 use projection_geometry::{
-    camera_preview_surface_corners, eye_basis_from_view, fov_aspect,
-    projected_homographies_with_screen_to_camera, tracking_basis_from_views,
-    ProjectedStereoHomographies,
+    projected_homographies_with_screen_to_camera, ProjectedStereoHomographies,
+};
+use projection_view_basis::{
+    camera_preview_surface_corners, eye_basis_from_view, fov_aspect, tracking_basis_from_views,
 };
 use source_metadata::hwb_source_metadata_log_message_from_frame;
 use swapchain_resources::{
