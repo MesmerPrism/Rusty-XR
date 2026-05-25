@@ -83,6 +83,7 @@ mod android {
     mod projection_plan_broker_full_frame;
     mod projection_plan_broker_synthetic;
     mod projection_plan_builders;
+    mod projection_plan_camera2;
     mod projection_plan_profile_builders;
     mod projection_plan_shared;
     mod projection_runtime;
