@@ -11,7 +11,7 @@ use super::{
     },
     openxr_gles_resources::{gl_format_label, EyeSwapchain},
     projection_geometry::{log_projection_diagnostics, OesProjectionPlan},
-    surface_texture_oes_probe::{log_oes_submit_diagnostic, OesRenderFrameSources},
+    surface_texture_oes_frame_sources::{log_oes_submit_diagnostic, OesRenderFrameSources},
     OES_COPY_RENDER_PATH, OES_PROJECTED_RENDER_PATH,
 };
 

@@ -73,6 +73,7 @@ mod android {
     mod projection_runtime;
     mod source_metadata;
     mod surface_texture_oes_callbacks;
+    mod surface_texture_oes_frame_sources;
     mod surface_texture_oes_probe;
     mod surface_texture_oes_sources;
     use android_activity_events::{
@@ -97,7 +98,8 @@ mod android {
     };
     use projection_geometry::projection_frame_context_from_state;
     use projection_runtime::{log_oes_projection_startup_summary, OesProjectionRuntimeController};
-    use surface_texture_oes_probe::{probe_surface_texture_oes, OesRenderFrameSources};
+    use surface_texture_oes_frame_sources::OesRenderFrameSources;
+    use surface_texture_oes_probe::probe_surface_texture_oes;
 
     const VIEW_COUNT: usize = 2;
     const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
