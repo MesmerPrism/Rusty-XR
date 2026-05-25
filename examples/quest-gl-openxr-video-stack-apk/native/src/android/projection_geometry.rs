@@ -16,7 +16,8 @@ use super::{
         projection_source_label, projection_surface_aspect_from_metadata, OesProjectionMetadata,
     },
     OesCameraProjectionMode, OesContentMappingMode, OesProjectionAlphaMode,
-    OesProjectionBorderPolicy, OES_COPY_RENDER_PATH, OES_PROJECTED_RENDER_PATH,
+    OesProjectionBorderPolicy, OesProjectionRuntimeState, OES_COPY_RENDER_PATH,
+    OES_PROJECTED_RENDER_PATH,
 };
 
 const PROJECTION_FOOTPRINT_GRID: usize = 64;
@@ -540,6 +541,24 @@ pub(super) fn projection_area_target_marker_fields(
         screen_uv_rect_token(right_feed_rect),
         screen_uv_vec2_token(projection_area_center_uv(left_offset_uv, scale_uv)),
         screen_uv_vec2_token(projection_area_center_uv(right_offset_uv, scale_uv)),
+    )
+}
+
+pub(super) fn projection_area_target_marker_fields_from_state(
+    state: OesProjectionRuntimeState,
+) -> String {
+    projection_area_target_marker_fields(
+        state.projection_area_eye_offset_uv[0],
+        state.projection_area_eye_offset_uv[1],
+        state.projection_area_radius,
+        state.projection_area_scale,
+        state.projection_alpha_mode,
+        state.projection_alpha_scale,
+        state.projection_alpha_bias,
+        state.tuning.projection_depth_meters,
+        state.tuning.camera_preview_fov_y_degrees,
+        state.tuning.camera_preview_offset_y_meters,
+        state.tuning.camera_raw_overlay_overscan,
     )
 }
 

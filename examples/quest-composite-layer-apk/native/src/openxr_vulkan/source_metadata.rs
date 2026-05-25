@@ -1,4 +1,4 @@
-use crate::{CameraProjectionMode, HeadsetCameraFrameDiagnostics};
+use crate::{CameraProjectionMode, HeadsetCameraFrameDiagnostics, StereoGpuCameraFrame};
 
 #[derive(Clone, Debug)]
 pub(super) struct HwbStereoContentGeometry {
@@ -278,6 +278,22 @@ pub(super) fn hwb_source_metadata_log_message(frame_index: u64, marker_fields: &
         "Rusty XR HWB source metadata frame={} schema=rusty.xr.hwb-source-metadata.v1 phase=source-metadata status=ok sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler {}",
         frame_index, marker_fields
     )
+}
+
+pub(super) fn hwb_source_metadata_log_message_from_frame(
+    frame: &StereoGpuCameraFrame,
+    camera_projection_mode: CameraProjectionMode,
+) -> String {
+    let fields = projection_source_metadata_marker_fields(
+        &frame.left.diagnostics,
+        &frame.right.diagnostics,
+        frame.left.width,
+        frame.left.height,
+        frame.right.width,
+        frame.right.height,
+        camera_projection_mode,
+    );
+    hwb_source_metadata_log_message(frame.index, &fields)
 }
 
 fn fallback_projection_geometry_profile(

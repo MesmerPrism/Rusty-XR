@@ -44,13 +44,12 @@ use projection_geometry::{
     camera_preview_surface_corners, display_eye_uv_fiducial_contract_log_message,
     display_eye_uv_fiducial_marker_fields, eye_basis_from_view, fov_aspect, identity_homography,
     pack_homography_row, projected_homographies_with_screen_to_camera,
-    projected_homography_marker_fields, projected_stereo_homographies,
+    projected_homography_status_marker_fields, projected_stereo_homographies,
     projection_openxr_contract_log_message, tracking_basis_from_views, DisplayEyeProjectionMapping,
     ProjectedStereoHomographies,
 };
 use source_metadata::{
-    hwb_source_metadata_log_message, projection_source_metadata_marker_fields,
-    source_uv_rect_ltrb_for_diagnostics,
+    hwb_source_metadata_log_message_from_frame, source_uv_rect_ltrb_for_diagnostics,
 };
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
@@ -3448,29 +3447,15 @@ unsafe fn run_vulkan(
                                     controls.source_eye_mapping,
                                 );
                             let aligned_projection = projection_active;
-                            let displayed_projection_homographies = applied_projection_homographies
-                                .as_ref()
-                                .or(projection_homographies.as_ref());
-                            let projection_homography_fields = displayed_projection_homographies
-                                .map(|homographies| {
-                                    projected_homography_marker_fields(homographies, &config)
-                                })
-                                .unwrap_or_else(|| {
-                                    "projectionHomographyReady=false projectionAreaTransformStage=none projectionAreaWarpParity=reference_unwarped_screen_uv".to_string()
-                                });
-                            let projection_source_metadata_fields =
-                                projection_source_metadata_marker_fields(
-                                    &stereo_frame.left.diagnostics,
-                                    &stereo_frame.right.diagnostics,
-                                    stereo_frame.left.width,
-                                    stereo_frame.left.height,
-                                    stereo_frame.right.width,
-                                    stereo_frame.right.height,
-                                    config.camera_projection_mode,
+                            let projection_homography_fields =
+                                projected_homography_status_marker_fields(
+                                    applied_projection_homographies.as_ref(),
+                                    projection_homographies.as_ref(),
+                                    &config,
                                 );
-                            log_info(hwb_source_metadata_log_message(
-                                stereo_frame.index,
-                                &projection_source_metadata_fields,
+                            log_info(hwb_source_metadata_log_message_from_frame(
+                                &stereo_frame,
+                                config.camera_projection_mode,
                             ));
                             log_info(projection_openxr_contract_log_message(
                                 stereo_frame.index,

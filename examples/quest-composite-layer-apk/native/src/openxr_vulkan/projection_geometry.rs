@@ -500,6 +500,19 @@ pub(super) fn projected_homography_marker_fields(
     )
 }
 
+pub(super) fn projected_homography_status_marker_fields(
+    applied: Option<&ProjectedStereoHomographies>,
+    target: Option<&ProjectedStereoHomographies>,
+    config: &crate::RuntimeConfig,
+) -> String {
+    applied
+        .or(target)
+        .map(|homographies| projected_homography_marker_fields(homographies, config))
+        .unwrap_or_else(|| {
+            "projectionHomographyReady=false projectionAreaTransformStage=none projectionAreaWarpParity=reference_unwarped_screen_uv".to_string()
+        })
+}
+
 fn homography_token(rows: [[f32; 3]; 3]) -> String {
     rows.iter()
         .flat_map(|row| row.iter())
@@ -735,6 +748,7 @@ fn pose_orientation(pose: xr::sys::Posef) -> [f32; 4] {
 mod tests {
     use super::{
         display_eye_uv_fiducial_contract_log_message, display_eye_uv_fiducial_marker_fields,
+        projected_homography_status_marker_fields,
     };
     use crate::{camera_color_pipeline::CameraProjectionEffectMode, RuntimeConfig};
 
@@ -771,6 +785,14 @@ mod tests {
                 "displayEyeUvFiducialActive=true"
             ),
             "Rusty XR display-eye UV fiducial contract frame=7 openXrFrameCount=42 displayEyeUvFiducialActive=true"
+        );
+    }
+
+    #[test]
+    fn projected_homography_status_marker_fields_keeps_missing_shape() {
+        assert_eq!(
+            projected_homography_status_marker_fields(None, None, &RuntimeConfig::default()),
+            "projectionHomographyReady=false projectionAreaTransformStage=none projectionAreaWarpParity=reference_unwarped_screen_uv"
         );
     }
 }

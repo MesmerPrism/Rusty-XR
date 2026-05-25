@@ -88,7 +88,7 @@ mod android {
     mod source_metadata;
     use projection_geometry::{
         identity_homography, openxr_projection_contract_fields,
-        projection_area_target_marker_fields, projection_diagnostic_log_messages,
+        projection_area_target_marker_fields_from_state, projection_diagnostic_log_messages,
         projection_plan_from_metadata, source_color_contract_fields, OesEyeProjection,
         OesProjectionPlan, OesSourceColorContract,
     };
@@ -996,19 +996,8 @@ mod android {
         let system = xr_instance
             .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
             .map_err(|error| format!("get HMD system: {error}"))?;
-        let projection_area_target_fields = projection_area_target_marker_fields(
-            projection_state.projection_area_eye_offset_uv[0],
-            projection_state.projection_area_eye_offset_uv[1],
-            projection_state.projection_area_radius,
-            projection_state.projection_area_scale,
-            projection_state.projection_alpha_mode,
-            projection_state.projection_alpha_scale,
-            projection_state.projection_alpha_bias,
-            projection_depth_meters,
-            projection_preview_fov_y_degrees,
-            projection_preview_offset_y_meters,
-            projection_raw_overscan,
-        );
+        let projection_area_target_fields =
+            projection_area_target_marker_fields_from_state(projection_state);
         log_info(format!(
             "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraProjectionMode={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} oesSourceColorTransfer={} sourceColorInputEncoding={} sourceColorOutputEncoding={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
             projection_state.projection_border_policy.stable_id(),
@@ -1268,19 +1257,8 @@ mod android {
                         projection_state,
                     ));
                 }
-                let projection_area_target_fields = projection_area_target_marker_fields(
-                    projection_state.projection_area_eye_offset_uv[0],
-                    projection_state.projection_area_eye_offset_uv[1],
-                    projection_state.projection_area_radius,
-                    projection_state.projection_area_scale,
-                    projection_state.projection_alpha_mode,
-                    projection_state.projection_alpha_scale,
-                    projection_state.projection_alpha_bias,
-                    projection_state.tuning.projection_depth_meters,
-                    projection_state.tuning.camera_preview_fov_y_degrees,
-                    projection_state.tuning.camera_preview_offset_y_meters,
-                    projection_state.tuning.camera_raw_overlay_overscan,
-                );
+                let projection_area_target_fields =
+                    projection_area_target_marker_fields_from_state(projection_state);
                 let projection_plan = surface_texture_oes_probe.as_ref().and_then(|probe| {
                     probe.projection_plan_from_xr_views(
                         &views,
