@@ -77,6 +77,7 @@ mod android {
     mod projection_geometry;
     mod projection_runtime;
     mod source_metadata;
+    mod surface_texture_oes_callbacks;
     mod surface_texture_oes_probe;
     use egl_gles_context::EglContext;
     use openxr_gles_config::OesActivityConfig;

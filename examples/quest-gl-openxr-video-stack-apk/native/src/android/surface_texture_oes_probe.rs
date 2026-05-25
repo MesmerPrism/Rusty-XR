@@ -5,27 +5,24 @@ use super::projection_geometry::{
 use super::source_metadata::{
     stream_projection_metadata_log_message, OesInputSourceKind, OesProjectionMetadata,
 };
+use super::surface_texture_oes_callbacks::{
+    decode_frame_snapshot, latest_decode_report_after, projection_metadata_report_snapshot,
+    report_view_index, reset_decode_callbacks,
+};
 use super::{
     glBindTexture, glGetError, log_error, log_info, EglContext, GL_NO_ERROR,
     GL_TEXTURE_EXTERNAL_OES, VIEW_COUNT,
 };
 use jni::{
-    objects::{GlobalRef, JClass, JObject, JString, JValue},
-    sys::{jint, jlong, jobject},
+    objects::{GlobalRef, JClass, JObject, JValue},
+    sys::jobject,
     JNIEnv, JavaVM,
 };
 use rusty_xr_quest_diagnostics::{
     FrameRateSummary, SurfaceTextureOesEyeStatus, SurfaceTextureOesIngestState,
     SurfaceTextureOesIngestStatus,
 };
-use std::{
-    os::raw::c_int,
-    sync::{
-        atomic::{AtomicI64, AtomicU64, Ordering},
-        Mutex, OnceLock,
-    },
-    time::Instant,
-};
+use std::{os::raw::c_int, time::Instant};
 
 const BROKER_H264_DEFAULT_HOST: &str = "127.0.0.1";
 const BROKER_H264_LEFT_STREAM_PORT: i32 = 8879;
@@ -47,111 +44,6 @@ unsafe extern "C" {
     fn glGenTextures(n: c_int, textures: *mut u32);
     fn glDeleteTextures(n: c_int, textures: *const u32);
     fn glTexParameteri(target: u32, pname: u32, param: c_int);
-}
-
-static OES_DECODE_CALLBACKS: OnceLock<OesDecodeCallbackState> = OnceLock::new();
-
-struct OesDecodeCallbackState {
-    frame_available_counts: [AtomicU64; VIEW_COUNT],
-    latest_sequences: [AtomicU64; VIEW_COUNT],
-    latest_queued_pts_us: [AtomicI64; VIEW_COUNT],
-    report_sequence: AtomicU64,
-    latest_report: Mutex<Option<String>>,
-    projection_metadata_reports: Mutex<[Option<String>; VIEW_COUNT]>,
-}
-
-impl OesDecodeCallbackState {
-    fn new() -> Self {
-        Self {
-            frame_available_counts: [AtomicU64::new(0), AtomicU64::new(0)],
-            latest_sequences: [AtomicU64::new(0), AtomicU64::new(0)],
-            latest_queued_pts_us: [AtomicI64::new(-1), AtomicI64::new(-1)],
-            report_sequence: AtomicU64::new(0),
-            latest_report: Mutex::new(None),
-            projection_metadata_reports: Mutex::new([None, None]),
-        }
-    }
-
-    fn reset(&self) {
-        for index in 0..VIEW_COUNT {
-            self.frame_available_counts[index].store(0, Ordering::Relaxed);
-            self.latest_sequences[index].store(0, Ordering::Relaxed);
-            self.latest_queued_pts_us[index].store(-1, Ordering::Relaxed);
-        }
-        self.report_sequence.store(0, Ordering::Relaxed);
-        if let Ok(mut latest_report) = self.latest_report.lock() {
-            *latest_report = None;
-        }
-        if let Ok(mut reports) = self.projection_metadata_reports.lock() {
-            *reports = [None, None];
-        }
-    }
-
-    fn mark_frame_available(&self, view_index: usize, sequence: u64, queued_pts_us: i64) {
-        if view_index >= VIEW_COUNT {
-            return;
-        }
-        self.latest_sequences[view_index].store(sequence, Ordering::Relaxed);
-        self.latest_queued_pts_us[view_index].store(queued_pts_us, Ordering::Relaxed);
-        self.frame_available_counts[view_index].fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn frame_snapshot(&self, view_index: usize) -> (u64, u64, i64) {
-        (
-            self.frame_available_counts[view_index].load(Ordering::Relaxed),
-            self.latest_sequences[view_index].load(Ordering::Relaxed),
-            self.latest_queued_pts_us[view_index].load(Ordering::Relaxed),
-        )
-    }
-
-    fn record_report(&self, report: String) {
-        if let Some(view_index) = projection_metadata_report_view_index(&report) {
-            if let Ok(mut reports) = self.projection_metadata_reports.lock() {
-                reports[view_index] = Some(report.clone());
-            }
-        }
-        if let Ok(mut latest_report) = self.latest_report.lock() {
-            *latest_report = Some(report);
-            self.report_sequence.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    fn latest_report_after(&self, last_seen_sequence: &mut u64) -> Option<String> {
-        let sequence = self.report_sequence.load(Ordering::Relaxed);
-        if sequence == *last_seen_sequence {
-            return None;
-        }
-        *last_seen_sequence = sequence;
-        self.latest_report
-            .lock()
-            .ok()
-            .and_then(|report| report.clone())
-    }
-
-    fn projection_metadata_report_snapshot(&self) -> [Option<String>; VIEW_COUNT] {
-        self.projection_metadata_reports
-            .lock()
-            .map(|reports| [reports[0].clone(), reports[1].clone()])
-            .unwrap_or([None, None])
-    }
-}
-
-fn projection_metadata_report_view_index(report: &str) -> Option<usize> {
-    let report = serde_json::from_str::<serde_json::Value>(report).ok()?;
-    report.get("header_projection_metadata")?;
-    report_view_index(&report)
-}
-
-fn report_view_index(report: &serde_json::Value) -> Option<usize> {
-    report
-        .get("view_index")
-        .and_then(|value| value.as_u64())
-        .and_then(|value| usize::try_from(value).ok())
-        .filter(|value| *value < VIEW_COUNT)
-}
-
-fn oes_decode_callbacks() -> &'static OesDecodeCallbackState {
-    OES_DECODE_CALLBACKS.get_or_init(OesDecodeCallbackState::new)
 }
 
 pub(super) fn probe_surface_texture_oes(
@@ -217,7 +109,7 @@ impl OesEyeProjection {
 impl SurfaceTextureOesProbe {
     fn create(app: &android_activity::AndroidApp, egl: &EglContext) -> Result<Self, String> {
         egl.make_current()?;
-        oes_decode_callbacks().reset();
+        reset_decode_callbacks();
         let java_vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }
             .map_err(|error| format!("wrap Android JavaVM: {error}"))?;
         let source_kind = {
@@ -408,11 +300,10 @@ impl SurfaceTextureOesProbe {
 
     pub(super) fn update_textures(&mut self, egl: &EglContext, frame_count: u64) {
         self.apply_latest_decode_report();
-        let callbacks = oes_decode_callbacks();
         let mut updated_any = false;
         for view_index in 0..VIEW_COUNT {
             let (available_count, latest_sequence, latest_pts_us) =
-                callbacks.frame_snapshot(view_index);
+                decode_frame_snapshot(view_index);
             if available_count <= self.consumed_frame_available_counts[view_index] {
                 if let Some(eye) = self.status.eyes.get_mut(view_index) {
                     eye.frame_available_count = available_count;
@@ -578,9 +469,7 @@ impl SurfaceTextureOesProbe {
     }
 
     fn apply_latest_decode_report(&mut self) {
-        let Some(report_json) =
-            oes_decode_callbacks().latest_report_after(&mut self.last_report_sequence)
-        else {
+        let Some(report_json) = latest_decode_report_after(&mut self.last_report_sequence) else {
             return;
         };
         let Ok(report) = serde_json::from_str::<serde_json::Value>(&report_json) else {
@@ -633,11 +522,7 @@ impl SurfaceTextureOesProbe {
     }
 
     fn apply_cached_projection_metadata_reports(&mut self) {
-        for report_json in oes_decode_callbacks()
-            .projection_metadata_report_snapshot()
-            .into_iter()
-            .flatten()
-        {
+        for report_json in projection_metadata_report_snapshot().into_iter().flatten() {
             let Ok(report) = serde_json::from_str::<serde_json::Value>(&report_json) else {
                 continue;
             };
@@ -897,68 +782,6 @@ fn jni_error(env: &mut JNIEnv<'_>, context: &str, error: impl std::fmt::Display)
         let _ = env.exception_clear();
     }
     format!("{context}: {error}")
-}
-
-#[allow(non_snake_case)]
-#[no_mangle]
-pub extern "system" fn Java_com_example_rustyxr_opengles_BrokerH264OesDecodeProbe_nativeBrokerH264FrameAvailable(
-    _env: JNIEnv<'_>,
-    _class: JClass<'_>,
-    view_index: jint,
-    sequence: jlong,
-    queued_pts_us: jlong,
-) {
-    let Ok(view_index) = usize::try_from(view_index) else {
-        return;
-    };
-    let sequence = u64::try_from(sequence).unwrap_or(0);
-    oes_decode_callbacks().mark_frame_available(view_index, sequence, queued_pts_us);
-}
-
-#[allow(non_snake_case)]
-#[no_mangle]
-pub extern "system" fn Java_com_example_rustyxr_opengles_BrokerH264OesDecodeProbe_nativeBrokerH264DecodeReport(
-    mut env: JNIEnv<'_>,
-    _class: JClass<'_>,
-    report_json: JString<'_>,
-) {
-    let report = env
-        .get_string(&report_json)
-        .map(|value| value.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "{\"event\":\"invalidJniString\"}".to_string());
-    log_info(format!("Rusty XR broker H.264 OES decode report {report}"));
-    oes_decode_callbacks().record_report(report);
-}
-
-#[allow(non_snake_case)]
-#[no_mangle]
-pub extern "system" fn Java_com_example_rustyxr_opengles_DirectCamera2OesProbe_nativeDirectCamera2OesFrameAvailable(
-    _env: JNIEnv<'_>,
-    _class: JClass<'_>,
-    view_index: jint,
-    sequence: jlong,
-    queued_pts_us: jlong,
-) {
-    let Ok(view_index) = usize::try_from(view_index) else {
-        return;
-    };
-    let sequence = u64::try_from(sequence).unwrap_or(0);
-    oes_decode_callbacks().mark_frame_available(view_index, sequence, queued_pts_us);
-}
-
-#[allow(non_snake_case)]
-#[no_mangle]
-pub extern "system" fn Java_com_example_rustyxr_opengles_DirectCamera2OesProbe_nativeDirectCamera2OesReport(
-    mut env: JNIEnv<'_>,
-    _class: JClass<'_>,
-    report_json: JString<'_>,
-) {
-    let report = env
-        .get_string(&report_json)
-        .map(|value| value.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "{\"event\":\"invalidJniString\"}".to_string());
-    log_info(format!("Rusty XR direct Camera2 OES report {report}"));
-    oes_decode_callbacks().record_report(report);
 }
 
 impl Drop for SurfaceTextureOesProbe {
