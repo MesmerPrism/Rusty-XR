@@ -46,6 +46,7 @@ mod gpu_camera_descriptors;
 mod gpu_camera_draw;
 mod gpu_camera_import;
 mod gpu_camera_pipeline;
+mod gpu_camera_prepare;
 mod gpu_camera_projection;
 mod gpu_camera_renderer;
 mod gpu_camera_resource_state;
