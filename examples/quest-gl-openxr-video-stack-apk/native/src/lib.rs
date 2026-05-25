@@ -88,7 +88,7 @@ mod android {
     use egl_gles_context::EglContext;
     use oes_copy_renderer::{GlFramebuffer, OesColorControls, OesCopyRenderer};
     use openxr_gles_passthrough::create_openxr_gles_passthrough_underlay;
-    use openxr_gles_renderer::render_eye_swapchains;
+    use openxr_gles_renderer::{render_eye_swapchains, OesRenderFrameInputs, OesRenderTuning};
     use openxr_gles_resources::{
         create_eye_swapchains, gl_format_label, select_environment_blend_mode,
     };
@@ -1101,29 +1101,35 @@ mod android {
                     &views,
                 );
                 render_eye_swapchains(
-                    &egl,
-                    &mut fbo,
-                    &mut swapchains,
-                    frame_count,
-                    &mut status,
-                    surface_texture_oes_probe.as_ref(),
-                    projection_plan.as_ref(),
-                    &mut oes_copy_renderer,
-                    projection_state.projection_border_policy,
-                    processing_layer,
-                    blur_radius_px,
-                    projection_state.projection_area_eye_offset_uv,
-                    projection_state.projection_area_scale,
-                    projection_state.projection_area_radius,
-                    projection_state.projection_area_corner_radius_uv,
-                    projection_state.projection_area_opacity,
-                    projection_state.projection_border_opacity,
-                    projection_state.projection_alpha_mode,
-                    projection_state.projection_alpha_scale,
-                    projection_state.projection_alpha_bias,
-                    camera_color_controls,
-                    &openxr_projection_fields,
-                    &projection_area_target_fields,
+                    OesRenderFrameInputs {
+                        egl: &egl,
+                        fbo: &mut fbo,
+                        swapchains: &mut swapchains,
+                        frame_count,
+                        status: &mut status,
+                        surface_texture_oes_probe: surface_texture_oes_probe.as_ref(),
+                        projection_plan: projection_plan.as_ref(),
+                        oes_copy_renderer: &mut oes_copy_renderer,
+                        openxr_projection_fields: &openxr_projection_fields,
+                        projection_area_target_fields: &projection_area_target_fields,
+                    },
+                    OesRenderTuning {
+                        projection_border_policy: projection_state.projection_border_policy,
+                        processing_layer,
+                        blur_radius_px,
+                        projection_area_eye_offset_uv: projection_state
+                            .projection_area_eye_offset_uv,
+                        projection_area_scale: projection_state.projection_area_scale,
+                        projection_area_radius: projection_state.projection_area_radius,
+                        projection_area_corner_radius_uv: projection_state
+                            .projection_area_corner_radius_uv,
+                        projection_area_opacity: projection_state.projection_area_opacity,
+                        projection_border_opacity: projection_state.projection_border_opacity,
+                        projection_alpha_mode: projection_state.projection_alpha_mode,
+                        projection_alpha_scale: projection_state.projection_alpha_scale,
+                        projection_alpha_bias: projection_state.projection_alpha_bias,
+                        camera_color_controls,
+                    },
                 )?;
 
                 for (index, eye) in swapchains.iter().enumerate() {
