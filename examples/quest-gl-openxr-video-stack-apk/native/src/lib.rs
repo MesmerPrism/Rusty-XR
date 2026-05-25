@@ -63,6 +63,7 @@ mod android {
 
     mod android_activity_events;
     mod egl_gles_context;
+    mod gles_shader_program;
     mod oes_copy_renderer;
     mod openxr_gles_config;
     mod openxr_gles_layers;
