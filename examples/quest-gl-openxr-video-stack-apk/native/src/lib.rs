@@ -85,7 +85,7 @@ mod android {
     };
     use egl_gles_context::EglContext;
     use openxr_gles_config::OesActivityConfig;
-    use openxr_gles_passthrough::create_openxr_gles_passthrough_underlay;
+    use openxr_gles_passthrough::create_requested_openxr_gles_passthrough_underlay;
     use openxr_gles_renderer::{
         projection_views_from_swapchains, OesRenderFrameInputs, OesRenderResources, OesRenderTuning,
     };
@@ -455,33 +455,12 @@ mod android {
             &projection_runtime,
             projection_runtime_resolution_enabled,
         );
-        let native_passthrough_underlay = if native_passthrough_underlay_requested {
-            match create_openxr_gles_passthrough_underlay(&xr_instance, &session) {
-                Ok(underlay) => {
-                    status.notes.push(String::from(
-                        "nativePassthroughUnderlay=true; passthrough is submitted as XR_FB_passthrough below the projection layer with OPAQUE environment blend",
-                    ));
-                    log_info(
-                        "Rusty XR OpenXR GLES native passthrough underlay active via XR_FB_passthrough",
-                    );
-                    Some(underlay)
-                }
-                Err(error) => {
-                    status
-                        .issue_codes
-                        .push(String::from("create.XR_FB_passthrough.failed"));
-                    status.notes.push(format!(
-                        "nativePassthroughUnderlay=false; XR_FB_passthrough create/start failed: {error}"
-                    ));
-                    log_error(format!(
-                        "Rusty XR OpenXR GLES native passthrough underlay failed: {error}"
-                    ));
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        let native_passthrough_underlay = create_requested_openxr_gles_passthrough_underlay(
+            native_passthrough_underlay_requested,
+            &xr_instance,
+            &session,
+            &mut status,
+        );
 
         let stage = session
             .create_reference_space(xr::ReferenceSpaceType::LOCAL, xr::Posef::IDENTITY)

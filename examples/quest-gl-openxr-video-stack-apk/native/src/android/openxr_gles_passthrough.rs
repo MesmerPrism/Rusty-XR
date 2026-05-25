@@ -2,6 +2,7 @@ use std::ptr;
 
 use openxr as xr;
 use openxr::sys::Handle as _;
+use rusty_xr_quest_diagnostics::OpenXrGlesFeasibilityStatus;
 
 use super::{ensure_xr_success, log_error, log_info};
 
@@ -48,7 +49,41 @@ impl Drop for OpenXrGlesPassthroughUnderlay {
     }
 }
 
-pub(super) fn create_openxr_gles_passthrough_underlay(
+pub(super) fn create_requested_openxr_gles_passthrough_underlay(
+    requested: bool,
+    instance: &xr::Instance,
+    session: &xr::Session<xr::OpenGlEs>,
+    status: &mut OpenXrGlesFeasibilityStatus,
+) -> Option<OpenXrGlesPassthroughUnderlay> {
+    if !requested {
+        return None;
+    }
+    match create_openxr_gles_passthrough_underlay(instance, session) {
+        Ok(underlay) => {
+            status.notes.push(String::from(
+                "nativePassthroughUnderlay=true; passthrough is submitted as XR_FB_passthrough below the projection layer with OPAQUE environment blend",
+            ));
+            log_info(
+                "Rusty XR OpenXR GLES native passthrough underlay active via XR_FB_passthrough",
+            );
+            Some(underlay)
+        }
+        Err(error) => {
+            status
+                .issue_codes
+                .push(String::from("create.XR_FB_passthrough.failed"));
+            status.notes.push(format!(
+                "nativePassthroughUnderlay=false; XR_FB_passthrough create/start failed: {error}"
+            ));
+            log_error(format!(
+                "Rusty XR OpenXR GLES native passthrough underlay failed: {error}"
+            ));
+            None
+        }
+    }
+}
+
+fn create_openxr_gles_passthrough_underlay(
     instance: &xr::Instance,
     session: &xr::Session<xr::OpenGlEs>,
 ) -> Result<OpenXrGlesPassthroughUnderlay, String> {
