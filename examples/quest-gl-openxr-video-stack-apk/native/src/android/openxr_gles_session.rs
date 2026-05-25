@@ -7,6 +7,11 @@ use std::{ffi::CString, os::raw::c_char, ptr, time::Instant};
 
 use super::{ensure_xr_success, log_error, log_info, log_status, VIEW_TYPE};
 
+pub(super) enum OesLocatedViews {
+    SubmitValid(Vec<xr::View>),
+    NotSubmitValid(xr::ViewStateFlags),
+}
+
 pub(super) struct OesFrameRateTracker {
     frame_window_start: Instant,
     frame_window_count: u64,
@@ -97,7 +102,7 @@ pub(super) fn poll_openxr_session_events(
     Ok(false)
 }
 
-pub(super) fn view_pose_is_submit_valid(view: &xr::View) -> bool {
+fn view_pose_is_submit_valid(view: &xr::View) -> bool {
     let pose = view.pose;
     let values = [
         pose.position.x,
@@ -116,6 +121,24 @@ pub(super) fn view_pose_is_submit_valid(view: &xr::View) -> bool {
         + pose.orientation.z * pose.orientation.z
         + pose.orientation.w * pose.orientation.w;
     orientation_norm_squared.is_finite() && orientation_norm_squared > 0.0
+}
+
+pub(super) fn locate_submit_valid_views(
+    session: &xr::Session<xr::OpenGlEs>,
+    predicted_display_time: xr::Time,
+    stage: &xr::Space,
+) -> Result<OesLocatedViews, String> {
+    let (view_state_flags, views) = session
+        .locate_views(VIEW_TYPE, predicted_display_time, stage)
+        .map_err(|error| format!("locate OpenXR views: {error}"))?;
+    let views_valid = view_state_flags.contains(xr::ViewStateFlags::ORIENTATION_VALID)
+        && view_state_flags.contains(xr::ViewStateFlags::POSITION_VALID)
+        && views.iter().all(view_pose_is_submit_valid);
+    if views_valid {
+        Ok(OesLocatedViews::SubmitValid(views))
+    } else {
+        Ok(OesLocatedViews::NotSubmitValid(view_state_flags))
+    }
 }
 
 pub(super) fn initialize_android_loader(

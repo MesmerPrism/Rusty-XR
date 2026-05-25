@@ -93,8 +93,8 @@ mod android {
         create_eye_swapchains, gl_format_label, select_environment_blend_mode,
     };
     use openxr_gles_session::{
-        create_android_instance, initialize_android_loader, poll_openxr_session_events,
-        view_pose_is_submit_valid, OesFrameRateTracker,
+        create_android_instance, initialize_android_loader, locate_submit_valid_views,
+        poll_openxr_session_events, OesFrameRateTracker, OesLocatedViews,
     };
     use projection_geometry::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
@@ -533,31 +533,32 @@ mod android {
 
             let mut projection_views = Vec::new();
             if frame_state.should_render {
-                let (view_state_flags, views) = session
-                    .locate_views(VIEW_TYPE, frame_state.predicted_display_time, &stage)
-                    .map_err(|error| format!("locate OpenXR views: {error}"))?;
-                let views_valid = view_state_flags.contains(xr::ViewStateFlags::ORIENTATION_VALID)
-                    && view_state_flags.contains(xr::ViewStateFlags::POSITION_VALID)
-                    && views.iter().all(view_pose_is_submit_valid);
-                if !views_valid {
-                    if frame_count.is_multiple_of(120) {
-                        log_info(format!(
-                            "Rusty XR OpenXR GLES skipped composition frame {} because OpenXR view pose is not valid yet viewFlags={:?}",
-                            frame_count, view_state_flags
-                        ));
+                let views = match locate_submit_valid_views(
+                    &session,
+                    frame_state.predicted_display_time,
+                    &stage,
+                )? {
+                    OesLocatedViews::SubmitValid(views) => views,
+                    OesLocatedViews::NotSubmitValid(view_state_flags) => {
+                        if frame_count.is_multiple_of(120) {
+                            log_info(format!(
+                                "Rusty XR OpenXR GLES skipped composition frame {} because OpenXR view pose is not valid yet viewFlags={:?}",
+                                frame_count, view_state_flags
+                            ));
+                        }
+                        frame_stream
+                            .end(
+                                frame_state.predicted_display_time,
+                                environment_blend_mode,
+                                &[],
+                            )
+                            .map_err(|error| {
+                                format!("end OpenXR frame without valid view pose: {error}")
+                            })?;
+                        frame_count = frame_count.saturating_add(1);
+                        continue;
                     }
-                    frame_stream
-                        .end(
-                            frame_state.predicted_display_time,
-                            environment_blend_mode,
-                            &[],
-                        )
-                        .map_err(|error| {
-                            format!("end OpenXR frame without valid view pose: {error}")
-                        })?;
-                    frame_count = frame_count.saturating_add(1);
-                    continue;
-                }
+                };
                 if let Some(probe) = surface_texture_oes_probe.as_mut() {
                     probe.update_textures(&egl, frame_count);
                 }
