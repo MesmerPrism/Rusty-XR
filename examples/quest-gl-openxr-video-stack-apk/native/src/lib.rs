@@ -69,6 +69,7 @@ mod android {
     mod oes_copy_shader_sources;
     mod openxr_gles_activity_config;
     mod openxr_gles_config;
+    mod openxr_gles_contracts;
     mod openxr_gles_layers;
     mod openxr_gles_passthrough;
     mod openxr_gles_render_tuning;
