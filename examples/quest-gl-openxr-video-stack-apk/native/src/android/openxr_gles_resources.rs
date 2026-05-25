@@ -118,6 +118,45 @@ pub(super) fn create_eye_swapchains(
     Ok(swapchains)
 }
 
+pub(super) fn select_environment_blend_mode(
+    instance: &xr::Instance,
+    system: xr::SystemId,
+    status: &mut OpenXrGlesFeasibilityStatus,
+    projection_border_policy_id: &str,
+    projection_uses_source_alpha: bool,
+) -> Result<xr::EnvironmentBlendMode, String> {
+    let modes = instance
+        .enumerate_environment_blend_modes(system, VIEW_TYPE)
+        .map_err(|error| format!("enumerate environment blend modes: {error}"))?;
+    let selected = if projection_uses_source_alpha {
+        modes
+            .iter()
+            .copied()
+            .find(|mode| *mode == xr::EnvironmentBlendMode::ALPHA_BLEND)
+            .or_else(|| {
+                modes
+                    .iter()
+                    .copied()
+                    .find(|mode| *mode == xr::EnvironmentBlendMode::OPAQUE)
+            })
+            .or_else(|| modes.first().copied())
+    } else {
+        modes
+            .iter()
+            .copied()
+            .find(|mode| *mode == xr::EnvironmentBlendMode::OPAQUE)
+            .or_else(|| modes.first().copied())
+    }
+    .ok_or_else(|| "OpenXR runtime reported no environment blend modes".to_string())?;
+    status.notes.push(format!(
+        "environmentBlendModes={modes:?}; selected={selected:?}; projectionBorderPolicy={projection_border_policy_id}"
+    ));
+    log_info(format!(
+        "Rusty XR OpenXR GLES environment blend modes available={modes:?} selected={selected:?} projectionBorderPolicy={projection_border_policy_id}"
+    ));
+    Ok(selected)
+}
+
 fn select_color_format(formats: &[u32]) -> Option<u32> {
     [GL_SRGB8_ALPHA8, GL_RGBA8, GL_RGB10_A2, GL_RGBA]
         .into_iter()

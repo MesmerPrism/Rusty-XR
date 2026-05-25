@@ -87,7 +87,9 @@ mod android {
     use egl_gles_context::EglContext;
     use oes_copy_renderer::{GlFramebuffer, OesColorControls, OesCopyRenderer};
     use openxr_gles_passthrough::create_openxr_gles_passthrough_underlay;
-    use openxr_gles_resources::{create_eye_swapchains, gl_format_label, EyeSwapchain};
+    use openxr_gles_resources::{
+        create_eye_swapchains, gl_format_label, select_environment_blend_mode, EyeSwapchain,
+    };
     use projection_geometry::{
         log_projection_diagnostics, openxr_projection_contract_fields,
         projection_area_target_marker_fields_from_state, OesProjectionPlan,
@@ -859,7 +861,7 @@ mod android {
             &xr_instance,
             system,
             &mut status,
-            projection_state.projection_border_policy,
+            projection_state.projection_border_policy.stable_id(),
             projection_uses_source_alpha,
         )?;
         let requirements = xr_instance
@@ -1320,47 +1322,6 @@ mod android {
             return Err(format!("{operation} failed: {result:?}"));
         }
         Ok(())
-    }
-
-    fn select_environment_blend_mode(
-        instance: &xr::Instance,
-        system: xr::SystemId,
-        status: &mut OpenXrGlesFeasibilityStatus,
-        projection_border_policy: OesProjectionBorderPolicy,
-        projection_uses_source_alpha: bool,
-    ) -> Result<xr::EnvironmentBlendMode, String> {
-        let modes = instance
-            .enumerate_environment_blend_modes(system, VIEW_TYPE)
-            .map_err(|error| format!("enumerate environment blend modes: {error}"))?;
-        let selected = if projection_uses_source_alpha {
-            modes
-                .iter()
-                .copied()
-                .find(|mode| *mode == xr::EnvironmentBlendMode::ALPHA_BLEND)
-                .or_else(|| {
-                    modes
-                        .iter()
-                        .copied()
-                        .find(|mode| *mode == xr::EnvironmentBlendMode::OPAQUE)
-                })
-                .or_else(|| modes.first().copied())
-        } else {
-            modes
-                .iter()
-                .copied()
-                .find(|mode| *mode == xr::EnvironmentBlendMode::OPAQUE)
-                .or_else(|| modes.first().copied())
-        }
-        .ok_or_else(|| "OpenXR runtime reported no environment blend modes".to_string())?;
-        status.notes.push(format!(
-            "environmentBlendModes={modes:?}; selected={selected:?}; projectionBorderPolicy={}",
-            projection_border_policy.stable_id()
-        ));
-        log_info(format!(
-            "Rusty XR OpenXR GLES environment blend modes available={modes:?} selected={selected:?} projectionBorderPolicy={}",
-            projection_border_policy.stable_id()
-        ));
-        Ok(selected)
     }
 
     fn render_eye_swapchains(
