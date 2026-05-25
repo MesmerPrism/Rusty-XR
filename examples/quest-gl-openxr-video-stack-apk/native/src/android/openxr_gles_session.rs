@@ -1,10 +1,11 @@
 use openxr as xr;
+use openxr::sys::Handle as _;
 use rusty_xr_quest_diagnostics::{
     FrameRateSummary, OpenXrGlesFeasibilityState, OpenXrGlesFeasibilityStatus,
 };
-use std::time::Instant;
+use std::{ffi::CString, os::raw::c_char, ptr, time::Instant};
 
-use super::{log_error, log_info, log_status, VIEW_TYPE};
+use super::{ensure_xr_success, log_error, log_info, log_status, VIEW_TYPE};
 
 pub(super) struct OesFrameRateTracker {
     frame_window_start: Instant,
@@ -115,4 +116,92 @@ pub(super) fn view_pose_is_submit_valid(view: &xr::View) -> bool {
         + pose.orientation.z * pose.orientation.z
         + pose.orientation.w * pose.orientation.w;
     orientation_norm_squared.is_finite() && orientation_norm_squared > 0.0
+}
+
+pub(super) fn initialize_android_loader(
+    entry: &xr::Entry,
+    app: &android_activity::AndroidApp,
+) -> Result<(), String> {
+    let loader_init = unsafe { xr::raw::LoaderInitKHR::load(entry, xr::sys::Instance::NULL) }
+        .map_err(|error| format!("load Android OpenXR loader init: {error}"))?;
+    let loader_info = xr::sys::LoaderInitInfoAndroidKHR {
+        ty: xr::sys::LoaderInitInfoAndroidKHR::TYPE,
+        next: ptr::null(),
+        application_vm: app.vm_as_ptr(),
+        application_context: app.activity_as_ptr(),
+    };
+
+    let result = unsafe { (loader_init.initialize_loader)(&loader_info as *const _ as _) };
+    ensure_xr_success(result, "xrInitializeLoaderKHR")?;
+    log_info("Rusty XR initialized Android OpenXR loader with Activity context");
+    Ok(())
+}
+
+pub(super) unsafe fn create_android_instance(
+    entry: &xr::Entry,
+    app: &android_activity::AndroidApp,
+    app_info: &xr::ApplicationInfo,
+    required_extensions: &xr::ExtensionSet,
+    layers: &[&str],
+) -> Result<xr::Instance, String> {
+    let extension_names = required_extensions.names();
+    let extension_ptrs = extension_names
+        .iter()
+        .map(|name| name.as_ptr() as *const _)
+        .collect::<Vec<_>>();
+    let layer_names = layers
+        .iter()
+        .filter_map(|layer| CString::new(*layer).ok())
+        .collect::<Vec<_>>();
+    let layer_ptrs = layer_names
+        .iter()
+        .map(|layer| layer.as_ptr())
+        .collect::<Vec<_>>();
+
+    let android_info = xr::sys::InstanceCreateInfoAndroidKHR {
+        ty: xr::sys::InstanceCreateInfoAndroidKHR::TYPE,
+        next: ptr::null(),
+        application_vm: app.vm_as_ptr(),
+        application_activity: app.activity_as_ptr(),
+    };
+    let mut info = xr::sys::InstanceCreateInfo {
+        ty: xr::sys::InstanceCreateInfo::TYPE,
+        next: if required_extensions.khr_android_create_instance {
+            &android_info as *const _ as _
+        } else {
+            ptr::null()
+        },
+        create_flags: Default::default(),
+        application_info: xr::sys::ApplicationInfo {
+            application_name: [0; xr::sys::MAX_APPLICATION_NAME_SIZE],
+            application_version: app_info.application_version,
+            engine_name: [0; xr::sys::MAX_ENGINE_NAME_SIZE],
+            engine_version: app_info.engine_version,
+            api_version: app_info.api_version,
+        },
+        enabled_api_layer_count: layer_ptrs.len() as _,
+        enabled_api_layer_names: layer_ptrs.as_ptr(),
+        enabled_extension_count: extension_ptrs.len() as _,
+        enabled_extension_names: extension_ptrs.as_ptr(),
+    };
+    write_xr_string(
+        &mut info.application_info.application_name,
+        app_info.application_name,
+    );
+    write_xr_string(&mut info.application_info.engine_name, app_info.engine_name);
+
+    let mut handle = xr::sys::Instance::NULL;
+    let result = (entry.fp().create_instance)(&info, &mut handle);
+    ensure_xr_success(result, "xrCreateInstance")?;
+
+    let extensions = xr::InstanceExtensions::load(entry, handle, required_extensions)
+        .map_err(|error| format!("load OpenXR instance extensions: {error}"))?;
+    xr::Instance::from_raw(entry.clone(), handle, extensions)
+        .map_err(|error| format!("wrap OpenXR instance: {error}"))
+}
+
+fn write_xr_string<const N: usize>(destination: &mut [c_char; N], value: &str) {
+    for (slot, byte) in destination.iter_mut().zip(value.bytes()) {
+        *slot = byte as _;
+    }
 }
