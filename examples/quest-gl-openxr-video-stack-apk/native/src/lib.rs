@@ -82,6 +82,7 @@ mod android {
     mod projection_geometry;
     mod projection_plan_builders;
     mod projection_plan_profile_builders;
+    mod projection_plan_shared;
     mod projection_runtime;
     mod projection_runtime_resolution;
     mod projection_source_color;
