@@ -12,6 +12,12 @@ param(
     [string]$CameraProjectionMode = "",
     [string]$RunRoot = "artifacts\quest-camera-profile-runs",
     [int]$WarmupSeconds = 14,
+    [ValidateSet("contract", "warmup", "none")]
+    [string]$CaptureReadinessMode = "contract",
+    [int]$ReadyTimeoutSeconds = 30,
+    [int]$ReadyPollIntervalMs = 500,
+    [int]$ReadySettleMs = 1500,
+    [switch]$FailOnReadinessTimeout,
     [string[]]$Override = @(),
     [ValidateSet("com.oculus.intent.category.VR", "android.intent.category.LAUNCHER")]
     [string]$LaunchCategory = "com.oculus.intent.category.VR",
@@ -125,6 +131,91 @@ function Write-Utf8TextFile {
     $text = if ($Value -is [array]) { $Value -join [Environment]::NewLine } else { [string]$Value }
     $encoding = [System.Text.UTF8Encoding]::new($false)
     [System.IO.File]::WriteAllText((Convert-ToExtendedWindowsPath -Path $Path), $text, $encoding)
+}
+
+function Add-ProfileTimingRecord {
+    param([object]$Record)
+    if ($null -eq $script:profileTimingRecords) {
+        return
+    }
+    $script:profileTimingRecords.Add($Record)
+    $Record | ConvertTo-Json -Depth 6 -Compress | Add-Content -Path $script:profileTimingPath -Encoding UTF8
+}
+
+function Invoke-ProfileTimedStep {
+    param(
+        [string]$Step,
+        [scriptblock]$Action
+    )
+    $startedAt = Get-Date
+    $startedElapsedMs = if ($script:profileStopwatch) { $script:profileStopwatch.ElapsedMilliseconds } else { 0 }
+    $status = "ok"
+    $errorMessage = ""
+    try {
+        & $Action
+    } catch {
+        $status = "failed"
+        $errorMessage = $_.Exception.Message
+        throw
+    } finally {
+        $endedAt = Get-Date
+        $endedElapsedMs = if ($script:profileStopwatch) { $script:profileStopwatch.ElapsedMilliseconds } else { 0 }
+        Add-ProfileTimingRecord -Record ([ordered]@{
+            step = $Step
+            status = $status
+            startedAt = $startedAt.ToString("o")
+            endedAt = $endedAt.ToString("o")
+            startElapsedMs = $startedElapsedMs
+            endElapsedMs = $endedElapsedMs
+            durationMs = $endedElapsedMs - $startedElapsedMs
+            error = $errorMessage
+        })
+        Write-Host ("[profile-timing] {0} {1}ms {2}" -f $Step, ($endedElapsedMs - $startedElapsedMs), $status)
+    }
+}
+
+function Get-ProfileTimingRecordValue {
+    param(
+        [object]$Record,
+        [string]$Name
+    )
+    if ($Record -is [System.Collections.IDictionary]) {
+        return $Record[$Name]
+    }
+    return $Record.$Name
+}
+
+function New-ProfileTimingSummary {
+    $records = @($script:profileTimingRecords)
+    $byStep = @(
+        @($records | ForEach-Object { Get-ProfileTimingRecordValue -Record $_ -Name "step" } | Sort-Object -Unique) |
+            ForEach-Object {
+                $stepName = [string]$_
+                $group = @($records | Where-Object { (Get-ProfileTimingRecordValue -Record $_ -Name "step") -eq $stepName })
+                $durations = @($group | ForEach-Object { [int64](Get-ProfileTimingRecordValue -Record $_ -Name "durationMs") })
+                $failures = @($group | Where-Object { (Get-ProfileTimingRecordValue -Record $_ -Name "status") -ne "ok" }).Count
+                $sum = ($durations | Measure-Object -Sum).Sum
+                $min = ($durations | Measure-Object -Minimum).Minimum
+                $max = ($durations | Measure-Object -Maximum).Maximum
+                $avg = ($durations | Measure-Object -Average).Average
+                [ordered]@{
+                    step = $stepName
+                    count = $group.Count
+                    totalMs = if ($null -ne $sum) { $sum } else { 0 }
+                    minMs = if ($null -ne $min) { $min } else { 0 }
+                    maxMs = if ($null -ne $max) { $max } else { 0 }
+                    avgMs = if ($null -ne $avg) { [Math]::Round($avg, 2) } else { 0.0 }
+                    failures = $failures
+                }
+            }
+    )
+    return [ordered]@{
+        schemaVersion = "rusty.xr.quest-camera-profile-run.timing.v1"
+        totalElapsedMs = if ($script:profileStopwatch) { $script:profileStopwatch.ElapsedMilliseconds } else { 0 }
+        timingJsonl = $script:profileTimingPath
+        records = $records
+        byStep = $byStep
+    }
 }
 
 function Get-AdbArguments {
@@ -292,6 +383,125 @@ function Stop-AdbLogcatWindowCapture {
     }
 
     return $Capture
+}
+
+function Find-CaptureReadinessMarker {
+    param([string]$LogcatPath)
+
+    if (-not (Test-Path -LiteralPath $LogcatPath)) {
+        return $null
+    }
+    $patterns = @(
+        [ordered]@{ name = "source-sampling-contract"; pattern = "RUSTY_XR_SOURCE_SAMPLING|source-sampling|source_sampling|source sampling" },
+        [ordered]@{ name = "projection-coordinate-contract"; pattern = "RUSTY_XR_PROJECTION_COORDINATE|projection-coordinate|projection_coordinate" }
+    )
+    $lineNumber = 0
+    $stream = $null
+    $reader = $null
+    try {
+        $shareMode = [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
+        $stream = [System.IO.FileStream]::new(
+            (Convert-ToExtendedWindowsPath -Path $LogcatPath),
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            $shareMode)
+        $reader = [System.IO.StreamReader]::new($stream)
+        while ($null -ne ($line = $reader.ReadLine())) {
+            $lineNumber += 1
+            foreach ($entry in $patterns) {
+                if ($line -match $entry.pattern) {
+                    return [ordered]@{
+                        name = $entry.name
+                        lineNumber = $lineNumber
+                        line = $line
+                    }
+                }
+            }
+        }
+    }
+    catch {
+        return $null
+    }
+    finally {
+        if ($reader) {
+            $reader.Dispose()
+        }
+        elseif ($stream) {
+            $stream.Dispose()
+        }
+    }
+    return $null
+}
+
+function Wait-CaptureReadiness {
+    param(
+        [string]$Dir,
+        [string]$Label,
+        [string]$LogcatPath,
+        [datetime]$LaunchStartedAt
+    )
+
+    $waitStartedAt = Get-Date
+    $polls = 0
+    $marker = $null
+    $status = "ready"
+    $readyDetectedAt = $null
+    if ($CaptureReadinessMode -eq "none") {
+        $status = "skipped"
+        $readyDetectedAt = $waitStartedAt
+    }
+    elseif ($CaptureReadinessMode -eq "warmup") {
+        Start-Sleep -Seconds $WarmupSeconds
+        $status = "warmup-complete"
+        $readyDetectedAt = Get-Date
+    }
+    else {
+        $deadline = $waitStartedAt.AddSeconds($ReadyTimeoutSeconds)
+        do {
+            $polls += 1
+            $marker = Find-CaptureReadinessMarker -LogcatPath $LogcatPath
+            if ($marker) {
+                $readyDetectedAt = Get-Date
+                break
+            }
+            if ((Get-Date) -ge $deadline) {
+                break
+            }
+            Start-Sleep -Milliseconds $ReadyPollIntervalMs
+        } while ((Get-Date) -lt $deadline)
+        if (-not $marker) {
+            $status = "timeout"
+            $readyDetectedAt = Get-Date
+        }
+    }
+
+    if (($status -eq "ready" -or $status -eq "warmup-complete") -and $ReadySettleMs -gt 0) {
+        Start-Sleep -Milliseconds $ReadySettleMs
+    }
+    $captureAllowedAt = Get-Date
+    $summary = [ordered]@{
+        schemaVersion = "rusty.xr.quest-camera-profile-run.readiness.v1"
+        mode = $CaptureReadinessMode
+        status = $status
+        launchStartedAt = $LaunchStartedAt.ToString("o")
+        waitStartedAt = $waitStartedAt.ToString("o")
+        readyDetectedAt = if ($readyDetectedAt) { $readyDetectedAt.ToString("o") } else { "" }
+        captureAllowedAt = $captureAllowedAt.ToString("o")
+        timeoutSeconds = $ReadyTimeoutSeconds
+        pollIntervalMs = $ReadyPollIntervalMs
+        settleMs = $ReadySettleMs
+        warmupSeconds = $WarmupSeconds
+        polls = $polls
+        marker = $marker
+        elapsedLaunchToReadyMs = if ($readyDetectedAt) { [long]($readyDetectedAt - $LaunchStartedAt).TotalMilliseconds } else { $null }
+        elapsedLaunchToCaptureAllowedMs = [long]($captureAllowedAt - $LaunchStartedAt).TotalMilliseconds
+        logcatPath = $LogcatPath
+    }
+    Write-Utf8TextFile -Path (Join-Path $Dir "$Label-readiness-summary.json") -Value ($summary | ConvertTo-Json -Depth 6)
+    if ($status -eq "timeout" -and $FailOnReadinessTimeout) {
+        throw "Timed out waiting for capture readiness marker after $ReadyTimeoutSeconds seconds; see $Dir\$Label-readiness-summary.json"
+    }
+    return $summary
 }
 
 function Test-TruthyLaunchValue {
@@ -1004,6 +1214,10 @@ $runRootPath = Resolve-InputPath $RunRoot
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $dir = Join-Path $runRootPath "$timestamp-$RuntimeProfile"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
+$script:profileTimingPath = Join-Path $dir "profile-step-timings.jsonl"
+$script:profileTimingSummaryPath = Join-Path $dir "profile-step-timing-summary.json"
+$script:profileStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$script:profileTimingRecords = [System.Collections.Generic.List[object]]::new()
 
 $catalogObject = Get-Content -Raw -LiteralPath $catalogPath | ConvertFrom-Json
 $app = $catalogObject.apps | Where-Object { $_.id -eq $AppId } | Select-Object -First 1
@@ -1038,44 +1252,56 @@ if ($CameraProjectionMode) {
     $values["rustyxr.cameraProjectionMode"] = $CameraProjectionMode
 }
 
-Write-Utf8TextFile -Path (Join-Path $dir "adb-devices.txt") -Value ((Invoke-Adb -Arguments @("devices")) -join [Environment]::NewLine)
-$projectionPropertyHygieneSummary = Invoke-RustyXrProjectionPropertyHygiene `
-    -Adb $Adb `
-    -Serial $Serial `
-    -Mode $ProjectionPropertyHygiene `
-    -OutputPath (Join-Path $dir "projection-property-hygiene.json")
-
-if ($Install) {
-    $apkPath = $Apk
-    if (-not $apkPath) {
-        $catalogDir = Split-Path -Parent $catalogPath
-        $apkPath = [System.IO.Path]::GetFullPath((Join-Path $catalogDir ([string]$app.apkFile)))
-    }
-    if (-not (Test-Path $apkPath)) {
-        throw "APK not found: $apkPath"
-    }
-    Save-AdbTextCapture -Arguments @("install", "-r", $apkPath) -OutputPath (Join-Path $dir "install.txt")
+Invoke-ProfileTimedStep -Step "adb-devices" -Action {
+    Write-Utf8TextFile -Path (Join-Path $dir "adb-devices.txt") -Value ((Invoke-Adb -Arguments @("devices")) -join [Environment]::NewLine)
+}
+$projectionPropertyHygieneSummary = Invoke-ProfileTimedStep -Step "projection-property-hygiene" -Action {
+    Invoke-RustyXrProjectionPropertyHygiene `
+        -Adb $Adb `
+        -Serial $Serial `
+        -Mode $ProjectionPropertyHygiene `
+        -OutputPath (Join-Path $dir "projection-property-hygiene.json")
 }
 
-Invoke-Adb -Arguments @("shell", "pm", "grant", $packageName, "android.permission.CAMERA") | Out-Null
-Invoke-Adb -Arguments @("shell", "pm", "grant", $packageName, "horizonos.permission.HEADSET_CAMERA") | Out-Null
-if ($values.ContainsKey("rustyxr.mediaProjection") -and (Test-TruthyLaunchValue -Value $values["rustyxr.mediaProjection"])) {
-    Grant-MediaProjectionAppOp -PackageName $packageName -Dir $dir
+if ($Install) {
+    Invoke-ProfileTimedStep -Step "install-apk" -Action {
+        $apkPath = $Apk
+        if (-not $apkPath) {
+            $catalogDir = Split-Path -Parent $catalogPath
+            $apkPath = [System.IO.Path]::GetFullPath((Join-Path $catalogDir ([string]$app.apkFile)))
+        }
+        if (-not (Test-Path $apkPath)) {
+            throw "APK not found: $apkPath"
+        }
+        Save-AdbTextCapture -Arguments @("install", "-r", $apkPath) -OutputPath (Join-Path $dir "install.txt")
+    }
+}
+
+Invoke-ProfileTimedStep -Step "grant-runtime-permissions" -Action {
+    Invoke-Adb -Arguments @("shell", "pm", "grant", $packageName, "android.permission.CAMERA") | Out-Null
+    Invoke-Adb -Arguments @("shell", "pm", "grant", $packageName, "horizonos.permission.HEADSET_CAMERA") | Out-Null
+    if ($values.ContainsKey("rustyxr.mediaProjection") -and (Test-TruthyLaunchValue -Value $values["rustyxr.mediaProjection"])) {
+        Grant-MediaProjectionAppOp -PackageName $packageName -Dir $dir
+    }
 }
 
 if ($device) {
-    foreach ($property in $device.properties) {
-        Save-AdbTextCapture -Arguments @("shell", "setprop", ([string]$property.key), ([string]$property.value)) -OutputPath (Join-Path $dir "setprop-$($property.key).txt")
+    Invoke-ProfileTimedStep -Step "device-setprops" -Action {
+        foreach ($property in $device.properties) {
+            Save-AdbTextCapture -Arguments @("shell", "setprop", ([string]$property.key), ([string]$property.value)) -OutputPath (Join-Path $dir "setprop-$($property.key).txt")
+        }
     }
 }
 
-Capture-PowerSnapshot -Dir $dir -Prefix "preflight"
-Invoke-Adb -Arguments @("shell", "am", "force-stop", $packageName) | Out-Null
-Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
-if ($proximityHoldRequested) {
-    Invoke-ProximityHold -Dir $dir -DurationMs $ProximityHoldDurationMs
+Invoke-ProfileTimedStep -Step "power-snapshot-preflight" -Action { Capture-PowerSnapshot -Dir $dir -Prefix "preflight" }
+Invoke-ProfileTimedStep -Step "force-stop-logcat-clear" -Action {
+    Invoke-Adb -Arguments @("shell", "am", "force-stop", $packageName) | Out-Null
+    Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
 }
-Capture-PowerSnapshot -Dir $dir -Prefix "post-proximity-hold"
+if ($proximityHoldRequested) {
+    Invoke-ProfileTimedStep -Step "proximity-hold" -Action { Invoke-ProximityHold -Dir $dir -DurationMs $ProximityHoldDurationMs }
+}
+Invoke-ProfileTimedStep -Step "power-snapshot-post-proximity" -Action { Capture-PowerSnapshot -Dir $dir -Prefix "post-proximity-hold" }
 
 $label = $RuntimeProfile
 $logcatWindowCapture = $null
@@ -1089,19 +1315,26 @@ foreach ($key in ($values.Keys | Sort-Object)) {
 }
 
 Write-Utf8TextFile -Path (Join-Path $dir "launch-command.txt") -Value ($launchArgs -join " ")
-$logcatWindowCapture = Start-AdbLogcatWindowCapture -Dir $dir -Label $label
+$logcatWindowCapture = Invoke-ProfileTimedStep -Step "logcat-window-start" -Action { Start-AdbLogcatWindowCapture -Dir $dir -Label $label }
+$captureReadinessSummary = $null
 try {
-    Save-AdbTextCapture -Arguments $launchArgs.ToArray() -OutputPath (Join-Path $dir "launch.txt")
-
-    Start-Sleep -Seconds $WarmupSeconds
-    Capture-Artifacts -Dir $dir -Label $label -Package $packageName -SkipLogcatCapture -SkipRunValidation
+    $launchStartedAt = Get-Date
+    Invoke-ProfileTimedStep -Step "launch-app" -Action {
+        Save-AdbTextCapture -Arguments $launchArgs.ToArray() -OutputPath (Join-Path $dir "launch.txt")
+    }
+    $captureReadinessSummary = Invoke-ProfileTimedStep -Step "capture-readiness-wait" -Action {
+        Wait-CaptureReadiness -Dir $dir -Label $label -LogcatPath (Get-ProfileRunLogcatPath -Dir $dir -Label $label) -LaunchStartedAt $launchStartedAt
+    }
+    Invoke-ProfileTimedStep -Step "capture-artifacts" -Action {
+        Capture-Artifacts -Dir $dir -Label $label -Package $packageName -SkipLogcatCapture -SkipRunValidation
+    }
 }
 finally {
-    $logcatWindowCapture = Stop-AdbLogcatWindowCapture -Capture $logcatWindowCapture
+    $logcatWindowCapture = Invoke-ProfileTimedStep -Step "logcat-window-stop" -Action { Stop-AdbLogcatWindowCapture -Capture $logcatWindowCapture }
     Write-Utf8TextFile -Path (Join-Path $dir "logcat-window-summary.json") -Value ($logcatWindowCapture | ConvertTo-Json -Depth 5)
 }
-Invoke-RunValidation -Dir $dir -Label $label
-$powerStateSummary = New-PowerStateSummary -Dir $dir -BaselinePrefix "post-proximity-hold" -FinalPrefix $label
+Invoke-ProfileTimedStep -Step "run-validation" -Action { Invoke-RunValidation -Dir $dir -Label $label }
+$powerStateSummary = Invoke-ProfileTimedStep -Step "power-state-summary" -Action { New-PowerStateSummary -Dir $dir -BaselinePrefix "post-proximity-hold" -FinalPrefix $label }
 if ($powerStateSummary.status -ne "ok") {
     Write-Warning "Power/proximity state drift detected; see $dir\power-state-summary.json."
     if ($FailOnPowerStateDrift) {
@@ -1124,6 +1357,11 @@ $manifest = [ordered]@{
     cameraPipelinePreset = $CameraPipelinePreset
     cameraProjectionMode = $CameraProjectionMode
     warmupSeconds = $WarmupSeconds
+    captureReadinessMode = $CaptureReadinessMode
+    readyTimeoutSeconds = $ReadyTimeoutSeconds
+    readyPollIntervalMs = $ReadyPollIntervalMs
+    readySettleMs = $ReadySettleMs
+    captureReadiness = $captureReadinessSummary
     proximityHoldRequested = $proximityHoldRequested
     proximityHoldDurationMs = if ($proximityHoldRequested) { $ProximityHoldDurationMs } else { 0 }
     captureHzdbScreencap = [bool]$CaptureHzdbScreencap
@@ -1138,6 +1376,8 @@ $manifest = [ordered]@{
     overrides = $Override
     values = $values
     artifactDir = $dir
+    timingJsonl = $script:profileTimingPath
+    timingSummary = $script:profileTimingSummaryPath
     powerState = $powerStateSummary
     validations = @(Get-ChildItem -LiteralPath $dir -Filter "*-validation.json" -ErrorAction SilentlyContinue | ForEach-Object {
         try {
@@ -1153,6 +1393,15 @@ $manifest = [ordered]@{
 }
 $manifestPath = Join-Path $dir "run-manifest.json"
 Write-Utf8TextFile -Path $manifestPath -Value ($manifest | ConvertTo-Json -Depth 6)
-$manifest["projectionRuntimeReadback"] = Invoke-ProjectionRuntimeReadbackValidation -Dir $dir -Label $label -ManifestPath $manifestPath
+$manifest["projectionRuntimeReadback"] = Invoke-ProfileTimedStep -Step "projection-runtime-readback" -Action {
+    Invoke-ProjectionRuntimeReadbackValidation -Dir $dir -Label $label -ManifestPath $manifestPath
+}
+$profileTimingSummary = New-ProfileTimingSummary
+Write-Utf8TextFile -Path $script:profileTimingSummaryPath -Value ($profileTimingSummary | ConvertTo-Json -Depth 8)
+$manifest["timing"] = [ordered]@{
+    totalElapsedMs = $profileTimingSummary.totalElapsedMs
+    jsonl = $script:profileTimingPath
+    summary = $script:profileTimingSummaryPath
+}
 Write-Utf8TextFile -Path $manifestPath -Value ($manifest | ConvertTo-Json -Depth 8)
 Write-Output $dir

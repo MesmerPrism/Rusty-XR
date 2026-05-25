@@ -11,6 +11,9 @@ param(
     [string]$OutDir = "",
     [int]$StartupTimeoutSeconds = 30,
     [int]$SampleSeconds = 90,
+    [int]$ReadyPollIntervalMs = 750,
+    [int]$ReadySettleMs = 1500,
+    [switch]$UseFixedSampleWindow,
     [int]$FreshnessFrames = 6,
     [int]$FreshnessIntervalSeconds = 1,
     [int]$BrokerH264ReadyTimeoutSeconds = 30,
@@ -158,6 +161,90 @@ function Parse-DoubleInvariant {
 function Format-InvariantDouble {
     param([double]$Value)
     return $Value.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Add-GateTimingRecord {
+    param([object]$Record)
+    if ($null -eq $script:gateTimingRecords) {
+        return
+    }
+    $script:gateTimingRecords.Add($Record)
+    $Record | ConvertTo-Json -Depth 6 -Compress | Add-Content -Path $script:gateTimingPath -Encoding UTF8
+}
+
+function Invoke-GateTimedStep {
+    param(
+        [string]$Step,
+        [scriptblock]$Action
+    )
+    $startedAt = Get-Date
+    $startedElapsedMs = if ($script:gateStopwatch) { $script:gateStopwatch.ElapsedMilliseconds } else { 0 }
+    $status = "ok"
+    $errorMessage = ""
+    try {
+        & $Action
+    } catch {
+        $status = "failed"
+        $errorMessage = $_.Exception.Message
+        throw
+    } finally {
+        $endedAt = Get-Date
+        $endedElapsedMs = if ($script:gateStopwatch) { $script:gateStopwatch.ElapsedMilliseconds } else { 0 }
+        Add-GateTimingRecord -Record ([ordered]@{
+            step = $Step
+            status = $status
+            startedAt = $startedAt.ToString("o")
+            endedAt = $endedAt.ToString("o")
+            startElapsedMs = $startedElapsedMs
+            endElapsedMs = $endedElapsedMs
+            durationMs = $endedElapsedMs - $startedElapsedMs
+            error = $errorMessage
+        })
+        Write-Host ("[makepad-timing] {0} {1}ms {2}" -f $Step, ($endedElapsedMs - $startedElapsedMs), $status)
+    }
+}
+
+function Get-GateTimingRecordValue {
+    param(
+        [object]$Record,
+        [string]$Name
+    )
+    if ($Record -is [System.Collections.IDictionary]) {
+        return $Record[$Name]
+    }
+    return $Record.$Name
+}
+
+function New-GateTimingSummary {
+    $records = @($script:gateTimingRecords)
+    $byStep = @(
+        @($records | ForEach-Object { Get-GateTimingRecordValue -Record $_ -Name "step" } | Sort-Object -Unique) |
+            ForEach-Object {
+                $stepName = [string]$_
+                $group = @($records | Where-Object { (Get-GateTimingRecordValue -Record $_ -Name "step") -eq $stepName })
+                $durations = @($group | ForEach-Object { [int64](Get-GateTimingRecordValue -Record $_ -Name "durationMs") })
+                $sum = ($durations | Measure-Object -Sum).Sum
+                $min = ($durations | Measure-Object -Minimum).Minimum
+                $max = ($durations | Measure-Object -Maximum).Maximum
+                $avg = ($durations | Measure-Object -Average).Average
+                [ordered]@{
+                    step = $stepName
+                    count = $group.Count
+                    totalMs = if ($null -ne $sum) { $sum } else { 0 }
+                    minMs = if ($null -ne $min) { $min } else { 0 }
+                    maxMs = if ($null -ne $max) { $max } else { 0 }
+                    avgMs = if ($null -ne $avg) { [Math]::Round($avg, 2) } else { 0.0 }
+                    failures = @($group | Where-Object { (Get-GateTimingRecordValue -Record $_ -Name "status") -ne "ok" }).Count
+                }
+            }
+    )
+    return [ordered]@{
+        schemaVersion = "rusty.xr.makepad-camera-device-gate.timing.v1"
+        totalElapsedMs = if ($script:gateStopwatch) { $script:gateStopwatch.ElapsedMilliseconds } else { 0 }
+        timingJsonl = $script:gateTimingPath
+        records = $records
+        byStep = $byStep
+    }
 }
 
 function Assert-PropertyReadback {
@@ -543,6 +630,7 @@ function Capture-LaunchState {
         [string]$Label,
         [datetime]$LaunchStartedAt
     )
+    $capturedAt = Get-Date
     $dir = Join-Path $OutDir $Label
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     Save-Adb -Arguments @("shell", "dumpsys", "activity", "activities") -Path (Join-Path $dir "activity.txt")
@@ -642,6 +730,8 @@ function Capture-LaunchState {
     $state = [ordered]@{
         label = $Label
         launchedAt = $LaunchStartedAt.ToString("o")
+        capturedAt = $capturedAt.ToString("o")
+        elapsedSinceLaunchMs = [long]($capturedAt - $LaunchStartedAt).TotalMilliseconds
         activeXrActivity = [bool]$activeXr
         activityHasExpectedPackage = [bool]$activityHasExpectedPackage
         windowHasExpectedPackage = [bool]$windowHasExpectedPackage
@@ -765,6 +855,13 @@ function Capture-LaunchState {
         staleS69PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s69-source-eye-swap-panel-control").Count
         staleS68PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s68-active-eye-nonworld-panel-control").Count
         ready = [bool]($activeXr -and $processId -and $endFrame -gt 0 -and ($visiblePanel -gt 0 -or $xrCadence -gt 0))
+        readySignals = [ordered]@{
+            activeXrActivity = [bool]$activeXr
+            processIdPresent = -not [string]::IsNullOrWhiteSpace($processId)
+            openxrEndFrameCount = $endFrame
+            visiblePanelMarkerCount = $visiblePanel
+            nonzeroXrCadenceMarkerCount = $xrCadence
+        }
         resumed = @($activity | Select-String -Pattern "ResumedActivity|topResumedActivity|$xrActivityPattern|$appPattern" | ForEach-Object { $_.Line.Trim() })
         focus = @($window | Select-String -Pattern "mCurrentFocus|mFocusedApp|mResumedActivity" | ForEach-Object { $_.Line.Trim() })
     }
@@ -810,7 +907,7 @@ function Start-ActivityAndProbe {
 
     $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
     do {
-        Start-Sleep -Seconds 3
+        Start-Sleep -Milliseconds $ReadyPollIntervalMs
         $state = Capture-LaunchState -Label $Label -LaunchStartedAt $launchStartedAt
         if ($state.ready) {
             return $state
@@ -837,7 +934,9 @@ function Capture-FreshnessFrames {
             sha256 = Get-Sha256Hex -Path $localLong
             length = (Get-Item -LiteralPath $localLong).Length
         }
-        Start-Sleep -Seconds $FreshnessIntervalSeconds
+        if ($i -lt ($FreshnessFrames - 1) -and $FreshnessIntervalSeconds -gt 0) {
+            Start-Sleep -Seconds $FreshnessIntervalSeconds
+        }
     }
     return $hashes
 }
@@ -851,7 +950,7 @@ function Wait-BrokerH264TextureReady {
     $deadline = (Get-Date).AddSeconds($BrokerH264ReadyTimeoutSeconds)
     $state = $null
     do {
-        Start-Sleep -Seconds 3
+        Start-Sleep -Milliseconds $ReadyPollIntervalMs
         $state = Capture-LaunchState -Label "broker-h264-ready-poll" -LaunchStartedAt $LaunchStartedAt
         if ($state.brokerH264DecodedTextureReady) {
             return $state
@@ -865,35 +964,55 @@ if (-not $OutDir) {
     $OutDir = Join-Path (Get-Location) "artifacts/makepad-camera-device-gate-$stamp"
 }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+$script:gateTimingPath = Join-Path $OutDir "device-gate-timings.jsonl"
+$script:gateTimingSummaryPath = Join-Path $OutDir "device-gate-timing-summary.json"
+$script:gateStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$script:gateTimingRecords = [System.Collections.Generic.List[object]]::new()
 $effectiveProjectionRuntimeReadback = if ($ProjectionRuntimeReadback -eq "warn" -and $UseResolvedProjectionRuntime) { "required" } else { $ProjectionRuntimeReadback }
 
-Invoke-Adb -Arguments @("devices") | Set-Content -Path (Join-Path $OutDir "adb-devices.txt") -Encoding UTF8
-$projectionPropertyHygieneSummary = Invoke-RustyXrProjectionPropertyHygiene `
-    -Adb "adb" `
-    -Serial $Serial `
-    -Mode $ProjectionPropertyHygiene `
-    -OutputPath (Join-Path $OutDir "projection-property-hygiene.json")
-Install-Apk
-Grant-RuntimePermissions
-Set-MakepadProjectionTargetProfile
-Set-MakepadBrokerH264Profile
-Save-Adb -Arguments @("shell", "dumpsys", "power") -Path (Join-Path $OutDir "power-before-launch.txt")
-Save-Adb -Arguments @("shell", "getprop") -Path (Join-Path $OutDir "getprop-before-launch.txt")
+Invoke-GateTimedStep -Step "adb-devices" -Action {
+    Invoke-Adb -Arguments @("devices") | Set-Content -Path (Join-Path $OutDir "adb-devices.txt") -Encoding UTF8
+}
+$projectionPropertyHygieneSummary = Invoke-GateTimedStep -Step "projection-property-hygiene" -Action {
+    Invoke-RustyXrProjectionPropertyHygiene `
+        -Adb "adb" `
+        -Serial $Serial `
+        -Mode $ProjectionPropertyHygiene `
+        -OutputPath (Join-Path $OutDir "projection-property-hygiene.json")
+}
+Invoke-GateTimedStep -Step "install-apk" -Action { Install-Apk }
+Invoke-GateTimedStep -Step "grant-runtime-permissions" -Action { Grant-RuntimePermissions }
+Invoke-GateTimedStep -Step "set-projection-target-profile" -Action { Set-MakepadProjectionTargetProfile }
+Invoke-GateTimedStep -Step "set-broker-h264-profile" -Action { Set-MakepadBrokerH264Profile }
+Invoke-GateTimedStep -Step "prelaunch-state-capture" -Action {
+    Save-Adb -Arguments @("shell", "dumpsys", "power") -Path (Join-Path $OutDir "power-before-launch.txt")
+    Save-Adb -Arguments @("shell", "getprop") -Path (Join-Path $OutDir "getprop-before-launch.txt")
+}
 
 $attempts = @()
 if ($PreferDirectVrActivity) {
-    $attempts += Start-ActivityAndProbe -Label "direct-vr-attempt-1" -Activity $XrActivity -ForceStopFirst -VrIntent
+    $attempts += Invoke-GateTimedStep -Step "start-direct-vr-attempt-1" -Action {
+        Start-ActivityAndProbe -Label "direct-vr-attempt-1" -Activity $XrActivity -ForceStopFirst -VrIntent
+    }
     if (-not $attempts[-1].ready) {
-        $attempts += Start-ActivityAndProbe -Label "launcher-fallback-1" -Activity $LauncherActivity -LauncherIntent
+        $attempts += Invoke-GateTimedStep -Step "start-launcher-fallback-1" -Action {
+            Start-ActivityAndProbe -Label "launcher-fallback-1" -Activity $LauncherActivity -LauncherIntent
+        }
     }
 }
 else {
-    $attempts += Start-ActivityAndProbe -Label "launcher-attempt-1" -Activity $LauncherActivity -ForceStopFirst -LauncherIntent
+    $attempts += Invoke-GateTimedStep -Step "start-launcher-attempt-1" -Action {
+        Start-ActivityAndProbe -Label "launcher-attempt-1" -Activity $LauncherActivity -ForceStopFirst -LauncherIntent
+    }
     if (-not $attempts[-1].ready) {
-        $attempts += Start-ActivityAndProbe -Label "launcher-attempt-2" -Activity $LauncherActivity -LauncherIntent
+        $attempts += Invoke-GateTimedStep -Step "start-launcher-attempt-2" -Action {
+            Start-ActivityAndProbe -Label "launcher-attempt-2" -Activity $LauncherActivity -LauncherIntent
+        }
     }
     if (-not $attempts[-1].ready -and -not $SkipDirectXrFallback) {
-        $attempts += Start-ActivityAndProbe -Label "direct-vr-fallback" -Activity $XrActivity -VrIntent
+        $attempts += Invoke-GateTimedStep -Step "start-direct-vr-fallback" -Action {
+            Start-ActivityAndProbe -Label "direct-vr-fallback" -Activity $XrActivity -VrIntent
+        }
     }
 }
 
@@ -907,14 +1026,29 @@ if ($attempts[-1].ready) {
     } else {
         Get-Date
     }
-    $brokerReadyState = Wait-BrokerH264TextureReady -LaunchStartedAt $launchStartedAt
+    $brokerReadyState = Invoke-GateTimedStep -Step "broker-h264-texture-readiness" -Action {
+        Wait-BrokerH264TextureReady -LaunchStartedAt $launchStartedAt
+    }
     if ($brokerReadyState) {
         $attempts += $brokerReadyState
     }
-    Start-Sleep -Seconds ([Math]::Max(0, $SampleSeconds - ($FreshnessFrames * $FreshnessIntervalSeconds)))
-    $finalState = Capture-LaunchState -Label "$finalLabel-final" -LaunchStartedAt $launchStartedAt
+    if ($UseFixedSampleWindow) {
+        Invoke-GateTimedStep -Step "fixed-sample-window" -Action {
+            Start-Sleep -Seconds ([Math]::Max(0, $SampleSeconds - ($FreshnessFrames * $FreshnessIntervalSeconds)))
+        }
+    }
+    elseif ($ReadySettleMs -gt 0) {
+        Invoke-GateTimedStep -Step "ready-settle" -Action {
+            Start-Sleep -Milliseconds $ReadySettleMs
+        }
+    }
+    $finalState = Invoke-GateTimedStep -Step "capture-final-state" -Action {
+        Capture-LaunchState -Label "$finalLabel-final" -LaunchStartedAt $launchStartedAt
+    }
     $attempts += $finalState
-    $frames = Capture-FreshnessFrames -Label "$finalLabel-final"
+    $frames = Invoke-GateTimedStep -Step "capture-freshness-frames" -Action {
+        Capture-FreshnessFrames -Label "$finalLabel-final"
+    }
 } else {
     $frames = @()
 }
@@ -953,7 +1087,9 @@ if ($UseResolvedProjectionRuntime) {
         $projectionRuntimeGateFailures += "numeric projection fields resolved as bool"
     }
 }
-$projectionRuntimeReadbackSummary = Invoke-ProjectionRuntimeReadbackValidation -Attempts $attempts -Mode $effectiveProjectionRuntimeReadback
+$projectionRuntimeReadbackSummary = Invoke-GateTimedStep -Step "projection-runtime-readback" -Action {
+    Invoke-ProjectionRuntimeReadbackValidation -Attempts $attempts -Mode $effectiveProjectionRuntimeReadback
+}
 if ($effectiveProjectionRuntimeReadback -eq "required" -and $projectionRuntimeReadbackSummary.status -ne "ok") {
     $projectionRuntimeGateFailures += "projection runtime readback validation failed"
 }
@@ -975,6 +1111,8 @@ $resolvedBrokerH264SyntheticProjectionProfile = if ($UseBrokerH264Camera -or -no
 else {
     $BrokerH264SyntheticProjectionProfile
 }
+$gateTimingSummary = New-GateTimingSummary
+$gateTimingSummary | ConvertTo-Json -Depth 8 | Set-Content -Path $script:gateTimingSummaryPath -Encoding UTF8
 
 $summary = [ordered]@{
     schema = "rusty.xr.makepad-camera-device-gate.v1"
@@ -999,9 +1137,21 @@ $summary = [ordered]@{
     projectionAlphaBias = $ProjectionAlphaBias
     useResolvedProjectionRuntime = [bool]$UseResolvedProjectionRuntime
     mediaProjection = [bool]$MediaProjection
+    startupTimeoutSeconds = $StartupTimeoutSeconds
+    readyPollIntervalMs = $ReadyPollIntervalMs
+    readySettleMs = $ReadySettleMs
+    useFixedSampleWindow = [bool]$UseFixedSampleWindow
+    sampleSeconds = $SampleSeconds
     projectionPropertyHygiene = $projectionPropertyHygieneSummary
     projectionRuntimeReadbackMode = $effectiveProjectionRuntimeReadback
     projectionRuntimeReadback = $projectionRuntimeReadbackSummary
+    timingJsonl = $script:gateTimingPath
+    timingSummary = $script:gateTimingSummaryPath
+    timing = [ordered]@{
+        totalElapsedMs = $gateTimingSummary.totalElapsedMs
+        jsonl = $script:gateTimingPath
+        summary = $script:gateTimingSummaryPath
+    }
     mediaProjectionPort = $MediaProjectionPort
     mediaProjectionWidth = $MediaProjectionWidth
     mediaProjectionHeight = $MediaProjectionHeight

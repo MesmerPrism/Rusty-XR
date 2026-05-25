@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -322,8 +323,9 @@ def validate_suite_summary(value: Any) -> dict[str, Any]:
     require_enum(contract.get("evidenceMode"), "summary.captureContract.evidenceMode", {"custom", "fast-visual", "full-evidence"})
     media_projection_enabled = require_bool(contract.get("mediaProjectionEnabled"), "summary.captureContract.mediaProjectionEnabled")
     analyzer_enabled = require_bool(contract.get("analyzerEnabled"), "summary.captureContract.analyzerEnabled")
-    require_bool(contract.get("contactSheetEnabled"), "summary.captureContract.contactSheetEnabled")
+    contact_sheet_enabled = require_bool(contract.get("contactSheetEnabled"), "summary.captureContract.contactSheetEnabled")
     require_bool(contract.get("timingEnabled"), "summary.captureContract.timingEnabled")
+    require_bool(contract.get("readinessTimingEnabled"), "summary.captureContract.readinessTimingEnabled")
     require_enum(contract.get("projectionPropertyHygiene"), "summary.captureContract.projectionPropertyHygiene", {"fail", "clear", "ignore"})
 
     geometry = require_object(summary["geometry"], "summary.geometry")
@@ -342,8 +344,18 @@ def validate_suite_summary(value: Any) -> dict[str, Any]:
         "projectionAreaCornerRadiusUv",
     ):
         require_number(geometry.get(key), f"summary.geometry.{key}")
-    for key in ("boundedCanvasProjectionArea", "skipMediaProjection", "useResolvedProjectionRuntime", "failOnAnalyzerIssue", "skipAnalyzer"):
+    for key in (
+        "boundedCanvasProjectionArea",
+        "skipMediaProjection",
+        "useResolvedProjectionRuntime",
+        "makepadUseFixedSampleWindow",
+        "failOnAnalyzerIssue",
+        "skipAnalyzer",
+    ):
         require_bool(geometry.get(key), f"summary.geometry.{key}")
+    require_enum(geometry.get("captureReadinessMode"), "summary.geometry.captureReadinessMode", {"contract", "warmup", "none"})
+    for key in ("readyTimeoutSeconds", "readyPollIntervalMs", "readySettleMs", "makepadReadySettleMs"):
+        require_int(geometry.get(key), f"summary.geometry.{key}", minimum=0)
 
     if media_projection_enabled == geometry["skipMediaProjection"]:
         raise ValidationError("summary MediaProjection capture flags are internally inconsistent")
@@ -380,7 +392,7 @@ def validate_suite_summary(value: Any) -> dict[str, Any]:
     contact_sheet = require_object(summary["contactSheetStatus"], "summary.contactSheetStatus")
     contact_sheet_skipped = require_bool(contact_sheet.get("skipped"), "summary.contactSheetStatus.skipped")
     contact_sheet_status = require_enum(contact_sheet.get("status"), "summary.contactSheetStatus.status", {"pending", "ok", "failed", "skipped"})
-    if contract.get("contactSheetEnabled") is False:
+    if contact_sheet_enabled is False:
         if contact_sheet_status != "skipped" or contact_sheet_skipped is not True:
             raise ValidationError("summary contact sheet contract is disabled but contactSheetStatus is not skipped")
     artifact_validation = require_object(summary["artifactValidation"], "summary.artifactValidation")
@@ -591,6 +603,7 @@ def write_self_test_fixture(root: Path) -> None:
             "analyzerEnabled": True,
             "contactSheetEnabled": True,
             "timingEnabled": True,
+            "readinessTimingEnabled": True,
             "projectionPropertyHygiene": "clear",
             "geometryWitness": "HzDB screencap",
             "modeSemantics": "fixture",
@@ -608,11 +621,17 @@ def write_self_test_fixture(root: Path) -> None:
             "boundedCanvasProjectionArea": False,
             "skipMediaProjection": False,
             "useResolvedProjectionRuntime": False,
+            "captureReadinessMode": "contract",
+            "readyTimeoutSeconds": 30,
+            "readyPollIntervalMs": 500,
+            "readySettleMs": 1500,
             "projectionAreaRadiusXUv": 0.5,
             "projectionAreaRadiusYUv": 0.5,
             "projectionAreaCornerRadiusUv": 0.0,
             "makepadStartupTimeoutSeconds": 1,
+            "makepadUseFixedSampleWindow": False,
             "makepadSampleSeconds": 1,
+            "makepadReadySettleMs": 1500,
             "makepadPostRunSettleSeconds": 0,
             "expectedMakepadSourceEyeMapping": "display-left-from-left-source",
             "failOnAnalyzerIssue": False,
@@ -785,6 +804,28 @@ def run_self_test() -> int:
         screen_report["projection_border_policy"] = "passthrough-underlay"
         screen_report["allow_visible_fallback"] = True
         screen_report_path.write_text(json.dumps(screen_report), encoding="utf-8")
+        validate_suite_root(root)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        write_self_test_fixture(root)
+        summary_path = root / "canvas-custom-projection-parity-suite-summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["evidenceMode"] = "fast-visual"
+        summary["headsetCaptureProvider"] = "fast-adb"
+        summary["captureContract"]["evidenceMode"] = "fast-visual"
+        summary["captureContract"]["mediaProjectionEnabled"] = False
+        summary["captureContract"]["analyzerEnabled"] = False
+        summary["captureContract"]["contactSheetEnabled"] = True
+        summary["captureContract"]["geometryWitness"] = "fast ADB screencap"
+        summary["geometry"]["projectionBorderPolicy"] = "passthrough-underlay"
+        summary["geometry"]["skipMediaProjection"] = True
+        summary["geometry"]["skipAnalyzer"] = True
+        summary["records"][0]["mediaProjection"] = None
+        summary["records"][0]["headsetCaptureProvider"] = "fast-adb"
+        summary["analysis"] = {"skipped": True, "status": "skipped", "outDir": str(root / "screen-space-analysis"), "error": ""}
+        summary["contactSheetStatus"] = {"skipped": False, "status": "ok", "path": "fixture.png", "error": ""}
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+        shutil.rmtree(root / "screen-space-analysis")
         validate_suite_root(root)
     fixture_path = repo_root() / "tools" / "quest-camera-profile" / "fixtures" / "source-sampling-contracts.cross-backend.jsonl"
     fixture_backends = set()

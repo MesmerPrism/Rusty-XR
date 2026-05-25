@@ -13,14 +13,22 @@ param(
     [int]$MakepadStartupTimeoutSeconds = 60,
     [int]$MakepadSampleSeconds = 32,
     [int]$MakepadPostRunSettleSeconds = 8,
+    [ValidateSet("contract", "warmup", "none")]
+    [string]$CaptureReadinessMode = "contract",
+    [int]$ReadyTimeoutSeconds = 30,
+    [int]$ReadyPollIntervalMs = 500,
+    [int]$ReadySettleMs = 1500,
+    [int]$MakepadReadySettleMs = 1500,
     [int]$MediaProjectionPort = 8787,
     [int]$MediaProjectionMaxFrames = 0,
     [int]$MediaProjectionDrainMs = 1500,
     [switch]$SkipMediaProjection,
     [ValidateSet("fast-adb", "hzdb")]
     [string]$HeadsetCaptureProvider = "fast-adb",
+    [switch]$RunAnalyzer,
     [switch]$SkipAnalyzer,
     [switch]$FailOnAnalyzerIssue,
+    [switch]$UseFixedMakepadSampleWindow,
     [ValidateSet("direct-camera", "broker-camera", "broker-synthetic")]
     [string]$SourceMode = "direct-camera",
     [ValidateSet("passthrough-underlay", "solid-red")]
@@ -58,6 +66,12 @@ if ([double]::IsNaN($BlurRadiusPx) -or [double]::IsInfinity($BlurRadiusPx) -or $
     throw "BlurRadiusPx must be a finite value from 0.0 to 16.0"
 }
 
+if ($RunAnalyzer -and $SkipAnalyzer) {
+    throw "-RunAnalyzer and -SkipAnalyzer cannot be used together."
+}
+
+$analyzerEnabled = [bool]$RunAnalyzer
+
 switch ($EvidenceMode) {
     "fast-visual" {
         if ($PSBoundParameters.ContainsKey("HeadsetCaptureProvider") -and $HeadsetCaptureProvider -ne "fast-adb") {
@@ -76,10 +90,11 @@ switch ($EvidenceMode) {
             throw "EvidenceMode full-evidence requires HeadsetCaptureProvider hzdb. Use EvidenceMode custom for mixed capture settings."
         }
         $SkipMediaProjection = $false
-        $SkipAnalyzer = $false
+        $analyzerEnabled = $true
         $HeadsetCaptureProvider = "hzdb"
     }
 }
+$contactSheetEnabled = $true
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $runRootPath = if ([System.IO.Path]::IsPathRooted($RunRoot)) {
@@ -243,9 +258,15 @@ Write-Host ("[suite] evidenceMode={0} headsetCaptureProvider={1} mediaProjection
     $EvidenceMode,
     $HeadsetCaptureProvider,
     (-not [bool]$SkipMediaProjection),
-    (-not [bool]$SkipAnalyzer),
+    ([bool]$analyzerEnabled),
     $ProjectionBorderPolicy,
     $effectiveProjectionRuntimeReadback)
+Write-Host ("[suite] captureReadinessMode={0} readyTimeout={1}s readyPoll={2}ms readySettle={3}ms makepadReadySettle={4}ms" -f `
+    $CaptureReadinessMode,
+    $ReadyTimeoutSeconds,
+    $ReadyPollIntervalMs,
+    $ReadySettleMs,
+    $MakepadReadySettleMs)
 
 function Test-LaneEnabled {
     param([string]$Lane)
@@ -960,6 +981,10 @@ function Invoke-HwbOrGlesCase {
         "-RuntimeProfile", $RuntimeProfile,
         "-RunRoot", $caseRoot,
         "-WarmupSeconds", $WarmupSeconds.ToString(),
+        "-CaptureReadinessMode", $CaptureReadinessMode,
+        "-ReadyTimeoutSeconds", $ReadyTimeoutSeconds.ToString(),
+        "-ReadyPollIntervalMs", $ReadyPollIntervalMs.ToString(),
+        "-ReadySettleMs", $ReadySettleMs.ToString(),
         "-FreshnessFrames", "1",
         "-SkipProximityHold",
         "-LogcatLines", "16000",
@@ -1045,7 +1070,7 @@ function Invoke-MakepadCase {
         $adbDir = Split-Path -Parent $adbPath
         $env:PATH = "$adbDir;$env:PATH"
     }
-    $makepadSampleSecondsForRun = [Math]::Max($MakepadSampleSeconds, $WarmupSeconds)
+    $makepadSampleSecondsForRun = if ($UseFixedMakepadSampleWindow) { [Math]::Max($MakepadSampleSeconds, $WarmupSeconds) } else { 0 }
     $makepadArgs = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass",
         "-File", $makepadRunner,
@@ -1055,6 +1080,8 @@ function Invoke-MakepadCase {
         "-OutDir", $caseRoot,
         "-StartupTimeoutSeconds", $MakepadStartupTimeoutSeconds.ToString(),
         "-SampleSeconds", $makepadSampleSecondsForRun.ToString(),
+        "-ReadySettleMs", $MakepadReadySettleMs.ToString(),
+        "-ReadyPollIntervalMs", $ReadyPollIntervalMs.ToString(),
         "-FreshnessFrames", "1",
         "-FreshnessIntervalSeconds", "1",
         "-PreferDirectVrActivity",
@@ -1123,6 +1150,9 @@ function Invoke-MakepadCase {
     }
     if (-not $Install) {
         $makepadArgs += "-SkipInstall"
+    }
+    if ($UseFixedMakepadSampleWindow) {
+        $makepadArgs += "-UseFixedSampleWindow"
     }
     try {
         Invoke-TimedStep -CaseId $caseId -Step "broker-restart" -Action { Restart-BrokerForCase -CaseId $caseId }
@@ -1325,16 +1355,17 @@ $summary = [ordered]@{
     captureContract = [ordered]@{
         evidenceMode = $EvidenceMode
         mediaProjectionEnabled = -not [bool]$SkipMediaProjection
-        analyzerEnabled = -not [bool]$SkipAnalyzer
-        contactSheetEnabled = $true
+        analyzerEnabled = [bool]$analyzerEnabled
+        contactSheetEnabled = [bool]$contactSheetEnabled
         timingEnabled = $true
+        readinessTimingEnabled = $true
         projectionPropertyHygiene = "clear"
         projectionRuntimeReadback = $effectiveProjectionRuntimeReadback
         geometryWitness = $headsetCaptureLabel
         modeSemantics = switch ($EvidenceMode) {
-            "fast-visual" { "Fast visual capture mode: fast ADB headset screenshots. MediaProjection, analyzer, and projection border policy are controlled by their own switches." }
+            "fast-visual" { "Fast visual capture mode: fast ADB headset screenshots with readiness-timed capture. Analyzer overlays/contracts are opt-in with -RunAnalyzer; a raw screenshot contact sheet is still produced. MediaProjection and projection border policy are controlled by their own switches." }
             "full-evidence" { "Full diagnostic capture mode: HzDB headset screenshots, MediaProjection receiver, analyzer overlays/contracts, contact sheet, and timing summary. Projection border policy is controlled separately." }
-            default { "Custom mode: explicit capture/analyzer/projection switches define the run contract." }
+            default { "Custom mode: explicit capture/analyzer/projection/readiness switches define the run contract. Analyzer overlays/contracts are opt-in with -RunAnalyzer; the contact sheet falls back to raw screenshots when analysis is skipped." }
         }
     }
     geometry = [ordered]@{
@@ -1351,15 +1382,21 @@ $summary = [ordered]@{
         skipMediaProjection = [bool]$SkipMediaProjection
         useResolvedProjectionRuntime = [bool]$UseResolvedProjectionRuntime
         projectionRuntimeReadback = $effectiveProjectionRuntimeReadback
+        captureReadinessMode = $CaptureReadinessMode
+        readyTimeoutSeconds = $ReadyTimeoutSeconds
+        readyPollIntervalMs = $ReadyPollIntervalMs
+        readySettleMs = $ReadySettleMs
         projectionAreaRadiusXUv = [double]$projectionAreaRadiusXUv
         projectionAreaRadiusYUv = [double]$projectionAreaRadiusYUv
         projectionAreaCornerRadiusUv = [double]$projectionAreaCornerRadiusUv
         makepadStartupTimeoutSeconds = $MakepadStartupTimeoutSeconds
-        makepadSampleSeconds = [Math]::Max($MakepadSampleSeconds, $WarmupSeconds)
+        makepadUseFixedSampleWindow = [bool]$UseFixedMakepadSampleWindow
+        makepadSampleSeconds = if ($UseFixedMakepadSampleWindow) { [Math]::Max($MakepadSampleSeconds, $WarmupSeconds) } else { 0 }
+        makepadReadySettleMs = $MakepadReadySettleMs
         makepadPostRunSettleSeconds = $MakepadPostRunSettleSeconds
         expectedMakepadSourceEyeMapping = $ExpectedMakepadSourceEyeMapping
         failOnAnalyzerIssue = [bool]$FailOnAnalyzerIssue
-        skipAnalyzer = [bool]$SkipAnalyzer
+        skipAnalyzer = -not [bool]$analyzerEnabled
     }
     brokerH264 = [ordered]@{
         sourceMode = $SourceMode
@@ -1378,7 +1415,7 @@ $summary = [ordered]@{
     }
     captureRouteNotes = @(
         $(if ($SkipMediaProjection) { "MediaProjection capture is disabled for this run; $headsetCaptureLabel is the only image evidence." } else { "MediaProjection captures are latest-frame app/display-capture evidence for the rendered camera window after the profile run." }),
-        "Headset captures use provider '$HeadsetCaptureProvider' ($headsetCaptureLabel); this is the geometry authority for per-eye footprint diagnostics, and the contact sheet overlays analyzer boxes on that column.",
+        "Headset captures use provider '$HeadsetCaptureProvider' ($headsetCaptureLabel); this is the geometry authority for per-eye footprint diagnostics. When analyzer output is enabled, the contact sheet overlays analyzer boxes on that column.",
         $(if ($SkipMediaProjection) { "Projection parity should be judged from headset capture only." } else { "MediaProjection is display/app-window mirror evidence and may visually align with a different headset eye by renderer; do not use its apparent eye index as source-eye parity proof." }),
         "Broker-source runs restart the broker service before each condition. Broker-camera requests physical Camera2 H.264 streams; broker-synthetic requests the diagnostic H.264 stimulus with camera-matched metadata for synthetic blur evidence."
     )
@@ -1389,14 +1426,14 @@ $summaryPath = Join-Path $sessionRoot "canvas-custom-projection-parity-suite-sum
 $summary | ConvertTo-Json -Depth 7 | Set-Content -Path $summaryPath -Encoding UTF8
 
 $analysisStatus = [ordered]@{
-    skipped = [bool]$SkipAnalyzer
-    status = if ($SkipAnalyzer) { "skipped" } else { "pending" }
+    skipped = -not [bool]$analyzerEnabled
+    status = if ($analyzerEnabled) { "pending" } else { "skipped" }
     outDir = $screenSpaceAnalysisDir
     error = ""
 }
 $contactSheetStatus = [ordered]@{
-    skipped = $false
-    status = "pending"
+    skipped = -not [bool]$contactSheetEnabled
+    status = if ($contactSheetEnabled) { "pending" } else { "skipped" }
     path = $contactSheetPath
     error = ""
 }
@@ -1407,7 +1444,7 @@ $artifactValidationStatus = [ordered]@{
     error = ""
 }
 
-if (-not $SkipAnalyzer) {
+if ($analyzerEnabled) {
     try {
         $analysisArgs = @($sessionRoot, "--out-dir", $screenSpaceAnalysisDir)
         if ($ProjectionBorderPolicy -ne "solid-red") {
@@ -1430,20 +1467,22 @@ if (-not $SkipAnalyzer) {
     }
 }
 
-try {
-    Invoke-TimedStep -CaseId "suite" -Step "contact-sheet" -Action {
-        & python $contactSheetBuilder --session-root $sessionRoot --analysis-dir $screenSpaceAnalysisDir --output $contactSheetPath | ForEach-Object { Write-Host $_ }
-        if ($LASTEXITCODE -ne 0) {
-            throw "Canvas/custom parity contact sheet generation failed with exit code $LASTEXITCODE"
+if ($contactSheetEnabled) {
+    try {
+        Invoke-TimedStep -CaseId "suite" -Step "contact-sheet" -Action {
+            & python $contactSheetBuilder --session-root $sessionRoot --analysis-dir $screenSpaceAnalysisDir --output $contactSheetPath | ForEach-Object { Write-Host $_ }
+            if ($LASTEXITCODE -ne 0) {
+                throw "Canvas/custom parity contact sheet generation failed with exit code $LASTEXITCODE"
+            }
         }
-    }
-    $contactSheetStatus["status"] = "ok"
-} catch {
-    $contactSheetStatus["status"] = "failed"
-    $contactSheetStatus["error"] = $_.Exception.Message
-    Write-Warning $contactSheetStatus["error"]
-    if ($FailOnAnalyzerIssue) {
-        throw
+        $contactSheetStatus["status"] = "ok"
+    } catch {
+        $contactSheetStatus["status"] = "failed"
+        $contactSheetStatus["error"] = $_.Exception.Message
+        Write-Warning $contactSheetStatus["error"]
+        if ($FailOnAnalyzerIssue) {
+            throw
+        }
     }
 }
 

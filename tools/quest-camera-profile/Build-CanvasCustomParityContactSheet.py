@@ -208,6 +208,7 @@ def main() -> int:
 
     rows = load_rows(session_root)
     analysis = load_analysis(analysis_dir)
+    has_analysis = bool(analysis)
     has_media_projection = any(row.get("media_projection") for row in rows)
 
     width = 1900
@@ -246,26 +247,35 @@ def main() -> int:
         fill=text,
         font=title_font,
     )
-    legend_bottom = draw_legend(
-        draw,
-        margin,
-        50,
-        width - margin * 2,
-        text,
-        muted,
-        small_font,
-    )
+    if has_analysis:
+        legend_bottom = draw_legend(
+            draw,
+            margin,
+            50,
+            width - margin * 2,
+            text,
+            muted,
+            small_font,
+        )
+    else:
+        draw.text(
+            (margin, 54),
+            "Analyzer skipped; raw headset screenshots only.",
+            fill=muted,
+            font=small_font,
+        )
+        legend_bottom = 76
     header_y = max(title_height - 36, legend_bottom + 4)
     draw.text(
         (margin + left_width + column_gap, header_y),
-        "MediaProjection" if has_media_projection else "Headset diagnostic overlay",
+        "MediaProjection" if has_media_projection else ("Headset diagnostic overlay" if has_analysis else "Headset screenshot"),
         fill=accent,
         font=header_font,
     )
     if has_media_projection:
         draw.text(
             (margin + left_width + column_gap + column_width + column_gap, header_y),
-            "Headset diagnostic overlay",
+            "Headset diagnostic overlay" if has_analysis else "Headset screenshot",
             fill=accent,
             font=header_font,
         )
@@ -282,10 +292,10 @@ def main() -> int:
         draw.text((margin + label_pad, y + 26), label, fill=text, font=label_font)
         if has_media_projection:
             draw.text((margin + label_pad, y + 58), "left: app/display capture", fill=muted, font=small_font)
-            draw.text((margin + label_pad, y + 78), "right: headset capture + analyzer overlay", fill=muted, font=small_font)
+            draw.text((margin + label_pad, y + 78), "right: headset capture + analyzer overlay" if has_analysis else "right: headset capture", fill=muted, font=small_font)
             metric_y = y + 112
         else:
-            draw.text((margin + label_pad, y + 58), "headset capture + analyzer overlay", fill=muted, font=small_font)
+            draw.text((margin + label_pad, y + 58), "headset capture + analyzer overlay" if has_analysis else "headset capture", fill=muted, font=small_font)
             metric_y = y + 92
         for metric in metrics:
             draw.text((margin + label_pad, metric_y), metric, fill=muted, font=small_font)

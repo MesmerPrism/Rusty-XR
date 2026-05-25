@@ -329,20 +329,32 @@ prunes older raw payload files while retaining the frame ledger.
 The suite writes a labeled `canvas-custom-projection-parity-results.png`
 contact sheet into the run root. Use `-EvidenceMode fast-visual` for the
 low-latency headset screenshot path: it selects fast direct ADB headset
-screenshots. Projection border policy, MediaProjection capture, and analyzer
-execution remain controlled by `-ProjectionBorderPolicy`, `-SkipMediaProjection`,
-and `-SkipAnalyzer`. For the old screenshot-only solid diagnostic sweep, pass
-`-EvidenceMode fast-visual` with `-ProjectionBorderPolicy solid-red`,
-`-SkipMediaProjection`, and `-SkipAnalyzer`.
+screenshots and does not run the analyzer unless `-RunAnalyzer` is passed. The
+contact sheet falls back to raw headset screenshots when analysis is skipped.
+Projection border policy and MediaProjection capture remain controlled by
+`-ProjectionBorderPolicy` and `-SkipMediaProjection`; fast visual mode does not
+hard-code those features. For the old screenshot-only solid diagnostic sweep,
+pass `-EvidenceMode fast-visual` with `-ProjectionBorderPolicy solid-red` and
+`-SkipMediaProjection`.
 Use `-EvidenceMode full-evidence` for the slower diagnostic sweep: it enables
 HzDB headset screenshots, MediaProjection receiver capture, analyzer overlays
 and coordinate contracts, contact-sheet output, and timing records, while
 leaving `-ProjectionBorderPolicy` independent. The
 default `-EvidenceMode custom` preserves the individual `-SkipMediaProjection`,
-`-HeadsetCaptureProvider`, `-SkipAnalyzer`, and `-ProjectionBorderPolicy`
-switches for mixed investigations. The summary writes `step-timings.jsonl` and
-`step-timing-summary.json` so launch, MediaProjection receiver, headset
-capture, analyzer, and contact-sheet time can be compared per case.
+`-HeadsetCaptureProvider`, `-RunAnalyzer`, `-SkipAnalyzer`, and
+`-ProjectionBorderPolicy` switches for mixed investigations. The summary writes
+`step-timings.jsonl` and `step-timing-summary.json`; HWB/OES profile runs also
+write `profile-step-timings.jsonl`, `profile-step-timing-summary.json`, and a
+per-run readiness summary. Makepad runs write `device-gate-timings.jsonl` and
+`device-gate-timing-summary.json`.
+
+By default the fast path uses `-CaptureReadinessMode contract`: the harness
+starts a bounded streaming logcat window before launch, polls it for renderer
+readiness markers such as source-sampling or projection-coordinate contracts,
+waits only the configured `-ReadySettleMs`, then captures. The legacy fixed
+warmup remains available with `-CaptureReadinessMode warmup`. Makepad follows
+the same policy after its existing active-XR/frame/cadence readiness probe; a
+fixed Makepad sample window is opt-in with `-UseFixedMakepadSampleWindow`.
 
 The suite validates its JSON/JSONL artifact contract before returning. To check
 a saved run manually:
