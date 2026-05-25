@@ -101,19 +101,6 @@ pub(super) struct GpuCameraStereoDescriptor {
     pub(super) descriptor_pool: vk::DescriptorPool,
 }
 
-pub(super) struct CameraUpload {
-    pub(super) buffer: vk::Buffer,
-    pub(super) memory: vk::DeviceMemory,
-    pub(super) capacity: vk::DeviceSize,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct CameraCopy {
-    pub(super) buffer: vk::Buffer,
-    pub(super) width: u32,
-    pub(super) height: u32,
-}
-
 impl GpuCameraImport {
     pub(super) unsafe fn destroy(self, device: &ash::Device) {
         let _ = device.free_descriptor_sets(self.descriptor_pool, &[self.descriptor_set]);

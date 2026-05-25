@@ -38,13 +38,14 @@ use rusty_xr_particles::{
     MeshSurfaceCrossNeighborConfig, MeshSurfaceSampleConfig, ParticleRender,
 };
 
+mod camera_upload_resources;
 mod gpu_camera_renderer;
 mod gpu_camera_resources;
 mod projection_geometry;
 mod source_metadata;
 mod swapchain_resources;
+use camera_upload_resources::{ensure_camera_upload, CameraCopy, CameraUpload};
 use gpu_camera_renderer::{CameraProjectionPush, CameraRenderCadenceStats, GpuCameraRenderer};
-use gpu_camera_resources::{CameraCopy, CameraUpload};
 use projection_geometry::{
     camera_preview_surface_corners, display_eye_uv_fiducial_contract_log_message,
     display_eye_uv_fiducial_marker_fields, eye_basis_from_view, fov_aspect,
@@ -3996,8 +3997,7 @@ unsafe fn run_vulkan(
         destroy_swapchain(&vk_device, swapchain);
     }
     if let Some(upload) = camera_upload {
-        vk_device.destroy_buffer(upload.buffer, None);
-        vk_device.free_memory(upload.memory, None);
+        upload.destroy(&vk_device);
     }
     gpu_camera_renderer.destroy(&vk_device);
     vk_device.destroy_command_pool(cmd_pool, None);
@@ -4007,62 +4007,6 @@ unsafe fn run_vulkan(
 
     log_info("Rusty XR OpenXR loop exited cleanly");
     Ok(())
-}
-
-unsafe fn ensure_camera_upload<'a>(
-    vk_device: &ash::Device,
-    memory_properties: &vk::PhysicalDeviceMemoryProperties,
-    upload: &'a mut Option<CameraUpload>,
-    byte_len: vk::DeviceSize,
-) -> Result<&'a mut CameraUpload, String> {
-    let needs_new = upload
-        .as_ref()
-        .map(|upload| upload.capacity < byte_len)
-        .unwrap_or(true);
-
-    if needs_new {
-        if let Some(old) = upload.take() {
-            vk_device.destroy_buffer(old.buffer, None);
-            vk_device.free_memory(old.memory, None);
-        }
-
-        let buffer = vk_device
-            .create_buffer(
-                &vk::BufferCreateInfo::default()
-                    .size(byte_len)
-                    .usage(vk::BufferUsageFlags::TRANSFER_SRC)
-                    .sharing_mode(vk::SharingMode::EXCLUSIVE),
-                None,
-            )
-            .map_err(|error| format!("create headset camera upload buffer: {error}"))?;
-        let requirements = vk_device.get_buffer_memory_requirements(buffer);
-        let memory_type_index = find_memory_type(
-            memory_properties,
-            requirements.memory_type_bits,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )?;
-        let memory = vk_device
-            .allocate_memory(
-                &vk::MemoryAllocateInfo::default()
-                    .allocation_size(requirements.size)
-                    .memory_type_index(memory_type_index),
-                None,
-            )
-            .map_err(|error| format!("allocate headset camera upload memory: {error}"))?;
-        vk_device
-            .bind_buffer_memory(buffer, memory, 0)
-            .map_err(|error| format!("bind headset camera upload memory: {error}"))?;
-
-        *upload = Some(CameraUpload {
-            buffer,
-            memory,
-            capacity: byte_len,
-        });
-    }
-
-    upload
-        .as_mut()
-        .ok_or_else(|| "headset camera upload buffer was not initialized".to_string())
 }
 
 unsafe fn upload_headset_camera_rgba(
