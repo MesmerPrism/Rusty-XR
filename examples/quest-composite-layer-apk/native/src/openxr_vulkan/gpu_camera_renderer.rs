@@ -4,10 +4,10 @@ use openxr as xr;
 use crate::{HeadsetCameraGpuFrame, StereoGpuCameraFrame};
 
 use super::gpu_camera_resources::{
-    GpuCameraFormatKey, GpuCameraImport, GpuCameraImportKey, GpuCameraPipelineResources,
-    GpuCameraStereoDescriptor,
+    GpuCameraFormatKey, GpuCameraImportKey, GpuCameraPipelineResources, GpuCameraStereoDescriptor,
 };
 use super::{
+    gpu_camera_cache::{GpuCameraImportCache, GpuCameraImportCacheStats},
     gpu_camera_descriptors::allocate_camera_descriptor_set,
     gpu_camera_draw::{record_camera_draw, record_stereo_camera_draw},
     gpu_camera_import::{import_camera_hardware_buffer, transition_imported_camera_image},
@@ -24,13 +24,7 @@ pub(super) struct GpuCameraRenderer {
     projection_uniform_alignment: vk::DeviceSize,
     render_pass: vk::RenderPass,
     resources: Option<GpuCameraPipelineResources>,
-    pub(super) imports: Vec<GpuCameraImport>,
-    pub(super) stereo_descriptors: Vec<GpuCameraStereoDescriptor>,
-    pub(super) import_success_count: u64,
-    pub(super) import_failure_count: u64,
-    pub(super) import_cache_hit_count: u64,
-    pub(super) import_cache_miss_count: u64,
-    pub(super) import_cache_evict_count: u64,
+    cache: GpuCameraImportCache,
     pub(super) last_failure: Option<String>,
 }
 
@@ -52,15 +46,13 @@ impl GpuCameraRenderer {
             projection_uniform_alignment,
             render_pass,
             resources: None,
-            imports: Vec::new(),
-            stereo_descriptors: Vec::new(),
-            import_success_count: 0,
-            import_failure_count: 0,
-            import_cache_hit_count: 0,
-            import_cache_miss_count: 0,
-            import_cache_evict_count: 0,
+            cache: GpuCameraImportCache::default(),
             last_failure: None,
         }
+    }
+
+    pub(super) fn cache_stats(&self) -> GpuCameraImportCacheStats {
+        self.cache.stats()
     }
 
     pub(super) unsafe fn prepare_frame(
@@ -89,12 +81,12 @@ impl GpuCameraRenderer {
             import_cache_limit,
         ) {
             Ok(index) => {
-                self.import_success_count = self.import_success_count.saturating_add(1);
+                self.cache.record_import_success();
                 self.last_failure = None;
                 Ok(Some(index))
             }
             Err(error) => {
-                self.import_failure_count = self.import_failure_count.saturating_add(1);
+                self.cache.record_import_failure();
                 self.last_failure = Some(error.clone());
                 Err(error)
             }
@@ -127,12 +119,12 @@ impl GpuCameraRenderer {
             import_cache_limit,
         ) {
             Ok(index) => {
-                self.import_success_count = self.import_success_count.saturating_add(1);
+                self.cache.record_import_success();
                 self.last_failure = None;
                 Ok(Some(index))
             }
             Err(error) => {
-                self.import_failure_count = self.import_failure_count.saturating_add(1);
+                self.cache.record_import_failure();
                 self.last_failure = Some(error.clone());
                 Err(error)
             }
@@ -168,49 +160,41 @@ impl GpuCameraRenderer {
             import_cache_limit,
         )?;
 
-        if let Some(index) = self.stereo_descriptors.iter().position(|descriptor| {
-            descriptor.left_key == left_key && descriptor.right_key == right_key
-        }) {
+        if let Some(index) = self.cache.stereo_descriptor_index(left_key, right_key) {
             return Ok(index);
         }
 
-        let left_import = self
-            .imports
-            .iter()
-            .find(|import| import.key == left_key)
+        let left_image_view = self
+            .cache
+            .import_image_view_for_key(left_key)
             .ok_or_else(|| {
                 "left stereo camera import was evicted before descriptor binding".to_string()
             })?;
-        let right_import = self
-            .imports
-            .iter()
-            .find(|import| import.key == right_key)
-            .ok_or_else(|| {
-                "right stereo camera import was evicted before descriptor binding".to_string()
-            })?;
+        let right_image_view =
+            self.cache
+                .import_image_view_for_key(right_key)
+                .ok_or_else(|| {
+                    "right stereo camera import was evicted before descriptor binding".to_string()
+                })?;
         let resources = self
             .resources
             .as_ref()
             .ok_or_else(|| "GPU camera pipeline resources were not initialized".to_string())?;
 
-        while self.stereo_descriptors.len() >= import_cache_limit {
-            let old = self.stereo_descriptors.remove(0);
-            old.destroy(device);
+        while self.cache.stereo_descriptor_count() >= import_cache_limit {
+            self.cache.evict_oldest_stereo_descriptor(device);
         }
 
-        let descriptor_set = allocate_camera_descriptor_set(
-            device,
-            resources,
-            left_import.image_view,
-            right_import.image_view,
-        )?;
-        self.stereo_descriptors.push(GpuCameraStereoDescriptor {
-            left_key,
-            right_key,
-            descriptor_set,
-            descriptor_pool: resources.descriptor_pool,
-        });
-        Ok(self.stereo_descriptors.len() - 1)
+        let descriptor_set =
+            allocate_camera_descriptor_set(device, resources, left_image_view, right_image_view)?;
+        Ok(self
+            .cache
+            .push_stereo_descriptor(GpuCameraStereoDescriptor {
+                left_key,
+                right_key,
+                descriptor_set,
+                descriptor_pool: resources.descriptor_pool,
+            }))
     }
 
     unsafe fn prepare_frame_inner(
@@ -224,22 +208,25 @@ impl GpuCameraRenderer {
     ) -> Result<usize, String> {
         let import_cache_limit = effective_camera_import_cache_limit(import_cache_limit);
         let key = GpuCameraImportKey::from_frame(frame);
-        if let Some(index) = self.imports.iter().position(|import| import.key == key) {
-            self.import_cache_hit_count = self.import_cache_hit_count.saturating_add(1);
-            if self.imports[index].needs_layout_transition
-                && self.resources.as_ref().is_some_and(|resources| {
-                    resources
-                        .format_key
-                        .import_image_layout_mode
-                        .needs_transition()
-                })
-            {
-                transition_imported_camera_image(device, cmd, self.imports[index].image);
-                self.imports[index].needs_layout_transition = false;
+        if let Some(index) = self.cache.import_index(key) {
+            self.cache.record_import_hit();
+            let transition_image = if self.resources.as_ref().is_some_and(|resources| {
+                resources
+                    .format_key
+                    .import_image_layout_mode
+                    .needs_transition()
+            }) {
+                self.cache.import_image_needing_transition(index)
+            } else {
+                None
+            };
+            if let Some(image) = transition_image {
+                transition_imported_camera_image(device, cmd, image);
+                self.cache.mark_import_layout_transitioned(index);
             }
             return Ok(index);
         }
-        self.import_cache_miss_count = self.import_cache_miss_count.saturating_add(1);
+        self.cache.record_import_miss();
 
         let mut format_props = vk::AndroidHardwareBufferFormatPropertiesANDROID::default();
         let mut properties =
@@ -272,8 +259,8 @@ impl GpuCameraRenderer {
             .map(|resources| resources.format_key != format_key)
             .unwrap_or(true)
         {
-            self.destroy_stereo_descriptors(device);
-            self.destroy_imports(device);
+            self.cache.destroy_stereo_descriptors(device);
+            self.cache.destroy_imports(device);
             self.destroy_resources(device);
             self.resources = Some(create_gpu_camera_pipeline_resources(
                 device,
@@ -285,11 +272,8 @@ impl GpuCameraRenderer {
             )?);
         }
 
-        while self.imports.len() >= import_cache_limit {
-            let old = self.imports.remove(0);
-            self.destroy_stereo_descriptors_for_key(device, old.key);
-            old.destroy(device);
-            self.import_cache_evict_count = self.import_cache_evict_count.saturating_add(1);
+        while self.cache.import_count() >= import_cache_limit {
+            self.cache.evict_oldest_import(device);
         }
 
         let resources = self
@@ -306,12 +290,16 @@ impl GpuCameraRenderer {
             allocation_size,
             memory_type_bits,
         )?;
-        self.imports.push(import);
-        let index = self.imports.len() - 1;
+        let index = self.cache.push_import(import);
         if format_key.import_image_layout_mode.needs_transition() {
-            transition_imported_camera_image(device, cmd, self.imports[index].image);
+            let image = self
+                .cache
+                .import_image(index)
+                .ok_or_else(|| "camera import was unavailable after cache insertion".to_string())?;
+            transition_imported_camera_image(device, cmd, image);
         }
-        self.imports[index].needs_layout_transition = false;
+        self.cache.mark_import_layout_transitioned(index);
+        let cache_stats = self.cache.stats();
         log_info(format!(
             "Rusty XR Vulkan imported camera hardware buffer size={}x{} nativeFormat={} externalFormat={} vkFormat={:?} samplerBindingMode={} importImageLayout={} allocationSize={} memoryTypeBits=0x{:x} suggestedYcbcrModel={:?} suggestedYcbcrRange={:?} samplerYcbcrComponents={:?} suggestedXChromaOffset={:?} suggestedYChromaOffset={:?} importCacheSize={} importCacheLimit={} importCacheMiss={} importCacheEvict={}",
             frame.width,
@@ -328,10 +316,10 @@ impl GpuCameraRenderer {
             format_props.sampler_ycbcr_conversion_components,
             format_props.suggested_x_chroma_offset,
             format_props.suggested_y_chroma_offset,
-            self.imports.len(),
+            cache_stats.import_count,
             import_cache_limit,
-            self.import_cache_miss_count,
-            self.import_cache_evict_count
+            cache_stats.import_cache_miss_count,
+            cache_stats.import_cache_evict_count
         ));
         Ok(index)
     }
@@ -348,7 +336,7 @@ impl GpuCameraRenderer {
         let Some(resources) = self.resources.as_ref() else {
             return;
         };
-        let Some(import) = self.imports.get(import_index) else {
+        let Some(import) = self.cache.import(import_index) else {
             return;
         };
 
@@ -371,7 +359,7 @@ impl GpuCameraRenderer {
         let Some(resources) = self.resources.as_ref() else {
             return;
         };
-        let Some(descriptor) = self.stereo_descriptors.get(descriptor_index) else {
+        let Some(descriptor) = self.cache.stereo_descriptor(descriptor_index) else {
             return;
         };
 
@@ -390,39 +378,8 @@ impl GpuCameraRenderer {
     }
 
     pub(super) unsafe fn destroy(&mut self, device: &ash::Device) {
-        self.destroy_imports(device);
+        self.cache.destroy_imports(device);
         self.destroy_resources(device);
-    }
-
-    unsafe fn destroy_imports(&mut self, device: &ash::Device) {
-        self.destroy_stereo_descriptors(device);
-        for import in self.imports.drain(..) {
-            import.destroy(device);
-        }
-    }
-
-    unsafe fn destroy_stereo_descriptors_for_key(
-        &mut self,
-        device: &ash::Device,
-        key: GpuCameraImportKey,
-    ) {
-        let mut index = 0;
-        while index < self.stereo_descriptors.len() {
-            if self.stereo_descriptors[index].left_key == key
-                || self.stereo_descriptors[index].right_key == key
-            {
-                let old = self.stereo_descriptors.remove(index);
-                old.destroy(device);
-            } else {
-                index += 1;
-            }
-        }
-    }
-
-    unsafe fn destroy_stereo_descriptors(&mut self, device: &ash::Device) {
-        for descriptor in self.stereo_descriptors.drain(..) {
-            descriptor.destroy(device);
-        }
     }
 
     unsafe fn destroy_resources(&mut self, device: &ash::Device) {

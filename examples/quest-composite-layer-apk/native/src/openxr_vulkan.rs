@@ -41,6 +41,7 @@ use rusty_xr_particles::{
 mod camera_render_cadence;
 mod camera_upload_resources;
 mod foveation_framebuffer_resources;
+mod gpu_camera_cache;
 mod gpu_camera_descriptors;
 mod gpu_camera_draw;
 mod gpu_camera_import;
@@ -3431,6 +3432,7 @@ unsafe fn run_vulkan(
                                     &stereo_frame,
                                     controls.source_eye_mapping,
                                 );
+                            let cache_stats = gpu_camera_renderer.cache_stats();
                             log_info(hwb_stereo_draw_prepared_log_message(
                                 &stereo_frame,
                                 &controls,
@@ -3438,8 +3440,8 @@ unsafe fn run_vulkan(
                                 projection_active,
                                 display_left_camera_id,
                                 display_right_camera_id,
-                                gpu_camera_renderer.imports.len(),
-                                gpu_camera_renderer.stereo_descriptors.len(),
+                                cache_stats.import_count,
+                                cache_stats.stereo_descriptor_count,
                             ));
                             last_logged_prepared_stereo_frame_index = Some(stereo_frame.index);
                         }
@@ -3503,6 +3505,7 @@ unsafe fn run_vulkan(
                             }
                             let camera_frame_age_ms =
                                 optional_ms_metric_label(temporal_metrics.camera_frame_age_ms);
+                            let cache_stats = gpu_camera_renderer.cache_stats();
                             log_info(hwb_final_projection_status_log_message(
                                 HwbFinalProjectionStatusLog {
                                     frame: &stereo_frame,
@@ -3517,10 +3520,9 @@ unsafe fn run_vulkan(
                                     pose_convention,
                                     display_left_camera_id,
                                     display_right_camera_id,
-                                    import_cache_size: gpu_camera_renderer.imports.len(),
-                                    stereo_descriptor_cache_size: gpu_camera_renderer
-                                        .stereo_descriptors
-                                        .len(),
+                                    import_cache_size: cache_stats.import_count,
+                                    stereo_descriptor_cache_size: cache_stats
+                                        .stereo_descriptor_count,
                                     temporal_projection_mode: temporal_projection_mode_label(
                                         &config,
                                     ),
@@ -3601,10 +3603,11 @@ unsafe fn run_vulkan(
                     }
                     Err(error) => {
                         if frame_count.is_multiple_of(120) {
+                            let cache_stats = gpu_camera_renderer.cache_stats();
                             log_error(format!(
                                 "Rusty XR GPU stereo camera import failed requestedTier={} activeTier=gpu-buffer-probe alignedProjection=false importFailure={} fallbackReason={}",
                                 config.camera_tier.stable_id(),
-                                gpu_camera_renderer.import_failure_count,
+                                cache_stats.import_failure_count,
                                 error
                             ));
                         }
@@ -3627,13 +3630,14 @@ unsafe fn run_vulkan(
                                 && gpu_frame.index.is_multiple_of(120)
                         {
                             let projection = gpu_projection_readiness(&gpu_frame);
+                            let cache_stats = gpu_camera_renderer.cache_stats();
                             log_info(format!(
                                 "Rusty XR GPU-sampled diagnostic camera surface frame {} requestedTier={} activeTier=gpu-buffer-probe alignedProjection=false importCacheSize={} importSuccess={} importFailure={} stereoLayout={:?} poseSource={} projectionCheck={} fallbackReason={}",
                                 gpu_frame.index,
                                 config.camera_tier.stable_id(),
-                                gpu_camera_renderer.imports.len(),
-                                gpu_camera_renderer.import_success_count,
-                                gpu_camera_renderer.import_failure_count,
+                                cache_stats.import_count,
+                                cache_stats.import_success_count,
+                                cache_stats.import_failure_count,
                                 gpu_frame.diagnostics.stereo_layout,
                                 gpu_frame
                                     .diagnostics
@@ -3661,10 +3665,11 @@ unsafe fn run_vulkan(
                     }
                     Err(error) => {
                         if frame_count.is_multiple_of(120) {
+                            let cache_stats = gpu_camera_renderer.cache_stats();
                             log_error(format!(
                                 "Rusty XR GPU camera import failed requestedTier={} activeTier=gpu-buffer-probe alignedProjection=false importFailure={} fallbackReason={}",
                                 config.camera_tier.stable_id(),
-                                gpu_camera_renderer.import_failure_count,
+                                cache_stats.import_failure_count,
                                 error
                             ));
                         }
@@ -3950,6 +3955,7 @@ unsafe fn run_vulkan(
             let window_secs = window_elapsed.as_secs_f64().max(0.001);
             let observed_openxr_fps = frame_pacing_window_frames as f64 / window_secs;
             let avg_frame_ms = window_secs * 1000.0 / frame_pacing_window_frames.max(1) as f64;
+            let cache_stats = gpu_camera_renderer.cache_stats();
             log_info(format!(
                 "Rusty XR OpenXR frame {} rendered {}x{} requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} environmentDepthMode={} environmentDepthActive={} handParticleMode={} observedOpenXrFps={:.1} avgFrameMs={:.2} recordCpuMs={:.3} submitCpuMs={:.3} frameCadenceTargetHz={} activeDisplayRefreshHz={} renderScale={} fixedFoveationLevel={} fixedFoveationEnabled={} openxrPassthroughProbe={} projectionLayerVisible={} submittedLayerCount={} fenceSync=slot-reuse pipelineDepth={} gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={} importCacheSize={} importCacheLimit={} stereoDescriptorCacheSize={} gpuImportSuccess={} gpuImportFailure={} gpuImportCacheHit={} gpuImportCacheMiss={} gpuImportCacheEvict={}",
                 frame_count,
@@ -3981,14 +3987,14 @@ unsafe fn run_vulkan(
                 gpu_success,
                 gpu_failure,
                 gpu_cache_size,
-                gpu_camera_renderer.imports.len(),
+                cache_stats.import_count,
                 config.camera_import_cache_limit,
-                gpu_camera_renderer.stereo_descriptors.len(),
-                gpu_camera_renderer.import_success_count,
-                gpu_camera_renderer.import_failure_count,
-                gpu_camera_renderer.import_cache_hit_count,
-                gpu_camera_renderer.import_cache_miss_count,
-                gpu_camera_renderer.import_cache_evict_count
+                cache_stats.stereo_descriptor_count,
+                cache_stats.import_success_count,
+                cache_stats.import_failure_count,
+                cache_stats.import_cache_hit_count,
+                cache_stats.import_cache_miss_count,
+                cache_stats.import_cache_evict_count
             ));
             frame_pacing_window_start = Instant::now();
             frame_pacing_window_frames = 0;
