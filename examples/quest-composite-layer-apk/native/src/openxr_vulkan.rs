@@ -10,9 +10,9 @@ use crate::{
     latest_headset_camera_frame, latest_headset_camera_gpu_frame,
     latest_headset_stereo_camera_gpu_frame, log_error, log_info, runtime_config,
     source_sampling::{
-        hwb_final_projection_status_log_message, hwb_stereo_draw_prepared_log_message,
-        HwbCameraRenderCadenceMetrics, HwbFinalProjectionStatusLog,
-        HwbFinalProjectionTemporalMetrics, HwbSourceSamplingHandoff,
+        hwb_final_projection_status_log_message, hwb_source_sampling_detail_log_message,
+        hwb_stereo_draw_prepared_log_message, HwbCameraRenderCadenceMetrics,
+        HwbFinalProjectionStatusLog, HwbFinalProjectionTemporalMetrics, HwbSourceSamplingHandoff,
     },
     CameraAlignmentTuningUpdate, EnvironmentDepthMode, HandParticleMode, HeadsetCameraFrame,
     HeadsetCameraGpuFrame, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
@@ -41,7 +41,8 @@ use rusty_xr_particles::{
 mod projection_geometry;
 mod source_metadata;
 use projection_geometry::{
-    camera_preview_surface_corners, eye_basis_from_view, fov_aspect, identity_homography,
+    camera_preview_surface_corners, display_eye_uv_fiducial_contract_log_message,
+    display_eye_uv_fiducial_marker_fields, eye_basis_from_view, fov_aspect, identity_homography,
     pack_homography_row, projected_homographies_with_screen_to_camera,
     projected_homography_marker_fields, projected_stereo_homographies,
     projection_openxr_contract_log_message, tracking_basis_from_views, DisplayEyeProjectionMapping,
@@ -3479,20 +3480,19 @@ unsafe fn run_vulkan(
                                 frame_state.predicted_display_time,
                                 &views,
                             ));
-                            log_info(format!(
-                                "Rusty XR HWB source sampling detail frame={} {}",
+                            let source_sampling_handoff =
+                                HwbSourceSamplingHandoff::new(&stereo_frame, &controls, &config);
+                            log_info(hwb_source_sampling_detail_log_message(
                                 stereo_frame.index,
-                                HwbSourceSamplingHandoff::new(&stereo_frame, &controls, &config)
-                                    .marker_fields()
+                                &source_sampling_handoff,
                             ));
                             let display_eye_uv_fiducial_fields =
                                 display_eye_uv_fiducial_marker_fields(&config);
                             if config.camera_projection_effect_mode.is_uv_fiducial() {
-                                log_info(format!(
-                                    "Rusty XR display-eye UV fiducial contract frame={} openXrFrameCount={} {}",
+                                log_info(display_eye_uv_fiducial_contract_log_message(
                                     stereo_frame.index,
                                     frame_count,
-                                    display_eye_uv_fiducial_fields
+                                    display_eye_uv_fiducial_fields,
                                 ));
                             }
                             let camera_frame_age_ms =
@@ -6551,16 +6551,6 @@ fn optional_ms_metric_label(value: Option<f64>) -> String {
     value
         .map(|value| format!("{value:.3}"))
         .unwrap_or_else(|| "unavailable".to_string())
-}
-
-fn display_eye_uv_fiducial_marker_fields(config: &crate::RuntimeConfig) -> &'static str {
-    use crate::camera_color_pipeline::CameraProjectionEffectMode;
-    match config.camera_projection_effect_mode {
-        CameraProjectionEffectMode::DisplayEyeUvFiducial => "displayEyeUvFiducialActive=true displayEyeUvFiducialSchema=rusty.xr.display_eye_uv_fiducial.v1 displayEyeUvFiducialCoordinateSpace=display-eye-screen-uv displayEyeUvFiducialUvBasis=projection_screen_uv_base displayEyeUvFiducialShaderFormula=displayEyeUv=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 displayEyeUvFiducialMarkersUv=cyan_upper_left@0.250000,0.250000;red_left_mid@0.250000,0.500000;yellow_top_mid@0.500000,0.250000;green_center@0.500000,0.500000;magenta_bottom_mid@0.500000,0.750000;blue_right_mid@0.750000,0.500000",
-        CameraProjectionEffectMode::ProjectionContentUvFiducial => "displayEyeUvFiducialActive=true displayEyeUvFiducialSchema=rusty.xr.display_eye_uv_fiducial.v1 displayEyeUvFiducialCoordinateSpace=projection-content-uv displayEyeUvFiducialUvBasis=full_frame_content_uv displayEyeUvFiducialShaderFormula=contentUv=(projectionScreenUv-(0.5-radiusUv))/(2*radiusUv);projectionScreenUv=(surfaceUv-0.5)*projectionAreaScaleUv+0.5-offsetUv displayEyeUvFiducialMarkersUv=cyan_upper_left@0.250000,0.250000;red_left_mid@0.250000,0.500000;yellow_top_mid@0.500000,0.250000;green_center@0.500000,0.500000;magenta_bottom_mid@0.500000,0.750000;blue_right_mid@0.750000,0.500000",
-        CameraProjectionEffectMode::SourceSamplingWitness => "displayEyeUvFiducialActive=true displayEyeUvFiducialSchema=rusty.xr.source_sampling_witness.v1 displayEyeUvFiducialCoordinateSpace=source-sampling-witness displayEyeUvFiducialUvBasis=actual-source-image+full_frame_content_uv+hardware-buffer-sampler-uv displayEyeUvFiducialShaderFormula=contentUv=(projectionScreenUv-(0.5-radiusUv))/(2*radiusUv);sourceSamplerUv=cameraTextureTransform(sourceVisibleUvRect(contentUv)) displayEyeUvFiducialMarkersUv=content_grid_yellow_white@0.125,0.250,0.500;source_sampler_grid_cyan_magenta@0.125,0.250,0.500",
-        _ => "displayEyeUvFiducialActive=false",
-    }
 }
 
 fn full_source_uv_rect_xywh() -> [f32; 4] {

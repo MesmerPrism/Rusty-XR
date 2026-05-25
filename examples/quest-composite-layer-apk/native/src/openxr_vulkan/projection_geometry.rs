@@ -674,6 +674,27 @@ pub(super) fn projection_openxr_contract_log_message(
     )
 }
 
+pub(super) fn display_eye_uv_fiducial_marker_fields(config: &crate::RuntimeConfig) -> &'static str {
+    use crate::camera_color_pipeline::CameraProjectionEffectMode;
+    match config.camera_projection_effect_mode {
+        CameraProjectionEffectMode::DisplayEyeUvFiducial => "displayEyeUvFiducialActive=true displayEyeUvFiducialSchema=rusty.xr.display_eye_uv_fiducial.v1 displayEyeUvFiducialCoordinateSpace=display-eye-screen-uv displayEyeUvFiducialUvBasis=projection_screen_uv_base displayEyeUvFiducialShaderFormula=displayEyeUv=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 displayEyeUvFiducialMarkersUv=cyan_upper_left@0.250000,0.250000;red_left_mid@0.250000,0.500000;yellow_top_mid@0.500000,0.250000;green_center@0.500000,0.500000;magenta_bottom_mid@0.500000,0.750000;blue_right_mid@0.750000,0.500000",
+        CameraProjectionEffectMode::ProjectionContentUvFiducial => "displayEyeUvFiducialActive=true displayEyeUvFiducialSchema=rusty.xr.display_eye_uv_fiducial.v1 displayEyeUvFiducialCoordinateSpace=projection-content-uv displayEyeUvFiducialUvBasis=full_frame_content_uv displayEyeUvFiducialShaderFormula=contentUv=(projectionScreenUv-(0.5-radiusUv))/(2*radiusUv);projectionScreenUv=(surfaceUv-0.5)*projectionAreaScaleUv+0.5-offsetUv displayEyeUvFiducialMarkersUv=cyan_upper_left@0.250000,0.250000;red_left_mid@0.250000,0.500000;yellow_top_mid@0.500000,0.250000;green_center@0.500000,0.500000;magenta_bottom_mid@0.500000,0.750000;blue_right_mid@0.750000,0.500000",
+        CameraProjectionEffectMode::SourceSamplingWitness => "displayEyeUvFiducialActive=true displayEyeUvFiducialSchema=rusty.xr.source_sampling_witness.v1 displayEyeUvFiducialCoordinateSpace=source-sampling-witness displayEyeUvFiducialUvBasis=actual-source-image+full_frame_content_uv+hardware-buffer-sampler-uv displayEyeUvFiducialShaderFormula=contentUv=(projectionScreenUv-(0.5-radiusUv))/(2*radiusUv);sourceSamplerUv=cameraTextureTransform(sourceVisibleUvRect(contentUv)) displayEyeUvFiducialMarkersUv=content_grid_yellow_white@0.125,0.250,0.500;source_sampler_grid_cyan_magenta@0.125,0.250,0.500",
+        _ => "displayEyeUvFiducialActive=false",
+    }
+}
+
+pub(super) fn display_eye_uv_fiducial_contract_log_message(
+    frame_index: u64,
+    openxr_frame_count: u64,
+    marker_fields: &str,
+) -> String {
+    format!(
+        "Rusty XR display-eye UV fiducial contract frame={} openXrFrameCount={} {}",
+        frame_index, openxr_frame_count, marker_fields
+    )
+}
+
 fn marker_token(value: Option<&str>, fallback: &str) -> String {
     value
         .filter(|value| !value.is_empty())
@@ -708,4 +729,48 @@ fn pose_orientation(pose: xr::sys::Posef) -> [f32; 4] {
         pose.orientation.z,
         pose.orientation.w,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        display_eye_uv_fiducial_contract_log_message, display_eye_uv_fiducial_marker_fields,
+    };
+    use crate::{camera_color_pipeline::CameraProjectionEffectMode, RuntimeConfig};
+
+    #[test]
+    fn display_eye_uv_fiducial_marker_fields_keep_contract_shape() {
+        let mut config = RuntimeConfig::default();
+
+        config.camera_projection_effect_mode = CameraProjectionEffectMode::DisplayEyeUvFiducial;
+        let display_eye = display_eye_uv_fiducial_marker_fields(&config);
+        assert!(display_eye.contains("displayEyeUvFiducialActive=true"));
+        assert!(display_eye.contains("displayEyeUvFiducialCoordinateSpace=display-eye-screen-uv"));
+        assert!(display_eye.contains("displayEyeUvFiducialShaderFormula=displayEyeUv="));
+
+        config.camera_projection_effect_mode = CameraProjectionEffectMode::SourceSamplingWitness;
+        let source_sampling = display_eye_uv_fiducial_marker_fields(&config);
+        assert!(source_sampling.contains("schema=rusty.xr.source_sampling_witness.v1"));
+        assert!(
+            source_sampling.contains("displayEyeUvFiducialCoordinateSpace=source-sampling-witness")
+        );
+
+        config.camera_projection_effect_mode = CameraProjectionEffectMode::BorderComposite;
+        assert_eq!(
+            display_eye_uv_fiducial_marker_fields(&config),
+            "displayEyeUvFiducialActive=false"
+        );
+    }
+
+    #[test]
+    fn display_eye_uv_fiducial_contract_log_message_keeps_prefix_shape() {
+        assert_eq!(
+            display_eye_uv_fiducial_contract_log_message(
+                7,
+                42,
+                "displayEyeUvFiducialActive=true"
+            ),
+            "Rusty XR display-eye UV fiducial contract frame=7 openXrFrameCount=42 displayEyeUvFiducialActive=true"
+        );
+    }
 }

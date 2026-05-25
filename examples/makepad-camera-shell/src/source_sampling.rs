@@ -11,6 +11,35 @@ const MAKEPAD_SAMPLE_TRANSFORM_OWNER: &str = "makepad-shader-source_sample_uv";
 const MAKEPAD_OUTPUT_UV_LABEL: &str = "makepad-video-sampler-uv";
 const MAKEPAD_SAMPLER_UV_ORIGIN: &str = "makepad-video-sampler";
 
+pub(crate) struct MakepadCadenceSampleMarker {
+    pub(crate) elapsed_seconds: f64,
+    pub(crate) interval_seconds: f64,
+    pub(crate) app_frame_count: u64,
+    pub(crate) app_frame_delta: u64,
+    pub(crate) app_frame_rate_hz: f64,
+    pub(crate) xr_update_count: u64,
+    pub(crate) xr_update_delta: u64,
+    pub(crate) xr_update_rate_hz: f64,
+    pub(crate) draw_event_count: u64,
+    pub(crate) draw_event_delta: u64,
+    pub(crate) draw_event_rate_hz: f64,
+    pub(crate) left_texture_update_count: u64,
+    pub(crate) right_texture_update_count: u64,
+    pub(crate) paired_texture_update_count: u64,
+    pub(crate) left_texture_update_delta: u64,
+    pub(crate) right_texture_update_delta: u64,
+    pub(crate) paired_texture_update_delta: u64,
+    pub(crate) left_texture_update_rate_hz: f64,
+    pub(crate) right_texture_update_rate_hz: f64,
+    pub(crate) paired_texture_update_rate_hz: f64,
+    pub(crate) left_last_position_ms: u128,
+    pub(crate) right_last_position_ms: u128,
+    pub(crate) paired_left_right_camera_frames: bool,
+    pub(crate) projection_mapping_ready: bool,
+    pub(crate) aligned_projection: bool,
+    pub(crate) visible_camera_projection_ready: bool,
+}
+
 pub(crate) struct MakepadSourceSamplingHandoff<'a> {
     broker_h264_enabled: bool,
     explicit_top_left_broker_stimulus: bool,
@@ -118,6 +147,45 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
     }
 }
 
+pub(crate) fn makepad_cadence_start_marker_line(sample_period_seconds: f64) -> String {
+    format!(
+        "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=start status=started samplePeriodSeconds={:.1} appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated",
+        sample_period_seconds,
+    )
+}
+
+pub(crate) fn makepad_cadence_sample_marker_line(sample: MakepadCadenceSampleMarker) -> String {
+    format!(
+        "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} xrUpdateCount={} xrUpdateDelta={} xrUpdateRateHz={:.2} drawEventCount={} drawEventDelta={} drawEventRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightCameraFrames={} projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} cpuUploadPath=makepad-camera-cpu-yuv-plane renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated",
+        sample.elapsed_seconds * 1000.0,
+        sample.interval_seconds * 1000.0,
+        sample.app_frame_count,
+        sample.app_frame_delta,
+        sample.app_frame_rate_hz,
+        sample.xr_update_count,
+        sample.xr_update_delta,
+        sample.xr_update_rate_hz,
+        sample.draw_event_count,
+        sample.draw_event_delta,
+        sample.draw_event_rate_hz,
+        sample.left_texture_update_count,
+        sample.right_texture_update_count,
+        sample.paired_texture_update_count,
+        sample.left_texture_update_delta,
+        sample.right_texture_update_delta,
+        sample.paired_texture_update_delta,
+        sample.left_texture_update_rate_hz,
+        sample.right_texture_update_rate_hz,
+        sample.paired_texture_update_rate_hz,
+        sample.left_last_position_ms,
+        sample.right_last_position_ms,
+        sample.paired_left_right_camera_frames,
+        sample.projection_mapping_ready,
+        sample.aligned_projection,
+        sample.visible_camera_projection_ready,
+    )
+}
+
 pub(crate) fn makepad_texture_content_probe_missing_marker_fields(
     side: &str,
     yuv_enabled: bool,
@@ -209,6 +277,51 @@ mod tests {
             orientation_default: false,
             fallback_reason: "none".to_string(),
         }
+    }
+
+    #[test]
+    fn cadence_start_marker_keeps_source_sampling_shape() {
+        assert_eq!(
+            makepad_cadence_start_marker_line(2.0),
+            "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=start status=started samplePeriodSeconds=2.0 appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated"
+        );
+    }
+
+    #[test]
+    fn cadence_sample_marker_keeps_source_sampling_shape() {
+        let marker = makepad_cadence_sample_marker_line(MakepadCadenceSampleMarker {
+            elapsed_seconds: 4.25,
+            interval_seconds: 2.0,
+            app_frame_count: 120,
+            app_frame_delta: 60,
+            app_frame_rate_hz: 30.0,
+            xr_update_count: 118,
+            xr_update_delta: 59,
+            xr_update_rate_hz: 29.5,
+            draw_event_count: 90,
+            draw_event_delta: 45,
+            draw_event_rate_hz: 22.5,
+            left_texture_update_count: 32,
+            right_texture_update_count: 31,
+            paired_texture_update_count: 31,
+            left_texture_update_delta: 16,
+            right_texture_update_delta: 15,
+            paired_texture_update_delta: 15,
+            left_texture_update_rate_hz: 8.0,
+            right_texture_update_rate_hz: 7.5,
+            paired_texture_update_rate_hz: 7.5,
+            left_last_position_ms: 1001,
+            right_last_position_ms: 1003,
+            paired_left_right_camera_frames: true,
+            projection_mapping_ready: true,
+            aligned_projection: false,
+            visible_camera_projection_ready: true,
+        });
+
+        assert_eq!(
+            marker,
+            "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=sample status=ok elapsedMs=4250 intervalMs=2000 appFrameCount=120 appFrameDelta=60 appFrameRateHz=30.00 xrUpdateCount=118 xrUpdateDelta=59 xrUpdateRateHz=29.50 drawEventCount=90 drawEventDelta=45 drawEventRateHz=22.50 leftTextureUpdateCount=32 rightTextureUpdateCount=31 pairedTextureUpdateCount=31 leftTextureUpdateDelta=16 rightTextureUpdateDelta=15 pairedTextureUpdateDelta=15 leftTextureUpdateRateHz=8.00 rightTextureUpdateRateHz=7.50 pairedTextureUpdateRateHz=7.50 leftLastPositionMs=1001 rightLastPositionMs=1003 pairedLeftRightCameraFrames=true projectionMappingReady=true alignedProjection=false visibleCameraProjectionReady=true cpuUploadPath=makepad-camera-cpu-yuv-plane renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated"
+        );
     }
 
     #[test]

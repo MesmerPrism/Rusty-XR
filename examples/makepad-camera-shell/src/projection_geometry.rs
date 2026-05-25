@@ -1243,6 +1243,32 @@ pub(crate) fn makepad_horizontal_alignment_hotload_marker_fields(
     )
 }
 
+pub(crate) fn makepad_visible_panel_draw_marker_line(
+    camera_texture_ready: bool,
+    projection_depth_meters: f32,
+    projection_preview_fov_y_degrees: f32,
+    projection_preview_offset_y_meters: f32,
+    projection_raw_overscan: f32,
+) -> String {
+    format!(
+        "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=visible-panel-draw status=ok visibleCameraPanelDrawn=true cameraTextureReady={} renderPath=makepad-xr sceneOwnedPanel=true projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review projectionDepthMeters={:.2} panelTargetDepthMeters={:.2} panelTargetPreviewFovYDegrees={:.3} panelTargetPreviewOffsetYMeters={:.3} panelTargetRawOverscan={:.3} {} diagnosticVisualLayer=none neutralWaitingPanel=true visualIsolation=s118_projected_footprint_solid_red_exterior depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
+        camera_texture_ready,
+        projection_depth_meters,
+        projection_depth_meters,
+        projection_preview_fov_y_degrees,
+        projection_preview_offset_y_meters,
+        projection_raw_overscan,
+        makepad_projection_target_marker_fields(),
+    )
+}
+
+pub(crate) fn makepad_stereo_projection_marker_line(body: &str) -> String {
+    format!(
+        "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 {}",
+        body
+    )
+}
+
 pub(crate) struct MakepadStereoComparisonMarkerInputs<'a> {
     pub(crate) phase: &'a str,
     pub(crate) runtime_profile: &'a str,
@@ -1269,6 +1295,33 @@ pub(crate) fn makepad_stereo_comparison_marker_line(
         pair,
         &inputs,
         &homography_marker_fields,
+    )
+}
+
+pub(crate) fn makepad_synthetic_stereo_comparison_marker_line(
+    inputs: MakepadStereoComparisonMarkerInputs<'_>,
+    tuning: HorizontalAlignmentTuning,
+) -> String {
+    format!(
+        "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=synthetic-left rightEyeSource=synthetic-right sourceEyeMapping=display-eye projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=false alignedProjection=false renderPath=makepad-xr makepadForkBranch={} makepadForkCommit={} {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s102FullSurfaceLiveCameraCoverageControl=false s103InSurfaceCameraWindowBorderControl=true s104HorizontalWindowAlignmentControl=false s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109SolidRedProjectionExterior=true s110VerticalWindowOffsetHotload=true horizontalAlignmentSource=screen_to_camera_center_delta_projection_area_source_valid_window manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true borderlessWindowMask=false solidRedProjectionExterior=true horizontalAlignmentStrength={:.3} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} liveCameraSamplingSuppressed=false forceFullSurfaceLiveCameraUv=false forceInSurfaceCameraWindow=true liveCameraWindowDomain=projected_camera_uv fullSurfaceLayerActive=false cameraCoverageInShader=true layerNotResized=false panelSizedFromProjectionSurface=true projectionValidMaskDisabled=false visualIsolation=s118_projected_footprint_solid_red_exterior",
+        inputs.phase,
+        inputs.runtime_profile,
+        inputs.comparison_baseline,
+        inputs.camera_tier,
+        inputs.acquisition_profile,
+        inputs.transport_profile,
+        inputs.projection_mode,
+        inputs.synthetic_scene,
+        inputs.projection_scale,
+        inputs.xr_render_scale,
+        inputs.makepad_fork_branch,
+        inputs.makepad_fork_commit,
+        makepad_projection_target_marker_fields(),
+        tuning.strength,
+        tuning.left_offset_uv,
+        tuning.right_offset_uv,
+        tuning.vertical_offset_uv,
+        tuning.content_uv_scale,
     )
 }
 
@@ -2029,7 +2082,7 @@ mod tests {
         projection_complete_error_marker_fields, projection_enumerated_marker_fields,
         projection_start_marker_fields, single_stream_proof_wait_marker_fields,
         stereo_comparison_marker_line_fields, visible_panel_bound_marker_fields,
-        CompleteMarkerFields,
+        CompleteMarkerFields, HorizontalAlignmentTuning,
         MakepadStereoComparisonMarkerInputs, StereoComparisonPairFields,
     };
 
@@ -2079,6 +2132,30 @@ mod tests {
         assert!(fields
             .contains("singleStreamVisualProof=false updatedStreamVisualProofSide=paired"));
         assert!(fields.ends_with("visualInspection=required visualReleaseAccepted=false"));
+    }
+
+    #[test]
+    fn visible_panel_draw_marker_keeps_projection_contract_shape() {
+        let line = super::makepad_visible_panel_draw_marker_line(true, 1.25, 63.0, -0.02, 1.07);
+
+        assert!(line.starts_with(
+            "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=visible-panel-draw status=ok"
+        ));
+        assert!(line.contains("cameraTextureReady=true renderPath=makepad-xr"));
+        assert!(line.contains("s81DynamicScreenSurfaceUv=false"));
+        assert!(line.contains(
+            "projectionDepthMeters=1.25 panelTargetDepthMeters=1.25 panelTargetPreviewFovYDegrees=63.000 panelTargetPreviewOffsetYMeters=-0.020 panelTargetRawOverscan=1.070"
+        ));
+        assert!(line.contains("projectionAreaTargetSource=renderer-authored"));
+        assert!(line.ends_with("visualInspection=required visualReleaseAccepted=false"));
+    }
+
+    #[test]
+    fn stereo_projection_marker_line_keeps_prefix_shape() {
+        assert_eq!(
+            super::makepad_stereo_projection_marker_line("phase=start status=started"),
+            "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=start status=started"
+        );
     }
 
     #[test]
@@ -2288,6 +2365,50 @@ mod tests {
         assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
         assert!(fields.contains("makepadForkBranch=branch makepadForkCommit=commit"));
         assert!(fields.ends_with("visualInspection=required visualReleaseAccepted=false"));
+    }
+
+    #[test]
+    fn synthetic_stereo_comparison_marker_keeps_projection_contract_shape() {
+        let inputs = MakepadStereoComparisonMarkerInputs {
+            phase: "startup",
+            runtime_profile: "fast-visual",
+            comparison_baseline: "canvas-custom",
+            camera_tier: "synthetic",
+            acquisition_profile: "broker-h264",
+            transport_profile: "mediacodec",
+            projection_mode: "synthetic",
+            synthetic_scene: "uv-grid",
+            projection_scale: 1.25,
+            xr_render_scale: 1.5,
+            aligned_projection: false,
+            visible_projection_ready: false,
+            makepad_fork_branch: "branch",
+            makepad_fork_commit: "commit",
+        };
+        let tuning = HorizontalAlignmentTuning {
+            strength: 0.75,
+            left_offset_uv: -0.125,
+            right_offset_uv: 0.125,
+            vertical_offset_uv: 0.05,
+            content_uv_scale: 1.6,
+            ..HorizontalAlignmentTuning::default()
+        };
+
+        let line = super::makepad_synthetic_stereo_comparison_marker_line(inputs, tuning);
+
+        assert!(line.starts_with(
+            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase=startup"
+        ));
+        assert!(line.contains(
+            "leftEyeSource=synthetic-left rightEyeSource=synthetic-right sourceEyeMapping=display-eye"
+        ));
+        assert!(line.contains("pairedLeftRightGpuBuffers=false alignedProjection=false"));
+        assert!(line.contains("makepadForkBranch=branch makepadForkCommit=commit"));
+        assert!(line.contains("projectionAreaTargetSource=renderer-authored"));
+        assert!(line.contains(
+            "horizontalAlignmentStrength=0.750 manualLeftUv=-0.1250 manualRightUv=0.1250 manualVerticalUv=0.0500 contentUvScale=1.6000"
+        ));
+        assert!(line.ends_with("visualIsolation=s118_projected_footprint_solid_red_exterior"));
     }
 
     #[test]

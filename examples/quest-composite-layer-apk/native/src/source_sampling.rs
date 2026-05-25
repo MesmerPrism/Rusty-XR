@@ -197,6 +197,17 @@ impl<'a> HwbSourceSamplingHandoff<'a> {
     }
 }
 
+pub(crate) fn hwb_source_sampling_detail_log_message(
+    frame_index: u64,
+    handoff: &HwbSourceSamplingHandoff<'_>,
+) -> String {
+    format!(
+        "Rusty XR HWB source sampling detail frame={} {}",
+        frame_index,
+        handoff.marker_fields()
+    )
+}
+
 pub(crate) fn hwb_stereo_draw_prepared_log_message(
     frame: &StereoGpuCameraFrame,
     controls: &StereoProjectionControls,
@@ -746,6 +757,24 @@ mod tests {
         assert!(fields.contains("sourceVisibleUvRect=0.100000,0.200000,0.900000,0.800000"));
         assert!(fields.contains("sourceCropRectState=metadata_ready"));
         assert!(fields.contains("sourceCropRectOwner=android_media_image"));
+    }
+
+    #[test]
+    fn hwb_source_sampling_detail_log_message_keeps_prefix_shape() {
+        let frame = stereo_frame(Some([0.1, 0.2, 0.9, 0.8]));
+        let controls = controls();
+        let config = RuntimeConfig::default();
+        let handoff = HwbSourceSamplingHandoff::new(&frame, &controls, &config);
+
+        let message = hwb_source_sampling_detail_log_message(frame.index, &handoff);
+
+        assert!(message.starts_with(
+            "Rusty XR HWB source sampling detail frame=1 schema=rusty.xr.hwb-source-sampling.v1"
+        ));
+        assert!(message.contains("phase=source-sampling status=ok"));
+        assert!(message
+            .contains("sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler"));
+        assert!(message.contains("sourceVisibleUvRect=0.100000,0.200000,0.900000,0.800000"));
     }
 
     #[test]

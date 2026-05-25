@@ -14,6 +14,34 @@ pub(crate) fn aspect_ratio_u32(width: u32, height: u32) -> f64 {
     }
 }
 
+pub(crate) fn makepad_camera_status_marker_line(
+    phase: &str,
+    runtime_profile: &str,
+    transport_profile: &str,
+    makepad_rev: &str,
+    studio_host: &str,
+) -> String {
+    format!(
+        "RUSTY_XR_MAKEPAD_CAMERA_STATUS schema=rusty.xr.makepad-camera.status.v1 phase={} profile={} transport={} renderer=makepad android_packager=cargo-makepad makepad_rev={} studio_host={}",
+        phase,
+        runtime_profile,
+        transport_profile,
+        makepad_rev,
+        studio_host,
+    )
+}
+
+pub(crate) fn makepad_camera2_acquisition_broker_h264_skipped_marker_line() -> &'static str {
+    "RUSTY_XR_MAKEPAD_CAMERA2_ACQUISITION schema=rusty.xr.makepad-camera2.acquisition.v1 phase=start status=skipped reason=broker-h264-enabled import=broker-h264"
+}
+
+pub(crate) fn makepad_hardware_buffer_import_marker_line(body: &str) -> String {
+    format!(
+        "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 {}",
+        body
+    )
+}
+
 pub(crate) fn makepad_hardware_buffer_import_enumerated_marker_fields(
     pair: &MakepadCameraPair,
     source_count: usize,
@@ -1201,6 +1229,36 @@ fn parse_broker_pixel_domain(value: Option<&JsonValue>) -> Option<BrokerH264Pixe
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn camera_status_marker_keeps_source_metadata_shape() {
+        assert_eq!(
+            makepad_camera_status_marker_line(
+                "startup",
+                "fast-visual",
+                "direct-camera",
+                "185020114",
+                "studio.local"
+            ),
+            "RUSTY_XR_MAKEPAD_CAMERA_STATUS schema=rusty.xr.makepad-camera.status.v1 phase=startup profile=fast-visual transport=direct-camera renderer=makepad android_packager=cargo-makepad makepad_rev=185020114 studio_host=studio.local"
+        );
+    }
+
+    #[test]
+    fn broker_h264_camera2_skip_marker_keeps_acquisition_shape() {
+        assert_eq!(
+            makepad_camera2_acquisition_broker_h264_skipped_marker_line(),
+            "RUSTY_XR_MAKEPAD_CAMERA2_ACQUISITION schema=rusty.xr.makepad-camera2.acquisition.v1 phase=start status=skipped reason=broker-h264-enabled import=broker-h264"
+        );
+    }
+
+    #[test]
+    fn hardware_buffer_import_marker_line_keeps_prefix_shape() {
+        assert_eq!(
+            makepad_hardware_buffer_import_marker_line("phase=complete status=ok"),
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=complete status=ok"
+        );
+    }
 
     #[test]
     fn direct_camera2_content_geometry_uses_stereo_record() {

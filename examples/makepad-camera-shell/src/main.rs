@@ -17,7 +17,9 @@ use projection_geometry::{
     makepad_projection_complete_error_marker_fields, makepad_projection_enumerated_marker_fields,
     makepad_projection_start_marker_fields, makepad_projection_target_marker_fields,
     makepad_single_stream_proof_wait_marker_fields, makepad_stereo_comparison_marker_line,
-    makepad_visible_panel_bound_marker_fields, MakepadOpenXrProjectionContract,
+    makepad_stereo_projection_marker_line, makepad_synthetic_stereo_comparison_marker_line,
+    makepad_visible_panel_bound_marker_fields, makepad_visible_panel_draw_marker_line,
+    MakepadOpenXrProjectionContract,
     MakepadStereoComparisonMarkerInputs,
 };
 #[cfg(target_os = "android")]
@@ -29,6 +31,8 @@ use projection_runtime::{
 };
 use source_metadata::{
     broker_pair_content_geometry_marker_fields, direct_camera2_content_geometry_marker_fields,
+    makepad_camera_status_marker_line, makepad_camera2_acquisition_broker_h264_skipped_marker_line,
+    makepad_hardware_buffer_import_marker_line,
     makepad_hardware_buffer_import_broker_h264_prepare_request_marker_fields,
     makepad_hardware_buffer_import_broker_h264_startup_marker_fields,
     makepad_hardware_buffer_import_complete_error_marker_fields,
@@ -69,8 +73,10 @@ use rusty_xr_runtime_config as rxrc;
 use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 use source_sampling::{
+    makepad_cadence_sample_marker_line, makepad_cadence_start_marker_line,
     makepad_texture_content_probe_missing_marker_fields,
-    makepad_texture_content_probe_ok_marker_fields, MakepadSourceSamplingHandoff,
+    makepad_texture_content_probe_ok_marker_fields, MakepadCadenceSampleMarker,
+    MakepadSourceSamplingHandoff,
 };
 use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -2468,15 +2474,12 @@ impl Widget for MakepadStereoCameraPanel {
             return self.node.draw_3d(cx, scope);
         }
         if !CAMERA_PANEL_DRAW_MARKER_EMITTED.swap(true, Ordering::AcqRel) {
-            emit_marker_line(&format!(
-                "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=visible-panel-draw status=ok visibleCameraPanelDrawn=true cameraTextureReady={} renderPath=makepad-xr sceneOwnedPanel=true projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted=false directCameraYuvColorSwapUv=false colorConversion=per-eye-yuv-noswap-limited-bt601 colorReference=android-yuv420-888-plane-order perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review projectionDepthMeters={:.2} panelTargetDepthMeters={:.2} panelTargetPreviewFovYDegrees={:.3} panelTargetPreviewOffsetYMeters={:.3} panelTargetRawOverscan={:.3} {} diagnosticVisualLayer=none neutralWaitingPanel=true visualIsolation=s118_projected_footprint_solid_red_exterior depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
+            emit_marker_line(&makepad_visible_panel_draw_marker_line(
                 self.camera_ready,
-                self.draw_panel.projection_depth_meters,
                 self.draw_panel.projection_depth_meters,
                 self.draw_panel.projection_preview_fov_y_degrees,
                 self.draw_panel.projection_preview_offset_y_meters,
                 self.draw_panel.projection_raw_overscan,
-                makepad_projection_target_marker_fields()
             ));
         }
         let _world = xr_widget_world_transform(cx, scope, self.widget_uid(), &self.node);
@@ -2505,9 +2508,7 @@ impl App {
         Self::emit_status_marker(phase);
         Self::emit_stereo_comparison_marker(phase);
         if Self::broker_h264_enabled() {
-            emit_marker_line(
-                "RUSTY_XR_MAKEPAD_CAMERA2_ACQUISITION schema=rusty.xr.makepad-camera2.acquisition.v1 phase=start status=skipped reason=broker-h264-enabled import=broker-h264",
-            );
+            emit_marker_line(makepad_camera2_acquisition_broker_h264_skipped_marker_line());
         } else {
             Self::start_camera_probe_once();
         }
@@ -2516,13 +2517,12 @@ impl App {
     fn emit_status_marker(phase: &str) {
         let config = Self::runtime_config();
 
-        emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_CAMERA_STATUS schema=rusty.xr.makepad-camera.status.v1 phase={} profile={} transport={} renderer=makepad android_packager=cargo-makepad makepad_rev={} studio_host={}",
+        emit_marker_line(&makepad_camera_status_marker_line(
             phase,
-            runtime_text(&config, KEY_RUNTIME_PROFILE),
-            runtime_text(&config, KEY_TRANSPORT_PROFILE),
-            runtime_text(&config, KEY_MAKEPAD_REVISION),
-            runtime_text(&config, KEY_STUDIO_HOST)
+            &runtime_text(&config, KEY_RUNTIME_PROFILE),
+            &runtime_text(&config, KEY_TRANSPORT_PROFILE),
+            &runtime_text(&config, KEY_MAKEPAD_REVISION),
+            &runtime_text(&config, KEY_STUDIO_HOST),
         ));
     }
 
@@ -2530,26 +2530,24 @@ impl App {
         let config = Self::runtime_config();
         let tuning = Self::horizontal_alignment_tuning();
 
-        emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_STEREO_COMPARISON schema=rusty.xr.makepad-stereo-comparison.v1 phase={} profile={} comparisonBaseline={} cameraTier={} acquisition={} transport={} projectionMode={} syntheticScene={} leftEyeSource=synthetic-left rightEyeSource=synthetic-right sourceEyeMapping=display-eye projectionScale={:.2} xrRenderScale={:.2} pairedLeftRightGpuBuffers=false alignedProjection=false renderPath=makepad-xr makepadForkBranch={} makepadForkCommit={} {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s102FullSurfaceLiveCameraCoverageControl=false s103InSurfaceCameraWindowBorderControl=true s104HorizontalWindowAlignmentControl=false s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109SolidRedProjectionExterior=true s110VerticalWindowOffsetHotload=true horizontalAlignmentSource=screen_to_camera_center_delta_projection_area_source_valid_window manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true borderlessWindowMask=false solidRedProjectionExterior=true horizontalAlignmentStrength={:.3} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} liveCameraSamplingSuppressed=false forceFullSurfaceLiveCameraUv=false forceInSurfaceCameraWindow=true liveCameraWindowDomain=projected_camera_uv fullSurfaceLayerActive=false cameraCoverageInShader=true layerNotResized=false panelSizedFromProjectionSurface=true projectionValidMaskDisabled=false visualIsolation=s118_projected_footprint_solid_red_exterior",
-            phase,
-            runtime_text(&config, KEY_RUNTIME_PROFILE),
-            runtime_text(&config, KEY_COMPARISON_BASELINE),
-            runtime_text(&config, KEY_CAMERA_TIER),
-            runtime_text(&config, KEY_ACQUISITION_PROFILE),
-            runtime_text(&config, KEY_TRANSPORT_PROFILE),
-            runtime_text(&config, KEY_CAMERA_PROJECTION_MODE),
-            runtime_text(&config, KEY_SYNTHETIC_SCENE),
-            runtime_float(&config, KEY_PROJECTION_SCALE),
-            runtime_float(&config, KEY_XR_RENDER_SCALE),
-            runtime_text(&config, KEY_MAKEPAD_BRANCH),
-            runtime_text(&config, KEY_MAKEPAD_REVISION),
-            makepad_projection_target_marker_fields(),
-            tuning.strength,
-            tuning.left_offset_uv,
-            tuning.right_offset_uv,
-            tuning.vertical_offset_uv,
-            tuning.content_uv_scale
+        emit_marker_line(&makepad_synthetic_stereo_comparison_marker_line(
+            MakepadStereoComparisonMarkerInputs {
+                phase,
+                runtime_profile: &runtime_text(&config, KEY_RUNTIME_PROFILE),
+                comparison_baseline: &runtime_text(&config, KEY_COMPARISON_BASELINE),
+                camera_tier: &runtime_text(&config, KEY_CAMERA_TIER),
+                acquisition_profile: &runtime_text(&config, KEY_ACQUISITION_PROFILE),
+                transport_profile: &runtime_text(&config, KEY_TRANSPORT_PROFILE),
+                projection_mode: &runtime_text(&config, KEY_CAMERA_PROJECTION_MODE),
+                synthetic_scene: &runtime_text(&config, KEY_SYNTHETIC_SCENE),
+                projection_scale: runtime_float(&config, KEY_PROJECTION_SCALE),
+                xr_render_scale: runtime_float(&config, KEY_XR_RENDER_SCALE),
+                aligned_projection: false,
+                visible_projection_ready: false,
+                makepad_fork_branch: &runtime_text(&config, KEY_MAKEPAD_BRANCH),
+                makepad_fork_commit: &runtime_text(&config, KEY_MAKEPAD_REVISION),
+            },
+            tuning,
         ));
         Self::emit_projection_runtime_manifest_marker(phase, &config, tuning);
     }
@@ -2849,32 +2847,16 @@ impl App {
     }
 
     fn emit_hardware_buffer_import_marker(body: &str) {
-        emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 {}",
-            body
-        ));
+        emit_marker_line(&makepad_hardware_buffer_import_marker_line(body));
     }
 
     fn emit_stereo_projection_marker(body: &str) {
-        emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 {}",
-            body
-        ));
-    }
-
-    fn emit_cadence_marker(body: &str) {
-        emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 {}",
-            body
-        ));
+        emit_marker_line(&makepad_stereo_projection_marker_line(body));
     }
 
     fn arm_cadence_probe(&mut self, cx: &mut Cx) {
         self.cadence_next_frame = Some(cx.new_next_frame());
-        Self::emit_cadence_marker(&format!(
-            "phase=start status=started samplePeriodSeconds={:.1} appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated",
-            CADENCE_SAMPLE_SECONDS
-        ));
+        emit_marker_line(&makepad_cadence_start_marker_line(CADENCE_SAMPLE_SECONDS));
     }
 
     #[cfg(target_os = "android")]
@@ -3512,34 +3494,37 @@ impl App {
             (false, false)
         };
 
-        Self::emit_cadence_marker(&format!(
-            "phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} xrUpdateCount={} xrUpdateDelta={} xrUpdateRateHz={:.2} drawEventCount={} drawEventDelta={} drawEventRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightCameraFrames={} projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} cpuUploadPath=makepad-camera-cpu-yuv-plane renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated",
-            elapsed_seconds * 1000.0,
-            interval_seconds * 1000.0,
-            self.cadence_frame_count,
-            frame_delta,
-            app_frame_rate_hz,
-            self.cadence_xr_update_count,
-            xr_update_delta,
-            xr_update_rate_hz,
-            self.cadence_draw_event_count,
-            draw_event_delta,
-            draw_event_rate_hz,
-            self.cadence_left_texture_update_count,
-            self.cadence_right_texture_update_count,
-            self.cadence_left_texture_update_count.min(self.cadence_right_texture_update_count),
-            left_delta,
-            right_delta,
-            paired_delta,
-            left_texture_rate_hz,
-            right_texture_rate_hz,
-            paired_texture_rate_hz,
-            self.cadence_left_last_position_ms,
-            self.cadence_right_last_position_ms,
-            paired_buffers_ready,
-            projection_mapping_ready,
-            aligned_projection,
-            self.camera_projection_textures_bound,
+        emit_marker_line(&makepad_cadence_sample_marker_line(
+            MakepadCadenceSampleMarker {
+                elapsed_seconds,
+                interval_seconds,
+                app_frame_count: self.cadence_frame_count,
+                app_frame_delta: frame_delta,
+                app_frame_rate_hz,
+                xr_update_count: self.cadence_xr_update_count,
+                xr_update_delta,
+                xr_update_rate_hz,
+                draw_event_count: self.cadence_draw_event_count,
+                draw_event_delta,
+                draw_event_rate_hz,
+                left_texture_update_count: self.cadence_left_texture_update_count,
+                right_texture_update_count: self.cadence_right_texture_update_count,
+                paired_texture_update_count: self
+                    .cadence_left_texture_update_count
+                    .min(self.cadence_right_texture_update_count),
+                left_texture_update_delta: left_delta,
+                right_texture_update_delta: right_delta,
+                paired_texture_update_delta: paired_delta,
+                left_texture_update_rate_hz: left_texture_rate_hz,
+                right_texture_update_rate_hz: right_texture_rate_hz,
+                paired_texture_update_rate_hz: paired_texture_rate_hz,
+                left_last_position_ms: self.cadence_left_last_position_ms,
+                right_last_position_ms: self.cadence_right_last_position_ms,
+                paired_left_right_camera_frames: paired_buffers_ready,
+                projection_mapping_ready,
+                aligned_projection,
+                visible_camera_projection_ready: self.camera_projection_textures_bound,
+            },
         ));
 
         self.cadence_last_sample_time = now_seconds;
