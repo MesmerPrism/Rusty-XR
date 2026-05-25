@@ -93,8 +93,9 @@ mod android {
         OesProjectionPlan, OesSourceColorContract,
     };
     use projection_runtime::{
-        log_oes_projection_runtime_manifest, oes_projection_runtime_resolution_enabled,
-        oes_projection_runtime_resolution_from_state, oes_projection_runtime_state_from_resolution,
+        log_oes_projection_runtime_manifest, oes_projection_runtime_hotload_log_message,
+        oes_projection_runtime_resolution_enabled, oes_projection_runtime_resolution_from_state,
+        oes_projection_runtime_state_from_resolution, oes_projection_tuning_hotload_log_message,
     };
     use source_metadata::{stream_projection_metadata_log_message, OesProjectionMetadata};
 
@@ -905,13 +906,10 @@ mod android {
             } else {
                 "android-system-property"
             };
-            log_info(format!(
-                "Rusty XR OpenXR GLES projection tuning hotload source={} frame=0 projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} propertyPrefix=debug.rustyxr",
+            log_info(oes_projection_tuning_hotload_log_message(
                 tuning_source,
-                projection_state.tuning.projection_depth_meters,
-                projection_state.tuning.camera_preview_fov_y_degrees,
-                projection_state.tuning.camera_preview_offset_y_meters,
-                projection_state.tuning.camera_raw_overlay_overscan
+                0,
+                projection_state.tuning,
             ));
         }
 
@@ -1264,27 +1262,10 @@ mod android {
                         "android-system-property"
                     };
                     projection_state = next_projection_state;
-                    log_info(format!(
-                        "Rusty XR OpenXR GLES projection runtime hotload source={} frame={} projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} projectionAreaOffsetUv={:.6},{:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} cameraProjectionMode={} projectionBorderPolicy={} propertyPrefix=debug.rustyxr",
+                    log_info(oes_projection_runtime_hotload_log_message(
                         tuning_source,
                         frame_count,
-                        projection_state.tuning.projection_depth_meters,
-                        projection_state.tuning.camera_preview_fov_y_degrees,
-                        projection_state.tuning.camera_preview_offset_y_meters,
-                        projection_state.tuning.camera_raw_overlay_overscan,
-                        projection_state.projection_area_offset_uv[0],
-                        projection_state.projection_area_offset_uv[1],
-                        projection_state.projection_area_scale[0],
-                        projection_state.projection_area_scale[1],
-                        projection_state.projection_area_radius[0],
-                        projection_state.projection_area_radius[1],
-                        projection_state.projection_area_opacity,
-                        projection_state.projection_border_opacity,
-                        projection_state.projection_alpha_mode.stable_id(),
-                        projection_state.projection_alpha_scale,
-                        projection_state.projection_alpha_bias,
-                        projection_state.camera_projection_mode.stable_id(),
-                        projection_state.projection_border_policy.stable_id()
+                        projection_state,
                     ));
                 }
                 let projection_area_target_fields = projection_area_target_marker_fields(
