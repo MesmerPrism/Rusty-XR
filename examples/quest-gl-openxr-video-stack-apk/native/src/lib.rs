@@ -65,10 +65,15 @@ mod android {
     mod egl_gles_context;
     mod gles_framebuffer;
     mod gles_shader_program;
+    mod oes_copy_quad;
     mod oes_copy_renderer;
     mod oes_copy_shader_sources;
+    mod oes_copy_uniforms;
+    mod openxr_gles_activity_color;
     mod openxr_gles_activity_config;
+    mod openxr_gles_activity_env;
     mod openxr_gles_activity_extras;
+    mod openxr_gles_activity_projection;
     mod openxr_gles_config;
     mod openxr_gles_contracts;
     mod openxr_gles_layers;
@@ -77,6 +82,9 @@ mod android {
     mod openxr_gles_renderer;
     mod openxr_gles_resources;
     mod openxr_gles_session;
+    mod openxr_gles_session_creation;
+    mod openxr_gles_session_events;
+    mod openxr_gles_session_frames;
     mod projection_contract_markers;
     mod projection_diagnostics;
     mod projection_footprints;
@@ -89,7 +97,9 @@ mod android {
     mod projection_plan_profile_builders;
     mod projection_plan_shared;
     mod projection_runtime;
+    mod projection_runtime_config_layers;
     mod projection_runtime_layers;
+    mod projection_runtime_property_readback;
     mod projection_runtime_resolution;
     mod projection_source_color;
     mod projection_stage_rows;
@@ -97,6 +107,7 @@ mod android {
     mod source_metadata;
     mod source_metadata_json;
     mod source_metadata_labels;
+    mod source_metadata_semantics;
     mod surface_texture_oes_callbacks;
     mod surface_texture_oes_frame_sources;
     mod surface_texture_oes_gl;
