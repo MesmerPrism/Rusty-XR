@@ -55,6 +55,7 @@ mod gpu_camera_sampler;
 mod gpu_camera_uniforms;
 mod openxr_swapchain_images;
 mod projection_diagnostics;
+mod projection_eye_mapping;
 mod projection_geometry;
 mod projection_homography_utils;
 mod projection_profile;
