@@ -348,6 +348,34 @@ write `profile-step-timings.jsonl`, `profile-step-timing-summary.json`, and a
 per-run readiness summary. Makepad runs write `device-gate-timings.jsonl` and
 `device-gate-timing-summary.json`.
 
+Use `-LaneFilter` to keep validation scoped to the changed renderer module
+while still using the same suite and artifact contract. Pass one or more of
+`hwb`, `oes`, and `makepad`, or `all` for the full comparison sweep. The suite
+records both `laneFilter` and `effectiveLanes` in
+`canvas-custom-projection-parity-suite-summary.json`.
+
+Examples:
+
+```powershell
+# OES-only renderer/runtime change.
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File .\tools\quest-camera-profile\Invoke-CanvasCustomProjectionParitySuite.ps1 `
+  -LaneFilter oes `
+  -EvidenceMode fast-visual `
+  -SkipMediaProjection `
+  -ProjectionRuntimeReadback required `
+  -Install
+
+# Shared HWB/OES change that does not affect Makepad.
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File .\tools\quest-camera-profile\Invoke-CanvasCustomProjectionParitySuite.ps1 `
+  -LaneFilter hwb,oes `
+  -EvidenceMode fast-visual `
+  -SkipMediaProjection `
+  -ProjectionRuntimeReadback required `
+  -Install
+```
+
 By default the fast path uses `-CaptureReadinessMode contract`: the harness
 starts a bounded streaming logcat window before launch, polls it for renderer
 readiness markers such as source-sampling or projection-coordinate contracts,

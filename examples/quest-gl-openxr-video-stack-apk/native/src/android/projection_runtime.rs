@@ -79,6 +79,96 @@ pub(super) fn oes_projection_runtime_hotload_log_message(
     )
 }
 
+pub(super) struct OesProjectionRuntimeController {
+    activity_projection_state: OesProjectionRuntimeState,
+    resolved_manifest_consumption_enabled: bool,
+    runtime: rxrc::ProjectionRuntimeConfigResolution,
+    current_state: OesProjectionRuntimeState,
+}
+
+impl OesProjectionRuntimeController {
+    pub(super) fn from_activity(
+        app: &android_activity::AndroidApp,
+        activity_projection_state: OesProjectionRuntimeState,
+    ) -> Self {
+        let runtime = oes_projection_runtime_resolution_from_state(activity_projection_state);
+        let resolved_manifest_consumption_enabled = oes_projection_runtime_resolution_enabled(app);
+        let current_state = if resolved_manifest_consumption_enabled {
+            oes_projection_runtime_state_from_resolution(
+                activity_projection_state,
+                &runtime.resolution,
+            )
+        } else {
+            activity_projection_state.with_legacy_system_properties()
+        };
+
+        Self {
+            activity_projection_state,
+            resolved_manifest_consumption_enabled,
+            runtime,
+            current_state,
+        }
+    }
+
+    pub(super) fn current_state(&self) -> OesProjectionRuntimeState {
+        self.current_state
+    }
+
+    pub(super) fn log_manifest(&self, phase: &str) {
+        log_oes_projection_runtime_manifest(
+            phase,
+            &self.runtime,
+            self.resolved_manifest_consumption_enabled,
+        );
+    }
+
+    pub(super) fn log_initial_tuning_if_changed(&self, base_tuning: OesProjectionTuning) {
+        if self.current_state.tuning == base_tuning {
+            return;
+        }
+        log_info(oes_projection_tuning_hotload_log_message(
+            self.tuning_source(),
+            0,
+            self.current_state.tuning,
+        ));
+    }
+
+    pub(super) fn refresh_state(&mut self, frame_count: u64) -> OesProjectionRuntimeState {
+        let next_state = self.resolve_current_state();
+        if next_state != self.current_state {
+            self.current_state = next_state;
+            log_info(oes_projection_runtime_hotload_log_message(
+                self.tuning_source(),
+                frame_count,
+                self.current_state,
+            ));
+        }
+        self.current_state
+    }
+
+    fn resolve_current_state(&mut self) -> OesProjectionRuntimeState {
+        if self.resolved_manifest_consumption_enabled {
+            self.runtime =
+                oes_projection_runtime_resolution_from_state(self.activity_projection_state);
+            oes_projection_runtime_state_from_resolution(
+                self.activity_projection_state,
+                &self.runtime.resolution,
+            )
+        } else {
+            self.activity_projection_state
+                .with_legacy_system_properties()
+        }
+    }
+
+    fn tuning_source(&self) -> &'static str {
+        if self.resolved_manifest_consumption_enabled {
+            "resolved-projection-runtime"
+        } else {
+            "android-system-property"
+        }
+    }
+}
+
 pub(super) fn log_oes_projection_startup_summary(
     projection_state: OesProjectionRuntimeState,
     processing_layer: OesProcessingLayer,

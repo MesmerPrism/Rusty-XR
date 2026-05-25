@@ -98,12 +98,7 @@ mod android {
     use projection_geometry::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
     };
-    use projection_runtime::{
-        log_oes_projection_runtime_manifest, log_oes_projection_startup_summary,
-        oes_projection_runtime_hotload_log_message, oes_projection_runtime_resolution_enabled,
-        oes_projection_runtime_resolution_from_state, oes_projection_runtime_state_from_resolution,
-        oes_projection_tuning_hotload_log_message,
-    };
+    use projection_runtime::{log_oes_projection_startup_summary, OesProjectionRuntimeController};
     use surface_texture_oes_probe::probe_surface_texture_oes;
 
     const VIEW_COUNT: usize = 2;
@@ -241,22 +236,10 @@ mod android {
         let base_projection_tuning = activity_config.base_projection_tuning;
         let activity_projection_state = activity_config.projection_state;
         let camera_color_controls = activity_config.camera_color_controls;
-        let projection_runtime =
-            oes_projection_runtime_resolution_from_state(activity_projection_state);
-        let projection_runtime_resolution_enabled = oes_projection_runtime_resolution_enabled(&app);
-        let mut projection_state = if projection_runtime_resolution_enabled {
-            oes_projection_runtime_state_from_resolution(
-                activity_projection_state,
-                &projection_runtime.resolution,
-            )
-        } else {
-            activity_projection_state.with_legacy_system_properties()
-        };
-        log_oes_projection_runtime_manifest(
-            "startup",
-            &projection_runtime,
-            projection_runtime_resolution_enabled,
-        );
+        let mut projection_runtime_controller =
+            OesProjectionRuntimeController::from_activity(&app, activity_projection_state);
+        let mut projection_state = projection_runtime_controller.current_state();
+        projection_runtime_controller.log_manifest("startup");
         let projection_uses_source_alpha = projection_state
             .projection_border_policy
             .needs_source_alpha(
@@ -265,18 +248,7 @@ mod android {
                 projection_state.projection_alpha_mode,
             );
         let native_passthrough_underlay_requested = projection_uses_source_alpha;
-        if projection_state.tuning != base_projection_tuning {
-            let tuning_source = if projection_runtime_resolution_enabled {
-                "resolved-projection-runtime"
-            } else {
-                "android-system-property"
-            };
-            log_info(oes_projection_tuning_hotload_log_message(
-                tuning_source,
-                0,
-                projection_state.tuning,
-            ));
-        }
+        projection_runtime_controller.log_initial_tuning_if_changed(base_projection_tuning);
 
         let entry = unsafe { xr::Entry::load().map_err(|error| format!("load OpenXR: {error}"))? };
         initialize_android_loader(&entry, &app)?;
@@ -306,11 +278,7 @@ mod android {
         // Repeat the resolved runtime manifest at lifecycle boundaries where
         // OpenXR state has changed. The validation harness owns log capture
         // timing; renderer cadence must not be changed just to satisfy a tail.
-        log_oes_projection_runtime_manifest(
-            "openxr-runtime",
-            &projection_runtime,
-            projection_runtime_resolution_enabled,
-        );
+        projection_runtime_controller.log_manifest("openxr-runtime");
 
         let system = xr_instance
             .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
@@ -338,11 +306,7 @@ mod android {
         wait_for_android_foreground(&app)?;
         let (session, mut frame_wait, mut frame_stream) =
             create_openxr_gles_session(&xr_instance, system, &egl, &mut status)?;
-        log_oes_projection_runtime_manifest(
-            "session-ready",
-            &projection_runtime,
-            projection_runtime_resolution_enabled,
-        );
+        projection_runtime_controller.log_manifest("session-ready");
         let native_passthrough_underlay = create_requested_openxr_gles_passthrough_underlay(
             native_passthrough_underlay_requested,
             &xr_instance,
@@ -415,29 +379,7 @@ mod android {
                 if let Some(probe) = surface_texture_oes_probe.as_mut() {
                     probe.update_textures(&egl, frame_count);
                 }
-                let next_projection_state = if projection_runtime_resolution_enabled {
-                    let runtime =
-                        oes_projection_runtime_resolution_from_state(activity_projection_state);
-                    oes_projection_runtime_state_from_resolution(
-                        activity_projection_state,
-                        &runtime.resolution,
-                    )
-                } else {
-                    activity_projection_state.with_legacy_system_properties()
-                };
-                if next_projection_state != projection_state {
-                    let tuning_source = if projection_runtime_resolution_enabled {
-                        "resolved-projection-runtime"
-                    } else {
-                        "android-system-property"
-                    };
-                    projection_state = next_projection_state;
-                    log_info(oes_projection_runtime_hotload_log_message(
-                        tuning_source,
-                        frame_count,
-                        projection_state,
-                    ));
-                }
+                projection_state = projection_runtime_controller.refresh_state(frame_count);
                 let projection_area_target_fields =
                     projection_area_target_marker_fields_from_state(projection_state);
                 let projection_plan = surface_texture_oes_probe.as_ref().and_then(|probe| {

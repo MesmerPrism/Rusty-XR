@@ -124,6 +124,12 @@ $profileRunner = Join-Path $repoRoot "tools\quest-camera-profile\Invoke-QuestCam
 $makepadRunner = Join-Path $repoRoot "examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1"
 $projectionRuntimeResolutionEnabledValue = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
 $effectiveProjectionRuntimeReadback = if ($ProjectionRuntimeReadback -eq "warn" -and $UseResolvedProjectionRuntime) { "required" } else { $ProjectionRuntimeReadback }
+$requestedLaneFilter = @($LaneFilter | Select-Object -Unique)
+$effectiveLanes = if ($requestedLaneFilter -contains "all") {
+    @("hwb", "oes", "makepad")
+} else {
+    @($requestedLaneFilter)
+}
 
 function Format-LaunchFloat {
     param([double]$Value)
@@ -267,13 +273,13 @@ Write-Host ("[suite] captureReadinessMode={0} readyTimeout={1}s readyPoll={2}ms 
     $ReadyPollIntervalMs,
     $ReadySettleMs,
     $MakepadReadySettleMs)
+Write-Host ("[suite] laneFilter={0} effectiveLanes={1}" -f `
+    ($requestedLaneFilter -join ","),
+    ($effectiveLanes -join ","))
 
 function Test-LaneEnabled {
     param([string]$Lane)
-    if ($LaneFilter -contains "all") {
-        return $true
-    }
-    return $LaneFilter -contains $Lane
+    return $effectiveLanes -contains $Lane
 }
 
 function Get-BrokerH264Override {
@@ -1345,6 +1351,8 @@ $summary = [ordered]@{
     serial = $Serial
     sourceMode = $SourceMode
     evidenceMode = $EvidenceMode
+    laneFilter = @($requestedLaneFilter)
+    effectiveLanes = @($effectiveLanes)
     sessionRoot = $sessionRoot
     screenshotsRoot = $screenshotsRoot
     contactSheet = $contactSheetPath
