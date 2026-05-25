@@ -1,7 +1,7 @@
 use ash::vk;
 
 use super::{
-    gpu_camera_projection::CameraProjectionUniforms,
+    gpu_camera_projection_uniforms::CameraProjectionUniforms,
     gpu_camera_resources::GpuCameraPipelineResources,
 };
 

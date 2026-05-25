@@ -1,7 +1,7 @@
 use ash::vk;
 
 use super::{
-    find_memory_type, gpu_camera_projection::CameraProjectionUniforms,
+    find_memory_type, gpu_camera_projection_uniforms::CameraProjectionUniforms,
     gpu_camera_resources::GpuCameraPipelineResources,
 };
 

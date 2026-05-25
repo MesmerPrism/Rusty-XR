@@ -5,9 +5,8 @@ use rusty_xr_camera_model::CameraCompositeTier;
 use crate::{HeadsetCameraGpuFrame, StereoGpuCameraFrame};
 
 use super::{
-    gpu_camera_projection::{
-        source_uv_rect_xywh_for_frame, CameraProjectionPush, CameraProjectionUniforms,
-    },
+    gpu_camera_projection::{source_uv_rect_xywh_for_frame, CameraProjectionPush},
+    gpu_camera_projection_uniforms::CameraProjectionUniforms,
     gpu_camera_resources::{
         GpuCameraImport, GpuCameraPipelineResources, GpuCameraStereoDescriptor,
     },
