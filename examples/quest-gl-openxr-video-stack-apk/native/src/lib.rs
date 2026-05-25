@@ -614,20 +614,7 @@ mod android {
                 let projection_area_target_fields =
                     projection_area_target_marker_fields_from_state(projection_state);
                 let projection_plan = surface_texture_oes_probe.as_ref().and_then(|probe| {
-                    probe.projection_plan_from_xr_views(
-                        &views,
-                        projection_state.camera_projection_mode,
-                        projection_state.projection_area_eye_offset_uv,
-                        projection_state.projection_area_scale,
-                        projection_state.projection_area_radius,
-                        projection_state.projection_area_opacity,
-                        projection_state.projection_border_policy,
-                        projection_state.projection_border_opacity,
-                        projection_state.tuning.projection_depth_meters,
-                        projection_state.tuning.camera_preview_fov_y_degrees,
-                        projection_state.tuning.camera_preview_offset_y_meters,
-                        projection_state.tuning.camera_raw_overlay_overscan,
-                    )
+                    probe.projection_plan_from_xr_views(&views, projection_state)
                 });
                 let openxr_projection_fields = openxr_projection_contract_fields(
                     "LOCAL",
@@ -645,23 +632,12 @@ mod android {
                         openxr_projection_fields: &openxr_projection_fields,
                         projection_area_target_fields: &projection_area_target_fields,
                     },
-                    OesRenderTuning {
-                        projection_border_policy: projection_state.projection_border_policy,
+                    OesRenderTuning::from_projection_state(
+                        projection_state,
                         processing_layer,
                         blur_radius_px,
-                        projection_area_eye_offset_uv: projection_state
-                            .projection_area_eye_offset_uv,
-                        projection_area_scale: projection_state.projection_area_scale,
-                        projection_area_radius: projection_state.projection_area_radius,
-                        projection_area_corner_radius_uv: projection_state
-                            .projection_area_corner_radius_uv,
-                        projection_area_opacity: projection_state.projection_area_opacity,
-                        projection_border_opacity: projection_state.projection_border_opacity,
-                        projection_alpha_mode: projection_state.projection_alpha_mode,
-                        projection_alpha_scale: projection_state.projection_alpha_scale,
-                        projection_alpha_bias: projection_state.projection_alpha_bias,
                         camera_color_controls,
-                    },
+                    ),
                 )?;
 
                 for (index, eye) in swapchains.iter().enumerate() {

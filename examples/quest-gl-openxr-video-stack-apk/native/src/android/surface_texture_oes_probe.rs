@@ -1,6 +1,4 @@
-use super::openxr_gles_config::{
-    activity_string_extra, OesCameraProjectionMode, OesProjectionBorderPolicy,
-};
+use super::openxr_gles_config::{activity_string_extra, OesProjectionRuntimeState};
 use super::projection_geometry::{
     projection_plan_from_metadata, OesEyeProjection, OesProjectionPlan,
 };
@@ -534,21 +532,10 @@ impl SurfaceTextureOesProbe {
         Some(age_ns as f32 / 1_000_000.0)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn projection_plan_from_xr_views(
         &self,
         views: &[openxr::View],
-        camera_projection_mode: OesCameraProjectionMode,
-        projection_area_eye_offset_uv: [[f32; 2]; 2],
-        projection_area_scale: [f32; 2],
-        projection_area_radius: [f32; 2],
-        projection_area_opacity: f32,
-        projection_border_policy: OesProjectionBorderPolicy,
-        projection_border_opacity: f32,
-        projection_depth_meters: f32,
-        projection_preview_fov_y_degrees: f32,
-        projection_preview_offset_y_meters: f32,
-        projection_raw_overscan: f32,
+        projection_state: OesProjectionRuntimeState,
     ) -> Option<OesProjectionPlan> {
         let left = self.projection_metadata[0].as_ref()?;
         let right = self.projection_metadata[1].as_ref()?;
@@ -556,17 +543,17 @@ impl SurfaceTextureOesProbe {
             left,
             right,
             views,
-            camera_projection_mode,
-            projection_area_eye_offset_uv,
-            projection_area_scale,
-            projection_area_radius,
-            projection_area_opacity,
-            projection_border_policy,
-            projection_border_opacity,
-            projection_depth_meters,
-            projection_preview_fov_y_degrees,
-            projection_preview_offset_y_meters,
-            projection_raw_overscan,
+            projection_state.camera_projection_mode,
+            projection_state.projection_area_eye_offset_uv,
+            projection_state.projection_area_scale,
+            projection_state.projection_area_radius,
+            projection_state.projection_area_opacity,
+            projection_state.projection_border_policy,
+            projection_state.projection_border_opacity,
+            projection_state.tuning.projection_depth_meters,
+            projection_state.tuning.camera_preview_fov_y_degrees,
+            projection_state.tuning.camera_preview_offset_y_meters,
+            projection_state.tuning.camera_raw_overlay_overscan,
         )
     }
 
