@@ -38,8 +38,13 @@ use rusty_xr_particles::{
     MeshSurfaceCrossNeighborConfig, MeshSurfaceSampleConfig, ParticleRender,
 };
 
+mod gpu_camera_resources;
 mod projection_geometry;
 mod source_metadata;
+use gpu_camera_resources::{
+    GpuCameraFormatKey, GpuCameraImport, GpuCameraImportKey, GpuCameraPipelineResources,
+    GpuCameraStereoDescriptor,
+};
 use projection_geometry::{
     camera_preview_surface_corners, display_eye_uv_fiducial_contract_log_message,
     display_eye_uv_fiducial_marker_fields, eye_basis_from_view, fov_aspect, identity_homography,
@@ -5629,120 +5634,6 @@ impl GpuCameraRenderer {
         if let Some(resources) = self.resources.take() {
             resources.destroy(device);
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct GpuCameraFormatKey {
-    format: vk::Format,
-    external_format: u64,
-    sampler_binding_mode: crate::CameraSamplerBindingMode,
-    import_image_layout_mode: crate::CameraImportImageLayoutMode,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct GpuCameraImportKey {
-    buffer_id: u64,
-    width: u32,
-    height: u32,
-    native_format: u64,
-}
-
-impl GpuCameraImportKey {
-    fn from_frame(frame: &HeadsetCameraGpuFrame) -> Self {
-        Self {
-            buffer_id: frame
-                .descriptor
-                .buffer_id
-                .unwrap_or(frame.timestamp_ns as u64),
-            width: frame.width,
-            height: frame.height,
-            native_format: frame.descriptor.native_format.unwrap_or_default(),
-        }
-    }
-}
-
-struct GpuCameraPipelineResources {
-    format_key: GpuCameraFormatKey,
-    sampler_ycbcr_conversion: vk::SamplerYcbcrConversion,
-    sampler: vk::Sampler,
-    descriptor_set_layout: vk::DescriptorSetLayout,
-    descriptor_pool: vk::DescriptorPool,
-    pipeline_layout: vk::PipelineLayout,
-    pipeline: vk::Pipeline,
-    direct_pipeline: vk::Pipeline,
-    projection_uniform_buffer: vk::Buffer,
-    projection_uniform_memory: vk::DeviceMemory,
-    projection_uniform_stride: vk::DeviceSize,
-    projection_uniform_slots: u32,
-}
-
-impl GpuCameraPipelineResources {
-    unsafe fn destroy(self, device: &ash::Device) {
-        device.destroy_pipeline(self.direct_pipeline, None);
-        device.destroy_pipeline(self.pipeline, None);
-        device.destroy_pipeline_layout(self.pipeline_layout, None);
-        device.destroy_descriptor_pool(self.descriptor_pool, None);
-        device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-        device.destroy_buffer(self.projection_uniform_buffer, None);
-        device.free_memory(self.projection_uniform_memory, None);
-        device.destroy_sampler(self.sampler, None);
-        device.destroy_sampler_ycbcr_conversion(self.sampler_ycbcr_conversion, None);
-    }
-
-    fn projection_uniform_offset(&self, frame_count: u64) -> u32 {
-        let slot = frame_count % self.projection_uniform_slots.max(1) as u64;
-        (slot * self.projection_uniform_stride) as u32
-    }
-
-    fn pipeline_for_config(&self, config: &crate::RuntimeConfig) -> vk::Pipeline {
-        if config
-            .camera_processing_layer
-            .requires_full_projection_pipeline()
-            || config.camera_projection_border_policy_requires_full_pipeline()
-        {
-            self.pipeline
-        } else if config
-            .camera_projection_effect_mode
-            .uses_raw_projection_pipeline()
-        {
-            self.direct_pipeline
-        } else {
-            self.pipeline
-        }
-    }
-}
-
-struct GpuCameraImport {
-    key: GpuCameraImportKey,
-    image: vk::Image,
-    memory: vk::DeviceMemory,
-    image_view: vk::ImageView,
-    descriptor_set: vk::DescriptorSet,
-    descriptor_pool: vk::DescriptorPool,
-    needs_layout_transition: bool,
-    _hardware_buffer: crate::AndroidHardwareBufferHandle,
-}
-
-struct GpuCameraStereoDescriptor {
-    left_key: GpuCameraImportKey,
-    right_key: GpuCameraImportKey,
-    descriptor_set: vk::DescriptorSet,
-    descriptor_pool: vk::DescriptorPool,
-}
-
-impl GpuCameraImport {
-    unsafe fn destroy(self, device: &ash::Device) {
-        let _ = device.free_descriptor_sets(self.descriptor_pool, &[self.descriptor_set]);
-        device.destroy_image_view(self.image_view, None);
-        device.destroy_image(self.image, None);
-        device.free_memory(self.memory, None);
-    }
-}
-
-impl GpuCameraStereoDescriptor {
-    unsafe fn destroy(self, device: &ash::Device) {
-        let _ = device.free_descriptor_sets(self.descriptor_pool, &[self.descriptor_set]);
     }
 }
 
