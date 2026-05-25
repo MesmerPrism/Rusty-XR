@@ -80,8 +80,10 @@ mod android {
     mod projection_plan_builders;
     mod projection_plan_profile_builders;
     mod projection_runtime;
+    mod source_content_geometry;
     mod source_metadata;
     mod source_metadata_json;
+    mod source_metadata_labels;
     mod surface_texture_oes_callbacks;
     mod surface_texture_oes_frame_sources;
     mod surface_texture_oes_gl;

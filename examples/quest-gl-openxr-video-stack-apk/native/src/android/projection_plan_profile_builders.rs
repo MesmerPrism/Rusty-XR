@@ -12,9 +12,8 @@ use super::{
     openxr_gles_config::{OesContentMappingMode, OesProjectionBorderPolicy},
     projection_contract_markers::projection_area_screen_uv_rect,
     projection_geometry::{identity_homography, OesEyeProjection, OesProjectionPlan},
-    source_metadata::{
-        projection_source_label, projection_surface_aspect_from_metadata, OesProjectionMetadata,
-    },
+    source_metadata::OesProjectionMetadata,
+    source_metadata_labels::{projection_source_label, projection_surface_aspect_from_metadata},
 };
 
 const PROJECTION_FOOTPRINT_GRID: usize = 64;

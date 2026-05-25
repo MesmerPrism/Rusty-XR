@@ -1,10 +1,9 @@
-use rusty_xr_camera_model::{rect_xywh, uv_rect_token, CameraExtrinsics, CameraIntrinsics, Rect2};
+use rusty_xr_camera_model::{CameraExtrinsics, CameraIntrinsics, Rect2};
 
+use super::source_content_geometry::OesContentGeometryRecord;
 use super::source_metadata_json::{
-    json_bool_any, json_f32_any, json_rect2_xywh_any, json_string_any, json_u32, json_u32_any,
-    parse_camera2_extrinsics, parse_camera_intrinsics,
+    json_bool_any, json_string_any, json_u32, parse_camera2_extrinsics, parse_camera_intrinsics,
 };
-use super::{DIRECT_CAMERA2_OES_SOURCE, OES_PROJECTED_RENDER_PATH, PROJECTION_SOURCE_ASPECT};
 
 pub(super) fn aspect_ratio_u32(width: u32, height: u32) -> f32 {
     if width > 0 && height > 0 {
@@ -90,117 +89,6 @@ pub(super) struct OesProjectionMetadata {
     pub(super) delivered_height: u32,
     pub(super) intrinsics: Option<CameraIntrinsics>,
     pub(super) extrinsics: Option<CameraExtrinsics>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct OesContentGeometryRecord {
-    kind: String,
-    width: u32,
-    height: u32,
-    aspect_ratio: f32,
-    desired_display_aspect_ratio: f32,
-    desired_projection_aspect_ratio: f32,
-    coordinate_space: String,
-    origin: String,
-    x_axis: String,
-    y_axis: String,
-    mapping_intent: String,
-    metadata_source: String,
-    metadata_default: bool,
-    source_valid_uv_rect: Rect2,
-}
-
-impl OesContentGeometryRecord {
-    fn parse(
-        object: &serde_json::Map<String, serde_json::Value>,
-        delivered_width: u32,
-        delivered_height: u32,
-    ) -> Self {
-        let explicit_content_geometry = object.contains_key("contentGeometrySchema")
-            || object.contains_key("contentWidth")
-            || object.contains_key("contentHeight")
-            || object.contains_key("contentMappingIntent");
-        let width =
-            json_u32_any(object, &["contentWidth", "stimulusWidth"]).unwrap_or(delivered_width);
-        let height =
-            json_u32_any(object, &["contentHeight", "stimulusHeight"]).unwrap_or(delivered_height);
-        let aspect_ratio = json_f32_any(object, &["contentAspectRatio", "stimulusAspectRatio"])
-            .unwrap_or_else(|| aspect_ratio_u32(width, height));
-        let desired_display_aspect_ratio = json_f32_any(
-            object,
-            &[
-                "desiredDisplayAspectRatio",
-                "desiredProjectionAspectRatio",
-                "desiredAspectRatio",
-            ],
-        )
-        .unwrap_or(aspect_ratio);
-        let desired_projection_aspect_ratio = json_f32_any(
-            object,
-            &[
-                "desiredProjectionAspectRatio",
-                "desiredDisplayAspectRatio",
-                "desiredAspectRatio",
-            ],
-        )
-        .unwrap_or(desired_display_aspect_ratio);
-        let source_valid_uv_rect = json_rect2_xywh_any(
-            object,
-            &["sourceValidUvRect", "contentUvRect", "stimulusUvRect"],
-        )
-        .unwrap_or(Rect2::UNIT);
-
-        Self {
-            kind: json_string_any(object, &["contentKind", "stimulusKind"])
-                .unwrap_or("unknown")
-                .to_string(),
-            width,
-            height,
-            aspect_ratio,
-            desired_display_aspect_ratio,
-            desired_projection_aspect_ratio,
-            coordinate_space: json_string_any(object, &["contentCoordinateSpace"])
-                .unwrap_or("normalized-uv")
-                .to_string(),
-            origin: json_string_any(object, &["contentOrigin", "stimulusOrigin"])
-                .unwrap_or("top-left")
-                .to_string(),
-            x_axis: json_string_any(object, &["contentXAxis"])
-                .unwrap_or("right")
-                .to_string(),
-            y_axis: json_string_any(object, &["contentYAxis", "stimulusYAxis"])
-                .unwrap_or("down")
-                .to_string(),
-            mapping_intent: json_string_any(object, &["contentMappingIntent"])
-                .unwrap_or("unspecified")
-                .to_string(),
-            metadata_source: json_string_any(object, &["contentGeometryMetadataSource"])
-                .unwrap_or("missing")
-                .to_string(),
-            metadata_default: !explicit_content_geometry
-                || json_bool_any(object, &["contentGeometryDefault"]).unwrap_or(false),
-            source_valid_uv_rect,
-        }
-    }
-
-    fn from_metadata(metadata: &OesProjectionMetadata) -> Self {
-        Self {
-            kind: metadata.content_kind.clone(),
-            width: metadata.content_width,
-            height: metadata.content_height,
-            aspect_ratio: metadata.content_aspect_ratio,
-            desired_display_aspect_ratio: metadata.desired_display_aspect_ratio,
-            desired_projection_aspect_ratio: metadata.desired_projection_aspect_ratio,
-            coordinate_space: metadata.content_coordinate_space.clone(),
-            origin: metadata.content_origin.clone(),
-            x_axis: metadata.content_x_axis.clone(),
-            y_axis: metadata.content_y_axis.clone(),
-            mapping_intent: metadata.content_mapping_intent.clone(),
-            metadata_source: metadata.content_geometry_metadata_source.clone(),
-            metadata_default: metadata.content_geometry_default,
-            source_valid_uv_rect: metadata.source_valid_uv_rect,
-        }
-    }
 }
 
 impl OesProjectionMetadata {
@@ -428,122 +316,11 @@ impl OesProjectionMetadata {
     }
 }
 
-pub(super) fn projection_surface_aspect_from_metadata(
-    left: &OesProjectionMetadata,
-    right: &OesProjectionMetadata,
-    width: u32,
-    height: u32,
-) -> f32 {
-    [
-        left.desired_projection_aspect_ratio,
-        right.desired_projection_aspect_ratio,
-        left.content_aspect_ratio,
-        right.content_aspect_ratio,
-        aspect_ratio_u32(width, height),
-    ]
-    .into_iter()
-    .find(|value| value.is_finite() && *value > 0.0)
-    .unwrap_or(PROJECTION_SOURCE_ASPECT)
-    .clamp(0.25, 4.0)
-}
-
-pub(super) fn projection_source_label(
-    metadata: &OesProjectionMetadata,
-    width: u32,
-    height: u32,
-    use_surface_texture_transform: bool,
-) -> String {
-    let content_geometry = OesContentGeometryRecord::from_metadata(metadata);
-    let metadata_label = if metadata.is_synthetic() {
-        "broker_stream_header"
-    } else if metadata.source == DIRECT_CAMERA2_OES_SOURCE {
-        "direct_camera2_characteristics"
-    } else {
-        "camera2_stream_header"
-    };
-    let source_sampling_fields =
-        crate::source_sampling::OesSourceSamplingHandoff::new(use_surface_texture_transform)
-            .marker_fields();
-    format!(
-        "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:sourceValidUvRect={}:{}",
-        metadata_label,
-        metadata.source,
-        metadata.camera_id,
-        metadata.pose_source,
-        metadata.pose_coordinate_convention,
-        metadata.projection_geometry_profile,
-        metadata.projection_geometry_profile,
-        metadata.synthetic_pattern,
-        width,
-        height,
-        metadata.projection_metadata_ready,
-        metadata.orientation_kind,
-        metadata.raster_orientation,
-        metadata.upright_marker,
-        metadata.orientation_metadata_source,
-        metadata.orientation_default,
-        metadata.stimulus_raster_orientation,
-        metadata.stimulus_upright_marker,
-        metadata.stimulus_orientation_default,
-        content_geometry.kind,
-        content_geometry.width,
-        content_geometry.height,
-        content_geometry.aspect_ratio,
-        content_geometry.desired_display_aspect_ratio,
-        content_geometry.desired_projection_aspect_ratio,
-        content_geometry.coordinate_space,
-        content_geometry.origin,
-        content_geometry.x_axis,
-        content_geometry.y_axis,
-        content_geometry.mapping_intent,
-        content_geometry.metadata_source,
-        content_geometry.metadata_default,
-        uv_rect_token(rect_xywh(content_geometry.source_valid_uv_rect)),
-        source_sampling_fields,
-    )
-}
-
-pub(super) fn stream_projection_metadata_log_message(
-    view_index: usize,
-    metadata: &OesProjectionMetadata,
-) -> String {
-    let content_geometry = OesContentGeometryRecord::from_metadata(metadata);
-    format!(
-        "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentSize={}x{} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={}",
-        view_index,
-        metadata.source,
-        metadata.camera_id,
-        metadata.projection_metadata_ready,
-        metadata.delivered_width,
-        metadata.delivered_height,
-        metadata.synthetic_pattern,
-        metadata.orientation_kind,
-        metadata.raster_orientation,
-        metadata.upright_marker,
-        metadata.orientation_metadata_source,
-        metadata.orientation_default,
-        metadata.stimulus_raster_orientation,
-        metadata.stimulus_upright_marker,
-        metadata.stimulus_orientation_default,
-        content_geometry.kind,
-        content_geometry.width,
-        content_geometry.height,
-        content_geometry.aspect_ratio,
-        content_geometry.desired_display_aspect_ratio,
-        content_geometry.desired_projection_aspect_ratio,
-        content_geometry.coordinate_space,
-        content_geometry.origin,
-        content_geometry.x_axis,
-        content_geometry.y_axis,
-        content_geometry.mapping_intent,
-        content_geometry.metadata_source,
-        content_geometry.metadata_default,
-        uv_rect_token(rect_xywh(content_geometry.source_valid_uv_rect)),
-    )
-}
-
 #[cfg(test)]
 mod tests {
+    use super::super::source_metadata_labels::{
+        projection_source_label, stream_projection_metadata_log_message,
+    };
     use super::*;
     use serde_json::json;
 

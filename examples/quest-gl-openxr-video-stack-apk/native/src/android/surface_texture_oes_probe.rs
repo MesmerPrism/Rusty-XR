@@ -1,7 +1,6 @@
 use super::openxr_gles_config::activity_string_extra;
-use super::source_metadata::{
-    stream_projection_metadata_log_message, OesInputSourceKind, OesProjectionMetadata,
-};
+use super::source_metadata::{OesInputSourceKind, OesProjectionMetadata};
+use super::source_metadata_labels::stream_projection_metadata_log_message;
 use super::surface_texture_oes_callbacks::{
     decode_frame_snapshot, latest_decode_report_after, projection_metadata_report_snapshot,
     report_view_index, reset_decode_callbacks,
