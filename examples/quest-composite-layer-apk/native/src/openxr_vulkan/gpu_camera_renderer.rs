@@ -10,13 +10,11 @@ use super::gpu_camera_resources::{
 };
 use super::{
     gpu_camera_import::{import_camera_hardware_buffer, transition_imported_camera_image},
-    gpu_camera_pipeline::{
-        allocate_camera_descriptor_set, create_gpu_camera_pipeline_resources,
-        update_camera_projection_uniforms,
-    },
+    gpu_camera_pipeline::{allocate_camera_descriptor_set, create_gpu_camera_pipeline_resources},
     gpu_camera_projection::{
         source_uv_rect_xywh_for_frame, CameraProjectionPush, CameraProjectionUniforms,
     },
+    gpu_camera_uniforms::update_camera_projection_uniforms,
     log_error, log_info,
     projection_geometry::ProjectedStereoHomographies,
 };
