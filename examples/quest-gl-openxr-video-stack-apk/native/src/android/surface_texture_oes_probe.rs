@@ -1,8 +1,7 @@
 use super::openxr_gles_config::activity_string_extra;
 use super::source_metadata::{OesInputSourceKind, OesProjectionMetadata};
-use super::surface_texture_oes_callbacks::{decode_frame_snapshot, reset_decode_callbacks};
+use super::surface_texture_oes_callbacks::reset_decode_callbacks;
 use super::surface_texture_oes_frame_sources::OesEyeTextureSample;
-use super::surface_texture_oes_gl::identity_texture_transform;
 use super::surface_texture_oes_outputs::{
     SurfaceTextureOesOutputResources, DEFAULT_OES_SURFACE_HEIGHT, DEFAULT_OES_SURFACE_WIDTH,
 };
@@ -11,16 +10,11 @@ use super::surface_texture_oes_sources::{
     start_broker_h264_oes_decode_probe, start_direct_camera2_oes_probe, BROKER_H264_DEFAULT_HOST,
     BROKER_H264_LEFT_STREAM_PORT, BROKER_H264_RIGHT_STREAM_PORT,
 };
-use super::surface_texture_oes_transform::{
-    android_elapsed_realtime_nanos, log_surface_texture_transform_matrix,
-    sample_surface_texture_transform_matrix, transform_matrix_hash,
-};
-use super::{log_error, log_info, EglContext, VIEW_COUNT};
+use super::surface_texture_oes_transform::android_elapsed_realtime_nanos;
+use super::surface_texture_oes_update::SurfaceTextureOesUpdateState;
+use super::{log_error, log_info, EglContext};
 use jni::{objects::JObject, sys::jobject, JavaVM};
-use rusty_xr_quest_diagnostics::{
-    FrameRateSummary, SurfaceTextureOesIngestState, SurfaceTextureOesIngestStatus,
-};
-use std::time::Instant;
+use rusty_xr_quest_diagnostics::{SurfaceTextureOesIngestState, SurfaceTextureOesIngestStatus};
 
 pub(super) fn probe_surface_texture_oes(
     app: &android_activity::AndroidApp,
@@ -49,9 +43,7 @@ pub(super) struct SurfaceTextureOesProbe {
     status: SurfaceTextureOesIngestStatus,
     resources: Option<SurfaceTextureOesOutputResources>,
     java_vm: JavaVM,
-    consumed_frame_available_counts: [u64; VIEW_COUNT],
-    latest_transform_matrices: [[f32; 16]; VIEW_COUNT],
-    update_rate_start: Instant,
+    update_state: SurfaceTextureOesUpdateState,
     reports: SurfaceTextureOesReportState,
 }
 
@@ -162,106 +154,23 @@ impl SurfaceTextureOesProbe {
             status,
             resources: Some(resources),
             java_vm,
-            consumed_frame_available_counts: [0; VIEW_COUNT],
-            latest_transform_matrices: [identity_texture_transform(); VIEW_COUNT],
-            update_rate_start: Instant::now(),
+            update_state: SurfaceTextureOesUpdateState::new(),
             reports: SurfaceTextureOesReportState::new(),
         })
     }
 
     pub(super) fn update_textures(&mut self, egl: &EglContext, frame_count: u64) {
         self.reports.apply_latest_decode_report(&mut self.status);
-        let mut updated_any = false;
-        for view_index in 0..VIEW_COUNT {
-            let (available_count, latest_sequence, latest_pts_us) =
-                decode_frame_snapshot(view_index);
-            if available_count <= self.consumed_frame_available_counts[view_index] {
-                if let Some(eye) = self.status.eyes.get_mut(view_index) {
-                    eye.frame_available_count = available_count;
-                }
-                continue;
-            }
-
-            let skipped = available_count
-                .saturating_sub(self.consumed_frame_available_counts[view_index])
-                .saturating_sub(1);
-            match self.update_surface_texture(egl, view_index) {
-                Ok((timestamp_ns, transform_hash, transform_matrix)) => {
-                    self.latest_transform_matrices[view_index] = transform_matrix;
-                    if let Some(eye) = self.status.eyes.get_mut(view_index) {
-                        eye.record_update(
-                            frame_count,
-                            latest_sequence,
-                            latest_pts_us,
-                            timestamp_ns,
-                            transform_hash.as_str(),
-                        );
-                        eye.frame_available_count = available_count;
-                        eye.skipped_update_count = eye.skipped_update_count.saturating_add(skipped);
-                        if eye.transform_matrix_sample_count == 1
-                            || eye.transform_matrix_sample_count.is_multiple_of(120)
-                        {
-                            log_surface_texture_transform_matrix(
-                                view_index,
-                                eye.source_eye.as_deref(),
-                                eye.update_tex_image_count,
-                                timestamp_ns,
-                                &transform_hash,
-                                &transform_matrix,
-                            );
-                        }
-                    }
-                    self.consumed_frame_available_counts[view_index] = available_count;
-                    updated_any = true;
-                }
-                Err(error) => {
-                    if let Some(eye) = self.status.eyes.get_mut(view_index) {
-                        eye.frame_available_count = available_count;
-                        eye.decoder_error_count = eye.decoder_error_count.saturating_add(1);
-                        eye.latest_decoder_error = Some(error.clone());
-                    }
-                    self.status
-                        .issue_codes
-                        .push(String::from("surface_texture_update_failed"));
-                    log_error(format!(
-                        "Rusty XR SurfaceTexture OES update failed eye={view_index}: {error}"
-                    ));
-                }
-            }
-        }
-
+        let updated_any = self.update_state.update_textures(
+            egl,
+            &self.java_vm,
+            self.resources.as_ref(),
+            &mut self.status,
+            frame_count,
+        );
         if updated_any {
-            self.status.state = SurfaceTextureOesIngestState::TextureUpdated;
-            self.refresh_texture_update_rate();
             log_surface_texture_oes_status(&self.status);
         }
-    }
-
-    fn update_surface_texture(
-        &self,
-        egl: &EglContext,
-        view_index: usize,
-    ) -> Result<(i64, String, [f32; 16]), String> {
-        egl.make_current()?;
-        let surface_texture = self
-            .resources
-            .as_ref()
-            .and_then(|resources| resources.surface_texture(view_index))
-            .ok_or_else(|| format!("SurfaceTexture eye index {view_index} is out of range"))?;
-        let mut env = self
-            .java_vm
-            .attach_current_thread()
-            .map_err(|error| format!("attach JNI thread for updateTexImage: {error}"))?;
-        env.call_method(surface_texture.as_obj(), "updateTexImage", "()V", &[])
-            .map_err(|error| format!("updateTexImage: {error}"))?;
-        let timestamp_ns = env
-            .call_method(surface_texture.as_obj(), "getTimestamp", "()J", &[])
-            .and_then(|value| value.j())
-            .map_err(|error| format!("get SurfaceTexture timestamp: {error}"))?;
-        let transform_matrix =
-            sample_surface_texture_transform_matrix(&mut env, surface_texture.as_obj())?;
-        let transform_hash = transform_matrix_hash(&transform_matrix);
-        Ok((timestamp_ns, transform_hash, transform_matrix))
     }
 
     pub(super) fn updated_eye_texture(&self, view_index: usize) -> Option<OesEyeTextureSample> {
@@ -276,11 +185,7 @@ impl SurfaceTextureOesProbe {
             queued_pts_us: eye.latest_queued_pts_us,
             surface_timestamp_ns: eye.latest_surface_texture_timestamp_ns,
             transform_hash: eye.latest_transform_matrix_hash.clone(),
-            transform_matrix: self
-                .latest_transform_matrices
-                .get(view_index)
-                .copied()
-                .unwrap_or_else(identity_texture_transform),
+            transform_matrix: self.update_state.transform_matrix(view_index),
             update_tex_image_count: eye.update_tex_image_count,
             frame_age_at_submit_ms: None,
         })
@@ -300,26 +205,6 @@ impl SurfaceTextureOesProbe {
         &self,
     ) -> Option<(&OesProjectionMetadata, &OesProjectionMetadata)> {
         self.reports.projection_metadata_pair()
-    }
-
-    fn refresh_texture_update_rate(&mut self) {
-        let elapsed = self.update_rate_start.elapsed().as_secs_f32();
-        if elapsed <= 0.0 {
-            return;
-        }
-        let sample_count = self
-            .status
-            .eyes
-            .iter()
-            .map(|eye| eye.update_tex_image_count)
-            .sum::<u64>();
-        let average_fps = sample_count as f32 / elapsed;
-        self.status.texture_update_rate = Some(FrameRateSummary {
-            sample_count,
-            average_fps,
-            min_fps: average_fps,
-            max_fps: average_fps,
-        });
     }
 }
 

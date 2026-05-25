@@ -95,6 +95,7 @@ mod android {
     mod surface_texture_oes_reports;
     mod surface_texture_oes_sources;
     mod surface_texture_oes_transform;
+    mod surface_texture_oes_update;
     use android_activity_events::{
         keep_activity_alive_after_error, pump_android_events, wait_for_android_foreground,
     };
