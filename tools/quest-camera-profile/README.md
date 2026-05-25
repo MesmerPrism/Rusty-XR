@@ -328,11 +328,16 @@ prunes older raw payload files while retaining the frame ledger.
 
 The suite writes a labeled `canvas-custom-projection-parity-results.png`
 contact sheet into the run root. Use `-EvidenceMode fast-visual` for the
-low-latency operator sweep: it forces fast direct ADB headset screenshots,
-solid-red projection borders, no MediaProjection receiver, and no analyzer.
+low-latency headset screenshot path: it selects fast direct ADB headset
+screenshots. Projection border policy, MediaProjection capture, and analyzer
+execution remain controlled by `-ProjectionBorderPolicy`, `-SkipMediaProjection`,
+and `-SkipAnalyzer`. For the old screenshot-only solid diagnostic sweep, pass
+`-EvidenceMode fast-visual` with `-ProjectionBorderPolicy solid-red`,
+`-SkipMediaProjection`, and `-SkipAnalyzer`.
 Use `-EvidenceMode full-evidence` for the slower diagnostic sweep: it enables
 HzDB headset screenshots, MediaProjection receiver capture, analyzer overlays
-and coordinate contracts, contact-sheet output, and timing records. The
+and coordinate contracts, contact-sheet output, and timing records, while
+leaving `-ProjectionBorderPolicy` independent. The
 default `-EvidenceMode custom` preserves the individual `-SkipMediaProjection`,
 `-HeadsetCaptureProvider`, `-SkipAnalyzer`, and `-ProjectionBorderPolicy`
 switches for mixed investigations. The summary writes `step-timings.jsonl` and

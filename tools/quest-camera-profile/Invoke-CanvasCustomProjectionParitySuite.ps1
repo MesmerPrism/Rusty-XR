@@ -60,22 +60,10 @@ if ([double]::IsNaN($BlurRadiusPx) -or [double]::IsInfinity($BlurRadiusPx) -or $
 
 switch ($EvidenceMode) {
     "fast-visual" {
-        if ($PSBoundParameters.ContainsKey("SkipMediaProjection") -and -not [bool]$SkipMediaProjection) {
-            throw "EvidenceMode fast-visual disables MediaProjection. Use EvidenceMode custom for mixed capture settings."
-        }
-        if ($PSBoundParameters.ContainsKey("SkipAnalyzer") -and -not [bool]$SkipAnalyzer) {
-            throw "EvidenceMode fast-visual disables the analyzer. Use EvidenceMode custom for mixed analysis settings."
-        }
         if ($PSBoundParameters.ContainsKey("HeadsetCaptureProvider") -and $HeadsetCaptureProvider -ne "fast-adb") {
-            throw "EvidenceMode fast-visual requires HeadsetCaptureProvider fast-adb. Use EvidenceMode custom for mixed capture settings."
+            throw "EvidenceMode fast-visual selects HeadsetCaptureProvider fast-adb. Use EvidenceMode custom for a different headset screenshot provider."
         }
-        if ($PSBoundParameters.ContainsKey("ProjectionBorderPolicy") -and $ProjectionBorderPolicy -ne "solid-red") {
-            throw "EvidenceMode fast-visual requires ProjectionBorderPolicy solid-red. Use EvidenceMode custom for mixed projection settings."
-        }
-        $SkipMediaProjection = $true
-        $SkipAnalyzer = $true
         $HeadsetCaptureProvider = "fast-adb"
-        $ProjectionBorderPolicy = "solid-red"
     }
     "full-evidence" {
         if ($PSBoundParameters.ContainsKey("SkipMediaProjection") -and [bool]$SkipMediaProjection) {
@@ -87,13 +75,9 @@ switch ($EvidenceMode) {
         if ($PSBoundParameters.ContainsKey("HeadsetCaptureProvider") -and $HeadsetCaptureProvider -ne "hzdb") {
             throw "EvidenceMode full-evidence requires HeadsetCaptureProvider hzdb. Use EvidenceMode custom for mixed capture settings."
         }
-        if ($PSBoundParameters.ContainsKey("ProjectionBorderPolicy") -and $ProjectionBorderPolicy -ne "solid-red") {
-            throw "EvidenceMode full-evidence requires ProjectionBorderPolicy solid-red. Use EvidenceMode custom for mixed projection settings."
-        }
         $SkipMediaProjection = $false
         $SkipAnalyzer = $false
         $HeadsetCaptureProvider = "hzdb"
-        $ProjectionBorderPolicy = "solid-red"
     }
 }
 
@@ -1348,8 +1332,8 @@ $summary = [ordered]@{
         projectionRuntimeReadback = $effectiveProjectionRuntimeReadback
         geometryWitness = $headsetCaptureLabel
         modeSemantics = switch ($EvidenceMode) {
-            "fast-visual" { "Fast operator-inspection mode: fast ADB headset screenshots only, no MediaProjection receiver, no analyzer, solid-red projection border." }
-            "full-evidence" { "Full diagnostic mode: HzDB headset screenshots, MediaProjection receiver, analyzer overlays/contracts, contact sheet, and timing summary." }
+            "fast-visual" { "Fast visual capture mode: fast ADB headset screenshots. MediaProjection, analyzer, and projection border policy are controlled by their own switches." }
+            "full-evidence" { "Full diagnostic capture mode: HzDB headset screenshots, MediaProjection receiver, analyzer overlays/contracts, contact sheet, and timing summary. Projection border policy is controlled separately." }
             default { "Custom mode: explicit capture/analyzer/projection switches define the run contract." }
         }
     }
