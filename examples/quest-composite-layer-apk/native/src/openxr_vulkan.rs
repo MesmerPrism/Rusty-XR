@@ -47,6 +47,7 @@ mod gpu_camera_pipeline;
 mod gpu_camera_projection;
 mod gpu_camera_renderer;
 mod gpu_camera_resources;
+mod gpu_camera_sampler;
 mod gpu_camera_uniforms;
 mod openxr_swapchain_images;
 mod projection_diagnostics;

@@ -6,6 +6,7 @@ use super::{
     gpu_camera_descriptors::{create_camera_descriptor_pool, create_camera_descriptor_set_layout},
     gpu_camera_projection::CameraProjectionPush,
     gpu_camera_resources::{GpuCameraFormatKey, GpuCameraPipelineResources},
+    gpu_camera_sampler::create_camera_sampler_resources,
     gpu_camera_uniforms::{
         create_camera_projection_uniform_buffer, GPU_CAMERA_PROJECTION_UNIFORM_SLOTS,
     },
@@ -20,39 +21,8 @@ pub(super) unsafe fn create_gpu_camera_pipeline_resources(
     format_key: GpuCameraFormatKey,
     format_props: &vk::AndroidHardwareBufferFormatPropertiesANDROID<'_>,
 ) -> Result<GpuCameraPipelineResources, String> {
-    let mut external_format =
-        vk::ExternalFormatANDROID::default().external_format(format_key.external_format);
-    let mut conversion_info = vk::SamplerYcbcrConversionCreateInfo::default()
-        .format(format_key.format)
-        .ycbcr_model(format_props.suggested_ycbcr_model)
-        .ycbcr_range(format_props.suggested_ycbcr_range)
-        .components(format_props.sampler_ycbcr_conversion_components)
-        .x_chroma_offset(format_props.suggested_x_chroma_offset)
-        .y_chroma_offset(format_props.suggested_y_chroma_offset)
-        .chroma_filter(vk::Filter::LINEAR);
-    if format_key.external_format != 0 {
-        conversion_info = conversion_info.push_next(&mut external_format);
-    }
-    let sampler_ycbcr_conversion = device
-        .create_sampler_ycbcr_conversion(&conversion_info, None)
-        .map_err(|error| format!("create camera sampler YCbCr conversion: {error}"))?;
-
-    let mut sampler_conversion_info =
-        vk::SamplerYcbcrConversionInfo::default().conversion(sampler_ycbcr_conversion);
-    let sampler = device
-        .create_sampler(
-            &vk::SamplerCreateInfo::default()
-                .mag_filter(vk::Filter::LINEAR)
-                .min_filter(vk::Filter::LINEAR)
-                .mipmap_mode(vk::SamplerMipmapMode::NEAREST)
-                .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
-                .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
-                .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
-                .push_next(&mut sampler_conversion_info),
-            None,
-        )
-        .map_err(|error| format!("create camera sampler: {error}"))?;
-
+    let (sampler_ycbcr_conversion, sampler) =
+        create_camera_sampler_resources(device, format_key, format_props)?;
     let descriptor_set_layout =
         create_camera_descriptor_set_layout(device, format_key.sampler_binding_mode, sampler)?;
     let descriptor_pool = create_camera_descriptor_pool(device, format_key.sampler_binding_mode)?;
