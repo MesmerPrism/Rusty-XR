@@ -674,6 +674,10 @@ mod tests {
                 .with_layer_count(1)
                 .with_stride_px(1280)
                 .with_buffer_id(9000 + index),
+            #[cfg(target_os = "android")]
+            hardware_buffer: crate::AndroidHardwareBufferHandle {
+                ptr: std::ptr::null_mut(),
+            },
         }
     }
 

@@ -8,7 +8,7 @@ use rusty_xr_camera_model::{
 };
 use rusty_xr_contracts::{
     Eye, InvalidProjectionFillPolicy, ProjectionFootprintRowSpan, ProjectionFootprintSummary,
-    ProjectionGuideDomain, ProjectionStageKind,
+    ProjectionGuideDomain, ProjectionStageKind, ProjectionStageTokenRow,
 };
 
 use super::{
@@ -303,6 +303,52 @@ pub(super) fn projection_coordinate_contract_log_message(phase: &str, fields: &s
         "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase={} status=ready {}",
         phase, fields
     )
+}
+
+pub(super) fn projection_stage_row_log_messages(
+    eye: Eye,
+    projection: Option<&OesEyeProjection>,
+    frame_count: u64,
+    source_sequence: u64,
+) -> Vec<Result<String, String>> {
+    let compact_source_label =
+        projection_stage_source_label(projection, frame_count, source_sequence);
+    projection_stage_rows(projection)
+        .into_iter()
+        .map(|(stage, rows)| {
+            let row = ProjectionStageTokenRow::new("rusty_xr_gl_oes", eye, stage)
+                .with_rows(rows)
+                .with_source(compact_source_label.clone());
+            serde_json::to_string(&row)
+                .map(|json| format!("Rusty XR OpenXR GLES projection stage row {json}"))
+                .map_err(|error| {
+                    format!("Rusty XR OpenXR GLES projection stage serialization failed: {error}")
+                })
+        })
+        .collect()
+}
+
+pub(super) fn projection_footprint_log_message(
+    projection: Option<&OesEyeProjection>,
+    projection_border_policy: OesProjectionBorderPolicy,
+    frame_count: u64,
+    source_sequence: u64,
+) -> Result<String, String> {
+    let footprint = projection
+        .map(|projection| {
+            projected_footprint_summary(
+                projection,
+                projection_border_policy,
+                frame_count,
+                source_sequence,
+            )
+        })
+        .unwrap_or_else(|| raw_copy_footprint_summary(frame_count));
+    serde_json::to_string(&footprint)
+        .map(|json| format!("Rusty XR OpenXR GLES projection footprint {json}"))
+        .map_err(|error| {
+            format!("Rusty XR OpenXR GLES projection footprint serialization failed: {error}")
+        })
 }
 
 pub(super) fn raw_copy_footprint_summary(frame_count: u64) -> ProjectionFootprintSummary {
@@ -1095,5 +1141,27 @@ fn eye_label(eye: Eye) -> &'static str {
         Eye::Left => "left",
         Eye::Right => "right",
         Eye::Mono => "mono",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_projection_diagnostic_log_wrappers_keep_shape() {
+        let rows = projection_stage_row_log_messages(Eye::Left, None, 12, 34);
+        assert_eq!(rows.len(), 4);
+        let first = rows[0].as_ref().expect("stage row should serialize");
+        assert!(first.starts_with("Rusty XR OpenXR GLES projection stage row {"));
+        assert!(first.contains("\"backend\":\"rusty_xr_gl_oes\""));
+        assert!(first.contains("rusty_xr_gl_oes:frame=12:source_sequence=34"));
+
+        let footprint =
+            projection_footprint_log_message(None, OesProjectionBorderPolicy::SolidRed, 12, 34)
+                .expect("footprint should serialize");
+        assert!(footprint.starts_with("Rusty XR OpenXR GLES projection footprint {"));
+        assert!(footprint.contains("public_raw_oes_full_surface"));
+        assert!(footprint.contains("Full-surface public raw OES copy"));
     }
 }

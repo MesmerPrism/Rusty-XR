@@ -52,7 +52,7 @@ pub(super) struct OesProjectionMetadata {
 }
 
 #[derive(Clone, Debug)]
-struct ContentGeometryRecord {
+pub(super) struct OesContentGeometryRecord {
     kind: String,
     width: u32,
     height: u32,
@@ -69,7 +69,7 @@ struct ContentGeometryRecord {
     source_valid_uv_rect: Rect2,
 }
 
-impl ContentGeometryRecord {
+impl OesContentGeometryRecord {
     fn parse(
         object: &serde_json::Map<String, serde_json::Value>,
         delivered_width: u32,
@@ -272,7 +272,7 @@ impl OesProjectionMetadata {
         let delivered_width = json_u32(object.get("deliveredWidth")).unwrap_or(0);
         let delivered_height = json_u32(object.get("deliveredHeight")).unwrap_or(0);
         let content_geometry =
-            ContentGeometryRecord::parse(object, delivered_width, delivered_height);
+            OesContentGeometryRecord::parse(object, delivered_width, delivered_height);
         let intrinsics = parse_camera_intrinsics(object, delivered_width, delivered_height);
         let extrinsics = parse_camera2_extrinsics(object);
         Ok(Self {
@@ -561,7 +561,7 @@ pub(super) fn projection_source_label(
     height: u32,
     use_surface_texture_transform: bool,
 ) -> String {
-    let content_geometry = ContentGeometryRecord::from_metadata(metadata);
+    let content_geometry = OesContentGeometryRecord::from_metadata(metadata);
     let metadata_label = if metadata.is_synthetic() {
         "broker_stream_header"
     } else if metadata.source == DIRECT_CAMERA2_OES_SOURCE {
@@ -615,7 +615,7 @@ pub(super) fn stream_projection_metadata_log_message(
     view_index: usize,
     metadata: &OesProjectionMetadata,
 ) -> String {
-    let content_geometry = ContentGeometryRecord::from_metadata(metadata);
+    let content_geometry = OesContentGeometryRecord::from_metadata(metadata);
     format!(
         "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentSize={}x{} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={}",
         view_index,
@@ -648,4 +648,96 @@ pub(super) fn stream_projection_metadata_log_message(
         content_geometry.metadata_default,
         uv_rect_token(rect_xywh(content_geometry.source_valid_uv_rect)),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn metadata_json(source: &str, kind: &str, mapping_intent: &str) -> serde_json::Value {
+        json!({
+            "schema": "rusty.xr.camera_projection.stream_source_metadata.v1",
+            "source": source,
+            "cameraId": "left-camera",
+            "poseSource": "stream-header",
+            "poseCoordinateConvention": "camera2-reference",
+            "projectionGeometryProfile": "camera-projection",
+            "syntheticPattern": "none",
+            "orientationKind": "camera-frame",
+            "rasterOrientation": "top-left-origin-y-down",
+            "uprightMarker": "camera-native-upright",
+            "orientationMetadataSource": "stream-header",
+            "orientationDefault": false,
+            "stimulusRasterOrientation": "top-left-origin-y-down",
+            "stimulusUprightMarker": "camera-native-upright",
+            "stimulusOrientationDefault": false,
+            "deliveredWidth": 1280,
+            "deliveredHeight": 720,
+            "contentGeometrySchema": "rusty.xr.stream_content_geometry.v1",
+            "contentKind": kind,
+            "contentWidth": 1280,
+            "contentHeight": 720,
+            "contentAspectRatio": 1.7777778,
+            "desiredDisplayAspectRatio": 1.7777778,
+            "desiredProjectionAspectRatio": 1.7777778,
+            "contentCoordinateSpace": "normalized-uv",
+            "contentOrigin": "top-left",
+            "contentXAxis": "right",
+            "contentYAxis": "down",
+            "contentMappingIntent": mapping_intent,
+            "contentGeometryMetadataSource": "stream-header",
+            "contentGeometryDefault": false,
+            "sourceValidUvRect": [0.0, 0.0, 1.0, 1.0],
+            "projectionMetadataReady": true
+        })
+    }
+
+    #[test]
+    fn typed_content_geometry_supports_direct_camera_broker_camera_and_synthetic() {
+        let cases = [
+            (
+                DIRECT_CAMERA2_OES_SOURCE,
+                "camera-frame",
+                "map-camera-frame-through-screen-to-camera-homography",
+                "direct_camera2_characteristics",
+            ),
+            (
+                "broker_app.camera_h264_stream",
+                "broker-camera",
+                "map-camera-frame-through-screen-to-camera-homography",
+                "camera2_stream_header",
+            ),
+            (
+                "broker_app.synthetic_h264_stream",
+                "broker-synthetic",
+                "map-full-frame-stimulus-to-projection-area",
+                "broker_stream_header",
+            ),
+        ];
+
+        for (source, kind, mapping_intent, metadata_label) in cases {
+            let metadata =
+                OesProjectionMetadata::parse(&metadata_json(source, kind, mapping_intent))
+                    .expect("metadata should parse");
+            let content_geometry = OesContentGeometryRecord::from_metadata(&metadata);
+
+            assert_eq!(content_geometry.kind, kind);
+            assert_eq!(content_geometry.mapping_intent, mapping_intent);
+            assert_eq!(content_geometry.metadata_source, "stream-header");
+            assert!(!content_geometry.metadata_default);
+
+            let source_label = projection_source_label(&metadata, 1280, 720, false);
+            assert!(source_label.contains(&format!(
+                "{OES_PROJECTED_RENDER_PATH}:metadata={metadata_label}"
+            )));
+            assert!(source_label.contains(&format!("contentKind={kind}")));
+            assert!(source_label.contains(&format!("contentMappingIntent={mapping_intent}")));
+
+            let log_line = stream_projection_metadata_log_message(0, &metadata);
+            assert!(log_line.contains(&format!("contentKind={kind}")));
+            assert!(log_line.contains(&format!("contentMappingIntent={mapping_intent}")));
+            assert!(log_line.contains("contentGeometryMetadataSource=stream-header"));
+        }
+    }
 }

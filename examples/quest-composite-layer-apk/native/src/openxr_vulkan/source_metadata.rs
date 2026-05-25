@@ -1,7 +1,7 @@
 use crate::{CameraProjectionMode, HeadsetCameraFrameDiagnostics};
 
 #[derive(Clone, Debug)]
-struct StereoContentGeometry {
+pub(super) struct HwbStereoContentGeometry {
     kind: String,
     width: u32,
     height: u32,
@@ -28,8 +28,8 @@ struct StereoContentGeometry {
     right_source_crop_rect_px: Option<[u32; 4]>,
 }
 
-impl StereoContentGeometry {
-    fn from_diagnostics_pair(
+impl HwbStereoContentGeometry {
+    pub(super) fn from_diagnostics_pair(
         left: &HeadsetCameraFrameDiagnostics,
         right: &HeadsetCameraFrameDiagnostics,
         left_width: u32,
@@ -205,7 +205,7 @@ pub(super) fn projection_source_metadata_marker_fields(
             .or(right.orientation_metadata_source.as_deref()),
         "missing",
     );
-    let content_geometry = StereoContentGeometry::from_diagnostics_pair(
+    let content_geometry = HwbStereoContentGeometry::from_diagnostics_pair(
         left,
         right,
         left_width,
@@ -332,4 +332,120 @@ fn uv_rect_token(rect: [f32; 4]) -> String {
         "{:.6},{:.6},{:.6},{:.6}",
         rect[0], rect[1], rect[2], rect[3]
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::HeadsetCameraFrameDiagnostics;
+    use rusty_xr_contracts::{CameraCompositeTier, StereoMediaLayout};
+
+    fn diagnostics(
+        source: &str,
+        kind: Option<&str>,
+        mapping_intent: Option<&str>,
+    ) -> HeadsetCameraFrameDiagnostics {
+        HeadsetCameraFrameDiagnostics {
+            source: Some(source.to_string()),
+            camera_id: Some("50".to_string()),
+            lens_facing: Some("external".to_string()),
+            lens_facing_rank: Some(0),
+            selection_score: Some(1),
+            requested_tier: CameraCompositeTier::GpuProjected,
+            active_tier_label: "gpu-projected".to_string(),
+            transport: "hardware-buffer".to_string(),
+            pose_source: Some("camera2".to_string()),
+            pose_coordinate_convention: Some("camera2-reference".to_string()),
+            lens_pose_reference_label: Some("openxr-head".to_string()),
+            diagnostic_source: None,
+            synthetic_projection_profile: None,
+            projection_geometry_profile: Some("camera-projection".to_string()),
+            synthetic_pattern: Some("none".to_string()),
+            orientation_kind: Some("camera-frame".to_string()),
+            raster_orientation: Some("top-left-origin-y-down".to_string()),
+            upright_marker: Some("camera-native-upright".to_string()),
+            orientation_metadata_source: Some("source-metadata".to_string()),
+            orientation_default: Some(false),
+            stimulus_raster_orientation: Some("top-left-origin-y-down".to_string()),
+            stimulus_upright_marker: Some("camera-native-upright".to_string()),
+            stimulus_orientation_default: Some(false),
+            content_kind: kind.map(str::to_string),
+            content_width: Some(1280),
+            content_height: Some(720),
+            content_aspect_ratio: Some(1.777_777_8),
+            desired_display_aspect_ratio: Some(1.777_777_8),
+            desired_projection_aspect_ratio: Some(1.777_777_8),
+            content_coordinate_space: Some("normalized-uv".to_string()),
+            content_origin: Some("top-left".to_string()),
+            content_x_axis: Some("right".to_string()),
+            content_y_axis: Some("down".to_string()),
+            content_uv_rect: Some([0.0, 0.0, 1.0, 1.0]),
+            source_visible_uv_rect: Some([0.0, 0.0, 1.0, 1.0]),
+            source_crop_rect_px: Some([0, 0, 1280, 720]),
+            source_crop_rect_state: Some("metadata-ready".to_string()),
+            source_crop_rect_owner: Some("source-metadata".to_string()),
+            content_mapping_intent: mapping_intent.map(str::to_string),
+            content_geometry_metadata_source: Some("source-metadata".to_string()),
+            content_geometry_default: Some(false),
+            requested_stereo_layout: Some("separate".to_string()),
+            stereo_layout: StereoMediaLayout::Separate,
+            mono_fallback: false,
+            fallback_reason: "none".to_string(),
+        }
+    }
+
+    #[test]
+    fn typed_content_geometry_supports_direct_camera_broker_camera_and_synthetic() {
+        let cases = [
+            (
+                "camera2-direct",
+                "camera-frame",
+                "map-camera-frame-through-screen-to-camera-homography",
+            ),
+            (
+                "broker-h264-camera",
+                "broker-camera",
+                "map-camera-frame-through-screen-to-camera-homography",
+            ),
+            (
+                "broker-h264-synthetic",
+                "broker-synthetic",
+                "map-full-frame-stimulus-to-projection-area",
+            ),
+        ];
+
+        for (source, kind, mapping_intent) in cases {
+            let left = diagnostics(source, Some(kind), Some(mapping_intent));
+            let right = diagnostics(source, Some(kind), Some(mapping_intent));
+            let content_geometry = HwbStereoContentGeometry::from_diagnostics_pair(
+                &left, &right, 1280, 720, 1280, 720,
+            );
+
+            assert_eq!(content_geometry.kind, marker_token(Some(kind), "missing"));
+            assert_eq!(
+                content_geometry.mapping_intent,
+                marker_token(Some(mapping_intent), "missing")
+            );
+            assert!(!content_geometry.metadata_default);
+
+            let fields = projection_source_metadata_marker_fields(
+                &left,
+                &right,
+                1280,
+                720,
+                1280,
+                720,
+                CameraProjectionMode::DisplayScreenHomography,
+            );
+            assert!(fields.contains(&format!(
+                "contentKind={}",
+                marker_token(Some(kind), "missing")
+            )));
+            assert!(fields.contains(&format!(
+                "contentMappingIntent={}",
+                marker_token(Some(mapping_intent), "missing")
+            )));
+            assert!(fields.contains("contentGeometryMetadataSource=source-metadata"));
+        }
+    }
 }

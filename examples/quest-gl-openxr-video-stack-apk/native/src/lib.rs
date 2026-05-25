@@ -64,7 +64,7 @@ mod android {
     use rusty_xr_camera_model::{
         ColorRgba, ProjectionBorderDescriptor, ProjectionBorderFillPolicy,
     };
-    use rusty_xr_contracts::{Eye, InvalidProjectionFillPolicy, ProjectionStageTokenRow};
+    use rusty_xr_contracts::{Eye, InvalidProjectionFillPolicy};
     use rusty_xr_quest_diagnostics::{
         EglGlesContextStatus, FrameRateSummary, GlFramebufferCompleteness,
         OpenXrGlesExtensionStatus, OpenXrGlesFeasibilityState, OpenXrGlesGraphicsRequirements,
@@ -87,10 +87,10 @@ mod android {
     mod projection_runtime;
     mod source_metadata;
     use projection_geometry::{
-        identity_homography, openxr_projection_contract_fields, projected_footprint_summary,
+        identity_homography, openxr_projection_contract_fields,
         projection_area_target_marker_fields, projection_coordinate_contract_log_message,
-        projection_plan_from_metadata, projection_source_contract_fields, projection_stage_rows,
-        projection_stage_source_label, raw_copy_footprint_summary,
+        projection_footprint_log_message, projection_plan_from_metadata,
+        projection_source_contract_fields, projection_stage_row_log_messages,
         source_sampling_projection_contract_log_message, OesEyeProjection, OesProjectionPlan,
     };
     use projection_runtime::{
@@ -4544,11 +4544,8 @@ void main() {
         let Some(eye) = eye_from_view_index(view_index) else {
             return;
         };
-        let stage_rows = projection_stage_rows(projection);
         let source_contract_fields =
             projection_source_contract_fields(projection, frame_count, source_sequence);
-        let compact_source_label =
-            projection_stage_source_label(projection, frame_count, source_sequence);
         log_info(source_sampling_projection_contract_log_message(
             &source_contract_fields,
         ));
@@ -4564,33 +4561,23 @@ void main() {
             "draw-vars-bound",
             projection_area_target_fields,
         ));
-        for (stage, rows) in stage_rows {
-            let row = ProjectionStageTokenRow::new("rusty_xr_gl_oes", eye, stage)
-                .with_rows(rows)
-                .with_source(compact_source_label.clone());
-            match serde_json::to_string(&row) {
-                Ok(json) => log_info(format!("Rusty XR OpenXR GLES projection stage row {json}")),
-                Err(error) => log_error(format!(
-                    "Rusty XR OpenXR GLES projection stage serialization failed: {error}"
-                )),
+        for message in
+            projection_stage_row_log_messages(eye, projection, frame_count, source_sequence)
+        {
+            match message {
+                Ok(line) => log_info(line),
+                Err(error) => log_error(error),
             }
         }
 
-        let footprint = projection
-            .map(|projection| {
-                projected_footprint_summary(
-                    projection,
-                    projection_border_policy,
-                    frame_count,
-                    source_sequence,
-                )
-            })
-            .unwrap_or_else(|| raw_copy_footprint_summary(frame_count));
-        match serde_json::to_string(&footprint) {
-            Ok(json) => log_info(format!("Rusty XR OpenXR GLES projection footprint {json}")),
-            Err(error) => log_error(format!(
-                "Rusty XR OpenXR GLES projection footprint serialization failed: {error}"
-            )),
+        match projection_footprint_log_message(
+            projection,
+            projection_border_policy,
+            frame_count,
+            source_sequence,
+        ) {
+            Ok(line) => log_info(line),
+            Err(error) => log_error(error),
         }
     }
 
