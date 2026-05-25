@@ -91,10 +91,11 @@ mod android {
         select_environment_blend_mode,
     };
     use openxr_gles_session::{
-        begin_openxr_frame, create_android_instance, end_empty_openxr_frame,
-        initialize_android_loader, locate_submit_valid_views, poll_openxr_session_events,
-        record_openxr_runtime_properties, request_session_exit_if_app_stopped,
-        select_openxr_gles_extensions, OesFrameRateTracker, OesLocatedViews,
+        begin_openxr_frame, create_android_instance, create_openxr_gles_session,
+        end_empty_openxr_frame, initialize_android_loader, locate_submit_valid_views,
+        poll_openxr_session_events, record_openxr_runtime_properties,
+        request_session_exit_if_app_stopped, select_openxr_gles_extensions, OesFrameRateTracker,
+        OesLocatedViews,
     };
     use projection_geometry::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
@@ -378,20 +379,8 @@ mod android {
         let mut surface_texture_oes_probe = probe_surface_texture_oes(&app, &egl);
 
         wait_for_android_foreground(&app)?;
-        let (session, mut frame_wait, mut frame_stream) = unsafe {
-            xr_instance
-                .create_session::<xr::OpenGlEs>(
-                    system,
-                    &xr::opengles::SessionCreateInfo::Android {
-                        display: egl.display,
-                        config: egl.config,
-                        context: egl.context,
-                    },
-                )
-                .map_err(|error| format!("create OpenXR GLES session: {error}"))?
-        };
-        status.state = OpenXrGlesFeasibilityState::SessionReady;
-        log_status(&status);
+        let (session, mut frame_wait, mut frame_stream) =
+            create_openxr_gles_session(&xr_instance, system, &egl, &mut status)?;
         log_oes_projection_runtime_manifest(
             "session-ready",
             &projection_runtime,

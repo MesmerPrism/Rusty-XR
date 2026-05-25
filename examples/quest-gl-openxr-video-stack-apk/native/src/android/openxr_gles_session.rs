@@ -6,6 +6,7 @@ use rusty_xr_quest_diagnostics::{
 };
 use std::{ffi::CString, os::raw::c_char, ptr, time::Instant};
 
+use super::egl_gles_context::EglContext;
 use super::{ensure_xr_success, log_error, log_info, log_status, VIEW_TYPE};
 
 pub(super) enum OesLocatedViews {
@@ -195,6 +196,36 @@ pub(super) fn record_openxr_runtime_properties(
         properties.runtime_name, properties.runtime_version
     ));
     Ok(())
+}
+
+pub(super) fn create_openxr_gles_session(
+    instance: &xr::Instance,
+    system: xr::SystemId,
+    egl: &EglContext,
+    status: &mut OpenXrGlesFeasibilityStatus,
+) -> Result<
+    (
+        xr::Session<xr::OpenGlEs>,
+        xr::FrameWaiter,
+        xr::FrameStream<xr::OpenGlEs>,
+    ),
+    String,
+> {
+    let session_parts = unsafe {
+        instance
+            .create_session::<xr::OpenGlEs>(
+                system,
+                &xr::opengles::SessionCreateInfo::Android {
+                    display: egl.display,
+                    config: egl.config,
+                    context: egl.context,
+                },
+            )
+            .map_err(|error| format!("create OpenXR GLES session: {error}"))?
+    };
+    status.state = OpenXrGlesFeasibilityState::SessionReady;
+    log_status(status);
+    Ok(session_parts)
 }
 
 pub(super) fn end_empty_openxr_frame(
