@@ -13,10 +13,11 @@ use rusty_xr_contracts::{
 
 use super::{
     gl_format_label, log_error, log_info,
+    oes_copy_renderer::OesColorControls,
     source_metadata::{
         projection_source_label, projection_surface_aspect_from_metadata, OesProjectionMetadata,
     },
-    OesCameraProjectionMode, OesColorControls, OesContentMappingMode, OesProjectionAlphaMode,
+    OesCameraProjectionMode, OesContentMappingMode, OesProjectionAlphaMode,
     OesProjectionBorderPolicy, OesProjectionRuntimeState, OesSourceColorTransfer, GL_SRGB8_ALPHA8,
     OES_COPY_RENDER_PATH, OES_PROJECTED_RENDER_PATH,
 };
