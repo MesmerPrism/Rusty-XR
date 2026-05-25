@@ -3,8 +3,10 @@ use rusty_xr_quest_diagnostics::OpenXrGlesFeasibilityStatus;
 
 use super::{
     egl_gles_context::EglContext,
-    glFlush, log_error, log_info,
-    oes_copy_renderer::{GlFramebuffer, OesCopyRenderer},
+    glFlush,
+    gles_framebuffer::GlFramebuffer,
+    log_error, log_info,
+    oes_copy_renderer::OesCopyRenderer,
     openxr_gles_render_tuning::OesRenderTuning,
     openxr_gles_resources::{gl_format_label, EyeSwapchain},
     projection_diagnostics::log_projection_diagnostics,
