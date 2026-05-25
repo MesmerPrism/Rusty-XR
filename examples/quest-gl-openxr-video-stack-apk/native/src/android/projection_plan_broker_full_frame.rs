@@ -1,14 +1,10 @@
 use openxr as xr;
-use rusty_xr_camera_model::{
-    camera_basis_from_camera2_reference_pose_relative_to_center, invert_homography,
-    screen_to_camera_uv_homography, surface_to_camera_uv_homography,
-    surface_to_eye_screen_uv_homography,
-};
+use rusty_xr_camera_model::{invert_homography, surface_to_eye_screen_uv_homography};
 use rusty_xr_contracts::Eye;
 
 use super::{
     openxr_gles_config::{OesContentMappingMode, OesProjectionBorderPolicy},
-    projection_geometry::{OesEyeProjection, OesProjectionPlan},
+    projection_geometry::{identity_homography, OesEyeProjection, OesProjectionPlan},
     projection_plan_shared::{
         eye_basis_from_xr_view, preview_surface_corners, screen_to_domain_with_visual_adjustment,
         shared_per_eye_projection_plan, tracking_basis_from_xr_views,
@@ -18,11 +14,8 @@ use super::{
     source_metadata_labels::{projection_source_label, projection_surface_aspect_from_metadata},
 };
 
-pub(super) use super::projection_plan_broker_full_frame::broker_full_frame_projection_plan_from_xr_views;
-pub(super) use super::projection_plan_broker_synthetic::broker_synthetic_projection_plan_from_xr_views;
-
 #[allow(clippy::too_many_arguments)]
-pub(super) fn camera2_projection_plan_from_xr_views(
+pub(super) fn broker_full_frame_projection_plan_from_xr_views(
     left_metadata: &OesProjectionMetadata,
     right_metadata: &OesProjectionMetadata,
     width: u32,
@@ -52,29 +45,6 @@ pub(super) fn camera2_projection_plan_from_xr_views(
         projection_raw_overscan,
         projection_preview_offset_y_meters,
     )?;
-    let left_extrinsics = left_metadata.extrinsics?;
-    let right_extrinsics = right_metadata.extrinsics?;
-    let reference_center = (left_extrinsics.world_from_camera.position
-        + right_extrinsics.world_from_camera.position)
-        * 0.5;
-    let left_basis = camera_basis_from_camera2_reference_pose_relative_to_center(
-        tracking,
-        left_extrinsics,
-        reference_center,
-    )
-    .ok()?;
-    let right_basis = camera_basis_from_camera2_reference_pose_relative_to_center(
-        tracking,
-        right_extrinsics,
-        reference_center,
-    )
-    .ok()?;
-    let left_intrinsics = left_metadata.intrinsics?;
-    let right_intrinsics = right_metadata.intrinsics?;
-    let left_surface_to_camera =
-        surface_to_camera_uv_homography(surface, left_basis, left_intrinsics).ok()?;
-    let right_surface_to_camera =
-        surface_to_camera_uv_homography(surface, right_basis, right_intrinsics).ok()?;
     let left_eye_basis = eye_basis_from_xr_view(left_view)?;
     let right_eye_basis = eye_basis_from_xr_view(right_view)?;
     let left_surface_to_screen = surface_to_eye_screen_uv_homography(
@@ -105,16 +75,7 @@ pub(super) fn camera2_projection_plan_from_xr_views(
         projection_area_eye_offset_uv[1],
         projection_area_scale,
     );
-    let left_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
-        screen_to_camera_uv_homography(left_surface_to_screen, left_surface_to_camera).ok()?,
-        projection_area_eye_offset_uv[0],
-        projection_area_scale,
-    );
-    let right_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
-        screen_to_camera_uv_homography(right_surface_to_screen, right_surface_to_camera).ok()?,
-        projection_area_eye_offset_uv[1],
-        projection_area_scale,
-    );
+    let identity = identity_homography();
     let left_use_surface_texture_transform =
         use_surface_texture_transform_for_stimulus(left_metadata);
     let right_use_surface_texture_transform =
@@ -131,14 +92,14 @@ pub(super) fn camera2_projection_plan_from_xr_views(
         height,
         right_use_surface_texture_transform,
     );
-    let content_mapping_mode = OesContentMappingMode::CameraProjection;
+    let content_mapping_mode = OesContentMappingMode::FullFrameStimulusToSurfaceHomography;
     let left_geometry_plan = shared_per_eye_projection_plan(
         Eye::Left,
         content_mapping_mode,
         left_surface_to_screen,
         left_screen_to_surface_h,
-        left_surface_to_camera,
-        left_screen_to_camera_h,
+        identity,
+        left_screen_to_surface_h,
         projection_area_eye_offset_uv[0],
         projection_area_scale,
         projection_area_radius,
@@ -152,8 +113,8 @@ pub(super) fn camera2_projection_plan_from_xr_views(
         content_mapping_mode,
         right_surface_to_screen,
         right_screen_to_surface_h,
-        right_surface_to_camera,
-        right_screen_to_camera_h,
+        identity,
+        right_screen_to_surface_h,
         projection_area_eye_offset_uv[1],
         projection_area_scale,
         projection_area_radius,
@@ -168,8 +129,8 @@ pub(super) fn camera2_projection_plan_from_xr_views(
             eye: Eye::Left,
             surface_to_screen_h: left_surface_to_screen,
             screen_to_surface_h: left_screen_to_surface_h,
-            surface_to_camera_h: left_surface_to_camera,
-            screen_to_camera_h: left_screen_to_camera_h,
+            surface_to_camera_h: identity,
+            screen_to_camera_h: left_screen_to_surface_h,
             source_label: left_source_label,
             source_eye: "left".to_string(),
             use_surface_texture_transform: left_use_surface_texture_transform,
@@ -180,8 +141,8 @@ pub(super) fn camera2_projection_plan_from_xr_views(
             eye: Eye::Right,
             surface_to_screen_h: right_surface_to_screen,
             screen_to_surface_h: right_screen_to_surface_h,
-            surface_to_camera_h: right_surface_to_camera,
-            screen_to_camera_h: right_screen_to_camera_h,
+            surface_to_camera_h: identity,
+            screen_to_camera_h: right_screen_to_surface_h,
             source_label: right_source_label,
             source_eye: "right".to_string(),
             use_surface_texture_transform: right_use_surface_texture_transform,
