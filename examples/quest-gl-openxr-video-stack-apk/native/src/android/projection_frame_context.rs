@@ -5,7 +5,8 @@ use super::{
     projection_contract_markers::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
     },
-    projection_geometry::{projection_plan_from_metadata_and_state, OesProjectionPlan},
+    projection_geometry::OesProjectionPlan,
+    projection_plan_builders::projection_plan_from_metadata_and_state,
     source_metadata::OesProjectionMetadata,
 };
 
