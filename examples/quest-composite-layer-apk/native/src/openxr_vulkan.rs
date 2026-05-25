@@ -38,6 +38,7 @@ use rusty_xr_particles::{
     MeshSurfaceCrossNeighborConfig, MeshSurfaceSampleConfig, ParticleRender,
 };
 
+mod camera_render_cadence;
 mod camera_upload_resources;
 mod foveation_framebuffer_resources;
 mod gpu_camera_import;
@@ -51,9 +52,10 @@ mod projection_geometry;
 mod source_metadata;
 mod swapchain_resources;
 mod vulkan_capabilities;
+use camera_render_cadence::CameraRenderCadenceStats;
 use camera_upload_resources::{ensure_camera_upload, CameraCopy, CameraUpload};
 use gpu_camera_projection::CameraProjectionPush;
-use gpu_camera_renderer::{CameraRenderCadenceStats, GpuCameraRenderer};
+use gpu_camera_renderer::GpuCameraRenderer;
 use projection_diagnostics::{
     display_eye_uv_fiducial_contract_log_message, display_eye_uv_fiducial_marker_fields,
     projected_homography_status_marker_fields, projection_openxr_contract_log_message,
