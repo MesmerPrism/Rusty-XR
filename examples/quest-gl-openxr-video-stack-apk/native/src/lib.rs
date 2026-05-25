@@ -66,9 +66,8 @@ mod android {
     };
     use rusty_xr_contracts::InvalidProjectionFillPolicy;
     use rusty_xr_quest_diagnostics::{
-        EglGlesContextStatus, FrameRateSummary, OpenXrGlesExtensionStatus,
-        OpenXrGlesFeasibilityState, OpenXrGlesGraphicsRequirements, OpenXrGlesSwapchainFormat,
-        OpenXrGlesViewStatus, OPENXR_GLES_EXTENSION,
+        FrameRateSummary, OpenXrGlesExtensionStatus, OpenXrGlesFeasibilityState,
+        OpenXrGlesGraphicsRequirements, OPENXR_GLES_EXTENSION,
     };
     use std::{
         ffi::{CStr, CString},
@@ -77,14 +76,16 @@ mod android {
         time::{Duration, Instant},
     };
 
+    mod egl_gles_context;
     mod oes_copy_renderer;
     mod openxr_gles_resources;
     mod projection_geometry;
     mod projection_runtime;
     mod source_metadata;
     mod surface_texture_oes_probe;
+    use egl_gles_context::EglContext;
     use oes_copy_renderer::{GlFramebuffer, OesColorControls, OesCopyRenderer};
-    use openxr_gles_resources::EyeSwapchain;
+    use openxr_gles_resources::{create_eye_swapchains, gl_format_label, EyeSwapchain};
     use projection_geometry::{
         log_projection_diagnostics, openxr_projection_contract_fields,
         projection_area_target_marker_fields_from_state, OesProjectionPlan,
@@ -105,11 +106,6 @@ mod android {
     const GL_SCISSOR_TEST: u32 = 0x0C11;
     const GL_TEXTURE_2D: u32 = 0x0DE1;
     const GL_FLOAT: u32 = 0x1406;
-    const GL_VENDOR: u32 = 0x1F00;
-    const GL_RENDERER: u32 = 0x1F01;
-    const GL_VERSION: u32 = 0x1F02;
-    const GL_EXTENSIONS: u32 = 0x1F03;
-    const GL_SHADING_LANGUAGE_VERSION: u32 = 0x8B8C;
     const GL_RGBA: u32 = 0x1908;
     const GL_RGBA8: u32 = 0x8058;
     const GL_RGB10_A2: u32 = 0x8059;
@@ -569,81 +565,8 @@ mod android {
         }
     }
 
-    type EGLDisplay = *mut c_void;
-    type EGLConfig = *mut c_void;
-    type EGLContext = *mut c_void;
-    type EGLSurface = *mut c_void;
-    type EGLBoolean = c_int;
-    type EGLint = c_int;
-
-    const EGL_FALSE: EGLBoolean = 0;
-    const EGL_NO_DISPLAY: EGLDisplay = ptr::null_mut();
-    const EGL_NO_CONTEXT: EGLContext = ptr::null_mut();
-    const EGL_NO_SURFACE: EGLSurface = ptr::null_mut();
-    const EGL_DEFAULT_DISPLAY: *mut c_void = ptr::null_mut();
-    const EGL_OPENGL_ES_API: u32 = 0x30A0;
-    const EGL_NONE: EGLint = 0x3038;
-    const EGL_RED_SIZE: EGLint = 0x3024;
-    const EGL_GREEN_SIZE: EGLint = 0x3023;
-    const EGL_BLUE_SIZE: EGLint = 0x3022;
-    const EGL_ALPHA_SIZE: EGLint = 0x3021;
-    const EGL_DEPTH_SIZE: EGLint = 0x3025;
-    const EGL_STENCIL_SIZE: EGLint = 0x3026;
-    const EGL_SAMPLES: EGLint = 0x3031;
-    const EGL_SURFACE_TYPE: EGLint = 0x3033;
-    const EGL_RENDERABLE_TYPE: EGLint = 0x3040;
-    const EGL_WIDTH: EGLint = 0x3057;
-    const EGL_HEIGHT: EGLint = 0x3056;
-    const EGL_PBUFFER_BIT: EGLint = 0x0001;
-    const EGL_OPENGL_ES3_BIT: EGLint = 0x0040;
-    const EGL_CONTEXT_CLIENT_VERSION: EGLint = 0x3098;
-    const EGL_VENDOR: EGLint = 0x3053;
-
-    #[link(name = "EGL")]
-    unsafe extern "C" {
-        fn eglGetDisplay(display_id: *mut c_void) -> EGLDisplay;
-        fn eglInitialize(display: EGLDisplay, major: *mut EGLint, minor: *mut EGLint)
-            -> EGLBoolean;
-        fn eglTerminate(display: EGLDisplay) -> EGLBoolean;
-        fn eglBindAPI(api: u32) -> EGLBoolean;
-        fn eglChooseConfig(
-            display: EGLDisplay,
-            attrib_list: *const EGLint,
-            configs: *mut EGLConfig,
-            config_size: EGLint,
-            num_config: *mut EGLint,
-        ) -> EGLBoolean;
-        fn eglCreateContext(
-            display: EGLDisplay,
-            config: EGLConfig,
-            share_context: EGLContext,
-            attrib_list: *const EGLint,
-        ) -> EGLContext;
-        fn eglDestroyContext(display: EGLDisplay, context: EGLContext) -> EGLBoolean;
-        fn eglCreatePbufferSurface(
-            display: EGLDisplay,
-            config: EGLConfig,
-            attrib_list: *const EGLint,
-        ) -> EGLSurface;
-        fn eglDestroySurface(display: EGLDisplay, surface: EGLSurface) -> EGLBoolean;
-        fn eglMakeCurrent(
-            display: EGLDisplay,
-            draw: EGLSurface,
-            read: EGLSurface,
-            context: EGLContext,
-        ) -> EGLBoolean;
-        fn eglGetConfigAttrib(
-            display: EGLDisplay,
-            config: EGLConfig,
-            attribute: EGLint,
-            value: *mut EGLint,
-        ) -> EGLBoolean;
-        fn eglQueryString(display: EGLDisplay, name: EGLint) -> *const c_char;
-    }
-
     #[link(name = "GLESv3")]
     unsafe extern "C" {
-        fn glGetString(name: u32) -> *const u8;
         fn glViewport(x: c_int, y: c_int, width: c_int, height: c_int);
         fn glClearColor(red: f32, green: f32, blue: f32, alpha: f32);
         fn glClear(mask: u32);
@@ -1582,110 +1505,6 @@ mod android {
         Ok(selected)
     }
 
-    fn create_eye_swapchains(
-        instance: &xr::Instance,
-        system: xr::SystemId,
-        session: &xr::Session<xr::OpenGlEs>,
-        status: &mut OpenXrGlesFeasibilityStatus,
-    ) -> Result<Vec<EyeSwapchain>, String> {
-        let view_configs = instance
-            .enumerate_view_configuration_views(system, VIEW_TYPE)
-            .map_err(|error| format!("enumerate view configuration views: {error}"))?;
-        if view_configs.len() < VIEW_COUNT {
-            return Err(format!(
-                "OpenXR runtime reported {} view(s), expected at least {VIEW_COUNT}",
-                view_configs.len()
-            ));
-        }
-
-        let formats = session
-            .enumerate_swapchain_formats()
-            .map_err(|error| format!("enumerate OpenXR GLES swapchain formats: {error}"))?;
-        let selected_format = select_color_format(&formats)
-            .ok_or_else(|| "OpenXR runtime reported no GLES swapchain formats".to_string())?;
-        status.swapchain_formats = formats
-            .iter()
-            .filter(|format| {
-                **format == selected_format
-                    || is_color_format(**format)
-                    || is_depth_format(**format)
-            })
-            .map(|format| OpenXrGlesSwapchainFormat {
-                format_id: *format as i64,
-                label: gl_format_label(*format).to_string(),
-                color_renderable: is_color_format(*format),
-                depth_renderable: is_depth_format(*format),
-                selected: *format == selected_format,
-            })
-            .collect();
-        log_info(format!(
-            "Rusty XR OpenXR GLES swapchain formats selected={} runtimeFormatCount={} trackedFormats={:?}",
-            gl_format_label(selected_format),
-            formats.len(),
-            status
-                .swapchain_formats
-                .iter()
-                .map(|format| format.label.as_str())
-                .collect::<Vec<_>>()
-        ));
-
-        let mut swapchains = Vec::with_capacity(VIEW_COUNT);
-        status.views.clear();
-        for (index, view) in view_configs.iter().take(VIEW_COUNT).enumerate() {
-            let width = view.recommended_image_rect_width;
-            let height = view.recommended_image_rect_height;
-            let handle = session
-                .create_swapchain(&xr::SwapchainCreateInfo {
-                    create_flags: xr::SwapchainCreateFlags::EMPTY,
-                    usage_flags: xr::SwapchainUsageFlags::COLOR_ATTACHMENT
-                        | xr::SwapchainUsageFlags::SAMPLED,
-                    format: selected_format,
-                    sample_count: 1,
-                    width,
-                    height,
-                    face_count: 1,
-                    array_size: 1,
-                    mip_count: 1,
-                })
-                .map_err(|error| {
-                    format!("create OpenXR GLES swapchain for eye {index}: {error}")
-                })?;
-            let images = handle.enumerate_images().map_err(|error| {
-                format!("enumerate GLES swapchain images for eye {index}: {error}")
-            })?;
-            let pattern = if index == 0 {
-                "left-red-cyan-grid"
-            } else {
-                "right-blue-yellow-grid"
-            };
-            status.views.push(OpenXrGlesViewStatus::diagnostic_grid(
-                index as u32,
-                width,
-                height,
-                pattern,
-            ));
-            log_info(format!(
-                "Rusty XR OpenXR GLES swapchain eye={} size={}x{} images={} sampleCountRecommended={}",
-                index,
-                width,
-                height,
-                images.len(),
-                view.recommended_swapchain_sample_count
-            ));
-            swapchains.push(EyeSwapchain {
-                handle,
-                images,
-                width,
-                height,
-                color_format: selected_format,
-                view_index: index,
-                pattern,
-            });
-        }
-
-        Ok(swapchains)
-    }
-
     fn render_eye_swapchains(
         egl: &EglContext,
         fbo: &mut GlFramebuffer,
@@ -1849,154 +1668,6 @@ mod android {
             glFlush();
         }
         Ok(())
-    }
-
-    struct EglContext {
-        display: EGLDisplay,
-        config: EGLConfig,
-        context: EGLContext,
-        surface: EGLSurface,
-        status: EglGlesContextStatus,
-    }
-
-    impl EglContext {
-        fn create() -> Result<Self, String> {
-            unsafe {
-                let display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-                if display == EGL_NO_DISPLAY {
-                    return Err("eglGetDisplay returned EGL_NO_DISPLAY".to_string());
-                }
-                let mut major = 0;
-                let mut minor = 0;
-                if eglInitialize(display, &mut major, &mut minor) == EGL_FALSE {
-                    return Err("eglInitialize failed".to_string());
-                }
-                if eglBindAPI(EGL_OPENGL_ES_API) == EGL_FALSE {
-                    return Err("eglBindAPI(EGL_OPENGL_ES_API) failed".to_string());
-                }
-
-                let config_attribs = [
-                    EGL_RED_SIZE,
-                    8,
-                    EGL_GREEN_SIZE,
-                    8,
-                    EGL_BLUE_SIZE,
-                    8,
-                    EGL_ALPHA_SIZE,
-                    8,
-                    EGL_DEPTH_SIZE,
-                    0,
-                    EGL_STENCIL_SIZE,
-                    0,
-                    EGL_SURFACE_TYPE,
-                    EGL_PBUFFER_BIT,
-                    EGL_RENDERABLE_TYPE,
-                    EGL_OPENGL_ES3_BIT,
-                    EGL_NONE,
-                ];
-                let mut config: EGLConfig = ptr::null_mut();
-                let mut config_count = 0;
-                if eglChooseConfig(
-                    display,
-                    config_attribs.as_ptr(),
-                    &mut config,
-                    1,
-                    &mut config_count,
-                ) == EGL_FALSE
-                    || config_count == 0
-                    || config.is_null()
-                {
-                    return Err("eglChooseConfig failed for GLES3 pbuffer config".to_string());
-                }
-
-                let surface_attribs = [EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE];
-                let surface = eglCreatePbufferSurface(display, config, surface_attribs.as_ptr());
-                if surface == EGL_NO_SURFACE {
-                    return Err("eglCreatePbufferSurface failed".to_string());
-                }
-
-                let context_attribs = [EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE];
-                let context =
-                    eglCreateContext(display, config, EGL_NO_CONTEXT, context_attribs.as_ptr());
-                if context == EGL_NO_CONTEXT {
-                    return Err("eglCreateContext failed for OpenGL ES 3".to_string());
-                }
-                if eglMakeCurrent(display, surface, surface, context) == EGL_FALSE {
-                    return Err("eglMakeCurrent failed".to_string());
-                }
-
-                let egl_version = Some(format!("{major}.{minor}"));
-                let gles_version = gl_string(GL_VERSION);
-                let glsl_version = gl_string(GL_SHADING_LANGUAGE_VERSION);
-                let vendor = gl_string(GL_VENDOR).or_else(|| egl_string(display, EGL_VENDOR));
-                let renderer = gl_string(GL_RENDERER);
-                let extensions = gl_string(GL_EXTENSIONS).unwrap_or_default();
-                let status = EglGlesContextStatus {
-                    egl_version,
-                    gles_version,
-                    glsl_version,
-                    vendor,
-                    renderer,
-                    config_red_bits: config_attrib(display, config, EGL_RED_SIZE),
-                    config_green_bits: config_attrib(display, config, EGL_GREEN_SIZE),
-                    config_blue_bits: config_attrib(display, config, EGL_BLUE_SIZE),
-                    config_alpha_bits: config_attrib(display, config, EGL_ALPHA_SIZE),
-                    config_depth_bits: config_attrib(display, config, EGL_DEPTH_SIZE),
-                    config_stencil_bits: config_attrib(display, config, EGL_STENCIL_SIZE),
-                    config_samples: config_attrib(display, config, EGL_SAMPLES),
-                    egl_context_current: true,
-                    external_oes_supported: extensions.contains("GL_OES_EGL_image_external"),
-                };
-                log_info(format!(
-                    "Rusty XR EGL/GLES context egl={:?} gles={:?} renderer={:?} externalOesSupported={}",
-                    status.egl_version,
-                    status.gles_version,
-                    status.renderer,
-                    status.external_oes_supported
-                ));
-
-                Ok(Self {
-                    display,
-                    config,
-                    context,
-                    surface,
-                    status,
-                })
-            }
-        }
-
-        fn status(&self) -> EglGlesContextStatus {
-            self.status.clone()
-        }
-
-        fn make_current(&self) -> Result<(), String> {
-            unsafe {
-                if eglMakeCurrent(self.display, self.surface, self.surface, self.context)
-                    == EGL_FALSE
-                {
-                    return Err("eglMakeCurrent failed before render".to_string());
-                }
-            }
-            Ok(())
-        }
-    }
-
-    impl Drop for EglContext {
-        fn drop(&mut self) {
-            unsafe {
-                let _ =
-                    eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-                if self.context != EGL_NO_CONTEXT {
-                    let _ = eglDestroyContext(self.display, self.context);
-                }
-                if self.surface != EGL_NO_SURFACE {
-                    let _ = eglDestroySurface(self.display, self.surface);
-                }
-                if self.display != EGL_NO_DISPLAY {
-                    let _ = eglTerminate(self.display);
-                }
-            }
-        }
     }
 
     fn activity_string_extra(
@@ -2665,74 +2336,6 @@ mod android {
             + pose.orientation.z * pose.orientation.z
             + pose.orientation.w * pose.orientation.w;
         orientation_norm_squared.is_finite() && orientation_norm_squared > 0.0
-    }
-
-    fn select_color_format(formats: &[u32]) -> Option<u32> {
-        [GL_SRGB8_ALPHA8, GL_RGBA8, GL_RGB10_A2, GL_RGBA]
-            .into_iter()
-            .find(|preferred| formats.contains(preferred))
-            .or_else(|| formats.first().copied())
-    }
-
-    fn is_color_format(format: u32) -> bool {
-        matches!(format, GL_SRGB8_ALPHA8 | GL_RGBA8 | GL_RGB10_A2 | GL_RGBA)
-    }
-
-    fn is_depth_format(format: u32) -> bool {
-        matches!(
-            format,
-            GL_DEPTH_COMPONENT16 | GL_DEPTH_COMPONENT24 | GL_DEPTH24_STENCIL8
-        )
-    }
-
-    fn gl_format_label(format: u32) -> &'static str {
-        match format {
-            GL_SRGB8_ALPHA8 => "GL_SRGB8_ALPHA8",
-            GL_RGBA8 => "GL_RGBA8",
-            GL_RGB10_A2 => "GL_RGB10_A2",
-            GL_RGBA => "GL_RGBA",
-            GL_DEPTH_COMPONENT16 => "GL_DEPTH_COMPONENT16",
-            GL_DEPTH_COMPONENT24 => "GL_DEPTH_COMPONENT24",
-            GL_DEPTH24_STENCIL8 => "GL_DEPTH24_STENCIL8",
-            _ => "GL_UNKNOWN",
-        }
-    }
-
-    fn gl_string(name: u32) -> Option<String> {
-        unsafe {
-            let value = glGetString(name);
-            if value.is_null() {
-                None
-            } else {
-                Some(
-                    CStr::from_ptr(value as *const c_char)
-                        .to_string_lossy()
-                        .into_owned(),
-                )
-            }
-        }
-    }
-
-    fn egl_string(display: EGLDisplay, name: EGLint) -> Option<String> {
-        unsafe {
-            let value = eglQueryString(display, name);
-            if value.is_null() {
-                None
-            } else {
-                Some(CStr::from_ptr(value).to_string_lossy().into_owned())
-            }
-        }
-    }
-
-    fn config_attrib(display: EGLDisplay, config: EGLConfig, attribute: EGLint) -> Option<u8> {
-        unsafe {
-            let mut value = 0;
-            if eglGetConfigAttrib(display, config, attribute, &mut value) == EGL_FALSE {
-                None
-            } else {
-                u8::try_from(value).ok()
-            }
-        }
     }
 
     fn log_status(status: &OpenXrGlesFeasibilityStatus) {
