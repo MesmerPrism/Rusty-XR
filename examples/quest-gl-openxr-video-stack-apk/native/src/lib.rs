@@ -75,6 +75,7 @@ mod android {
     mod openxr_gles_session;
     mod projection_contract_markers;
     mod projection_diagnostics;
+    mod projection_frame_context;
     mod projection_geometry;
     mod projection_runtime;
     mod source_metadata;
@@ -102,7 +103,7 @@ mod android {
         request_session_exit_if_app_stopped, select_openxr_gles_extensions, OesFrameRateTracker,
         OesLocatedViews,
     };
-    use projection_geometry::projection_frame_context_from_state;
+    use projection_frame_context::projection_frame_context_from_state;
     use projection_runtime::{log_oes_projection_startup_summary, OesProjectionRuntimeController};
     use surface_texture_oes_frame_sources::OesRenderFrameSources;
     use surface_texture_oes_probe::probe_surface_texture_oes;
