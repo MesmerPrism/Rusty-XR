@@ -54,6 +54,7 @@ mod gpu_camera_resource_state;
 mod gpu_camera_resources;
 mod gpu_camera_sampler;
 mod gpu_camera_uniforms;
+mod openxr_foveation_swapchain;
 mod openxr_swapchain_images;
 mod openxr_vulkan_layers;
 mod projection_diagnostics;
