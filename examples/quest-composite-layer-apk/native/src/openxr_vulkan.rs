@@ -64,6 +64,7 @@ mod projection_profile;
 mod projection_view_basis;
 mod source_content_geometry;
 mod source_metadata;
+mod swapchain_framebuffers;
 mod swapchain_render_pass;
 mod swapchain_resources;
 mod vulkan_capabilities;
@@ -83,8 +84,9 @@ use projection_view_basis::{
     camera_preview_surface_corners, eye_basis_from_view, fov_aspect, tracking_basis_from_views,
 };
 use source_metadata::hwb_source_metadata_log_message_from_frame;
+use swapchain_framebuffers::Framebuffer;
 use swapchain_render_pass::create_openxr_render_pass;
-use swapchain_resources::{destroy_swapchain, ensure_swapchain, Framebuffer, Swapchain};
+use swapchain_resources::{destroy_swapchain, ensure_swapchain, Swapchain};
 use vulkan_capabilities::{physical_device_supports_extension, query_fragment_density_map_support};
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
