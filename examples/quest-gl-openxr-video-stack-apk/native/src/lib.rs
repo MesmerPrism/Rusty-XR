@@ -83,10 +83,12 @@ mod android {
     };
 
     mod oes_copy_renderer;
+    mod openxr_gles_resources;
     mod projection_geometry;
     mod projection_runtime;
     mod source_metadata;
     use oes_copy_renderer::{GlFramebuffer, OesColorControls, OesCopyRenderer};
+    use openxr_gles_resources::EyeSwapchain;
     use projection_geometry::{
         log_projection_diagnostics, openxr_projection_contract_fields,
         projection_area_target_marker_fields_from_state, projection_plan_from_metadata,
@@ -1957,16 +1959,6 @@ mod android {
             glFlush();
         }
         Ok(())
-    }
-
-    struct EyeSwapchain {
-        handle: xr::Swapchain<xr::OpenGlEs>,
-        images: Vec<u32>,
-        width: u32,
-        height: u32,
-        color_format: u32,
-        view_index: usize,
-        pattern: &'static str,
     }
 
     struct EglContext {
