@@ -8,7 +8,7 @@ use super::{
         OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_PROP, PROJECTION_PREVIEW_FOV_Y_DEGREES,
         PROJECTION_RAW_OVERSCAN,
     },
-    projection_geometry::projection_area_target_marker_fields_from_state,
+    projection_contract_markers::projection_area_target_marker_fields_from_state,
 };
 use crate::current_android_projection_property_config;
 use jni::{objects::JObject, sys::jobject, JavaVM};

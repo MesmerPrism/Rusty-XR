@@ -71,6 +71,7 @@ mod android {
     mod openxr_gles_renderer;
     mod openxr_gles_resources;
     mod openxr_gles_session;
+    mod projection_contract_markers;
     mod projection_diagnostics;
     mod projection_geometry;
     mod projection_runtime;
