@@ -9,6 +9,49 @@ use super::{
         GpuCameraFormatKey, GpuCameraImport, GpuCameraImportKey, GpuCameraPipelineResources,
     },
 };
+
+pub(super) struct CameraHardwareBufferImportPlan {
+    pub(super) format_props: vk::AndroidHardwareBufferFormatPropertiesANDROID<'static>,
+    pub(super) format_key: GpuCameraFormatKey,
+    pub(super) allocation_size: vk::DeviceSize,
+    pub(super) memory_type_bits: u32,
+}
+
+pub(super) unsafe fn query_camera_hardware_buffer_import_plan(
+    ahb: &ash::android::external_memory_android_hardware_buffer::Device,
+    frame: &HeadsetCameraGpuFrame,
+    sampler_binding_mode: crate::CameraSamplerBindingMode,
+    import_image_layout_mode: crate::CameraImportImageLayoutMode,
+) -> Result<CameraHardwareBufferImportPlan, String> {
+    let mut format_props = vk::AndroidHardwareBufferFormatPropertiesANDROID::default();
+    let mut properties =
+        vk::AndroidHardwareBufferPropertiesANDROID::default().push_next(&mut format_props);
+    ahb.get_android_hardware_buffer_properties(
+        frame.hardware_buffer.as_ptr().cast(),
+        &mut properties,
+    )
+    .map_err(|error| format!("query AHardwareBuffer Vulkan properties: {error}"))?;
+    let allocation_size = properties.allocation_size;
+    let memory_type_bits = properties.memory_type_bits;
+    let format_key = GpuCameraFormatKey {
+        format: if format_props.external_format != 0 {
+            vk::Format::UNDEFINED
+        } else {
+            format_props.format
+        },
+        external_format: format_props.external_format,
+        sampler_binding_mode,
+        import_image_layout_mode,
+    };
+
+    Ok(CameraHardwareBufferImportPlan {
+        format_props,
+        format_key,
+        allocation_size,
+        memory_type_bits,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn import_camera_hardware_buffer(
     device: &ash::Device,

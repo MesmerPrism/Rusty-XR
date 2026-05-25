@@ -4,13 +4,16 @@ use openxr as xr;
 use crate::{HeadsetCameraGpuFrame, StereoGpuCameraFrame};
 
 use super::gpu_camera_resources::{
-    GpuCameraFormatKey, GpuCameraImportKey, GpuCameraPipelineResources, GpuCameraStereoDescriptor,
+    GpuCameraImportKey, GpuCameraPipelineResources, GpuCameraStereoDescriptor,
 };
 use super::{
     gpu_camera_cache::{GpuCameraImportCache, GpuCameraImportCacheStats},
     gpu_camera_descriptors::allocate_camera_descriptor_set,
     gpu_camera_draw::{record_camera_draw, record_stereo_camera_draw},
-    gpu_camera_import::{import_camera_hardware_buffer, transition_imported_camera_image},
+    gpu_camera_import::{
+        import_camera_hardware_buffer, query_camera_hardware_buffer_import_plan,
+        transition_imported_camera_image,
+    },
     gpu_camera_pipeline::create_gpu_camera_pipeline_resources,
     log_info,
     projection_geometry::ProjectedStereoHomographies,
@@ -228,31 +231,17 @@ impl GpuCameraRenderer {
         }
         self.cache.record_import_miss();
 
-        let mut format_props = vk::AndroidHardwareBufferFormatPropertiesANDROID::default();
-        let mut properties =
-            vk::AndroidHardwareBufferPropertiesANDROID::default().push_next(&mut format_props);
         let ahb = self
             .ahb
             .as_ref()
             .ok_or_else(|| "Android hardware-buffer Vulkan extension is unavailable".to_string())?;
-        ahb.get_android_hardware_buffer_properties(
-            frame.hardware_buffer.as_ptr().cast(),
-            &mut properties,
-        )
-        .map_err(|error| format!("query AHardwareBuffer Vulkan properties: {error}"))?;
-        let allocation_size = properties.allocation_size;
-        let memory_type_bits = properties.memory_type_bits;
-
-        let format_key = GpuCameraFormatKey {
-            format: if format_props.external_format != 0 {
-                vk::Format::UNDEFINED
-            } else {
-                format_props.format
-            },
-            external_format: format_props.external_format,
+        let import_plan = query_camera_hardware_buffer_import_plan(
+            ahb,
+            frame,
             sampler_binding_mode,
             import_image_layout_mode,
-        };
+        )?;
+        let format_key = import_plan.format_key;
         if self
             .resources
             .as_ref()
@@ -268,7 +257,7 @@ impl GpuCameraRenderer {
                 self.projection_uniform_alignment,
                 self.render_pass,
                 format_key,
-                &format_props,
+                &import_plan.format_props,
             )?);
         }
 
@@ -287,8 +276,8 @@ impl GpuCameraRenderer {
             frame,
             key,
             format_key,
-            allocation_size,
-            memory_type_bits,
+            import_plan.allocation_size,
+            import_plan.memory_type_bits,
         )?;
         let index = self.cache.push_import(import);
         if format_key.import_image_layout_mode.needs_transition() {
@@ -309,13 +298,13 @@ impl GpuCameraRenderer {
             format_key.format,
             format_key.sampler_binding_mode.stable_id(),
             format_key.import_image_layout_mode.stable_id(),
-            allocation_size,
-            memory_type_bits,
-            format_props.suggested_ycbcr_model,
-            format_props.suggested_ycbcr_range,
-            format_props.sampler_ycbcr_conversion_components,
-            format_props.suggested_x_chroma_offset,
-            format_props.suggested_y_chroma_offset,
+            import_plan.allocation_size,
+            import_plan.memory_type_bits,
+            import_plan.format_props.suggested_ycbcr_model,
+            import_plan.format_props.suggested_ycbcr_range,
+            import_plan.format_props.sampler_ycbcr_conversion_components,
+            import_plan.format_props.suggested_x_chroma_offset,
+            import_plan.format_props.suggested_y_chroma_offset,
             cache_stats.import_count,
             import_cache_limit,
             cache_stats.import_cache_miss_count,
