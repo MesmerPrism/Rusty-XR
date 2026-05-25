@@ -95,10 +95,7 @@ mod android {
         request_session_exit_if_app_stopped, select_openxr_gles_extensions, OesFrameRateTracker,
         OesLocatedViews,
     };
-    use projection_geometry::{
-        openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
-        projection_plan_from_metadata_and_state,
-    };
+    use projection_geometry::projection_frame_context_from_state;
     use projection_runtime::{log_oes_projection_startup_summary, OesProjectionRuntimeController};
     use surface_texture_oes_probe::probe_surface_texture_oes;
 
@@ -381,16 +378,14 @@ mod android {
                     probe.update_textures(&egl, frame_count);
                 }
                 projection_state = projection_runtime_controller.refresh_state(frame_count);
-                let projection_area_target_fields =
-                    projection_area_target_marker_fields_from_state(projection_state);
-                let projection_plan = surface_texture_oes_probe.as_ref().and_then(|probe| {
-                    let (left, right) = probe.projection_metadata_pair()?;
-                    projection_plan_from_metadata_and_state(left, right, &views, projection_state)
-                });
-                let openxr_projection_fields = openxr_projection_contract_fields(
+                let projection_context = projection_frame_context_from_state(
                     "LOCAL",
                     frame_state.predicted_display_time,
                     &views,
+                    projection_state,
+                    surface_texture_oes_probe
+                        .as_ref()
+                        .and_then(|probe| probe.projection_metadata_pair()),
                 );
                 render_resources.render_eye_swapchains(
                     OesRenderFrameInputs {
@@ -399,9 +394,10 @@ mod android {
                         frame_count,
                         status: &mut status,
                         surface_texture_oes_probe: surface_texture_oes_probe.as_ref(),
-                        projection_plan: projection_plan.as_ref(),
-                        openxr_projection_fields: &openxr_projection_fields,
-                        projection_area_target_fields: &projection_area_target_fields,
+                        projection_plan: projection_context.projection_plan.as_ref(),
+                        openxr_projection_fields: &projection_context.openxr_projection_fields,
+                        projection_area_target_fields: &projection_context
+                            .projection_area_target_fields,
                     },
                     OesRenderTuning::from_projection_state(
                         projection_state,
