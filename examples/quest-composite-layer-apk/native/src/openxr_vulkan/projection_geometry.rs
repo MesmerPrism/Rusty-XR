@@ -6,6 +6,10 @@ use rusty_xr_camera_model::{
     surface_to_eye_screen_uv_homography, Vec3,
 };
 
+use super::projection_homography_utils::{
+    domain_to_screen_with_visual_offset, full_target_canvas_clip, identity_homography,
+    screen_to_domain_with_visual_offset,
+};
 use super::projection_view_basis::{
     camera_preview_surface_corners, eye_basis_from_view, fov_aspect, tracking_basis_from_views,
 };
@@ -44,19 +48,6 @@ pub(super) fn projected_homographies_with_screen_to_camera(
             ..homographies.right
         },
     }
-}
-
-pub(super) fn identity_homography() -> [[f32; 3]; 3] {
-    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
-}
-
-pub(super) fn full_target_canvas_clip() -> [[f32; 4]; 4] {
-    [
-        [-1.0, -1.0, 0.0, 1.0],
-        [1.0, -1.0, 0.0, 1.0],
-        [1.0, 1.0, 0.0, 1.0],
-        [-1.0, 1.0, 0.0, 1.0],
-    ]
 }
 
 pub(super) fn full_target_canvas_aspect(
@@ -353,36 +344,4 @@ fn frame_requests_full_frame_stimulus_mapping(frame: &HeadsetCameraGpuFrame) -> 
             | "map-full-frame-content-to-projection-area"
             | "map-full-frame-content-to-projection-surface"
     )
-}
-
-pub(super) fn pack_homography_row(row: [f32; 3]) -> [f32; 4] {
-    [row[0], row[1], row[2], 0.0]
-}
-
-pub(super) fn screen_to_domain_with_visual_offset(
-    mut rows: [[f32; 3]; 3],
-    offset_x_uv: f32,
-    offset_y_uv: f32,
-) -> [[f32; 3]; 3] {
-    let input_x_offset = -offset_x_uv.clamp(-0.5, 0.5);
-    let input_y_offset = -offset_y_uv.clamp(-0.5, 0.5);
-    for row in &mut rows {
-        row[2] += row[0] * input_x_offset + row[1] * input_y_offset;
-    }
-    rows
-}
-
-pub(super) fn domain_to_screen_with_visual_offset(
-    mut rows: [[f32; 3]; 3],
-    offset_x_uv: f32,
-    offset_y_uv: f32,
-) -> [[f32; 3]; 3] {
-    let output_x_offset = offset_x_uv.clamp(-0.5, 0.5);
-    let output_y_offset = offset_y_uv.clamp(-0.5, 0.5);
-    let projective_row = rows[2];
-    for (column, projective_value) in projective_row.into_iter().enumerate() {
-        rows[0][column] += projective_value * output_x_offset;
-        rows[1][column] += projective_value * output_y_offset;
-    }
-    rows
 }

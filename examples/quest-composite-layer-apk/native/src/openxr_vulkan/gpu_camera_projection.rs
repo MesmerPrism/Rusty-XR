@@ -6,9 +6,9 @@ use crate::{HeadsetCameraGpuFrame, StereoGpuCameraFrame};
 
 use super::{
     projection_geometry::{
-        identity_homography, pack_homography_row, projected_stereo_homographies,
-        DisplayEyeProjectionMapping, ProjectedStereoHomographies,
+        projected_stereo_homographies, DisplayEyeProjectionMapping, ProjectedStereoHomographies,
     },
+    projection_homography_utils::{identity_homography, pack_homography_row},
     source_content_geometry::source_uv_rect_ltrb_for_diagnostics,
 };
 #[repr(C)]
