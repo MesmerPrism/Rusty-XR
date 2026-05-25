@@ -12,12 +12,13 @@ use rusty_xr_contracts::{
 };
 
 use super::{
+    gl_format_label, log_error, log_info,
     source_metadata::{
         projection_source_label, projection_surface_aspect_from_metadata, OesProjectionMetadata,
     },
-    OesCameraProjectionMode, OesContentMappingMode, OesProjectionAlphaMode,
-    OesProjectionBorderPolicy, OesProjectionRuntimeState, OES_COPY_RENDER_PATH,
-    OES_PROJECTED_RENDER_PATH,
+    OesCameraProjectionMode, OesColorControls, OesContentMappingMode, OesProjectionAlphaMode,
+    OesProjectionBorderPolicy, OesProjectionRuntimeState, OesSourceColorTransfer, GL_SRGB8_ALPHA8,
+    OES_COPY_RENDER_PATH, OES_PROJECTED_RENDER_PATH,
 };
 
 const PROJECTION_FOOTPRINT_GRID: usize = 64;
@@ -326,6 +327,58 @@ pub(super) fn source_color_contract_fields(fields: OesSourceColorContract<'_>) -
         fields.swapchain_color_format,
         fields.swapchain_color_encoding
     )
+}
+
+pub(super) fn source_color_contract(
+    camera_color_controls: OesColorControls,
+    swapchain_color_format: u32,
+) -> OesSourceColorContract<'static> {
+    let transfer = camera_color_controls.source_transfer;
+    OesSourceColorContract {
+        input_encoding: transfer.input_encoding(),
+        transform: transfer.stable_id(),
+        transform_applied: transfer != OesSourceColorTransfer::Identity,
+        output_encoding: transfer.output_encoding(),
+        swapchain_color_format: gl_format_label(swapchain_color_format),
+        swapchain_color_encoding: if swapchain_color_format == GL_SRGB8_ALPHA8 {
+            "srgb"
+        } else {
+            "linear-or-runtime-default"
+        },
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn log_projection_diagnostics(
+    view_index: usize,
+    frame_count: u64,
+    source_sequence: u64,
+    projection: Option<&OesEyeProjection>,
+    projection_border_policy: OesProjectionBorderPolicy,
+    camera_color_controls: OesColorControls,
+    swapchain_color_format: u32,
+    openxr_projection_fields: &str,
+    projection_area_target_fields: &str,
+) {
+    let source_color_fields = source_color_contract_fields(source_color_contract(
+        camera_color_controls,
+        swapchain_color_format,
+    ));
+    for message in projection_diagnostic_log_messages(
+        view_index,
+        frame_count,
+        source_sequence,
+        projection,
+        projection_border_policy,
+        &source_color_fields,
+        openxr_projection_fields,
+        projection_area_target_fields,
+    ) {
+        match message {
+            Ok(line) => log_info(line),
+            Err(error) => log_error(error),
+        }
+    }
 }
 
 pub(super) fn projection_stage_row_log_messages(

@@ -87,10 +87,9 @@ mod android {
     mod projection_runtime;
     mod source_metadata;
     use projection_geometry::{
-        identity_homography, openxr_projection_contract_fields,
-        projection_area_target_marker_fields_from_state, projection_diagnostic_log_messages,
-        projection_plan_from_metadata, source_color_contract_fields, OesEyeProjection,
-        OesProjectionPlan, OesSourceColorContract,
+        identity_homography, log_projection_diagnostics, openxr_projection_contract_fields,
+        projection_area_target_marker_fields_from_state, projection_plan_from_metadata,
+        OesEyeProjection, OesProjectionPlan,
     };
     use projection_runtime::{
         log_oes_projection_runtime_manifest, oes_projection_runtime_hotload_log_message,
@@ -4430,57 +4429,6 @@ void main() {
         unsafe {
             if shader != 0 {
                 glDeleteShader(shader);
-            }
-        }
-    }
-
-    fn source_color_contract(
-        camera_color_controls: OesColorControls,
-        swapchain_color_format: u32,
-    ) -> OesSourceColorContract<'static> {
-        let transfer = camera_color_controls.source_transfer;
-        OesSourceColorContract {
-            input_encoding: transfer.input_encoding(),
-            transform: transfer.stable_id(),
-            transform_applied: transfer != OesSourceColorTransfer::Identity,
-            output_encoding: transfer.output_encoding(),
-            swapchain_color_format: gl_format_label(swapchain_color_format),
-            swapchain_color_encoding: if swapchain_color_format == GL_SRGB8_ALPHA8 {
-                "srgb"
-            } else {
-                "linear-or-runtime-default"
-            },
-        }
-    }
-
-    fn log_projection_diagnostics(
-        view_index: usize,
-        frame_count: u64,
-        source_sequence: u64,
-        projection: Option<&OesEyeProjection>,
-        projection_border_policy: OesProjectionBorderPolicy,
-        camera_color_controls: OesColorControls,
-        swapchain_color_format: u32,
-        openxr_projection_fields: &str,
-        projection_area_target_fields: &str,
-    ) {
-        let source_color_fields = source_color_contract_fields(source_color_contract(
-            camera_color_controls,
-            swapchain_color_format,
-        ));
-        for message in projection_diagnostic_log_messages(
-            view_index,
-            frame_count,
-            source_sequence,
-            projection,
-            projection_border_policy,
-            &source_color_fields,
-            openxr_projection_fields,
-            projection_area_target_fields,
-        ) {
-            match message {
-                Ok(line) => log_info(line),
-                Err(error) => log_error(error),
             }
         }
     }
