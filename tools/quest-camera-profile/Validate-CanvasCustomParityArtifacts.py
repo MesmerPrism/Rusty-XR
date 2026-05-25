@@ -345,11 +345,14 @@ def validate_suite_summary(value: Any) -> dict[str, Any]:
     for key in ("boundedCanvasProjectionArea", "skipMediaProjection", "useResolvedProjectionRuntime", "failOnAnalyzerIssue", "skipAnalyzer"):
         require_bool(geometry.get(key), f"summary.geometry.{key}")
 
-    if evidence_mode == "fast-visual":
-        if provider != "fast-adb" or media_projection_enabled or analyzer_enabled or border_policy != "solid-red":
-            raise ValidationError("summary fast-visual evidence contract is internally inconsistent")
+    if media_projection_enabled == geometry["skipMediaProjection"]:
+        raise ValidationError("summary MediaProjection capture flags are internally inconsistent")
+    if analyzer_enabled == geometry["skipAnalyzer"]:
+        raise ValidationError("summary analyzer flags are internally inconsistent")
+    if evidence_mode == "fast-visual" and provider != "fast-adb":
+        raise ValidationError("summary fast-visual evidence contract must use fast-adb headset capture")
     if evidence_mode == "full-evidence":
-        if provider != "hzdb" or not media_projection_enabled or not analyzer_enabled or border_policy != "solid-red":
+        if provider != "hzdb" or not media_projection_enabled or not analyzer_enabled:
             raise ValidationError("summary full-evidence evidence contract is internally inconsistent")
 
     for key in ("sessionRoot", "screenshotsRoot", "contactSheet", "screenSpaceAnalysis", "timingJsonl", "timingSummary"):
@@ -759,6 +762,29 @@ def run_self_test() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         write_self_test_fixture(root)
+        validate_suite_root(root)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        write_self_test_fixture(root)
+        summary_path = root / "canvas-custom-projection-parity-suite-summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["evidenceMode"] = "fast-visual"
+        summary["headsetCaptureProvider"] = "fast-adb"
+        summary["captureContract"]["evidenceMode"] = "fast-visual"
+        summary["captureContract"]["mediaProjectionEnabled"] = False
+        summary["captureContract"]["analyzerEnabled"] = True
+        summary["captureContract"]["geometryWitness"] = "fast ADB screencap"
+        summary["geometry"]["projectionBorderPolicy"] = "passthrough-underlay"
+        summary["geometry"]["skipMediaProjection"] = True
+        summary["geometry"]["skipAnalyzer"] = False
+        summary["records"][0]["mediaProjection"] = None
+        summary["records"][0]["headsetCaptureProvider"] = "fast-adb"
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+        screen_report_path = root / "screen-space-analysis" / "screen-space-report.json"
+        screen_report = json.loads(screen_report_path.read_text(encoding="utf-8"))
+        screen_report["projection_border_policy"] = "passthrough-underlay"
+        screen_report["allow_visible_fallback"] = True
+        screen_report_path.write_text(json.dumps(screen_report), encoding="utf-8")
         validate_suite_root(root)
     fixture_path = repo_root() / "tools" / "quest-camera-profile" / "fixtures" / "source-sampling-contracts.cross-backend.jsonl"
     fixture_backends = set()
