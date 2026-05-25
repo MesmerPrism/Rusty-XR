@@ -39,6 +39,7 @@ use rusty_xr_particles::{
 };
 
 mod camera_upload_resources;
+mod gpu_camera_pipeline;
 mod gpu_camera_projection;
 mod gpu_camera_renderer;
 mod gpu_camera_resources;
