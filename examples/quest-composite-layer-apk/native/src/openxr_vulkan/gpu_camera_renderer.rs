@@ -9,8 +9,9 @@ use super::gpu_camera_resources::{
     GpuCameraStereoDescriptor,
 };
 use super::{
+    gpu_camera_descriptors::allocate_camera_descriptor_set,
     gpu_camera_import::{import_camera_hardware_buffer, transition_imported_camera_image},
-    gpu_camera_pipeline::{allocate_camera_descriptor_set, create_gpu_camera_pipeline_resources},
+    gpu_camera_pipeline::create_gpu_camera_pipeline_resources,
     gpu_camera_projection::{
         source_uv_rect_xywh_for_frame, CameraProjectionPush, CameraProjectionUniforms,
     },

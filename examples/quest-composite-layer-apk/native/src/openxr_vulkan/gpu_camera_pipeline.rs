@@ -3,7 +3,8 @@ use std::ffi::CString;
 use ash::vk;
 
 use super::{
-    gpu_camera_projection::{CameraProjectionPush, CameraProjectionUniforms},
+    gpu_camera_descriptors::{create_camera_descriptor_pool, create_camera_descriptor_set_layout},
+    gpu_camera_projection::CameraProjectionPush,
     gpu_camera_resources::{GpuCameraFormatKey, GpuCameraPipelineResources},
     gpu_camera_uniforms::{
         create_camera_projection_uniform_buffer, GPU_CAMERA_PROJECTION_UNIFORM_SLOTS,
@@ -11,7 +12,6 @@ use super::{
     spirv_words,
 };
 
-const GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX: usize = crate::CAMERA_IMPORT_CACHE_LIMIT_MAX;
 pub(super) unsafe fn create_gpu_camera_pipeline_resources(
     device: &ash::Device,
     memory_properties: &vk::PhysicalDeviceMemoryProperties,
@@ -53,85 +53,9 @@ pub(super) unsafe fn create_gpu_camera_pipeline_resources(
         )
         .map_err(|error| format!("create camera sampler: {error}"))?;
 
-    let immutable_samplers = [sampler];
-    let descriptor_binding = match format_key.sampler_binding_mode {
-        crate::CameraSamplerBindingMode::CombinedImmutableSampler => vec![
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(0)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-                .immutable_samplers(&immutable_samplers),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(1)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-                .immutable_samplers(&immutable_samplers),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(2)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT),
-        ],
-        crate::CameraSamplerBindingMode::SeparateImageSampler => vec![
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(0)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(1)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(2)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(3)
-                .descriptor_type(vk::DescriptorType::SAMPLER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
-        ],
-    };
-    let descriptor_set_layout = device
-        .create_descriptor_set_layout(
-            &vk::DescriptorSetLayoutCreateInfo::default().bindings(&descriptor_binding),
-            None,
-        )
-        .map_err(|error| format!("create camera descriptor set layout: {error}"))?;
-    let max_descriptor_sets = (GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX as u32) * 2;
-    let pool_sizes = match format_key.sampler_binding_mode {
-        crate::CameraSamplerBindingMode::CombinedImmutableSampler => vec![
-            vk::DescriptorPoolSize::default()
-                .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .descriptor_count((GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX as u32) * 4),
-            vk::DescriptorPoolSize::default()
-                .ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-                .descriptor_count(max_descriptor_sets),
-        ],
-        crate::CameraSamplerBindingMode::SeparateImageSampler => vec![
-            vk::DescriptorPoolSize::default()
-                .ty(vk::DescriptorType::SAMPLED_IMAGE)
-                .descriptor_count((GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX as u32) * 4),
-            vk::DescriptorPoolSize::default()
-                .ty(vk::DescriptorType::SAMPLER)
-                .descriptor_count(max_descriptor_sets),
-            vk::DescriptorPoolSize::default()
-                .ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-                .descriptor_count(max_descriptor_sets),
-        ],
-    };
-    let descriptor_pool = device
-        .create_descriptor_pool(
-            &vk::DescriptorPoolCreateInfo::default()
-                .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
-                .pool_sizes(&pool_sizes)
-                .max_sets(max_descriptor_sets),
-            None,
-        )
-        .map_err(|error| format!("create camera descriptor pool: {error}"))?;
+    let descriptor_set_layout =
+        create_camera_descriptor_set_layout(device, format_key.sampler_binding_mode, sampler)?;
+    let descriptor_pool = create_camera_descriptor_pool(device, format_key.sampler_binding_mode)?;
     let (projection_uniform_buffer, projection_uniform_memory, projection_uniform_stride) =
         create_camera_projection_uniform_buffer(
             device,
@@ -187,96 +111,6 @@ pub(super) unsafe fn create_gpu_camera_pipeline_resources(
         projection_uniform_stride,
         projection_uniform_slots: GPU_CAMERA_PROJECTION_UNIFORM_SLOTS,
     })
-}
-
-pub(super) unsafe fn allocate_camera_descriptor_set(
-    device: &ash::Device,
-    resources: &GpuCameraPipelineResources,
-    left_image_view: vk::ImageView,
-    right_image_view: vk::ImageView,
-) -> Result<vk::DescriptorSet, String> {
-    let descriptor_set_layouts = [resources.descriptor_set_layout];
-    let descriptor_set = match device.allocate_descriptor_sets(
-        &vk::DescriptorSetAllocateInfo::default()
-            .descriptor_pool(resources.descriptor_pool)
-            .set_layouts(&descriptor_set_layouts),
-    ) {
-        Ok(mut sets) => sets
-            .pop()
-            .ok_or_else(|| "camera descriptor allocation returned no set".to_string())?,
-        Err(error) => {
-            return Err(format!("allocate camera descriptor set: {error}"));
-        }
-    };
-    let image_layout =
-        camera_import_descriptor_layout(resources.format_key.import_image_layout_mode);
-    let left_info = [vk::DescriptorImageInfo::default()
-        .sampler(resources.sampler)
-        .image_view(left_image_view)
-        .image_layout(image_layout)];
-    let right_info = [vk::DescriptorImageInfo::default()
-        .sampler(resources.sampler)
-        .image_view(right_image_view)
-        .image_layout(image_layout)];
-    let projection_info = [vk::DescriptorBufferInfo::default()
-        .buffer(resources.projection_uniform_buffer)
-        .offset(0)
-        .range(std::mem::size_of::<CameraProjectionUniforms>() as vk::DeviceSize)];
-    match resources.format_key.sampler_binding_mode {
-        crate::CameraSamplerBindingMode::CombinedImmutableSampler => {
-            let writes = [
-                vk::WriteDescriptorSet::default()
-                    .dst_set(descriptor_set)
-                    .dst_binding(0)
-                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                    .image_info(&left_info),
-                vk::WriteDescriptorSet::default()
-                    .dst_set(descriptor_set)
-                    .dst_binding(1)
-                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                    .image_info(&right_info),
-                vk::WriteDescriptorSet::default()
-                    .dst_set(descriptor_set)
-                    .dst_binding(2)
-                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-                    .buffer_info(&projection_info),
-            ];
-            device.update_descriptor_sets(&writes, &[]);
-        }
-        crate::CameraSamplerBindingMode::SeparateImageSampler => {
-            let left_sampled_image = [vk::DescriptorImageInfo::default()
-                .image_view(left_image_view)
-                .image_layout(image_layout)];
-            let right_sampled_image = [vk::DescriptorImageInfo::default()
-                .image_view(right_image_view)
-                .image_layout(image_layout)];
-            let sampler_info = [vk::DescriptorImageInfo::default().sampler(resources.sampler)];
-            let writes = [
-                vk::WriteDescriptorSet::default()
-                    .dst_set(descriptor_set)
-                    .dst_binding(0)
-                    .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                    .image_info(&left_sampled_image),
-                vk::WriteDescriptorSet::default()
-                    .dst_set(descriptor_set)
-                    .dst_binding(1)
-                    .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                    .image_info(&right_sampled_image),
-                vk::WriteDescriptorSet::default()
-                    .dst_set(descriptor_set)
-                    .dst_binding(2)
-                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-                    .buffer_info(&projection_info),
-                vk::WriteDescriptorSet::default()
-                    .dst_set(descriptor_set)
-                    .dst_binding(3)
-                    .descriptor_type(vk::DescriptorType::SAMPLER)
-                    .image_info(&sampler_info),
-            ];
-            device.update_descriptor_sets(&writes, &[]);
-        }
-    }
-    Ok(descriptor_set)
 }
 
 unsafe fn create_gpu_camera_pipeline(
@@ -391,13 +225,4 @@ unsafe fn create_gpu_camera_pipeline(
     pipeline_result
         .map(|mut pipelines| pipelines.remove(0))
         .map_err(|(_, error)| format!("create camera graphics pipeline: {error}"))
-}
-
-fn camera_import_descriptor_layout(mode: crate::CameraImportImageLayoutMode) -> vk::ImageLayout {
-    match mode {
-        crate::CameraImportImageLayoutMode::ShaderReadOnlyTransition => {
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
-        }
-        crate::CameraImportImageLayoutMode::GeneralNoTransition => vk::ImageLayout::GENERAL,
-    }
 }

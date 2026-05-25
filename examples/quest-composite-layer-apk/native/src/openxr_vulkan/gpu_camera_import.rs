@@ -4,7 +4,7 @@ use crate::HeadsetCameraGpuFrame;
 
 use super::{
     find_memory_type,
-    gpu_camera_pipeline::allocate_camera_descriptor_set,
+    gpu_camera_descriptors::allocate_camera_descriptor_set,
     gpu_camera_resources::{
         GpuCameraFormatKey, GpuCameraImport, GpuCameraImportKey, GpuCameraPipelineResources,
     },
