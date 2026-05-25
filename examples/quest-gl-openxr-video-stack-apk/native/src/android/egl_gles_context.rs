@@ -1,5 +1,7 @@
-use super::log_info;
-use rusty_xr_quest_diagnostics::EglGlesContextStatus;
+use super::{log_info, log_status};
+use rusty_xr_quest_diagnostics::{
+    EglGlesContextStatus, OpenXrGlesFeasibilityState, OpenXrGlesFeasibilityStatus,
+};
 use std::{
     ffi::CStr,
     os::raw::{c_char, c_void},
@@ -94,6 +96,16 @@ pub(super) struct EglContext {
     pub(super) context: EGLContext,
     surface: EGLSurface,
     status: EglGlesContextStatus,
+}
+
+pub(super) fn create_recorded_egl_context(
+    status: &mut OpenXrGlesFeasibilityStatus,
+) -> Result<EglContext, String> {
+    let egl = EglContext::create()?;
+    status.context = Some(egl.status());
+    status.state = OpenXrGlesFeasibilityState::EglContextReady;
+    log_status(status);
+    Ok(egl)
 }
 
 impl EglContext {

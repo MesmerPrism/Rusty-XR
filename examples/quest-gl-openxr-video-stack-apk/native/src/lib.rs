@@ -80,7 +80,7 @@ mod android {
     use android_activity_events::{
         keep_activity_alive_after_error, pump_android_events, wait_for_android_foreground,
     };
-    use egl_gles_context::EglContext;
+    use egl_gles_context::{create_recorded_egl_context, EglContext};
     use openxr_gles_config::OesActivityConfig;
     use openxr_gles_passthrough::create_requested_openxr_gles_passthrough_underlay;
     use openxr_gles_renderer::{
@@ -334,10 +334,7 @@ mod android {
         )?;
         record_graphics_requirements(&xr_instance, system, &mut status)?;
 
-        let egl = EglContext::create()?;
-        status.context = Some(egl.status());
-        status.state = OpenXrGlesFeasibilityState::EglContextReady;
-        log_status(&status);
+        let egl = create_recorded_egl_context(&mut status)?;
         let mut surface_texture_oes_probe = probe_surface_texture_oes(&app, &egl);
 
         wait_for_android_foreground(&app)?;
