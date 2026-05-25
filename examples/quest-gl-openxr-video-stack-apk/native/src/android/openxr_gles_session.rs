@@ -102,6 +102,19 @@ pub(super) fn poll_openxr_session_events(
     Ok(false)
 }
 
+pub(super) fn request_session_exit_if_app_stopped(
+    app_running: bool,
+    session: &xr::Session<xr::OpenGlEs>,
+) {
+    if app_running {
+        return;
+    }
+    match session.request_exit() {
+        Ok(()) | Err(xr::sys::Result::ERROR_SESSION_NOT_RUNNING) => {}
+        Err(error) => log_error(format!("Rusty XR OpenXR GLES request_exit failed: {error}")),
+    }
+}
+
 fn view_pose_is_submit_valid(view: &xr::View) -> bool {
     let pose = view.pose;
     let values = [

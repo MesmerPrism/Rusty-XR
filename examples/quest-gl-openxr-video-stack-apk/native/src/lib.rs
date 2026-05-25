@@ -94,7 +94,8 @@ mod android {
     };
     use openxr_gles_session::{
         create_android_instance, initialize_android_loader, locate_submit_valid_views,
-        poll_openxr_session_events, OesFrameRateTracker, OesLocatedViews,
+        poll_openxr_session_events, request_session_exit_if_app_stopped, OesFrameRateTracker,
+        OesLocatedViews,
     };
     use projection_geometry::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
@@ -498,14 +499,7 @@ mod android {
 
         'main_loop: loop {
             pump_android_events(&app, &mut app_running);
-            if !app_running {
-                match session.request_exit() {
-                    Ok(()) | Err(xr::sys::Result::ERROR_SESSION_NOT_RUNNING) => {}
-                    Err(error) => {
-                        log_error(format!("Rusty XR OpenXR GLES request_exit failed: {error}"))
-                    }
-                }
-            }
+            request_session_exit_if_app_stopped(app_running, &session);
 
             if poll_openxr_session_events(
                 &xr_instance,
