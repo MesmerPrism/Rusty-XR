@@ -97,7 +97,7 @@ mod android {
     };
     use projection_geometry::projection_frame_context_from_state;
     use projection_runtime::{log_oes_projection_startup_summary, OesProjectionRuntimeController};
-    use surface_texture_oes_probe::probe_surface_texture_oes;
+    use surface_texture_oes_probe::{probe_surface_texture_oes, OesRenderFrameSources};
 
     const VIEW_COUNT: usize = 2;
     const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
@@ -378,6 +378,11 @@ mod android {
                     probe.update_textures(&egl, frame_count);
                 }
                 projection_state = projection_runtime_controller.refresh_state(frame_count);
+                let include_submit_age = frame_count == 0 || frame_count.is_multiple_of(120);
+                let render_sources = OesRenderFrameSources::from_probe(
+                    surface_texture_oes_probe.as_ref(),
+                    include_submit_age,
+                );
                 let projection_context = projection_frame_context_from_state(
                     "LOCAL",
                     frame_state.predicted_display_time,
@@ -393,7 +398,7 @@ mod android {
                         swapchains: &mut swapchains,
                         frame_count,
                         status: &mut status,
-                        surface_texture_oes_probe: surface_texture_oes_probe.as_ref(),
+                        render_sources: &render_sources,
                         projection_plan: projection_context.projection_plan.as_ref(),
                         openxr_projection_fields: &projection_context.openxr_projection_fields,
                         projection_area_target_fields: &projection_context

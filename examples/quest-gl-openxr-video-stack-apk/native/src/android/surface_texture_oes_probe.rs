@@ -86,6 +86,34 @@ pub(super) struct OesEyeTextureSample {
     pub(super) transform_hash: Option<String>,
     pub(super) transform_matrix: [f32; 16],
     pub(super) update_tex_image_count: u64,
+    pub(super) frame_age_at_submit_ms: Option<f32>,
+}
+
+pub(super) struct OesRenderFrameSources {
+    samples: [Option<OesEyeTextureSample>; VIEW_COUNT],
+}
+
+impl OesRenderFrameSources {
+    pub(super) fn from_probe(
+        probe: Option<&SurfaceTextureOesProbe>,
+        include_submit_age: bool,
+    ) -> Self {
+        let samples = std::array::from_fn(|view_index| {
+            let mut sample = probe?.updated_eye_texture(view_index)?;
+            if include_submit_age {
+                sample.frame_age_at_submit_ms = sample
+                    .queued_pts_us
+                    .and_then(|queued_pts_us| probe?.frame_age_at_submit_ms(queued_pts_us));
+            }
+            Some(sample)
+        });
+
+        Self { samples }
+    }
+
+    pub(super) fn eye(&self, view_index: usize) -> Option<&OesEyeTextureSample> {
+        self.samples.get(view_index)?.as_ref()
+    }
 }
 
 impl SurfaceTextureOesProbe {
@@ -394,6 +422,7 @@ impl SurfaceTextureOesProbe {
                 .copied()
                 .unwrap_or_else(identity_texture_transform),
             update_tex_image_count: eye.update_tex_image_count,
+            frame_age_at_submit_ms: None,
         })
     }
 
@@ -590,7 +619,6 @@ pub(super) fn log_oes_submit_diagnostic(
     view_index: usize,
     frame_count: u64,
     source: &OesEyeTextureSample,
-    frame_age_at_submit_ms: Option<f32>,
     render_path: &str,
 ) {
     let payload = serde_json::json!({
@@ -602,7 +630,7 @@ pub(super) fn log_oes_submit_diagnostic(
         "surface_texture_timestamp_ns": source.surface_timestamp_ns,
         "transform_matrix_hash": source.transform_hash,
         "update_tex_image_count": source.update_tex_image_count,
-        "frame_age_at_submit_ms": frame_age_at_submit_ms,
+        "frame_age_at_submit_ms": source.frame_age_at_submit_ms,
         "render_path": render_path,
     });
     log_info(format!(

@@ -11,7 +11,7 @@ use super::{
     },
     openxr_gles_resources::{gl_format_label, EyeSwapchain},
     projection_geometry::{log_projection_diagnostics, OesProjectionPlan},
-    surface_texture_oes_probe::{log_oes_submit_diagnostic, SurfaceTextureOesProbe},
+    surface_texture_oes_probe::{log_oes_submit_diagnostic, OesRenderFrameSources},
     OES_COPY_RENDER_PATH, OES_PROJECTED_RENDER_PATH,
 };
 
@@ -20,7 +20,7 @@ pub(super) struct OesRenderFrameInputs<'a> {
     pub(super) swapchains: &'a mut [EyeSwapchain],
     pub(super) frame_count: u64,
     pub(super) status: &'a mut OpenXrGlesFeasibilityStatus,
-    pub(super) surface_texture_oes_probe: Option<&'a SurfaceTextureOesProbe>,
+    pub(super) render_sources: &'a OesRenderFrameSources,
     pub(super) projection_plan: Option<&'a OesProjectionPlan>,
     pub(super) openxr_projection_fields: &'a str,
     pub(super) projection_area_target_fields: &'a str,
@@ -136,7 +136,7 @@ impl OesRenderResources {
             swapchains,
             frame_count,
             status,
-            surface_texture_oes_probe,
+            render_sources,
             projection_plan,
             openxr_projection_fields,
             projection_area_target_fields,
@@ -178,86 +178,78 @@ impl OesRenderResources {
 
             let mut render_path = eye.pattern;
             let mut rendered_source_sequence = None;
-            let fbo_status = if let (Some(probe), Some(renderer)) =
-                (surface_texture_oes_probe, self.oes_copy_renderer.as_mut())
-            {
-                if let Some(source) = probe.updated_eye_texture(eye.view_index) {
-                    let eye_projection = projection_plan.and_then(|plan| plan.eye(eye.view_index));
-                    let source_transform = eye_projection
-                        .map(|projection| {
-                            projection.source_transform_for_sample(source.transform_matrix)
-                        })
-                        .unwrap_or(source.transform_matrix);
-                    match self.fbo.render_external_oes(
-                        texture,
-                        source.texture,
-                        source_transform,
-                        eye.width,
-                        eye.height,
-                        eye.view_index,
-                        renderer,
-                        eye_projection,
-                        projection_border_policy,
-                        processing_layer,
-                        blur_radius_px,
-                        projection_area_eye_offset_uv,
-                        projection_area_scale,
-                        projection_area_radius,
-                        projection_area_corner_radius_uv,
-                        projection_area_opacity,
-                        projection_border_opacity,
-                        projection_alpha_mode,
-                        projection_alpha_scale,
-                        projection_alpha_bias,
-                        camera_color_controls,
-                    ) {
-                        Ok(fbo_status) => {
-                            render_path = if eye_projection.is_some() {
-                                OES_PROJECTED_RENDER_PATH
-                            } else {
-                                OES_COPY_RENDER_PATH
-                            };
-                            rendered_source_sequence = Some(source.source_sequence);
-                            if frame_count == 0 || frame_count.is_multiple_of(120) {
-                                let frame_age_at_submit_ms = source
-                                    .queued_pts_us
-                                    .and_then(|pts_us| probe.frame_age_at_submit_ms(pts_us));
-                                log_oes_submit_diagnostic(
-                                    eye.view_index,
-                                    frame_count,
-                                    &source,
-                                    frame_age_at_submit_ms,
-                                    render_path,
-                                );
-                                log_projection_diagnostics(
-                                    eye.view_index,
-                                    frame_count,
-                                    source.source_sequence,
-                                    eye_projection,
-                                    projection_border_policy,
-                                    camera_color_controls,
-                                    eye.color_format,
-                                    openxr_projection_fields,
-                                    projection_area_target_fields,
-                                );
-                            }
-                            fbo_status
+            let fbo_status = if let (Some(source), Some(renderer)) = (
+                render_sources.eye(eye.view_index),
+                self.oes_copy_renderer.as_mut(),
+            ) {
+                let eye_projection = projection_plan.and_then(|plan| plan.eye(eye.view_index));
+                let source_transform = eye_projection
+                    .map(|projection| {
+                        projection.source_transform_for_sample(source.transform_matrix)
+                    })
+                    .unwrap_or(source.transform_matrix);
+                match self.fbo.render_external_oes(
+                    texture,
+                    source.texture,
+                    source_transform,
+                    eye.width,
+                    eye.height,
+                    eye.view_index,
+                    renderer,
+                    eye_projection,
+                    projection_border_policy,
+                    processing_layer,
+                    blur_radius_px,
+                    projection_area_eye_offset_uv,
+                    projection_area_scale,
+                    projection_area_radius,
+                    projection_area_corner_radius_uv,
+                    projection_area_opacity,
+                    projection_border_opacity,
+                    projection_alpha_mode,
+                    projection_alpha_scale,
+                    projection_alpha_bias,
+                    camera_color_controls,
+                ) {
+                    Ok(fbo_status) => {
+                        render_path = if eye_projection.is_some() {
+                            OES_PROJECTED_RENDER_PATH
+                        } else {
+                            OES_COPY_RENDER_PATH
+                        };
+                        rendered_source_sequence = Some(source.source_sequence);
+                        if frame_count == 0 || frame_count.is_multiple_of(120) {
+                            log_oes_submit_diagnostic(
+                                eye.view_index,
+                                frame_count,
+                                source,
+                                render_path,
+                            );
+                            log_projection_diagnostics(
+                                eye.view_index,
+                                frame_count,
+                                source.source_sequence,
+                                eye_projection,
+                                projection_border_policy,
+                                camera_color_controls,
+                                eye.color_format,
+                                openxr_projection_fields,
+                                projection_area_target_fields,
+                            );
                         }
-                        Err(error) => {
-                            status
-                                .issue_codes
-                                .push(String::from("oes_to_swapchain_copy_failed"));
-                            log_error(format!(
-                                "Rusty XR OpenXR GLES OES copy failed eye={} frame={}: {error}",
-                                eye.view_index, frame_count
-                            ));
-                            self.fbo
-                                .render_grid(texture, eye.width, eye.height, eye.view_index)?
-                        }
+                        fbo_status
                     }
-                } else {
-                    self.fbo
-                        .render_grid(texture, eye.width, eye.height, eye.view_index)?
+                    Err(error) => {
+                        status
+                            .issue_codes
+                            .push(String::from("oes_to_swapchain_copy_failed"));
+                        log_error(format!(
+                            "Rusty XR OpenXR GLES OES copy failed eye={} frame={}: {error}",
+                            eye.view_index, frame_count
+                        ));
+                        self.fbo
+                            .render_grid(texture, eye.width, eye.height, eye.view_index)?
+                    }
                 }
             } else {
                 self.fbo
