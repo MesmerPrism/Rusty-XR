@@ -43,8 +43,8 @@ mod projection_geometry;
 mod source_metadata;
 mod swapchain_resources;
 use gpu_camera_resources::{
-    GpuCameraFormatKey, GpuCameraImport, GpuCameraImportKey, GpuCameraPipelineResources,
-    GpuCameraStereoDescriptor,
+    CameraCopy, CameraUpload, GpuCameraFormatKey, GpuCameraImport, GpuCameraImportKey,
+    GpuCameraPipelineResources, GpuCameraStereoDescriptor,
 };
 use projection_geometry::{
     camera_preview_surface_corners, display_eye_uv_fiducial_contract_log_message,
@@ -7218,19 +7218,6 @@ struct AndroidForegroundState {
     focused: bool,
     has_window: bool,
     destroyed: bool,
-}
-
-struct CameraUpload {
-    buffer: vk::Buffer,
-    memory: vk::DeviceMemory,
-    capacity: vk::DeviceSize,
-}
-
-#[derive(Clone, Copy)]
-struct CameraCopy {
-    buffer: vk::Buffer,
-    width: u32,
-    height: u32,
 }
 
 struct OscDiagnosticsOverlay {
