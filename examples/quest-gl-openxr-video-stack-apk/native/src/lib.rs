@@ -93,9 +93,9 @@ mod android {
         create_eye_swapchains, gl_format_label, select_environment_blend_mode,
     };
     use openxr_gles_session::{
-        create_android_instance, initialize_android_loader, locate_submit_valid_views,
-        poll_openxr_session_events, request_session_exit_if_app_stopped, OesFrameRateTracker,
-        OesLocatedViews,
+        begin_openxr_frame, create_android_instance, initialize_android_loader,
+        locate_submit_valid_views, poll_openxr_session_events, request_session_exit_if_app_stopped,
+        OesFrameRateTracker, OesLocatedViews,
     };
     use projection_geometry::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
@@ -518,12 +518,7 @@ mod android {
                 continue;
             }
 
-            let frame_state = frame_wait
-                .wait()
-                .map_err(|error| format!("wait OpenXR frame: {error}"))?;
-            frame_stream
-                .begin()
-                .map_err(|error| format!("begin OpenXR frame: {error}"))?;
+            let frame_state = begin_openxr_frame(&mut frame_wait, &mut frame_stream)?;
 
             let mut projection_views = Vec::new();
             if frame_state.should_render {

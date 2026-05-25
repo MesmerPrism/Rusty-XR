@@ -115,6 +115,19 @@ pub(super) fn request_session_exit_if_app_stopped(
     }
 }
 
+pub(super) fn begin_openxr_frame(
+    frame_wait: &mut xr::FrameWaiter,
+    frame_stream: &mut xr::FrameStream<xr::OpenGlEs>,
+) -> Result<xr::FrameState, String> {
+    let frame_state = frame_wait
+        .wait()
+        .map_err(|error| format!("wait OpenXR frame: {error}"))?;
+    frame_stream
+        .begin()
+        .map_err(|error| format!("begin OpenXR frame: {error}"))?;
+    Ok(frame_state)
+}
+
 fn view_pose_is_submit_valid(view: &xr::View) -> bool {
     let pose = view.pose;
     let values = [
