@@ -54,6 +54,8 @@ use source_metadata::{
     normalize_direct_camera_projection_geometry_profile, stream_header_metadata_marker_fields,
     BrokerH264ProjectionMetadata, MakepadContentGeometrySource,
 };
+#[cfg(target_os = "android")]
+use source_metadata::{broker_projection_plan_decision, BrokerProjectionPlanKind};
 
 use makepad_widgets::makepad_platform::{
     event::video_playback::{
@@ -2946,35 +2948,21 @@ impl App {
         if left_width != right_width || left_height != right_height {
             return false;
         }
-        let full_frame_projection = left_metadata.is_full_frame_diagnostic_projection()
-            && right_metadata.is_full_frame_diagnostic_projection();
-        let explicit_full_frame_content_mapping = left_metadata
-            .requests_explicit_full_frame_content_mapping()
-            && right_metadata.requests_explicit_full_frame_content_mapping();
-        let metadata_backed_projection = left_metadata.has_camera_projection_metadata()
-            && right_metadata.has_camera_projection_metadata();
-        let camera_projection_mapping = left_metadata.requests_camera_projection_mapping()
-            && right_metadata.requests_camera_projection_mapping();
-        let head_anchored_projection = left_metadata
-            .requests_head_anchored_projection_area_mapping()
-            && right_metadata.requests_head_anchored_projection_area_mapping();
-        let camera_matched = camera_projection_mapping
-            && left_metadata.projection_profile_is("camera-matched")
-            && right_metadata.projection_profile_is("camera-matched");
-        let Some(plan) = (if explicit_full_frame_content_mapping
-            || (full_frame_projection && !metadata_backed_projection)
-        {
-            android_camera_probe::broker_full_frame_projection_plan_from_xr_views(
-                &left_metadata.camera_id,
-                &right_metadata.camera_id,
-                left_width,
-                left_height,
-                views,
-            )
-            .map(Camera2StereoPlan::from)
-        } else if (metadata_backed_projection && full_frame_projection) || camera_projection_mapping
-        {
-            left_metadata
+        let Some(decision) = broker_projection_plan_decision(left_metadata, right_metadata) else {
+            return false;
+        };
+        let Some(plan) = (match decision.kind {
+            BrokerProjectionPlanKind::FullFrameContent => {
+                android_camera_probe::broker_full_frame_projection_plan_from_xr_views(
+                    &left_metadata.camera_id,
+                    &right_metadata.camera_id,
+                    left_width,
+                    left_height,
+                    views,
+                )
+                .map(Camera2StereoPlan::from)
+            }
+            BrokerProjectionPlanKind::CameraProjection => left_metadata
                 .android_projection_source()
                 .zip(right_metadata.android_projection_source())
                 .and_then(|(left_source, right_source)| {
@@ -2999,7 +2987,7 @@ impl App {
                     plan
                 })
                 .or_else(|| {
-                    camera_matched.then_some(())?;
+                    decision.camera_matched_live_fallback_allowed.then_some(())?;
                     Self::camera2_stereo_plan().map(|mut plan| {
                         plan.left_camera_id = left_metadata.camera_id.clone();
                         plan.right_camera_id = right_metadata.camera_id.clone();
@@ -3014,42 +3002,19 @@ impl App {
                                 .to_string();
                         plan
                     })
-                })
-        } else if head_anchored_projection {
-            android_camera_probe::broker_synthetic_projection_plan_from_xr_views(
-                &left_metadata.camera_id,
-                &right_metadata.camera_id,
-                left_width,
-                left_height,
-                views,
-            )
-            .map(Camera2StereoPlan::from)
-        } else {
-            None
+                }),
+            BrokerProjectionPlanKind::HeadAnchoredProjectionArea => {
+                android_camera_probe::broker_synthetic_projection_plan_from_xr_views(
+                    &left_metadata.camera_id,
+                    &right_metadata.camera_id,
+                    left_width,
+                    left_height,
+                    views,
+                )
+                .map(Camera2StereoPlan::from)
+            }
         }) else {
             return false;
-        };
-        let source_binding_mode = if full_frame_projection {
-            "broker-h264-stream-header-full-frame-diagnostic"
-        } else if camera_matched {
-            "broker-h264-stream-header-camera-matched"
-        } else if camera_projection_mapping {
-            "broker-h264-stream-header-camera-projection"
-        } else if head_anchored_projection {
-            "broker-h264-stream-header-head-anchored"
-        } else {
-            "broker-h264-stream-header"
-        };
-        let projection_geometry_profile = if full_frame_projection {
-            "full-frame-diagnostic"
-        } else if camera_matched {
-            "camera-matched"
-        } else if camera_projection_mapping {
-            left_metadata.projection_mapping_profile_id()
-        } else if head_anchored_projection {
-            "head-anchored-virtual-camera"
-        } else {
-            left_metadata.projection_geometry_profile.as_str()
         };
 
         pair.left.camera_id = Some(plan.left_camera_id.clone());
@@ -3060,10 +3025,10 @@ impl App {
         pair.right.height = plan.height as usize;
         pair.projection_metadata_ready =
             left_metadata.projection_metadata_ready && right_metadata.projection_metadata_ready;
-        pair.projection_geometry_profile = projection_geometry_profile.to_string();
+        pair.projection_geometry_profile = decision.projection_geometry_profile.clone();
         pair.pose_source = broker_pair_pose_source(left_metadata, right_metadata);
         pair.source_eye_mapping = plan.source_eye_mapping.to_string();
-        pair.source_binding_mode = source_binding_mode.to_string();
+        pair.source_binding_mode = decision.source_binding_mode.to_string();
         pair.coordinate_chain = plan.coordinate_chain.to_string();
         pair.fallback_reason = plan.fallback_reason.to_string();
         pair.left_surface_to_camera_h = plan.left_surface_to_camera_h;

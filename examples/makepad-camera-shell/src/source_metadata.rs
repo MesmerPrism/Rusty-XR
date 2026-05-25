@@ -1002,6 +1002,85 @@ pub(crate) fn broker_pair_content_geometry_marker_fields(
     StereoContentGeometryRecord::from_broker_pair(left, right).marker_fields()
 }
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BrokerProjectionPlanKind {
+    FullFrameContent,
+    CameraProjection,
+    HeadAnchoredProjectionArea,
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BrokerProjectionPlanDecision {
+    pub(crate) kind: BrokerProjectionPlanKind,
+    pub(crate) source_binding_mode: &'static str,
+    pub(crate) projection_geometry_profile: String,
+    pub(crate) camera_matched_live_fallback_allowed: bool,
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) fn broker_projection_plan_decision(
+    left: &BrokerH264ProjectionMetadata,
+    right: &BrokerH264ProjectionMetadata,
+) -> Option<BrokerProjectionPlanDecision> {
+    let full_frame_projection =
+        left.is_full_frame_diagnostic_projection() && right.is_full_frame_diagnostic_projection();
+    let explicit_full_frame_content_mapping = left.requests_explicit_full_frame_content_mapping()
+        && right.requests_explicit_full_frame_content_mapping();
+    let metadata_backed_projection =
+        left.has_camera_projection_metadata() && right.has_camera_projection_metadata();
+    let camera_projection_mapping =
+        left.requests_camera_projection_mapping() && right.requests_camera_projection_mapping();
+    let head_anchored_projection = left.requests_head_anchored_projection_area_mapping()
+        && right.requests_head_anchored_projection_area_mapping();
+    let camera_matched = camera_projection_mapping
+        && left.projection_profile_is("camera-matched")
+        && right.projection_profile_is("camera-matched");
+
+    let kind = if explicit_full_frame_content_mapping
+        || (full_frame_projection && !metadata_backed_projection)
+    {
+        BrokerProjectionPlanKind::FullFrameContent
+    } else if (metadata_backed_projection && full_frame_projection) || camera_projection_mapping {
+        BrokerProjectionPlanKind::CameraProjection
+    } else if head_anchored_projection {
+        BrokerProjectionPlanKind::HeadAnchoredProjectionArea
+    } else {
+        return None;
+    };
+
+    let source_binding_mode = if full_frame_projection {
+        "broker-h264-stream-header-full-frame-diagnostic"
+    } else if camera_matched {
+        "broker-h264-stream-header-camera-matched"
+    } else if camera_projection_mapping {
+        "broker-h264-stream-header-camera-projection"
+    } else if head_anchored_projection {
+        "broker-h264-stream-header-head-anchored"
+    } else {
+        "broker-h264-stream-header"
+    };
+    let projection_geometry_profile = if full_frame_projection {
+        "full-frame-diagnostic".to_string()
+    } else if camera_matched {
+        "camera-matched".to_string()
+    } else if camera_projection_mapping {
+        left.projection_mapping_profile_id().to_string()
+    } else if head_anchored_projection {
+        "head-anchored-virtual-camera".to_string()
+    } else {
+        left.projection_geometry_profile.clone()
+    };
+
+    Some(BrokerProjectionPlanDecision {
+        kind,
+        source_binding_mode,
+        projection_geometry_profile,
+        camera_matched_live_fallback_allowed: camera_matched,
+    })
+}
+
 pub(crate) enum MakepadContentGeometrySource<'a> {
     BrokerH264 {
         left: Option<&'a BrokerH264ProjectionMetadata>,
@@ -1376,6 +1455,76 @@ mod tests {
         assert!(fields.contains("leftContentMappingIntent=map_broker_stimulus"));
         assert!(fields.contains("rightContentMappingIntent=map_broker_camera"));
         assert!(fields.contains("contentGeometryFallbackReason=none"));
+    }
+
+    #[test]
+    fn broker_projection_plan_decision_is_metadata_driven() {
+        let camera = BrokerH264ProjectionMetadata::parse(
+            r#"{
+                "projectionMetadataReady": true,
+                "projectionGeometryProfile": "full-frame-diagnostic",
+                "contentMappingIntent": "map-camera-frame-to-full-frame-projection-area",
+                "intrinsics": {"fx": 1024.0, "fy": 1024.0, "cx": 640.0, "cy": 640.0},
+                "extrinsics": {"px": 0.0, "py": 0.0, "pz": 0.0, "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0}
+            }"#,
+        )
+        .unwrap();
+        let camera_decision = broker_projection_plan_decision(&camera, &camera).unwrap();
+        assert_eq!(
+            camera_decision.kind,
+            BrokerProjectionPlanKind::CameraProjection
+        );
+        assert_eq!(
+            camera_decision.source_binding_mode,
+            "broker-h264-stream-header-full-frame-diagnostic"
+        );
+        assert_eq!(
+            camera_decision.projection_geometry_profile,
+            "full-frame-diagnostic"
+        );
+
+        let synthetic = BrokerH264ProjectionMetadata::parse(
+            r#"{
+                "projectionMetadataReady": true,
+                "projectionGeometryProfile": "full-frame-diagnostic",
+                "contentMappingIntent": "map-full-frame-stimulus-to-projection-surface"
+            }"#,
+        )
+        .unwrap();
+        let synthetic_decision = broker_projection_plan_decision(&synthetic, &synthetic).unwrap();
+        assert_eq!(
+            synthetic_decision.kind,
+            BrokerProjectionPlanKind::FullFrameContent
+        );
+
+        let camera_matched = BrokerH264ProjectionMetadata::parse(
+            r#"{
+                "projectionMetadataReady": true,
+                "projectionGeometryProfile": "camera-matched"
+            }"#,
+        )
+        .unwrap();
+        let fallback_decision =
+            broker_projection_plan_decision(&camera_matched, &camera_matched).unwrap();
+        assert_eq!(
+            fallback_decision.kind,
+            BrokerProjectionPlanKind::CameraProjection
+        );
+        assert!(fallback_decision.camera_matched_live_fallback_allowed);
+
+        let head_anchored = BrokerH264ProjectionMetadata::parse(
+            r#"{
+                "projectionMetadataReady": true,
+                "projectionGeometryProfile": "head-anchored-virtual-camera"
+            }"#,
+        )
+        .unwrap();
+        let head_anchored_decision =
+            broker_projection_plan_decision(&head_anchored, &head_anchored).unwrap();
+        assert_eq!(
+            head_anchored_decision.kind,
+            BrokerProjectionPlanKind::HeadAnchoredProjectionArea
+        );
     }
 
     #[test]
