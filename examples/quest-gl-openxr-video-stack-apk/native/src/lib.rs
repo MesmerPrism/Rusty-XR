@@ -123,12 +123,6 @@ mod android {
     const GL_INFO_LOG_LENGTH: u32 = 0x8B84;
     const GL_VERTEX_SHADER: u32 = 0x8B31;
     const GL_FRAGMENT_SHADER: u32 = 0x8B30;
-    const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
-    const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
-    const GL_TEXTURE_WRAP_S: u32 = 0x2802;
-    const GL_TEXTURE_WRAP_T: u32 = 0x2803;
-    const GL_LINEAR: u32 = 0x2601;
-    const GL_CLAMP_TO_EDGE: u32 = 0x812F;
     const GL_DEPTH_COMPONENT16: u32 = 0x81A5;
     const GL_DEPTH_COMPONENT24: u32 = 0x81A6;
     const GL_DEPTH24_STENCIL8: u32 = 0x88F0;
@@ -579,10 +573,7 @@ mod android {
             level: c_int,
         );
         fn glCheckFramebufferStatus(target: u32) -> u32;
-        fn glGenTextures(n: c_int, textures: *mut u32);
-        fn glDeleteTextures(n: c_int, textures: *const u32);
         fn glBindTexture(target: u32, texture: u32);
-        fn glTexParameteri(target: u32, pname: u32, param: c_int);
         fn glGetError() -> u32;
         fn glFlush();
         fn glActiveTexture(texture: u32);

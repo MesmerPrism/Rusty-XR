@@ -1,5 +1,5 @@
 use std::{
-    ffi::{CStr, CString},
+    ffi::CString,
     path::PathBuf,
     ptr,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -44,6 +44,7 @@ mod gpu_camera_resources;
 mod projection_geometry;
 mod source_metadata;
 mod swapchain_resources;
+mod vulkan_capabilities;
 use camera_upload_resources::{ensure_camera_upload, CameraCopy, CameraUpload};
 use gpu_camera_renderer::{CameraProjectionPush, CameraRenderCadenceStats, GpuCameraRenderer};
 use projection_geometry::{
@@ -56,6 +57,7 @@ use source_metadata::hwb_source_metadata_log_message_from_frame;
 use swapchain_resources::{
     create_openxr_render_pass, destroy_swapchain, ensure_swapchain, Framebuffer, Swapchain,
 };
+use vulkan_capabilities::{physical_device_supports_extension, query_fragment_density_map_support};
 
 const CAMERA_CPU_COPY_MAX_DIMENSION: u32 = 640;
 const CAMERA_CPU_UPLOAD_MIN_INTERVAL_NS: i64 = 250_000_000;
@@ -4215,45 +4217,6 @@ fn pixel_domain_label(domain: Option<CameraPixelDomain>) -> String {
 
 fn image_size_label(size: ImageSize) -> String {
     format!("{}x{}", size.width, size.height)
-}
-
-unsafe fn query_fragment_density_map_support(
-    instance: &ash::Instance,
-    physical_device: vk::PhysicalDevice,
-) -> Result<bool, String> {
-    if !physical_device_supports_extension(
-        instance,
-        physical_device,
-        ash::ext::fragment_density_map::NAME,
-    )? {
-        return Ok(false);
-    }
-
-    let mut features = vk::PhysicalDeviceFragmentDensityMapFeaturesEXT::default();
-    let mut features2 = vk::PhysicalDeviceFeatures2::default().push_next(&mut features);
-    instance.get_physical_device_features2(physical_device, &mut features2);
-    if features.fragment_density_map != vk::TRUE {
-        return Ok(false);
-    }
-
-    let format_props = instance
-        .get_physical_device_format_properties(physical_device, XR_FRAGMENT_DENSITY_MAP_FORMAT);
-    Ok(format_props
-        .optimal_tiling_features
-        .contains(vk::FormatFeatureFlags::FRAGMENT_DENSITY_MAP_EXT))
-}
-
-unsafe fn physical_device_supports_extension(
-    instance: &ash::Instance,
-    physical_device: vk::PhysicalDevice,
-    extension_name: &CStr,
-) -> Result<bool, String> {
-    let extensions = instance
-        .enumerate_device_extension_properties(physical_device)
-        .map_err(|error| format!("enumerate Vulkan device extensions: {error}"))?;
-    Ok(extensions
-        .iter()
-        .any(|extension| CStr::from_ptr(extension.extension_name.as_ptr()) == extension_name))
 }
 
 struct ProjectionReadiness {

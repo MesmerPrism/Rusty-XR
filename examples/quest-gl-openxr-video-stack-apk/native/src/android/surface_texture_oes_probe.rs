@@ -5,10 +5,9 @@ use super::source_metadata::{
     stream_projection_metadata_log_message, OesInputSourceKind, OesProjectionMetadata,
 };
 use super::{
-    activity_string_extra, glBindTexture, glDeleteTextures, glGenTextures, glGetError,
-    glTexParameteri, log_error, log_info, EglContext, OesCameraProjectionMode,
-    OesProjectionBorderPolicy, GL_CLAMP_TO_EDGE, GL_LINEAR, GL_NO_ERROR, GL_TEXTURE_EXTERNAL_OES,
-    GL_TEXTURE_MAG_FILTER, GL_TEXTURE_MIN_FILTER, GL_TEXTURE_WRAP_S, GL_TEXTURE_WRAP_T, VIEW_COUNT,
+    activity_string_extra, glBindTexture, glGetError, log_error, log_info, EglContext,
+    OesCameraProjectionMode, OesProjectionBorderPolicy, GL_NO_ERROR, GL_TEXTURE_EXTERNAL_OES,
+    VIEW_COUNT,
 };
 use jni::{
     objects::{GlobalRef, JClass, JObject, JString, JValue},
@@ -36,6 +35,19 @@ const BROKER_H264_CONNECT_TIMEOUT_MS: i32 = 5000;
 const BROKER_H264_DECODE_TIMEOUT_MS: i32 = 0;
 const DEFAULT_OES_SURFACE_WIDTH: i32 = 1280;
 const DEFAULT_OES_SURFACE_HEIGHT: i32 = 1280;
+const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
+const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
+const GL_TEXTURE_WRAP_S: u32 = 0x2802;
+const GL_TEXTURE_WRAP_T: u32 = 0x2803;
+const GL_LINEAR: u32 = 0x2601;
+const GL_CLAMP_TO_EDGE: u32 = 0x812F;
+
+#[link(name = "GLESv3")]
+unsafe extern "C" {
+    fn glGenTextures(n: c_int, textures: *mut u32);
+    fn glDeleteTextures(n: c_int, textures: *const u32);
+    fn glTexParameteri(target: u32, pname: u32, param: c_int);
+}
 
 static OES_DECODE_CALLBACKS: OnceLock<OesDecodeCallbackState> = OnceLock::new();
 
