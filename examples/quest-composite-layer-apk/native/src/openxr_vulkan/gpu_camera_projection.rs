@@ -9,7 +9,7 @@ use super::{
         identity_homography, pack_homography_row, projected_stereo_homographies,
         DisplayEyeProjectionMapping, ProjectedStereoHomographies,
     },
-    source_metadata::source_uv_rect_ltrb_for_diagnostics,
+    source_content_geometry::source_uv_rect_ltrb_for_diagnostics,
 };
 #[repr(C)]
 #[derive(Clone, Copy)]

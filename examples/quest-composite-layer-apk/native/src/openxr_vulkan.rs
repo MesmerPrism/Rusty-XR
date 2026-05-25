@@ -52,6 +52,7 @@ mod gpu_camera_uniforms;
 mod openxr_swapchain_images;
 mod projection_diagnostics;
 mod projection_geometry;
+mod source_content_geometry;
 mod source_metadata;
 mod swapchain_resources;
 mod vulkan_capabilities;
