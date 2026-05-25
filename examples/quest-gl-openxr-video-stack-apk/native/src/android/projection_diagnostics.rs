@@ -1,4 +1,4 @@
-use rusty_xr_contracts::{Eye, ProjectionStageKind, ProjectionStageTokenRow};
+use rusty_xr_contracts::Eye;
 
 use super::{
     log_error, log_info,
@@ -6,42 +6,11 @@ use super::{
     projection_footprints::{
         expected_source_valid_footprint_fields, projection_footprint_log_message,
     },
-    projection_geometry::{identity_homography, OesEyeProjection},
+    projection_geometry::OesEyeProjection,
     projection_source_color::{source_color_contract, source_color_contract_fields},
-    OES_COPY_RENDER_PATH, OES_PROJECTED_RENDER_PATH,
+    projection_stage_rows::projection_stage_row_log_messages,
+    OES_COPY_RENDER_PATH,
 };
-
-pub(super) fn projection_stage_rows(
-    projection: Option<&OesEyeProjection>,
-) -> [(ProjectionStageKind, [[f32; 3]; 3]); 4] {
-    projection
-        .map(|projection| {
-            [
-                (
-                    ProjectionStageKind::SurfaceToScreen,
-                    projection.surface_to_screen_h,
-                ),
-                (
-                    ProjectionStageKind::ScreenToSurface,
-                    projection.screen_to_surface_h,
-                ),
-                (
-                    ProjectionStageKind::SurfaceToCamera,
-                    projection.surface_to_camera_h,
-                ),
-                (
-                    ProjectionStageKind::ScreenToCamera,
-                    projection.screen_to_camera_h,
-                ),
-            ]
-        })
-        .unwrap_or([
-            (ProjectionStageKind::SurfaceToScreen, identity_homography()),
-            (ProjectionStageKind::ScreenToSurface, identity_homography()),
-            (ProjectionStageKind::SurfaceToCamera, identity_homography()),
-            (ProjectionStageKind::ScreenToCamera, identity_homography()),
-        ])
-}
 
 pub(super) fn projection_source_contract_fields(
     projection: Option<&OesEyeProjection>,
@@ -56,23 +25,6 @@ pub(super) fn projection_source_contract_fields(
                 expected_source_valid_footprint_fields(projection),
                 projection.source_eye,
                 projection.content_mapping_mode.stable_id()
-            )
-        })
-        .unwrap_or_else(|| {
-            format!("{OES_COPY_RENDER_PATH}:frame={frame_count}:source_sequence={source_sequence}")
-        })
-}
-
-pub(super) fn projection_stage_source_label(
-    projection: Option<&OesEyeProjection>,
-    frame_count: u64,
-    source_sequence: u64,
-) -> String {
-    projection
-        .map(|projection| {
-            format!(
-                "{OES_PROJECTED_RENDER_PATH}:source_eye={}:frame={frame_count}:source_sequence={source_sequence}",
-                projection.source_eye
             )
         })
         .unwrap_or_else(|| {
@@ -127,29 +79,6 @@ pub(super) fn log_projection_diagnostics(
             Err(error) => log_error(error),
         }
     }
-}
-
-pub(super) fn projection_stage_row_log_messages(
-    eye: Eye,
-    projection: Option<&OesEyeProjection>,
-    frame_count: u64,
-    source_sequence: u64,
-) -> Vec<Result<String, String>> {
-    let compact_source_label =
-        projection_stage_source_label(projection, frame_count, source_sequence);
-    projection_stage_rows(projection)
-        .into_iter()
-        .map(|(stage, rows)| {
-            let row = ProjectionStageTokenRow::new("rusty_xr_gl_oes", eye, stage)
-                .with_rows(rows)
-                .with_source(compact_source_label.clone());
-            serde_json::to_string(&row)
-                .map(|json| format!("Rusty XR OpenXR GLES projection stage row {json}"))
-                .map_err(|error| {
-                    format!("Rusty XR OpenXR GLES projection stage serialization failed: {error}")
-                })
-        })
-        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -211,16 +140,6 @@ fn eye_from_view_index(view_index: usize) -> Option<Eye> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn raw_projection_diagnostic_log_wrappers_keep_shape() {
-        let rows = projection_stage_row_log_messages(Eye::Left, None, 12, 34);
-        assert_eq!(rows.len(), 4);
-        let first = rows[0].as_ref().expect("stage row should serialize");
-        assert!(first.starts_with("Rusty XR OpenXR GLES projection stage row {"));
-        assert!(first.contains("\"backend\":\"rusty_xr_gl_oes\""));
-        assert!(first.contains("rusty_xr_gl_oes:frame=12:source_sequence=34"));
-    }
 
     #[test]
     fn projection_diagnostic_log_messages_keep_contract_order() {

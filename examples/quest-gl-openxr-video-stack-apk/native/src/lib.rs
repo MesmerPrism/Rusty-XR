@@ -85,6 +85,7 @@ mod android {
     mod projection_runtime;
     mod projection_runtime_resolution;
     mod projection_source_color;
+    mod projection_stage_rows;
     mod source_content_geometry;
     mod source_metadata;
     mod source_metadata_json;
