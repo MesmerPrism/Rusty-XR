@@ -93,9 +93,9 @@ mod android {
         create_eye_swapchains, gl_format_label, select_environment_blend_mode,
     };
     use openxr_gles_session::{
-        begin_openxr_frame, create_android_instance, initialize_android_loader,
-        locate_submit_valid_views, poll_openxr_session_events, request_session_exit_if_app_stopped,
-        OesFrameRateTracker, OesLocatedViews,
+        begin_openxr_frame, create_android_instance, end_empty_openxr_frame,
+        initialize_android_loader, locate_submit_valid_views, poll_openxr_session_events,
+        request_session_exit_if_app_stopped, OesFrameRateTracker, OesLocatedViews,
     };
     use projection_geometry::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
@@ -535,15 +535,12 @@ mod android {
                                 frame_count, view_state_flags
                             ));
                         }
-                        frame_stream
-                            .end(
-                                frame_state.predicted_display_time,
-                                environment_blend_mode,
-                                &[],
-                            )
-                            .map_err(|error| {
-                                format!("end OpenXR frame without valid view pose: {error}")
-                            })?;
+                        end_empty_openxr_frame(
+                            &mut frame_stream,
+                            frame_state.predicted_display_time,
+                            environment_blend_mode,
+                            "end OpenXR frame without valid view pose",
+                        )?;
                         frame_count = frame_count.saturating_add(1);
                         continue;
                     }
@@ -607,13 +604,12 @@ mod android {
             }
 
             if projection_views.is_empty() {
-                frame_stream
-                    .end(
-                        frame_state.predicted_display_time,
-                        environment_blend_mode,
-                        &[],
-                    )
-                    .map_err(|error| format!("end OpenXR frame without layers: {error}"))?;
+                end_empty_openxr_frame(
+                    &mut frame_stream,
+                    frame_state.predicted_display_time,
+                    environment_blend_mode,
+                    "end OpenXR frame without layers",
+                )?;
             } else {
                 let layer = xr::CompositionLayerProjection::new()
                     .layer_flags(if projection_uses_source_alpha {

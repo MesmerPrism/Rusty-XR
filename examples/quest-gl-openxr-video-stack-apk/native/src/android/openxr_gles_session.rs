@@ -128,6 +128,17 @@ pub(super) fn begin_openxr_frame(
     Ok(frame_state)
 }
 
+pub(super) fn end_empty_openxr_frame(
+    frame_stream: &mut xr::FrameStream<xr::OpenGlEs>,
+    predicted_display_time: xr::Time,
+    environment_blend_mode: xr::EnvironmentBlendMode,
+    operation: &str,
+) -> Result<(), String> {
+    frame_stream
+        .end(predicted_display_time, environment_blend_mode, &[])
+        .map_err(|error| format!("{operation}: {error}"))
+}
+
 fn view_pose_is_submit_valid(view: &xr::View) -> bool {
     let pose = view.pose;
     let values = [
