@@ -64,7 +64,7 @@ mod android {
     use rusty_xr_camera_model::{
         ColorRgba, ProjectionBorderDescriptor, ProjectionBorderFillPolicy,
     };
-    use rusty_xr_contracts::{Eye, InvalidProjectionFillPolicy};
+    use rusty_xr_contracts::InvalidProjectionFillPolicy;
     use rusty_xr_quest_diagnostics::{
         EglGlesContextStatus, FrameRateSummary, GlFramebufferCompleteness,
         OpenXrGlesExtensionStatus, OpenXrGlesFeasibilityState, OpenXrGlesGraphicsRequirements,
@@ -88,10 +88,9 @@ mod android {
     mod source_metadata;
     use projection_geometry::{
         identity_homography, openxr_projection_contract_fields,
-        projection_area_target_marker_fields, projection_coordinate_contract_log_message,
-        projection_footprint_log_message, projection_plan_from_metadata,
-        projection_source_contract_fields, projection_stage_row_log_messages,
-        source_sampling_projection_contract_log_message, OesEyeProjection, OesProjectionPlan,
+        projection_area_target_marker_fields, projection_diagnostic_log_messages,
+        projection_plan_from_metadata, source_color_contract_fields, OesEyeProjection,
+        OesProjectionPlan, OesSourceColorContract,
     };
     use projection_runtime::{
         log_oes_projection_runtime_manifest, oes_projection_runtime_resolution_enabled,
@@ -4510,24 +4509,23 @@ void main() {
         }
     }
 
-    fn source_color_contract_fields(
+    fn source_color_contract(
         camera_color_controls: OesColorControls,
         swapchain_color_format: u32,
-    ) -> String {
+    ) -> OesSourceColorContract<'static> {
         let transfer = camera_color_controls.source_transfer;
-        format!(
-            "sourceColorInputEncoding={} sourceColorTransformStage=post_oes_sample_pre_camera_color_controls sourceColorTransform={} sourceColorTransformOwner=gles-oes-copy-shader sourceColorTransformApplied={} sourceColorOutputEncoding={} cameraColorControlStage=post_source_color_transfer swapchainColorFormat={} swapchainColorEncoding={}",
-            transfer.input_encoding(),
-            transfer.stable_id(),
-            transfer != OesSourceColorTransfer::Identity,
-            transfer.output_encoding(),
-            gl_format_label(swapchain_color_format),
-            if swapchain_color_format == GL_SRGB8_ALPHA8 {
+        OesSourceColorContract {
+            input_encoding: transfer.input_encoding(),
+            transform: transfer.stable_id(),
+            transform_applied: transfer != OesSourceColorTransfer::Identity,
+            output_encoding: transfer.output_encoding(),
+            swapchain_color_format: gl_format_label(swapchain_color_format),
+            swapchain_color_encoding: if swapchain_color_format == GL_SRGB8_ALPHA8 {
                 "srgb"
             } else {
                 "linear-or-runtime-default"
-            }
-        )
+            },
+        }
     }
 
     fn log_projection_diagnostics(
@@ -4541,43 +4539,24 @@ void main() {
         openxr_projection_fields: &str,
         projection_area_target_fields: &str,
     ) {
-        let Some(eye) = eye_from_view_index(view_index) else {
-            return;
-        };
-        let source_contract_fields =
-            projection_source_contract_fields(projection, frame_count, source_sequence);
-        log_info(source_sampling_projection_contract_log_message(
-            &source_contract_fields,
+        let source_color_fields = source_color_contract_fields(source_color_contract(
+            camera_color_controls,
+            swapchain_color_format,
         ));
-        log_info(projection_coordinate_contract_log_message(
-            "source-color",
-            &source_color_contract_fields(camera_color_controls, swapchain_color_format),
-        ));
-        log_info(projection_coordinate_contract_log_message(
-            "projection-plan",
+        for message in projection_diagnostic_log_messages(
+            view_index,
+            frame_count,
+            source_sequence,
+            projection,
+            projection_border_policy,
+            &source_color_fields,
             openxr_projection_fields,
-        ));
-        log_info(projection_coordinate_contract_log_message(
-            "draw-vars-bound",
             projection_area_target_fields,
-        ));
-        for message in
-            projection_stage_row_log_messages(eye, projection, frame_count, source_sequence)
-        {
+        ) {
             match message {
                 Ok(line) => log_info(line),
                 Err(error) => log_error(error),
             }
-        }
-
-        match projection_footprint_log_message(
-            projection,
-            projection_border_policy,
-            frame_count,
-            source_sequence,
-        ) {
-            Ok(line) => log_info(line),
-            Err(error) => log_error(error),
         }
     }
 
@@ -4600,14 +4579,6 @@ void main() {
             + pose.orientation.z * pose.orientation.z
             + pose.orientation.w * pose.orientation.w;
         orientation_norm_squared.is_finite() && orientation_norm_squared > 0.0
-    }
-
-    fn eye_from_view_index(view_index: usize) -> Option<Eye> {
-        match view_index {
-            0 => Some(Eye::Left),
-            1 => Some(Eye::Right),
-            _ => None,
-        }
     }
 
     fn identity_texture_transform() -> [f32; 16] {

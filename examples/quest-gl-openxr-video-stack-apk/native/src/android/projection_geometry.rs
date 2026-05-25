@@ -51,6 +51,16 @@ pub(super) struct OesEyeProjection {
     pub(super) geometry_plan: PerEyeVideoProjectionPlan,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(super) struct OesSourceColorContract<'a> {
+    pub(super) input_encoding: &'a str,
+    pub(super) transform: &'a str,
+    pub(super) transform_applied: bool,
+    pub(super) output_encoding: &'a str,
+    pub(super) swapchain_color_format: &'a str,
+    pub(super) swapchain_color_encoding: &'a str,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn projection_plan_from_metadata(
     left: &OesProjectionMetadata,
@@ -305,6 +315,18 @@ pub(super) fn projection_coordinate_contract_log_message(phase: &str, fields: &s
     )
 }
 
+pub(super) fn source_color_contract_fields(fields: OesSourceColorContract<'_>) -> String {
+    format!(
+        "sourceColorInputEncoding={} sourceColorTransformStage=post_oes_sample_pre_camera_color_controls sourceColorTransform={} sourceColorTransformOwner=gles-oes-copy-shader sourceColorTransformApplied={} sourceColorOutputEncoding={} cameraColorControlStage=post_source_color_transfer swapchainColorFormat={} swapchainColorEncoding={}",
+        fields.input_encoding,
+        fields.transform,
+        fields.transform_applied,
+        fields.output_encoding,
+        fields.swapchain_color_format,
+        fields.swapchain_color_encoding
+    )
+}
+
 pub(super) fn projection_stage_row_log_messages(
     eye: Eye,
     projection: Option<&OesEyeProjection>,
@@ -349,6 +371,53 @@ pub(super) fn projection_footprint_log_message(
         .map_err(|error| {
             format!("Rusty XR OpenXR GLES projection footprint serialization failed: {error}")
         })
+}
+
+pub(super) fn projection_diagnostic_log_messages(
+    view_index: usize,
+    frame_count: u64,
+    source_sequence: u64,
+    projection: Option<&OesEyeProjection>,
+    projection_border_policy: OesProjectionBorderPolicy,
+    source_color_fields: &str,
+    openxr_projection_fields: &str,
+    projection_area_target_fields: &str,
+) -> Vec<Result<String, String>> {
+    let Some(eye) = eye_from_view_index(view_index) else {
+        return Vec::new();
+    };
+    let source_contract_fields =
+        projection_source_contract_fields(projection, frame_count, source_sequence);
+    let mut messages = vec![
+        Ok(source_sampling_projection_contract_log_message(
+            &source_contract_fields,
+        )),
+        Ok(projection_coordinate_contract_log_message(
+            "source-color",
+            source_color_fields,
+        )),
+        Ok(projection_coordinate_contract_log_message(
+            "projection-plan",
+            openxr_projection_fields,
+        )),
+        Ok(projection_coordinate_contract_log_message(
+            "draw-vars-bound",
+            projection_area_target_fields,
+        )),
+    ];
+    messages.extend(projection_stage_row_log_messages(
+        eye,
+        projection,
+        frame_count,
+        source_sequence,
+    ));
+    messages.push(projection_footprint_log_message(
+        projection,
+        projection_border_policy,
+        frame_count,
+        source_sequence,
+    ));
+    messages
 }
 
 pub(super) fn raw_copy_footprint_summary(frame_count: u64) -> ProjectionFootprintSummary {
@@ -1144,6 +1213,14 @@ fn eye_label(eye: Eye) -> &'static str {
     }
 }
 
+fn eye_from_view_index(view_index: usize) -> Option<Eye> {
+    match view_index {
+        0 => Some(Eye::Left),
+        1 => Some(Eye::Right),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1163,5 +1240,45 @@ mod tests {
         assert!(footprint.starts_with("Rusty XR OpenXR GLES projection footprint {"));
         assert!(footprint.contains("public_raw_oes_full_surface"));
         assert!(footprint.contains("Full-surface public raw OES copy"));
+    }
+
+    #[test]
+    fn projection_diagnostic_log_messages_keep_contract_order() {
+        let messages = projection_diagnostic_log_messages(
+            0,
+            12,
+            34,
+            None,
+            OesProjectionBorderPolicy::SolidRed,
+            "sourceColorTransform=identity",
+            "referenceSpace=app-reference-space",
+            "projectionAreaTargetSource=renderer-authored",
+        );
+        assert_eq!(messages.len(), 9);
+        let rendered: Vec<String> = messages
+            .into_iter()
+            .map(|message| message.expect("diagnostic message should serialize"))
+            .collect();
+        assert!(rendered[0].contains("phase=source-sampling status=ready"));
+        assert!(rendered[1].contains("phase=source-color status=ready"));
+        assert!(rendered[2].contains("phase=projection-plan status=ready"));
+        assert!(rendered[3].contains("phase=draw-vars-bound status=ready"));
+        assert!(rendered[4].starts_with("Rusty XR OpenXR GLES projection stage row {"));
+        assert!(rendered[8].starts_with("Rusty XR OpenXR GLES projection footprint {"));
+    }
+
+    #[test]
+    fn source_color_contract_fields_keep_marker_shape() {
+        assert_eq!(
+            source_color_contract_fields(OesSourceColorContract {
+                input_encoding: "external-oes-srgb-nonlinear-rgb",
+                transform: "srgb-to-linear",
+                transform_applied: true,
+                output_encoding: "linear-rgb",
+                swapchain_color_format: "GL_SRGB8_ALPHA8",
+                swapchain_color_encoding: "srgb",
+            }),
+            "sourceColorInputEncoding=external-oes-srgb-nonlinear-rgb sourceColorTransformStage=post_oes_sample_pre_camera_color_controls sourceColorTransform=srgb-to-linear sourceColorTransformOwner=gles-oes-copy-shader sourceColorTransformApplied=true sourceColorOutputEncoding=linear-rgb cameraColorControlStage=post_source_color_transfer swapchainColorFormat=GL_SRGB8_ALPHA8 swapchainColorEncoding=srgb"
+        );
     }
 }
