@@ -7,11 +7,8 @@ use super::source_metadata::{
 use super::{
     activity_string_extra, glBindTexture, glDeleteTextures, glGenTextures, glGetError,
     glTexParameteri, log_error, log_info, EglContext, OesCameraProjectionMode,
-    OesProjectionBorderPolicy, BROKER_H264_CONNECT_TIMEOUT_MS, BROKER_H264_DECODE_TIMEOUT_MS,
-    BROKER_H264_DEFAULT_HOST, BROKER_H264_LEFT_STREAM_PORT, BROKER_H264_MAX_PACKETS,
-    BROKER_H264_RIGHT_STREAM_PORT, DEFAULT_OES_SURFACE_HEIGHT, DEFAULT_OES_SURFACE_WIDTH,
-    GL_CLAMP_TO_EDGE, GL_LINEAR, GL_NO_ERROR, GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER,
-    GL_TEXTURE_MIN_FILTER, GL_TEXTURE_WRAP_S, GL_TEXTURE_WRAP_T, VIEW_COUNT,
+    OesProjectionBorderPolicy, GL_CLAMP_TO_EDGE, GL_LINEAR, GL_NO_ERROR, GL_TEXTURE_EXTERNAL_OES,
+    GL_TEXTURE_MAG_FILTER, GL_TEXTURE_MIN_FILTER, GL_TEXTURE_WRAP_S, GL_TEXTURE_WRAP_T, VIEW_COUNT,
 };
 use jni::{
     objects::{GlobalRef, JClass, JObject, JString, JValue},
@@ -30,6 +27,15 @@ use std::{
     },
     time::Instant,
 };
+
+const BROKER_H264_DEFAULT_HOST: &str = "127.0.0.1";
+const BROKER_H264_LEFT_STREAM_PORT: i32 = 8879;
+const BROKER_H264_RIGHT_STREAM_PORT: i32 = 8880;
+const BROKER_H264_MAX_PACKETS: i32 = 0;
+const BROKER_H264_CONNECT_TIMEOUT_MS: i32 = 5000;
+const BROKER_H264_DECODE_TIMEOUT_MS: i32 = 0;
+const DEFAULT_OES_SURFACE_WIDTH: i32 = 1280;
+const DEFAULT_OES_SURFACE_HEIGHT: i32 = 1280;
 
 static OES_DECODE_CALLBACKS: OnceLock<OesDecodeCallbackState> = OnceLock::new();
 
