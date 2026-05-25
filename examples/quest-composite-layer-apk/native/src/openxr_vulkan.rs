@@ -57,6 +57,7 @@ mod openxr_swapchain_images;
 mod projection_diagnostics;
 mod projection_geometry;
 mod projection_homography_utils;
+mod projection_profile;
 mod projection_view_basis;
 mod source_content_geometry;
 mod source_metadata;
