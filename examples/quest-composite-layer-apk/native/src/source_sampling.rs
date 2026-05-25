@@ -22,6 +22,63 @@ pub(crate) struct HwbSourceSamplingHandoff<'a> {
     config: &'a RuntimeConfig,
 }
 
+pub(crate) struct HwbFinalProjectionStatusLog<'a> {
+    pub(crate) frame: &'a StereoGpuCameraFrame,
+    pub(crate) controls: &'a StereoProjectionControls,
+    pub(crate) config: &'a RuntimeConfig,
+    pub(crate) openxr_frame_count: u64,
+    pub(crate) openxr_focused: bool,
+    pub(crate) aligned_projection: bool,
+    pub(crate) projection_homography_fields: &'a str,
+    pub(crate) pose_source: &'a str,
+    pub(crate) pose_reference: &'a str,
+    pub(crate) pose_convention: &'a str,
+    pub(crate) display_left_camera_id: &'a str,
+    pub(crate) display_right_camera_id: &'a str,
+    pub(crate) import_cache_size: usize,
+    pub(crate) stereo_descriptor_cache_size: usize,
+    pub(crate) temporal_projection_mode: &'a str,
+    pub(crate) camera_frame_age_ms_avg: &'a str,
+    pub(crate) camera_frame_age_ms_p95: &'a str,
+    pub(crate) temporal_metrics: HwbFinalProjectionTemporalMetrics,
+    pub(crate) camera_cadence_metrics: HwbCameraRenderCadenceMetrics,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct HwbFinalProjectionTemporalMetrics {
+    pub(crate) frame_adoption_held: bool,
+    pub(crate) frame_adoption_candidate_motion_px_p95: f64,
+    pub(crate) stereo_pair_delta_ms_avg: f64,
+    pub(crate) target_projection_motion_px_avg: f64,
+    pub(crate) target_projection_motion_px_p95: f64,
+    pub(crate) applied_projection_motion_px_avg: f64,
+    pub(crate) applied_projection_motion_px_p95: f64,
+    pub(crate) projection_residual_px_avg: f64,
+    pub(crate) projection_residual_px_p95: f64,
+    pub(crate) visual_lag_ms_avg: f64,
+    pub(crate) visual_lag_ms_p95: f64,
+    pub(crate) held_frame_count: u64,
+    pub(crate) held_frame_duration_ms_max: f64,
+    pub(crate) frame_crossfade_count: u64,
+    pub(crate) invalid_uv_px_percent: f64,
+    pub(crate) edge_fill_px_percent: f64,
+    pub(crate) asw_enabled_frame_count: u64,
+    pub(crate) asw_skipped_frame_count: u64,
+    pub(crate) motion_vector_max_px: f64,
+    pub(crate) motion_vector_clamped_count: u64,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct HwbCameraRenderCadenceMetrics {
+    pub(crate) render_frame_count: u64,
+    pub(crate) distinct_frame_count: u64,
+    pub(crate) repeated_render_frame_count: u64,
+    pub(crate) renders_per_camera_frame_avg: f64,
+    pub(crate) max_consecutive_render_frames_per_camera_frame: u64,
+    pub(crate) consumed_frame_hz: f64,
+    pub(crate) projection_render_hz: f64,
+}
+
 impl<'a> HwbSourceSamplingHandoff<'a> {
     pub(crate) const fn new(
         frame: &'a StereoGpuCameraFrame,
@@ -242,6 +299,101 @@ pub(crate) fn hwb_stereo_draw_prepared_log_message(
         projection_shader_path,
         stereo_projection_metadata_ready(frame),
         fallback_reason
+    )
+}
+
+pub(crate) fn hwb_final_projection_status_log_message(
+    status: HwbFinalProjectionStatusLog<'_>,
+) -> String {
+    let source_sample_transform_applied = source_uv_rect_transform_applied(status.frame)
+        || status.controls.left_texture_transform.shader_flags() != 0
+        || status.controls.right_texture_transform.shader_flags() != 0;
+    let orientation_accepted = status
+        .controls
+        .left_texture_transform
+        .is_explicit_visual_check()
+        && status
+            .controls
+            .right_texture_transform
+            .is_explicit_visual_check();
+    let visual_inspection = if status.config.visual_release_accepted {
+        "accepted"
+    } else {
+        "required"
+    };
+    let temporal_metrics = status.temporal_metrics;
+    let camera_cadence_metrics = status.camera_cadence_metrics;
+
+    format!(
+        "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} {} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
+        status.frame.index,
+        status.openxr_frame_count,
+        status.openxr_focused,
+        status.aligned_projection,
+        status.projection_homography_fields,
+        status.pose_source,
+        status.pose_reference,
+        status.pose_convention,
+        status.config.camera_projection_mode.stable_id(),
+        status.config.camera_feed_pipeline_mode.stable_id(),
+        status.config.camera_color_mode.stable_id(),
+        status.config.camera_color_mode.shader_bit(),
+        status.config.hwb_source_color_contract_fields(),
+        status.config.camera_color_contrast,
+        status.config.camera_color_brightness,
+        status.config.camera_color_saturation,
+        status.config.camera_import_image_layout_mode.stable_id(),
+        status.config.camera_import_cache_limit,
+        status.controls.source_eye_mapping.stable_id(),
+        status.display_left_camera_id,
+        status.display_right_camera_id,
+        status.controls.left_label(),
+        status.controls.right_label(),
+        status.controls.left_texture_transform.shader_flags(),
+        status.controls.right_texture_transform.shader_flags(),
+        status.config.camera_texture_transform.source_label.as_str(),
+        status.config.camera_texture_transform.reason.as_str(),
+        source_sample_transform_applied,
+        orientation_accepted,
+        status.config.camera_projection_mode.projection_surface_label(),
+        status.import_cache_size,
+        status.stereo_descriptor_cache_size,
+        status.config.xr_display_refresh_hz,
+        visual_inspection,
+        status.config.visual_release_accepted,
+        status.controls.diagnostic_mode.stable_id(),
+        status.controls.diagnostic_step,
+        status.temporal_projection_mode,
+        status.config.camera_frame_adoption_mode.stable_id(),
+        temporal_metrics.frame_adoption_held,
+        temporal_metrics.frame_adoption_candidate_motion_px_p95,
+        status.camera_frame_age_ms_avg,
+        status.camera_frame_age_ms_p95,
+        temporal_metrics.stereo_pair_delta_ms_avg,
+        temporal_metrics.target_projection_motion_px_avg,
+        temporal_metrics.target_projection_motion_px_p95,
+        temporal_metrics.applied_projection_motion_px_avg,
+        temporal_metrics.applied_projection_motion_px_p95,
+        temporal_metrics.projection_residual_px_avg,
+        temporal_metrics.projection_residual_px_p95,
+        temporal_metrics.visual_lag_ms_avg,
+        temporal_metrics.visual_lag_ms_p95,
+        temporal_metrics.held_frame_count,
+        temporal_metrics.held_frame_duration_ms_max,
+        temporal_metrics.frame_crossfade_count,
+        temporal_metrics.invalid_uv_px_percent,
+        temporal_metrics.edge_fill_px_percent,
+        temporal_metrics.asw_enabled_frame_count,
+        temporal_metrics.asw_skipped_frame_count,
+        temporal_metrics.motion_vector_max_px,
+        temporal_metrics.motion_vector_clamped_count,
+        camera_cadence_metrics.render_frame_count,
+        camera_cadence_metrics.distinct_frame_count,
+        camera_cadence_metrics.repeated_render_frame_count,
+        camera_cadence_metrics.renders_per_camera_frame_avg,
+        camera_cadence_metrics.max_consecutive_render_frames_per_camera_frame,
+        camera_cadence_metrics.consumed_frame_hz,
+        camera_cadence_metrics.projection_render_hz
     )
 }
 
@@ -617,5 +769,80 @@ mod tests {
         assert!(message.contains(
             "fallbackReason=projected shader path active; visual orientation/alignment acceptance still required"
         ));
+    }
+
+    #[test]
+    fn hwb_final_projection_status_marker_keeps_contract_shape() {
+        let frame = stereo_frame(Some([0.1, 0.2, 0.9, 0.8]));
+        let controls = controls();
+        let config = RuntimeConfig::default();
+
+        let message = hwb_final_projection_status_log_message(HwbFinalProjectionStatusLog {
+            frame: &frame,
+            controls: &controls,
+            config: &config,
+            openxr_frame_count: 12,
+            openxr_focused: true,
+            aligned_projection: true,
+            projection_homography_fields:
+                "projectionHomographyReady=true projectionAreaTransformStage=surface_to_camera",
+            pose_source: "camera2",
+            pose_reference: "openxr-head",
+            pose_convention: "camera2-reference-to-openxr-head-basis",
+            display_left_camera_id: "50",
+            display_right_camera_id: "51",
+            import_cache_size: 3,
+            stereo_descriptor_cache_size: 2,
+            temporal_projection_mode: "metrics-only",
+            camera_frame_age_ms_avg: "4.500",
+            camera_frame_age_ms_p95: "4.500",
+            temporal_metrics: HwbFinalProjectionTemporalMetrics {
+                frame_adoption_held: false,
+                frame_adoption_candidate_motion_px_p95: 1.25,
+                stereo_pair_delta_ms_avg: 0.01,
+                target_projection_motion_px_avg: 2.0,
+                target_projection_motion_px_p95: 3.0,
+                applied_projection_motion_px_avg: 4.0,
+                applied_projection_motion_px_p95: 5.0,
+                projection_residual_px_avg: 6.0,
+                projection_residual_px_p95: 7.0,
+                visual_lag_ms_avg: 8.0,
+                visual_lag_ms_p95: 9.0,
+                held_frame_count: 10,
+                held_frame_duration_ms_max: 11.0,
+                frame_crossfade_count: 12,
+                invalid_uv_px_percent: 13.0,
+                edge_fill_px_percent: 14.0,
+                asw_enabled_frame_count: 15,
+                asw_skipped_frame_count: 16,
+                motion_vector_max_px: 17.0,
+                motion_vector_clamped_count: 18,
+            },
+            camera_cadence_metrics: HwbCameraRenderCadenceMetrics {
+                render_frame_count: 19,
+                distinct_frame_count: 20,
+                repeated_render_frame_count: 21,
+                renders_per_camera_frame_avg: 22.0,
+                max_consecutive_render_frames_per_camera_frame: 23,
+                consumed_frame_hz: 24.0,
+                projection_render_hz: 25.0,
+            },
+        });
+
+        assert!(message.starts_with(
+            "Rusty XR final projection status frame=1 openXrFrameCount=12 openXrFocused=true"
+        ));
+        assert!(message.contains("activeTier=gpu-projected alignedProjection=true"));
+        assert!(message.contains(
+            "projectionHomographyReady=true projectionAreaTransformStage=surface_to_camera"
+        ));
+        assert!(message.contains("sourceSampleTransformApplied=true"));
+        assert!(message.contains("displayLeftCameraId=50 displayRightCameraId=51"));
+        assert!(message.contains("projectionShaderPath=projected"));
+        assert!(message.contains("importCacheSize=3 stereoDescriptorCacheSize=2"));
+        assert!(message.contains("temporalProjectionMode=metrics-only frameAdoptionMode=off"));
+        assert!(message.contains("cameraFrameAgeMsAvg=4.500 cameraFrameAgeMsP95=4.500"));
+        assert!(message.contains("cameraProjectionRenderFrameCount=19"));
+        assert!(message.contains("cameraProjectionRenderHz=25.000"));
     }
 }

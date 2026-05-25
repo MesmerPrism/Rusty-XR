@@ -29,8 +29,24 @@ use projection_runtime::{
 };
 use source_metadata::{
     broker_pair_content_geometry_marker_fields, direct_camera2_content_geometry_marker_fields,
+    makepad_hardware_buffer_import_broker_h264_prepare_request_marker_fields,
+    makepad_hardware_buffer_import_broker_h264_startup_marker_fields,
+    makepad_hardware_buffer_import_complete_error_marker_fields,
     makepad_hardware_buffer_import_enumerated_error_marker_fields,
     makepad_hardware_buffer_import_enumerated_marker_fields,
+    makepad_hardware_buffer_import_prepared_marker_fields,
+    makepad_hardware_buffer_import_raw_video_event_marker_line,
+    makepad_hardware_buffer_import_start_error_marker_fields,
+    makepad_hardware_buffer_import_start_marker_fields,
+    makepad_hardware_buffer_import_start_waiting_marker_fields,
+    makepad_hardware_buffer_import_texture_handle_ready_marker_fields,
+    makepad_hardware_buffer_import_texture_updated_marker_fields,
+    makepad_hardware_buffer_import_timer_armed_marker_fields,
+    makepad_hardware_buffer_import_timer_fired_marker_fields,
+    makepad_hardware_buffer_import_yuv_textures_ready_broker_marker_fields,
+    makepad_hardware_buffer_import_yuv_textures_ready_single_stream_marker_fields,
+    makepad_stream_header_metadata_error_marker_fields,
+    makepad_stream_header_metadata_ignored_marker_fields,
     missing_broker_content_geometry_marker_fields, normalize_direct_camera_projection_geometry_profile,
     stream_header_metadata_marker_fields, BrokerH264ProjectionMetadata,
 };
@@ -3547,11 +3563,9 @@ impl App {
             PAIRED_IMPORT_SIGNAL_READY.store(true, Ordering::Release);
             SignalToUI::set_ui_signal();
         });
-        Self::emit_hardware_buffer_import_marker(&format!(
-            "phase=timer status=armed reason={} delaySeconds={:.1} signalFallback=true importPlan=paired-makepad-video-hardware-buffer",
-            marker_token(reason),
-            delay_seconds,
-        ));
+        Self::emit_hardware_buffer_import_marker(
+            &makepad_hardware_buffer_import_timer_armed_marker_fields(reason, delay_seconds),
+        );
     }
 
     fn handle_broker_h264_projection_metadata(&mut self, video_id: LiveId, metadata_json: &str) {
@@ -3560,10 +3574,9 @@ impl App {
             return;
         }
         let Some(side) = StereoEye::from_video_id(video_id) else {
-            Self::emit_hardware_buffer_import_marker(&format!(
-                "phase=stream-header-metadata status=ignored side=unknown videoId={} reason=unexpected_video_id importPlan=broker-h264-stereo-mediacodec-yuv-texture",
-                video_id.0,
-            ));
+            Self::emit_hardware_buffer_import_marker(
+                &makepad_stream_header_metadata_ignored_marker_fields(video_id.0),
+            );
             return;
         };
         match BrokerH264ProjectionMetadata::parse(metadata_json) {
@@ -3627,12 +3640,13 @@ impl App {
                 ));
             }
             Err(error) => {
-                Self::emit_hardware_buffer_import_marker(&format!(
-                    "phase=stream-header-metadata status=error side={} metadataBytes={} error={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
-                    side.label(),
-                    metadata_json.len(),
-                    marker_token(&error),
-                ));
+                Self::emit_hardware_buffer_import_marker(
+                    &makepad_stream_header_metadata_error_marker_fields(
+                        side.label(),
+                        metadata_json.len(),
+                        &error,
+                    ),
+                );
             }
         }
     }
@@ -3644,18 +3658,19 @@ impl App {
                     let source = Self::broker_h264_source();
                     self.paired_import_choice =
                         Some(MakepadCameraPair::from_broker_h264_source(&source));
-                    Self::emit_hardware_buffer_import_marker(&format!(
-                        "phase=startup status=broker-h264-enabled brokerHost={} brokerPort={} leftStreamPort={} rightStreamPort={} sourceMode={} syntheticPattern={} preferredWidth={} preferredHeight={} liveStream={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
-                        marker_token(&source.broker_host),
-                        source.broker_port,
-                        source.stream_port,
-                        Self::broker_h264_stream_port(StereoEye::Right),
-                        marker_token(&source.source_mode),
-                        marker_token(&source.synthetic_pattern),
-                        source.preferred_width,
-                        source.preferred_height,
-                        source.live_stream,
-                    ));
+                    Self::emit_hardware_buffer_import_marker(
+                        &makepad_hardware_buffer_import_broker_h264_startup_marker_fields(
+                            &source.broker_host,
+                            source.broker_port,
+                            source.stream_port,
+                            Self::broker_h264_stream_port(StereoEye::Right),
+                            &source.source_mode,
+                            &source.synthetic_pattern,
+                            source.preferred_width,
+                            source.preferred_height,
+                            source.live_stream,
+                        ),
+                    );
                 } else {
                     cx.request_permission(Permission::Camera);
                     cx.request_permission(Permission::HeadsetCamera);
@@ -3700,10 +3715,11 @@ impl App {
                         }
                         self.camera_projection_textures_bound = false;
                         self.camera_projection_paired_textures_bound = false;
-                        Self::emit_hardware_buffer_import_marker(&format!(
-                            "phase=yuv-textures-ready status=ok side={} textureMode=cpu-yuv-decoded-broker-h264 importPlan=broker-h264-stereo-mediacodec-yuv-texture",
-                            side.label(),
-                        ));
+                        Self::emit_hardware_buffer_import_marker(
+                            &makepad_hardware_buffer_import_yuv_textures_ready_broker_marker_fields(
+                                side.label(),
+                            ),
+                        );
                         self.bind_camera_projection_panel(cx);
                         return;
                     }
@@ -3716,10 +3732,11 @@ impl App {
                         StereoEye::Left => self.paired_import_left_yuv_textures = Some(textures),
                         StereoEye::Right => self.paired_import_right_yuv_textures = Some(textures),
                     }
-                    Self::emit_hardware_buffer_import_marker(&format!(
-                        "phase=yuv-textures-ready status=ok side={} textureMode=makepad-yuv-plane visualProofPath=single-stream-yuv-proof depthClip=false environmentDepthClip=false",
-                        side.label(),
-                    ));
+                    Self::emit_hardware_buffer_import_marker(
+                        &makepad_hardware_buffer_import_yuv_textures_ready_single_stream_marker_fields(
+                            side.label(),
+                        ),
+                    );
                 }
             }
             Event::VideoPlaybackMetadata(metadata) => {
@@ -3736,27 +3753,14 @@ impl App {
                         StereoEye::Left => self.paired_import_left_prepared = true,
                         StereoEye::Right => self.paired_import_right_prepared = true,
                     }
-                    Self::emit_hardware_buffer_import_marker(&format!(
-                        "phase=prepared status=ok side={} width={} height={} importPath={} textureMode={} importPlan={}",
-                        side.label(),
-                        prepared.video_width,
-                        prepared.video_height,
-                        if Self::broker_h264_enabled() {
-                            "broker-h264-mediacodec-cpu-yuv"
-                        } else {
-                            "makepad-android-camera-yuv-plane-cpu-proof"
-                        },
-                        if Self::broker_h264_enabled() {
-                            "cpu-yuv"
-                        } else {
-                            "yuv-plane"
-                        },
-                        if Self::broker_h264_enabled() {
-                            "broker-h264-stereo-mediacodec-yuv-texture"
-                        } else {
-                            "single-stream-yuv-proof"
-                        },
-                    ));
+                    Self::emit_hardware_buffer_import_marker(
+                        &makepad_hardware_buffer_import_prepared_marker_fields(
+                            side.label(),
+                            prepared.video_width,
+                            prepared.video_height,
+                            Self::broker_h264_enabled(),
+                        ),
+                    );
                     self.emit_paired_projection_progress("prepared");
                 }
             }
@@ -3784,23 +3788,24 @@ impl App {
                     if TEXTURE_UPDATE_MARKERS_EMITTED.fetch_add(1, Ordering::AcqRel)
                         < TEXTURE_UPDATE_MARKER_LIMIT
                     {
-                        Self::emit_hardware_buffer_import_marker(&format!(
-                            "phase=texture-updated status=ok side={} makepadVulkanImport=false yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} importPlan={} cpuUploadPath={}",
-                            side.label(),
+                        let (import_plan, cpu_upload_path) = if Self::broker_h264_enabled() {
+                            (
+                                "broker-h264-stereo-mediacodec-yuv-texture",
+                                "broker-h264-mediacodec-cpu-yuv",
+                            )
+                        } else {
+                            ("single-stream-yuv-proof", "makepad-camera-cpu-yuv-plane")
+                        };
+                        Self::emit_hardware_buffer_import_marker(
+                            &makepad_hardware_buffer_import_texture_updated_marker_fields(
+                                side.label(),
                             updated.yuv.enabled,
                             updated.yuv.biplanar,
                             updated.yuv.rotation_steps,
-                            if Self::broker_h264_enabled() {
-                                "broker-h264-stereo-mediacodec-yuv-texture"
-                            } else {
-                                "single-stream-yuv-proof"
-                            },
-                            if Self::broker_h264_enabled() {
-                                "broker-h264-mediacodec-cpu-yuv"
-                            } else {
-                                "makepad-camera-cpu-yuv-plane"
-                            },
-                        ));
+                                import_plan,
+                                cpu_upload_path,
+                            ),
+                        );
                     }
                     self.complete_paired_import_if_ready(cx);
                 }
@@ -3809,11 +3814,12 @@ impl App {
                 emit_raw_video_event_marker("decode-error", error.video_id);
                 if let Some(side) = StereoEye::from_video_id(error.video_id) {
                     self.paired_import_finished = true;
-                    Self::emit_hardware_buffer_import_marker(&format!(
-                        "phase=complete status=error side={} errorKind=makepad_video_import_failed message={}",
-                        side.label(),
-                        marker_token(&error.error),
-                    ));
+                    Self::emit_hardware_buffer_import_marker(
+                        &makepad_hardware_buffer_import_complete_error_marker_fields(
+                            side.label(),
+                            &error.error,
+                        ),
+                    );
                     Self::emit_stereo_projection_marker(
                         &makepad_projection_complete_error_marker_fields(side.label()),
                     );
@@ -3826,12 +3832,14 @@ impl App {
             && self.paired_import_timer.is_event(event).is_some()
         {
             self.paired_import_timer = Timer::empty();
-            Self::emit_hardware_buffer_import_marker(&format!(
-                "phase=timer status=fired source=makepad-timer hasPair={} importStarted={} importFinished={} importPlan=paired-makepad-video-hardware-buffer",
-                self.paired_import_choice.is_some(),
-                self.paired_import_started,
-                self.paired_import_finished,
-            ));
+            Self::emit_hardware_buffer_import_marker(
+                &makepad_hardware_buffer_import_timer_fired_marker_fields(
+                    "makepad-timer",
+                    self.paired_import_choice.is_some(),
+                    self.paired_import_started,
+                    self.paired_import_finished,
+                ),
+            );
             self.try_start_paired_import(cx);
         }
 
@@ -3840,12 +3848,14 @@ impl App {
             && PAIRED_IMPORT_SIGNAL_READY.swap(false, Ordering::AcqRel)
         {
             self.paired_import_timer = Timer::empty();
-            Self::emit_hardware_buffer_import_marker(&format!(
-                "phase=timer status=fired source=signal-fallback hasPair={} importStarted={} importFinished={} importPlan=paired-makepad-video-hardware-buffer",
-                self.paired_import_choice.is_some(),
-                self.paired_import_started,
-                self.paired_import_finished,
-            ));
+            Self::emit_hardware_buffer_import_marker(
+                &makepad_hardware_buffer_import_timer_fired_marker_fields(
+                    "signal-fallback",
+                    self.paired_import_choice.is_some(),
+                    self.paired_import_started,
+                    self.paired_import_finished,
+                ),
+            );
             self.try_start_paired_import(cx);
         }
 
@@ -3899,17 +3909,18 @@ impl App {
             StereoEye::Left => self.broker_h264_left_playback_requested = true,
             StereoEye::Right => self.broker_h264_right_playback_requested = true,
         }
-        Self::emit_hardware_buffer_import_marker(&format!(
-            "phase=texture-handle-ready status=ok side={} textureHandle={} textureMode=external-oes brokerHost={} brokerPort={} streamPort={} sourceMode={} syntheticPattern={} liveStream={} importPlan=broker-h264-stereo-surface-texture",
-            side.label(),
-            ready.handle,
-            marker_token(&source.broker_host),
-            source.broker_port,
-            source.stream_port,
-            marker_token(&source.source_mode),
-            marker_token(&source.synthetic_pattern),
-            source.live_stream,
-        ));
+        Self::emit_hardware_buffer_import_marker(
+            &makepad_hardware_buffer_import_texture_handle_ready_marker_fields(
+                side.label(),
+                ready.handle,
+                &source.broker_host,
+                source.broker_port,
+                source.stream_port,
+                &source.source_mode,
+                &source.synthetic_pattern,
+                source.live_stream,
+            ),
+        );
         cx.prepare_video_playback(
             side.video_id(),
             VideoSource::BrokerH264(source),
@@ -3943,16 +3954,17 @@ impl App {
             StereoEye::Left => self.broker_h264_left_playback_requested = true,
             StereoEye::Right => self.broker_h264_right_playback_requested = true,
         }
-        Self::emit_hardware_buffer_import_marker(&format!(
-            "phase=broker-h264-prepare-request status=sent side={} textureHandle=0 textureMode=cpu-yuv brokerHost={} brokerPort={} streamPort={} sourceMode={} syntheticPattern={} liveStream={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
-            side.label(),
-            marker_token(&source.broker_host),
-            source.broker_port,
-            source.stream_port,
-            marker_token(&source.source_mode),
-            marker_token(&source.synthetic_pattern),
-            source.live_stream,
-        ));
+        Self::emit_hardware_buffer_import_marker(
+            &makepad_hardware_buffer_import_broker_h264_prepare_request_marker_fields(
+                side.label(),
+                &source.broker_host,
+                source.broker_port,
+                source.stream_port,
+                &source.source_mode,
+                &source.synthetic_pattern,
+                source.live_stream,
+            ),
+        );
         cx.prepare_video_playback(
             side.video_id(),
             VideoSource::BrokerH264(source),
@@ -3979,16 +3991,17 @@ impl App {
             if self.paired_import_wait_count > PAIRED_IMPORT_MAX_WAITS {
                 self.paired_import_finished = true;
                 Self::emit_hardware_buffer_import_marker(
-                    "phase=start status=error errorKind=no_makepad_camera_stereo_pair",
+                    makepad_hardware_buffer_import_start_error_marker_fields(),
                 );
                 Self::emit_stereo_projection_marker(
                     "phase=start status=error pairedLeftRightGpuBuffers=false projectionMappingReady=false alignedProjection=false fallbackReason=no_makepad_camera_stereo_pair",
                 );
             } else {
-                Self::emit_hardware_buffer_import_marker(&format!(
-                    "phase=start status=waiting waitCount={} reason=no_makepad_camera_stereo_pair_yet",
-                    self.paired_import_wait_count,
-                ));
+                Self::emit_hardware_buffer_import_marker(
+                    &makepad_hardware_buffer_import_start_waiting_marker_fields(
+                        self.paired_import_wait_count,
+                    ),
+                );
                 self.arm_paired_import_timer(cx, PAIRED_IMPORT_RETRY_SECONDS, "stereo-pair-retry");
             }
             return;
@@ -4001,46 +4014,28 @@ impl App {
         self.paired_import_started = true;
 
         let broker_h264_enabled = Self::broker_h264_enabled();
-        Self::emit_hardware_buffer_import_marker(&format!(
-            "phase=start status=started importPlan={} leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftFrameRate={} rightFrameRate={} pixelFormat={} leftStreamPort={} rightStreamPort={} importPath={} textureFormat={} depthClip=false environmentDepthClip=false delayedAfterAcquisitionSeconds={:.0}",
-            if broker_h264_enabled {
-                "broker-h264-stereo-mediacodec-yuv-texture"
-            } else {
-                "single-stream-yuv-proof"
-            },
-            pair.left.source_index,
-            pair.right.source_index,
-            pair.left.source_class,
-            pair.right.source_class,
-            pair.left.width,
-            pair.left.height,
-            pair.right.width,
-            pair.right.height,
-            frame_rate_token(pair.left.frame_rate),
-            frame_rate_token(pair.right.frame_rate),
-            pixel_format_label(pair.left.pixel_format),
-            if broker_h264_enabled {
-                Self::broker_h264_stream_port(StereoEye::Left).to_string()
-            } else {
-                "none".to_string()
-            },
-            if broker_h264_enabled {
-                Self::broker_h264_stream_port(StereoEye::Right).to_string()
-            } else {
-                "none".to_string()
-            },
-            if broker_h264_enabled {
-                "broker-h264-mediacodec-cpu-yuv"
-            } else {
-                "makepad-android-camera-yuv-plane-cpu-proof"
-            },
-            if broker_h264_enabled {
-                "VideoYuvPlaneStereo"
-            } else {
-                "VideoYuvPlane"
-            },
-            PAIRED_IMPORT_DELAY_SECONDS,
-        ));
+        let left_stream_port = if broker_h264_enabled {
+            Self::broker_h264_stream_port(StereoEye::Left).to_string()
+        } else {
+            "none".to_string()
+        };
+        let right_stream_port = if broker_h264_enabled {
+            Self::broker_h264_stream_port(StereoEye::Right).to_string()
+        } else {
+            "none".to_string()
+        };
+        Self::emit_hardware_buffer_import_marker(
+            &makepad_hardware_buffer_import_start_marker_fields(
+                &pair,
+                broker_h264_enabled,
+                &frame_rate_token(pair.left.frame_rate),
+                &frame_rate_token(pair.right.frame_rate),
+                pixel_format_label(pair.left.pixel_format),
+                &left_stream_port,
+                &right_stream_port,
+                PAIRED_IMPORT_DELAY_SECONDS,
+            ),
+        );
         Self::emit_stereo_projection_marker(&makepad_projection_start_marker_fields(
             &pair,
             &runtime_text(&Self::runtime_config(), KEY_CAMERA_PROJECTION_MODE),
@@ -4857,8 +4852,7 @@ fn emit_raw_video_event_marker(event_name: &str, video_id: LiveId) {
     let side = StereoEye::from_video_id(video_id)
         .map(StereoEye::label)
         .unwrap_or("unknown");
-    emit_marker_line(&format!(
-        "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=raw-video-event status=seen event={} side={} videoId={} leftVideoId={} rightVideoId={} depthClip=false environmentDepthClip=false importPlan=single-stream-yuv-proof",
+    emit_marker_line(&makepad_hardware_buffer_import_raw_video_event_marker_line(
         event_name,
         side,
         video_id.0,

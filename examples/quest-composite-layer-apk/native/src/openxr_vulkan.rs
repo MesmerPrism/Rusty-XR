@@ -9,7 +9,11 @@ use crate::{
     apply_camera_alignment_tuning, diagnostic_hud_snapshot, gpu_probe_counters,
     latest_headset_camera_frame, latest_headset_camera_gpu_frame,
     latest_headset_stereo_camera_gpu_frame, log_error, log_info, runtime_config,
-    source_sampling::{hwb_stereo_draw_prepared_log_message, HwbSourceSamplingHandoff},
+    source_sampling::{
+        hwb_final_projection_status_log_message, hwb_stereo_draw_prepared_log_message,
+        HwbCameraRenderCadenceMetrics, HwbFinalProjectionStatusLog,
+        HwbFinalProjectionTemporalMetrics, HwbSourceSamplingHandoff,
+    },
     CameraAlignmentTuningUpdate, EnvironmentDepthMode, HandParticleMode, HeadsetCameraFrame,
     HeadsetCameraGpuFrame, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
     OpenXrPassthroughStyleMode, RuntimeConfig, StereoGpuCameraFrame,
@@ -3475,13 +3479,6 @@ unsafe fn run_vulkan(
                                 frame_state.predicted_display_time,
                                 &views,
                             ));
-                            let orientation_accepted =
-                                controls.left_texture_transform.is_explicit_visual_check()
-                                    && controls.right_texture_transform.is_explicit_visual_check();
-                            let source_sample_transform_applied =
-                                source_uv_rect_transform_applied(&stereo_frame)
-                                    || controls.left_texture_transform.shader_flags() != 0
-                                    || controls.right_texture_transform.shader_flags() != 0;
                             log_info(format!(
                                 "Rusty XR HWB source sampling detail frame={} {}",
                                 stereo_frame.index,
@@ -3498,76 +3495,84 @@ unsafe fn run_vulkan(
                                     display_eye_uv_fiducial_fields
                                 ));
                             }
-                            log_info(format!(
-                                "Rusty XR final projection status frame={} openXrFrameCount={} openXrFocused={} activeTier=gpu-projected alignedProjection={} {} stereoLayout=Separate pairedLeftRightGpuBuffers=true poseSource={} poseReference={} poseConvention={} projectionMode={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} {} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraImportImageLayout={} importCacheLimit={} sourceEyeMapping={} displayLeftCameraId={} displayRightCameraId={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceSampleTransform=sourceVisibleUvRect+cameraTextureTransformFlags sourceSampleTransformOwner=android-media-image-crop-rect+vulkan-hwb-camera_projection_shader sourceSampleTransformApplied={} sourceSampleOutputUv=hardware-buffer-sampler-uv sourceSamplerUvOrigin=hardware-buffer-import-convention sourceSamplerYAxis=renderer-defined sourceTextureTransformStage=post_homography_pre_texture_sample sourceTextureTransformOwner=vulkan-hwb-camera_projection_shader orientationCheck=true orientationAccepted={} cpuUploadCount=0 projectionShaderPath=projected projectionSurface={} coordinateChain=camera2-sensor-reference-to-openxr-head-basis importCacheSize={} stereoDescriptorCacheSize={} noHardwareBufferLifetimeWarnings=true frameCadenceTargetHz={} visualInspection={} visualReleaseAccepted={} orientationDiagnosticMode={} orientationDiagnosticStep={} temporalProjectionMode={} frameAdoptionMode={} frameAdoptionHeld={} frameAdoptionCandidateMotionPxP95={:.3} cameraFrameAgeMsAvg={} cameraFrameAgeMsP95={} stereoPairDeltaMsAvg={:.3} targetProjectionMotionPxAvg={:.3} targetProjectionMotionPxP95={:.3} appliedProjectionMotionPxAvg={:.3} appliedProjectionMotionPxP95={:.3} projectionResidualPxAvg={:.3} projectionResidualPxP95={:.3} visualLagMsAvg={:.3} visualLagMsP95={:.3} heldFrameCount={} heldFrameDurationMsMax={:.3} frameCrossfadeCount={} invalidUvPxPercent={:.3} edgeFillPxPercent={:.3} aswEnabledFrameCount={} aswSkippedFrameCount={} motionVectorMaxPx={:.3} motionVectorClampedCount={} cameraProjectionRenderFrameCount={} cameraDistinctFrameCount={} cameraRepeatedRenderFrameCount={} cameraRendersPerCameraFrameAvg={:.3} cameraMaxConsecutiveRenderFramesPerCameraFrame={} cameraConsumedFrameHz={:.3} cameraProjectionRenderHz={:.3}",
-                                stereo_frame.index,
-                                frame_count,
-                                session_focused,
-                                aligned_projection,
-                                projection_homography_fields,
-                                pose_source,
-                                pose_reference,
-                                pose_convention,
-                                config.camera_projection_mode.stable_id(),
-                                config.camera_feed_pipeline_mode.stable_id(),
-                                config.camera_color_mode.stable_id(),
-                                config.camera_color_mode.shader_bit(),
-                                config.hwb_source_color_contract_fields(),
-                                config.camera_color_contrast,
-                                config.camera_color_brightness,
-                                config.camera_color_saturation,
-                                config.camera_import_image_layout_mode.stable_id(),
-                                config.camera_import_cache_limit,
-                                controls.source_eye_mapping.stable_id(),
-                                display_left_camera_id,
-                                display_right_camera_id,
-                                controls.left_label(),
-                                controls.right_label(),
-                                controls.left_texture_transform.shader_flags(),
-                                controls.right_texture_transform.shader_flags(),
-                                config.camera_texture_transform.source_label.as_str(),
-                                config.camera_texture_transform.reason.as_str(),
-                                source_sample_transform_applied,
-                                orientation_accepted,
-                                config.camera_projection_mode.projection_surface_label(),
-                                gpu_camera_renderer.imports.len(),
-                                gpu_camera_renderer.stereo_descriptors.len(),
-                                config.xr_display_refresh_hz,
-                                if config.visual_release_accepted { "accepted" } else { "required" },
-                                config.visual_release_accepted,
-                                controls.diagnostic_mode.stable_id(),
-                                controls.diagnostic_step,
-                                temporal_projection_mode_label(&config),
-                                config.camera_frame_adoption_mode.stable_id(),
-                                temporal_metrics.frame_adoption_held,
-                                temporal_metrics.frame_adoption_candidate_motion_px_p95,
-                                optional_ms_metric_label(temporal_metrics.camera_frame_age_ms),
-                                optional_ms_metric_label(temporal_metrics.camera_frame_age_ms),
-                                temporal_metrics.stereo_pair_delta_ms,
-                                temporal_metrics.target_projection_motion_px_avg,
-                                temporal_metrics.target_projection_motion_px_p95,
-                                temporal_metrics.applied_projection_motion_px_avg,
-                                temporal_metrics.applied_projection_motion_px_p95,
-                                temporal_metrics.projection_residual_px_avg,
-                                temporal_metrics.projection_residual_px_p95,
-                                temporal_metrics.visual_lag_ms_avg,
-                                temporal_metrics.visual_lag_ms_p95,
-                                temporal_metrics.held_frame_count,
-                                temporal_metrics.held_frame_duration_ms_max,
-                                temporal_metrics.frame_crossfade_count,
-                                temporal_metrics.invalid_uv_px_percent,
-                                temporal_metrics.edge_fill_px_percent,
-                                temporal_metrics.asw_enabled_frame_count,
-                                temporal_metrics.asw_skipped_frame_count,
-                                temporal_metrics.motion_vector_max_px,
-                                temporal_metrics.motion_vector_clamped_count,
-                                camera_cadence_metrics.render_frame_count,
-                                camera_cadence_metrics.distinct_frame_count,
-                                camera_cadence_metrics.repeated_render_frame_count,
-                                camera_cadence_metrics.renders_per_camera_frame_avg,
-                                camera_cadence_metrics.max_consecutive_render_frames_per_camera_frame,
-                                camera_cadence_metrics.consumed_frame_hz,
-                                camera_cadence_metrics.projection_render_hz
+                            let camera_frame_age_ms =
+                                optional_ms_metric_label(temporal_metrics.camera_frame_age_ms);
+                            log_info(hwb_final_projection_status_log_message(
+                                HwbFinalProjectionStatusLog {
+                                    frame: &stereo_frame,
+                                    controls: &controls,
+                                    config: &config,
+                                    openxr_frame_count: frame_count,
+                                    openxr_focused: session_focused,
+                                    aligned_projection,
+                                    projection_homography_fields: &projection_homography_fields,
+                                    pose_source,
+                                    pose_reference,
+                                    pose_convention,
+                                    display_left_camera_id,
+                                    display_right_camera_id,
+                                    import_cache_size: gpu_camera_renderer.imports.len(),
+                                    stereo_descriptor_cache_size: gpu_camera_renderer
+                                        .stereo_descriptors
+                                        .len(),
+                                    temporal_projection_mode: temporal_projection_mode_label(
+                                        &config,
+                                    ),
+                                    camera_frame_age_ms_avg: &camera_frame_age_ms,
+                                    camera_frame_age_ms_p95: &camera_frame_age_ms,
+                                    temporal_metrics: HwbFinalProjectionTemporalMetrics {
+                                        frame_adoption_held: temporal_metrics.frame_adoption_held,
+                                        frame_adoption_candidate_motion_px_p95: temporal_metrics
+                                            .frame_adoption_candidate_motion_px_p95,
+                                        stereo_pair_delta_ms_avg: temporal_metrics
+                                            .stereo_pair_delta_ms,
+                                        target_projection_motion_px_avg: temporal_metrics
+                                            .target_projection_motion_px_avg,
+                                        target_projection_motion_px_p95: temporal_metrics
+                                            .target_projection_motion_px_p95,
+                                        applied_projection_motion_px_avg: temporal_metrics
+                                            .applied_projection_motion_px_avg,
+                                        applied_projection_motion_px_p95: temporal_metrics
+                                            .applied_projection_motion_px_p95,
+                                        projection_residual_px_avg: temporal_metrics
+                                            .projection_residual_px_avg,
+                                        projection_residual_px_p95: temporal_metrics
+                                            .projection_residual_px_p95,
+                                        visual_lag_ms_avg: temporal_metrics.visual_lag_ms_avg,
+                                        visual_lag_ms_p95: temporal_metrics.visual_lag_ms_p95,
+                                        held_frame_count: temporal_metrics.held_frame_count,
+                                        held_frame_duration_ms_max: temporal_metrics
+                                            .held_frame_duration_ms_max,
+                                        frame_crossfade_count: temporal_metrics
+                                            .frame_crossfade_count,
+                                        invalid_uv_px_percent: temporal_metrics
+                                            .invalid_uv_px_percent,
+                                        edge_fill_px_percent: temporal_metrics.edge_fill_px_percent,
+                                        asw_enabled_frame_count: temporal_metrics
+                                            .asw_enabled_frame_count,
+                                        asw_skipped_frame_count: temporal_metrics
+                                            .asw_skipped_frame_count,
+                                        motion_vector_max_px: temporal_metrics.motion_vector_max_px,
+                                        motion_vector_clamped_count: temporal_metrics
+                                            .motion_vector_clamped_count,
+                                    },
+                                    camera_cadence_metrics: HwbCameraRenderCadenceMetrics {
+                                        render_frame_count: camera_cadence_metrics
+                                            .render_frame_count,
+                                        distinct_frame_count: camera_cadence_metrics
+                                            .distinct_frame_count,
+                                        repeated_render_frame_count: camera_cadence_metrics
+                                            .repeated_render_frame_count,
+                                        renders_per_camera_frame_avg: camera_cadence_metrics
+                                            .renders_per_camera_frame_avg,
+                                        max_consecutive_render_frames_per_camera_frame:
+                                            camera_cadence_metrics
+                                                .max_consecutive_render_frames_per_camera_frame,
+                                        consumed_frame_hz: camera_cadence_metrics.consumed_frame_hz,
+                                        projection_render_hz: camera_cadence_metrics
+                                            .projection_render_hz,
+                                    },
+                                },
                             ));
                         }
                         prepared_stereo_camera = Some((
@@ -6565,21 +6570,6 @@ fn full_source_uv_rect_xywh() -> [f32; 4] {
 fn source_uv_rect_xywh_for_frame(frame: &HeadsetCameraGpuFrame) -> [f32; 4] {
     let [left, top, right, bottom] = source_uv_rect_ltrb_for_diagnostics(&frame.diagnostics);
     [left, top, (right - left).max(0.0), (bottom - top).max(0.0)]
-}
-
-fn source_uv_rect_is_full(rect: [f32; 4]) -> bool {
-    const EPSILON: f32 = 0.0005;
-    (rect[0]).abs() <= EPSILON
-        && (rect[1]).abs() <= EPSILON
-        && (rect[2] - 1.0).abs() <= EPSILON
-        && (rect[3] - 1.0).abs() <= EPSILON
-}
-
-fn source_uv_rect_transform_applied(frame: &StereoGpuCameraFrame) -> bool {
-    !source_uv_rect_is_full(source_uv_rect_ltrb_for_diagnostics(&frame.left.diagnostics))
-        || !source_uv_rect_is_full(source_uv_rect_ltrb_for_diagnostics(
-            &frame.right.diagnostics,
-        ))
 }
 
 unsafe fn create_gpu_camera_pipeline_resources(
