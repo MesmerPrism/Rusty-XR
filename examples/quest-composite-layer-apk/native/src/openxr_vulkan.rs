@@ -42,6 +42,7 @@ mod camera_render_cadence;
 mod camera_upload_resources;
 mod foveation_framebuffer_resources;
 mod gpu_camera_descriptors;
+mod gpu_camera_draw;
 mod gpu_camera_import;
 mod gpu_camera_pipeline;
 mod gpu_camera_projection;
