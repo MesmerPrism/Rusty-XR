@@ -3,7 +3,7 @@ use openxr as xr;
 
 use crate::{HeadsetCameraGpuFrame, StereoGpuCameraFrame};
 
-use super::gpu_camera_resources::{GpuCameraImportKey, GpuCameraPipelineResources};
+use super::gpu_camera_resources::GpuCameraImportKey;
 use super::{
     gpu_camera_cache::{GpuCameraImportCache, GpuCameraImportCacheStats},
     gpu_camera_draw::{record_camera_draw, record_stereo_camera_draw},
@@ -11,7 +11,7 @@ use super::{
         import_camera_hardware_buffer, query_camera_hardware_buffer_import_plan,
         transition_imported_camera_image,
     },
-    gpu_camera_pipeline::create_gpu_camera_pipeline_resources,
+    gpu_camera_resource_state::GpuCameraResourceState,
     log_info,
     projection_geometry::ProjectedStereoHomographies,
 };
@@ -20,10 +20,7 @@ const GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX: usize = crate::CAMERA_IMPORT_CACHE_LIMI
 
 pub(super) struct GpuCameraRenderer {
     ahb: Option<ash::android::external_memory_android_hardware_buffer::Device>,
-    memory_properties: vk::PhysicalDeviceMemoryProperties,
-    projection_uniform_alignment: vk::DeviceSize,
-    render_pass: vk::RenderPass,
-    resources: Option<GpuCameraPipelineResources>,
+    resources: GpuCameraResourceState,
     cache: GpuCameraImportCache,
     pub(super) last_failure: Option<String>,
 }
@@ -42,10 +39,11 @@ impl GpuCameraRenderer {
         });
         Self {
             ahb,
-            memory_properties,
-            projection_uniform_alignment,
-            render_pass,
-            resources: None,
+            resources: GpuCameraResourceState::new(
+                memory_properties,
+                projection_uniform_alignment,
+                render_pass,
+            ),
             cache: GpuCameraImportCache::default(),
             last_failure: None,
         }
@@ -162,7 +160,7 @@ impl GpuCameraRenderer {
 
         let resources = self
             .resources
-            .as_ref()
+            .resources()
             .ok_or_else(|| "GPU camera pipeline resources were not initialized".to_string())?;
 
         self.cache.ensure_stereo_descriptor(
@@ -187,7 +185,7 @@ impl GpuCameraRenderer {
         let key = GpuCameraImportKey::from_frame(frame);
         if let Some(index) = self.cache.import_index(key) {
             self.cache.record_import_hit();
-            let transition_image = if self.resources.as_ref().is_some_and(|resources| {
+            let transition_image = if self.resources.resources().is_some_and(|resources| {
                 resources
                     .format_key
                     .import_image_layout_mode
@@ -216,23 +214,11 @@ impl GpuCameraRenderer {
             import_image_layout_mode,
         )?;
         let format_key = import_plan.format_key;
-        if self
-            .resources
-            .as_ref()
-            .map(|resources| resources.format_key != format_key)
-            .unwrap_or(true)
-        {
+        if self.resources.needs_format_rebuild(format_key) {
             self.cache.destroy_stereo_descriptors(device);
             self.cache.destroy_imports(device);
-            self.destroy_resources(device);
-            self.resources = Some(create_gpu_camera_pipeline_resources(
-                device,
-                &self.memory_properties,
-                self.projection_uniform_alignment,
-                self.render_pass,
-                format_key,
-                &import_plan.format_props,
-            )?);
+            self.resources
+                .rebuild_for_import_plan(device, &import_plan)?;
         }
 
         while self.cache.import_count() >= import_cache_limit {
@@ -241,11 +227,11 @@ impl GpuCameraRenderer {
 
         let resources = self
             .resources
-            .as_ref()
+            .resources()
             .ok_or_else(|| "GPU camera pipeline resources were not initialized".to_string())?;
         let import = import_camera_hardware_buffer(
             device,
-            &self.memory_properties,
+            self.resources.memory_properties(),
             resources,
             frame,
             key,
@@ -296,7 +282,7 @@ impl GpuCameraRenderer {
         frame: &HeadsetCameraGpuFrame,
         config: &crate::RuntimeConfig,
     ) {
-        let Some(resources) = self.resources.as_ref() else {
+        let Some(resources) = self.resources.resources() else {
             return;
         };
         let Some(import) = self.cache.import(import_index) else {
@@ -319,7 +305,7 @@ impl GpuCameraRenderer {
         frame_count: u64,
         applied_projection_homographies: Option<ProjectedStereoHomographies>,
     ) {
-        let Some(resources) = self.resources.as_ref() else {
+        let Some(resources) = self.resources.resources() else {
             return;
         };
         let Some(descriptor) = self.cache.stereo_descriptor(descriptor_index) else {
@@ -342,13 +328,7 @@ impl GpuCameraRenderer {
 
     pub(super) unsafe fn destroy(&mut self, device: &ash::Device) {
         self.cache.destroy_imports(device);
-        self.destroy_resources(device);
-    }
-
-    unsafe fn destroy_resources(&mut self, device: &ash::Device) {
-        if let Some(resources) = self.resources.take() {
-            resources.destroy(device);
-        }
+        self.resources.destroy(device);
     }
 }
 
