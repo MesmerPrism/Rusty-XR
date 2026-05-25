@@ -6,8 +6,9 @@ use super::surface_texture_oes_callbacks::{
     report_view_index, reset_decode_callbacks,
 };
 use super::surface_texture_oes_frame_sources::OesEyeTextureSample;
-use super::surface_texture_oes_gl::{
-    create_external_oes_texture, delete_gl_texture, identity_texture_transform,
+use super::surface_texture_oes_gl::identity_texture_transform;
+use super::surface_texture_oes_outputs::{
+    SurfaceTextureOesOutputResources, DEFAULT_OES_SURFACE_HEIGHT, DEFAULT_OES_SURFACE_WIDTH,
 };
 use super::surface_texture_oes_sources::{
     start_broker_h264_oes_decode_probe, start_direct_camera2_oes_probe, BROKER_H264_DEFAULT_HOST,
@@ -18,19 +19,11 @@ use super::surface_texture_oes_transform::{
     sample_surface_texture_transform_matrix, transform_matrix_hash,
 };
 use super::{log_error, log_info, EglContext, VIEW_COUNT};
-use jni::{
-    objects::{GlobalRef, JObject, JValue},
-    sys::jobject,
-    JavaVM,
-};
+use jni::{objects::JObject, sys::jobject, JavaVM};
 use rusty_xr_quest_diagnostics::{
-    FrameRateSummary, SurfaceTextureOesEyeStatus, SurfaceTextureOesIngestState,
-    SurfaceTextureOesIngestStatus,
+    FrameRateSummary, SurfaceTextureOesIngestState, SurfaceTextureOesIngestStatus,
 };
 use std::time::Instant;
-
-const DEFAULT_OES_SURFACE_WIDTH: i32 = 1280;
-const DEFAULT_OES_SURFACE_HEIGHT: i32 = 1280;
 
 pub(super) fn probe_surface_texture_oes(
     app: &android_activity::AndroidApp,
@@ -57,10 +50,7 @@ pub(super) fn probe_surface_texture_oes(
 
 pub(super) struct SurfaceTextureOesProbe {
     status: SurfaceTextureOesIngestStatus,
-    surface_textures: Vec<GlobalRef>,
-    output_surfaces: Vec<GlobalRef>,
-    decode_probe: Option<GlobalRef>,
-    textures: Vec<u32>,
+    resources: Option<SurfaceTextureOesOutputResources>,
     java_vm: JavaVM,
     consumed_frame_available_counts: [u64; VIEW_COUNT],
     latest_transform_matrices: [[f32; 16]; VIEW_COUNT],
@@ -86,89 +76,16 @@ impl SurfaceTextureOesProbe {
                 activity_string_extra(&mut env, &activity, "rustyxr.videoSource").as_deref(),
             )
         };
-        let mut textures = Vec::with_capacity(VIEW_COUNT);
         let mut status = SurfaceTextureOesIngestStatus::new();
         status.codec_mime = source_kind.codec_mime().map(String::from);
         status.notes.push(String::from(
             "Created SurfaceTexture-backed output surfaces; updateTexImage runs on the native GL render thread.",
         ));
 
-        let (surface_textures, output_surfaces) = {
-            let mut env = java_vm
-                .attach_current_thread()
-                .map_err(|error| format!("attach JNI thread for SurfaceTexture probe: {error}"))?;
-            let mut surface_textures = Vec::with_capacity(VIEW_COUNT);
-            let mut output_surfaces = Vec::with_capacity(VIEW_COUNT);
+        let mut resources =
+            SurfaceTextureOesOutputResources::create(&java_vm, egl, source_kind, &mut status)?;
 
-            for view_index in 0..VIEW_COUNT {
-                let texture = create_external_oes_texture()?;
-                let texture_name = i32::try_from(texture).map_err(|_| {
-                    format!("external OES texture id {texture} does not fit JNI int")
-                })?;
-                let surface_texture = env
-                    .new_object(
-                        "android/graphics/SurfaceTexture",
-                        "(I)V",
-                        &[JValue::Int(texture_name)],
-                    )
-                    .map_err(|error| {
-                        delete_gl_texture(texture);
-                        format!("create Android SurfaceTexture for eye {view_index}: {error}")
-                    })?;
-                env.call_method(
-                    &surface_texture,
-                    "setDefaultBufferSize",
-                    "(II)V",
-                    &[
-                        JValue::Int(DEFAULT_OES_SURFACE_WIDTH),
-                        JValue::Int(DEFAULT_OES_SURFACE_HEIGHT),
-                    ],
-                )
-                .map_err(|error| {
-                    delete_gl_texture(texture);
-                    format!("set SurfaceTexture default buffer size for eye {view_index}: {error}")
-                })?;
-                let output_surface = env
-                    .new_object(
-                        "android/view/Surface",
-                        "(Landroid/graphics/SurfaceTexture;)V",
-                        &[JValue::Object(&surface_texture)],
-                    )
-                    .map_err(|error| {
-                        delete_gl_texture(texture);
-                        format!("create Android Surface for eye {view_index}: {error}")
-                    })?;
-                let surface_texture_ref =
-                    env.new_global_ref(&surface_texture).map_err(|error| {
-                        delete_gl_texture(texture);
-                        format!(
-                            "promote SurfaceTexture global reference for eye {view_index}: {error}"
-                        )
-                    })?;
-                let output_surface_ref = env.new_global_ref(&output_surface).map_err(|error| {
-                    delete_gl_texture(texture);
-                    format!("promote Surface global reference for eye {view_index}: {error}")
-                })?;
-
-                textures.push(texture);
-                surface_textures.push(surface_texture_ref);
-                output_surfaces.push(output_surface_ref);
-                let eye_name = if view_index == 0 { "left" } else { "right" };
-                let mut eye = SurfaceTextureOesEyeStatus::for_stream(
-                    view_index as u32,
-                    source_kind.stream_label(view_index),
-                    eye_name,
-                )
-                .mark_surface_ready();
-                eye.source_width = Some(DEFAULT_OES_SURFACE_WIDTH as u32);
-                eye.source_height = Some(DEFAULT_OES_SURFACE_HEIGHT as u32);
-                status.eyes.push(eye);
-            }
-
-            (surface_textures, output_surfaces)
-        };
-
-        let decode_probe = {
+        {
             let mut env = java_vm
                 .attach_current_thread()
                 .map_err(|error| format!("attach JNI thread for OES source start: {error}"))?;
@@ -178,14 +95,13 @@ impl SurfaceTextureOesProbe {
                     status.notes.push(String::from(
                         "No OES video source requested; rendering static GLES grids.",
                     ));
-                    None
                 }
                 OesInputSourceKind::BrokerH264 => {
                     match start_broker_h264_oes_decode_probe(
                         &mut env,
                         app,
-                        &output_surfaces,
-                        &surface_textures,
+                        resources.output_surfaces(),
+                        resources.surface_textures(),
                     ) {
                         Ok(probe) => {
                             for eye in &mut status.eyes {
@@ -199,7 +115,7 @@ impl SurfaceTextureOesProbe {
                                 BROKER_H264_LEFT_STREAM_PORT,
                                 BROKER_H264_RIGHT_STREAM_PORT
                             ));
-                            Some(probe)
+                            resources.set_decode_probe(probe);
                         }
                         Err(error) => {
                             status.state = SurfaceTextureOesIngestState::OutputSurfaceReady;
@@ -207,7 +123,6 @@ impl SurfaceTextureOesProbe {
                                 .issue_codes
                                 .push(String::from("broker_h264_oes_decode_start_failed"));
                             status.notes.push(error);
-                            None
                         }
                     }
                 }
@@ -215,8 +130,8 @@ impl SurfaceTextureOesProbe {
                     match start_direct_camera2_oes_probe(
                         &mut env,
                         app,
-                        &output_surfaces,
-                        &surface_textures,
+                        resources.output_surfaces(),
+                        resources.surface_textures(),
                         DEFAULT_OES_SURFACE_WIDTH,
                         DEFAULT_OES_SURFACE_HEIGHT,
                     ) {
@@ -225,7 +140,7 @@ impl SurfaceTextureOesProbe {
                             status.notes.push(String::from(
                                 "Started direct Camera2 capture into SurfaceTexture/OES output surfaces.",
                             ));
-                            Some(probe)
+                            resources.set_decode_probe(probe);
                         }
                         Err(error) => {
                             status.state = SurfaceTextureOesIngestState::OutputSurfaceReady;
@@ -233,7 +148,6 @@ impl SurfaceTextureOesProbe {
                                 .issue_codes
                                 .push(String::from("direct_camera2_oes_start_failed"));
                             status.notes.push(error);
-                            None
                         }
                     }
                 }
@@ -245,15 +159,12 @@ impl SurfaceTextureOesProbe {
             status.eyes.len(),
             DEFAULT_OES_SURFACE_WIDTH,
             DEFAULT_OES_SURFACE_HEIGHT,
-            decode_probe.is_some()
+            resources.has_decode_probe()
         ));
 
         Ok(Self {
             status,
-            surface_textures,
-            output_surfaces,
-            decode_probe,
-            textures,
+            resources: Some(resources),
             java_vm,
             consumed_frame_available_counts: [0; VIEW_COUNT],
             latest_transform_matrices: [identity_texture_transform(); VIEW_COUNT],
@@ -338,8 +249,9 @@ impl SurfaceTextureOesProbe {
     ) -> Result<(i64, String, [f32; 16]), String> {
         egl.make_current()?;
         let surface_texture = self
-            .surface_textures
-            .get(view_index)
+            .resources
+            .as_ref()
+            .and_then(|resources| resources.surface_texture(view_index))
             .ok_or_else(|| format!("SurfaceTexture eye index {view_index} is out of range"))?;
         let mut env = self
             .java_vm
@@ -362,7 +274,7 @@ impl SurfaceTextureOesProbe {
         if eye.update_tex_image_count == 0 || eye.decoder_error_count > 0 {
             return None;
         }
-        let texture = *self.textures.get(view_index)?;
+        let texture = self.resources.as_ref()?.texture(view_index)?;
         Some(OesEyeTextureSample {
             texture,
             source_sequence: eye.latest_stream_sequence.unwrap_or_default(),
@@ -509,19 +421,8 @@ impl SurfaceTextureOesProbe {
 
 impl Drop for SurfaceTextureOesProbe {
     fn drop(&mut self) {
-        if let Ok(mut env) = self.java_vm.attach_current_thread() {
-            if let Some(decode_probe) = &self.decode_probe {
-                let _ = env.call_method(decode_probe.as_obj(), "stop", "()V", &[]);
-            }
-            for surface in &self.output_surfaces {
-                let _ = env.call_method(surface.as_obj(), "release", "()V", &[]);
-            }
-            for surface_texture in &self.surface_textures {
-                let _ = env.call_method(surface_texture.as_obj(), "release", "()V", &[]);
-            }
-        }
-        for texture in &self.textures {
-            delete_gl_texture(*texture);
+        if let Some(resources) = self.resources.take() {
+            resources.release(&self.java_vm);
         }
     }
 }
