@@ -371,7 +371,7 @@ pub(super) fn camera_preview_surface_corners(
     .ok()?;
     let offset = tracking.up * config.camera_preview_offset_y_meters.clamp(-2.0, 2.0);
     for corner in &mut surface_corners {
-        *corner = *corner + offset;
+        *corner += offset;
     }
     Some(surface_corners)
 }

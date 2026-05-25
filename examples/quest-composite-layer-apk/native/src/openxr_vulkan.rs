@@ -39,6 +39,7 @@ use rusty_xr_particles::{
 };
 
 mod camera_upload_resources;
+mod gpu_camera_projection;
 mod gpu_camera_renderer;
 mod gpu_camera_resources;
 mod projection_geometry;
@@ -46,7 +47,8 @@ mod source_metadata;
 mod swapchain_resources;
 mod vulkan_capabilities;
 use camera_upload_resources::{ensure_camera_upload, CameraCopy, CameraUpload};
-use gpu_camera_renderer::{CameraProjectionPush, CameraRenderCadenceStats, GpuCameraRenderer};
+use gpu_camera_projection::CameraProjectionPush;
+use gpu_camera_renderer::{CameraRenderCadenceStats, GpuCameraRenderer};
 use projection_geometry::{
     camera_preview_surface_corners, display_eye_uv_fiducial_contract_log_message,
     display_eye_uv_fiducial_marker_fields, eye_basis_from_view, fov_aspect,

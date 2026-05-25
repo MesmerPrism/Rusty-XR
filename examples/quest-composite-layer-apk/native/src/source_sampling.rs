@@ -208,6 +208,7 @@ pub(crate) fn hwb_source_sampling_detail_log_message(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn hwb_stereo_draw_prepared_log_message(
     frame: &StereoGpuCameraFrame,
     controls: &StereoProjectionControls,
