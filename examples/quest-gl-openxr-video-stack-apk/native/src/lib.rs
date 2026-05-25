@@ -66,6 +66,7 @@ mod android {
     mod gles_framebuffer;
     mod gles_shader_program;
     mod oes_copy_renderer;
+    mod openxr_gles_activity_config;
     mod openxr_gles_config;
     mod openxr_gles_layers;
     mod openxr_gles_passthrough;
