@@ -1,6 +1,7 @@
 use openxr as xr;
 use rusty_xr_quest_diagnostics::{
-    OpenXrGlesFeasibilityStatus, OpenXrGlesSwapchainFormat, OpenXrGlesViewStatus,
+    OpenXrGlesFeasibilityState, OpenXrGlesFeasibilityStatus, OpenXrGlesGraphicsRequirements,
+    OpenXrGlesSwapchainFormat, OpenXrGlesViewStatus,
 };
 
 use super::{
@@ -16,6 +17,26 @@ pub(super) struct EyeSwapchain {
     pub(super) color_format: u32,
     pub(super) view_index: usize,
     pub(super) pattern: &'static str,
+}
+
+pub(super) fn record_graphics_requirements(
+    instance: &xr::Instance,
+    system: xr::SystemId,
+    status: &mut OpenXrGlesFeasibilityStatus,
+) -> Result<(), String> {
+    let requirements = instance
+        .graphics_requirements::<xr::OpenGlEs>(system)
+        .map_err(|error| format!("read OpenGL ES graphics requirements: {error}"))?;
+    status.state = OpenXrGlesFeasibilityState::GraphicsRequirementsKnown;
+    status.graphics_requirements = Some(OpenXrGlesGraphicsRequirements {
+        min_api_version: Some(requirements.min_api_version_supported.to_string()),
+        max_api_version: Some(requirements.max_api_version_supported.to_string()),
+    });
+    log_info(format!(
+        "Rusty XR OpenXR GLES requirements min={} max={}",
+        requirements.min_api_version_supported, requirements.max_api_version_supported
+    ));
+    Ok(())
 }
 
 pub(super) fn create_eye_swapchains(

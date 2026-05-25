@@ -55,9 +55,7 @@ mod android {
     use super::*;
     use openxr as xr;
     use openxr::sys::Handle as _;
-    use rusty_xr_quest_diagnostics::{
-        OpenXrGlesFeasibilityState, OpenXrGlesGraphicsRequirements, OPENXR_GLES_EXTENSION,
-    };
+    use rusty_xr_quest_diagnostics::{OpenXrGlesFeasibilityState, OPENXR_GLES_EXTENSION};
     use std::{
         ffi::CString,
         os::raw::{c_char, c_int, c_void},
@@ -89,7 +87,8 @@ mod android {
         projection_views_from_swapchains, OesRenderFrameInputs, OesRenderResources, OesRenderTuning,
     };
     use openxr_gles_resources::{
-        create_eye_swapchains, gl_format_label, select_environment_blend_mode,
+        create_eye_swapchains, gl_format_label, record_graphics_requirements,
+        select_environment_blend_mode,
     };
     use openxr_gles_session::{
         begin_openxr_frame, create_android_instance, end_empty_openxr_frame,
@@ -378,18 +377,7 @@ mod android {
             projection_state.projection_border_policy.stable_id(),
             projection_uses_source_alpha,
         )?;
-        let requirements = xr_instance
-            .graphics_requirements::<xr::OpenGlEs>(system)
-            .map_err(|error| format!("read OpenGL ES graphics requirements: {error}"))?;
-        status.state = OpenXrGlesFeasibilityState::GraphicsRequirementsKnown;
-        status.graphics_requirements = Some(OpenXrGlesGraphicsRequirements {
-            min_api_version: Some(requirements.min_api_version_supported.to_string()),
-            max_api_version: Some(requirements.max_api_version_supported.to_string()),
-        });
-        log_info(format!(
-            "Rusty XR OpenXR GLES requirements min={} max={}",
-            requirements.min_api_version_supported, requirements.max_api_version_supported
-        ));
+        record_graphics_requirements(&xr_instance, system, &mut status)?;
 
         let egl = EglContext::create()?;
         status.context = Some(egl.status());
