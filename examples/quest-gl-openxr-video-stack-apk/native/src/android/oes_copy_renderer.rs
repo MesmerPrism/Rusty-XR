@@ -8,15 +8,14 @@ use std::{
 use rusty_xr_quest_diagnostics::GlFramebufferCompleteness;
 
 use super::{
-    diagnostic_blur_source_texel_size, glActiveTexture, glAttachShader, glBindBuffer,
-    glBindFramebuffer, glBindTexture, glBufferData, glCheckFramebufferStatus, glClear,
-    glClearColor, glCompileShader, glCreateProgram, glCreateShader, glDeleteBuffers,
-    glDeleteFramebuffers, glDeleteProgram, glDeleteShader, glDisable, glDisableVertexAttribArray,
-    glDrawArrays, glEnable, glEnableVertexAttribArray, glFramebufferTexture2D, glGenBuffers,
-    glGenFramebuffers, glGetError, glGetProgramInfoLog, glGetProgramiv, glGetShaderInfoLog,
-    glGetShaderiv, glGetUniformLocation, glLinkProgram, glScissor, glShaderSource, glUniform1f,
-    glUniform1i, glUniform2f, glUniform3f, glUniform4f, glUniformMatrix4fv, glUseProgram,
-    glVertexAttribPointer, glViewport,
+    glActiveTexture, glAttachShader, glBindBuffer, glBindFramebuffer, glBindTexture, glBufferData,
+    glCheckFramebufferStatus, glClear, glClearColor, glCompileShader, glCreateProgram,
+    glCreateShader, glDeleteBuffers, glDeleteFramebuffers, glDeleteProgram, glDeleteShader,
+    glDisable, glDisableVertexAttribArray, glDrawArrays, glEnable, glEnableVertexAttribArray,
+    glFramebufferTexture2D, glGenBuffers, glGenFramebuffers, glGetError, glGetProgramInfoLog,
+    glGetProgramiv, glGetShaderInfoLog, glGetShaderiv, glGetUniformLocation, glLinkProgram,
+    glScissor, glShaderSource, glUniform1f, glUniform1i, glUniform2f, glUniform3f, glUniform4f,
+    glUniformMatrix4fv, glUseProgram, glVertexAttribPointer, glViewport,
     openxr_gles_config::{
         OesColorControls, OesContentMappingMode, OesProcessingLayer, OesProjectionAlphaMode,
         OesProjectionBorderPolicy,
@@ -30,6 +29,16 @@ use super::{
     GL_LINK_STATUS, GL_NO_ERROR, GL_SCISSOR_TEST, GL_STATIC_DRAW, GL_TEXTURE0, GL_TEXTURE_2D,
     GL_TEXTURE_EXTERNAL_OES, GL_TRIANGLE_STRIP, GL_VERTEX_SHADER,
 };
+
+const DIAGNOSTIC_BLUR_SOURCE_WIDTH_PX: f32 = 1280.0;
+const DIAGNOSTIC_BLUR_SOURCE_HEIGHT_PX: f32 = 1280.0;
+
+fn diagnostic_blur_source_texel_size() -> [f32; 2] {
+    [
+        1.0 / DIAGNOSTIC_BLUR_SOURCE_WIDTH_PX.max(1.0),
+        1.0 / DIAGNOSTIC_BLUR_SOURCE_HEIGHT_PX.max(1.0),
+    ]
+}
 
 fn compile_shader(shader_type: u32, source: &str) -> Result<u32, String> {
     let source = CString::new(source).map_err(|error| format!("shader CString: {error}"))?;

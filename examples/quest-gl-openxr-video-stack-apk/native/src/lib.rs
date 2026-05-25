@@ -136,19 +136,10 @@ mod android {
     const GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT: u32 = 0x8CD7;
     const GL_FRAMEBUFFER_UNSUPPORTED: u32 = 0x8CDD;
     const GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE: u32 = 0x8D56;
-    const DIAGNOSTIC_BLUR_SOURCE_WIDTH_PX: f32 = 1280.0;
-    const DIAGNOSTIC_BLUR_SOURCE_HEIGHT_PX: f32 = 1280.0;
     const OES_COPY_RENDER_PATH: &str = "oes-full-surface-copy";
     const OES_PROJECTED_RENDER_PATH: &str = "oes-projected-camera-uv";
     const DIRECT_CAMERA2_OES_SOURCE: &str = "app.camera2_oes_surface_texture";
     const PROJECTION_SOURCE_ASPECT: f32 = 1.0;
-
-    fn diagnostic_blur_source_texel_size() -> [f32; 2] {
-        [
-            1.0 / DIAGNOSTIC_BLUR_SOURCE_WIDTH_PX.max(1.0),
-            1.0 / DIAGNOSTIC_BLUR_SOURCE_HEIGHT_PX.max(1.0),
-        ]
-    }
 
     #[link(name = "GLESv3")]
     unsafe extern "C" {
