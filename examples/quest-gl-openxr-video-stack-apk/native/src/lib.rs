@@ -73,6 +73,7 @@ mod android {
     mod openxr_gles_passthrough;
     mod openxr_gles_renderer;
     mod openxr_gles_resources;
+    mod openxr_gles_session;
     mod projection_geometry;
     mod projection_runtime;
     mod source_metadata;
@@ -86,6 +87,7 @@ mod android {
     use openxr_gles_resources::{
         create_eye_swapchains, gl_format_label, select_environment_blend_mode,
     };
+    use openxr_gles_session::poll_openxr_session_events;
     use projection_geometry::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
     };
@@ -507,42 +509,13 @@ mod android {
                 }
             }
 
-            while let Some(event) = xr_instance
-                .poll_event(&mut event_storage)
-                .map_err(|error| format!("poll OpenXR event: {error}"))?
-            {
-                match event {
-                    xr::Event::SessionStateChanged(event) => match event.state() {
-                        xr::SessionState::READY => {
-                            session
-                                .begin(VIEW_TYPE)
-                                .map_err(|error| format!("begin OpenXR session: {error}"))?;
-                            session_running = true;
-                            log_info("Rusty XR OpenXR GLES state READY -> running");
-                        }
-                        xr::SessionState::STOPPING => {
-                            session
-                                .end()
-                                .map_err(|error| format!("end OpenXR session: {error}"))?;
-                            session_running = false;
-                            log_info("Rusty XR OpenXR GLES state STOPPING -> ended");
-                        }
-                        xr::SessionState::EXITING | xr::SessionState::LOSS_PENDING => {
-                            break 'main_loop;
-                        }
-                        state => {
-                            log_info(format!("Rusty XR OpenXR GLES state {state:?}"));
-                        }
-                    },
-                    xr::Event::InstanceLossPending(_) => break 'main_loop,
-                    xr::Event::EventsLost(event) => {
-                        log_error(format!(
-                            "Rusty XR OpenXR GLES lost {} event(s)",
-                            event.lost_event_count()
-                        ));
-                    }
-                    _ => {}
-                }
+            if poll_openxr_session_events(
+                &xr_instance,
+                &session,
+                &mut event_storage,
+                &mut session_running,
+            )? {
+                break 'main_loop;
             }
 
             if !session_running {
