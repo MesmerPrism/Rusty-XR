@@ -3,11 +3,11 @@ use super::{
     openxr_gles_config::{
         activity_string_extra, android_system_property_value, OesCameraProjectionMode,
         OesProjectionAlphaMode, OesProjectionBorderPolicy, OesProjectionRuntimeState,
-        OesProjectionTuning,
+        OesProjectionTuning, DEFAULT_PROJECTION_TARGET_DEPTH_METERS,
+        OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_EXTRA,
+        OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_PROP, PROJECTION_PREVIEW_FOV_Y_DEGREES,
+        PROJECTION_RAW_OVERSCAN,
     },
-    DEFAULT_PROJECTION_TARGET_DEPTH_METERS, OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_EXTRA,
-    OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_PROP, PROJECTION_PREVIEW_FOV_Y_DEGREES,
-    PROJECTION_RAW_OVERSCAN,
 };
 use crate::current_android_projection_property_config;
 use jni::{objects::JObject, sys::jobject, JavaVM};
