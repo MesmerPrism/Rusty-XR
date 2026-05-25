@@ -93,8 +93,8 @@ mod android {
     use openxr_gles_session::{
         begin_openxr_frame, create_android_instance, end_empty_openxr_frame,
         initialize_android_loader, locate_submit_valid_views, poll_openxr_session_events,
-        request_session_exit_if_app_stopped, select_openxr_gles_extensions, OesFrameRateTracker,
-        OesLocatedViews,
+        record_openxr_runtime_properties, request_session_exit_if_app_stopped,
+        select_openxr_gles_extensions, OesFrameRateTracker, OesLocatedViews,
     };
     use projection_geometry::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
@@ -309,15 +309,7 @@ mod android {
             )
         }?;
 
-        let properties = xr_instance
-            .properties()
-            .map_err(|error| format!("read OpenXR properties: {error}"))?;
-        status.runtime_name = Some(properties.runtime_name.clone());
-        status.runtime_version = Some(properties.runtime_version.to_string());
-        log_info(format!(
-            "Rusty XR OpenXR GLES runtime name={} version={}",
-            properties.runtime_name, properties.runtime_version
-        ));
+        record_openxr_runtime_properties(&xr_instance, &mut status)?;
         // Repeat the resolved runtime manifest at lifecycle boundaries where
         // OpenXR state has changed. The validation harness owns log capture
         // timing; renderer cadence must not be changed just to satisfy a tail.

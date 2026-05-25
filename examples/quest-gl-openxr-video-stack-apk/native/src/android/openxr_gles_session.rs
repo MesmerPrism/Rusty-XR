@@ -181,6 +181,22 @@ pub(super) fn select_openxr_gles_extensions(
     Ok(enabled_extensions)
 }
 
+pub(super) fn record_openxr_runtime_properties(
+    instance: &xr::Instance,
+    status: &mut OpenXrGlesFeasibilityStatus,
+) -> Result<(), String> {
+    let properties = instance
+        .properties()
+        .map_err(|error| format!("read OpenXR properties: {error}"))?;
+    status.runtime_name = Some(properties.runtime_name.clone());
+    status.runtime_version = Some(properties.runtime_version.to_string());
+    log_info(format!(
+        "Rusty XR OpenXR GLES runtime name={} version={}",
+        properties.runtime_name, properties.runtime_version
+    ));
+    Ok(())
+}
+
 pub(super) fn end_empty_openxr_frame(
     frame_stream: &mut xr::FrameStream<xr::OpenGlEs>,
     predicted_display_time: xr::Time,
