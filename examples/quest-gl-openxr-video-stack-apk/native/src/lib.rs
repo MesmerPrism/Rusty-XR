@@ -98,7 +98,9 @@ mod android {
     };
     use egl_gles_context::{create_recorded_egl_context, EglContext};
     use openxr_gles_config::OesActivityConfig;
-    use openxr_gles_layers::projection_views_from_swapchains;
+    use openxr_gles_layers::{
+        end_empty_openxr_frame, end_projection_openxr_frame, projection_views_from_swapchains,
+    };
     use openxr_gles_passthrough::create_requested_openxr_gles_passthrough_underlay;
     use openxr_gles_render_tuning::OesRenderTuning;
     use openxr_gles_renderer::{OesRenderFrameInputs, OesRenderResources};
@@ -108,10 +110,9 @@ mod android {
     };
     use openxr_gles_session::{
         begin_openxr_frame, create_android_instance, create_openxr_gles_session,
-        end_empty_openxr_frame, end_projection_openxr_frame, initialize_android_loader,
-        locate_submit_valid_views, poll_openxr_session_events, record_openxr_runtime_properties,
-        request_session_exit_if_app_stopped, select_openxr_gles_extensions, OesFrameRateTracker,
-        OesLocatedViews,
+        initialize_android_loader, locate_submit_valid_views, poll_openxr_session_events,
+        record_openxr_runtime_properties, request_session_exit_if_app_stopped,
+        select_openxr_gles_extensions, OesFrameRateTracker, OesLocatedViews,
     };
     use projection_frame_context::projection_frame_context_from_state;
     use projection_runtime::{log_oes_projection_startup_summary, OesProjectionRuntimeController};
