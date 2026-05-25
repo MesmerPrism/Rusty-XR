@@ -55,6 +55,7 @@ mod gpu_camera_resources;
 mod gpu_camera_sampler;
 mod gpu_camera_uniforms;
 mod openxr_swapchain_images;
+mod openxr_vulkan_layers;
 mod projection_diagnostics;
 mod projection_eye_mapping;
 mod projection_geometry;
@@ -69,6 +70,7 @@ use camera_render_cadence::CameraRenderCadenceStats;
 use camera_upload_resources::{ensure_camera_upload, CameraCopy, CameraUpload};
 use gpu_camera_projection_push::CameraProjectionPush;
 use gpu_camera_renderer::GpuCameraRenderer;
+use openxr_vulkan_layers::{end_projection_openxr_frame, OpenXrVulkanLayerSubmission};
 use projection_diagnostics::{
     display_eye_uv_fiducial_contract_log_message, display_eye_uv_fiducial_marker_fields,
     projected_homography_status_marker_fields, projection_openxr_contract_log_message,
@@ -3869,78 +3871,25 @@ unsafe fn run_vulkan(
             .release_image()
             .map_err(|error| format!("release OpenXR swapchain image: {error}"))?;
 
-        let rect = xr::Rect2Di {
-            offset: xr::Offset2Di { x: 0, y: 0 },
-            extent: xr::Extent2Di {
-                width: swapchain.resolution.width as _,
-                height: swapchain.resolution.height as _,
-            },
-        };
-        let projection_views = [
-            xr::CompositionLayerProjectionView::new()
-                .pose(views[0].pose)
-                .fov(views[0].fov)
-                .sub_image(
-                    xr::SwapchainSubImage::new()
-                        .swapchain(&swapchain.handle)
-                        .image_array_index(0)
-                        .image_rect(rect),
-                ),
-            xr::CompositionLayerProjectionView::new()
-                .pose(views[1].pose)
-                .fov(views[1].fov)
-                .sub_image(
-                    xr::SwapchainSubImage::new()
-                        .swapchain(&swapchain.handle)
-                        .image_array_index(1)
-                        .image_rect(rect),
-                ),
-        ];
-        let projection_layer_flags = if config.projection_layer_needs_source_alpha() {
-            xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA
-        } else {
-            xr::CompositionLayerFlags::EMPTY
-        };
-        let projection_layer = xr::CompositionLayerProjection::new()
-            .layer_flags(projection_layer_flags)
-            .space(&reference_space)
-            .views(&projection_views);
-        let passthrough_composition_layer = openxr_passthrough_probe
+        let passthrough_layer = openxr_passthrough_probe
             .as_ref()
             .filter(|probe| probe.submits_composition_layer())
-            .map(|probe| xr::sys::CompositionLayerPassthroughFB {
-                ty: xr::sys::CompositionLayerPassthroughFB::TYPE,
-                next: ptr::null(),
-                flags: xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA,
-                space: xr::sys::Space::NULL,
-                layer_handle: probe.layer,
-            });
+            .map(|probe| probe.layer);
         let projection_layer_visible =
-            config.projection_layer_visible || passthrough_composition_layer.is_none();
-        let mut layers: Vec<&xr::CompositionLayerBase<xr::Vulkan>> = Vec::with_capacity(
-            (passthrough_composition_layer.is_some() as usize)
-                + (projection_layer_visible as usize),
-        );
-        if let Some(layer) = passthrough_composition_layer.as_ref() {
-            // The openxr crate does not re-export this FB layer builder, but the raw
-            // struct has the standard composition-layer header prefix expected here.
-            let layer_base: &xr::CompositionLayerBase<xr::Vulkan> = unsafe {
-                &*(layer as *const xr::sys::CompositionLayerPassthroughFB
-                    as *const xr::CompositionLayerBase<xr::Vulkan>)
-            };
-            layers.push(layer_base);
-        }
-        if projection_layer_visible {
-            layers.push(&projection_layer);
-        }
-        let submitted_layer_count = layers.len();
-        frame_stream
-            .end(
-                frame_state.predicted_display_time,
+            config.projection_layer_visible || passthrough_layer.is_none();
+        let submitted_layer_count = end_projection_openxr_frame(
+            &mut frame_stream,
+            OpenXrVulkanLayerSubmission {
+                predicted_display_time: frame_state.predicted_display_time,
                 environment_blend_mode,
-                &layers,
-            )
-            .map_err(|error| format!("end OpenXR frame: {error}"))?;
+                reference_space: &reference_space,
+                views: &views,
+                swapchain,
+                projection_uses_source_alpha: config.projection_layer_needs_source_alpha(),
+                passthrough_layer,
+                projection_layer_visible,
+            },
+        )?;
 
         frame_count += 1;
         if let Some(probe) = openxr_passthrough_probe.as_mut() {
