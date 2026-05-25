@@ -83,8 +83,10 @@ mod android {
     mod source_metadata;
     mod surface_texture_oes_callbacks;
     mod surface_texture_oes_frame_sources;
+    mod surface_texture_oes_gl;
     mod surface_texture_oes_probe;
     mod surface_texture_oes_sources;
+    mod surface_texture_oes_transform;
     use android_activity_events::{
         keep_activity_alive_after_error, pump_android_events, wait_for_android_foreground,
     };

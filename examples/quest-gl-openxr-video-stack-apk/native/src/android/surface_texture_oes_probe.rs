@@ -7,40 +7,31 @@ use super::surface_texture_oes_callbacks::{
     report_view_index, reset_decode_callbacks,
 };
 use super::surface_texture_oes_frame_sources::OesEyeTextureSample;
+use super::surface_texture_oes_gl::{
+    create_external_oes_texture, delete_gl_texture, identity_texture_transform,
+};
 use super::surface_texture_oes_sources::{
     start_broker_h264_oes_decode_probe, start_direct_camera2_oes_probe, BROKER_H264_DEFAULT_HOST,
     BROKER_H264_LEFT_STREAM_PORT, BROKER_H264_RIGHT_STREAM_PORT,
 };
-use super::{
-    glBindTexture, glGetError, log_error, log_info, EglContext, GL_NO_ERROR,
-    GL_TEXTURE_EXTERNAL_OES, VIEW_COUNT,
+use super::surface_texture_oes_transform::{
+    android_elapsed_realtime_nanos, log_surface_texture_transform_matrix,
+    sample_surface_texture_transform_matrix, transform_matrix_hash,
 };
+use super::{log_error, log_info, EglContext, VIEW_COUNT};
 use jni::{
     objects::{GlobalRef, JObject, JValue},
     sys::jobject,
-    JNIEnv, JavaVM,
+    JavaVM,
 };
 use rusty_xr_quest_diagnostics::{
     FrameRateSummary, SurfaceTextureOesEyeStatus, SurfaceTextureOesIngestState,
     SurfaceTextureOesIngestStatus,
 };
-use std::{os::raw::c_int, time::Instant};
+use std::time::Instant;
 
 const DEFAULT_OES_SURFACE_WIDTH: i32 = 1280;
 const DEFAULT_OES_SURFACE_HEIGHT: i32 = 1280;
-const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
-const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
-const GL_TEXTURE_WRAP_S: u32 = 0x2802;
-const GL_TEXTURE_WRAP_T: u32 = 0x2803;
-const GL_LINEAR: u32 = 0x2601;
-const GL_CLAMP_TO_EDGE: u32 = 0x812F;
-
-#[link(name = "GLESv3")]
-unsafe extern "C" {
-    fn glGenTextures(n: c_int, textures: *mut u32);
-    fn glDeleteTextures(n: c_int, textures: *const u32);
-    fn glTexParameteri(target: u32, pname: u32, param: c_int);
-}
 
 pub(super) fn probe_surface_texture_oes(
     app: &android_activity::AndroidApp,
@@ -517,67 +508,6 @@ impl SurfaceTextureOesProbe {
     }
 }
 
-fn sample_surface_texture_transform_matrix(
-    env: &mut JNIEnv<'_>,
-    surface_texture: &JObject<'_>,
-) -> Result<[f32; 16], String> {
-    let transform_array = env
-        .new_float_array(16)
-        .map_err(|error| format!("allocate SurfaceTexture transform matrix array: {error}"))?;
-    env.call_method(
-        surface_texture,
-        "getTransformMatrix",
-        "([F)V",
-        &[JValue::Object(&transform_array)],
-    )
-    .map_err(|error| format!("get SurfaceTexture transform matrix: {error}"))?;
-    let mut transform = [0.0_f32; 16];
-    env.get_float_array_region(&transform_array, 0, &mut transform)
-        .map_err(|error| format!("read SurfaceTexture transform matrix: {error}"))?;
-    Ok(transform)
-}
-
-fn transform_matrix_hash(transform: &[f32; 16]) -> String {
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for value in transform {
-        for byte in value.to_bits().to_le_bytes() {
-            hash ^= u64::from(byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    }
-    format!("m44:fnv1a64:{hash:016x}")
-}
-
-fn android_elapsed_realtime_nanos(java_vm: &JavaVM) -> Option<i64> {
-    let mut env = java_vm.attach_current_thread().ok()?;
-    env.call_static_method("android/os/SystemClock", "elapsedRealtimeNanos", "()J", &[])
-        .ok()?
-        .j()
-        .ok()
-}
-
-fn log_surface_texture_transform_matrix(
-    view_index: usize,
-    source_eye: Option<&str>,
-    update_tex_image_count: u64,
-    timestamp_ns: i64,
-    transform_hash: &str,
-    transform_matrix: &[f32; 16],
-) {
-    let payload = serde_json::json!({
-        "schema": "rusty.xr.quest.surface_texture_oes_transform_matrix.v1",
-        "view_index": view_index,
-        "source_eye": source_eye,
-        "update_tex_image_count": update_tex_image_count,
-        "surface_texture_timestamp_ns": timestamp_ns,
-        "transform_matrix_hash": transform_hash,
-        "transform_matrix": transform_matrix,
-    });
-    log_info(format!(
-        "Rusty XR SurfaceTexture OES transform matrix {payload}"
-    ));
-}
-
 impl Drop for SurfaceTextureOesProbe {
     fn drop(&mut self) {
         if let Ok(mut env) = self.java_vm.attach_current_thread() {
@@ -595,64 +525,6 @@ impl Drop for SurfaceTextureOesProbe {
             delete_gl_texture(*texture);
         }
     }
-}
-
-fn create_external_oes_texture() -> Result<u32, String> {
-    unsafe {
-        while glGetError() != GL_NO_ERROR {}
-        let mut texture = 0;
-        glGenTextures(1, &mut texture);
-        if texture == 0 {
-            return Err("glGenTextures returned texture id 0 for external OES texture".into());
-        }
-        glBindTexture(GL_TEXTURE_EXTERNAL_OES, texture);
-        glTexParameteri(
-            GL_TEXTURE_EXTERNAL_OES,
-            GL_TEXTURE_MIN_FILTER,
-            GL_LINEAR as c_int,
-        );
-        glTexParameteri(
-            GL_TEXTURE_EXTERNAL_OES,
-            GL_TEXTURE_MAG_FILTER,
-            GL_LINEAR as c_int,
-        );
-        glTexParameteri(
-            GL_TEXTURE_EXTERNAL_OES,
-            GL_TEXTURE_WRAP_S,
-            GL_CLAMP_TO_EDGE as c_int,
-        );
-        glTexParameteri(
-            GL_TEXTURE_EXTERNAL_OES,
-            GL_TEXTURE_WRAP_T,
-            GL_CLAMP_TO_EDGE as c_int,
-        );
-        glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
-        let error = glGetError();
-        if error != GL_NO_ERROR {
-            delete_gl_texture(texture);
-            return Err(format!(
-                "external OES texture setup returned GL error 0x{error:04x}"
-            ));
-        }
-        Ok(texture)
-    }
-}
-
-fn delete_gl_texture(texture: u32) {
-    if texture != 0 {
-        unsafe {
-            glDeleteTextures(1, &texture);
-        }
-    }
-}
-
-fn identity_texture_transform() -> [f32; 16] {
-    [
-        1.0, 0.0, 0.0, 0.0, //
-        0.0, 1.0, 0.0, 0.0, //
-        0.0, 0.0, 1.0, 0.0, //
-        0.0, 0.0, 0.0, 1.0,
-    ]
 }
 
 fn log_surface_texture_oes_status(status: &SurfaceTextureOesIngestStatus) {
