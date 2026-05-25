@@ -55,6 +55,19 @@ pub(super) struct OesEyeProjection {
     pub(super) geometry_plan: PerEyeVideoProjectionPlan,
 }
 
+impl OesEyeProjection {
+    pub(super) fn source_transform_for_sample(
+        &self,
+        surface_texture_transform: [f32; 16],
+    ) -> [f32; 16] {
+        if self.use_surface_texture_transform {
+            surface_texture_transform
+        } else {
+            identity_texture_transform()
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct OesSourceColorContract<'a> {
     pub(super) input_encoding: &'a str,
@@ -199,6 +212,30 @@ pub(super) fn projection_plan_from_metadata(
     } else {
         None
     }
+}
+
+pub(super) fn projection_plan_from_metadata_and_state(
+    left: &OesProjectionMetadata,
+    right: &OesProjectionMetadata,
+    views: &[xr::View],
+    projection_state: OesProjectionRuntimeState,
+) -> Option<OesProjectionPlan> {
+    projection_plan_from_metadata(
+        left,
+        right,
+        views,
+        projection_state.camera_projection_mode,
+        projection_state.projection_area_eye_offset_uv,
+        projection_state.projection_area_scale,
+        projection_state.projection_area_radius,
+        projection_state.projection_area_opacity,
+        projection_state.projection_border_policy,
+        projection_state.projection_border_opacity,
+        projection_state.tuning.projection_depth_meters,
+        projection_state.tuning.camera_preview_fov_y_degrees,
+        projection_state.tuning.camera_preview_offset_y_meters,
+        projection_state.tuning.camera_raw_overlay_overscan,
+    )
 }
 
 pub(super) fn projected_footprint_summary(
@@ -1192,6 +1229,15 @@ fn use_surface_texture_transform_for_stimulus(metadata: &OesProjectionMetadata) 
 
 pub(super) const fn identity_homography() -> [[f32; 3]; 3] {
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+}
+
+const fn identity_texture_transform() -> [f32; 16] {
+    [
+        1.0, 0.0, 0.0, 0.0, //
+        0.0, 1.0, 0.0, 0.0, //
+        0.0, 0.0, 1.0, 0.0, //
+        0.0, 0.0, 0.0, 1.0,
+    ]
 }
 
 fn screen_to_domain_with_visual_adjustment(

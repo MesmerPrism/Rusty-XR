@@ -1,7 +1,4 @@
-use super::openxr_gles_config::{activity_string_extra, OesProjectionRuntimeState};
-use super::projection_geometry::{
-    projection_plan_from_metadata, OesEyeProjection, OesProjectionPlan,
-};
+use super::openxr_gles_config::activity_string_extra;
 use super::source_metadata::{
     stream_projection_metadata_log_message, OesInputSourceKind, OesProjectionMetadata,
 };
@@ -89,19 +86,6 @@ pub(super) struct OesEyeTextureSample {
     pub(super) transform_hash: Option<String>,
     pub(super) transform_matrix: [f32; 16],
     pub(super) update_tex_image_count: u64,
-}
-
-impl OesEyeProjection {
-    pub(super) fn source_transform_for_sample(
-        &self,
-        surface_texture_transform: [f32; 16],
-    ) -> [f32; 16] {
-        if self.use_surface_texture_transform {
-            surface_texture_transform
-        } else {
-            identity_texture_transform()
-        }
-    }
 }
 
 impl SurfaceTextureOesProbe {
@@ -423,29 +407,13 @@ impl SurfaceTextureOesProbe {
         Some(age_ns as f32 / 1_000_000.0)
     }
 
-    pub(super) fn projection_plan_from_xr_views(
+    pub(super) fn projection_metadata_pair(
         &self,
-        views: &[openxr::View],
-        projection_state: OesProjectionRuntimeState,
-    ) -> Option<OesProjectionPlan> {
-        let left = self.projection_metadata[0].as_ref()?;
-        let right = self.projection_metadata[1].as_ref()?;
-        projection_plan_from_metadata(
-            left,
-            right,
-            views,
-            projection_state.camera_projection_mode,
-            projection_state.projection_area_eye_offset_uv,
-            projection_state.projection_area_scale,
-            projection_state.projection_area_radius,
-            projection_state.projection_area_opacity,
-            projection_state.projection_border_policy,
-            projection_state.projection_border_opacity,
-            projection_state.tuning.projection_depth_meters,
-            projection_state.tuning.camera_preview_fov_y_degrees,
-            projection_state.tuning.camera_preview_offset_y_meters,
-            projection_state.tuning.camera_raw_overlay_overscan,
-        )
+    ) -> Option<(&OesProjectionMetadata, &OesProjectionMetadata)> {
+        Some((
+            self.projection_metadata[0].as_ref()?,
+            self.projection_metadata[1].as_ref()?,
+        ))
     }
 
     fn refresh_texture_update_rate(&mut self) {

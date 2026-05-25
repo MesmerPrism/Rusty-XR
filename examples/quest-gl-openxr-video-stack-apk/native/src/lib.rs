@@ -97,6 +97,7 @@ mod android {
     };
     use projection_geometry::{
         openxr_projection_contract_fields, projection_area_target_marker_fields_from_state,
+        projection_plan_from_metadata_and_state,
     };
     use projection_runtime::{log_oes_projection_startup_summary, OesProjectionRuntimeController};
     use surface_texture_oes_probe::probe_surface_texture_oes;
@@ -383,7 +384,8 @@ mod android {
                 let projection_area_target_fields =
                     projection_area_target_marker_fields_from_state(projection_state);
                 let projection_plan = surface_texture_oes_probe.as_ref().and_then(|probe| {
-                    probe.projection_plan_from_xr_views(&views, projection_state)
+                    let (left, right) = probe.projection_metadata_pair()?;
+                    projection_plan_from_metadata_and_state(left, right, &views, projection_state)
                 });
                 let openxr_projection_fields = openxr_projection_contract_fields(
                     "LOCAL",
