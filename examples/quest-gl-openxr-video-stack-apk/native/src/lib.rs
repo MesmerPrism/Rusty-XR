@@ -54,12 +54,10 @@ fn current_android_projection_property_config<'a>(
 mod android {
     use super::*;
     use openxr as xr;
-    use openxr::sys::Handle as _;
     use rusty_xr_quest_diagnostics::{OpenXrGlesFeasibilityState, OPENXR_GLES_EXTENSION};
     use std::{
         ffi::CString,
         os::raw::{c_char, c_int, c_void},
-        ptr,
         time::Duration,
     };
 
@@ -92,8 +90,8 @@ mod android {
     };
     use openxr_gles_session::{
         begin_openxr_frame, create_android_instance, create_openxr_gles_session,
-        end_empty_openxr_frame, initialize_android_loader, locate_submit_valid_views,
-        poll_openxr_session_events, record_openxr_runtime_properties,
+        end_empty_openxr_frame, end_projection_openxr_frame, initialize_android_loader,
+        locate_submit_valid_views, poll_openxr_session_events, record_openxr_runtime_properties,
         request_session_exit_if_app_stopped, select_openxr_gles_extensions, OesFrameRateTracker,
         OesLocatedViews,
     };
@@ -480,40 +478,15 @@ mod android {
                     "end OpenXR frame without layers",
                 )?;
             } else {
-                let layer = xr::CompositionLayerProjection::new()
-                    .layer_flags(if projection_uses_source_alpha {
-                        xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA
-                    } else {
-                        xr::CompositionLayerFlags::EMPTY
-                    })
-                    .space(&stage)
-                    .views(&projection_views);
-                let passthrough_layer = native_passthrough_underlay.as_ref().map(|underlay| {
-                    xr::sys::CompositionLayerPassthroughFB {
-                        ty: xr::sys::CompositionLayerPassthroughFB::TYPE,
-                        next: ptr::null(),
-                        flags: xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA,
-                        space: xr::sys::Space::NULL,
-                        layer_handle: underlay.layer,
-                    }
-                });
-                let mut layers: Vec<&xr::CompositionLayerBase<xr::OpenGlEs>> =
-                    Vec::with_capacity(1 + usize::from(passthrough_layer.is_some()));
-                if let Some(passthrough_layer) = passthrough_layer.as_ref() {
-                    let layer_base: &xr::CompositionLayerBase<xr::OpenGlEs> = unsafe {
-                        &*(passthrough_layer as *const xr::sys::CompositionLayerPassthroughFB
-                            as *const xr::CompositionLayerBase<xr::OpenGlEs>)
-                    };
-                    layers.push(layer_base);
-                }
-                layers.push(&layer);
-                frame_stream
-                    .end(
-                        frame_state.predicted_display_time,
-                        environment_blend_mode,
-                        &layers,
-                    )
-                    .map_err(|error| format!("end OpenXR frame: {error}"))?;
+                end_projection_openxr_frame(
+                    &mut frame_stream,
+                    frame_state.predicted_display_time,
+                    environment_blend_mode,
+                    &stage,
+                    &projection_views,
+                    projection_uses_source_alpha,
+                    native_passthrough_underlay.as_ref(),
+                )?;
             }
 
             frame_count = frame_count.saturating_add(1);
