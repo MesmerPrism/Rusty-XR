@@ -54,17 +54,9 @@ fn current_android_projection_property_config<'a>(
 mod android {
     use super::*;
     use android_activity::{InputStatus, MainEvent, PollEvent};
-    use jni::{
-        objects::{JObject, JString, JValue},
-        sys::jobject,
-        JNIEnv, JavaVM,
-    };
+    use jni::{objects::JObject, sys::jobject, JNIEnv, JavaVM};
     use openxr as xr;
     use openxr::sys::Handle as _;
-    use rusty_xr_camera_model::{
-        ColorRgba, ProjectionBorderDescriptor, ProjectionBorderFillPolicy,
-    };
-    use rusty_xr_contracts::InvalidProjectionFillPolicy;
     use rusty_xr_quest_diagnostics::{
         FrameRateSummary, OpenXrGlesExtensionStatus, OpenXrGlesFeasibilityState,
         OpenXrGlesGraphicsRequirements, OPENXR_GLES_EXTENSION,
@@ -78,6 +70,7 @@ mod android {
 
     mod egl_gles_context;
     mod oes_copy_renderer;
+    mod openxr_gles_config;
     mod openxr_gles_passthrough;
     mod openxr_gles_renderer;
     mod openxr_gles_resources;
@@ -86,9 +79,13 @@ mod android {
     mod source_metadata;
     mod surface_texture_oes_probe;
     use egl_gles_context::EglContext;
-    use oes_copy_renderer::{GlFramebuffer, OesColorControls, OesCopyRenderer};
+    use openxr_gles_config::{
+        activity_string_extra, android_system_property_f32, OesCameraProjectionMode,
+        OesColorControls, OesProcessingLayer, OesProjectionAlphaMode, OesProjectionBorderPolicy,
+        OesProjectionRuntimeState, OesProjectionTuning, OesSourceColorTransfer,
+    };
     use openxr_gles_passthrough::create_openxr_gles_passthrough_underlay;
-    use openxr_gles_renderer::{render_eye_swapchains, OesRenderFrameInputs, OesRenderTuning};
+    use openxr_gles_renderer::{OesRenderFrameInputs, OesRenderResources, OesRenderTuning};
     use openxr_gles_resources::{
         create_eye_swapchains, gl_format_label, select_environment_blend_mode,
     };
@@ -150,291 +147,6 @@ mod android {
         ]
     }
 
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    enum OesProjectionBorderPolicy {
-        #[default]
-        SolidRed,
-        PassthroughUnderlay,
-    }
-
-    impl OesProjectionBorderPolicy {
-        fn parse(value: &str) -> Option<Self> {
-            match value.trim().to_ascii_lowercase().as_str() {
-                "solid-red" => Some(Self::SolidRed),
-                "passthrough-underlay" => Some(Self::PassthroughUnderlay),
-                _ => None,
-            }
-        }
-
-        const fn stable_id(self) -> &'static str {
-            match self {
-                Self::SolidRed => "solid-red",
-                Self::PassthroughUnderlay => "passthrough-underlay",
-            }
-        }
-
-        const fn shader_id(self) -> c_int {
-            match self {
-                Self::SolidRed => 0,
-                Self::PassthroughUnderlay => 1,
-            }
-        }
-
-        const fn uses_source_alpha(self) -> bool {
-            matches!(self, Self::PassthroughUnderlay)
-        }
-
-        fn needs_source_alpha(
-            self,
-            projection_area_opacity: f32,
-            projection_border_opacity: f32,
-            projection_alpha_mode: OesProjectionAlphaMode,
-        ) -> bool {
-            self.uses_source_alpha()
-                || projection_area_opacity < 0.999
-                || projection_border_opacity < 0.999
-                || projection_alpha_mode.uses_dynamic_alpha()
-        }
-
-        const fn clear_color(self) -> (f32, f32, f32, f32) {
-            match self {
-                Self::SolidRed => (1.0, 0.0, 0.0, 1.0),
-                Self::PassthroughUnderlay => (0.0, 0.0, 0.0, 0.0),
-            }
-        }
-
-        const fn shared_fill_policy(self) -> ProjectionBorderFillPolicy {
-            match self {
-                Self::SolidRed => ProjectionBorderFillPolicy::SolidColor,
-                Self::PassthroughUnderlay => ProjectionBorderFillPolicy::PassthroughUnderlay,
-            }
-        }
-
-        fn shared_descriptor(self, opacity: f32) -> ProjectionBorderDescriptor {
-            let (r, g, b, a) = self.clear_color();
-            ProjectionBorderDescriptor::new(
-                self.shared_fill_policy(),
-                ColorRgba::new(r, g, b, a),
-                opacity.clamp(0.0, 1.0),
-            )
-        }
-
-        const fn invalid_source_uv_fill_policy(self) -> InvalidProjectionFillPolicy {
-            match self {
-                Self::SolidRed => InvalidProjectionFillPolicy::SolidRed,
-                Self::PassthroughUnderlay => InvalidProjectionFillPolicy::Transparent,
-            }
-        }
-    }
-
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    enum OesSourceColorTransfer {
-        Identity,
-        #[default]
-        SrgbToLinear,
-    }
-
-    impl OesSourceColorTransfer {
-        fn parse(value: &str) -> Option<Self> {
-            match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
-                "identity" => Some(Self::Identity),
-                "srgb-to-linear" => Some(Self::SrgbToLinear),
-                _ => None,
-            }
-        }
-
-        const fn stable_id(self) -> &'static str {
-            match self {
-                Self::Identity => "identity",
-                Self::SrgbToLinear => "srgb-to-linear",
-            }
-        }
-
-        const fn shader_id(self) -> c_int {
-            match self {
-                Self::Identity => 0,
-                Self::SrgbToLinear => 1,
-            }
-        }
-
-        const fn input_encoding(self) -> &'static str {
-            match self {
-                Self::Identity => "linear-or-renderer-native-rgb",
-                Self::SrgbToLinear => "external-oes-srgb-nonlinear-rgb",
-            }
-        }
-
-        const fn output_encoding(self) -> &'static str {
-            match self {
-                Self::Identity => "unchanged-rgb",
-                Self::SrgbToLinear => "linear-rgb",
-            }
-        }
-    }
-
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    enum OesProjectionAlphaMode {
-        #[default]
-        Fixed,
-        Red,
-        Green,
-        Blue,
-        Luma,
-        InverseRed,
-        InverseGreen,
-        InverseBlue,
-        InverseLuma,
-        RedDominance,
-        GreenDominance,
-        BlueDominance,
-        Saturation,
-        InverseSaturation,
-    }
-
-    impl OesProjectionAlphaMode {
-        fn parse(value: &str) -> Option<Self> {
-            match value.trim().to_ascii_lowercase().as_str() {
-                "" | "fixed" | "none" | "constant" | "area-opacity" | "opacity" => {
-                    Some(Self::Fixed)
-                }
-                "red" | "r" | "channel-r" => Some(Self::Red),
-                "green" | "g" | "channel-g" => Some(Self::Green),
-                "blue" | "b" | "channel-b" => Some(Self::Blue),
-                "luma" | "luminance" | "brightness" | "value" => Some(Self::Luma),
-                "inverse-red" | "red-inverse" | "inv-red" | "one-minus-red" | "1-red" | "1-r" => {
-                    Some(Self::InverseRed)
-                }
-                "inverse-green" | "green-inverse" | "inv-green" | "one-minus-green" | "1-green"
-                | "1-g" => Some(Self::InverseGreen),
-                "inverse-blue" | "blue-inverse" | "inv-blue" | "one-minus-blue" | "1-blue"
-                | "1-b" => Some(Self::InverseBlue),
-                "inverse-luma" | "luma-inverse" | "inv-luma" | "inverse-brightness"
-                | "one-minus-luma" | "1-luma" | "1-brightness" => Some(Self::InverseLuma),
-                "red-dominance" | "dominant-red" | "red-key" | "red-chroma" | "red-minus-max" => {
-                    Some(Self::RedDominance)
-                }
-                "green-dominance" | "dominant-green" | "green-key" | "green-chroma"
-                | "green-minus-max" | "screen-green" => Some(Self::GreenDominance),
-                "blue-dominance" | "dominant-blue" | "blue-key" | "blue-chroma"
-                | "blue-minus-max" => Some(Self::BlueDominance),
-                "saturation" | "chroma" | "max-min" | "colorfulness" => Some(Self::Saturation),
-                "inverse-saturation"
-                | "saturation-inverse"
-                | "inverse-chroma"
-                | "inv-chroma"
-                | "one-minus-saturation"
-                | "1-saturation" => Some(Self::InverseSaturation),
-                _ => None,
-            }
-        }
-
-        const fn stable_id(self) -> &'static str {
-            match self {
-                Self::Fixed => "fixed",
-                Self::Red => "red",
-                Self::Green => "green",
-                Self::Blue => "blue",
-                Self::Luma => "luma",
-                Self::InverseRed => "inverse-red",
-                Self::InverseGreen => "inverse-green",
-                Self::InverseBlue => "inverse-blue",
-                Self::InverseLuma => "inverse-luma",
-                Self::RedDominance => "red-dominance",
-                Self::GreenDominance => "green-dominance",
-                Self::BlueDominance => "blue-dominance",
-                Self::Saturation => "saturation",
-                Self::InverseSaturation => "inverse-saturation",
-            }
-        }
-
-        const fn shader_id(self) -> c_int {
-            match self {
-                Self::Fixed => 0,
-                Self::Red => 1,
-                Self::Green => 2,
-                Self::Blue => 3,
-                Self::Luma => 4,
-                Self::InverseRed => 5,
-                Self::InverseGreen => 6,
-                Self::InverseBlue => 7,
-                Self::InverseLuma => 8,
-                Self::RedDominance => 9,
-                Self::GreenDominance => 10,
-                Self::BlueDominance => 11,
-                Self::Saturation => 12,
-                Self::InverseSaturation => 13,
-            }
-        }
-
-        const fn uses_dynamic_alpha(self) -> bool {
-            !matches!(self, Self::Fixed)
-        }
-    }
-
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    enum OesCameraProjectionMode {
-        #[default]
-        DisplayScreenHomography,
-        WorldCanvas,
-    }
-
-    impl OesCameraProjectionMode {
-        fn parse(value: &str) -> Option<Self> {
-            match value.trim() {
-                ""
-                | "display-screen-homography"
-                | "screen-homography"
-                | "display-eye-homography"
-                | "fullscreen"
-                | "custom"
-                | "default" => Some(Self::DisplayScreenHomography),
-                "world-canvas" | "worldCanvas" | "world-space-canvas" | "world-space-quad"
-                | "mesh-quad" | "actual-quad" | "canvas" => Some(Self::WorldCanvas),
-                _ => None,
-            }
-        }
-
-        const fn stable_id(self) -> &'static str {
-            match self {
-                Self::DisplayScreenHomography => "display-screen-homography",
-                Self::WorldCanvas => "world-canvas",
-            }
-        }
-
-        const fn uses_world_canvas(self) -> bool {
-            matches!(self, Self::WorldCanvas)
-        }
-    }
-
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    enum OesContentMappingMode {
-        #[default]
-        CameraProjection,
-        #[allow(dead_code)]
-        FullFrameStimulusToProjectionArea,
-        FullFrameStimulusToSurfaceHomography,
-    }
-
-    impl OesContentMappingMode {
-        const fn shader_id(self) -> c_int {
-            match self {
-                Self::CameraProjection => 0,
-                Self::FullFrameStimulusToProjectionArea => 1,
-                Self::FullFrameStimulusToSurfaceHomography => 0,
-            }
-        }
-
-        const fn stable_id(self) -> &'static str {
-            match self {
-                Self::CameraProjection => "camera-projection-homography",
-                Self::FullFrameStimulusToProjectionArea => "full-frame-stimulus-to-projection-area",
-                Self::FullFrameStimulusToSurfaceHomography => {
-                    "full-frame-stimulus-to-surface-homography"
-                }
-            }
-        }
-    }
-
     const OES_TUNING_PROP_PROJECTION_DEPTH_METERS: &str = "debug.rustyxr.projection.depth.meters";
     const OES_TUNING_PROP_CAMERA_PREVIEW_FOV_Y_DEGREES: &str =
         "debug.rustyxr.camera.preview.fov.y.degrees";
@@ -446,14 +158,6 @@ mod android {
         "debug.rustyxr.oes.projection.runtime.resolution.enabled";
     const OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_EXTRA: &str =
         "rustyxr.projectionRuntimeResolutionEnabled";
-
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    struct OesProjectionTuning {
-        projection_depth_meters: f32,
-        camera_preview_fov_y_degrees: f32,
-        camera_preview_offset_y_meters: f32,
-        camera_raw_overlay_overscan: f32,
-    }
 
     impl OesProjectionTuning {
         fn from_activity(app: &android_activity::AndroidApp) -> Self {
@@ -497,59 +201,11 @@ mod android {
         }
     }
 
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    struct OesProjectionRuntimeState {
-        tuning: OesProjectionTuning,
-        projection_area_offset_uv: [f32; 2],
-        projection_area_eye_offset_uv: [[f32; 2]; 2],
-        projection_area_scale: [f32; 2],
-        projection_area_radius: [f32; 2],
-        projection_area_corner_radius_uv: f32,
-        projection_area_opacity: f32,
-        projection_border_opacity: f32,
-        projection_alpha_mode: OesProjectionAlphaMode,
-        projection_alpha_scale: f32,
-        projection_alpha_bias: f32,
-        camera_projection_mode: OesCameraProjectionMode,
-        projection_border_policy: OesProjectionBorderPolicy,
-    }
-
     impl OesProjectionRuntimeState {
         fn with_legacy_system_properties(self) -> Self {
             Self {
                 tuning: self.tuning.with_system_properties(),
                 ..self
-            }
-        }
-    }
-
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    enum OesProcessingLayer {
-        #[default]
-        Raw,
-        Blur,
-    }
-
-    impl OesProcessingLayer {
-        fn parse(value: &str) -> Option<Self> {
-            match value.trim().to_ascii_lowercase().as_str() {
-                "raw" => Some(Self::Raw),
-                "blur" => Some(Self::Blur),
-                _ => None,
-            }
-        }
-
-        const fn stable_id(self) -> &'static str {
-            match self {
-                Self::Raw => "raw",
-                Self::Blur => "blur",
-            }
-        }
-
-        const fn shader_id(self) -> c_int {
-            match self {
-                Self::Raw => 0,
-                Self::Blur => 1,
             }
         }
     }
@@ -917,22 +573,7 @@ mod android {
             .create_reference_space(xr::ReferenceSpaceType::LOCAL, xr::Posef::IDENTITY)
             .map_err(|error| format!("create LOCAL reference space: {error}"))?;
         let mut swapchains = create_eye_swapchains(&xr_instance, system, &session, &mut status)?;
-        let mut fbo = GlFramebuffer::new();
-        let mut oes_copy_renderer = match OesCopyRenderer::new() {
-            Ok(renderer) => Some(renderer),
-            Err(error) => {
-                status
-                    .issue_codes
-                    .push(String::from("oes_copy_renderer_create_failed"));
-                status.notes.push(format!(
-                    "Could not create the public OES full-surface copy renderer: {error}"
-                ));
-                log_error(format!(
-                    "Rusty XR OpenXR GLES OES copy renderer creation failed: {error}"
-                ));
-                None
-            }
-        };
+        let mut render_resources = OesRenderResources::new(&mut status);
         status.state = OpenXrGlesFeasibilityState::SwapchainsReady;
         log_status(&status);
 
@@ -1083,16 +724,14 @@ mod android {
                     frame_state.predicted_display_time,
                     &views,
                 );
-                render_eye_swapchains(
+                render_resources.render_eye_swapchains(
                     OesRenderFrameInputs {
                         egl: &egl,
-                        fbo: &mut fbo,
                         swapchains: &mut swapchains,
                         frame_count,
                         status: &mut status,
                         surface_texture_oes_probe: surface_texture_oes_probe.as_ref(),
                         projection_plan: projection_plan.as_ref(),
-                        oes_copy_renderer: &mut oes_copy_renderer,
                         openxr_projection_fields: &openxr_projection_fields,
                         projection_area_target_fields: &projection_area_target_fields,
                     },
@@ -1312,51 +951,6 @@ mod android {
         Ok(())
     }
 
-    fn activity_string_extra(
-        env: &mut JNIEnv<'_>,
-        activity: &JObject<'_>,
-        key: &str,
-    ) -> Option<String> {
-        let intent = env
-            .call_method(activity, "getIntent", "()Landroid/content/Intent;", &[])
-            .and_then(|value| value.l())
-            .ok()?;
-        if intent.is_null() {
-            return None;
-        }
-        let key = env.new_string(key).ok()?;
-        let key_object = JObject::from(key);
-        let extras = env
-            .call_method(&intent, "getExtras", "()Landroid/os/Bundle;", &[])
-            .and_then(|value| value.l())
-            .ok()?;
-        if extras.is_null() {
-            return None;
-        }
-        let value = env
-            .call_method(
-                &extras,
-                "get",
-                "(Ljava/lang/String;)Ljava/lang/Object;",
-                &[JValue::Object(&key_object)],
-            )
-            .and_then(|value| value.l())
-            .ok()?;
-        if value.is_null() {
-            return None;
-        }
-        let value_string = env
-            .call_method(&value, "toString", "()Ljava/lang/String;", &[])
-            .and_then(|value| value.l())
-            .ok()?;
-        if value_string.is_null() {
-            return None;
-        }
-        env.get_string(&JString::from(value_string))
-            .map(|value| value.to_string_lossy().into_owned())
-            .ok()
-    }
-
     fn projection_border_policy_from_activity(
         app: &android_activity::AndroidApp,
     ) -> OesProjectionBorderPolicy {
@@ -1428,37 +1022,6 @@ mod android {
             .filter(|value| value.is_finite())
             .unwrap_or(2.0)
             .clamp(0.0, 16.0)
-    }
-
-    fn android_system_property_value(name: &str) -> Option<String> {
-        #[link(name = "c")]
-        unsafe extern "C" {
-            fn __system_property_get(name: *const c_char, value: *mut c_char) -> c_int;
-        }
-
-        let name = CString::new(name).ok()?;
-        let mut value = [0 as c_char; 128];
-        let len = unsafe { __system_property_get(name.as_ptr(), value.as_mut_ptr()) };
-        if len <= 0 {
-            return None;
-        }
-        let value = unsafe { CStr::from_ptr(value.as_ptr()) }
-            .to_string_lossy()
-            .trim()
-            .to_string();
-        if value.is_empty() {
-            None
-        } else {
-            Some(value)
-        }
-    }
-
-    fn android_system_property_f32(name: &str, default: f32, min: f32, max: f32) -> f32 {
-        android_system_property_value(name)
-            .and_then(|value| value.parse::<f32>().ok())
-            .filter(|value| value.is_finite())
-            .map(|value| value.clamp(min, max))
-            .unwrap_or(default)
     }
 
     fn projection_depth_meters_from_activity(app: &android_activity::AndroidApp) -> f32 {

@@ -1,8 +1,11 @@
 use super::{
-    activity_string_extra, android_system_property_value, log_info, OesCameraProjectionMode,
-    OesProjectionAlphaMode, OesProjectionBorderPolicy, OesProjectionRuntimeState,
-    OesProjectionTuning, DEFAULT_PROJECTION_TARGET_DEPTH_METERS,
-    OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_EXTRA,
+    log_info,
+    openxr_gles_config::{
+        activity_string_extra, android_system_property_value, OesCameraProjectionMode,
+        OesProjectionAlphaMode, OesProjectionBorderPolicy, OesProjectionRuntimeState,
+        OesProjectionTuning,
+    },
+    DEFAULT_PROJECTION_TARGET_DEPTH_METERS, OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_EXTRA,
     OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_PROP, PROJECTION_PREVIEW_FOV_Y_DEGREES,
     PROJECTION_RAW_OVERSCAN,
 };

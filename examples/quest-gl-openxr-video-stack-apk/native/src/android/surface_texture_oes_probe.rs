@@ -1,3 +1,6 @@
+use super::openxr_gles_config::{
+    activity_string_extra, OesCameraProjectionMode, OesProjectionBorderPolicy,
+};
 use super::projection_geometry::{
     projection_plan_from_metadata, OesEyeProjection, OesProjectionPlan,
 };
@@ -5,9 +8,8 @@ use super::source_metadata::{
     stream_projection_metadata_log_message, OesInputSourceKind, OesProjectionMetadata,
 };
 use super::{
-    activity_string_extra, glBindTexture, glGetError, log_error, log_info, EglContext,
-    OesCameraProjectionMode, OesProjectionBorderPolicy, GL_NO_ERROR, GL_TEXTURE_EXTERNAL_OES,
-    VIEW_COUNT,
+    glBindTexture, glGetError, log_error, log_info, EglContext, GL_NO_ERROR,
+    GL_TEXTURE_EXTERNAL_OES, VIEW_COUNT,
 };
 use jni::{
     objects::{GlobalRef, JClass, JObject, JString, JValue},

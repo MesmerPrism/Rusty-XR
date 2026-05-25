@@ -13,13 +13,14 @@ use rusty_xr_contracts::{
 
 use super::{
     gl_format_label, log_error, log_info,
-    oes_copy_renderer::OesColorControls,
+    openxr_gles_config::{
+        OesCameraProjectionMode, OesColorControls, OesContentMappingMode, OesProjectionAlphaMode,
+        OesProjectionBorderPolicy, OesProjectionRuntimeState, OesSourceColorTransfer,
+    },
     source_metadata::{
         projection_source_label, projection_surface_aspect_from_metadata, OesProjectionMetadata,
     },
-    OesCameraProjectionMode, OesContentMappingMode, OesProjectionAlphaMode,
-    OesProjectionBorderPolicy, OesProjectionRuntimeState, OesSourceColorTransfer, GL_SRGB8_ALPHA8,
-    OES_COPY_RENDER_PATH, OES_PROJECTED_RENDER_PATH,
+    GL_SRGB8_ALPHA8, OES_COPY_RENDER_PATH, OES_PROJECTED_RENDER_PATH,
 };
 
 const PROJECTION_FOOTPRINT_GRID: usize = 64;
@@ -428,6 +429,7 @@ pub(super) fn projection_footprint_log_message(
         })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn projection_diagnostic_log_messages(
     view_index: usize,
     frame_count: u64,
@@ -565,6 +567,7 @@ pub(super) fn projection_area_screen_uv_rect(
     ]
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn projection_area_target_marker_fields(
     left_offset_uv: [f32; 2],
     right_offset_uv: [f32; 2],
@@ -654,7 +657,7 @@ fn preview_surface_corners(
     .ok()?;
     let offset = tracking.up * preview_offset_y_meters.clamp(-2.0, 2.0);
     for corner in &mut surface {
-        *corner = *corner + offset;
+        *corner += offset;
     }
     Some(surface)
 }

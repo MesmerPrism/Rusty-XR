@@ -13,38 +13,20 @@ use super::{
     glDisableVertexAttribArray, glDrawArrays, glEnable, glEnableVertexAttribArray,
     glFramebufferTexture2D, glGenBuffers, glGenFramebuffers, glGetError, glScissor, glUniform1f,
     glUniform1i, glUniform2f, glUniform3f, glUniform4f, glUniformMatrix4fv, glUseProgram,
-    glVertexAttribPointer, glViewport, link_program, projection_geometry::identity_homography,
-    projection_geometry::OesEyeProjection, uniform_location, OesContentMappingMode,
-    OesProcessingLayer, OesProjectionAlphaMode, OesProjectionBorderPolicy, OesSourceColorTransfer,
-    GL_ARRAY_BUFFER, GL_COLOR_ATTACHMENT0, GL_COLOR_BUFFER_BIT, GL_FLOAT, GL_FRAGMENT_SHADER,
-    GL_FRAMEBUFFER, GL_FRAMEBUFFER_COMPLETE, GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT,
-    GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT, GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE,
-    GL_FRAMEBUFFER_UNSUPPORTED, GL_NO_ERROR, GL_SCISSOR_TEST, GL_STATIC_DRAW, GL_TEXTURE0,
-    GL_TEXTURE_2D, GL_TEXTURE_EXTERNAL_OES, GL_TRIANGLE_STRIP, GL_VERTEX_SHADER,
+    glVertexAttribPointer, glViewport, link_program,
+    openxr_gles_config::{
+        OesColorControls, OesContentMappingMode, OesProcessingLayer, OesProjectionAlphaMode,
+        OesProjectionBorderPolicy,
+    },
+    projection_geometry::identity_homography,
+    projection_geometry::OesEyeProjection,
+    uniform_location, GL_ARRAY_BUFFER, GL_COLOR_ATTACHMENT0, GL_COLOR_BUFFER_BIT, GL_FLOAT,
+    GL_FRAGMENT_SHADER, GL_FRAMEBUFFER, GL_FRAMEBUFFER_COMPLETE,
+    GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT, GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT,
+    GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE, GL_FRAMEBUFFER_UNSUPPORTED, GL_NO_ERROR,
+    GL_SCISSOR_TEST, GL_STATIC_DRAW, GL_TEXTURE0, GL_TEXTURE_2D, GL_TEXTURE_EXTERNAL_OES,
+    GL_TRIANGLE_STRIP, GL_VERTEX_SHADER,
 };
-#[derive(Clone, Copy, Debug)]
-pub(super) struct OesColorControls {
-    pub(super) matrix: [[f32; 3]; 3],
-    pub(super) offset: [f32; 3],
-    pub(super) contrast: f32,
-    pub(super) brightness: f32,
-    pub(super) saturation: f32,
-    pub(super) source_transfer: OesSourceColorTransfer,
-}
-
-impl Default for OesColorControls {
-    fn default() -> Self {
-        Self {
-            matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
-            offset: [0.0, 0.0, 0.0],
-            contrast: 1.0,
-            brightness: 0.0,
-            saturation: 1.0,
-            source_transfer: OesSourceColorTransfer::default(),
-        }
-    }
-}
-
 pub(super) struct OesCopyRenderer {
     program: u32,
     vertex_buffer: u32,
@@ -440,6 +422,7 @@ out_color = u_processing_layer == 1
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn render(
         &mut self,
         source_oes_texture: u32,
@@ -705,6 +688,7 @@ impl GlFramebuffer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn render_external_oes(
         &mut self,
         target_texture: u32,
