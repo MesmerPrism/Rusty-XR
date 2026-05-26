@@ -127,7 +127,11 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
     if isinstance(props, list):
         property_map = {
             "debug.rustyxr.projection.border.policy": "projectionBorderPolicy",
+            "debug.rustyxr.makepad.projection.border.policy": "projectionBorderPolicy",
+            "debug.rustyxr.processing.layer": "processingLayer",
             "debug.rustyxr.makepad.processing.layer": "processingLayer",
+            "debug.rustyxr.xr.render.scale": "xrRenderScale",
+            "debug.rustyxr.makepad.blur.radius.px": "blurRadiusPx",
         }
         for item in props:
             if not isinstance(item, dict):
@@ -143,9 +147,25 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
         manifest = read_json_file(root / json_name)
         if not isinstance(manifest, dict):
             continue
+        run_configuration = manifest.get("runConfiguration") or manifest.get("run_config")
+        if isinstance(run_configuration, dict):
+            for key, value in run_configuration.items():
+                if nonempty_text(value) is not None:
+                    fields.setdefault(str(key), value)
         for source_key, target_key in (
+            ("appId", "appId"),
+            ("packageName", "packageName"),
+            ("runtimeProfile", "runtimeProfile"),
+            ("sourceMode", "sourceMode"),
+            ("evidenceMode", "evidenceMode"),
+            ("cameraPipelinePreset", "cameraPipelinePreset"),
+            ("cameraProjectionEffectMode", "cameraProjectionEffectMode"),
+            ("cameraProjectionMode", "cameraProjectionMode"),
             ("projectionBorderPolicy", "projectionBorderPolicy"),
             ("processingLayer", "processingLayer"),
+            ("blurRadiusPx", "blurRadiusPx"),
+            ("xrRenderScale", "xrRenderScale"),
+            ("directCameraTexturePath", "directCameraTexturePath"),
         ):
             value = nonempty_text(manifest.get(source_key))
             if value is not None:
@@ -153,8 +173,14 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
         values = manifest.get("values")
         if isinstance(values, dict):
             for source_key, target_key in (
+                ("rustyxr.cameraPipelinePreset", "cameraPipelinePreset"),
+                ("rustyxr.cameraProjectionEffectMode", "cameraProjectionEffectMode"),
+                ("rustyxr.cameraProjectionMode", "cameraProjectionMode"),
                 ("rustyxr.projectionBorderPolicy", "projectionBorderPolicy"),
+                ("rustyxr.processingLayer", "processingLayer"),
                 ("rustyxr.makepad.processing.layer", "processingLayer"),
+                ("rustyxr.cameraBlurRadiusPx", "blurRadiusPx"),
+                ("rustyxr.xrRenderScale", "xrRenderScale"),
             ):
                 value = nonempty_text(values.get(source_key))
                 if value is not None:
@@ -179,6 +205,15 @@ def parse_int(value: Any) -> int | None:
         return None
     try:
         return int(str(value).strip())
+    except ValueError:
+        return None
+
+
+def parse_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(str(value).strip())
     except ValueError:
         return None
 
@@ -902,6 +937,24 @@ def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     path.write_text("".join(json.dumps(record, sort_keys=True) + "\n" for record in records), encoding="utf-8")
 
 
+def build_run_config_summary(context_fields: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "app_id": nonempty_text(context_fields.get("appId")),
+        "package_name": nonempty_text(context_fields.get("packageName")),
+        "runtime_profile": nonempty_text(context_fields.get("runtimeProfile")),
+        "source_mode": nonempty_text(context_fields.get("sourceMode")),
+        "evidence_mode": nonempty_text(context_fields.get("evidenceMode")),
+        "camera_pipeline_preset": nonempty_text(context_fields.get("cameraPipelinePreset")),
+        "camera_projection_effect_mode": nonempty_text(context_fields.get("cameraProjectionEffectMode")),
+        "camera_projection_mode": nonempty_text(context_fields.get("cameraProjectionMode")),
+        "direct_camera_texture_path": nonempty_text(context_fields.get("directCameraTexturePath")),
+        "xr_render_scale": parse_float(context_fields.get("xrRenderScale")),
+        "projection_border_policy": nonempty_text(context_fields.get("projectionBorderPolicy")),
+        "processing_layer": nonempty_text(context_fields.get("processingLayer")),
+        "blur_radius_px": parse_float(context_fields.get("blurRadiusPx")),
+    }
+
+
 def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
     timing = record.get("timing", {})
     lifecycle = record.get("lifecycle", {})
@@ -943,13 +996,16 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_summary(records: list[dict[str, Any]], log_files: list[Path]) -> dict[str, Any]:
+def build_summary(
+    records: list[dict[str, Any]], log_files: list[Path], context_fields: dict[str, Any]
+) -> dict[str, Any]:
     lane_summaries = {
         str(record.get("lane_kind", "unknown")): build_lane_summary(record) for record in records
     }
     return {
         "schema_version": SUMMARY_SCHEMA_VERSION,
         "contract_schema_version": CONTRACT_SCHEMA_VERSION,
+        "run_config": build_run_config_summary(context_fields),
         "record_count": len(records),
         "lane_kind_counts": dict(Counter(record.get("lane_kind", "unknown") for record in records)),
         "source_kind_counts": dict(
@@ -992,8 +1048,9 @@ def output_dir_for(root: Path, out_dir: Path | None) -> Path:
 
 def run(root: Path, out_dir: Path | None) -> tuple[list[dict[str, Any]], dict[str, Any], Path]:
     log_files = iter_log_files(root)
+    context_fields = load_run_context_fields(root)
     records = build_records(log_files, root)
-    summary = build_summary(records, log_files)
+    summary = build_summary(records, log_files, context_fields)
     resolved_out = output_dir_for(root, out_dir)
     resolved_out.mkdir(parents=True, exist_ok=True)
     write_jsonl(resolved_out / "camera-texture-lane-contracts.jsonl", records)
@@ -1036,6 +1093,11 @@ def self_test() -> None:
                     "expected": "raw",
                     "actual": "raw",
                 },
+                {
+                    "property": "debug.rustyxr.xr.render.scale",
+                    "expected": "0.75",
+                    "actual": "0.75",
+                },
             ],
         )
         records, summary, out_dir = run(root, None)
@@ -1068,6 +1130,10 @@ def self_test() -> None:
             raise AssertionError("summary did not count Makepad XR end-frame timing")
         if summary["projection_border_policy_counts"].get("solid-red") != 4:
             raise AssertionError("summary did not apply projection context")
+        if summary["run_config"]["xr_render_scale"] != 0.75:
+            raise AssertionError("summary did not expose XR render scale")
+        if summary["run_config"]["processing_layer"] != "raw":
+            raise AssertionError("summary did not expose processing layer")
         cpu_summary = summary["lane_summaries"]["makepad-cpuyuv-direct-camera2-raw"]
         if cpu_summary["timing_relations"]["acquire_to_upload_ns"] != 345:
             raise AssertionError("summary did not compute CPU acquire-to-upload timing")

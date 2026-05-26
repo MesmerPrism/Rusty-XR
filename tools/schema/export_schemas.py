@@ -2220,6 +2220,25 @@ def schemas() -> dict[str, dict]:
             "upload_to_xr_end_frame_ns": optional_integer,
             "import_to_xr_end_frame_ns": optional_integer,
             "texture_update_to_submit_sequence_delta": optional_integer,
+            "texture_update_to_submit_sequence_relation": string(),
+        },
+    )
+    camera_texture_lane_run_config = obj(
+        "CameraTextureLaneRunConfig",
+        {
+            "app_id": nullable_string(),
+            "package_name": nullable_string(),
+            "runtime_profile": nullable_string(),
+            "source_mode": nullable_string(),
+            "evidence_mode": nullable_string(),
+            "camera_pipeline_preset": nullable_string(),
+            "camera_projection_effect_mode": nullable_string(),
+            "camera_projection_mode": nullable_string(),
+            "direct_camera_texture_path": nullable_string(),
+            "xr_render_scale": {"type": ["number", "null"]},
+            "projection_border_policy": nullable_string(),
+            "processing_layer": nullable_string(),
+            "blur_radius_px": {"type": ["number", "null"]},
         },
     )
     camera_texture_lane_summary = obj(
@@ -2259,6 +2278,7 @@ def schemas() -> dict[str, dict]:
         {
             "schema_version": {"const": "rusty.xr.camera-texture-lane-contract-summary.v1"},
             "contract_schema_version": {"const": "rusty.xr.camera-texture-lane-contract.v1"},
+            "run_config": camera_texture_lane_run_config,
             "record_count": integer(0),
             "lane_kind_counts": object_map(integer(0)),
             "color_status_counts": object_map(integer(0)),

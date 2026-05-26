@@ -70,6 +70,7 @@ if (-not $ProjectionRuntimeReadbackValidator) {
 if (-not $MetaPerfStaleAnalyzer) {
     $MetaPerfStaleAnalyzer = Join-Path $PSScriptRoot "Analyze-MetaPerfStale.py"
 }
+$cameraTextureLaneContractBuilder = Join-Path $PSScriptRoot "Build-CameraTextureLaneContracts.py"
 $projectionPropertyHygieneHelper = Join-Path $PSScriptRoot "ProjectionPropertyHygiene.ps1"
 . $projectionPropertyHygieneHelper
 $publicExampleAppHygieneHelper = Join-Path $PSScriptRoot "PublicExampleAppHygiene.ps1"
@@ -842,6 +843,55 @@ function Convert-Overrides {
     return $values
 }
 
+function Get-LaunchValue {
+    param(
+        [hashtable]$LaunchValues,
+        [string]$Key
+    )
+    if ($LaunchValues.ContainsKey($Key)) {
+        return [string]$LaunchValues[$Key]
+    }
+    return ""
+}
+
+function ConvertTo-OptionalDouble {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+    [double]$parsedValue = 0.0
+    $ok = [double]::TryParse(
+        $Value,
+        [System.Globalization.NumberStyles]::Float,
+        [System.Globalization.CultureInfo]::InvariantCulture,
+        [ref]$parsedValue)
+    if ($ok) {
+        return $parsedValue
+    }
+    return $null
+}
+
+function New-RunConfigurationSummary {
+    param(
+        [hashtable]$LaunchValues,
+        [string]$RuntimeProfileId,
+        [string]$ProjectionBorderPolicyValue
+    )
+    $processingLayerValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.processingLayer"
+    $blurRadiusValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.cameraBlurRadiusPx"
+    $xrRenderScaleValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.xrRenderScale"
+    return [ordered]@{
+        runtimeProfile = $RuntimeProfileId
+        xrRenderScale = ConvertTo-OptionalDouble -Value $xrRenderScaleValue
+        projectionBorderPolicy = $ProjectionBorderPolicyValue
+        processingLayer = if ($processingLayerValue) { $processingLayerValue } else { $null }
+        blurRadiusPx = ConvertTo-OptionalDouble -Value $blurRadiusValue
+        cameraPipelinePreset = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.cameraPipelinePreset"
+        cameraProjectionEffectMode = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.cameraProjectionEffectMode"
+        cameraProjectionMode = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.cameraProjectionMode"
+    }
+}
+
 function Capture-PowerSnapshot {
     param(
         [string]$Dir,
@@ -1265,6 +1315,67 @@ function Invoke-MetaPerfStaleAnalysis {
     }
 }
 
+function Invoke-CameraTextureLaneContractAnalysis {
+    param([string]$Dir)
+
+    $analysisDir = Join-Path $Dir "camera-texture-lane-analysis"
+    $contractsPath = Join-Path $analysisDir "camera-texture-lane-contracts.jsonl"
+    $summaryPath = Join-Path $analysisDir "camera-texture-lane-contract-summary.json"
+    $stdoutPath = Join-Path $analysisDir "camera-texture-lane-builder-stdout.txt"
+    $errorPath = Join-Path $analysisDir "camera-texture-lane-builder-error.txt"
+    New-Item -ItemType Directory -Force -Path $analysisDir | Out-Null
+    foreach ($pathToClear in @($stdoutPath, $errorPath)) {
+        if (Test-Path -LiteralPath $pathToClear) {
+            Remove-Item -LiteralPath $pathToClear -Force
+        }
+    }
+    if (-not (Test-Path -LiteralPath $cameraTextureLaneContractBuilder)) {
+        return [ordered]@{
+            schema = "rusty.xr.quest-camera-profile-run.camera-texture-lane-analysis.v1"
+            status = "skipped"
+            reason = "builder-not-found"
+            outDir = $analysisDir
+            contractsJsonl = $contractsPath
+            summaryJson = $summaryPath
+        }
+    }
+
+    try {
+        $analysisOutput = @(& python $cameraTextureLaneContractBuilder $Dir --out-dir $analysisDir 2>&1 |
+            ForEach-Object { [string]$_ })
+        $toolExitCode = $LASTEXITCODE
+        Write-Utf8TextFile -Path $stdoutPath -Value $analysisOutput
+        $summary = $null
+        if (Test-Path -LiteralPath $summaryPath) {
+            $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+        }
+        $status = if ($toolExitCode -eq 0 -and $null -ne $summary) { "ok" } else { "tool-failed" }
+        return [ordered]@{
+            schema = "rusty.xr.quest-camera-profile-run.camera-texture-lane-analysis.v1"
+            status = $status
+            outDir = $analysisDir
+            contractsJsonl = $contractsPath
+            summaryJson = $summaryPath
+            stdout = $stdoutPath
+            exitCode = $toolExitCode
+            summary = $summary
+        }
+    }
+    catch {
+        Write-Utf8TextFile -Path $errorPath -Value @("camera texture lane contract analysis failed", $_.Exception.Message)
+        return [ordered]@{
+            schema = "rusty.xr.quest-camera-profile-run.camera-texture-lane-analysis.v1"
+            status = "tool-failed"
+            reason = $_.Exception.Message
+            outDir = $analysisDir
+            contractsJsonl = $contractsPath
+            summaryJson = $summaryPath
+            stdout = $stdoutPath
+            error = $errorPath
+        }
+    }
+}
+
 function Capture-Artifacts {
     param(
         [string]$Dir,
@@ -1406,6 +1517,10 @@ if ($ProjectionBorderPolicy) {
 if ($CameraProjectionMode) {
     $values["rustyxr.cameraProjectionMode"] = $CameraProjectionMode
 }
+$runConfiguration = New-RunConfigurationSummary `
+    -LaunchValues $values `
+    -RuntimeProfileId $RuntimeProfile `
+    -ProjectionBorderPolicyValue $ProjectionBorderPolicy
 
 Invoke-ProfileTimedStep -Step "adb-devices" -Action {
     Write-Utf8TextFile -Path (Join-Path $dir "adb-devices.txt") -Value ((Invoke-Adb -Arguments @("devices")) -join [Environment]::NewLine)
@@ -1537,6 +1652,10 @@ $manifest = [ordered]@{
     cameraProjectionEffectMode = $CameraProjectionEffectMode
     projectionBorderPolicy = $ProjectionBorderPolicy
     cameraProjectionMode = $CameraProjectionMode
+    xrRenderScale = $runConfiguration.xrRenderScale
+    processingLayer = $runConfiguration.processingLayer
+    blurRadiusPx = $runConfiguration.blurRadiusPx
+    runConfiguration = $runConfiguration
     warmupSeconds = $WarmupSeconds
     captureReadinessMode = $CaptureReadinessMode
     readyTimeoutSeconds = $ReadyTimeoutSeconds
@@ -1584,6 +1703,19 @@ Write-Utf8TextFile -Path $manifestPath -Value ($manifest | ConvertTo-Json -Depth
 $manifest["projectionRuntimeReadback"] = Invoke-ProfileTimedStep -Step "projection-runtime-readback" -Action {
     Invoke-ProjectionRuntimeReadbackValidation -Dir $dir -Label $label -ManifestPath $manifestPath
 }
+$profileTimingSummary = New-ProfileTimingSummary
+Write-Utf8TextFile -Path $script:profileTimingSummaryPath -Value ($profileTimingSummary | ConvertTo-Json -Depth 8)
+$manifest["timing"] = [ordered]@{
+    totalElapsedMs = $profileTimingSummary.totalElapsedMs
+    jsonl = $script:profileTimingPath
+    summary = $script:profileTimingSummaryPath
+}
+Write-Utf8TextFile -Path $manifestPath -Value ($manifest | ConvertTo-Json -Depth 8)
+$cameraTextureLaneAnalysis = Invoke-ProfileTimedStep -Step "camera-texture-lane-contract-analysis" -Action {
+    Invoke-CameraTextureLaneContractAnalysis -Dir $dir
+}
+$manifest["cameraTextureLaneAnalysis"] = $cameraTextureLaneAnalysis
+$manifest["cameraTextureLaneSummary"] = $cameraTextureLaneAnalysis.summary
 $profileTimingSummary = New-ProfileTimingSummary
 Write-Utf8TextFile -Path $script:profileTimingSummaryPath -Value ($profileTimingSummary | ConvertTo-Json -Depth 8)
 $manifest["timing"] = [ordered]@{

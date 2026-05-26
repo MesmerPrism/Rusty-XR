@@ -395,6 +395,20 @@ function Resolve-RepoPath {
     return [System.IO.Path]::GetFullPath((Join-Path $repoRoot $Path))
 }
 
+function Read-JsonArtifact {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+    try {
+        return Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+    }
+    catch {
+        Write-Warning "Could not read JSON artifact $($Path): $($_.Exception.Message)"
+        return $null
+    }
+}
+
 function ConvertTo-WindowsLongPath {
     param([string]$Path)
     $fullPath = [System.IO.Path]::GetFullPath($Path)
@@ -1075,6 +1089,7 @@ function Invoke-HwbOrGlesCase {
         }
     }
     Write-Host "[$caseId] captured headset provider=$HeadsetCaptureProvider"
+    $profileManifest = Read-JsonArtifact -Path (Join-Path $artifactDir "run-manifest.json")
     return [ordered]@{
         id = $caseId
         lane = $Lane
@@ -1090,6 +1105,9 @@ function Invoke-HwbOrGlesCase {
         brokerH264SyntheticProjectionProfile = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticProjectionProfile } else { $null }
         processingLayer = $ProcessingLayer
         blurRadiusPx = $BlurRadiusPx
+        runConfiguration = if ($profileManifest) { $profileManifest.runConfiguration } else { $null }
+        cameraTextureLaneAnalysis = if ($profileManifest) { $profileManifest.cameraTextureLaneAnalysis } else { $null }
+        cameraTextureLaneSummary = if ($profileManifest) { $profileManifest.cameraTextureLaneSummary } else { $null }
     }
 }
 
@@ -1257,6 +1275,7 @@ function Invoke-MakepadCase {
         }
     }
     Write-Host "[$caseId] captured headset provider=$HeadsetCaptureProvider"
+    $makepadSummary = Read-JsonArtifact -Path (Join-Path $caseRoot "summary.json")
     return [ordered]@{
         id = $caseId
         lane = "makepad"
@@ -1274,6 +1293,9 @@ function Invoke-MakepadCase {
         brokerH264SyntheticProjectionProfile = if ($SourceMode -eq "broker-synthetic") { $BrokerH264SyntheticProjectionProfile } else { $null }
         processingLayer = $ProcessingLayer
         blurRadiusPx = $BlurRadiusPx
+        runConfiguration = if ($makepadSummary) { $makepadSummary.runConfiguration } else { $null }
+        cameraTextureLaneAnalysis = if ($makepadSummary) { $makepadSummary.cameraTextureLaneAnalysis } else { $null }
+        cameraTextureLaneSummary = if ($makepadSummary) { $makepadSummary.cameraTextureLaneSummary } else { $null }
     }
 }
 
