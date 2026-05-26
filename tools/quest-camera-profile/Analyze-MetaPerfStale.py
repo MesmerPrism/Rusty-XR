@@ -18,6 +18,10 @@ THREADTIME_RE = re.compile(
     r"(?P<tag>[^:]+?)\s*:\s*(?P<body>.*)$"
 )
 MAKEPAD_CADENCE_MARKER = "RUSTY_XR_MAKEPAD_CADENCE"
+MAKEPAD_FRAME_FLOW_MARKERS = (
+    "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW",
+    "RUSTY_XR_MAKEPAD_FRAME_FLOW",
+)
 APP_MARKER_SUBSTRINGS = (
     "RustyXRMakepad",
     "RustyXrComposite",
@@ -184,6 +188,85 @@ def summarize_cadence(rows: list[dict[str, Any]], target_fps: float | None) -> d
     }
 
 
+def count_by(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        value = row.get(key)
+        if value is None:
+            continue
+        label = str(value)
+        counts[label] = counts.get(label, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def numeric_value(row: dict[str, Any], key: str) -> float | None:
+    return number_prefix(row.get(key))
+
+
+def summarize_frame_flow(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    acquire_rows = [row for row in rows if row.get("phase") == "acquire"]
+    acquired_rows = [row for row in acquire_rows if row.get("status") == "published"]
+    dropped_rows = [row for row in acquire_rows if row.get("status") == "dropped"]
+    upload_rows = [row for row in rows if row.get("phase") == "cpu-yuv-upload"]
+    submit_rows = [
+        row
+        for row in rows
+        if row.get("phase") == "xr-end-frame" and numeric_value(row, "submitTimeMs") is not None
+    ]
+
+    acquire_by_frame: dict[tuple[str, int], dict[str, Any]] = {}
+    for row in acquired_rows:
+        video_id = row.get("videoId")
+        frame_seq = row.get("cameraFrameSeq")
+        if video_id is None or not isinstance(frame_seq, int):
+            continue
+        acquire_by_frame[(str(video_id), frame_seq)] = row
+
+    acquire_to_upload_ms: list[float] = []
+    for row in upload_rows:
+        video_id = row.get("videoId")
+        frame_seq = row.get("cameraFrameSeq")
+        if video_id is None or not isinstance(frame_seq, int):
+            continue
+        acquired = acquire_by_frame.get((str(video_id), frame_seq))
+        if acquired is None:
+            continue
+        acquire_ms = numeric_value(acquired, "captureTimeMs")
+        upload_ms = numeric_value(row, "uploadTimeMs")
+        if acquire_ms is not None and upload_ms is not None and upload_ms >= acquire_ms:
+            acquire_to_upload_ms.append(upload_ms - acquire_ms)
+
+    submit_times = sorted(
+        time for row in submit_rows if (time := numeric_value(row, "submitTimeMs")) is not None
+    )
+    upload_to_submit_ms: list[float] = []
+    submit_index = 0
+    for row in sorted(upload_rows, key=lambda item: numeric_value(item, "uploadTimeMs") or 0.0):
+        upload_ms = numeric_value(row, "uploadTimeMs")
+        if upload_ms is None:
+            continue
+        while submit_index < len(submit_times) and submit_times[submit_index] < upload_ms:
+            submit_index += 1
+        if submit_index < len(submit_times):
+            upload_to_submit_ms.append(submit_times[submit_index] - upload_ms)
+
+    return {
+        "schema": "rusty.xr.makepad-camera-frame-flow-summary.v1",
+        "rowCount": len(rows),
+        "phaseCounts": count_by(rows, "phase"),
+        "videoIdCounts": count_by(rows, "videoId"),
+        "acquirePublishedCount": len(acquired_rows),
+        "acquireDroppedCount": len(dropped_rows),
+        "cpuYuvUploadCount": len(upload_rows),
+        "xrEndFrameCount": len(submit_rows),
+        "acquireToUploadMs": summarize_numbers(acquire_to_upload_ms),
+        "uploadToNextSubmitMs": summarize_numbers(upload_to_submit_ms),
+        "latestAcquire": acquired_rows[-1] if acquired_rows else {},
+        "latestCpuYuvUpload": upload_rows[-1] if upload_rows else {},
+        "latestXrEndFrame": submit_rows[-1] if submit_rows else {},
+    }
+
+
 def infer_app_pids(line_records: list[dict[str, Any]], explicit_pids: set[str]) -> set[str]:
     pids = set(explicit_pids)
     for record in line_records:
@@ -197,6 +280,7 @@ def analyze(logcat: Path, explicit_pids: set[str]) -> dict[str, Any]:
     line_records: list[dict[str, Any]] = []
     vrapi_rows: list[dict[str, Any]] = []
     cadence_rows: list[dict[str, Any]] = []
+    frame_flow_rows: list[dict[str, Any]] = []
     for line in logcat.read_text(encoding="utf-8", errors="replace").splitlines():
         match = THREADTIME_RE.match(line)
         if not match:
@@ -214,6 +298,10 @@ def analyze(logcat: Path, explicit_pids: set[str]) -> dict[str, Any]:
             vrapi_rows.append(row)
         if MAKEPAD_CADENCE_MARKER in body:
             cadence_rows.append(parse_marker_key_values(body.split(MAKEPAD_CADENCE_MARKER, 1)[1]))
+        for marker in MAKEPAD_FRAME_FLOW_MARKERS:
+            if marker in body:
+                frame_flow_rows.append(parse_marker_key_values(body.split(marker, 1)[1]))
+                break
 
     app_pids = infer_app_pids(line_records, explicit_pids)
     app_rows = [row for row in vrapi_rows if row.get("pid") in app_pids]
@@ -223,6 +311,7 @@ def analyze(logcat: Path, explicit_pids: set[str]) -> dict[str, Any]:
     if app_target is None:
         app_target = number_prefix(vrapi_all["steady"]["targetFps"].get("avg"))
     cadence = summarize_cadence(cadence_rows, app_target)
+    frame_flow = summarize_frame_flow(frame_flow_rows)
 
     reasons: list[str] = []
     status = "unknown"
@@ -263,6 +352,7 @@ def analyze(logcat: Path, explicit_pids: set[str]) -> dict[str, Any]:
             "app": vrapi_app,
         },
         "makepadCadence": cadence,
+        "makepadFrameFlow": frame_flow,
         "interpretation": (
             "VrApi Stale is compositor/runtime presentation telemetry. "
             "It can rise even when consecutive screenshots contain changing pixels."
@@ -288,6 +378,13 @@ def _fixture_cadence_line(index: int) -> str:
     )
 
 
+def _fixture_frame_flow_line(index: int, body: str) -> str:
+    return (
+        f"05-26 15:13:{index:02d}.000 12345 12348 I RustyXRMakepad : "
+        f"RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 {body}"
+    )
+
+
 def _analyze_fixture(lines: list[str]) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as tmp:
         logcat = Path(tmp) / "logcat.txt"
@@ -307,6 +404,23 @@ def run_self_test() -> int:
             _fixture_vrapi_line(7, 0, "73/72", 3.77, 4.62),
             _fixture_vrapi_line(8, 0, "73/72", 3.81, 4.73),
             _fixture_cadence_line(9),
+            _fixture_frame_flow_line(
+                10,
+                "phase=acquire status=published path=cpu-yuv videoId=100 cameraFrameSeq=42 "
+                "cameraTimestampNs=123 captureTimeMs=1000 width=1280 height=1280 layout=I420",
+            ),
+            _fixture_frame_flow_line(
+                11,
+                "phase=cpu-yuv-upload status=ok path=cpu-yuv videoId=100 uploadSeq=7 "
+                "cameraFrameSeq=42 cameraTimestampNs=123 uploadTimeMs=1005 width=1280 "
+                "height=1280 yBytes=1638400 uBytes=409600 vBytes=409600 totalBytes=2457600",
+            ),
+            _fixture_frame_flow_line(
+                12,
+                "phase=xr-end-frame status=submitted renderPath=makepad-xr xrFrameSeq=91 "
+                "shouldRender=true submitTimeMs=1012 predictedDisplayTimeNs=456 "
+                "predictedDisplayPeriodNs=13888888 resultCode=0 layerCount=1",
+            ),
         ]
     )
     assert transient_report["status"] == "ok", transient_report
@@ -314,6 +428,11 @@ def run_self_test() -> int:
     assert "makepad-xr-cadence-below-display" not in transient_report["reasons"], transient_report
     assert transient_report["makepadCadence"]["displayRefreshRateHz"] == 72.0, transient_report
     assert transient_report["makepadCadence"]["reportedDisplayRefreshRateHz"] == 90.0, transient_report
+    assert transient_report["makepadFrameFlow"]["acquirePublishedCount"] == 1, transient_report
+    assert transient_report["makepadFrameFlow"]["cpuYuvUploadCount"] == 1, transient_report
+    assert transient_report["makepadFrameFlow"]["xrEndFrameCount"] == 1, transient_report
+    assert transient_report["makepadFrameFlow"]["acquireToUploadMs"]["last"] == 5.0, transient_report
+    assert transient_report["makepadFrameFlow"]["uploadToNextSubmitMs"]["last"] == 7.0, transient_report
 
     sustained_report = _analyze_fixture(
         [

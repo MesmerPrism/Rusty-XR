@@ -1413,6 +1413,7 @@ $summary = [ordered]@{
     metaPerfStaleGateFailureCount = $metaPerfStaleGateFailures.Count
     metaPerfStaleGateFailures = $metaPerfStaleGateFailures
     metaPerfStaleAnalysis = $metaPerfStaleAnalysis
+    makepadFrameFlow = $metaPerfStaleAnalysis.makepadFrameFlow
     freshnessFrames = $frames
 }
 $summary | ConvertTo-Json -Depth 7 | Set-Content -Path (Join-Path $OutDir "summary.json") -Encoding UTF8
