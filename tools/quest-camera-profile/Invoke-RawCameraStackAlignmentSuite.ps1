@@ -164,6 +164,24 @@ param(
     [switch]$SkipLaneAppForceStop,
     [int]$LaneAppForceStopSettleSeconds = 2,
     [switch]$CaptureHzdbScreencap,
+    [ValidateSet("skip", "capture", "analyze", "required")]
+    [string]$PerfettoTraceMode = "skip",
+    [ValidateSet("hzdb", "meta-mcp", "adb-perfetto", "manual")]
+    [string]$PerfettoTraceProvider = "hzdb",
+    [ValidateSet("standard", "gpu", "cpu", "lightweight", "full", "custom")]
+    [string]$PerfettoTracePreset = "lightweight",
+    [int]$PerfettoTraceDurationMs = 5000,
+    [string]$PerfettoTracePackageName = "",
+    [ValidateSet("overview", "gpu", "cpu", "frames", "threads")]
+    [string]$PerfettoTraceAnalysisFocus = "overview",
+    [ValidateSet("diagnostic-calibration", "effect-layer-ab", "stale-localization", "gpu-deep-dive", "cpu-deep-dive", "manual")]
+    [string]$PerfettoTraceIntendedUse = "diagnostic-calibration",
+    [switch]$PerfettoTraceGpuRenderStage,
+    [switch]$PerfettoTraceGpuMetrics,
+    [switch]$PerfettoTraceCpuScheduling,
+    [switch]$PerfettoTraceXrRuntime,
+    [switch]$PerfettoTraceVulkanLayer,
+    [switch]$PerfettoTraceExtendedScheduling,
     [switch]$ContinueOnError
 )
 
@@ -194,6 +212,7 @@ $usesBrokerH264Modes = @($Mode | Where-Object { $_ -like "*broker-h264*" }).Coun
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $cameraProfileRunner = Join-Path $PSScriptRoot "Invoke-QuestCameraProfileRun.ps1"
 $laneSummaryAggregator = Join-Path $PSScriptRoot "Aggregate-CameraTextureLaneSummaries.py"
+$perfettoTracePlanner = Join-Path $PSScriptRoot "Build-PerfettoTracePlan.py"
 $makepadRunner = Join-Path $repoRoot "examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1"
 $compositeCatalog = Join-Path $repoRoot "examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json"
 $glesCatalog = Join-Path $repoRoot "examples\quest-gl-openxr-video-stack-apk\catalog\rusty-xr-quest-gl-openxr-video-stack.catalog.json"
@@ -213,6 +232,10 @@ $installed = @{
     makepad = $false
 }
 $results = [System.Collections.Generic.List[object]]::new()
+
+if ($PerfettoTraceDurationMs -le 0) {
+    throw "PerfettoTraceDurationMs must be positive."
+}
 
 function Invoke-AdbText {
     param([string[]]$Arguments)
@@ -234,6 +257,87 @@ function Save-TextCommand {
     }
     catch {
         $_.Exception.Message | Out-File -FilePath $Path -Encoding UTF8
+    }
+}
+
+function Invoke-PerfettoTracePlan {
+    $artifactDir = Join-Path $sessionRoot "perfetto"
+    $planPath = Join-Path $artifactDir "perfetto-trace-plan.json"
+    $stdoutPath = Join-Path $artifactDir "perfetto-trace-plan-stdout.txt"
+    $errorPath = Join-Path $artifactDir "perfetto-trace-plan-error.txt"
+    if ($PerfettoTraceMode -eq "skip") {
+        return [ordered]@{
+            status = "skipped"
+            mode = $PerfettoTraceMode
+            path = $planPath
+            message = "not-requested"
+        }
+    }
+    if (-not (Test-Path -LiteralPath $perfettoTracePlanner)) {
+        $result = [ordered]@{
+            status = "tool-missing"
+            mode = $PerfettoTraceMode
+            path = $planPath
+            message = "planner-not-found"
+        }
+        if ($PerfettoTraceMode -eq "required") {
+            throw "Perfetto trace planner not found: $perfettoTracePlanner"
+        }
+        return $result
+    }
+    New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+    $arguments = @(
+        $perfettoTracePlanner,
+        "--mode", $PerfettoTraceMode,
+        "--provider", $PerfettoTraceProvider,
+        "--preset", $PerfettoTracePreset,
+        "--duration-ms", ([string]$PerfettoTraceDurationMs),
+        "--artifact-dir", $artifactDir,
+        "--output-label", "raw-stack-perfetto",
+        "--analysis-focus", $PerfettoTraceAnalysisFocus,
+        "--intended-use", $PerfettoTraceIntendedUse,
+        "--out", $planPath
+    )
+    if (-not [string]::IsNullOrWhiteSpace($PerfettoTracePackageName)) {
+        $arguments += @("--package-name", $PerfettoTracePackageName)
+    }
+    if ($PerfettoTraceGpuRenderStage) { $arguments += "--gpu-render-stage" }
+    if ($PerfettoTraceGpuMetrics) { $arguments += "--gpu-metrics" }
+    if ($PerfettoTraceCpuScheduling) { $arguments += "--cpu-scheduling" }
+    if ($PerfettoTraceXrRuntime) { $arguments += "--xr-runtime" }
+    if ($PerfettoTraceVulkanLayer) { $arguments += "--vulkan-layer" }
+    if ($PerfettoTraceExtendedScheduling) { $arguments += "--extended-scheduling" }
+    try {
+        $output = @(& python @arguments 2>&1 | ForEach-Object { [string]$_ })
+        $exitCode = $LASTEXITCODE
+        $output | Set-Content -Path $stdoutPath -Encoding UTF8
+        $status = if ($exitCode -eq 0 -and (Test-Path -LiteralPath $planPath)) { "ok" } else { "tool-failed" }
+        $result = [ordered]@{
+            status = $status
+            mode = $PerfettoTraceMode
+            path = $planPath
+            stdout = $stdoutPath
+            exitCode = $exitCode
+        }
+        if ($status -ne "ok" -and $PerfettoTraceMode -eq "required") {
+            throw "Perfetto trace plan generation failed with exit code $exitCode"
+        }
+        return $result
+    }
+    catch {
+        @("Perfetto trace plan generation failed", $_.Exception.Message) |
+            Set-Content -Path $errorPath -Encoding UTF8
+        if ($PerfettoTraceMode -eq "required") {
+            throw
+        }
+        return [ordered]@{
+            status = "tool-failed"
+            mode = $PerfettoTraceMode
+            path = $planPath
+            stdout = $stdoutPath
+            error = $errorPath
+            message = $_.Exception.Message
+        }
     }
 }
 
@@ -1485,6 +1589,8 @@ else {
     $cameraTextureLaneSuiteSummaryMessage = "Aggregator not found: $laneSummaryAggregator"
 }
 
+$perfettoTracePlan = Invoke-PerfettoTracePlan
+
 $summaryJson = Join-Path $sessionRoot "raw-camera-stack-suite-summary.json"
 $results | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryJson -Encoding UTF8
 
@@ -1602,6 +1708,10 @@ $lines.Add(("- Freshness frames: ``{0}``" -f $FreshnessFrames))
 $lines.Add(("- Camera texture lane suite summary: ``{0}`` (status ``{1}``)" -f $cameraTextureLaneSuiteSummaryPath, $cameraTextureLaneSuiteSummaryStatus))
 if ($cameraTextureLaneSuiteSummaryMessage) {
     $lines.Add(("- Camera texture lane suite summary note: {0}" -f $cameraTextureLaneSuiteSummaryMessage.Replace("|", "/")))
+}
+$lines.Add(("- Perfetto trace plan: ``{0}`` (status ``{1}``, mode ``{2}``)" -f $perfettoTracePlan.path, $perfettoTracePlan.status, $perfettoTracePlan.mode))
+if ($perfettoTracePlan.message) {
+    $lines.Add(("- Perfetto trace plan note: {0}" -f $perfettoTracePlan.message.Replace("|", "/")))
 }
 if ($usesBrokerH264Modes) {
     $lines.Add(("- Broker H.264 synthetic pattern: ``{0}``" -f $BrokerH264SyntheticPattern))

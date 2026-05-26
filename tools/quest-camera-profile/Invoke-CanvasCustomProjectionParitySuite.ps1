@@ -62,6 +62,24 @@ param(
     [string]$BrokerH264SyntheticPattern = "diagnostic-grid",
     [ValidateSet("head-anchored-virtual-camera", "camera-matched", "full-frame-diagnostic")]
     [string]$BrokerH264SyntheticProjectionProfile = "camera-matched",
+    [ValidateSet("skip", "capture", "analyze", "required")]
+    [string]$PerfettoTraceMode = "skip",
+    [ValidateSet("hzdb", "meta-mcp", "adb-perfetto", "manual")]
+    [string]$PerfettoTraceProvider = "hzdb",
+    [ValidateSet("standard", "gpu", "cpu", "lightweight", "full", "custom")]
+    [string]$PerfettoTracePreset = "lightweight",
+    [int]$PerfettoTraceDurationMs = 5000,
+    [string]$PerfettoTracePackageName = "",
+    [ValidateSet("overview", "gpu", "cpu", "frames", "threads")]
+    [string]$PerfettoTraceAnalysisFocus = "overview",
+    [ValidateSet("diagnostic-calibration", "effect-layer-ab", "stale-localization", "gpu-deep-dive", "cpu-deep-dive", "manual")]
+    [string]$PerfettoTraceIntendedUse = "diagnostic-calibration",
+    [switch]$PerfettoTraceGpuRenderStage,
+    [switch]$PerfettoTraceGpuMetrics,
+    [switch]$PerfettoTraceCpuScheduling,
+    [switch]$PerfettoTraceXrRuntime,
+    [switch]$PerfettoTraceVulkanLayer,
+    [switch]$PerfettoTraceExtendedScheduling,
     [switch]$Install
 )
 
@@ -88,6 +106,9 @@ if ($MakepadFreshnessRequiredUniqueHashes -gt $MakepadFreshnessFrames) {
 }
 if ($SourceMode -ne "direct-camera" -and $MakepadDirectCameraTexturePath -ne "cpu-yuv") {
     throw "MakepadDirectCameraTexturePath only applies to SourceMode direct-camera."
+}
+if ($PerfettoTraceDurationMs -le 0) {
+    throw "PerfettoTraceDurationMs must be positive."
 }
 
 $analyzerEnabled = [bool]$RunAnalyzer
@@ -141,6 +162,7 @@ $contactSheetBuilder = Join-Path $repoRoot "tools\quest-camera-profile\Build-Can
 $screenSpaceAnalyzer = Join-Path $repoRoot "tools\quest-camera-profile\Analyze-RawStackScreenSpace.py"
 $artifactValidator = Join-Path $repoRoot "tools\quest-camera-profile\Validate-CanvasCustomParityArtifacts.py"
 $laneSummaryAggregator = Join-Path $repoRoot "tools\quest-camera-profile\Aggregate-CameraTextureLaneSummaries.py"
+$perfettoTracePlanner = Join-Path $repoRoot "tools\quest-camera-profile\Build-PerfettoTracePlan.py"
 $profileRunner = Join-Path $repoRoot "tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1"
 $makepadRunner = Join-Path $repoRoot "examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1"
 $projectionRuntimeResolutionEnabledValue = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
@@ -445,6 +467,93 @@ function Invoke-CameraTextureLaneSuiteAggregation {
             status = "tool-failed"
             reason = $_.Exception.Message
             path = $outPath
+            stdout = $stdoutPath
+            error = $errorPath
+        }
+    }
+}
+
+function Invoke-PerfettoTracePlan {
+    $artifactDir = Join-Path $sessionRoot "perfetto"
+    $planPath = Join-Path $artifactDir "perfetto-trace-plan.json"
+    $stdoutPath = Join-Path $artifactDir "perfetto-trace-plan-stdout.txt"
+    $errorPath = Join-Path $artifactDir "perfetto-trace-plan-error.txt"
+    if ($PerfettoTraceMode -eq "skip") {
+        return [ordered]@{
+            schema = "rusty.xr.canvas-custom-projection-parity-suite.perfetto-trace-plan.v1"
+            status = "skipped"
+            mode = $PerfettoTraceMode
+            path = $planPath
+            reason = "not-requested"
+        }
+    }
+    if (-not (Test-Path -LiteralPath $perfettoTracePlanner)) {
+        $result = [ordered]@{
+            schema = "rusty.xr.canvas-custom-projection-parity-suite.perfetto-trace-plan.v1"
+            status = "tool-missing"
+            mode = $PerfettoTraceMode
+            path = $planPath
+            reason = "planner-not-found"
+        }
+        if ($PerfettoTraceMode -eq "required") {
+            throw "Perfetto trace planner not found: $perfettoTracePlanner"
+        }
+        return $result
+    }
+    New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+    $arguments = @(
+        $perfettoTracePlanner,
+        "--mode", $PerfettoTraceMode,
+        "--provider", $PerfettoTraceProvider,
+        "--preset", $PerfettoTracePreset,
+        "--duration-ms", ([string]$PerfettoTraceDurationMs),
+        "--artifact-dir", $artifactDir,
+        "--output-label", "canvas-custom-perfetto",
+        "--analysis-focus", $PerfettoTraceAnalysisFocus,
+        "--intended-use", $PerfettoTraceIntendedUse,
+        "--out", $planPath
+    )
+    if (-not [string]::IsNullOrWhiteSpace($PerfettoTracePackageName)) {
+        $arguments += @("--package-name", $PerfettoTracePackageName)
+    }
+    if ($PerfettoTraceGpuRenderStage) { $arguments += "--gpu-render-stage" }
+    if ($PerfettoTraceGpuMetrics) { $arguments += "--gpu-metrics" }
+    if ($PerfettoTraceCpuScheduling) { $arguments += "--cpu-scheduling" }
+    if ($PerfettoTraceXrRuntime) { $arguments += "--xr-runtime" }
+    if ($PerfettoTraceVulkanLayer) { $arguments += "--vulkan-layer" }
+    if ($PerfettoTraceExtendedScheduling) { $arguments += "--extended-scheduling" }
+    try {
+        $output = @(& python @arguments 2>&1 | ForEach-Object { [string]$_ })
+        $exitCode = $LASTEXITCODE
+        $output | Set-Content -Path $stdoutPath -Encoding UTF8
+        $plan = Read-JsonArtifact -Path $planPath
+        $status = if ($exitCode -eq 0 -and $null -ne $plan) { "ok" } else { "tool-failed" }
+        $result = [ordered]@{
+            schema = "rusty.xr.canvas-custom-projection-parity-suite.perfetto-trace-plan.v1"
+            status = $status
+            mode = $PerfettoTraceMode
+            path = $planPath
+            stdout = $stdoutPath
+            exitCode = $exitCode
+            plan = $plan
+        }
+        if ($status -ne "ok" -and $PerfettoTraceMode -eq "required") {
+            throw "Perfetto trace plan generation failed with exit code $exitCode"
+        }
+        return $result
+    }
+    catch {
+        @("Perfetto trace plan generation failed", $_.Exception.Message) |
+            Set-Content -Path $errorPath -Encoding UTF8
+        if ($PerfettoTraceMode -eq "required") {
+            throw
+        }
+        return [ordered]@{
+            schema = "rusty.xr.canvas-custom-projection-parity-suite.perfetto-trace-plan.v1"
+            status = "tool-failed"
+            mode = $PerfettoTraceMode
+            reason = $_.Exception.Message
+            path = $planPath
             stdout = $stdoutPath
             error = $errorPath
         }
@@ -1626,11 +1735,15 @@ if ($contactSheetEnabled) {
 $cameraTextureLaneSuiteAnalysis = Invoke-TimedStep -CaseId "suite" -Step "camera-texture-lane-suite-aggregation" -Action {
     Invoke-CameraTextureLaneSuiteAggregation
 }
+$perfettoTracePlan = Invoke-TimedStep -CaseId "suite" -Step "perfetto-trace-plan" -Action {
+    Invoke-PerfettoTracePlan
+}
 $timingSummary = New-TimingSummary
 $timingSummary | ConvertTo-Json -Depth 8 | Set-Content -Path $timingSummaryPath -Encoding UTF8
 $summary["analysis"] = $analysisStatus
 $summary["contactSheetStatus"] = $contactSheetStatus
 $summary["cameraTextureLaneSuiteAnalysis"] = $cameraTextureLaneSuiteAnalysis
+$summary["perfettoTracePlan"] = $perfettoTracePlan
 $summary["timing"] = [ordered]@{
     totalElapsedMs = $timingSummary.totalElapsedMs
     jsonl = $timingPath

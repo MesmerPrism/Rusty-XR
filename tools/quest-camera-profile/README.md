@@ -132,6 +132,10 @@ The plan records the provider, preset, package, duration, analysis focus,
 overhead policy, raw trace policy, and suggested `hzdb perf` commands without
 running them. Raw `.pftrace` payloads stay in ignored artifact folders; public
 reports should carry normalized trace metrics only.
+The raw-stack and canvas/custom suite wrappers expose the same planning tier
+through `-PerfettoTraceMode`; the default is `skip`, and non-skip modes write
+`perfetto\perfetto-trace-plan.json` under the run root without capturing a
+trace.
 
 For environment-depth particle or mesh profiles, build the world-space contract
 artifact from logcat markers with:
