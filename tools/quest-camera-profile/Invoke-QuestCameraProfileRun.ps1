@@ -37,6 +37,8 @@ param(
     [string]$ProjectionPropertyHygiene = "fail",
     [ValidateSet("skip", "warn", "required")]
     [string]$ProjectionRuntimeReadback = "warn",
+    [ValidateSet("skip", "warn", "required")]
+    [string]$MetaPerfStale = "warn",
     [string[]]$PreLaunchForceStopPackages = @(
         "com.example.rustyxr.composite",
         "com.example.rustyxr.opengles",
@@ -44,6 +46,7 @@ param(
     ),
     [switch]$SkipPreLaunchForceStopPackages,
     [string]$ProjectionRuntimeReadbackValidator = "",
+    [string]$MetaPerfStaleAnalyzer = "",
     [string]$Validator = ""
 )
 
@@ -59,6 +62,9 @@ if (-not $Validator) {
 }
 if (-not $ProjectionRuntimeReadbackValidator) {
     $ProjectionRuntimeReadbackValidator = Join-Path $PSScriptRoot "Validate-ProjectionRuntimeReadback.py"
+}
+if (-not $MetaPerfStaleAnalyzer) {
+    $MetaPerfStaleAnalyzer = Join-Path $PSScriptRoot "Analyze-MetaPerfStale.py"
 }
 $projectionPropertyHygieneHelper = Join-Path $PSScriptRoot "ProjectionPropertyHygiene.ps1"
 . $projectionPropertyHygieneHelper
@@ -1124,6 +1130,137 @@ function Invoke-ProjectionRuntimeReadbackValidation {
     }
 }
 
+function Get-ProfileAppProcessIds {
+    param(
+        [string]$Dir,
+        [string]$Label
+    )
+
+    $pidPath = Join-Path $Dir "$Label-pid.txt"
+    if (-not (Test-Path -LiteralPath $pidPath)) {
+        return @()
+    }
+    $pidText = Get-Content -Raw -LiteralPath $pidPath
+    return @(
+        $pidText -split "\s+" |
+            Where-Object { $_ -match "^\d+$" } |
+            Select-Object -Unique
+    )
+}
+
+function Invoke-MetaPerfStaleAnalysis {
+    param(
+        [string]$Dir,
+        [string]$Label
+    )
+
+    $analysisPath = Join-Path $Dir "$Label-meta-perf-stale-analysis.json"
+    $stdoutPath = Join-Path $Dir "$Label-meta-perf-stale-stdout.txt"
+    $errorPath = Join-Path $Dir "$Label-meta-perf-stale-error.txt"
+    $logcatPath = Get-ProfileRunLogcatPath -Dir $Dir -Label $Label
+
+    if ($MetaPerfStale -eq "skip") {
+        return [ordered]@{
+            schema = "rusty.xr.meta-perf-stale-analysis.v1"
+            status = "skipped"
+            mode = $MetaPerfStale
+            reason = "mode-skip"
+            report = $analysisPath
+        }
+    }
+    if (-not (Test-Path -LiteralPath $MetaPerfStaleAnalyzer)) {
+        return [ordered]@{
+            schema = "rusty.xr.meta-perf-stale-analysis.v1"
+            status = "tool-failed"
+            mode = $MetaPerfStale
+            reason = "analyzer-not-found"
+            report = $analysisPath
+            error = "Meta performance stale analyzer not found: $MetaPerfStaleAnalyzer"
+        }
+    }
+    if (-not (Test-Path -LiteralPath $logcatPath)) {
+        return [ordered]@{
+            schema = "rusty.xr.meta-perf-stale-analysis.v1"
+            status = "tool-failed"
+            mode = $MetaPerfStale
+            reason = "logcat-not-found"
+            report = $analysisPath
+            error = "Profile logcat window not found: $logcatPath"
+        }
+    }
+
+    $analysisArguments = @(
+        $MetaPerfStaleAnalyzer,
+        "--logcat", $logcatPath,
+        "--summary-out", $analysisPath
+    )
+    foreach ($processId in (Get-ProfileAppProcessIds -Dir $Dir -Label $Label)) {
+        $analysisArguments += @("--app-pid", $processId)
+    }
+
+    try {
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            $output = @(& python @analysisArguments 2>&1 | ForEach-Object { [string]$_ })
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        Write-Utf8TextFile -Path $stdoutPath -Value $output
+        if ($exitCode -ne 0) {
+            $message = "Meta performance stale analysis failed with exit code $exitCode; see $stdoutPath"
+            Write-Utf8TextFile -Path $errorPath -Value $message
+            return [ordered]@{
+                schema = "rusty.xr.meta-perf-stale-analysis.v1"
+                status = "tool-failed"
+                mode = $MetaPerfStale
+                reason = "analyzer-exit-code"
+                report = $analysisPath
+                error = $message
+            }
+        }
+    }
+    catch {
+        $message = "Meta performance stale analysis failed: $($_.Exception.Message)"
+        Write-Utf8TextFile -Path $errorPath -Value $message
+        return [ordered]@{
+            schema = "rusty.xr.meta-perf-stale-analysis.v1"
+            status = "tool-failed"
+            mode = $MetaPerfStale
+            reason = "analyzer-exception"
+            report = $analysisPath
+            error = $message
+        }
+    }
+
+    if (Test-Path -LiteralPath $analysisPath) {
+        try {
+            return Get-Content -Raw -LiteralPath $analysisPath | ConvertFrom-Json
+        }
+        catch {
+            return [ordered]@{
+                schema = "rusty.xr.meta-perf-stale-analysis.v1"
+                status = "tool-failed"
+                mode = $MetaPerfStale
+                reason = "unreadable-report"
+                report = $analysisPath
+                error = "Meta performance stale report was not readable: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    return [ordered]@{
+        schema = "rusty.xr.meta-perf-stale-analysis.v1"
+        status = "tool-failed"
+        mode = $MetaPerfStale
+        reason = "report-not-written"
+        report = $analysisPath
+        error = "Meta performance stale report was not written."
+    }
+}
+
 function Capture-Artifacts {
     param(
         [string]$Dir,
@@ -1351,6 +1488,21 @@ finally {
     Write-Utf8TextFile -Path (Join-Path $dir "logcat-window-summary.json") -Value ($logcatWindowCapture | ConvertTo-Json -Depth 5)
 }
 Invoke-ProfileTimedStep -Step "run-validation" -Action { Invoke-RunValidation -Dir $dir -Label $label }
+$metaPerfStaleAnalysis = Invoke-ProfileTimedStep -Step "meta-perf-stale-analysis" -Action {
+    Invoke-MetaPerfStaleAnalysis -Dir $dir -Label $label
+}
+$metaPerfStaleGateFailures = @()
+if ($MetaPerfStale -eq "required") {
+    $metaPerfStaleStatus = [string]$metaPerfStaleAnalysis.status
+    if ($metaPerfStaleStatus -eq "stale") {
+        $metaPerfStaleReasons = @($metaPerfStaleAnalysis.reasons) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+        $metaPerfStaleGateFailures += "Meta performance stale analysis failed: $($metaPerfStaleReasons -join ', ')"
+    }
+    elseif ($metaPerfStaleStatus -eq "tool-failed") {
+        $metaPerfStaleGateFailures += "Meta performance stale analysis tool failed: $($metaPerfStaleAnalysis.reason)"
+    }
+}
 $powerStateSummary = Invoke-ProfileTimedStep -Step "power-state-summary" -Action { New-PowerStateSummary -Dir $dir -BaselinePrefix "post-proximity-hold" -FinalPrefix $label }
 if ($powerStateSummary.status -ne "ok") {
     Write-Warning "Power/proximity state drift detected; see $dir\power-state-summary.json."
@@ -1391,6 +1543,10 @@ $manifest = [ordered]@{
     preLaunchForceStopPackages = $PreLaunchForceStopPackages
     preLaunchForceStop = $preLaunchForceStopSummary
     projectionRuntimeReadbackMode = $ProjectionRuntimeReadback
+    metaPerfStaleMode = $MetaPerfStale
+    metaPerfStaleGateFailureCount = $metaPerfStaleGateFailures.Count
+    metaPerfStaleGateFailures = $metaPerfStaleGateFailures
+    metaPerfStale = $metaPerfStaleAnalysis
     logcatCapture = $logcatWindowCapture
     logcatLines = $LogcatLines
     overrides = $Override
@@ -1424,4 +1580,7 @@ $manifest["timing"] = [ordered]@{
     summary = $script:profileTimingSummaryPath
 }
 Write-Utf8TextFile -Path $manifestPath -Value ($manifest | ConvertTo-Json -Depth 8)
+if ($metaPerfStaleGateFailures.Count -gt 0) {
+    throw "meta performance stale gate failed: $($metaPerfStaleGateFailures -join '; ')"
+}
 Write-Output $dir

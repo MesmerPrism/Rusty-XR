@@ -651,6 +651,18 @@ The comparison tool accepts either gate roots or raw
 window, CPU+GPU time, app time, Makepad texture cadence, and XR repaint timing
 using the same analyzer contract as the gate.
 
+Public example profile runners force-stop sibling public example packages
+before launch unless the caller passes the explicit skip switch. This is shared
+harness hygiene: a focused direct HWB/OES or Makepad run should not depend on a
+previous public example process staying resident in the background.
+
+The direct HWB/OES profile runner also writes
+`<runtime-profile>-meta-perf-stale-analysis.json` from the bounded logcat
+window. Its default `-MetaPerfStale warn` mode records the same recent VrApi
+stale window without changing existing visual gates; use
+`-MetaPerfStale required` when a focused direct HWB/OES run is meant to be a
+stale-frame acceptance gate or a direct comparison baseline for Makepad.
+
 Projection-area offset keys share the suite-level display-eye screen-UV
 contract: positive X moves the projection area right and positive Y moves it
 down before final runtime mirror capture. Screenshot pixels are evidence after
