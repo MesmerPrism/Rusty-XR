@@ -1138,6 +1138,11 @@ $script:gateTimingSummaryPath = Join-Path $OutDir "device-gate-timing-summary.js
 $script:gateStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $script:gateTimingRecords = [System.Collections.Generic.List[object]]::new()
 $effectiveProjectionRuntimeReadback = if ($ProjectionRuntimeReadback -eq "warn" -and $UseResolvedProjectionRuntime) { "required" } else { $ProjectionRuntimeReadback }
+$directCameraColorStatus = if ($DirectCameraTexturePath -eq "hardware-buffer-external") {
+    "experimental-hardware-buffer-external-color-not-accepted"
+} else {
+    "accepted-cpu-yuv-reference"
+}
 
 Invoke-GateTimedStep -Step "adb-devices" -Action {
     Invoke-Adb -Arguments @("devices") | Set-Content -Path (Join-Path $OutDir "adb-devices.txt") -Encoding UTF8
@@ -1364,6 +1369,7 @@ $summary = [ordered]@{
     useFixedSampleWindow = [bool]$UseFixedSampleWindow
     sampleSeconds = $SampleSeconds
     directCameraTexturePath = $DirectCameraTexturePath
+    directCameraColorStatus = $directCameraColorStatus
     directCameraHardwareBufferExternalRequested = [bool]($DirectCameraTexturePath -eq "hardware-buffer-external")
     skipPreLaunchForceStopPackages = [bool]$SkipPreLaunchForceStopPackages
     preLaunchForceStopPackages = $PreLaunchForceStopPackages

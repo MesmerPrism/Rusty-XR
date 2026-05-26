@@ -135,13 +135,27 @@ impl MakepadCameraTexturePath {
         }
     }
 
+    pub(crate) const fn visual_color_status(self) -> &'static str {
+        match self {
+            Self::DirectCpuYuvPlane | Self::BrokerH264CpuYuv => "accepted-cpu-yuv-reference",
+            Self::DirectHardwareBufferExternal => {
+                "experimental-hardware-buffer-external-color-not-accepted"
+            }
+            Self::DirectHardwareBufferYuvPlane => {
+                "experimental-hardware-buffer-yuv-plane-color-not-accepted"
+            }
+            Self::BrokerH264SurfaceTexture => "experimental-surface-texture-color-not-accepted",
+        }
+    }
+
     pub(crate) fn marker_fields(self) -> String {
         format!(
-            "cameraTexturePath={} makepadVulkanImport={} textureImportPath={} cpuUploadPath={}",
+            "cameraTexturePath={} makepadVulkanImport={} textureImportPath={} cpuUploadPath={} visualColorStatus={}",
             self.stable_id(),
             self.makepad_vulkan_import(),
             self.texture_import_path(),
             self.cpu_upload_path(),
+            self.visual_color_status(),
         )
     }
 }
@@ -158,6 +172,10 @@ mod tests {
         assert!(!path.yuv_sampling_enabled());
         assert!(path.makepad_vulkan_import());
         assert_eq!(path.cpu_upload_path(), "none");
+        assert_eq!(
+            path.visual_color_status(),
+            "experimental-hardware-buffer-external-color-not-accepted"
+        );
         assert!(path
             .marker_fields()
             .contains("textureImportPath=makepad-camera-hardware-buffer-vulkan-import"));
@@ -171,6 +189,10 @@ mod tests {
         assert!(path.yuv_sampling_enabled());
         assert!(path.makepad_vulkan_import());
         assert_eq!(path.cpu_upload_path(), "none");
+        assert_eq!(
+            path.visual_color_status(),
+            "experimental-hardware-buffer-yuv-plane-color-not-accepted"
+        );
         assert!(path
             .marker_fields()
             .contains("textureImportPath=makepad-camera-hardware-buffer-vulkan-yuv-plane"));
@@ -183,6 +205,7 @@ mod tests {
         assert_eq!(path, MakepadCameraTexturePath::DirectCpuYuvPlane);
         assert!(path.yuv_sampling_enabled());
         assert!(!path.makepad_vulkan_import());
+        assert_eq!(path.visual_color_status(), "accepted-cpu-yuv-reference");
     }
 
     #[test]
@@ -193,5 +216,6 @@ mod tests {
         assert!(path.yuv_sampling_enabled());
         assert!(!path.makepad_vulkan_import());
         assert_eq!(path.cpu_upload_path(), "makepad-camera-cpu-yuv-plane");
+        assert_eq!(path.visual_color_status(), "accepted-cpu-yuv-reference");
     }
 }

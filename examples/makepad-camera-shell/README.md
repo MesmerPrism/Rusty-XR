@@ -643,10 +643,11 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   route because it remains the Makepad color/reference path that matches HWB
   and OES visually. The hardware-buffer external route is opt-in via
   `debug.rustyxr.makepad.direct.camera.hardware.buffer.external=true`; cadence
-  and projection markers include `cameraTexturePath`, `textureImportPath`, and
-  `cpuUploadPath` so performance reviews can distinguish those routes. The
-  guarded device gate exposes this as `-DirectCameraTexturePath cpu-yuv` or
-  `hardware-buffer-external`, and the parity suite can run both with
+  and projection markers include `cameraTexturePath`, `textureImportPath`,
+  `cpuUploadPath`, and `visualColorStatus` so performance reviews cannot be
+  mistaken for visual color acceptance. The guarded device gate exposes this as
+  `-DirectCameraTexturePath cpu-yuv` or `hardware-buffer-external`, records
+  `directCameraColorStatus`, and the parity suite can run both with
   `-MakepadDirectCameraTexturePath both`.
 - Performance comparison gate: active-presentation comparison reopened after
   S14, but final parity performance is still blocked on visible Makepad camera
