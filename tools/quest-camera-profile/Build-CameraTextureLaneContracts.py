@@ -283,6 +283,20 @@ def bounded_nonnegative_delta(later: Any, earlier: Any, max_delta: int | None = 
     return delta
 
 
+def texture_update_to_submit_sequence_relation(record: dict[str, Any]) -> str:
+    timing = record.get("timing", {})
+    if timing.get("texture_update_sequence") is None or timing.get("texture_submit_sequence") is None:
+        return "insufficient-data"
+    lane_kind = str(record.get("lane_kind") or "")
+    if lane_kind.startswith("makepad-"):
+        return "independent-makepad-update-and-xr-frame-sequences"
+    if lane_kind == "gles-oes-direct-camera2-raw":
+        return "independent-oes-update-and-xr-frame-sequences"
+    if lane_kind == "vulkan-hwb-direct-camera2-raw":
+        return "independent-hwb-import-and-xr-frame-sequences"
+    return "unverified-sequence-domains"
+
+
 def parse_float_list(value: Any) -> list[float] | None:
     if value is None:
         return None
@@ -924,6 +938,7 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
             "texture_update_to_submit_sequence_delta": signed_delta(
                 timing.get("texture_submit_sequence"), timing.get("texture_update_sequence")
             ),
+            "texture_update_to_submit_sequence_relation": texture_update_to_submit_sequence_relation(record),
         },
     }
 
@@ -1056,6 +1071,11 @@ def self_test() -> None:
         cpu_summary = summary["lane_summaries"]["makepad-cpuyuv-direct-camera2-raw"]
         if cpu_summary["timing_relations"]["acquire_to_upload_ns"] != 345:
             raise AssertionError("summary did not compute CPU acquire-to-upload timing")
+        if (
+            cpu_summary["timing_relations"]["texture_update_to_submit_sequence_relation"]
+            != "independent-makepad-update-and-xr-frame-sequences"
+        ):
+            raise AssertionError("summary did not label Makepad sequence domains")
         hwb_summary = summary["lane_summaries"]["makepad-hwb-external-direct-camera2-raw"]
         if hwb_summary["timing_relations"]["import_to_xr_end_frame_ns"] != 100:
             raise AssertionError("summary did not compute HWB import-to-submit timing")
