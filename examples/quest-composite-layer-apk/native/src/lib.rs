@@ -373,6 +373,7 @@ pub(crate) enum CameraSamplerBindingMode {
     #[default]
     CombinedImmutableSampler,
     SeparateImageSampler,
+    SeparateImmutableSampler,
 }
 
 impl CameraSamplerBindingMode {
@@ -385,6 +386,9 @@ impl CameraSamplerBindingMode {
             | "separate-sampler"
             | "separate"
             | "sampled-image-plus-sampler" => Some(Self::SeparateImageSampler),
+            "separate-immutable-sampler"
+            | "immutable-separate-sampler"
+            | "sampled-image-plus-immutable-sampler" => Some(Self::SeparateImmutableSampler),
             _ => None,
         }
     }
@@ -393,6 +397,7 @@ impl CameraSamplerBindingMode {
         match self {
             Self::CombinedImmutableSampler => "combined-immutable-sampler",
             Self::SeparateImageSampler => "separate-image-sampler",
+            Self::SeparateImmutableSampler => "separate-immutable-sampler",
         }
     }
 }
@@ -4090,6 +4095,19 @@ mod tests {
             CameraProjectionBorderPolicy::SolidRed
         );
         assert!(!config.camera_projection_border_policy_active());
+    }
+
+    #[test]
+    fn runtime_config_parses_separate_immutable_sampler_probe() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_sampler_binding_mode: Some("separate-immutable-sampler".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_sampler_binding_mode,
+            CameraSamplerBindingMode::SeparateImmutableSampler
+        );
     }
 
     #[test]

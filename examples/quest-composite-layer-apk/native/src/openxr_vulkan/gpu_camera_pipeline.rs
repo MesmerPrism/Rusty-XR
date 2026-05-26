@@ -104,18 +104,22 @@ unsafe fn create_gpu_camera_pipeline(
                 "/camera_projection_direct.frag.spv"
             )))?
         }
-        (crate::CameraSamplerBindingMode::SeparateImageSampler, false) => {
-            spirv_words(include_bytes!(concat!(
-                env!("OUT_DIR"),
-                "/camera_projection_separate_sampler.frag.spv"
-            )))?
-        }
-        (crate::CameraSamplerBindingMode::SeparateImageSampler, true) => {
-            spirv_words(include_bytes!(concat!(
-                env!("OUT_DIR"),
-                "/camera_projection_direct_separate_sampler.frag.spv"
-            )))?
-        }
+        (
+            crate::CameraSamplerBindingMode::SeparateImageSampler
+            | crate::CameraSamplerBindingMode::SeparateImmutableSampler,
+            false,
+        ) => spirv_words(include_bytes!(concat!(
+            env!("OUT_DIR"),
+            "/camera_projection_separate_sampler.frag.spv"
+        )))?,
+        (
+            crate::CameraSamplerBindingMode::SeparateImageSampler
+            | crate::CameraSamplerBindingMode::SeparateImmutableSampler,
+            true,
+        ) => spirv_words(include_bytes!(concat!(
+            env!("OUT_DIR"),
+            "/camera_projection_direct_separate_sampler.frag.spv"
+        )))?,
     };
     let vertex_module = device
         .create_shader_module(

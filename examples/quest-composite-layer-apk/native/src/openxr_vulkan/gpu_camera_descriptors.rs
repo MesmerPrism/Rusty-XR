@@ -31,28 +31,40 @@ pub(super) unsafe fn create_camera_descriptor_set_layout(
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT),
         ],
-        crate::CameraSamplerBindingMode::SeparateImageSampler => vec![
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(0)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(1)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(2)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(3)
-                .descriptor_type(vk::DescriptorType::SAMPLER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT),
-        ],
+        crate::CameraSamplerBindingMode::SeparateImageSampler
+        | crate::CameraSamplerBindingMode::SeparateImmutableSampler => {
+            let sampler_binding = {
+                let binding = vk::DescriptorSetLayoutBinding::default()
+                    .binding(3)
+                    .descriptor_type(vk::DescriptorType::SAMPLER)
+                    .descriptor_count(1)
+                    .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+                if sampler_binding_mode == crate::CameraSamplerBindingMode::SeparateImmutableSampler
+                {
+                    binding.immutable_samplers(&immutable_samplers)
+                } else {
+                    binding
+                }
+            };
+            vec![
+                vk::DescriptorSetLayoutBinding::default()
+                    .binding(0)
+                    .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                    .descriptor_count(1)
+                    .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+                vk::DescriptorSetLayoutBinding::default()
+                    .binding(1)
+                    .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                    .descriptor_count(1)
+                    .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+                vk::DescriptorSetLayoutBinding::default()
+                    .binding(2)
+                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+                    .descriptor_count(1)
+                    .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT),
+                sampler_binding,
+            ]
+        }
     };
     device
         .create_descriptor_set_layout(
@@ -76,7 +88,8 @@ pub(super) unsafe fn create_camera_descriptor_pool(
                 .ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
                 .descriptor_count(max_descriptor_sets),
         ],
-        crate::CameraSamplerBindingMode::SeparateImageSampler => vec![
+        crate::CameraSamplerBindingMode::SeparateImageSampler
+        | crate::CameraSamplerBindingMode::SeparateImmutableSampler => vec![
             vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::SAMPLED_IMAGE)
                 .descriptor_count((GPU_CAMERA_IMPORT_CACHE_LIMIT_MAX as u32) * 4),
@@ -153,7 +166,8 @@ pub(super) unsafe fn allocate_camera_descriptor_set(
             ];
             device.update_descriptor_sets(&writes, &[]);
         }
-        crate::CameraSamplerBindingMode::SeparateImageSampler => {
+        crate::CameraSamplerBindingMode::SeparateImageSampler
+        | crate::CameraSamplerBindingMode::SeparateImmutableSampler => {
             let left_sampled_image = [vk::DescriptorImageInfo::default()
                 .image_view(left_image_view)
                 .image_layout(image_layout)];
@@ -161,7 +175,7 @@ pub(super) unsafe fn allocate_camera_descriptor_set(
                 .image_view(right_image_view)
                 .image_layout(image_layout)];
             let sampler_info = [vk::DescriptorImageInfo::default().sampler(resources.sampler)];
-            let writes = [
+            let mut writes = vec![
                 vk::WriteDescriptorSet::default()
                     .dst_set(descriptor_set)
                     .dst_binding(0)
@@ -177,12 +191,18 @@ pub(super) unsafe fn allocate_camera_descriptor_set(
                     .dst_binding(2)
                     .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
                     .buffer_info(&projection_info),
-                vk::WriteDescriptorSet::default()
-                    .dst_set(descriptor_set)
-                    .dst_binding(3)
-                    .descriptor_type(vk::DescriptorType::SAMPLER)
-                    .image_info(&sampler_info),
             ];
+            if resources.format_key.sampler_binding_mode
+                == crate::CameraSamplerBindingMode::SeparateImageSampler
+            {
+                writes.push(
+                    vk::WriteDescriptorSet::default()
+                        .dst_set(descriptor_set)
+                        .dst_binding(3)
+                        .descriptor_type(vk::DescriptorType::SAMPLER)
+                        .image_info(&sampler_info),
+                );
+            }
             device.update_descriptor_sets(&writes, &[]);
         }
     }
