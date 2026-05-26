@@ -4,12 +4,14 @@ pub use makepad_xr::makepad_widgets;
 mod acamera_sys;
 #[cfg(target_os = "android")]
 mod android_camera_probe;
+mod camera_texture_path;
 mod source_sampling;
 mod projection_runtime;
 mod projection_geometry;
 mod source_metadata;
 mod runtime_settings;
 mod projection_settings;
+use camera_texture_path::MakepadCameraTexturePath;
 use projection_geometry::{
     makepad_draw_vars_bound_marker_fields, makepad_horizontal_alignment_hotload_marker_fields,
     makepad_native_video_widget_reset_error_marker_fields,
@@ -1047,6 +1049,10 @@ pub struct App {
     #[rust]
     paired_import_right_yuv_textures: Option<MakepadCameraYuvTextures>,
     #[rust]
+    paired_import_left_yuv_metadata: Option<VideoYuvMetadata>,
+    #[rust]
+    paired_import_right_yuv_metadata: Option<VideoYuvMetadata>,
+    #[rust]
     paired_import_left_prepared: bool,
     #[rust]
     paired_import_right_prepared: bool,
@@ -1391,6 +1397,7 @@ impl DrawMakepadStereoCameraPanel {
         cx: &mut Cx,
         left: Option<MakepadCameraYuvTextures>,
         right: Option<MakepadCameraYuvTextures>,
+        texture_path: MakepadCameraTexturePath,
     ) {
         let left_effective = left.clone().or_else(|| right.clone());
         let right_effective = right.clone().or_else(|| left_effective.clone());
@@ -1419,7 +1426,7 @@ impl DrawMakepadStereoCameraPanel {
             right_effective.as_ref().map(|textures| textures.v.clone()),
         );
         self.yuv_mode = if left_effective.is_some() && right_effective.is_some() {
-            1.0
+            texture_path.yuv_mode()
         } else {
             0.0
         };
@@ -1553,6 +1560,7 @@ impl MakepadStereoCameraPanel {
         right: Option<Texture>,
         left_yuv: Option<MakepadCameraYuvTextures>,
         right_yuv: Option<MakepadCameraYuvTextures>,
+        texture_path: MakepadCameraTexturePath,
         left_rotation_steps: f32,
         right_rotation_steps: f32,
         left_surface_to_camera_h: [[f32; 3]; 3],
@@ -1579,7 +1587,7 @@ impl MakepadStereoCameraPanel {
             (left_yuv, right_yuv)
         };
         self.draw_panel
-            .set_camera_yuv_textures(cx, left_yuv, right_yuv);
+            .set_camera_yuv_textures(cx, left_yuv, right_yuv, texture_path);
         self.draw_panel.left_rotation_steps = left_rotation_steps;
         self.draw_panel.right_rotation_steps = right_rotation_steps;
         self.draw_panel.left_projection_h00 = left_surface_to_camera_h[0][0];
@@ -2372,6 +2380,7 @@ impl App {
                 synthetic_scene: &runtime_text(&config, KEY_SYNTHETIC_SCENE),
                 projection_scale: runtime_float(&config, KEY_PROJECTION_SCALE),
                 xr_render_scale: runtime_float(&config, KEY_XR_RENDER_SCALE),
+                texture_path: MakepadCameraTexturePath::direct_default(),
                 aligned_projection: false,
                 visible_projection_ready: false,
                 makepad_fork_branch: &runtime_text(&config, KEY_MAKEPAD_BRANCH),
@@ -3083,6 +3092,58 @@ impl App {
         }
     }
 
+    fn record_camera_texture_metadata(&mut self, side: StereoEye, yuv: VideoYuvMetadata) {
+        match side {
+            StereoEye::Left => self.paired_import_left_yuv_metadata = Some(yuv),
+            StereoEye::Right => self.paired_import_right_yuv_metadata = Some(yuv),
+        }
+    }
+
+    fn direct_camera_texture_path(&self) -> MakepadCameraTexturePath {
+        let yuv_enabled = self
+            .paired_import_left_yuv_metadata
+            .as_ref()
+            .is_some_and(|metadata| metadata.enabled)
+            || self
+                .paired_import_right_yuv_metadata
+                .as_ref()
+                .is_some_and(|metadata| metadata.enabled);
+        if yuv_enabled {
+            MakepadCameraTexturePath::DirectCpuYuvPlane
+        } else {
+            Self::direct_camera_requested_texture_path()
+        }
+    }
+
+    fn direct_camera_hardware_buffer_external_enabled() -> bool {
+        hotload_bool(
+            KEY_MAKEPAD_DIRECT_CAMERA_HARDWARE_BUFFER_EXTERNAL,
+            DEFAULT_MAKEPAD_DIRECT_CAMERA_HARDWARE_BUFFER_EXTERNAL,
+        )
+    }
+
+    fn direct_camera_requested_texture_path() -> MakepadCameraTexturePath {
+        MakepadCameraTexturePath::from_direct_hardware_buffer_external_enabled(
+            Self::direct_camera_hardware_buffer_external_enabled(),
+        )
+    }
+
+    fn cadence_camera_texture_path(&self) -> MakepadCameraTexturePath {
+        if Self::broker_h264_enabled() {
+            if self.paired_import_left_yuv_metadata.is_some()
+                || self.paired_import_right_yuv_metadata.is_some()
+                || self.paired_import_left_yuv_textures.is_some()
+                || self.paired_import_right_yuv_textures.is_some()
+            {
+                MakepadCameraTexturePath::BrokerH264CpuYuv
+            } else {
+                MakepadCameraTexturePath::BrokerH264SurfaceTexture
+            }
+        } else {
+            self.direct_camera_texture_path()
+        }
+    }
+
     fn emit_cadence_sample(&mut self, now_seconds: f64, interval_seconds: f64) {
         let elapsed_seconds = (now_seconds - self.cadence_start_time).max(0.0);
         let frame_delta = self
@@ -3150,6 +3211,7 @@ impl App {
                 projection_mapping_ready,
                 aligned_projection,
                 visible_camera_projection_ready: self.camera_projection_textures_bound,
+                texture_path: self.cadence_camera_texture_path(),
             },
         ));
 
@@ -3346,6 +3408,7 @@ impl App {
                     Self::emit_hardware_buffer_import_marker(
                         &makepad_hardware_buffer_import_yuv_textures_ready_single_stream_marker_fields(
                             side.label(),
+                            Self::direct_camera_requested_texture_path(),
                         ),
                     );
                 }
@@ -3365,12 +3428,13 @@ impl App {
                         StereoEye::Right => self.paired_import_right_prepared = true,
                     }
                     Self::emit_hardware_buffer_import_marker(
-                        &makepad_hardware_buffer_import_prepared_marker_fields(
+                            &makepad_hardware_buffer_import_prepared_marker_fields(
                             side.label(),
                             prepared.video_width,
                             prepared.video_height,
                             Self::broker_h264_enabled(),
-                        ),
+                            Self::direct_camera_requested_texture_path(),
+                            ),
                     );
                     self.emit_paired_projection_progress("prepared");
                 }
@@ -3379,6 +3443,7 @@ impl App {
                 emit_raw_video_event_marker("texture-updated", updated.video_id);
                 if let Some(side) = StereoEye::from_video_id(updated.video_id) {
                     self.record_camera_texture_update(side, updated.current_position_ms);
+                    self.record_camera_texture_metadata(side, updated.yuv);
                     if !Self::broker_h264_enabled() {
                         self.emit_yuv_texture_content_probe(cx, side, updated.yuv);
                     }
@@ -3399,22 +3464,17 @@ impl App {
                     if TEXTURE_UPDATE_MARKERS_EMITTED.fetch_add(1, Ordering::AcqRel)
                         < TEXTURE_UPDATE_MARKER_LIMIT
                     {
-                        let (import_plan, cpu_upload_path) = if Self::broker_h264_enabled() {
-                            (
-                                "broker-h264-stereo-mediacodec-yuv-texture",
-                                "broker-h264-mediacodec-cpu-yuv",
-                            )
-                        } else {
-                            ("single-stream-yuv-proof", "makepad-camera-cpu-yuv-plane")
-                        };
+                        let texture_path = MakepadCameraTexturePath::from_video_update(
+                            Self::broker_h264_enabled(),
+                            updated.yuv.enabled,
+                        );
                         Self::emit_hardware_buffer_import_marker(
                             &makepad_hardware_buffer_import_texture_updated_marker_fields(
                                 side.label(),
                             updated.yuv.enabled,
                             updated.yuv.biplanar,
                             updated.yuv.rotation_steps,
-                                import_plan,
-                                cpu_upload_path,
+                                texture_path,
                             ),
                         );
                     }
@@ -3620,6 +3680,8 @@ impl App {
 
         let left_texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
         let right_texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
+        let left_texture_id = left_texture.texture_id();
+        let right_texture_id = right_texture.texture_id();
         self.paired_import_left_texture = Some(left_texture);
         self.paired_import_right_texture = Some(right_texture);
         self.paired_import_started = true;
@@ -3645,6 +3707,7 @@ impl App {
                 &left_stream_port,
                 &right_stream_port,
                 PAIRED_IMPORT_DELAY_SECONDS,
+                Self::direct_camera_requested_texture_path(),
             ),
         );
         Self::emit_stereo_projection_marker(&makepad_projection_start_marker_fields(
@@ -3672,12 +3735,24 @@ impl App {
             return;
         }
 
+        let direct_camera_texture_path = Self::direct_camera_requested_texture_path();
+        let left_import_texture_id = if direct_camera_texture_path.makepad_vulkan_import() {
+            left_texture_id
+        } else {
+            TextureId::default()
+        };
+        let right_import_texture_id = if direct_camera_texture_path.makepad_vulkan_import() {
+            right_texture_id
+        } else {
+            TextureId::default()
+        };
+
         cx.prepare_headset_camera_playback(
             StereoEye::Left.video_id(),
             VideoSource::Camera(pair.left.input_id, pair.left.format_id),
             CameraPreviewMode::Texture,
             0,
-            TextureId::default(),
+            left_import_texture_id,
             true,
             false,
         );
@@ -3686,7 +3761,7 @@ impl App {
             VideoSource::Camera(pair.right.input_id, pair.right.format_id),
             CameraPreviewMode::Texture,
             0,
-            TextureId::default(),
+            right_import_texture_id,
             true,
             false,
         );
@@ -3920,6 +3995,15 @@ impl App {
                 || right_yuv_source.is_some()
                 || self.paired_import_left_yuv_textures.is_some()
                 || self.paired_import_right_yuv_textures.is_some());
+        let texture_path = if broker_h264_enabled {
+            if broker_h264_cpu_yuv_decode {
+                MakepadCameraTexturePath::BrokerH264CpuYuv
+            } else {
+                MakepadCameraTexturePath::BrokerH264SurfaceTexture
+            }
+        } else {
+            self.direct_camera_texture_path()
+        };
         let explicit_top_left_broker_stimulus = broker_h264_enabled
             && self
                 .broker_h264_left_projection_metadata
@@ -3961,8 +4045,8 @@ impl App {
         } else {
             "identity-y-to-match-raster-metadata"
         };
-        let (left_yuv, right_yuv) = if broker_h264_enabled {
-            if broker_h264_cpu_yuv_decode {
+        let (left_yuv, right_yuv) = if texture_path.yuv_sampling_enabled() {
+            if broker_h264_enabled {
                 let left_yuv = left_yuv_source
                     .clone()
                     .or_else(|| right_yuv_source.clone())
@@ -3975,19 +4059,19 @@ impl App {
                     .or_else(|| left_yuv.clone());
                 (left_yuv, right_yuv)
             } else {
-                (None, None)
+                let (Some(left_yuv), Some(right_yuv)) = (left_yuv_source, right_yuv_source) else {
+                    if !self.camera_projection_bind_error_logged {
+                        Self::emit_stereo_projection_marker(
+                            "phase=visible-panel-bound status=waiting visibleCameraProjectionReady=false fallbackReason=makepad_camera_yuv_plane_textures_missing",
+                        );
+                        self.camera_projection_bind_error_logged = true;
+                    }
+                    return false;
+                };
+                (Some(left_yuv), Some(right_yuv))
             }
         } else {
-            let (Some(left_yuv), Some(right_yuv)) = (left_yuv_source, right_yuv_source) else {
-                if !self.camera_projection_bind_error_logged {
-                    Self::emit_stereo_projection_marker(
-                        "phase=visible-panel-bound status=waiting visibleCameraProjectionReady=false fallbackReason=makepad_camera_yuv_plane_textures_missing",
-                    );
-                    self.camera_projection_bind_error_logged = true;
-                }
-                return false;
-            };
-            (Some(left_yuv), Some(right_yuv))
+            (None, None)
         };
 
         let panel_ref = self.ui.widget(cx, ids!(camera_projection_panel));
@@ -4008,6 +4092,7 @@ impl App {
             Some(right_texture),
             left_yuv,
             right_yuv,
+            texture_path,
             self.paired_import_left_rotation_steps,
             self.paired_import_right_rotation_steps,
             pair.left_surface_to_camera_h,
@@ -4045,13 +4130,13 @@ impl App {
             source_sample_transform,
             &content_geometry_fields,
             &source_color_contract,
+            texture_path,
         )
         .marker_fields();
         Self::emit_stereo_projection_marker(&source_sampling_fields);
-        let cpu_yuv_path = !broker_h264_enabled || broker_h264_cpu_yuv_decode;
         Self::emit_stereo_projection_marker(&makepad_draw_vars_bound_marker_fields(
             &pair,
-            cpu_yuv_path,
+            texture_path,
             broker_h264_enabled && !broker_h264_cpu_yuv_decode,
             single_stream_visual_proof,
             proof_source_side,
@@ -4064,6 +4149,7 @@ impl App {
         }
         Self::emit_stereo_projection_marker(&makepad_visible_panel_bound_marker_fields(
             &pair,
+            texture_path,
             self.paired_import_left_rotation_steps,
             self.paired_import_right_rotation_steps,
             single_stream_visual_proof,
@@ -4092,9 +4178,11 @@ impl App {
         let single_stream_ready = if broker_h264_enabled {
             false
         } else {
-            (self.paired_import_left_updated || self.paired_import_right_updated)
-                && (self.paired_import_left_yuv_textures.is_some()
-                    || self.paired_import_right_yuv_textures.is_some())
+            let one_stream_updated = self.paired_import_left_updated || self.paired_import_right_updated;
+            let direct_yuv_ready = self.paired_import_left_yuv_textures.is_some()
+                || self.paired_import_right_yuv_textures.is_some();
+            one_stream_updated
+                && (!self.direct_camera_texture_path().yuv_sampling_enabled() || direct_yuv_ready)
         };
         if !paired_streams_ready && !single_stream_ready {
             self.emit_paired_projection_progress("texture-updated");
@@ -4114,6 +4202,7 @@ impl App {
                         self.paired_import_right_updated,
                         self.paired_import_left_yuv_textures.is_some(),
                         self.paired_import_right_yuv_textures.is_some(),
+                        self.cadence_camera_texture_path(),
                         pair.projection_homography_ready,
                         visible_projection_ready,
                         updated_stream_visual_proof_side,
@@ -4125,10 +4214,12 @@ impl App {
         self.paired_import_finished = true;
         let aligned_projection = pair.projection_homography_ready && paired_streams_ready;
         let visible_projection_ready = self.bind_camera_projection_panel(cx);
+        let texture_path = self.cadence_camera_texture_path();
         Self::emit_stereo_projection_marker(&makepad_projection_complete_marker_fields(
             &pair,
             paired_streams_ready,
             broker_h264_enabled,
+            texture_path,
             aligned_projection,
             visible_projection_ready,
             &runtime_text(&Self::runtime_config(), KEY_CAMERA_PROJECTION_MODE),
@@ -4140,6 +4231,7 @@ impl App {
         Self::emit_stereo_comparison_parity_marker(
             "paired-projection-ready",
             &pair,
+            texture_path,
             aligned_projection,
             visible_projection_ready,
         );
@@ -4148,6 +4240,7 @@ impl App {
     fn emit_stereo_comparison_parity_marker(
         phase: &str,
         pair: &MakepadCameraPair,
+        texture_path: MakepadCameraTexturePath,
         aligned_projection: bool,
         visible_projection_ready: bool,
     ) {
@@ -4170,6 +4263,7 @@ impl App {
                 synthetic_scene: &runtime_text(&config, KEY_SYNTHETIC_SCENE),
                 projection_scale: runtime_float(&config, KEY_PROJECTION_SCALE),
                 xr_render_scale: runtime_float(&config, KEY_XR_RENDER_SCALE),
+                texture_path,
                 aligned_projection,
                 visible_projection_ready,
                 makepad_fork_branch: &runtime_text(&config, KEY_MAKEPAD_BRANCH),

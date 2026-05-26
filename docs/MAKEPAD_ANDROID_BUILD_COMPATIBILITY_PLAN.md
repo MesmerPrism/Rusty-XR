@@ -343,10 +343,12 @@ insufficient: the Makepad example must visibly show an app-owned, eye-aligned
 camera texture panel before per-eye projection mapping or performance numbers
 can be compared against the custom lane.
 S33 then proved app-owned geometry and improved alignment but still rendered
-solid split-proof colors instead of camera pixels. The active S34 source split
-binds Makepad's Y/U/V camera plane textures directly for a camera-pixel proof
-path and marks it as a CPU YUV plane upload, so it must not be used as a
-performance comparison result until the Vulkan YUV-plane import path is wired.
+solid split-proof colors instead of camera pixels. The later camera-pixel proof
+path bound Makepad's Y/U/V camera plane textures directly. A subsequent
+`VideoExternal` hardware-buffer import diagnostic proved the import path can be
+entered, but it showed stale-frame and color issues, so the direct Camera2 lane
+keeps CPU-YUV as the default while `cameraTexturePath` and `cpuUploadPath`
+remain the source of truth before comparing performance.
 
 Do not start with a full renderer port. Keep the launch and diagnostic log path
 repeatable, keep hardware-buffer warnings separate from GPU-fault counters, and

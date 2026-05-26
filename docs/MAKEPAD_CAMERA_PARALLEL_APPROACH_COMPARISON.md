@@ -203,9 +203,11 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
   headset view, before any performance comparison is meaningful.
 - S33 then moved the app-owned panel into view and made it opaque, but the
   visible content remained split proof colors instead of camera pixels. The
-  active S34 split binds Makepad's Y/U/V camera plane textures directly as a
-  camera-pixel proof path. It is not a final performance path because it uses a
-  CPU YUV plane upload until the Vulkan YUV-plane import route is wired.
+  subsequent CPU-YUV camera-pixel proof was useful for color/projection
+  debugging and remains the current default. A later Makepad/Vulkan
+  `VideoExternal` hardware-buffer diagnostic is available as an opt-in route,
+  but stale-frame and color behavior keep it out of the default visual path
+  until the Makepad import path is corrected.
 - A control run of Makepad's upstream XR example on the same headset reproduced
   the GPU page fault symptom after the Windows tool patches, so the fault is
   likely in the current Makepad/Quest XR stack rather than this Rusty XR smoke

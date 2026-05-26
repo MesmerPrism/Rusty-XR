@@ -36,6 +36,7 @@ pub(crate) const DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS: u32 = 10_000;
 pub(crate) const DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS: u32 = 30_000;
 pub(crate) const DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS: u32 = 20_000;
 pub(crate) const DEFAULT_BROKER_H264_LIVE_STREAM: bool = true;
+pub(crate) const DEFAULT_MAKEPAD_DIRECT_CAMERA_HARDWARE_BUFFER_EXTERNAL: bool = false;
 pub(crate) const SUPPRESS_LIVE_CAMERA_SAMPLING: bool = false;
 pub(crate) const FORCE_FULL_SURFACE_LIVE_CAMERA_UV: bool = false;
 pub(crate) const FORCE_IN_SURFACE_CAMERA_WINDOW: bool = true;
@@ -147,6 +148,8 @@ pub(crate) const KEY_MAKEPAD_PROJECTION_RUNTIME_RESOLUTION_ENABLED: &str =
     "makepad_projection_runtime_resolution_enabled";
 pub(crate) const KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED: &str =
     "makepad_native_passthrough_enabled";
+pub(crate) const KEY_MAKEPAD_DIRECT_CAMERA_HARDWARE_BUFFER_EXTERNAL: &str =
+    "makepad_direct_camera_hardware_buffer_external";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_ENABLED: &str = "makepad_broker_h264_enabled";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_HOST: &str = "makepad_broker_h264_host";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_BROKER_PORT: &str =

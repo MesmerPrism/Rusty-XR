@@ -1,3 +1,4 @@
+use crate::camera_texture_path::MakepadCameraTexturePath;
 use crate::FrameOrientationDecision;
 use rusty_xr_contracts::{
     SourceSamplerYAxis, SourceSamplingContract, SourceSamplingTransformStage, StereoSourceEyeMapping,
@@ -38,6 +39,7 @@ pub(crate) struct MakepadCadenceSampleMarker {
     pub(crate) projection_mapping_ready: bool,
     pub(crate) aligned_projection: bool,
     pub(crate) visible_camera_projection_ready: bool,
+    pub(crate) texture_path: MakepadCameraTexturePath,
 }
 
 pub(crate) struct MakepadSourceSamplingHandoff<'a> {
@@ -50,6 +52,7 @@ pub(crate) struct MakepadSourceSamplingHandoff<'a> {
     source_sample_transform: &'a str,
     content_geometry_fields: &'a str,
     source_color_contract_fields: &'a str,
+    texture_path: MakepadCameraTexturePath,
 }
 
 impl<'a> MakepadSourceSamplingHandoff<'a> {
@@ -64,6 +67,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
         source_sample_transform: &'a str,
         content_geometry_fields: &'a str,
         source_color_contract_fields: &'a str,
+        texture_path: MakepadCameraTexturePath,
     ) -> Self {
         Self {
             broker_h264_enabled,
@@ -75,6 +79,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
             source_sample_transform,
             content_geometry_fields,
             source_color_contract_fields,
+            texture_path,
         }
     }
 
@@ -106,7 +111,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
     pub(crate) fn marker_fields(&self) -> String {
         let contract = self.contract();
         format!(
-            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} diagnosticUvTransform={} sourceRasterYMappingStage={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv {} {}",
+            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} diagnosticUvTransform={} sourceRasterYMappingStage={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv {} {} {}",
             self.broker_h264_enabled,
             self.explicit_top_left_broker_stimulus,
             marker_token(&self.orientation_decision.orientation_kind),
@@ -133,6 +138,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
             contract.transform_label,
             self.content_geometry_fields,
             self.source_color_contract_fields,
+            self.texture_path.marker_fields(),
         )
     }
 
@@ -156,7 +162,7 @@ pub(crate) fn makepad_cadence_start_marker_line(sample_period_seconds: f64) -> S
 
 pub(crate) fn makepad_cadence_sample_marker_line(sample: MakepadCadenceSampleMarker) -> String {
     format!(
-        "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} xrUpdateCount={} xrUpdateDelta={} xrUpdateRateHz={:.2} drawEventCount={} drawEventDelta={} drawEventRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightCameraFrames={} projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} cpuUploadPath=makepad-camera-cpu-yuv-plane renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated",
+        "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} xrUpdateCount={} xrUpdateDelta={} xrUpdateRateHz={:.2} drawEventCount={} drawEventDelta={} drawEventRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightCameraFrames={} projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated {}",
         sample.elapsed_seconds * 1000.0,
         sample.interval_seconds * 1000.0,
         sample.app_frame_count,
@@ -183,6 +189,7 @@ pub(crate) fn makepad_cadence_sample_marker_line(sample: MakepadCadenceSampleMar
         sample.projection_mapping_ready,
         sample.aligned_projection,
         sample.visible_camera_projection_ready,
+        sample.texture_path.marker_fields(),
     )
 }
 
@@ -316,11 +323,12 @@ mod tests {
             projection_mapping_ready: true,
             aligned_projection: false,
             visible_camera_projection_ready: true,
+            texture_path: MakepadCameraTexturePath::DirectCpuYuvPlane,
         });
 
         assert_eq!(
             marker,
-            "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=sample status=ok elapsedMs=4250 intervalMs=2000 appFrameCount=120 appFrameDelta=60 appFrameRateHz=30.00 xrUpdateCount=118 xrUpdateDelta=59 xrUpdateRateHz=29.50 drawEventCount=90 drawEventDelta=45 drawEventRateHz=22.50 leftTextureUpdateCount=32 rightTextureUpdateCount=31 pairedTextureUpdateCount=31 leftTextureUpdateDelta=16 rightTextureUpdateDelta=15 pairedTextureUpdateDelta=15 leftTextureUpdateRateHz=8.00 rightTextureUpdateRateHz=7.50 pairedTextureUpdateRateHz=7.50 leftLastPositionMs=1001 rightLastPositionMs=1003 pairedLeftRightCameraFrames=true projectionMappingReady=true alignedProjection=false visibleCameraProjectionReady=true cpuUploadPath=makepad-camera-cpu-yuv-plane renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated"
+            "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=sample status=ok elapsedMs=4250 intervalMs=2000 appFrameCount=120 appFrameDelta=60 appFrameRateHz=30.00 xrUpdateCount=118 xrUpdateDelta=59 xrUpdateRateHz=29.50 drawEventCount=90 drawEventDelta=45 drawEventRateHz=22.50 leftTextureUpdateCount=32 rightTextureUpdateCount=31 pairedTextureUpdateCount=31 leftTextureUpdateDelta=16 rightTextureUpdateDelta=15 pairedTextureUpdateDelta=15 leftTextureUpdateRateHz=8.00 rightTextureUpdateRateHz=7.50 pairedTextureUpdateRateHz=7.50 leftLastPositionMs=1001 rightLastPositionMs=1003 pairedLeftRightCameraFrames=true projectionMappingReady=true alignedProjection=false visibleCameraProjectionReady=true renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane"
         );
     }
 
@@ -337,6 +345,7 @@ mod tests {
             "identity-top-left-stimulus-raster",
             "projectionMetadataReady=true",
             "sourceColorTransformApplied=false",
+            MakepadCameraTexturePath::direct_default(),
         )
         .marker_fields();
         let contract = MakepadSourceSamplingHandoff::new(
@@ -349,6 +358,7 @@ mod tests {
             "identity-top-left-stimulus-raster",
             "projectionMetadataReady=true",
             "sourceColorTransformApplied=false",
+            MakepadCameraTexturePath::direct_default(),
         )
         .contract();
         assert!(contract.is_valid());
@@ -384,6 +394,7 @@ mod tests {
             "stimulus-raster-y-flip",
             "projectionMetadataReady=true",
             "sourceColorTransformApplied=true",
+            MakepadCameraTexturePath::BrokerH264CpuYuv,
         )
         .marker_fields();
         let contract = MakepadSourceSamplingHandoff::new(
@@ -396,6 +407,7 @@ mod tests {
             "stimulus-raster-y-flip",
             "projectionMetadataReady=true",
             "sourceColorTransformApplied=true",
+            MakepadCameraTexturePath::BrokerH264CpuYuv,
         )
         .contract();
         assert_eq!(

@@ -66,10 +66,11 @@ fork-patch policy are documented in
   was removed.
 - The current source imports a Makepad-owned paired camera source after XR
   startup and reports paired-buffer/projection readiness when both textures
-  update. The current visible Makepad scene is an app-owned direct CPU-YUV
-  camera panel. S59 proves live no-swap YUV color in that panel; S60 is the
-  open step that must choose left versus right camera textures per eye before
-  parity performance comparison resumes.
+  update. The default direct Camera2 lane uses the visually accepted CPU-YUV
+  shader path. A diagnostic property can opt into app-owned `VideoExternal`
+  texture ids so the Quest/Vulkan backend attempts direct hardware-buffer
+  import, but that route is not the default until its stale-frame and color
+  behavior is corrected in the Makepad import path.
 - The current source can also use broker-managed synthetic H.264 stereo streams
   instead of opening Camera2 directly. On the Quest Vulkan path, that route asks
   the maintained Makepad fork to decode the streams with Android MediaCodec and
@@ -628,6 +629,12 @@ counters. Record whether the run was
   select a back-facing 1280x1280 YUV420 source, start the delayed
   `VideoExternal` import path, prepare playback at 1280x1280, and emit
   `makepadVulkanImport=true` on `VideoTextureUpdated`.
+- Current direct-camera texture path: the visible panel defaults to the CPU-YUV
+  route because it remains the Makepad color/reference path that matches HWB
+  and OES visually. The hardware-buffer external route is opt-in via
+  `debug.rustyxr.makepad.direct.camera.hardware.buffer.external=true`; cadence
+  and projection markers include `cameraTexturePath`, `textureImportPath`, and
+  `cpuUploadPath` so performance reviews can distinguish those routes.
 - Performance comparison gate: active-presentation comparison reopened after
   S14, but final parity performance is still blocked on visible Makepad camera
   projection. S14 proved launcher-path XR presentation and paired import/cadence

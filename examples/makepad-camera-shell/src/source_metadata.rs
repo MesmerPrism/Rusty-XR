@@ -1,3 +1,4 @@
+use crate::camera_texture_path::MakepadCameraTexturePath;
 use rusty_xr_camera_model::{rect_xywh, uv_rect_token, Rect2, Vec2};
 use serde_json::Value as JsonValue;
 
@@ -86,17 +87,16 @@ pub(crate) fn makepad_hardware_buffer_import_texture_updated_marker_fields(
     yuv_enabled: bool,
     yuv_biplanar: bool,
     rotation_steps: f32,
-    import_plan: &str,
-    cpu_upload_path: &str,
+    texture_path: MakepadCameraTexturePath,
 ) -> String {
     format!(
-        "phase=texture-updated status=ok side={} makepadVulkanImport=false yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} importPlan={} cpuUploadPath={}",
+        "phase=texture-updated status=ok side={} yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} importPlan={} {}",
         side_label,
         yuv_enabled,
         yuv_biplanar,
         rotation_steps,
-        import_plan,
-        cpu_upload_path,
+        texture_path.import_plan(),
+        texture_path.marker_fields(),
     )
 }
 
@@ -194,10 +194,13 @@ pub(crate) fn makepad_hardware_buffer_import_yuv_textures_ready_broker_marker_fi
 
 pub(crate) fn makepad_hardware_buffer_import_yuv_textures_ready_single_stream_marker_fields(
     side_label: &str,
+    texture_path: MakepadCameraTexturePath,
 ) -> String {
     format!(
-        "phase=yuv-textures-ready status=ok side={} textureMode=makepad-yuv-plane visualProofPath=single-stream-yuv-proof depthClip=false environmentDepthClip=false",
+        "phase=yuv-textures-ready status=ok side={} textureMode=makepad-yuv-slot-allocation requestedTexturePath={} importPlan={} depthClip=false environmentDepthClip=false",
         side_label,
+        texture_path.stable_id(),
+        texture_path.import_plan(),
     )
 }
 
@@ -252,28 +255,22 @@ pub(crate) fn makepad_hardware_buffer_import_prepared_marker_fields(
     width: u32,
     height: u32,
     broker_h264_enabled: bool,
+    direct_texture_path: MakepadCameraTexturePath,
 ) -> String {
-    let (import_path, texture_mode, import_plan) = if broker_h264_enabled {
-        (
-            "broker-h264-mediacodec-cpu-yuv",
-            "cpu-yuv",
-            "broker-h264-stereo-mediacodec-yuv-texture",
-        )
+    let texture_path = if broker_h264_enabled {
+        MakepadCameraTexturePath::BrokerH264CpuYuv
     } else {
-        (
-            "makepad-android-camera-yuv-plane-cpu-proof",
-            "yuv-plane",
-            "single-stream-yuv-proof",
-        )
+        direct_texture_path
     };
     format!(
-        "phase=prepared status=ok side={} width={} height={} importPath={} textureMode={} importPlan={}",
+        "phase=prepared status=ok side={} width={} height={} importPath={} textureMode={} importPlan={} {}",
         side_label,
         width,
         height,
-        import_path,
-        texture_mode,
-        import_plan,
+        texture_path.texture_import_path(),
+        texture_path.stable_id(),
+        texture_path.import_plan(),
+        texture_path.marker_fields(),
     )
 }
 
@@ -300,6 +297,7 @@ pub(crate) fn makepad_hardware_buffer_import_start_marker_fields(
     left_stream_port: &str,
     right_stream_port: &str,
     delayed_after_acquisition_seconds: f64,
+    direct_texture_path: MakepadCameraTexturePath,
 ) -> String {
     hardware_buffer_import_start_marker_fields(
         broker_h264_enabled,
@@ -317,6 +315,7 @@ pub(crate) fn makepad_hardware_buffer_import_start_marker_fields(
         left_stream_port,
         right_stream_port,
         delayed_after_acquisition_seconds,
+        direct_texture_path,
     )
 }
 
@@ -328,7 +327,7 @@ pub(crate) fn makepad_hardware_buffer_import_raw_video_event_marker_line(
     right_video_id: u64,
 ) -> String {
     format!(
-        "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=raw-video-event status=seen event={} side={} videoId={} leftVideoId={} rightVideoId={} depthClip=false environmentDepthClip=false importPlan=single-stream-yuv-proof",
+        "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=raw-video-event status=seen event={} side={} videoId={} leftVideoId={} rightVideoId={} depthClip=false environmentDepthClip=false importPlan=makepad-video-texture-event",
         event_name,
         side_label,
         video_id,
@@ -394,6 +393,7 @@ fn hardware_buffer_import_start_marker_fields(
     left_stream_port: &str,
     right_stream_port: &str,
     delayed_after_acquisition_seconds: f64,
+    direct_texture_path: MakepadCameraTexturePath,
 ) -> String {
     let (import_plan, import_path, texture_format) = if broker_h264_enabled {
         (
@@ -403,9 +403,13 @@ fn hardware_buffer_import_start_marker_fields(
         )
     } else {
         (
-            "single-stream-yuv-proof",
-            "makepad-android-camera-yuv-plane-cpu-proof",
-            "VideoYuvPlane",
+            direct_texture_path.import_plan(),
+            direct_texture_path.texture_import_path(),
+            if direct_texture_path.makepad_vulkan_import() {
+                "VideoExternal"
+            } else {
+                "VideoYuvPlane"
+            },
         )
     };
     format!(
@@ -1604,10 +1608,9 @@ mod tests {
                 true,
                 false,
                 2.0,
-                "single-stream-yuv-proof",
-                "makepad-camera-cpu-yuv-plane",
+                MakepadCameraTexturePath::DirectCpuYuvPlane,
             ),
-            "phase=texture-updated status=ok side=left makepadVulkanImport=false yuvEnabled=true yuvBiplanar=false rotationSteps=2 importPlan=single-stream-yuv-proof cpuUploadPath=makepad-camera-cpu-yuv-plane"
+            "phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=2 importPlan=paired-camera-cpu-yuv-fallback cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane"
         );
         assert_eq!(
             makepad_hardware_buffer_import_complete_error_marker_fields(
@@ -1693,12 +1696,21 @@ mod tests {
             "phase=yuv-textures-ready status=ok side=left textureMode=cpu-yuv-decoded-broker-h264 importPlan=broker-h264-stereo-mediacodec-yuv-texture"
         );
         assert_eq!(
-            makepad_hardware_buffer_import_yuv_textures_ready_single_stream_marker_fields("right"),
-            "phase=yuv-textures-ready status=ok side=right textureMode=makepad-yuv-plane visualProofPath=single-stream-yuv-proof depthClip=false environmentDepthClip=false"
+            makepad_hardware_buffer_import_yuv_textures_ready_single_stream_marker_fields(
+                "right",
+                MakepadCameraTexturePath::DirectCpuYuvPlane,
+            ),
+            "phase=yuv-textures-ready status=ok side=right textureMode=makepad-yuv-slot-allocation requestedTexturePath=direct-camera-cpu-yuv-plane importPlan=paired-camera-cpu-yuv-fallback depthClip=false environmentDepthClip=false"
         );
         assert_eq!(
-            makepad_hardware_buffer_import_prepared_marker_fields("left", 1280, 720, false),
-            "phase=prepared status=ok side=left width=1280 height=720 importPath=makepad-android-camera-yuv-plane-cpu-proof textureMode=yuv-plane importPlan=single-stream-yuv-proof"
+            makepad_hardware_buffer_import_prepared_marker_fields(
+                "left",
+                1280,
+                720,
+                false,
+                MakepadCameraTexturePath::DirectCpuYuvPlane,
+            ),
+            "phase=prepared status=ok side=left width=1280 height=720 importPath=makepad-camera-cpu-yuv-plane textureMode=direct-camera-cpu-yuv-plane importPlan=paired-camera-cpu-yuv-fallback cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane"
         );
         assert_eq!(
             hardware_buffer_import_start_marker_fields(
@@ -1717,6 +1729,7 @@ mod tests {
                 "8879",
                 "8880",
                 0.25,
+                MakepadCameraTexturePath::DirectCpuYuvPlane,
             ),
             "phase=start status=started importPlan=broker-h264-stereo-mediacodec-yuv-texture leftSourceIndex=0 rightSourceIndex=1 leftSourceClass=broker-h264 rightSourceClass=broker-h264 leftWidth=1280 leftHeight=720 rightWidth=1280 rightHeight=720 leftFrameRate=30.00 rightFrameRate=30.00 pixelFormat=YUV420 leftStreamPort=8879 rightStreamPort=8880 importPath=broker-h264-mediacodec-cpu-yuv textureFormat=VideoYuvPlaneStereo depthClip=false environmentDepthClip=false delayedAfterAcquisitionSeconds=0"
         );
@@ -1728,7 +1741,7 @@ mod tests {
                 100,
                 101,
             ),
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=raw-video-event status=seen event=texture-updated side=left videoId=100 leftVideoId=100 rightVideoId=101 depthClip=false environmentDepthClip=false importPlan=single-stream-yuv-proof"
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=raw-video-event status=seen event=texture-updated side=left videoId=100 leftVideoId=100 rightVideoId=101 depthClip=false environmentDepthClip=false importPlan=makepad-video-texture-event"
         );
     }
 }
