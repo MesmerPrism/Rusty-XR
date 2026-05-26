@@ -4055,6 +4055,44 @@ mod tests {
     }
 
     #[test]
+    fn runtime_config_defaults_to_clean_projection_border() {
+        let config = public_runtime_config(&JavaRuntimeConfig::default());
+
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjection
+        );
+        assert_eq!(
+            config.camera_projection_border_policy,
+            CameraProjectionBorderPolicy::SolidRed
+        );
+        assert!(config.camera_projection_border_policy_active());
+        assert_eq!(
+            config.camera_projection_border_policy_shader_bit(),
+            super::camera_color_pipeline::CAMERA_SHADER_FLAG_PROJECTION_BORDER_SOLID_RED
+        );
+    }
+
+    #[test]
+    fn runtime_config_keeps_feedback_border_effect_explicit() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            projection_border_policy: Some("solid-red".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::BorderComposite
+        );
+        assert_eq!(
+            config.camera_projection_border_policy,
+            CameraProjectionBorderPolicy::SolidRed
+        );
+        assert!(!config.camera_projection_border_policy_active());
+    }
+
+    #[test]
     fn java_camera_metadata_marks_mono_missing_pose_fallback() {
         let bridge = JavaCameraFrameMetadata {
             source: None,

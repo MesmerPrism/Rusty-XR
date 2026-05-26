@@ -44,8 +44,8 @@ impl CameraFeedPipelineMode {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum CameraProjectionEffectMode {
-    #[default]
     BorderComposite,
+    #[default]
     RawProjection,
     ProjectionAreaDiagnostic,
     DisplayEyeUvFiducial,

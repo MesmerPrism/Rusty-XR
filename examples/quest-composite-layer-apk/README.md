@@ -630,9 +630,10 @@ The catalog keeps camera path experiments as separate runtime profiles:
   broker stereo capture/decode/pair/import path at `rustyxr.xrRenderScale=0.75`
   with square `1280x1280` broker frames and frame-order live stereo pairing, but
   with the direct raw-projection shader variant selected. Use it as the
-  renderer-parity profile before reintroducing the accepted soft-border visual
-  path. This profile is visually accepted for stereo orientation/alignment;
-  motion-induced stream-latency artifacts remain a separate compensation task.
+  renderer-parity profile before deliberately reintroducing the legacy
+  feedback-border visual path. This profile is visually accepted for stereo
+  orientation/alignment; motion-induced stream-latency artifacts remain a
+  separate compensation task.
 - `broker-h264-stereo-live-openxr-projection-scale065-probe`: the same fast
   raw-projection path at `rustyxr.xrRenderScale=0.65` for fragment-load headroom
   checks.

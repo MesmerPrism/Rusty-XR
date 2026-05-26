@@ -549,6 +549,14 @@ outside-projection area transparent, which is useful when comparing background
 composition separately from raw camera sampling. The `rustyxr.processingLayer=blur`
 setting keeps the selected projection-area policy but runs the valid camera
 samples through a generic 25-tap diagnostic blur.
+Standalone direct profile runs default to
+`rustyxr.cameraProjectionEffectMode=raw-projection` and
+`rustyxr.projectionBorderPolicy=solid-red` so HWB/OES diagnostics do not inherit
+the legacy feedback-border visual path. Use
+`-ProjectionBorderPolicy passthrough-underlay` for a transparent border over
+passthrough, and use
+`-CameraProjectionEffectMode border-composite` only when deliberately testing
+that feedback-border mode.
 HWB, OES, and Makepad normalize the diagnostic blur texel step against the same
 1280x1280 source domain used by the broker camera and synthetic diagnostic feed.
 Use `rustyxr.cameraBlurRadiusPx` to adjust the visual sample radius for stack
@@ -586,6 +594,7 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | Key | Type | Purpose |
 | --- | --- | --- |
 | `rustyxr.cameraPipelinePreset` | string | Selects the feed/sampler/effect/color-format preset, for example `raw-projection-unorm`, `display-eye-uv-fiducial-unorm`, `projection-content-uv-fiducial-unorm`, or `source-sampling-witness-unorm`. |
+| `rustyxr.cameraProjectionEffectMode` | string | Selects the shader effect explicitly. Diagnostic runs use `raw-projection`; `border-composite` is the legacy feedback-border effect and should be requested deliberately. |
 | `rustyxr.projectionBorderPolicy` | string | Selects the projection exterior fill policy independently from the camera pipeline preset: `solid-red` or `passthrough-underlay`. |
 | `rustyxr.processingLayer` | string | Selects the diagnostic content-processing layer. Use `raw` for unprocessed camera content or `blur` for the public diagnostic blur. |
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `world-canvas`, `display-screen-homography`, or `quad-surface`. |

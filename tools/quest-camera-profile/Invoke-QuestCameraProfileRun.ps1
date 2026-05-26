@@ -8,6 +8,10 @@ param(
     [string]$DeviceProfile = "xr-composite-smoke-test",
     [string]$RuntimeProfile = "camera-stereo-gpu-composite-performance-065",
     [string]$CameraPipelinePreset = "",
+    [ValidateSet("", "raw-projection", "border-composite", "projection-area-diagnostic", "display-eye-uv-fiducial", "projection-content-uv-fiducial", "source-sampling-witness", "full-frame-stimulus-surface-mapping")]
+    [string]$CameraProjectionEffectMode = "raw-projection",
+    [ValidateSet("", "solid-red", "passthrough-underlay")]
+    [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("", "display-screen-homography", "quad-surface")]
     [string]$CameraProjectionMode = "",
     [string]$RunRoot = "artifacts\quest-camera-profile-runs",
@@ -1393,6 +1397,12 @@ foreach ($entry in (Convert-Overrides -Items $Override).GetEnumerator()) {
 if ($CameraPipelinePreset) {
     $values["rustyxr.cameraPipelinePreset"] = $CameraPipelinePreset
 }
+if ($CameraProjectionEffectMode) {
+    $values["rustyxr.cameraProjectionEffectMode"] = $CameraProjectionEffectMode
+}
+if ($ProjectionBorderPolicy) {
+    $values["rustyxr.projectionBorderPolicy"] = $ProjectionBorderPolicy
+}
 if ($CameraProjectionMode) {
     $values["rustyxr.cameraProjectionMode"] = $CameraProjectionMode
 }
@@ -1524,6 +1534,8 @@ $manifest = [ordered]@{
     deviceProfile = $DeviceProfile
     runtimeProfile = $RuntimeProfile
     cameraPipelinePreset = $CameraPipelinePreset
+    cameraProjectionEffectMode = $CameraProjectionEffectMode
+    projectionBorderPolicy = $ProjectionBorderPolicy
     cameraProjectionMode = $CameraProjectionMode
     warmupSeconds = $WarmupSeconds
     captureReadinessMode = $CaptureReadinessMode

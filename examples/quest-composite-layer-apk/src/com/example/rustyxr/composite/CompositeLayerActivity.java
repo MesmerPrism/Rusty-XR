@@ -67,7 +67,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_CAMERA_EDGE_FADE = 0.12f;
     private static final String DEFAULT_CAMERA_PROJECTION_MODE = "display-screen-homography";
     private static final String DEFAULT_CAMERA_PIPELINE_PRESET = "manual";
-    private static final String DEFAULT_CAMERA_PROJECTION_EFFECT_MODE = "border-composite";
+    private static final String DEFAULT_CAMERA_PROJECTION_EFFECT_MODE = "raw-projection";
     private static final String DEFAULT_PROCESSING_LAYER = "raw";
     private static final String DEFAULT_CAMERA_FEED_MODE = "projected-feed";
     private static final String DEFAULT_CAMERA_COLOR_MODE = "external-rgb";
