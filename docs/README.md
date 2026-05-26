@@ -15,6 +15,8 @@ before reading chronological plans or investigation logs.
   schema export, and compatibility rules.
 - [Camera texture lane parity plan](CAMERA_TEXTURE_LANE_PARITY_PLAN.md):
   shared HWB, OES, and Makepad camera texture architecture contract.
+- [Makepad strategy](MAKEPAD_STRATEGY.md): what Makepad is, why Rusty XR uses
+  it, and which Rusty XR pressures can become Makepad-level contributions.
 - [Provenance](PROVENANCE.md): public-safe provenance notes for extracted
   utility work.
 - [API surface review](API_SURFACE_REVIEW.md): active review notes for public
@@ -132,6 +134,8 @@ architecture.
   public-safe two-way native relay retrospective and next-run diagnostic plan.
 - [Makepad Android build compatibility plan](MAKEPAD_ANDROID_BUILD_COMPATIBILITY_PLAN.md):
   Makepad packaging and hotload compatibility plan.
+- [Makepad strategy and contribution map](MAKEPAD_STRATEGY.md): public summary
+  of the Makepad relationship, adapter boundary, and upstreamable pressure.
 - [Makepad stereo comparison iteration](MAKEPAD_STEREO_COMPARISON_ITERATION.md):
   large chronological implementation ledger.
 - [Makepad XR GPU page fault investigation](MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md):

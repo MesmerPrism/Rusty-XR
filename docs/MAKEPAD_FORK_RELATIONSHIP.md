@@ -2,6 +2,10 @@
 
 Rusty XR and the maintained Makepad fork branch have different jobs.
 
+For the public-facing rationale, see
+[Makepad Strategy For Rusty XR](MAKEPAD_STRATEGY.md). This file focuses on the
+fork relationship and validation ladder.
+
 Rusty XR remains the framework-neutral public core. It owns contracts,
 runtime-profile keys, diagnostic schemas, scorecard helpers, camera/depth data
 models, and source examples that can be understood without adopting a specific
@@ -27,12 +31,32 @@ Rusty XR core crates must not depend on Makepad. Makepad-specific code belongs
 in the standalone Makepad example, optional adapters, or the maintained Makepad
 fork branch.
 
+## Upstream Alignment Status
+
+The maintained branch is now an upstream-alignment branch as well as a Rusty XR
+stress lane. Recent Makepad integration work brought in or reconciled selected
+upstream video, Android rendering, text wrapping, Android lifecycle, manifest,
+minimum-SDK, tooling-default, and Android App Bundle packaging changes while
+preserving the Rusty XR camera-lane diagnostics.
+
+That changes the interpretation of Makepad evidence: a Makepad lane result
+should be read as "upstream Makepad plus a narrow Rusty XR camera/XR patch
+queue", not as an old isolated fork. Before deeper shader, descriptor, or
+external-resource changes, refresh the upstream diff and decide whether the
+change belongs in generic Makepad terms or in the Rusty XR adapter layer.
+
 ## Fork Patch Queue
 
 The maintained Makepad branch should stay a shallow patch queue. Its current
 scope is limited to:
 
+- Selected upstream Android, text, and video fixes needed to keep the tested
+  Makepad branch close to current Makepad behavior.
 - Android packaging fixes needed for the tested Windows-to-Quest build lane.
+- Android manifest, minimum-SDK, tooling-default, and App Bundle packaging
+  alignment that keeps the Rusty XR wrapper from becoming a competing packager.
+- Android lifecycle shutdown safety needed by mobile, XR, and external-resource
+  apps.
 - A targeted Android Vulkan window-swapchain frame-fence wait for the
   Quest/Horizon OS suboptimal or out-of-date recreation path.
 - Public-safe Android activity and native bootstrap markers used to validate
@@ -51,6 +75,9 @@ scope is limited to:
   separate performance target.
 - A video-source metadata event so public examples can consume broker
   stream-header projection metadata before deriving homography-stage rows.
+- Video texture update metadata and throttled frame-flow markers so public
+  examples can correlate producer updates, Makepad texture updates, and XR
+  frame submission without parsing renderer-specific path names.
 - A small `xr_view_id()` shader builtin that exposes Makepad's existing XR
   multiview index to application shaders for per-eye texture selection without
   hardcoding backend-specific symbols.
@@ -81,6 +108,17 @@ Keep every Makepad-side change small enough to review independently. A patch is
 a good upstream candidate when it improves Makepad portability, packaging,
 workspace metadata, or renderer correctness without relying on Rusty XR-specific
 application behavior.
+
+Rusty XR can offer Makepad useful generic pressure in these areas:
+
+- External frame/resource descriptors for Android camera, decoder, and XR media
+  paths.
+- Video texture lifecycle events covering acquire, update, stale/reuse, and
+  release.
+- Android lifecycle and packaging hardening for source builds, CI, and mobile
+  distribution.
+- Shader-resource reflection and descriptor diagnostics for backend parity.
+- XR panel DPI, text, scaling, focus, and input evidence.
 
 Rusty XR should pin and document the Makepad revision or branch used for the
 Makepad-first lane. When the fork branch changes, update the comparison ledger

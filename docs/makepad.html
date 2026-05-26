@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Makepad Strategy | Rusty XR</title>
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="brand-mark">RX</span><span class="brand-title"><strong>Rusty XR</strong><span>Makepad Strategy</span></span></a>
+      <nav class="top-nav" data-nav aria-label="Primary">
+        <a href="index.html">Overview</a>
+        <a href="architecture.html">Architecture</a>
+        <a href="makepad.html" aria-current="page">Makepad</a>
+        <a href="boundaries.html">Boundaries</a>
+        <a href="passthrough.html">Passthrough</a>
+        <a href="workflow.html">Workflow</a>
+        <a href="diagrams.html">Diagrams</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div class="kicker">Makepad Strategy</div>
+      <h1>Makepad is the app shell. Rusty XR keeps the camera contracts.</h1>
+      <p>Rusty XR uses Makepad where Rust-native UI, panels, live iteration, and headset diagnostics need a strong framework. Raw camera resources, projection timing, frame freshness, and validation contracts stay explicit and framework-neutral.</p>
+      <ul class="tag-list">
+        <li>Rust-native UI</li>
+        <li>XR panels</li>
+        <li>Camera lane contracts</li>
+        <li>Upstream alignment</li>
+        <li>External texture metadata</li>
+        <li>Upstreamable diagnostics</li>
+      </ul>
+    </section>
+
+    <section class="grid cols-3">
+      <article class="metric">
+        <strong>Use</strong>
+        <p>Makepad is a promising Rust UI, app-shell, and XR-panel substrate for controls, inspectors, and diagnostic tools.</p>
+      </article>
+      <article class="metric">
+        <strong>Keep</strong>
+        <p>Rusty XR keeps frame identity, resource identity, transforms, color status, lifecycle, and validation evidence as public contracts.</p>
+      </article>
+      <article class="metric">
+        <strong>Contribute</strong>
+        <p>Generic external-resource metadata, video lifecycle events, Android lifecycle hooks, and shader-resource diagnostics can become Makepad-level improvements.</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Current Alignment</h2>
+      <p>The maintained Makepad branch has started converging back toward upstream Makepad instead of remaining an isolated renderer experiment. Recent work integrated upstream video lifecycle, Android rendering, text wrapping, Android lifecycle, manifest/tooling, minimum-SDK, and Android App Bundle packaging directions while preserving Rusty XR camera-lane diagnostics.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Area</th><th>Current direction</th><th>Why Rusty XR cares</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Video lifecycle</td><td>Upstream apply-gate behavior plus texture update metadata.</td><td>Correlate producer frames, Makepad texture updates, and XR submission.</td></tr>
+            <tr><td>Android rendering</td><td>Upstream Android rendering/loading fixes.</td><td>Keep XR panel quality and Android behavior aligned before debugging camera resources.</td></tr>
+            <tr><td>Text and layout</td><td>Upstream text wrapping correction.</td><td>Avoid stale UI forks while relying on Makepad for readable headset panels.</td></tr>
+            <tr><td>Android tooling</td><td>Manifest reconciliation, SDK defaults, minimum-SDK alignment, and AAB packaging.</td><td>Keep deterministic Rusty XR builds close to Makepad's own packager.</td></tr>
+            <tr><td>Frame diagnostics</td><td>Cadence-tuned frame-flow markers.</td><td>Debug stale frames and resource lifecycle without turning log markers into the renderer architecture.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>What Makepad Provides</h2>
+      <p>Makepad is a Rust-native application stack: a custom GPU-first UI/runtime framework, widget layer, Studio tooling, live design language, and cross-platform build tooling. Current public materials frame Makepad 2.0 around AI-native Rust UIs and Splash, while the repository and book describe a broader Rust-first framework for native, mobile, and web targets.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Surface</th><th>Rusty XR Reading</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Widgets and panels</td><td>Good fit for XR controls, diagnostics, operator panels, graph views, and settings.</td></tr>
+            <tr><td>GPU text and vector UI</td><td>Useful for crisp headset panels without routing all UI through a low-resolution canvas texture.</td></tr>
+            <tr><td>Live/Splash-style UI</td><td>Promising for faster diagnostic and operator-tool iteration once the runtime contracts are stable.</td></tr>
+            <tr><td>Platform tooling</td><td>Useful for Android and mobile workflows, but still needs explicit validation around Quest/XR camera paths.</td></tr>
+            <tr><td>XR roots</td><td>Historically relevant and useful, but not a replacement for raw camera-resource contracts.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid cols-2">
+      <article class="panel">
+        <h2>Why Rusty XR Uses It</h2>
+        <ul>
+          <li>Rust-native UI and app structure.</li>
+          <li>High-quality 2D panels inside XR scenes.</li>
+          <li>Room for live UI and tooling iteration.</li>
+          <li>A serious upstream project with real app pressure from Studio, Robrix, Moly, and related work.</li>
+          <li>A framework lane for comparing direct HWB/OES renderers against a Makepad-first app shell.</li>
+        </ul>
+      </article>
+      <article class="panel">
+        <h2>What Stays Explicit</h2>
+        <ul>
+          <li>Camera frame identity and timestamps.</li>
+          <li>Hardware-buffer, OES, and CPU-YUV transport identity.</li>
+          <li>Acquire, upload/import, reuse, stale, and release lifecycle facts.</li>
+          <li>Camera crop, transform, projection, color, and stereo lane semantics.</li>
+          <li>XR frame timing, submission evidence, and validation summaries.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Adapter Direction</h2>
+      <div class="figure-shell">
+        <pre>Shared camera texture lane contract
+  -> Direct Vulkan/HWB adapter
+  -> Direct OpenGL/OES adapter
+  -> Makepad CPU-YUV adapter
+  -> Makepad hardware-buffer/external-texture adapter</pre>
+      </div>
+      <p>The Makepad adapters should translate Makepad events and resources into the same Rusty XR contract used by the direct renderers. Rusty XR core crates stay independent of Makepad.</p>
+    </section>
+
+    <section class="panel">
+      <h2>What Rusty XR Can Contribute</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Pressure</th><th>Makepad-level candidate</th><th>Upstream value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>External camera/video textures</td><td>A backend-neutral external frame or resource descriptor with format, color space, transform, timestamp, validity, and lifecycle state.</td><td>Helps camera, decoder, XR, and future external-texture integrations.</td></tr>
+            <tr><td>Frame freshness</td><td>Video lifecycle events that can express acquire, update, reuse, stale, release, and producer timestamps.</td><td>Makes real-time media apps observable without private log formats.</td></tr>
+            <tr><td>Android and XR lifecycle</td><td>Hooks for activity/session state, permissions, surface recreation, pause/resume, shutdown, and resource invalidation.</td><td>Reduces fragile app-specific Android and XR lifecycle code.</td></tr>
+            <tr><td>Android packaging</td><td>Source-root deterministic builds, manifest normalization, SDK clarity, AAB support, and transcript ordering.</td><td>Makes `cargo-makepad` more predictable for CI and mobile distribution.</td></tr>
+            <tr><td>Backend parity</td><td>Shader-resource reflection and descriptor diagnostics that do not assume a specific application.</td><td>Creates a safer path for external resources and backend descriptor layouts.</td></tr>
+            <tr><td>XR panel quality</td><td>DPI, text, scaling, focus, and input improvements that help all Makepad mobile or XR panels.</td><td>Improves Makepad's high-DPI and XR UI story beyond Rusty XR.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Sources</h2>
+      <p>Sources accessed on 2026-05-26. See the Markdown note for the full source list and collaboration posture.</p>
+      <ul>
+        <li><a href="https://makepad.nl/">Makepad official site</a></li>
+        <li><a href="https://makepad.nl/history.html">Makepad history</a></li>
+        <li><a href="https://github.com/makepad/makepad">Makepad GitHub repository</a></li>
+        <li><a href="https://makepad.rs/guide/start/makepad-framework-architecture">Makepad Book architecture</a></li>
+        <li><a href="https://github.com/makepad/makepad_history">Makepad historical repository</a></li>
+        <li><a href="https://archive.fosdem.org/2025/schedule/event/fosdem-2025-5841-robrix-a-pure-rust-multi-platform-matrix-client-and-more/">Robrix FOSDEM session</a></li>
+        <li><a href="MAKEPAD_STRATEGY.md">Markdown strategy note</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="footer"><div class="footer-inner">Rusty XR treats Makepad as a strong Rust UI and app-shell lane while keeping camera and projection contracts framework-neutral.</div></footer>
+</body>
+</html>
