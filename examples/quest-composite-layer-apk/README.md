@@ -47,7 +47,7 @@ The public stereo stack now has two working projected-camera modes:
 
 - `display-screen-homography`: the fullscreen Vulkan multiview path. This is
   the current accepted public baseline for the paired Camera2 GPU-buffer
-  projection and public soft feedback border.
+  projection and public projection-border policy.
 - `quad-surface`: an A/B comparison path that reconstructs the content-surface
   coordinates a head-anchored quad would rasterize while still running through
   the public Vulkan fullscreen plumbing.
@@ -630,8 +630,8 @@ The catalog keeps camera path experiments as separate runtime profiles:
   broker stereo capture/decode/pair/import path at `rustyxr.xrRenderScale=0.75`
   with square `1280x1280` broker frames and frame-order live stereo pairing, but
   with the direct raw-projection shader variant selected. Use it as the
-  renderer-parity profile before deliberately reintroducing the legacy
-  feedback-border visual path. This profile is visually accepted for stereo
+  renderer-parity profile before explicitly selecting the `border-composite`
+  visual-effect path. This profile is visually accepted for stereo
   orientation/alignment; motion-induced stream-latency artifacts remain a
   separate compensation task.
 - `broker-h264-stereo-live-openxr-projection-scale065-probe`: the same fast

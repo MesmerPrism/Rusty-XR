@@ -460,7 +460,7 @@
         "rustyxr.brokerH264StereoPairingMode": "frame-order",
         "rustyxr.brokerH264LivePairQueueLimit": "8"
       },
-      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, frame-order live stereo pairing, render scale 0.65, and the direct raw-projection shader variant so renderer overhead can be compared before deliberately reintroducing the legacy feedback-border visual path."
+      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, frame-order live stereo pairing, render scale 0.65, and the direct raw-projection shader variant so renderer overhead can be compared before explicitly selecting the border-composite visual-effect path."
     },
     {
       "id": "broker-h264-stereo-live-openxr-projection-scale075-probe",
@@ -533,7 +533,7 @@
         "rustyxr.brokerH264StereoPairingMode": "frame-order",
         "rustyxr.brokerH264LivePairQueueLimit": "8"
       },
-      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, frame-order live stereo pairing, render scale 0.75, and the direct raw-projection shader variant. Use this as the renderer-parity profile before deliberately reintroducing the legacy feedback-border visual path."
+      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, frame-order live stereo pairing, render scale 0.75, and the direct raw-projection shader variant. Use this as the renderer-parity profile before explicitly selecting the border-composite visual-effect path."
     },
     {
       "id": "broker-h264-stereo-live-openxr-projection-full-feed-control",

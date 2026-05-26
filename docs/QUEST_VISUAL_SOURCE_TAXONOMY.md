@@ -176,10 +176,11 @@ uses `y=0` at the top of the screen, so OpenXR tangent-space `+Y` maps to
 screen UV `y=0`.
 
 The visible full-view surface can be larger than the camera-content surface.
-The shader expands full-view UV into content UV for the public feedback border
-while using display UV for camera projection. This keeps the camera-covered
-region and the soft border as separate public concepts, which is important
-when the camera feed is 4:3 but the eye swapchain is not.
+The shader expands full-view UV into content UV for the public projection
+border while using display UV for camera projection. This keeps the
+camera-covered region and the projection exterior fill as separate public
+concepts, which is important when the camera feed is 4:3 but the eye swapchain
+is not.
 
 The public example currently exposes two projected stereo render mappings. The
 default `display-screen-homography` mapping is the accepted public baseline:
@@ -188,7 +189,7 @@ through the head-anchored content surface into the selected Camera2 source. The
 `quad-surface` mapping is an A/B comparison profile that reconstructs the
 content-surface coordinates a real head-anchored quad would rasterize before
 performing the same camera projection. Both modes now share the same paired
-Camera2 buffers and camera-driven feedback-border coordinates. The
+Camera2 buffers and camera-driven projection-border coordinates. The
 quad-surface mode is intentionally still marked as visually gated because
 performance and final color parity with optimized downstream renderers remain
 open work.

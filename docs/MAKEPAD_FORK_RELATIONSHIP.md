@@ -54,6 +54,10 @@ scope is limited to:
 - A small `xr_view_id()` shader builtin that exposes Makepad's existing XR
   multiview index to application shaders for per-eye texture selection without
   hardcoding backend-specific symbols.
+- Public-safe Android Vulkan video import markers that show whether external
+  camera `AHardwareBuffer` frames are imported with a YCbCr resource sampler
+  while the current shader path still binds separate sampled-image and sampler
+  descriptors.
 - An Android OpenXR native-passthrough composition-layer option, currently
   disabled by default on the maintained branch so camera-panel diagnostics can
   distinguish app-owned projection geometry from runtime passthrough imagery.

@@ -95,7 +95,7 @@ Diagnostic HUD stereo rendering options are documented in
 [docs/DIAGNOSTIC_HUD_STEREO_RENDERING.md](docs/DIAGNOSTIC_HUD_STEREO_RENDERING.md).
 The current raw-camera example has two public projected stereo modes:
 `display-screen-homography` and `quad-surface`. Both use the paired Camera2
-GPU-buffer path and the public soft feedback border, but `quad-surface` is
+GPU-buffer path and the public projection-border policy, but `quad-surface` is
 still an A/B comparison profile rather than the final performance or color
 reference.
 Current camera color and cadence work is tracked as explicit runtime profiles
