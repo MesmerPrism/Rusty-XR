@@ -113,6 +113,10 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\B
   -MakepadSourceRoot <makepad-fork-checkout>
 ```
 
+The wrapper writes ignored build provenance to
+`target/makepad-apk-build-provenance.json`, including Makepad source SHA,
+app-dependency patching mode, SDK profile, APK path, and APK SHA-256.
+
 Use `-UseWindowsHost` when the selected SDK is a Windows-host SDK. Without that
 switch, the wrapper expects a WSL/Linux-host SDK and a Linux NDK prebuilt. A
 path being reachable from WSL is not enough; the SDK must contain tools for the

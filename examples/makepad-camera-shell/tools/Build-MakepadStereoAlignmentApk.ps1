@@ -306,6 +306,151 @@ function Restore-FileSnapshot {
     }
 }
 
+function Invoke-GitOneLine {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+    if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot ".git"))) {
+        return $null
+    }
+    try {
+        $output = @(& git -C $RepoRoot @Arguments 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $output.Count -eq 0) {
+            return $null
+        }
+        return ([string]$output[0]).Trim()
+    }
+    catch {
+        return $null
+    }
+}
+
+function Invoke-GitLines {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+    if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot ".git"))) {
+        return @()
+    }
+    try {
+        $output = @(& git -C $RepoRoot @Arguments 2>$null | ForEach-Object { [string]$_ })
+        if ($LASTEXITCODE -ne 0) {
+            return @()
+        }
+        return $output
+    }
+    catch {
+        return @()
+    }
+}
+
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+    return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function Find-MakepadApkArtifact {
+    param([Parameter(Mandatory = $true)][string]$Root)
+    $targetRoot = Join-Path $Root "target\android"
+    if (-not (Test-Path -LiteralPath $targetRoot)) {
+        return $null
+    }
+    $apk = Get-ChildItem -LiteralPath $targetRoot -Recurse -Filter "*.apk" -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    if (-not $apk) {
+        return $null
+    }
+    return $apk
+}
+
+function New-MakepadSourceProvenance {
+    param([string]$SourceRoot)
+    if ([string]::IsNullOrWhiteSpace($SourceRoot)) {
+        return [ordered]@{
+            sourceKind = "installed-cargo-makepad"
+            sourceRoot = $null
+            branch = $null
+            commit = $null
+            dirty = $null
+            status = @()
+        }
+    }
+    $resolvedRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
+    $status = @(Invoke-GitLines -RepoRoot $resolvedRoot -Arguments @("status", "--short"))
+    return [ordered]@{
+        sourceKind = "source-built-cargo-makepad"
+        sourceRoot = $resolvedRoot
+        branch = Invoke-GitOneLine -RepoRoot $resolvedRoot -Arguments @("rev-parse", "--abbrev-ref", "HEAD")
+        commit = Invoke-GitOneLine -RepoRoot $resolvedRoot -Arguments @("rev-parse", "HEAD")
+        dirty = [bool]($status.Count -gt 0)
+        status = $status
+    }
+}
+
+function Write-MakepadBuildProvenance {
+    param(
+        [Parameter(Mandatory = $true)][datetime]$StartedAt,
+        [Parameter(Mandatory = $true)][datetime]$EndedAt,
+        [Parameter(Mandatory = $true)][string]$HostKind,
+        [Parameter(Mandatory = $true)]$SdkProfile,
+        [Parameter(Mandatory = $true)][int]$ExitCode,
+        [Parameter(Mandatory = $true)][string[]]$CargoCommand,
+        [Parameter(Mandatory = $true)][bool]$AppDependencyPatching
+    )
+    $apk = Find-MakepadApkArtifact -Root $exampleRoot
+    $apkPath = if ($apk) { $apk.FullName } else { $null }
+    $apkSha256 = if ($apkPath) { Get-Sha256Hex -Path $apkPath } else { $null }
+    $apkLength = if ($apkPath) { (Get-Item -LiteralPath $apkPath).Length } else { $null }
+    $apkLastWriteTimeUtc = if ($apkPath) { (Get-Item -LiteralPath $apkPath).LastWriteTimeUtc.ToString("o") } else { $null }
+    $makepadSource = New-MakepadSourceProvenance -SourceRoot $MakepadSourceRoot
+    $provenance = [ordered]@{
+        schema = "rusty.xr.makepad-apk-build-provenance.v1"
+        startedAt = $StartedAt.ToString("o")
+        endedAt = $EndedAt.ToString("o")
+        durationMs = [long]($EndedAt - $StartedAt).TotalMilliseconds
+        status = if ($ExitCode -eq 0) { "ok" } else { "failed" }
+        exitCode = $ExitCode
+        hostKind = $HostKind
+        packageName = $PackageName
+        appLabel = $AppLabel
+        cargoPackage = $CargoPackage
+        displaySourceEyeMapping = $DisplaySourceEyeMapping
+        appDependencyPatching = $AppDependencyPatching
+        appDependencySource = if ($AppDependencyPatching) { "makepadSourceRoot" } else { "Cargo.lock" }
+        makepadSource = $makepadSource
+        sdk = [ordered]@{
+            sdkRoot = $sdkProfile.SdkRoot
+            platform = $sdkProfile.Platform
+            platformApi = $sdkProfile.PlatformApi
+            buildToolsVersion = $sdkProfile.BuildToolsVersion
+            javaHome = $sdkProfile.JavaHome
+            ndkPrebuiltRoot = $sdkProfile.NdkPrebuiltRoot
+            compilerApi = $sdkProfile.CompilerApi
+        }
+        cargoCommand = $CargoCommand
+        apk = [ordered]@{
+            path = $apkPath
+            sha256 = $apkSha256
+            length = $apkLength
+            lastWriteTimeUtc = $apkLastWriteTimeUtc
+        }
+    }
+    $provenancePath = Join-Path $exampleRoot "target\makepad-apk-build-provenance.json"
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $provenancePath) | Out-Null
+    $provenance | ConvertTo-Json -Depth 8 | Set-Content -Path $provenancePath -Encoding UTF8
+    Write-Host ("Makepad APK build provenance: {0}" -f $provenancePath)
+    if ($apkPath) {
+        Write-Host ("Makepad APK artifact: path={0} sha256={1}" -f $apkPath, $apkSha256)
+    }
+    return $provenance
+}
+
 if ([string]::IsNullOrWhiteSpace($WslDistro)) {
     $WslDistro = Select-FirstNonEmpty @($env:MAKEPAD_WSL_DISTRO, "Ubuntu-Work")
 }
@@ -317,6 +462,9 @@ if ($PatchMakepadXrFromSource -and $NoPatchMakepadXrFromSource) {
 }
 if ((-not $NoPatchMakepadXrFromSource) -and [string]::IsNullOrWhiteSpace($MakepadSourceRoot)) {
     throw "Build-MakepadStereoAlignmentApk.ps1 requires -MakepadSourceRoot or RUSTY_XR_MAKEPAD_SOURCE_ROOT by default so cargo-makepad and app Makepad dependencies come from the same maintained checkout. Use -NoPatchMakepadXrFromSource only for an intentional installed-tool or pinned-dependency comparison."
+}
+if (-not [string]::IsNullOrWhiteSpace($MakepadSourceRoot)) {
+    $MakepadSourceRoot = (Resolve-Path -LiteralPath $MakepadSourceRoot).Path
 }
 $patchMakepadXrFromSourceEffective = (-not [string]::IsNullOrWhiteSpace($MakepadSourceRoot)) -and (-not $NoPatchMakepadXrFromSource)
 
@@ -346,6 +494,7 @@ Write-Host "Makepad build phase: cargo/cargo-makepad output follows; wrapper suc
 
 if ($UseWindowsHost) {
     Push-Location $exampleRoot
+    $buildStartedAt = Get-Date
     $oldMapping = $env:RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING
     $oldCargoHome = $env:CARGO_HOME
     $oldJavaHome = $env:JAVA_HOME
@@ -358,6 +507,7 @@ if ($UseWindowsHost) {
     $oldMakepadAndroidSdk = $env:MAKEPAD_ANDROID_SDK
     $patchCargoHome = $null
     $cargoExitCode = 0
+    $cargoMakepadArgs = @()
     $cargoLockPath = Join-Path $exampleRoot "Cargo.lock"
     $cargoLockSnapshot = if ($patchMakepadXrFromSourceEffective) {
         New-FileSnapshot -Path $cargoLockPath
@@ -383,7 +533,6 @@ if ($UseWindowsHost) {
                 -Encoding UTF8
             $env:CARGO_HOME = $patchCargoHome
         }
-        $cargoMakepadArgs = @()
         if ($MakepadSourceRoot) {
             $cargoMakepadArgs += @(
                 "run",
@@ -445,6 +594,14 @@ if ($UseWindowsHost) {
         }
         Pop-Location
     }
+    $null = Write-MakepadBuildProvenance `
+        -StartedAt $buildStartedAt `
+        -EndedAt (Get-Date) `
+        -HostKind $hostKind `
+        -SdkProfile $sdkProfile `
+        -ExitCode $cargoExitCode `
+        -CargoCommand (@("cargo") + $cargoMakepadArgs) `
+        -AppDependencyPatching $patchMakepadXrFromSourceEffective
     exit $cargoExitCode
 }
 
@@ -517,6 +674,7 @@ $cargoLockSnapshot = if ($patchMakepadXrFromSourceEffective) {
     $null
 }
 $wslExitCode = 0
+$buildStartedAt = Get-Date
 try {
     & wsl.exe -d $WslDistro --exec /bin/bash -lc $command
     $wslExitCode = $LASTEXITCODE
@@ -525,6 +683,14 @@ try {
         Restore-FileSnapshot -Path $cargoLockPath -Snapshot $cargoLockSnapshot
     }
 }
+$null = Write-MakepadBuildProvenance `
+    -StartedAt $buildStartedAt `
+    -EndedAt (Get-Date) `
+    -HostKind $hostKind `
+    -SdkProfile $sdkProfile `
+    -ExitCode $wslExitCode `
+    -CargoCommand @("wsl.exe", "-d", $WslDistro, "--exec", "/bin/bash", "-lc", $command) `
+    -AppDependencyPatching $patchMakepadXrFromSourceEffective
 if ($wslExitCode -ne 0) {
     throw "WSL cargo makepad build failed with exit code $wslExitCode"
 }
