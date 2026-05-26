@@ -736,7 +736,9 @@ function Capture-LaunchState {
         $windowHasExpectedPackage -and
         $activityHasExpectedXrActivity -and
         $windowHasExpectedXrActivity
-    $endFrame = @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_OPENXR_END_FRAME").Count
+    $openxrEndFrame = @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_OPENXR_END_FRAME").Count
+    $frameFlowEndFrame = @($log | Select-String -Pattern "RUSTY_XR_MAKEPAD_FRAME_FLOW.*phase=xr-end-frame.*status=submitted").Count
+    $endFrame = $openxrEndFrame + $frameFlowEndFrame
     $visiblePanel = @($log | Select-String -SimpleMatch "visibleCameraProjectionReady=true").Count
     $xrCadence = @($log | Select-String -Pattern "RUSTY_XR_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\\.00)").Count
     $loadingSignals = @($log | Select-String -Pattern "(?i)XrPermissionsFlow|preflight|loading").Count
@@ -818,6 +820,8 @@ function Capture-LaunchState {
         activityHasExpectedXrActivity = [bool]$activityHasExpectedXrActivity
         windowHasExpectedXrActivity = [bool]$windowHasExpectedXrActivity
         openxrEndFrameCount = $endFrame
+        legacyOpenxrEndFrameMarkerCount = $openxrEndFrame
+        frameFlowEndFrameMarkerCount = $frameFlowEndFrame
         visiblePanelMarkerCount = $visiblePanel
         nonzeroXrCadenceMarkerCount = $xrCadence
         loadingSignalCount = $loadingSignals
