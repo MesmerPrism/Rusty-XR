@@ -541,13 +541,16 @@ script_mod! {
 
         sample_camera_rgb: fn(coord: vec2f, eye_selector: float) -> vec3f {
             let sample_uv = clamp(coord, vec2(0.0, 0.0), vec2(1.0, 1.0));
-            let left_yuv = self.sample_left_yuv(sample_uv);
-            let right_yuv = self.sample_right_yuv(sample_uv);
-            let yuv_rgb = mix(left_yuv, right_yuv, eye_selector);
-            let left_external_rgb = self.left_camera_texture.sample_video(sample_uv).xyz;
-            let right_external_rgb = self.right_camera_texture.sample_video(sample_uv).xyz;
-            let external_rgb = mix(left_external_rgb, right_external_rgb, eye_selector);
-            return mix(external_rgb, yuv_rgb, self.yuv_mode);
+            if self.yuv_mode > 0.5 {
+                if eye_selector > 0.5 {
+                    return self.sample_right_yuv(sample_uv);
+                }
+                return self.sample_left_yuv(sample_uv);
+            }
+            if eye_selector > 0.5 {
+                return self.right_camera_texture.sample_video(sample_uv).xyz;
+            }
+            return self.left_camera_texture.sample_video(sample_uv).xyz;
         }
 
         sample_camera_blur_rgb: fn(coord: vec2f, eye_selector: float) -> vec3f {
@@ -603,9 +606,10 @@ script_mod! {
         }
 
         sample_processed_camera_rgb: fn(coord: vec2f, eye_selector: float) -> vec3f {
-            let raw_rgb = self.sample_camera_rgb(coord, eye_selector);
-            let blur_rgb = self.sample_camera_blur_rgb(coord, eye_selector);
-            return mix(raw_rgb, blur_rgb, step(0.5, self.processing_layer));
+            if self.processing_layer > 0.5 {
+                return self.sample_camera_blur_rgb(coord, eye_selector);
+            }
+            return self.sample_camera_rgb(coord, eye_selector);
         }
 
         projection_alpha_transform: fn(mask: float) -> float {
