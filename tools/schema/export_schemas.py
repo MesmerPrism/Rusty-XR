@@ -2076,6 +2076,142 @@ def schemas() -> dict[str, dict]:
             "modes": object_map(loose_object()),
         },
     )
+    camera_texture_lane_kind = enum(
+        "CameraTextureLaneKind",
+        [
+            "vulkan-hwb-direct-camera2-raw",
+            "gles-oes-direct-camera2-raw",
+            "makepad-cpuyuv-direct-camera2-raw",
+            "makepad-hwb-external-direct-camera2-raw",
+            "other",
+        ],
+    )
+    camera_texture_source_kind = enum(
+        "CameraTextureSourceKind", ["direct-camera2", "broker-h264", "synthetic", "other"]
+    )
+    camera_texture_resource_kind = enum(
+        "CameraTextureResourceKind",
+        [
+            "android-hardware-buffer-vulkan",
+            "surface-texture-oes",
+            "cpu-yuv-plane-textures",
+            "makepad-hardware-buffer-external",
+            "other",
+        ],
+    )
+    camera_texture_descriptor_shape = enum(
+        "CameraTextureDescriptorShape",
+        [
+            "unknown",
+            "cpu-yuv-plane-textures",
+            "hardware-buffer-yuv-plane-textures",
+            "sampled-image-and-sampler",
+            "combined-image-sampler",
+            "sampler-external-oes",
+            "not-applicable",
+        ],
+    )
+    camera_texture_color_status = enum(
+        "CameraTextureColorStatus",
+        ["accepted-reference", "experimental", "diagnostic-only", "unknown"],
+    )
+    optional_non_negative_integer = {"type": ["integer", "null"], "minimum": 0}
+    camera_texture_lane_source = obj(
+        "CameraTextureLaneSource",
+        {
+            "source_kind": camera_texture_source_kind,
+            "source_label": string(),
+            "delivered_size": image_size(),
+            "handoff_label": string(),
+            "source_eye_mapping": source_eye_mapping,
+        },
+    )
+    camera_texture_lane_resource = obj(
+        "CameraTextureLaneResource",
+        {
+            "resource_kind": camera_texture_resource_kind,
+            "resource_label": string(),
+            "descriptor_shape": camera_texture_descriptor_shape,
+            "texture_label": string(),
+            "buffer_id": optional_non_negative_integer,
+            "import_cache_size": optional_non_negative_integer,
+            "shader_interface_label": string(),
+        },
+    )
+    camera_texture_lane_transform = obj(
+        "CameraTextureLaneTransform",
+        {
+            "source_visible_uv_rect": source_uv_rect,
+            "transform_stage": source_sampling_transform_stage,
+            "transform_label": string(),
+            "transform_owner": string(),
+            "oes_transform_matrix": {
+                "type": ["array", "null"],
+                "items": number(),
+                "minItems": 16,
+                "maxItems": 16,
+            },
+            "hwb_transform_flags": optional_non_negative_integer,
+            "yuv_rotation_steps": {"type": ["integer", "null"], "minimum": 0, "maximum": 3},
+        },
+    )
+    camera_texture_lane_color = obj(
+        "CameraTextureLaneColor",
+        {
+            "color_status": camera_texture_color_status,
+            "color_reference": string(),
+            "color_matrix": string(),
+            "color_range": string(),
+            "color_transfer": string(),
+        },
+    )
+    camera_texture_lane_timing = obj(
+        "CameraTextureLaneTiming",
+        {
+            "camera_frame_sequence": optional_non_negative_integer,
+            "camera_timestamp_ns": optional_non_negative_integer,
+            "acquire_time_ns": optional_non_negative_integer,
+            "upload_time_ns": optional_non_negative_integer,
+            "import_time_ns": optional_non_negative_integer,
+            "texture_update_sequence": optional_non_negative_integer,
+            "texture_submit_sequence": optional_non_negative_integer,
+            "xr_end_frame_time_ns": optional_non_negative_integer,
+        },
+    )
+    camera_texture_lane_lifecycle = obj(
+        "CameraTextureLaneLifecycle",
+        {
+            "first_frame_seen": boolean(),
+            "fallback_active": boolean(),
+            "fallback_reason": nullable_string(),
+            "frame_reuse_policy": string(),
+            "resource_release_policy": string(),
+            "app_focused": {"type": ["boolean", "null"]},
+        },
+    )
+    camera_texture_lane_projection = obj(
+        "CameraTextureLaneProjection",
+        {
+            "projection_border_policy": string(),
+            "processing_layer": string(),
+            "projection_surface_label": string(),
+            "projection_status_label": string(),
+        },
+    )
+    camera_texture_lane_contract = obj(
+        "CameraTextureLaneContract",
+        {
+            "schema_version": {"const": "rusty.xr.camera-texture-lane-contract.v1"},
+            "lane_kind": camera_texture_lane_kind,
+            "source": camera_texture_lane_source,
+            "resource": camera_texture_lane_resource,
+            "transform": camera_texture_lane_transform,
+            "color": camera_texture_lane_color,
+            "timing": camera_texture_lane_timing,
+            "lifecycle": camera_texture_lane_lifecycle,
+            "projection": camera_texture_lane_projection,
+        },
+    )
     projection_runtime_readback = open_obj(
         "ProjectionRuntimeReadback",
         {
@@ -2207,6 +2343,7 @@ def schemas() -> dict[str, dict]:
         "projection-coordinate-contract-summary.schema.json": projection_coordinate_contract_summary,
         "source-sampling-contract.schema.json": source_sampling_contract,
         "source-sampling-contract-summary.schema.json": source_sampling_contract_summary,
+        "camera-texture-lane-contract.schema.json": camera_texture_lane_contract,
         "projection-runtime-readback.schema.json": projection_runtime_readback,
         "plain-stereo-layer.schema.json": obj(
             "PlainStereoLayer",

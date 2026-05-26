@@ -13,6 +13,8 @@ before reading chronological plans or investigation logs.
   core crates, optional features, adapters, and examples.
 - [Serialization and schema policy](SERIALIZATION_AND_SCHEMA_POLICY.md): serde,
   schema export, and compatibility rules.
+- [Camera texture lane parity plan](CAMERA_TEXTURE_LANE_PARITY_PLAN.md):
+  shared HWB, OES, and Makepad camera texture architecture contract.
 - [Provenance](PROVENANCE.md): public-safe provenance notes for extracted
   utility work.
 - [API surface review](API_SURFACE_REVIEW.md): active review notes for public

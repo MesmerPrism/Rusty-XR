@@ -89,6 +89,8 @@ The initial export covers:
 - Canvas/custom projection parity suite summaries, timing records, screen-space
   reports, projection mapping records, projection-coordinate contracts, and
   source-sampling contracts.
+- Camera texture lane contracts for comparing direct HWB, direct OES, Makepad
+  CPU-YUV, and Makepad HWB external resource architectures.
 - Projection property hygiene summaries for launch wrappers that clear or gate
   persistent `debug.rustyxr.*` projection properties.
 - Projection runtime readback reports that compare launch extras or Android
