@@ -140,6 +140,7 @@ $converter = Join-Path $repoRoot "tools\media-pipeline\Convert-RgbaFrameToPng.py
 $contactSheetBuilder = Join-Path $repoRoot "tools\quest-camera-profile\Build-CanvasCustomParityContactSheet.py"
 $screenSpaceAnalyzer = Join-Path $repoRoot "tools\quest-camera-profile\Analyze-RawStackScreenSpace.py"
 $artifactValidator = Join-Path $repoRoot "tools\quest-camera-profile\Validate-CanvasCustomParityArtifacts.py"
+$laneSummaryAggregator = Join-Path $repoRoot "tools\quest-camera-profile\Aggregate-CameraTextureLaneSummaries.py"
 $profileRunner = Join-Path $repoRoot "tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1"
 $makepadRunner = Join-Path $repoRoot "examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1"
 $projectionRuntimeResolutionEnabledValue = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
@@ -406,6 +407,47 @@ function Read-JsonArtifact {
     catch {
         Write-Warning "Could not read JSON artifact $($Path): $($_.Exception.Message)"
         return $null
+    }
+}
+
+function Invoke-CameraTextureLaneSuiteAggregation {
+    $outPath = Join-Path $sessionRoot "camera-texture-lane-suite-summary.json"
+    $stdoutPath = Join-Path $sessionRoot "camera-texture-lane-suite-summary-stdout.txt"
+    $errorPath = Join-Path $sessionRoot "camera-texture-lane-suite-summary-error.txt"
+    if (-not (Test-Path -LiteralPath $laneSummaryAggregator)) {
+        return [ordered]@{
+            schema = "rusty.xr.canvas-custom-projection-parity-suite.camera-texture-lane-suite-analysis.v1"
+            status = "skipped"
+            reason = "aggregator-not-found"
+            path = $outPath
+        }
+    }
+    try {
+        $output = @(& python $laneSummaryAggregator $sessionRoot --out $outPath 2>&1 | ForEach-Object { [string]$_ })
+        $exitCode = $LASTEXITCODE
+        $output | Set-Content -Path $stdoutPath -Encoding UTF8
+        $aggregated = Read-JsonArtifact -Path $outPath
+        $status = if ($exitCode -eq 0 -and $null -ne $aggregated) { "ok" } else { "tool-failed" }
+        return [ordered]@{
+            schema = "rusty.xr.canvas-custom-projection-parity-suite.camera-texture-lane-suite-analysis.v1"
+            status = $status
+            path = $outPath
+            stdout = $stdoutPath
+            exitCode = $exitCode
+            summary = $aggregated
+        }
+    }
+    catch {
+        @("camera texture lane suite aggregation failed", $_.Exception.Message) |
+            Set-Content -Path $errorPath -Encoding UTF8
+        return [ordered]@{
+            schema = "rusty.xr.canvas-custom-projection-parity-suite.camera-texture-lane-suite-analysis.v1"
+            status = "tool-failed"
+            reason = $_.Exception.Message
+            path = $outPath
+            stdout = $stdoutPath
+            error = $errorPath
+        }
     }
 }
 
@@ -1533,6 +1575,11 @@ $artifactValidationStatus = [ordered]@{
     validator = $artifactValidator
     error = ""
 }
+$cameraTextureLaneSuiteAnalysis = [ordered]@{
+    schema = "rusty.xr.canvas-custom-projection-parity-suite.camera-texture-lane-suite-analysis.v1"
+    status = "pending"
+    path = Join-Path $sessionRoot "camera-texture-lane-suite-summary.json"
+}
 
 if ($analyzerEnabled) {
     try {
@@ -1576,17 +1623,21 @@ if ($contactSheetEnabled) {
     }
 }
 
+$cameraTextureLaneSuiteAnalysis = Invoke-TimedStep -CaseId "suite" -Step "camera-texture-lane-suite-aggregation" -Action {
+    Invoke-CameraTextureLaneSuiteAggregation
+}
 $timingSummary = New-TimingSummary
 $timingSummary | ConvertTo-Json -Depth 8 | Set-Content -Path $timingSummaryPath -Encoding UTF8
 $summary["analysis"] = $analysisStatus
 $summary["contactSheetStatus"] = $contactSheetStatus
+$summary["cameraTextureLaneSuiteAnalysis"] = $cameraTextureLaneSuiteAnalysis
 $summary["timing"] = [ordered]@{
     totalElapsedMs = $timingSummary.totalElapsedMs
     jsonl = $timingPath
     summary = $timingSummaryPath
 }
 $summary["artifactValidation"] = $artifactValidationStatus
-$summary | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryPath -Encoding UTF8
+$summary | ConvertTo-Json -Depth 12 | Set-Content -Path $summaryPath -Encoding UTF8
 
 try {
     & python $artifactValidator --suite-root $sessionRoot | ForEach-Object { Write-Host $_ }
@@ -1598,9 +1649,9 @@ try {
     $artifactValidationStatus["status"] = "failed"
     $artifactValidationStatus["error"] = $_.Exception.Message
     $summary["artifactValidation"] = $artifactValidationStatus
-    $summary | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryPath -Encoding UTF8
+    $summary | ConvertTo-Json -Depth 12 | Set-Content -Path $summaryPath -Encoding UTF8
     throw
 }
 $summary["artifactValidation"] = $artifactValidationStatus
-$summary | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryPath -Encoding UTF8
+$summary | ConvertTo-Json -Depth 12 | Set-Content -Path $summaryPath -Encoding UTF8
 $summary | ConvertTo-Json -Depth 7

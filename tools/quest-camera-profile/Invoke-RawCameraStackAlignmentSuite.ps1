@@ -193,6 +193,7 @@ $usesBrokerH264Modes = @($Mode | Where-Object { $_ -like "*broker-h264*" }).Coun
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $cameraProfileRunner = Join-Path $PSScriptRoot "Invoke-QuestCameraProfileRun.ps1"
+$laneSummaryAggregator = Join-Path $PSScriptRoot "Aggregate-CameraTextureLaneSummaries.py"
 $makepadRunner = Join-Path $repoRoot "examples\makepad-camera-shell\tools\Invoke-MakepadCameraDeviceGate.ps1"
 $compositeCatalog = Join-Path $repoRoot "examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json"
 $glesCatalog = Join-Path $repoRoot "examples\quest-gl-openxr-video-stack-apk\catalog\rusty-xr-quest-gl-openxr-video-stack.catalog.json"
@@ -1456,6 +1457,34 @@ if ($RestoreStayAwakeGuard) {
     Save-StateSnapshot -Label "after-stay-awake-restore"
 }
 
+$cameraTextureLaneSuiteSummaryPath = Join-Path $sessionRoot "camera-texture-lane-suite-summary.json"
+$cameraTextureLaneSuiteSummaryStatus = "skipped"
+$cameraTextureLaneSuiteSummaryMessage = ""
+if (Test-Path -LiteralPath $laneSummaryAggregator) {
+    try {
+        $cameraTextureLaneSuiteSummaryOutput = @(& python $laneSummaryAggregator $sessionRoot --out $cameraTextureLaneSuiteSummaryPath 2>&1 |
+            ForEach-Object { [string]$_ })
+        $cameraTextureLaneSuiteSummaryOutput |
+            Set-Content -Path (Join-Path $sessionRoot "camera-texture-lane-suite-summary-stdout.txt") -Encoding UTF8
+        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $cameraTextureLaneSuiteSummaryPath)) {
+            $cameraTextureLaneSuiteSummaryStatus = "ok"
+        }
+        else {
+            $cameraTextureLaneSuiteSummaryStatus = "tool-failed"
+            $cameraTextureLaneSuiteSummaryMessage = "Aggregator exit code $LASTEXITCODE"
+        }
+    }
+    catch {
+        $cameraTextureLaneSuiteSummaryStatus = "tool-failed"
+        $cameraTextureLaneSuiteSummaryMessage = $_.Exception.Message
+        @("camera texture lane suite aggregation failed", $_.Exception.Message) |
+            Set-Content -Path (Join-Path $sessionRoot "camera-texture-lane-suite-summary-error.txt") -Encoding UTF8
+    }
+}
+else {
+    $cameraTextureLaneSuiteSummaryMessage = "Aggregator not found: $laneSummaryAggregator"
+}
+
 $summaryJson = Join-Path $sessionRoot "raw-camera-stack-suite-summary.json"
 $results | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryJson -Encoding UTF8
 
@@ -1570,6 +1599,10 @@ $lines.Add(("- GL/OES border override: ``{0}``" -f (Get-GlesProjectionBorderOver
 $lines.Add(("- Warmup seconds: ``{0}``" -f $WarmupSeconds))
 $lines.Add(("- Sample seconds: ``{0}``" -f $SampleSeconds))
 $lines.Add(("- Freshness frames: ``{0}``" -f $FreshnessFrames))
+$lines.Add(("- Camera texture lane suite summary: ``{0}`` (status ``{1}``)" -f $cameraTextureLaneSuiteSummaryPath, $cameraTextureLaneSuiteSummaryStatus))
+if ($cameraTextureLaneSuiteSummaryMessage) {
+    $lines.Add(("- Camera texture lane suite summary note: {0}" -f $cameraTextureLaneSuiteSummaryMessage.Replace("|", "/")))
+}
 if ($usesBrokerH264Modes) {
     $lines.Add(("- Broker H.264 synthetic pattern: ``{0}``" -f $BrokerH264SyntheticPattern))
     $lines.Add(("- Broker H.264 stream ports: left ``{0}``, right ``{1}``" -f $BrokerH264LeftStreamPort, $BrokerH264RightStreamPort))
