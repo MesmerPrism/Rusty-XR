@@ -635,6 +635,22 @@ also runs Meta performance stale analysis and treats analyzer `status=stale`
 as a gate failure; transient warmup stale that clears in the recent sample
 window is recorded as an `ok` reason instead of being hidden.
 
+For scoped Makepad CPU/HWB iteration, compare only the lane artifacts that were
+rerun instead of expanding to a full all-lane sweep:
+
+```powershell
+python .\tools\quest-camera-profile\Compare-MakepadCameraRuns.py `
+  --run cpu=<cpu-run-root> `
+  --run hwb=<hwb-run-root> `
+  --json-out <ignored-artifact-root>\makepad-cpu-hwb-comparison.json `
+  --markdown-out <ignored-artifact-root>\makepad-cpu-hwb-comparison.md
+```
+
+The comparison tool accepts either gate roots or raw
+`meta-perf-stale-analysis.json` files. It reports the recent VrApi stale
+window, CPU+GPU time, app time, Makepad texture cadence, and XR repaint timing
+using the same analyzer contract as the gate.
+
 Projection-area offset keys share the suite-level display-eye screen-UV
 contract: positive X moves the projection area right and positive Y moves it
 down before final runtime mirror capture. Screenshot pixels are evidence after
