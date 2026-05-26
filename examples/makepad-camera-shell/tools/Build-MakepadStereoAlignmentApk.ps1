@@ -342,6 +342,7 @@ if ($MakepadSourceRoot) {
 } else {
     Write-Host "Makepad packager: installed cargo-makepad from the active Cargo environment"
 }
+Write-Host "Makepad build phase: cargo/cargo-makepad output follows; wrapper success is reported after that subprocess exits."
 
 if ($UseWindowsHost) {
     Push-Location $exampleRoot
@@ -356,6 +357,7 @@ if ($UseWindowsHost) {
     $oldAndroidBuildToolsVersion = $env:ANDROID_BUILD_TOOLS_VERSION
     $oldMakepadAndroidSdk = $env:MAKEPAD_ANDROID_SDK
     $patchCargoHome = $null
+    $cargoExitCode = 0
     $cargoLockPath = Join-Path $exampleRoot "Cargo.lock"
     $cargoLockSnapshot = if ($patchMakepadXrFromSourceEffective) {
         New-FileSnapshot -Path $cargoLockPath
@@ -404,6 +406,10 @@ if ($UseWindowsHost) {
         )
         $cargoMakepadArgs += @("-p", $CargoPackage, "--release")
         & cargo @cargoMakepadArgs
+        $cargoExitCode = $LASTEXITCODE
+        if ($cargoExitCode -eq 0) {
+            Write-Host "Makepad APK wrapper completed after cargo/cargo-makepad output."
+        }
     } finally {
         if ($null -eq $oldMapping) {
             Remove-Item Env:\RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING -ErrorAction SilentlyContinue
@@ -439,7 +445,7 @@ if ($UseWindowsHost) {
         }
         Pop-Location
     }
-    exit $LASTEXITCODE
+    exit $cargoExitCode
 }
 
 $exampleRootWsl = Convert-ToWslPath -Path $exampleRoot
@@ -522,3 +528,4 @@ try {
 if ($wslExitCode -ne 0) {
     throw "WSL cargo makepad build failed with exit code $wslExitCode"
 }
+Write-Host "Makepad APK wrapper completed after WSL cargo/cargo-makepad output."
