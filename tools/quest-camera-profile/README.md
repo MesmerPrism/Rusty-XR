@@ -656,6 +656,13 @@ before launch unless the caller passes the explicit skip switch. This is shared
 harness hygiene: a focused direct HWB/OES or Makepad run should not depend on a
 previous public example process staying resident in the background.
 
+The Makepad device gate also owns the Oculus performance properties instead of
+inheriting them from a previous direct run. By default it writes CPU/GPU level
+`3`, foveation level `0`, and dynamic foveation `false`; use the
+`-OculusCpuLevel`, `-OculusGpuLevel`, `-OculusFoveationLevel`, and
+`-OculusFoveationDynamic` switches when a run intentionally needs different
+device-performance conditions.
+
 The direct HWB/OES profile runner also writes
 `<runtime-profile>-meta-perf-stale-analysis.json` from the bounded logcat
 window. Its default `-MetaPerfStale warn` mode records the same recent VrApi

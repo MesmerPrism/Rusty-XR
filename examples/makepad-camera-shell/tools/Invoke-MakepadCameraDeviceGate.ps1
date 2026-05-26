@@ -57,6 +57,14 @@ param(
     [double]$CameraRawOverlayOverscan = [double]::NaN,
     [double]$XrRenderScale = 1.0,
     [double]$XrDisplayRefreshHz = 72.0,
+    [ValidateRange(0, 5)]
+    [int]$OculusCpuLevel = 3,
+    [ValidateRange(0, 5)]
+    [int]$OculusGpuLevel = 3,
+    [ValidateRange(0, 4)]
+    [int]$OculusFoveationLevel = 0,
+    [ValidateSet("true", "false")]
+    [string]$OculusFoveationDynamic = "false",
     [double]$ProjectionAreaOffsetXUv = 0.0,
     [double]$ProjectionAreaOffsetLeftUv = [double]::NaN,
     [double]$ProjectionAreaOffsetRightUv = [double]::NaN,
@@ -487,6 +495,39 @@ function Grant-RuntimePermissions {
         if ($setExitCode -ne 0 -or $getExitCode -ne 0 -or (($getOutput -join "`n") -notmatch "PROJECT_MEDIA:\s*allow")) {
             throw "MediaProjection PROJECT_MEDIA app-op pregrant failed or did not read back as allow; see permission-grants.txt"
         }
+    }
+}
+
+function Set-MakepadOculusPerformanceProfile {
+    $props = [ordered]@{
+        "debug.oculus.cpuLevel" = $OculusCpuLevel
+        "debug.oculus.gpuLevel" = $OculusGpuLevel
+        "debug.oculus.foveation.level" = $OculusFoveationLevel
+        "debug.oculus.foveation.dynamic" = $OculusFoveationDynamic
+    }
+
+    foreach ($entry in $props.GetEnumerator()) {
+        Invoke-Adb -Arguments @("shell", "setprop", $entry.Key, [string]$entry.Value) | Out-Null
+    }
+
+    $readback = foreach ($entry in $props.GetEnumerator()) {
+        $value = (Invoke-Adb -Arguments @("shell", "getprop", $entry.Key)) -join ""
+        [pscustomobject]@{
+            property = $entry.Key
+            expected = [string]$entry.Value
+            actual = $value.Trim()
+        }
+    }
+    $readback | ConvertTo-Json -Depth 3 |
+        Set-Content -Path (Join-Path $OutDir "oculus-performance-props.json") -Encoding UTF8
+    Assert-PropertyReadback -Readback $readback -Label "oculus-performance"
+
+    return [ordered]@{
+        cpuLevel = $OculusCpuLevel
+        gpuLevel = $OculusGpuLevel
+        foveationLevel = $OculusFoveationLevel
+        foveationDynamic = $OculusFoveationDynamic
+        readback = $readback
     }
 }
 
@@ -1113,6 +1154,7 @@ $preLaunchForceStopSummary = Invoke-GateTimedStep -Step "prelaunch-force-stop-pa
 }
 Invoke-GateTimedStep -Step "install-apk" -Action { Install-Apk }
 Invoke-GateTimedStep -Step "grant-runtime-permissions" -Action { Grant-RuntimePermissions }
+$oculusPerformanceProfile = Invoke-GateTimedStep -Step "set-oculus-performance-profile" -Action { Set-MakepadOculusPerformanceProfile }
 Invoke-GateTimedStep -Step "set-projection-target-profile" -Action { Set-MakepadProjectionTargetProfile }
 Invoke-GateTimedStep -Step "set-broker-h264-profile" -Action { Set-MakepadBrokerH264Profile }
 Invoke-GateTimedStep -Step "prelaunch-state-capture" -Action {
@@ -1304,6 +1346,11 @@ $summary = [ordered]@{
     projectionBorderPolicy = $ProjectionBorderPolicy
     nativePassthroughRequested = [bool]($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0 -or $ProjectionAlphaMode -ne "fixed")
     xrDisplayRefreshHz = $XrDisplayRefreshHz
+    oculusCpuLevel = $OculusCpuLevel
+    oculusGpuLevel = $OculusGpuLevel
+    oculusFoveationLevel = $OculusFoveationLevel
+    oculusFoveationDynamic = $OculusFoveationDynamic
+    oculusPerformanceProfile = $oculusPerformanceProfile
     projectionAreaOpacity = $ProjectionAreaOpacity
     projectionBorderOpacity = $ProjectionBorderOpacity
     projectionAlphaMode = $ProjectionAlphaMode
