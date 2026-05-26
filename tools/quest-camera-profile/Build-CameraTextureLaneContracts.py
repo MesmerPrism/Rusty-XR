@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import tempfile
 from collections import Counter
@@ -52,6 +53,29 @@ KNOWN_DESCRIPTOR_SHAPES = {
     "sampler-external-oes",
     "not-applicable",
 }
+MAKEPAD_MEDIA_TIMING_FIELDS = {
+    "cameraFrameSeq",
+    "cameraTimestampNs",
+    "captureTimeMs",
+    "captureTimeNs",
+    "acquireTimeNs",
+    "uploadSeq",
+    "uploadTimeMs",
+    "uploadTimeNs",
+    "importSeq",
+    "importTimeMs",
+    "importTimeNs",
+    "textureUpdateSeq",
+}
+MAKEPAD_SUBMIT_TIMING_FIELDS = {
+    "xrFrameIndex",
+    "xrFrameSeq",
+    "xrEndFrameTimeNs",
+    "submitTimeMs",
+    "submitTimeNs",
+    "predictedDisplayTimeNs",
+    "predictedDisplayPeriodNs",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -80,6 +104,65 @@ def parse_marker_fields(text: str) -> dict[str, str]:
     return {key: value.strip("'\"") for key, value in KV_RE.findall(text)}
 
 
+def nonempty_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
+def read_json_file(path: Path) -> Any | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def load_run_context_fields(root: Path) -> dict[str, Any]:
+    if root.is_file():
+        root = root.parent
+    fields: dict[str, Any] = {}
+
+    props = read_json_file(root / "projection-target-props.json")
+    if isinstance(props, list):
+        property_map = {
+            "debug.rustyxr.projection.border.policy": "projectionBorderPolicy",
+            "debug.rustyxr.makepad.processing.layer": "processingLayer",
+        }
+        for item in props:
+            if not isinstance(item, dict):
+                continue
+            key = property_map.get(str(item.get("property") or ""))
+            if key is None:
+                continue
+            value = nonempty_text(item.get("actual")) or nonempty_text(item.get("expected"))
+            if value is not None:
+                fields[key] = value
+
+    for json_name in ("run-manifest.json", "summary.json"):
+        manifest = read_json_file(root / json_name)
+        if not isinstance(manifest, dict):
+            continue
+        for source_key, target_key in (
+            ("projectionBorderPolicy", "projectionBorderPolicy"),
+            ("processingLayer", "processingLayer"),
+        ):
+            value = nonempty_text(manifest.get(source_key))
+            if value is not None:
+                fields.setdefault(target_key, value)
+        values = manifest.get("values")
+        if isinstance(values, dict):
+            for source_key, target_key in (
+                ("rustyxr.projectionBorderPolicy", "projectionBorderPolicy"),
+                ("rustyxr.makepad.processing.layer", "processingLayer"),
+            ):
+                value = nonempty_text(values.get(source_key))
+                if value is not None:
+                    fields.setdefault(target_key, value)
+
+    return fields
+
+
 def parse_json_after_marker(line: str, marker: str) -> dict[str, Any] | None:
     if marker not in line:
         return None
@@ -98,6 +181,11 @@ def parse_int(value: Any) -> int | None:
         return int(str(value).strip())
     except ValueError:
         return None
+
+
+def parse_max_int(*values: Any) -> int | None:
+    parsed = [value for value in (parse_int(item) for item in values) if value is not None]
+    return max(parsed) if parsed else None
 
 
 def parse_bool(value: Any) -> bool | None:
@@ -122,6 +210,60 @@ def parse_time_ns(fields: dict[str, Any], *keys: str) -> int | None:
             return value * 1_000_000
         return value
     return None
+
+
+def makepad_media_recency_ns(fields: dict[str, Any]) -> int | None:
+    value = parse_time_ns(
+        fields,
+        "uploadTimeNs",
+        "importTimeNs",
+        "captureTimeNs",
+        "acquireTimeNs",
+        "uploadTimeMs",
+        "importTimeMs",
+        "captureTimeMs",
+    )
+    if value is not None:
+        return value
+    for key in ("textureUpdateSeq", "uploadSeq", "importSeq", "cameraFrameSeq"):
+        sequence = parse_int(fields.get(key))
+        if sequence is not None:
+            return sequence
+    return None
+
+
+def makepad_submit_recency_ns(fields: dict[str, Any]) -> int | None:
+    value = parse_time_ns(fields, "xrEndFrameTimeNs", "submitTimeNs", "submitTimeMs")
+    if value is not None:
+        return value
+    for key in ("xrFrameSeq", "xrFrameIndex"):
+        sequence = parse_int(fields.get(key))
+        if sequence is not None:
+            return sequence
+    return None
+
+
+def merge_makepad_fields(current: dict[str, Any], incoming: dict[str, Any]) -> None:
+    current_media_recency = makepad_media_recency_ns(current)
+    incoming_media_recency = makepad_media_recency_ns(incoming)
+    current_submit_recency = makepad_submit_recency_ns(current)
+    incoming_submit_recency = makepad_submit_recency_ns(incoming)
+    accept_media_timing = (
+        incoming_media_recency is None
+        or current_media_recency is None
+        or incoming_media_recency >= current_media_recency
+    )
+    accept_submit_timing = (
+        incoming_submit_recency is None
+        or current_submit_recency is None
+        or incoming_submit_recency >= current_submit_recency
+    )
+    for key, value in incoming.items():
+        if key in MAKEPAD_MEDIA_TIMING_FIELDS and not accept_media_timing:
+            continue
+        if key in MAKEPAD_SUBMIT_TIMING_FIELDS and not accept_submit_timing:
+            continue
+        current[key] = value
 
 
 def signed_delta(later: Any, earlier: Any) -> int | None:
@@ -606,8 +748,10 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
             "acquire_time_ns": parse_time_ns(fields, "acquireTimeNs", "captureTimeNs", "captureTimeMs"),
             "upload_time_ns": parse_time_ns(fields, "uploadTimeNs", "uploadTimeMs"),
             "import_time_ns": parse_time_ns(fields, "importTimeNs", "importTimeMs"),
-            "texture_update_sequence": parse_int(
-                fields.get("textureUpdateSeq") or fields.get("uploadSeq") or fields.get("importSeq")
+            "texture_update_sequence": parse_max_int(
+                fields.get("textureUpdateSeq"),
+                fields.get("uploadSeq"),
+                fields.get("importSeq"),
             ),
             "texture_submit_sequence": parse_int(fields.get("xrFrameIndex") or fields.get("xrFrameSeq")),
             "xr_end_frame_time_ns": parse_time_ns(fields, "xrEndFrameTimeNs", "submitTimeNs", "submitTimeMs"),
@@ -645,11 +789,11 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
 
 
 class ScanState:
-    def __init__(self) -> None:
+    def __init__(self, makepad_context_fields: dict[str, Any] | None = None) -> None:
         self.hwb_fields: dict[str, Any] = {}
         self.oes_fields: dict[str, Any] = {}
         self.oes_transform: dict[str, Any] | None = None
-        self.makepad_global_fields: dict[str, Any] = {}
+        self.makepad_global_fields: dict[str, Any] = dict(makepad_context_fields or {})
         self.makepad_fields_by_path: dict[str, dict[str, Any]] = {}
 
     def update_hwb(self, fields: dict[str, Any]) -> None:
@@ -659,12 +803,13 @@ class ScanState:
         self.oes_fields.update(fields)
 
     def update_makepad(self, path: str, fields: dict[str, Any]) -> None:
-        self.makepad_fields_by_path.setdefault(path, dict(self.makepad_global_fields)).update(fields)
+        lane_fields = self.makepad_fields_by_path.setdefault(path, dict(self.makepad_global_fields))
+        merge_makepad_fields(lane_fields, fields)
 
     def update_makepad_global(self, fields: dict[str, Any]) -> None:
-        self.makepad_global_fields.update(fields)
+        merge_makepad_fields(self.makepad_global_fields, fields)
         for lane_fields in self.makepad_fields_by_path.values():
-            lane_fields.update(fields)
+            merge_makepad_fields(lane_fields, fields)
 
 
 def scan_line(line: str, state: ScanState) -> None:
@@ -712,8 +857,14 @@ def scan_line(line: str, state: ScanState) -> None:
         state.update_makepad("direct-camera-hardware-buffer-external", fields)
 
 
-def build_records(log_files: list[Path]) -> list[dict[str, Any]]:
-    state = ScanState()
+def build_records(log_files: list[Path], context_root: Path | None = None) -> list[dict[str, Any]]:
+    if context_root is None:
+        if len(log_files) == 1:
+            context_root = log_files[0].parent
+        elif log_files:
+            context_root = Path(os.path.commonpath([str(path.parent) for path in log_files]))
+    context_fields = load_run_context_fields(context_root) if context_root is not None else {}
+    state = ScanState(context_fields)
     for log_file in log_files:
         for line in log_file.read_text(encoding="utf-8", errors="replace").splitlines():
             scan_line(line, state)
@@ -826,7 +977,7 @@ def output_dir_for(root: Path, out_dir: Path | None) -> Path:
 
 def run(root: Path, out_dir: Path | None) -> tuple[list[dict[str, Any]], dict[str, Any], Path]:
     log_files = iter_log_files(root)
-    records = build_records(log_files)
+    records = build_records(log_files, root)
     summary = build_summary(records, log_files)
     resolved_out = output_dir_for(root, out_dir)
     resolved_out.mkdir(parents=True, exist_ok=True)
@@ -846,9 +997,9 @@ def self_test() -> None:
             'Rusty XR SurfaceTexture OES transform matrix {"schema":"rusty.xr.quest.surface_texture_oes_transform_matrix.v1","view_index":0,"source_eye":"left","update_tex_image_count":4,"surface_texture_timestamp_ns":12345,"transform_matrix_hash":"m44:test","transform_matrix":[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]}',
             "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=cpu-yuv-upload status=ok path=cpu-yuv videoId=1 uploadSeq=3 cameraFrameSeq=2 cameraTimestampNs=123 uploadTimeNs=456 width=1280 height=1280",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane projectionBorderPolicy=solid-red eventResourcePath=cpu-yuv-planes descriptorShape=cpu-yuv-plane-textures cameraFrameSeq=2 cameraTimestampNs=123 acquireTimeNs=111 uploadSeq=3 uploadTimeNs=456 textureUpdateSeq=3 textureWidth=1280 textureHeight=1280",
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane eventResourcePath=cpu-yuv-planes descriptorShape=cpu-yuv-plane-textures cameraFrameSeq=2 cameraTimestampNs=123 acquireTimeNs=111 uploadSeq=3 uploadTimeNs=456 textureUpdateSeq=3 textureWidth=1280 textureHeight=1280",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none projectionBorderPolicy=solid-red eventResourcePath=hardware-buffer-external descriptorShape=sampled-image-and-sampler cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false",
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=sampled-image-and-sampler cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false",
             "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.xr.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=SAMPLED_IMAGE samplerDescriptorType=SAMPLER combinedImageSampler=false shaderSampleLowering=textureSampleLevel_separate_texture_sampler",
             "RUSTY_XR_MAKEPAD_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=xr-end-frame status=submitted renderPath=makepad-xr xrFrameSeq=9 shouldRender=true submitTimeNs=900 predictedDisplayTimeNs=1000 predictedDisplayPeriodNs=13888888 resultCode=0 layerCount=1",
         ]
@@ -857,6 +1008,21 @@ def self_test() -> None:
         root = Path(tmp)
         log_path = root / "logcat.txt"
         log_path.write_text(sample_log, encoding="utf-8")
+        write_json(
+            root / "projection-target-props.json",
+            [
+                {
+                    "property": "debug.rustyxr.projection.border.policy",
+                    "expected": "solid-red",
+                    "actual": "solid-red",
+                },
+                {
+                    "property": "debug.rustyxr.makepad.processing.layer",
+                    "expected": "raw",
+                    "actual": "raw",
+                },
+            ],
+        )
         records, summary, out_dir = run(root, None)
 
         lanes = {record["lane_kind"]: record for record in records}
@@ -885,6 +1051,8 @@ def self_test() -> None:
             raise AssertionError("summary record count mismatch")
         if summary["timing_field_counts"]["xr_end_frame_time_ns"] != 2:
             raise AssertionError("summary did not count Makepad XR end-frame timing")
+        if summary["projection_border_policy_counts"].get("solid-red") != 4:
+            raise AssertionError("summary did not apply projection context")
         cpu_summary = summary["lane_summaries"]["makepad-cpuyuv-direct-camera2-raw"]
         if cpu_summary["timing_relations"]["acquire_to_upload_ns"] != 345:
             raise AssertionError("summary did not compute CPU acquire-to-upload timing")

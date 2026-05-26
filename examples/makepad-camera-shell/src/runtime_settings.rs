@@ -83,6 +83,7 @@ pub(crate) const NATIVE_VIDEO_WIDGET_RETRY_SECONDS: f64 = 0.5;
 pub(crate) const NATIVE_VIDEO_WIDGET_MAX_RESETS: usize = 3;
 pub(crate) const RAW_VIDEO_EVENT_MARKER_LIMIT: usize = 48;
 pub(crate) const TEXTURE_UPDATE_MARKER_LIMIT: usize = 32;
+pub(crate) const TEXTURE_UPDATE_MARKER_PERIOD: usize = 121;
 pub(crate) const TEXTURE_CONTENT_PROBE_MARKER_LIMIT: usize = 8;
 pub(crate) const SYNTHETIC_LUMA_SLOT_PROOF: bool = false;
 pub(crate) const SYNTHETIC_LUMA_ALL_SLOT_PROOF: bool = false;

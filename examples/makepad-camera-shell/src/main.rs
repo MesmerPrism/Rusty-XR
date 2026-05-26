@@ -3576,23 +3576,9 @@ impl App {
                     if !Self::broker_h264_enabled() {
                         self.emit_yuv_texture_content_probe(cx, side, updated.yuv);
                     }
-                    if self.paired_import_finished {
-                        self.bind_camera_projection_panel(cx);
-                        return;
-                    }
-                    match side {
-                        StereoEye::Left => {
-                            self.paired_import_left_updated = true;
-                            self.paired_import_left_rotation_steps = updated.yuv.rotation_steps;
-                        }
-                        StereoEye::Right => {
-                            self.paired_import_right_updated = true;
-                            self.paired_import_right_rotation_steps = updated.yuv.rotation_steps;
-                        }
-                    }
-                    if TEXTURE_UPDATE_MARKERS_EMITTED.fetch_add(1, Ordering::AcqRel)
-                        < TEXTURE_UPDATE_MARKER_LIMIT
-                    {
+                    let marker_index =
+                        TEXTURE_UPDATE_MARKERS_EMITTED.fetch_add(1, Ordering::AcqRel);
+                    if should_emit_texture_update_marker(marker_index) {
                         let texture_path = MakepadCameraTexturePath::from_video_update(
                             Self::broker_h264_enabled(),
                             updated.yuv.enabled,
@@ -3613,8 +3599,24 @@ impl App {
                                 updated.yuv.rotation_steps,
                                 texture_path,
                                 &updated.metadata,
+                                MakepadProjectionBorderPolicy::current().stable_id(),
+                                MakepadProcessingLayer::current().stable_id(),
                             ),
                         );
+                    }
+                    if self.paired_import_finished {
+                        self.bind_camera_projection_panel(cx);
+                        return;
+                    }
+                    match side {
+                        StereoEye::Left => {
+                            self.paired_import_left_updated = true;
+                            self.paired_import_left_rotation_steps = updated.yuv.rotation_steps;
+                        }
+                        StereoEye::Right => {
+                            self.paired_import_right_updated = true;
+                            self.paired_import_right_rotation_steps = updated.yuv.rotation_steps;
+                        }
                     }
                     self.complete_paired_import_if_ready(cx);
                 }
@@ -4697,6 +4699,11 @@ fn emit_raw_video_event_marker(event_name: &str, video_id: LiveId) {
         StereoEye::Left.video_id().0,
         StereoEye::Right.video_id().0,
     ));
+}
+
+fn should_emit_texture_update_marker(marker_index: usize) -> bool {
+    marker_index < TEXTURE_UPDATE_MARKER_LIMIT
+        || marker_index % TEXTURE_UPDATE_MARKER_PERIOD == 0
 }
 
 #[derive(Clone)]
