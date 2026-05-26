@@ -26,7 +26,15 @@ texture/resource architecture changes.
 The public Rust contract is `CameraTextureLaneContract` in
 `rusty-xr-contracts`. Its schema id is
 `rusty.xr.camera-texture-lane-contract.v1`, exported as
-`camera-texture-lane-contract.schema.json`.
+`camera-texture-lane-contract.schema.json`. Host-side log evidence can be
+converted into `camera-texture-lane-contracts.jsonl` with:
+
+```powershell
+python tools\quest-camera-profile\Build-CameraTextureLaneContracts.py <run-root>
+```
+
+The builder scans existing public HWB, OES, and Makepad marker lines. It does
+not change renderer behavior.
 
 Each record separates these concerns:
 

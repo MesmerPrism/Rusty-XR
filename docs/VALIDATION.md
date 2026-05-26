@@ -36,6 +36,7 @@ cargo test --doc --workspace --all-features
 ```powershell
 python tools\workflow\check_powershell_workflow_safety.py --repo-root .
 python tools\schema\export_schemas.py --check
+python tools\quest-camera-profile\Build-CameraTextureLaneContracts.py --self-test
 python tools\quest-camera-profile\Validate-CanvasCustomParityArtifacts.py --self-test
 python tools\quest-camera-profile\Validate-ProjectionRuntimeReadback.py --self-test
 python tools\schema\check_quest_app_catalog.py tools\schema\fixtures\quest-app-catalog.example.json

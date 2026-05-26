@@ -94,6 +94,20 @@ metadata before touching projection-area offsets.
 GL/OES also logs `sourceColorTransform` and `swapchainColorFormat`; keep those
 as color/texture-upload evidence, separate from coordinate fields.
 
+Camera texture lane contracts sit one level below projection coordinates. They
+normalize source, resource, transform, color, timing, lifecycle, and projection
+facts across direct HWB, direct OES, Makepad CPU-YUV, and Makepad HWB external
+logs. Build them from an existing run folder or log file with:
+
+```powershell
+python .\tools\quest-camera-profile\Build-CameraTextureLaneContracts.py `
+  .\artifacts\quest-camera-profile-runs\<run>
+```
+
+The builder writes `camera-texture-lane-contracts.jsonl` and
+`camera-texture-lane-contract-summary.json` under
+`camera-texture-lane-analysis\`.
+
 For environment-depth particle or mesh profiles, build the world-space contract
 artifact from logcat markers with:
 

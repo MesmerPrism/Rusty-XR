@@ -2212,6 +2212,18 @@ def schemas() -> dict[str, dict]:
             "projection": camera_texture_lane_projection,
         },
     )
+    camera_texture_lane_contract_summary = obj(
+        "CameraTextureLaneContractSummary",
+        {
+            "schema_version": {"const": "rusty.xr.camera-texture-lane-contract-summary.v1"},
+            "contract_schema_version": {"const": "rusty.xr.camera-texture-lane-contract.v1"},
+            "record_count": integer(0),
+            "lane_kind_counts": object_map(integer(0)),
+            "color_status_counts": object_map(integer(0)),
+            "descriptor_shape_counts": object_map(integer(0)),
+            "log_file_count": integer(0),
+        },
+    )
     projection_runtime_readback = open_obj(
         "ProjectionRuntimeReadback",
         {
@@ -2344,6 +2356,7 @@ def schemas() -> dict[str, dict]:
         "source-sampling-contract.schema.json": source_sampling_contract,
         "source-sampling-contract-summary.schema.json": source_sampling_contract_summary,
         "camera-texture-lane-contract.schema.json": camera_texture_lane_contract,
+        "camera-texture-lane-contract-summary.schema.json": camera_texture_lane_contract_summary,
         "projection-runtime-readback.schema.json": projection_runtime_readback,
         "plain-stereo-layer.schema.json": obj(
             "PlainStereoLayer",
