@@ -2116,6 +2116,7 @@ def schemas() -> dict[str, dict]:
         ["accepted-reference", "experimental", "diagnostic-only", "unknown"],
     )
     optional_non_negative_integer = {"type": ["integer", "null"], "minimum": 0}
+    optional_integer = {"type": ["integer", "null"]}
     camera_texture_lane_source = obj(
         "CameraTextureLaneSource",
         {
@@ -2198,6 +2199,47 @@ def schemas() -> dict[str, dict]:
             "projection_status_label": string(),
         },
     )
+    camera_texture_lane_summary_timing = obj(
+        "CameraTextureLaneSummaryTiming",
+        {
+            "camera_frame_sequence": optional_non_negative_integer,
+            "camera_timestamp_ns": optional_non_negative_integer,
+            "acquire_time_ns": optional_non_negative_integer,
+            "upload_time_ns": optional_non_negative_integer,
+            "import_time_ns": optional_non_negative_integer,
+            "texture_update_sequence": optional_non_negative_integer,
+            "texture_submit_sequence": optional_non_negative_integer,
+            "xr_end_frame_time_ns": optional_non_negative_integer,
+        },
+    )
+    camera_texture_lane_summary_timing_relations = obj(
+        "CameraTextureLaneSummaryTimingRelations",
+        {
+            "acquire_to_upload_ns": optional_integer,
+            "acquire_to_import_ns": optional_integer,
+            "upload_to_xr_end_frame_ns": optional_integer,
+            "import_to_xr_end_frame_ns": optional_integer,
+            "texture_update_to_submit_sequence_delta": optional_integer,
+        },
+    )
+    camera_texture_lane_summary = obj(
+        "CameraTextureLaneSummary",
+        {
+            "source_kind": camera_texture_source_kind,
+            "resource_kind": camera_texture_resource_kind,
+            "descriptor_shape": camera_texture_descriptor_shape,
+            "color_status": camera_texture_color_status,
+            "projection_border_policy": string(),
+            "processing_layer": string(),
+            "first_frame_seen": boolean(),
+            "fallback_active": boolean(),
+            "fallback_reason": nullable_string(),
+            "frame_reuse_policy": string(),
+            "resource_release_policy": string(),
+            "timing": camera_texture_lane_summary_timing,
+            "timing_relations": camera_texture_lane_summary_timing_relations,
+        },
+    )
     camera_texture_lane_contract = obj(
         "CameraTextureLaneContract",
         {
@@ -2222,7 +2264,23 @@ def schemas() -> dict[str, dict]:
             "color_status_counts": object_map(integer(0)),
             "descriptor_shape_counts": object_map(integer(0)),
             "log_file_count": integer(0),
+            "source_kind_counts": object_map(integer(0)),
+            "resource_kind_counts": object_map(integer(0)),
+            "projection_border_policy_counts": object_map(integer(0)),
+            "processing_layer_counts": object_map(integer(0)),
+            "fallback_active_counts": object_map(integer(0)),
+            "timing_field_counts": object_map(integer(0)),
+            "lane_summaries": object_map(camera_texture_lane_summary),
         },
+        required=[
+            "schema_version",
+            "contract_schema_version",
+            "record_count",
+            "lane_kind_counts",
+            "color_status_counts",
+            "descriptor_shape_counts",
+            "log_file_count",
+        ],
     )
     projection_runtime_readback = open_obj(
         "ProjectionRuntimeReadback",

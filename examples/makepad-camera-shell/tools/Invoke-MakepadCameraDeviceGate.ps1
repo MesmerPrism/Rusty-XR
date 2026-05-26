@@ -118,6 +118,7 @@ $projectionPropertyHygieneHelper = Join-Path $repoRoot "tools\quest-camera-profi
 $projectionRuntimeReadbackValidator = Join-Path $repoRoot "tools\quest-camera-profile\Validate-ProjectionRuntimeReadback.py"
 $freshnessAnalyzer = Join-Path $repoRoot "tools\quest-camera-profile\Analyze-ScreenshotFreshness.py"
 $metaPerfStaleAnalyzer = Join-Path $repoRoot "tools\quest-camera-profile\Analyze-MetaPerfStale.py"
+$cameraTextureLaneContractBuilder = Join-Path $repoRoot "tools\quest-camera-profile\Build-CameraTextureLaneContracts.py"
 $publicExampleAppHygieneHelper = Join-Path $repoRoot "tools\quest-camera-profile\PublicExampleAppHygiene.ps1"
 . $projectionPropertyHygieneHelper
 . $publicExampleAppHygieneHelper
@@ -1110,6 +1111,66 @@ function Invoke-MetaPerfStaleAnalysis {
     }
 }
 
+function Invoke-CameraTextureLaneContractAnalysis {
+    $analysisDir = Join-Path $OutDir "camera-texture-lane-analysis"
+    $contractsPath = Join-Path $analysisDir "camera-texture-lane-contracts.jsonl"
+    $summaryPath = Join-Path $analysisDir "camera-texture-lane-contract-summary.json"
+    $stdoutPath = Join-Path $analysisDir "camera-texture-lane-builder-stdout.txt"
+    $errorPath = Join-Path $analysisDir "camera-texture-lane-builder-error.txt"
+    New-Item -ItemType Directory -Force -Path $analysisDir | Out-Null
+    foreach ($path in @($stdoutPath, $errorPath)) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Force
+        }
+    }
+    if (-not (Test-Path -LiteralPath $cameraTextureLaneContractBuilder)) {
+        return [ordered]@{
+            schema = "rusty.xr.makepad-camera-device-gate.camera-texture-lane-analysis.v1"
+            status = "skipped"
+            reason = "builder-not-found"
+            outDir = $analysisDir
+            contractsJsonl = $contractsPath
+            summaryJson = $summaryPath
+        }
+    }
+
+    try {
+        $analysisOutput = @(& python $cameraTextureLaneContractBuilder $OutDir --out-dir $analysisDir 2>&1 |
+            ForEach-Object { [string]$_ })
+        $toolExitCode = $LASTEXITCODE
+        $analysisOutput | Set-Content -Path $stdoutPath -Encoding UTF8
+        $summary = $null
+        if (Test-Path -LiteralPath $summaryPath) {
+            $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+        }
+        $status = if ($toolExitCode -eq 0 -and $null -ne $summary) { "ok" } else { "tool-failed" }
+        return [ordered]@{
+            schema = "rusty.xr.makepad-camera-device-gate.camera-texture-lane-analysis.v1"
+            status = $status
+            outDir = $analysisDir
+            contractsJsonl = $contractsPath
+            summaryJson = $summaryPath
+            stdout = $stdoutPath
+            exitCode = $toolExitCode
+            summary = $summary
+        }
+    }
+    catch {
+        @("camera texture lane contract analysis failed", $_.Exception.Message) |
+            Set-Content -Path $errorPath -Encoding UTF8
+        return [ordered]@{
+            schema = "rusty.xr.makepad-camera-device-gate.camera-texture-lane-analysis.v1"
+            status = "tool-failed"
+            reason = $_.Exception.Message
+            outDir = $analysisDir
+            contractsJsonl = $contractsPath
+            summaryJson = $summaryPath
+            stdout = $stdoutPath
+            error = $errorPath
+        }
+    }
+}
+
 function Wait-BrokerH264TextureReady {
     param([datetime]$LaunchStartedAt)
     if (-not ($UseBrokerH264Synthetic -or $UseBrokerH264Camera)) {
@@ -1279,6 +1340,9 @@ $projectionRuntimeReadbackSummary = Invoke-GateTimedStep -Step "projection-runti
 if ($effectiveProjectionRuntimeReadback -eq "required" -and $projectionRuntimeReadbackSummary.status -ne "ok") {
     $projectionRuntimeGateFailures += "projection runtime readback validation failed"
 }
+$cameraTextureLaneAnalysis = Invoke-GateTimedStep -Step "camera-texture-lane-contract-analysis" -Action {
+    Invoke-CameraTextureLaneContractAnalysis
+}
 $freshnessFrameCount = @($frames).Count
 $uniqueFreshnessHashes = @($frames.sha256 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique).Count
 $freshnessGateFailures = @()
@@ -1414,6 +1478,8 @@ $summary = [ordered]@{
     metaPerfStaleGateFailures = $metaPerfStaleGateFailures
     metaPerfStaleAnalysis = $metaPerfStaleAnalysis
     makepadFrameFlow = $metaPerfStaleAnalysis.makepadFrameFlow
+    cameraTextureLaneAnalysis = $cameraTextureLaneAnalysis
+    cameraTextureLaneSummary = $cameraTextureLaneAnalysis.summary
     freshnessFrames = $frames
 }
 $summary | ConvertTo-Json -Depth 7 | Set-Content -Path (Join-Path $OutDir "summary.json") -Encoding UTF8

@@ -106,7 +106,12 @@ python .\tools\quest-camera-profile\Build-CameraTextureLaneContracts.py `
 
 The builder writes `camera-texture-lane-contracts.jsonl` and
 `camera-texture-lane-contract-summary.json` under
-`camera-texture-lane-analysis\`.
+`camera-texture-lane-analysis\`. The summary includes per-lane resource,
+descriptor, color, projection-border, lifecycle, and timing relation fields
+such as acquire-to-upload, acquire-to-import, and upload/import-to-XR-submit
+when the source logs contain those markers. The focused Makepad device gate
+runs this builder automatically after log capture and embeds the resulting
+summary in its `summary.json`.
 
 For environment-depth particle or mesh profiles, build the world-space contract
 artifact from logcat markers with:

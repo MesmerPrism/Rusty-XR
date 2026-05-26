@@ -27,8 +27,31 @@ HWB_FINAL_MARKER = "Rusty XR final projection status"
 OES_CONTRACT_MARKER = "Rusty XR OpenXR GLES projection contract"
 OES_TRANSFORM_MARKER = "Rusty XR SurfaceTexture OES transform matrix"
 MAKEPAD_IMPORT_MARKER = "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT"
-MAKEPAD_FRAME_FLOW_MARKER = "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW"
+MAKEPAD_FRAME_FLOW_MARKERS = (
+    "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW",
+    "RUSTY_XR_MAKEPAD_FRAME_FLOW",
+)
+MAKEPAD_CADENCE_MARKER = "RUSTY_XR_MAKEPAD_CADENCE"
 MAKEPAD_DESCRIPTOR_MARKER = "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE"
+TIMING_KEYS = (
+    "camera_frame_sequence",
+    "camera_timestamp_ns",
+    "acquire_time_ns",
+    "upload_time_ns",
+    "import_time_ns",
+    "texture_update_sequence",
+    "texture_submit_sequence",
+    "xr_end_frame_time_ns",
+)
+KNOWN_DESCRIPTOR_SHAPES = {
+    "unknown",
+    "cpu-yuv-plane-textures",
+    "hardware-buffer-yuv-plane-textures",
+    "sampled-image-and-sampler",
+    "combined-image-sampler",
+    "sampler-external-oes",
+    "not-applicable",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -99,6 +122,14 @@ def parse_time_ns(fields: dict[str, Any], *keys: str) -> int | None:
             return value * 1_000_000
         return value
     return None
+
+
+def signed_delta(later: Any, earlier: Any) -> int | None:
+    later_value = parse_int(later)
+    earlier_value = parse_int(earlier)
+    if later_value is None or earlier_value is None:
+        return None
+    return later_value - earlier_value
 
 
 def parse_float_list(value: Any) -> list[float] | None:
@@ -213,7 +244,8 @@ def makepad_resource_kind(path: str) -> str:
 def makepad_descriptor_shape(path: str, fields: dict[str, Any]) -> str:
     descriptor_shape = fields.get("descriptorShape")
     if descriptor_shape:
-        return str(descriptor_shape)
+        normalized = str(descriptor_shape)
+        return normalized if normalized in KNOWN_DESCRIPTOR_SHAPES else "unknown"
     if path == "direct-camera-cpu-yuv-plane":
         return "cpu-yuv-plane-textures"
     combined = parse_bool(fields.get("combinedImageSampler"))
@@ -222,6 +254,18 @@ def makepad_descriptor_shape(path: str, fields: dict[str, Any]) -> str:
     if combined is False:
         return "sampled-image-and-sampler"
     return "sampled-image-and-sampler" if path.startswith("direct-camera-hardware-buffer") else "unknown"
+
+
+def makepad_path_from_flow_path(path: str) -> str | None:
+    aliases = {
+        "cpu-yuv": "direct-camera-cpu-yuv-plane",
+        "cpu-yuv-fallback": "direct-camera-cpu-yuv-plane",
+        "hardware-buffer-external": "direct-camera-hardware-buffer-external",
+        "direct-camera-cpu-yuv-plane": "direct-camera-cpu-yuv-plane",
+        "direct-camera-hardware-buffer-external": "direct-camera-hardware-buffer-external",
+        "direct-camera-hardware-buffer-yuv-plane": "direct-camera-hardware-buffer-yuv-plane",
+    }
+    return aliases.get(path.strip())
 
 
 def makepad_color_status(path: str) -> tuple[str, str, str, str, str]:
@@ -556,15 +600,23 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
             "texture_update_sequence": parse_int(
                 fields.get("textureUpdateSeq") or fields.get("uploadSeq") or fields.get("importSeq")
             ),
-            "texture_submit_sequence": parse_int(fields.get("xrFrameIndex")),
-            "xr_end_frame_time_ns": parse_int(fields.get("xrEndFrameTimeNs")),
+            "texture_submit_sequence": parse_int(fields.get("xrFrameIndex") or fields.get("xrFrameSeq")),
+            "xr_end_frame_time_ns": parse_time_ns(fields, "xrEndFrameTimeNs", "submitTimeNs", "submitTimeMs"),
         }
     )
     fallback_reason = fields.get("fallbackReason")
+    fallback_active = parse_bool(fields.get("fallbackActive"))
+    if fallback_active is None:
+        fallback_active = fallback_reason is not None and str(fallback_reason).strip().lower() not in {
+            "",
+            "none",
+            "null",
+            "false",
+        }
     contract["lifecycle"].update(
         {
             "first_frame_seen": True,
-            "fallback_active": fallback_reason is not None,
+            "fallback_active": fallback_active,
             "fallback_reason": str(fallback_reason) if fallback_reason is not None else None,
             "frame_reuse_policy": "latest-frame-ring"
             if path == "direct-camera-cpu-yuv-plane"
@@ -588,6 +640,7 @@ class ScanState:
         self.hwb_fields: dict[str, Any] = {}
         self.oes_fields: dict[str, Any] = {}
         self.oes_transform: dict[str, Any] | None = None
+        self.makepad_global_fields: dict[str, Any] = {}
         self.makepad_fields_by_path: dict[str, dict[str, Any]] = {}
 
     def update_hwb(self, fields: dict[str, Any]) -> None:
@@ -597,7 +650,12 @@ class ScanState:
         self.oes_fields.update(fields)
 
     def update_makepad(self, path: str, fields: dict[str, Any]) -> None:
-        self.makepad_fields_by_path.setdefault(path, {}).update(fields)
+        self.makepad_fields_by_path.setdefault(path, dict(self.makepad_global_fields)).update(fields)
+
+    def update_makepad_global(self, fields: dict[str, Any]) -> None:
+        self.makepad_global_fields.update(fields)
+        for lane_fields in self.makepad_fields_by_path.values():
+            lane_fields.update(fields)
 
 
 def scan_line(line: str, state: ScanState) -> None:
@@ -624,11 +682,22 @@ def scan_line(line: str, state: ScanState) -> None:
         path = str(fields.get("cameraTexturePath") or "")
         if path:
             state.update_makepad(path, fields)
-    if MAKEPAD_FRAME_FLOW_MARKER in line:
-        fields = parse_marker_fields(line.split(MAKEPAD_FRAME_FLOW_MARKER, 1)[1])
-        flow_path = str(fields.get("path") or "")
-        if flow_path in {"cpu-yuv", "cpu-yuv-fallback"}:
-            state.update_makepad("direct-camera-cpu-yuv-plane", fields)
+    for marker in MAKEPAD_FRAME_FLOW_MARKERS:
+        if marker not in line:
+            continue
+        fields = parse_marker_fields(line.split(marker, 1)[1])
+        phase = str(fields.get("phase") or "")
+        flow_path = makepad_path_from_flow_path(str(fields.get("path") or ""))
+        if flow_path:
+            state.update_makepad(flow_path, fields)
+        if phase == "xr-end-frame":
+            state.update_makepad_global(fields)
+        break
+    if MAKEPAD_CADENCE_MARKER in line:
+        fields = parse_marker_fields(line.split(MAKEPAD_CADENCE_MARKER, 1)[1])
+        path = makepad_path_from_flow_path(str(fields.get("cameraTexturePath") or ""))
+        if path:
+            state.update_makepad(path, fields)
     if MAKEPAD_DESCRIPTOR_MARKER in line:
         fields = parse_marker_fields(line.split(MAKEPAD_DESCRIPTOR_MARKER, 1)[1])
         state.update_makepad("direct-camera-hardware-buffer-external", fields)
@@ -659,18 +728,77 @@ def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     path.write_text("".join(json.dumps(record, sort_keys=True) + "\n" for record in records), encoding="utf-8")
 
 
+def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
+    timing = record.get("timing", {})
+    lifecycle = record.get("lifecycle", {})
+    source = record.get("source", {})
+    resource = record.get("resource", {})
+    color = record.get("color", {})
+    projection = record.get("projection", {})
+    return {
+        "source_kind": source.get("source_kind", "other"),
+        "resource_kind": resource.get("resource_kind", "other"),
+        "descriptor_shape": resource.get("descriptor_shape", "unknown"),
+        "color_status": color.get("color_status", "unknown"),
+        "projection_border_policy": projection.get("projection_border_policy", "unknown"),
+        "processing_layer": projection.get("processing_layer", "unknown"),
+        "first_frame_seen": bool(lifecycle.get("first_frame_seen", False)),
+        "fallback_active": bool(lifecycle.get("fallback_active", False)),
+        "fallback_reason": lifecycle.get("fallback_reason"),
+        "frame_reuse_policy": lifecycle.get("frame_reuse_policy", "unknown"),
+        "resource_release_policy": lifecycle.get("resource_release_policy", "unknown"),
+        "timing": {key: timing.get(key) for key in TIMING_KEYS},
+        "timing_relations": {
+            "acquire_to_upload_ns": signed_delta(timing.get("upload_time_ns"), timing.get("acquire_time_ns")),
+            "acquire_to_import_ns": signed_delta(timing.get("import_time_ns"), timing.get("acquire_time_ns")),
+            "upload_to_xr_end_frame_ns": signed_delta(
+                timing.get("xr_end_frame_time_ns"), timing.get("upload_time_ns")
+            ),
+            "import_to_xr_end_frame_ns": signed_delta(
+                timing.get("xr_end_frame_time_ns"), timing.get("import_time_ns")
+            ),
+            "texture_update_to_submit_sequence_delta": signed_delta(
+                timing.get("texture_submit_sequence"), timing.get("texture_update_sequence")
+            ),
+        },
+    }
+
+
 def build_summary(records: list[dict[str, Any]], log_files: list[Path]) -> dict[str, Any]:
+    lane_summaries = {
+        str(record.get("lane_kind", "unknown")): build_lane_summary(record) for record in records
+    }
     return {
         "schema_version": SUMMARY_SCHEMA_VERSION,
         "contract_schema_version": CONTRACT_SCHEMA_VERSION,
         "record_count": len(records),
         "lane_kind_counts": dict(Counter(record.get("lane_kind", "unknown") for record in records)),
+        "source_kind_counts": dict(
+            Counter(record.get("source", {}).get("source_kind", "other") for record in records)
+        ),
+        "resource_kind_counts": dict(
+            Counter(record.get("resource", {}).get("resource_kind", "other") for record in records)
+        ),
         "color_status_counts": dict(
             Counter(record.get("color", {}).get("color_status", "unknown") for record in records)
         ),
         "descriptor_shape_counts": dict(
             Counter(record.get("resource", {}).get("descriptor_shape", "unknown") for record in records)
         ),
+        "projection_border_policy_counts": dict(
+            Counter(record.get("projection", {}).get("projection_border_policy", "unknown") for record in records)
+        ),
+        "processing_layer_counts": dict(
+            Counter(record.get("projection", {}).get("processing_layer", "unknown") for record in records)
+        ),
+        "fallback_active_counts": dict(
+            Counter(str(record.get("lifecycle", {}).get("fallback_active", False)).lower() for record in records)
+        ),
+        "timing_field_counts": {
+            key: sum(1 for record in records if record.get("timing", {}).get(key) is not None)
+            for key in TIMING_KEYS
+        },
+        "lane_summaries": lane_summaries,
         "log_file_count": len(log_files),
     }
 
@@ -709,6 +837,7 @@ def self_test() -> None:
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none projectionBorderPolicy=solid-red eventResourcePath=hardware-buffer-external descriptorShape=sampled-image-and-sampler cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false",
             "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.xr.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=SAMPLED_IMAGE samplerDescriptorType=SAMPLER combinedImageSampler=false shaderSampleLowering=textureSampleLevel_separate_texture_sampler",
+            "RUSTY_XR_MAKEPAD_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=xr-end-frame status=submitted renderPath=makepad-xr xrFrameSeq=9 shouldRender=true submitTimeNs=900 predictedDisplayTimeNs=1000 predictedDisplayPeriodNs=13888888 resultCode=0 layerCount=1",
         ]
     )
     with tempfile.TemporaryDirectory() as tmp:
@@ -741,6 +870,14 @@ def self_test() -> None:
             raise AssertionError("OES texture update count was not parsed")
         if summary["record_count"] != 4:
             raise AssertionError("summary record count mismatch")
+        if summary["timing_field_counts"]["xr_end_frame_time_ns"] != 2:
+            raise AssertionError("summary did not count Makepad XR end-frame timing")
+        cpu_summary = summary["lane_summaries"]["makepad-cpuyuv-direct-camera2-raw"]
+        if cpu_summary["timing_relations"]["acquire_to_upload_ns"] != 345:
+            raise AssertionError("summary did not compute CPU acquire-to-upload timing")
+        hwb_summary = summary["lane_summaries"]["makepad-hwb-external-direct-camera2-raw"]
+        if hwb_summary["timing_relations"]["import_to_xr_end_frame_ns"] != 100:
+            raise AssertionError("summary did not compute HWB import-to-submit timing")
         for lane, record in lanes.items():
             size = record["source"]["delivered_size"]
             if size["width"] <= 0 or size["height"] <= 0:
