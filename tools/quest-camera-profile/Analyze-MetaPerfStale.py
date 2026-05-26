@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 import statistics
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -121,11 +122,8 @@ def clean_steady_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sane[2:] if len(sane) > 2 else sane
 
 
-def summarize_vrapi(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    steady_rows = clean_steady_rows(rows)
+def summarize_vrapi_window(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
-        "rowCount": len(rows),
-        "steadyRowCount": len(steady_rows),
         "fps": summarize_numbers(numeric_series(rows, "FPS_observed")),
         "targetFps": summarize_numbers(numeric_series(rows, "FPS_target")),
         "stale": summarize_counter(rows, "Stale"),
@@ -133,22 +131,33 @@ def summarize_vrapi(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "appMs": summarize_numbers(numeric_series(rows, "App_ms")),
         "cpuGpuMs": summarize_numbers(numeric_series(rows, "CPU_GPU_ms")),
         "timewarpMs": summarize_numbers(numeric_series(rows, "TW_ms")),
-        "steady": {
-            "fps": summarize_numbers(numeric_series(steady_rows, "FPS_observed")),
-            "targetFps": summarize_numbers(numeric_series(steady_rows, "FPS_target")),
-            "stale": summarize_counter(steady_rows, "Stale"),
-            "tear": summarize_counter(steady_rows, "Tear"),
-            "appMs": summarize_numbers(numeric_series(steady_rows, "App_ms")),
-            "cpuGpuMs": summarize_numbers(numeric_series(steady_rows, "CPU_GPU_ms")),
-            "timewarpMs": summarize_numbers(numeric_series(steady_rows, "TW_ms")),
-        },
+    }
+
+
+def summarize_vrapi(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    steady_rows = clean_steady_rows(rows)
+    recent_rows = steady_rows[-3:] if len(steady_rows) > 3 else steady_rows
+    return {
+        "rowCount": len(rows),
+        "steadyRowCount": len(steady_rows),
+        "recentRowCount": len(recent_rows),
+        "fps": summarize_numbers(numeric_series(rows, "FPS_observed")),
+        "targetFps": summarize_numbers(numeric_series(rows, "FPS_target")),
+        "stale": summarize_counter(rows, "Stale"),
+        "tear": summarize_counter(rows, "Tear"),
+        "appMs": summarize_numbers(numeric_series(rows, "App_ms")),
+        "cpuGpuMs": summarize_numbers(numeric_series(rows, "CPU_GPU_ms")),
+        "timewarpMs": summarize_numbers(numeric_series(rows, "TW_ms")),
+        "steady": summarize_vrapi_window(steady_rows),
+        "recent": summarize_vrapi_window(recent_rows),
         "latest": rows[-1] if rows else {},
     }
 
 
 def summarize_cadence(rows: list[dict[str, Any]], target_fps: float | None) -> dict[str, Any]:
     latest = rows[-1] if rows else {}
-    display_hz = number_prefix(latest.get("xrDisplayRefreshRateHz")) or target_fps
+    reported_display_hz = number_prefix(latest.get("xrDisplayRefreshRateHz"))
+    display_hz = target_fps or reported_display_hz
     effective_hz = number_prefix(latest.get("xrEffectiveFrameRateHz"))
     xr_update_hz = number_prefix(latest.get("xrUpdateRateHz"))
     app_hz = number_prefix(latest.get("appFrameRateHz"))
@@ -163,6 +172,9 @@ def summarize_cadence(rows: list[dict[str, Any]], target_fps: float | None) -> d
         "rowCount": len(rows),
         "latest": latest,
         "displayRefreshRateHz": display_hz,
+        "reportedDisplayRefreshRateHz": reported_display_hz,
+        "targetFps": target_fps,
+        "displayRefreshSource": "vrapi-target-fps" if target_fps else "makepad-cadence-marker",
         "effectiveFrameRateHz": effective_hz,
         "xrUpdateRateHz": xr_update_hz,
         "appFrameRateHz": app_hz,
@@ -221,14 +233,18 @@ def analyze(logcat: Path, explicit_pids: set[str]) -> dict[str, Any]:
     else:
         status = "ok"
         steady_stale_sum = int(vrapi_app["steady"]["stale"]["sum"])
-        steady_fps = number_prefix(vrapi_app["steady"]["fps"].get("avg"))
-        steady_target = number_prefix(vrapi_app["steady"]["targetFps"].get("avg"))
-        if steady_stale_sum > 0:
+        recent_stale_sum = int(vrapi_app["recent"]["stale"]["sum"])
+        recent_rows = int(vrapi_app.get("recentRowCount") or 0)
+        recent_fps = number_prefix(vrapi_app["recent"]["fps"].get("avg"))
+        recent_target = number_prefix(vrapi_app["recent"]["targetFps"].get("avg"))
+        if recent_rows and recent_stale_sum > 0:
             status = "stale"
-            reasons.append("vrapi-app-stale-positive")
-        if steady_fps is not None and steady_target and steady_fps < steady_target * 0.9:
+            reasons.append("vrapi-app-recent-stale-positive")
+        elif steady_stale_sum > 0:
+            reasons.append("vrapi-app-warmup-stale-cleared")
+        if recent_fps is not None and recent_target and recent_fps < recent_target * 0.9:
             status = "stale"
-            reasons.append("vrapi-app-fps-below-target")
+            reasons.append("vrapi-app-recent-fps-below-target")
     deficit = number_prefix(cadence.get("displayCadenceDeficitHz"))
     display_hz = number_prefix(cadence.get("displayRefreshRateHz"))
     if display_hz and deficit and deficit > display_hz * 0.1:
@@ -254,12 +270,79 @@ def analyze(logcat: Path, explicit_pids: set[str]) -> dict[str, Any]:
     }
 
 
+def _fixture_vrapi_line(index: int, stale: int, fps: str, app_ms: float, cpu_gpu_ms: float) -> str:
+    return (
+        f"05-26 15:12:{index:02d}.000 12345 12346 I VrApi : "
+        f"FPS={fps},Prd=22ms,Stale={stale},Tear=0,"
+        f"App={app_ms:.2f}ms,CPU&GPU={cpu_gpu_ms:.2f}ms,TW=1.33ms,SF=0.65"
+    )
+
+
+def _fixture_cadence_line(index: int) -> str:
+    return (
+        f"05-26 15:12:{index:02d}.000 12345 12347 I RustyXRMakepad : "
+        "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 "
+        "phase=sample status=ok elapsedMs=10020 intervalMs=5014 "
+        "appFrameRateHz=71.41 xrUpdateRateHz=71.41 pairedTextureUpdateRateHz=46.67 "
+        "xrDisplayRefreshRateHz=90.00 xrEffectiveFrameRateHz=72.01"
+    )
+
+
+def _analyze_fixture(lines: list[str]) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory() as tmp:
+        logcat = Path(tmp) / "logcat.txt"
+        logcat.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return analyze(logcat, {"12345"})
+
+
+def run_self_test() -> int:
+    transient_report = _analyze_fixture(
+        [
+            _fixture_vrapi_line(1, 66, "1/72", 0.00, 100.00),
+            _fixture_vrapi_line(2, 0, "65/72", 2.41, 4.77),
+            _fixture_vrapi_line(3, 0, "73/72", 2.29, 4.02),
+            _fixture_vrapi_line(4, 0, "73/72", 2.35, 3.98),
+            _fixture_vrapi_line(5, 3, "70/72", 3.74, 4.69),
+            _fixture_vrapi_line(6, 0, "73/72", 3.76, 4.68),
+            _fixture_vrapi_line(7, 0, "73/72", 3.77, 4.62),
+            _fixture_vrapi_line(8, 0, "73/72", 3.81, 4.73),
+            _fixture_cadence_line(9),
+        ]
+    )
+    assert transient_report["status"] == "ok", transient_report
+    assert "vrapi-app-warmup-stale-cleared" in transient_report["reasons"], transient_report
+    assert "makepad-xr-cadence-below-display" not in transient_report["reasons"], transient_report
+    assert transient_report["makepadCadence"]["displayRefreshRateHz"] == 72.0, transient_report
+    assert transient_report["makepadCadence"]["reportedDisplayRefreshRateHz"] == 90.0, transient_report
+
+    sustained_report = _analyze_fixture(
+        [
+            _fixture_vrapi_line(1, 12, "50/72", 20.00, 25.00),
+            _fixture_vrapi_line(2, 9, "55/72", 18.00, 22.00),
+            _fixture_vrapi_line(3, 8, "58/72", 17.00, 20.00),
+            _fixture_vrapi_line(4, 7, "58/72", 17.00, 20.00),
+            _fixture_vrapi_line(5, 7, "58/72", 17.00, 20.00),
+            _fixture_cadence_line(6),
+        ]
+    )
+    assert sustained_report["status"] == "stale", sustained_report
+    assert "vrapi-app-recent-stale-positive" in sustained_report["reasons"], sustained_report
+    print("Analyze-MetaPerfStale self-test passed")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--logcat", required=True, type=Path, help="Logcat text file to inspect.")
+    parser.add_argument("--logcat", type=Path, help="Logcat text file to inspect.")
     parser.add_argument("--app-pid", action="append", default=[], help="Known target app process id.")
     parser.add_argument("--summary-out", type=Path, help="Optional JSON output path.")
+    parser.add_argument("--self-test", action="store_true", help="Run built-in analyzer regression tests.")
     args = parser.parse_args()
+
+    if args.self_test:
+        return run_self_test()
+    if args.logcat is None:
+        parser.error("--logcat is required unless --self-test is used")
 
     report = analyze(args.logcat, {str(pid) for pid in args.app_pid if str(pid).strip()})
     output = json.dumps(report, indent=2, sort_keys=True)
