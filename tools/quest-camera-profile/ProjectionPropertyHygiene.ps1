@@ -64,6 +64,7 @@ function Get-RustyXrProjectionPropertyHygieneKeys {
         "debug.rustyxr.makepad.projection.runtime.resolution.enabled",
         "debug.rustyxr.makepad.processing.layer",
         "debug.rustyxr.makepad.blur.radius.px",
+        "debug.rustyxr.makepad.direct.camera.hardware.buffer.external",
         "debug.rustyxr.makepad.horizontal.alignment.strength",
         "debug.rustyxr.makepad.horizontal.offset.uv",
         "debug.rustyxr.makepad.horizontal.offset.left.uv",

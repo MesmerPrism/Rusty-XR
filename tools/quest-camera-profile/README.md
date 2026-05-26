@@ -625,6 +625,12 @@ The Makepad raw-projection lane also accepts
 from `-CameraPreviewFovYDegrees`, `-CameraPreviewOffsetYMeters`, and
 `-CameraRawOverlayOverscan` so OES and Makepad can be checked against the same
 canvas-solved surface shape as the Vulkan/HWB lane.
+For Makepad direct-camera texture-route diagnostics, the parity suite accepts
+`-MakepadDirectCameraTexturePath cpu-yuv`, `hardware-buffer-external`, or
+`both`. The guarded Makepad device gate writes
+`debug.rustyxr.makepad.direct.camera.hardware.buffer.external` explicitly and
+hygiene clears the key before controlled launches, so CPU-upload and
+hardware-buffer import runs do not inherit each other's route.
 
 Projection-area offset keys share the suite-level display-eye screen-UV
 contract: positive X moves the projection area right and positive Y moves it
@@ -701,6 +707,10 @@ Use that freshness summary for camera/parity runs so a frozen or black
 screenshot sequence is not mistaken for live camera feed. The harness records a
 post-preflight power snapshot even when no proximity hold is requested; the
 snapshot prefix is kept stable for existing parsers.
+The Makepad parity lane has its own route-level freshness controls:
+`-MakepadFreshnessFrames`, `-MakepadFreshnessIntervalSeconds`, and
+`-MakepadFreshnessRequiredUniqueHashes`. Fast visual Makepad contact sheets use
+the newest final freshness frame rather than the first frame in the sequence.
 
 ## Validate A Run
 

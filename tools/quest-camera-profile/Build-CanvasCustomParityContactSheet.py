@@ -80,6 +80,10 @@ def load_rows(session_root: Path) -> list[dict[str, Any]]:
                 lane = str(record.get("lane") or "").upper()
                 mode = str(record.get("mode") or "")
                 label = f"{lane} / {mode}" if lane and mode else row_id
+                texture_path = str(record.get("makepadDirectCameraTexturePath") or "")
+                if lane == "MAKEPAD" and texture_path:
+                    texture_label = "hwb-ext" if texture_path == "hardware-buffer-external" else texture_path
+                    label = f"{label} / {texture_label}"
                 rows.append(
                     {
                         "id": row_id,

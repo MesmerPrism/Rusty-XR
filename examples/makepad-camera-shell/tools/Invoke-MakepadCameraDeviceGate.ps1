@@ -16,6 +16,7 @@ param(
     [switch]$UseFixedSampleWindow,
     [int]$FreshnessFrames = 6,
     [int]$FreshnessIntervalSeconds = 1,
+    [int]$FreshnessRequiredUniqueHashes = 1,
     [int]$BrokerH264ReadyTimeoutSeconds = 30,
     [switch]$SkipInstall,
     [switch]$SkipDirectXrFallback,
@@ -80,10 +81,24 @@ param(
     [string]$ProjectionPropertyHygiene = "clear",
     [ValidateSet("skip", "warn", "required")]
     [string]$ProjectionRuntimeReadback = "warn",
+    [ValidateSet("cpu-yuv", "hardware-buffer-external")]
+    [string]$DirectCameraTexturePath = "cpu-yuv",
     [switch]$EnableNativePassthrough
 )
 
 $ErrorActionPreference = "Stop"
+if ($FreshnessFrames -lt 1) {
+    throw "FreshnessFrames must be at least 1."
+}
+if ($FreshnessIntervalSeconds -lt 0) {
+    throw "FreshnessIntervalSeconds must be non-negative."
+}
+if ($FreshnessRequiredUniqueHashes -lt 1) {
+    throw "FreshnessRequiredUniqueHashes must be at least 1."
+}
+if ($FreshnessRequiredUniqueHashes -gt $FreshnessFrames) {
+    throw "FreshnessRequiredUniqueHashes cannot exceed FreshnessFrames."
+}
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
 $projectionPropertyHygieneHelper = Join-Path $repoRoot "tools\quest-camera-profile\ProjectionPropertyHygiene.ps1"
 $projectionRuntimeReadbackValidator = Join-Path $repoRoot "tools\quest-camera-profile\Validate-ProjectionRuntimeReadback.py"
@@ -542,6 +557,7 @@ function Set-MakepadBrokerH264Profile {
 
 function Set-MakepadProjectionTargetProfile {
     $nativePassthrough = if ($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0 -or $ProjectionAlphaMode -ne "fixed") { "true" } else { "false" }
+    $directHardwareBufferExternal = if ($DirectCameraTexturePath -eq "hardware-buffer-external") { "true" } else { "false" }
     # The public suite-level offsets use screenshot/display-screen semantics:
     # positive X moves the projection area right and positive Y moves it down.
     # Makepad's horizontal projection-area properties predate that contract and
@@ -560,6 +576,7 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.projection.runtime.resolution.enabled" = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
         "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
+        "debug.rustyxr.makepad.direct.camera.hardware.buffer.external" = $directHardwareBufferExternal
         "debug.rustyxr.camera.projection.mode" = $CameraProjectionMode
         "debug.rustyxr.makepad.camera.projection.geometry.profile" = $CameraProjectionGeometryProfile
         "debug.rustyxr.projection.scale" = (Format-InvariantDouble -Value $ProjectionScale)
@@ -1093,6 +1110,22 @@ $projectionRuntimeReadbackSummary = Invoke-GateTimedStep -Step "projection-runti
 if ($effectiveProjectionRuntimeReadback -eq "required" -and $projectionRuntimeReadbackSummary.status -ne "ok") {
     $projectionRuntimeGateFailures += "projection runtime readback validation failed"
 }
+$freshnessFrameCount = @($frames).Count
+$uniqueFreshnessHashes = @($frames.sha256 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique).Count
+$freshnessGateFailures = @()
+if ($readyAttempt -and $freshnessFrameCount -lt $FreshnessFrames) {
+    $freshnessGateFailures += "captured $freshnessFrameCount of $FreshnessFrames requested freshness frames"
+}
+if ($readyAttempt -and $uniqueFreshnessHashes -lt $FreshnessRequiredUniqueHashes) {
+    $freshnessGateFailures += "captured $uniqueFreshnessHashes unique freshness hashes; required $FreshnessRequiredUniqueHashes"
+}
+$freshnessStatus = if (-not $readyAttempt) {
+    "skipped"
+} elseif ($freshnessGateFailures.Count -gt 0) {
+    "stale"
+} else {
+    "ok"
+}
 $resolvedBrokerH264ProjectionGeometryProfile = if ($BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) {
     $BrokerH264ProjectionGeometryProfile.Trim()
 }
@@ -1142,6 +1175,8 @@ $summary = [ordered]@{
     readySettleMs = $ReadySettleMs
     useFixedSampleWindow = [bool]$UseFixedSampleWindow
     sampleSeconds = $SampleSeconds
+    directCameraTexturePath = $DirectCameraTexturePath
+    directCameraHardwareBufferExternalRequested = [bool]($DirectCameraTexturePath -eq "hardware-buffer-external")
     projectionPropertyHygiene = $projectionPropertyHygieneSummary
     projectionRuntimeReadbackMode = $effectiveProjectionRuntimeReadback
     projectionRuntimeReadback = $projectionRuntimeReadbackSummary
@@ -1170,11 +1205,19 @@ $summary = [ordered]@{
     projectionRuntimeNumericTypeIssues = $projectionRuntimeNumericTypeIssues
     projectionRuntimeGateFailureCount = $projectionRuntimeGateFailures.Count
     projectionRuntimeGateFailures = $projectionRuntimeGateFailures
-    uniqueFreshnessHashes = @($frames.sha256 | Sort-Object -Unique).Count
+    freshnessFrameCount = $freshnessFrameCount
+    freshnessRequiredUniqueHashes = $FreshnessRequiredUniqueHashes
+    uniqueFreshnessHashes = $uniqueFreshnessHashes
+    freshnessStatus = $freshnessStatus
+    freshnessGateFailureCount = $freshnessGateFailures.Count
+    freshnessGateFailures = $freshnessGateFailures
     freshnessFrames = $frames
 }
 $summary | ConvertTo-Json -Depth 7 | Set-Content -Path (Join-Path $OutDir "summary.json") -Encoding UTF8
 $summary | ConvertTo-Json -Depth 7
 if ($projectionRuntimeGateFailures.Count -gt 0) {
     throw "resolved projection runtime device gate failed: $($projectionRuntimeGateFailures -join '; ')"
+}
+if ($freshnessGateFailures.Count -gt 0) {
+    throw "freshness gate failed: $($freshnessGateFailures -join '; ')"
 }

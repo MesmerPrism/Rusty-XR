@@ -12,6 +12,11 @@ param(
     [int]$WarmupSeconds = 12,
     [int]$MakepadStartupTimeoutSeconds = 60,
     [int]$MakepadSampleSeconds = 32,
+    [ValidateSet("cpu-yuv", "hardware-buffer-external", "both")]
+    [string]$MakepadDirectCameraTexturePath = "cpu-yuv",
+    [int]$MakepadFreshnessFrames = 4,
+    [int]$MakepadFreshnessIntervalSeconds = 1,
+    [int]$MakepadFreshnessRequiredUniqueHashes = 1,
     [int]$MakepadPostRunSettleSeconds = 8,
     [ValidateSet("contract", "warmup", "none")]
     [string]$CaptureReadinessMode = "contract",
@@ -68,6 +73,21 @@ if ([double]::IsNaN($BlurRadiusPx) -or [double]::IsInfinity($BlurRadiusPx) -or $
 
 if ($RunAnalyzer -and $SkipAnalyzer) {
     throw "-RunAnalyzer and -SkipAnalyzer cannot be used together."
+}
+if ($MakepadFreshnessFrames -lt 1) {
+    throw "MakepadFreshnessFrames must be at least 1."
+}
+if ($MakepadFreshnessIntervalSeconds -lt 0) {
+    throw "MakepadFreshnessIntervalSeconds must be non-negative."
+}
+if ($MakepadFreshnessRequiredUniqueHashes -lt 1) {
+    throw "MakepadFreshnessRequiredUniqueHashes must be at least 1."
+}
+if ($MakepadFreshnessRequiredUniqueHashes -gt $MakepadFreshnessFrames) {
+    throw "MakepadFreshnessRequiredUniqueHashes cannot exceed MakepadFreshnessFrames."
+}
+if ($SourceMode -ne "direct-camera" -and $MakepadDirectCameraTexturePath -ne "cpu-yuv") {
+    throw "MakepadDirectCameraTexturePath only applies to SourceMode direct-camera."
 }
 
 $analyzerEnabled = [bool]$RunAnalyzer
@@ -276,10 +296,30 @@ Write-Host ("[suite] captureReadinessMode={0} readyTimeout={1}s readyPoll={2}ms 
 Write-Host ("[suite] laneFilter={0} effectiveLanes={1}" -f `
     ($requestedLaneFilter -join ","),
     ($effectiveLanes -join ","))
+Write-Host ("[suite] makepadDirectCameraTexturePath={0} makepadFreshnessFrames={1} makepadFreshnessInterval={2}s makepadFreshnessRequiredUniqueHashes={3}" -f `
+    $MakepadDirectCameraTexturePath,
+    $MakepadFreshnessFrames,
+    $MakepadFreshnessIntervalSeconds,
+    $MakepadFreshnessRequiredUniqueHashes)
 
 function Test-LaneEnabled {
     param([string]$Lane)
     return $effectiveLanes -contains $Lane
+}
+
+function Get-MakepadTexturePathVariants {
+    if ($MakepadDirectCameraTexturePath -eq "both") {
+        return @("cpu-yuv", "hardware-buffer-external")
+    }
+    return @($MakepadDirectCameraTexturePath)
+}
+
+function Get-MakepadTexturePathCaseToken {
+    param([string]$TexturePath)
+    if ($TexturePath -eq "hardware-buffer-external") {
+        return "hwb"
+    }
+    return "cpu"
 }
 
 function Get-BrokerH264Override {
@@ -937,10 +977,15 @@ function Copy-HeadsetCaptureFromMakepadRun {
         [string]$OutputPng
     )
     $sourceCandidates = @(Get-ChildItem -LiteralPath (ConvertTo-WindowsLongPath $CaseRoot) -Recurse -Filter "*.png" -ErrorAction Stop |
-        Where-Object { $_.FullName -match "\\screenshots\\" -and $_.Name -match "frame-00\.png$" } |
-        Sort-Object LastWriteTime -Descending)
+        Where-Object { $_.FullName -match "\\screenshots\\" -and $_.FullName -match "\\[^\\]+-final\\screenshots\\" -and $_.Name -match "frame-\d+\.png$" } |
+        Sort-Object @{ Expression = {
+                if ($_.Name -match "frame-(\d+)\.png$") {
+                    [int]$Matches[1]
+                } else {
+                    -1
+                }
+            }; Descending = $true }, LastWriteTime -Descending)
     $source = $sourceCandidates |
-        Where-Object { $_.FullName -match "\\[^\\]+-final\\screenshots\\" } |
         Select-Object -First 1
     if (-not $source) {
         throw "Makepad final fast ADB screenshot not found under $CaseRoot"
@@ -1053,9 +1098,15 @@ function Invoke-MakepadCase {
         [string]$Mode,
         [string]$CameraProjectionMode,
         [string]$ProjectionGeometryProfile,
-        [string]$CaseSourceMode = "direct-camera"
+        [string]$CaseSourceMode = "direct-camera",
+        [string]$DirectCameraTexturePath = "cpu-yuv"
     )
-    $caseId = "makepad-$Mode"
+    $textureCaseToken = Get-MakepadTexturePathCaseToken -TexturePath $DirectCameraTexturePath
+    $caseId = if ($DirectCameraTexturePath -eq "cpu-yuv" -and $MakepadDirectCameraTexturePath -eq "cpu-yuv") {
+        "makepad-$Mode"
+    } else {
+        "makepad-$textureCaseToken-$Mode"
+    }
     if ($HeadsetCaptureProvider -eq "fast-adb") {
         Write-Host "[$caseId] fast ADB headset capture starting"
     } else {
@@ -1088,8 +1139,10 @@ function Invoke-MakepadCase {
         "-SampleSeconds", $makepadSampleSecondsForRun.ToString(),
         "-ReadySettleMs", $MakepadReadySettleMs.ToString(),
         "-ReadyPollIntervalMs", $ReadyPollIntervalMs.ToString(),
-        "-FreshnessFrames", "1",
-        "-FreshnessIntervalSeconds", "1",
+        "-FreshnessFrames", $MakepadFreshnessFrames.ToString(),
+        "-FreshnessIntervalSeconds", $MakepadFreshnessIntervalSeconds.ToString(),
+        "-FreshnessRequiredUniqueHashes", $MakepadFreshnessRequiredUniqueHashes.ToString(),
+        "-DirectCameraTexturePath", $DirectCameraTexturePath,
         "-PreferDirectVrActivity",
         "-CameraProjectionMode", $CameraProjectionMode,
         "-CameraProjectionGeometryProfile", $ProjectionGeometryProfile,
@@ -1208,6 +1261,7 @@ function Invoke-MakepadCase {
         id = $caseId
         lane = "makepad"
         mode = $Mode
+        makepadDirectCameraTexturePath = $DirectCameraTexturePath
         cameraProjectionMode = $CameraProjectionMode
         runtimeProfile = $ProjectionGeometryProfile
         artifactDir = $caseRoot
@@ -1337,8 +1391,10 @@ if (Test-LaneEnabled -Lane "oes") {
         ))
 }
 if (Test-LaneEnabled -Lane "makepad") {
-    $records += Invoke-MakepadCase -Mode "canvas" -CameraProjectionMode "world-canvas" -ProjectionGeometryProfile "full-frame-diagnostic" -CaseSourceMode $SourceMode
-    $records += Invoke-MakepadCase -Mode "custom" -CameraProjectionMode "display-screen-homography" -ProjectionGeometryProfile "camera-projection" -CaseSourceMode $SourceMode
+    foreach ($makepadTexturePathVariant in (Get-MakepadTexturePathVariants)) {
+        $records += Invoke-MakepadCase -Mode "canvas" -CameraProjectionMode "world-canvas" -ProjectionGeometryProfile "full-frame-diagnostic" -CaseSourceMode $SourceMode -DirectCameraTexturePath $makepadTexturePathVariant
+        $records += Invoke-MakepadCase -Mode "custom" -CameraProjectionMode "display-screen-homography" -ProjectionGeometryProfile "camera-projection" -CaseSourceMode $SourceMode -DirectCameraTexturePath $makepadTexturePathVariant
+    }
 }
 
 $contactSheetPath = Join-Path $sessionRoot "canvas-custom-projection-parity-results.png"
@@ -1400,6 +1456,10 @@ $summary = [ordered]@{
         makepadStartupTimeoutSeconds = $MakepadStartupTimeoutSeconds
         makepadUseFixedSampleWindow = [bool]$UseFixedMakepadSampleWindow
         makepadSampleSeconds = if ($UseFixedMakepadSampleWindow) { [Math]::Max($MakepadSampleSeconds, $WarmupSeconds) } else { 0 }
+        makepadDirectCameraTexturePath = $MakepadDirectCameraTexturePath
+        makepadFreshnessFrames = $MakepadFreshnessFrames
+        makepadFreshnessIntervalSeconds = $MakepadFreshnessIntervalSeconds
+        makepadFreshnessRequiredUniqueHashes = $MakepadFreshnessRequiredUniqueHashes
         makepadReadySettleMs = $MakepadReadySettleMs
         makepadPostRunSettleSeconds = $MakepadPostRunSettleSeconds
         expectedMakepadSourceEyeMapping = $ExpectedMakepadSourceEyeMapping

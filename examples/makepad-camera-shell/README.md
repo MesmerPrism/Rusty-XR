@@ -418,9 +418,9 @@ broker-synthetic H.264 parity with a locally generated texture unless the
 question is explicitly renderer smoke rather than broker transport or
 cross-stack input equivalence.
 
-The summary records freshness hashes plus app/global GPU-fault, fatal, small
-hardware-buffer, stale-marker, broker-H.264 decode, and texture-cadence
-counters. Record whether the run was
+The summary records the requested freshness frame count, unique freshness
+hashes, app/global GPU-fault, fatal, small hardware-buffer, stale-marker,
+broker-H.264 decode, and texture-cadence counters. Record whether the run was
 `launcher-attempt-1`, `launcher-attempt-2`, `direct-vr-fallback`, or
 `direct-vr-attempt-1`; do not silently merge those launch classes.
 
@@ -634,7 +634,10 @@ counters. Record whether the run was
   and OES visually. The hardware-buffer external route is opt-in via
   `debug.rustyxr.makepad.direct.camera.hardware.buffer.external=true`; cadence
   and projection markers include `cameraTexturePath`, `textureImportPath`, and
-  `cpuUploadPath` so performance reviews can distinguish those routes.
+  `cpuUploadPath` so performance reviews can distinguish those routes. The
+  guarded device gate exposes this as `-DirectCameraTexturePath cpu-yuv` or
+  `hardware-buffer-external`, and the parity suite can run both with
+  `-MakepadDirectCameraTexturePath both`.
 - Performance comparison gate: active-presentation comparison reopened after
   S14, but final parity performance is still blocked on visible Makepad camera
   projection. S14 proved launcher-path XR presentation and paired import/cadence
@@ -853,7 +856,9 @@ counters. Record whether the run was
   false until per-eye projection catches up. The S59 run also adds a
   multi-frame screenshot freshness check: future visual gates should record
   whether expected live-camera screenshots are byte-identical before accepting a
-  still image as live feed evidence. The first S59 clean install showed why
+  still image as live feed evidence. The Makepad parity suite now keeps this as
+  a route-level hygiene signal: it captures multiple final frames and copies the
+  newest final frame into the raw contact sheet. The first S59 clean install showed why
   launchers should pregrant `horizonos.permission.HEADSET_CAMERA` as well as
   `android.permission.CAMERA`; after that grant, S59 emitted the no-swap marker
   path, stayed app-fault clean, and produced a non-byte-identical screenshot
