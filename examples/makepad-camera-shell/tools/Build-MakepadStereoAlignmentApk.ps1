@@ -289,8 +289,8 @@ if ([string]::IsNullOrWhiteSpace($MakepadSourceRoot)) {
 if ($PatchMakepadXrFromSource -and $NoPatchMakepadXrFromSource) {
     throw "Use either -PatchMakepadXrFromSource or -NoPatchMakepadXrFromSource, not both."
 }
-if ($PatchMakepadXrFromSource -and [string]::IsNullOrWhiteSpace($MakepadSourceRoot)) {
-    throw "-PatchMakepadXrFromSource requires -MakepadSourceRoot or RUSTY_XR_MAKEPAD_SOURCE_ROOT."
+if ((-not $NoPatchMakepadXrFromSource) -and [string]::IsNullOrWhiteSpace($MakepadSourceRoot)) {
+    throw "Build-MakepadStereoAlignmentApk.ps1 requires -MakepadSourceRoot or RUSTY_XR_MAKEPAD_SOURCE_ROOT by default so cargo-makepad and app Makepad dependencies come from the same maintained checkout. Use -NoPatchMakepadXrFromSource only for an intentional installed-tool or pinned-dependency comparison."
 }
 $patchMakepadXrFromSourceEffective = (-not [string]::IsNullOrWhiteSpace($MakepadSourceRoot)) -and (-not $NoPatchMakepadXrFromSource)
 

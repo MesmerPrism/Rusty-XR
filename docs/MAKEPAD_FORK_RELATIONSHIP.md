@@ -85,10 +85,11 @@ renderer measurements from the Makepad lane.
 
 There are two pins to keep in sync. The standalone Makepad example's
 `Cargo.lock` pins the Rust crates used by host checks. APK evidence generation
-should use `Build-MakepadStereoAlignmentApk.ps1` with `-MakepadSourceRoot` so
-the `cargo-makepad` tool and app Makepad dependencies both come from the same
-maintained checkout. Use an installed `cargo-makepad` binary only for an
-explicit upstream or portability comparison.
+should use `Build-MakepadStereoAlignmentApk.ps1` with `-MakepadSourceRoot` or
+`RUSTY_XR_MAKEPAD_SOURCE_ROOT` so the `cargo-makepad` tool and app Makepad
+dependencies both come from the same maintained checkout. The wrapper requires
+that source root by default. Use an installed `cargo-makepad` binary only for
+an explicit upstream or portability comparison.
 
 ## Validation Ladder
 
@@ -106,8 +107,9 @@ this order:
    touched.
 4. `cargo-makepad` check and release build.
 5. Rebuild the Rusty XR APK through `Build-MakepadStereoAlignmentApk.ps1` with
-   `-MakepadSourceRoot`; this source-builds `cargo-makepad` and source-patches
-   the app Makepad dependency for that build.
+   `-MakepadSourceRoot` or `RUSTY_XR_MAKEPAD_SOURCE_ROOT`; this source-builds
+   `cargo-makepad` and source-patches the app Makepad dependency for that
+   build.
 6. Quest/Vulkan smoke for the minimal Makepad Android surface.
 7. Rusty XR Makepad example launcher and generated-XR startup/liveness smoke,
    with short startup marker capture separated from longer fault-counter

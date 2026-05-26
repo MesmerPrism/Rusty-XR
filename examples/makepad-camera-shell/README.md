@@ -23,11 +23,12 @@ fork-patch policy are documented in
 - Uses `cargo-makepad android --variant=quest`.
 - Uses the maintained Makepad fork branch
   `rusty-xr/android-libstd-packaging`. The exact Makepad revision for this
-  example is pinned in `Cargo.lock`. Local evidence builds should run the
-  wrapper with `-MakepadSourceRoot <makepad-fork-checkout>` so the packager
-  and app Makepad dependencies both come from the maintained fork checkout.
-  Use `-NoPatchMakepadXrFromSource` only for an intentional upstream or pinned
-  dependency comparison.
+  example is pinned in `Cargo.lock`. Local evidence builds run the wrapper
+  with `-MakepadSourceRoot <makepad-fork-checkout>` or
+  `RUSTY_XR_MAKEPAD_SOURCE_ROOT` so the packager and app Makepad dependencies
+  both come from the maintained fork checkout. The wrapper requires that source
+  root by default. Use `-NoPatchMakepadXrFromSource` only for an intentional
+  upstream or pinned dependency comparison.
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
@@ -102,7 +103,9 @@ cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-
 
 For local evidence builds, prefer the wrapper because it preflights the selected
 SDK before cargo runs and can run the maintained fork's `cargo-makepad` tool
-while patching the app's Makepad dependency to that same checkout:
+while patching the app's Makepad dependency to that same checkout. The wrapper
+requires this source root by default unless `-NoPatchMakepadXrFromSource` is
+passed for a deliberate installed-tool or pinned-dependency comparison:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
@@ -135,7 +138,8 @@ than reusing a broker transport package identity:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
-  -SdkPath <local-makepad-android-sdk>
+  -SdkPath <local-makepad-android-sdk> `
+  -MakepadSourceRoot <makepad-fork-checkout>
 ```
 
 Enable the synthetic footprint target before the alignment launch when the goal
@@ -203,11 +207,11 @@ and committed lockfile resolution. Do not use a plain
 `cargo check --target aarch64-linux-android` as the Android acceptance gate for
 this Makepad lane; it only compiles the Rust target and does not exercise the
 actual packager. Android acceptance is a successful wrapper build through
-`Build-MakepadStereoAlignmentApk.ps1`, preferably with `-MakepadSourceRoot
-<makepad-fork-checkout>` when Makepad-side packaging or bridge code matters.
-That source root patches app Makepad dependencies by default; use
-`-NoPatchMakepadXrFromSource` only for a deliberate pinned-dependency
-comparison.
+`Build-MakepadStereoAlignmentApk.ps1` with `-MakepadSourceRoot
+<makepad-fork-checkout>` or `RUSTY_XR_MAKEPAD_SOURCE_ROOT` when Makepad-side
+packaging or bridge code matters. That source root is required by default and
+patches app Makepad dependencies by default; use `-NoPatchMakepadXrFromSource`
+only for a deliberate pinned-dependency comparison.
 
 When Android-only Rust in this example changes, optional target probes can add
 partial target coverage:

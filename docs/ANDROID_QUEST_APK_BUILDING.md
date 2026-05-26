@@ -118,11 +118,11 @@ with aliased executables. Update or select a Makepad fork/tool whose Android
 packager resolves installed build-tools, platform, Java, NDK prebuilt, and host
 executable names from the selected `--sdk-path`.
 
-Use `-MakepadSourceRoot` when local evidence depends on the maintained Makepad
-fork's Android packager. That switch selects the fork checkout's
-`tools/cargo_makepad` tool and patches the app's Makepad dependency to the
-same checkout for that build. The committed lockfile remains the default host
-Rust dependency pin. The current Makepad evidence default is
+Use `-MakepadSourceRoot` or `RUSTY_XR_MAKEPAD_SOURCE_ROOT` for Makepad local
+evidence builds. The wrapper requires that source root by default, selects the
+fork checkout's `tools/cargo_makepad` tool, and patches the app's Makepad
+dependency to the same checkout for that build. The committed lockfile remains
+the default host Rust dependency pin. The current Makepad evidence default is
 `display-left-from-left-source`; pass `-DisplaySourceEyeMapping` explicitly in
 captured build commands so source-eye mapping cannot drift between runs. Use
 `-NoPatchMakepadXrFromSource` only for an intentional upstream or
@@ -173,10 +173,11 @@ For Makepad Android, split validation into two gates:
    examples\makepad-camera-shell\Cargo.toml` plus `cargo test --locked
    --manifest-path examples\makepad-camera-shell\Cargo.toml` cover parser,
    metadata, projection-math changes, and committed lockfile resolution.
-2. Android/package gate: `Build-MakepadStereoAlignmentApk.ps1`, preferably with
-   `-MakepadSourceRoot <makepad-fork-checkout>`, is the target acceptance gate
-   because it exercises Makepad's generated Android activity model and packager
-   while keeping the packager source and app Makepad dependencies aligned.
+2. Android/package gate: `Build-MakepadStereoAlignmentApk.ps1` with
+   `-MakepadSourceRoot <makepad-fork-checkout>` or
+   `RUSTY_XR_MAKEPAD_SOURCE_ROOT` is the target acceptance gate because it
+   exercises Makepad's generated Android activity model and packager while
+   keeping the packager source and app Makepad dependencies aligned.
 
 A direct `cargo check --target aarch64-linux-android` is not the authoritative
 Makepad Android gate for this example. It compiles the Rust target, but it does
