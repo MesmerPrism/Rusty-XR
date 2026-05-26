@@ -203,6 +203,45 @@ def numeric_value(row: dict[str, Any], key: str) -> float | None:
     return number_prefix(row.get(key))
 
 
+def summarize_submit_correlation(submit_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    sorted_rows = sorted(submit_rows, key=lambda item: numeric_value(item, "submitTimeMs") or 0.0)
+    frame_deltas: list[float] = []
+    time_deltas_ms: list[float] = []
+    for previous, current in zip(sorted_rows, sorted_rows[1:]):
+        previous_seq = numeric_value(previous, "xrFrameSeq")
+        current_seq = numeric_value(current, "xrFrameSeq")
+        if previous_seq is not None and current_seq is not None and current_seq >= previous_seq:
+            frame_deltas.append(current_seq - previous_seq)
+        previous_time = numeric_value(previous, "submitTimeMs")
+        current_time = numeric_value(current, "submitTimeMs")
+        if previous_time is not None and current_time is not None and current_time >= previous_time:
+            time_deltas_ms.append(current_time - previous_time)
+
+    status = "ok"
+    if not sorted_rows:
+        status = "none"
+    elif len(sorted_rows) < 2:
+        status = "single-sample"
+    else:
+        avg_time_delta = statistics.fmean(time_deltas_ms) if time_deltas_ms else None
+        avg_frame_delta = statistics.fmean(frame_deltas) if frame_deltas else None
+        if (avg_time_delta is not None and avg_time_delta > 750.0) or (
+            avg_frame_delta is not None and avg_frame_delta > 60.0
+        ):
+            status = "sparse"
+
+    return {
+        "status": status,
+        "markerCount": len(sorted_rows),
+        "frameSequenceDelta": summarize_numbers(frame_deltas),
+        "submitTimeDeltaMs": summarize_numbers(time_deltas_ms),
+        "interpretation": (
+            "Upload-to-submit timing is only a localization hint when xr-end-frame "
+            "markers are frequent enough; sparse markers can exaggerate the delay."
+        ),
+    }
+
+
 def summarize_frame_flow(rows: list[dict[str, Any]]) -> dict[str, Any]:
     acquire_rows = [row for row in rows if row.get("phase") == "acquire"]
     acquired_rows = [row for row in acquire_rows if row.get("status") == "published"]
@@ -259,6 +298,7 @@ def summarize_frame_flow(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "acquireDroppedCount": len(dropped_rows),
         "cpuYuvUploadCount": len(upload_rows),
         "xrEndFrameCount": len(submit_rows),
+        "submitCorrelation": summarize_submit_correlation(submit_rows),
         "acquireToUploadMs": summarize_numbers(acquire_to_upload_ms),
         "uploadToNextSubmitMs": summarize_numbers(upload_to_submit_ms),
         "latestAcquire": acquired_rows[-1] if acquired_rows else {},
@@ -431,6 +471,9 @@ def run_self_test() -> int:
     assert transient_report["makepadFrameFlow"]["acquirePublishedCount"] == 1, transient_report
     assert transient_report["makepadFrameFlow"]["cpuYuvUploadCount"] == 1, transient_report
     assert transient_report["makepadFrameFlow"]["xrEndFrameCount"] == 1, transient_report
+    assert (
+        transient_report["makepadFrameFlow"]["submitCorrelation"]["status"] == "single-sample"
+    ), transient_report
     assert transient_report["makepadFrameFlow"]["acquireToUploadMs"]["last"] == 5.0, transient_report
     assert transient_report["makepadFrameFlow"]["uploadToNextSubmitMs"]["last"] == 7.0, transient_report
 

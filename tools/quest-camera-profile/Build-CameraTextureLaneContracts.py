@@ -132,6 +132,15 @@ def signed_delta(later: Any, earlier: Any) -> int | None:
     return later_value - earlier_value
 
 
+def bounded_nonnegative_delta(later: Any, earlier: Any, max_delta: int | None = None) -> int | None:
+    delta = signed_delta(later, earlier)
+    if delta is None or delta < 0:
+        return None
+    if max_delta is not None and delta > max_delta:
+        return None
+    return delta
+
+
 def parse_float_list(value: Any) -> list[float] | None:
     if value is None:
         return None
@@ -751,11 +760,15 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
         "timing_relations": {
             "acquire_to_upload_ns": signed_delta(timing.get("upload_time_ns"), timing.get("acquire_time_ns")),
             "acquire_to_import_ns": signed_delta(timing.get("import_time_ns"), timing.get("acquire_time_ns")),
-            "upload_to_xr_end_frame_ns": signed_delta(
-                timing.get("xr_end_frame_time_ns"), timing.get("upload_time_ns")
+            "upload_to_xr_end_frame_ns": bounded_nonnegative_delta(
+                timing.get("xr_end_frame_time_ns"),
+                timing.get("upload_time_ns"),
+                1_000_000_000,
             ),
-            "import_to_xr_end_frame_ns": signed_delta(
-                timing.get("xr_end_frame_time_ns"), timing.get("import_time_ns")
+            "import_to_xr_end_frame_ns": bounded_nonnegative_delta(
+                timing.get("xr_end_frame_time_ns"),
+                timing.get("import_time_ns"),
+                1_000_000_000,
             ),
             "texture_update_to_submit_sequence_delta": signed_delta(
                 timing.get("texture_submit_sequence"), timing.get("texture_update_sequence")
