@@ -74,14 +74,21 @@ def find_report(path: Path) -> Path:
 
 
 def find_summary(report: Path) -> dict[str, Any]:
+    summary_path = find_summary_path(report)
+    if summary_path is None:
+        return {}
+    try:
+        return load_json(summary_path)
+    except json.JSONDecodeError:
+        return {}
+
+
+def find_summary_path(report: Path) -> Path | None:
     for ancestor in [report.parent, *report.parents]:
         candidate = ancestor / SUMMARY_NAME
         if candidate.exists():
-            try:
-                return load_json(candidate)
-            except json.JSONDecodeError:
-                return {}
-    return {}
+            return candidate
+    return None
 
 
 def route_from_summary(summary: dict[str, Any]) -> str | None:
@@ -97,6 +104,7 @@ def route_from_summary(summary: dict[str, Any]) -> str | None:
 def row_from_report(name: str, report_path: Path) -> dict[str, Any]:
     report = load_json(report_path)
     summary = find_summary(report_path)
+    summary_path = find_summary_path(report_path)
     vrapi_app = nested(report, ["vrapi", "app"], {})
     latest = nested(vrapi_app, ["latest"], {})
     recent = nested(vrapi_app, ["recent"], {})
@@ -112,7 +120,7 @@ def row_from_report(name: str, report_path: Path) -> dict[str, Any]:
         "reasons": report.get("reasons", []),
         "route": route_from_summary(summary),
         "report": str(report_path),
-        "summary": str((report_path.parent / SUMMARY_NAME) if (report_path.parent / SUMMARY_NAME).exists() else ""),
+        "summary": str(summary_path) if summary_path is not None else "",
         "latestFps": latest.get("FPS"),
         "latestStale": latest.get("Stale"),
         "recentStaleSum": int(recent_stale_sum or 0),
@@ -289,6 +297,7 @@ def run_self_test() -> int:
         (hwb / REPORT_NAME).write_text(json.dumps(hwb_report), encoding="utf-8")
         comparison = build_comparison([f"cpu={tmp / 'cpu'}", f"hwb={tmp / 'hwb'}"])
         assert comparison["rows"][0]["route"] == "cpu-yuv", comparison
+        assert comparison["rows"][0]["summary"].endswith(SUMMARY_NAME), comparison
         assert comparison["rows"][1]["pairedTextureUpdateRateHz"] == 46.5, comparison
         assert comparison["baselineComparisons"][0]["recentCpuGpuMsDelta"] == -4.0, comparison
         table = markdown_table(comparison)
