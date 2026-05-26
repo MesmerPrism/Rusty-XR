@@ -1250,6 +1250,22 @@ $freshnessStatus = if (-not $readyAttempt) {
 } else {
     "ok"
 }
+$metaPerfStaleStatus = if (-not $readyAttempt) {
+    "skipped"
+} elseif ($null -eq $metaPerfStaleAnalysis) {
+    "skipped"
+} else {
+    [string]$metaPerfStaleAnalysis.status
+}
+$metaPerfStaleGateFailures = @()
+if ($readyAttempt -and $metaPerfStaleStatus -eq "stale") {
+    $metaPerfStaleReasons = @($metaPerfStaleAnalysis.reasons) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+    $metaPerfStaleGateFailures += "Meta performance stale analysis failed: $($metaPerfStaleReasons -join ', ')"
+}
+elseif ($readyAttempt -and $metaPerfStaleStatus -eq "tool-failed") {
+    $metaPerfStaleGateFailures += "Meta performance stale analysis tool failed"
+}
 $resolvedBrokerH264ProjectionGeometryProfile = if ($BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) {
     $BrokerH264ProjectionGeometryProfile.Trim()
 }
@@ -1340,6 +1356,9 @@ $summary = [ordered]@{
     freshnessGateFailureCount = $freshnessGateFailures.Count
     freshnessGateFailures = $freshnessGateFailures
     freshnessAnalysis = $freshnessAnalysis
+    metaPerfStaleStatus = $metaPerfStaleStatus
+    metaPerfStaleGateFailureCount = $metaPerfStaleGateFailures.Count
+    metaPerfStaleGateFailures = $metaPerfStaleGateFailures
     metaPerfStaleAnalysis = $metaPerfStaleAnalysis
     freshnessFrames = $frames
 }
@@ -1350,4 +1369,7 @@ if ($projectionRuntimeGateFailures.Count -gt 0) {
 }
 if ($freshnessGateFailures.Count -gt 0) {
     throw "freshness gate failed: $($freshnessGateFailures -join '; ')"
+}
+if ($metaPerfStaleGateFailures.Count -gt 0) {
+    throw "meta performance stale gate failed: $($metaPerfStaleGateFailures -join '; ')"
 }

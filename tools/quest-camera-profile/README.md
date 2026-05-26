@@ -630,7 +630,10 @@ For Makepad direct-camera texture-route diagnostics, the parity suite accepts
 `both`. The guarded Makepad device gate writes
 `debug.rustyxr.makepad.direct.camera.hardware.buffer.external` explicitly and
 hygiene clears the key before controlled launches, so CPU-upload and
-hardware-buffer import runs do not inherit each other's route.
+hardware-buffer import runs do not inherit each other's route. The same gate
+also runs Meta performance stale analysis and treats analyzer `status=stale`
+as a gate failure; transient warmup stale that clears in the recent sample
+window is recorded as an `ok` reason instead of being hidden.
 
 Projection-area offset keys share the suite-level display-eye screen-UV
 contract: positive X moves the projection area right and positive Y moves it

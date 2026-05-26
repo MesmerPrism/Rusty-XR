@@ -427,7 +427,10 @@ cross-stack input equivalence.
 
 The summary records the requested freshness frame count, unique freshness
 hashes, app/global GPU-fault, fatal, small hardware-buffer, stale-marker,
-broker-H.264 decode, and texture-cadence counters. Record whether the run was
+Meta performance stale analysis, broker-H.264 decode, and texture-cadence
+counters. A ready run fails the gate when Meta performance stale analysis
+reports `status=stale`; warmup stale that clears before the recent sample
+window remains an `ok` run with the reason recorded. Record whether the run was
 `launcher-attempt-1`, `launcher-attempt-2`, `direct-vr-fallback`, or
 `direct-vr-attempt-1`; do not silently merge those launch classes.
 
