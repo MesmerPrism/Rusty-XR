@@ -36,6 +36,13 @@ python tools\quest-camera-profile\Build-CameraTextureLaneContracts.py <run-root>
 The builder scans existing public HWB, OES, and Makepad marker lines. It does
 not change renderer behavior.
 
+For Makepad lanes, `VideoTextureUpdated` now carries optional texture-update
+metadata for camera frame identity, acquire/upload/import timing, resource path,
+descriptor shape, Vulkan format facts, and fallback state. The Rusty XR Makepad
+adapter should prefer those event fields when emitting markers or lane-contract
+artifacts, and use older marker inference only as a compatibility fallback for
+old evidence bundles.
+
 Each record separates these concerns:
 
 | Section | Required facts |

@@ -90,14 +90,15 @@ def parse_bool(value: Any) -> bool | None:
     return None
 
 
-def parse_time_ns(fields: dict[str, Any], ns_key: str, ms_key: str) -> int | None:
-    ns_value = parse_int(fields.get(ns_key))
-    if ns_value is not None:
-        return ns_value
-    ms_value = parse_int(fields.get(ms_key))
-    if ms_value is None:
-        return None
-    return ms_value * 1_000_000
+def parse_time_ns(fields: dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        value = parse_int(fields.get(key))
+        if value is None:
+            continue
+        if key.lower().endswith("ms"):
+            return value * 1_000_000
+        return value
+    return None
 
 
 def parse_float_list(value: Any) -> list[float] | None:
@@ -120,6 +121,7 @@ def size_from_fields(fields: dict[str, Any]) -> dict[str, int]:
     for width_key, height_key in (
         ("contentWidth", "contentHeight"),
         ("leftWidth", "leftHeight"),
+        ("textureWidth", "textureHeight"),
         ("width", "height"),
     ):
         width = parse_int(fields.get(width_key))
@@ -209,6 +211,9 @@ def makepad_resource_kind(path: str) -> str:
 
 
 def makepad_descriptor_shape(path: str, fields: dict[str, Any]) -> str:
+    descriptor_shape = fields.get("descriptorShape")
+    if descriptor_shape:
+        return str(descriptor_shape)
     if path == "direct-camera-cpu-yuv-plane":
         return "cpu-yuv-plane-textures"
     combined = parse_bool(fields.get("combinedImageSampler"))
@@ -545,9 +550,12 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
         {
             "camera_frame_sequence": parse_int(fields.get("cameraFrameSeq")),
             "camera_timestamp_ns": parse_int(fields.get("cameraTimestampNs")),
-            "acquire_time_ns": parse_time_ns(fields, "captureTimeNs", "captureTimeMs"),
+            "acquire_time_ns": parse_time_ns(fields, "acquireTimeNs", "captureTimeNs", "captureTimeMs"),
             "upload_time_ns": parse_time_ns(fields, "uploadTimeNs", "uploadTimeMs"),
-            "texture_update_sequence": parse_int(fields.get("uploadSeq") or fields.get("textureUpdateSeq")),
+            "import_time_ns": parse_time_ns(fields, "importTimeNs", "importTimeMs"),
+            "texture_update_sequence": parse_int(
+                fields.get("textureUpdateSeq") or fields.get("uploadSeq") or fields.get("importSeq")
+            ),
             "texture_submit_sequence": parse_int(fields.get("xrFrameIndex")),
             "xr_end_frame_time_ns": parse_int(fields.get("xrEndFrameTimeNs")),
         }
@@ -697,9 +705,9 @@ def self_test() -> None:
             'Rusty XR SurfaceTexture OES transform matrix {"schema":"rusty.xr.quest.surface_texture_oes_transform_matrix.v1","view_index":0,"source_eye":"left","update_tex_image_count":4,"surface_texture_timestamp_ns":12345,"transform_matrix_hash":"m44:test","transform_matrix":[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]}',
             "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=cpu-yuv-upload status=ok path=cpu-yuv videoId=1 uploadSeq=3 cameraFrameSeq=2 cameraTimestampNs=123 uploadTimeNs=456 width=1280 height=1280",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane projectionBorderPolicy=solid-red",
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane projectionBorderPolicy=solid-red eventResourcePath=cpu-yuv-planes descriptorShape=cpu-yuv-plane-textures cameraFrameSeq=2 cameraTimestampNs=123 acquireTimeNs=111 uploadSeq=3 uploadTimeNs=456 textureUpdateSeq=3 textureWidth=1280 textureHeight=1280",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none projectionBorderPolicy=solid-red",
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none projectionBorderPolicy=solid-red eventResourcePath=hardware-buffer-external descriptorShape=sampled-image-and-sampler cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false",
             "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.xr.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=SAMPLED_IMAGE samplerDescriptorType=SAMPLER combinedImageSampler=false shaderSampleLowering=textureSampleLevel_separate_texture_sampler",
         ]
     )
@@ -720,11 +728,15 @@ def self_test() -> None:
             raise AssertionError(f"unexpected lanes: {sorted(lanes)}")
         if lanes["makepad-cpuyuv-direct-camera2-raw"]["color"]["color_status"] != "accepted-reference":
             raise AssertionError("Makepad CPU-YUV color status was not accepted-reference")
+        if lanes["makepad-cpuyuv-direct-camera2-raw"]["timing"]["acquire_time_ns"] != 111:
+            raise AssertionError("Makepad CPU-YUV event acquire time was not parsed")
         if (
             lanes["makepad-hwb-external-direct-camera2-raw"]["resource"]["descriptor_shape"]
             != "sampled-image-and-sampler"
         ):
             raise AssertionError("Makepad HWB descriptor shape was not parsed")
+        if lanes["makepad-hwb-external-direct-camera2-raw"]["timing"]["import_time_ns"] != 800:
+            raise AssertionError("Makepad HWB event import time was not parsed")
         if lanes["gles-oes-direct-camera2-raw"]["timing"]["texture_update_sequence"] != 4:
             raise AssertionError("OES texture update count was not parsed")
         if summary["record_count"] != 4:

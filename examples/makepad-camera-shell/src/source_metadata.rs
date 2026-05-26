@@ -1,4 +1,5 @@
 use crate::camera_texture_path::MakepadCameraTexturePath;
+use crate::makepad_widgets::makepad_platform::event::video_playback::VideoTextureUpdateMetadata;
 use rusty_xr_camera_model::{rect_xywh, uv_rect_token, Rect2, Vec2};
 use serde_json::Value as JsonValue;
 
@@ -88,16 +89,71 @@ pub(crate) fn makepad_hardware_buffer_import_texture_updated_marker_fields(
     yuv_biplanar: bool,
     rotation_steps: f32,
     texture_path: MakepadCameraTexturePath,
+    metadata: &VideoTextureUpdateMetadata,
 ) -> String {
     format!(
-        "phase=texture-updated status=ok side={} yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} importPlan={} {}",
+        "phase=texture-updated status=ok side={} yuvEnabled={} yuvBiplanar={} rotationSteps={:.0} importPlan={} {}{}",
         side_label,
         yuv_enabled,
         yuv_biplanar,
         rotation_steps,
         texture_path.import_plan(),
         texture_path.marker_fields(),
+        video_texture_update_metadata_marker_fields(metadata),
     )
+}
+
+fn video_texture_update_metadata_marker_fields(metadata: &VideoTextureUpdateMetadata) -> String {
+    let mut fields = vec![
+        format!("eventResourcePath={}", metadata.resource_path.as_str()),
+        format!("descriptorShape={}", metadata.descriptor_shape.as_str()),
+    ];
+    if let Some(value) = metadata.camera_frame_sequence {
+        fields.push(format!("cameraFrameSeq={value}"));
+    }
+    if let Some(value) = metadata.camera_timestamp_ns {
+        fields.push(format!("cameraTimestampNs={value}"));
+    }
+    if let Some(value) = metadata.acquire_time_ns {
+        fields.push(format!("acquireTimeNs={value}"));
+    }
+    if let Some(value) = metadata.upload_sequence {
+        fields.push(format!("uploadSeq={value}"));
+    }
+    if let Some(value) = metadata.upload_time_ns {
+        fields.push(format!("uploadTimeNs={value}"));
+    }
+    if let Some(value) = metadata.import_sequence {
+        fields.push(format!("importSeq={value}"));
+    }
+    if let Some(value) = metadata.import_time_ns {
+        fields.push(format!("importTimeNs={value}"));
+    }
+    if let Some(value) = metadata.texture_update_sequence {
+        fields.push(format!("textureUpdateSeq={value}"));
+    }
+    if metadata.width > 0 {
+        fields.push(format!("textureWidth={}", metadata.width));
+    }
+    if metadata.height > 0 {
+        fields.push(format!("textureHeight={}", metadata.height));
+    }
+    if let Some(value) = metadata.vulkan_format.as_deref() {
+        fields.push(format!("vulkanFormat={}", marker_token(value)));
+    }
+    if let Some(value) = metadata.vulkan_external_format {
+        fields.push(format!("vulkanExternalFormat={value}"));
+    }
+    if let Some(value) = metadata.resource_reused {
+        fields.push(format!("resourceReused={value}"));
+    }
+    if metadata.fallback_active {
+        fields.push("fallbackActive=true".to_string());
+    }
+    if let Some(value) = metadata.fallback_reason.as_deref() {
+        fields.push(format!("fallbackReason={}", marker_token(value)));
+    }
+    format!(" {}", fields.join(" "))
 }
 
 pub(crate) fn makepad_hardware_buffer_import_complete_error_marker_fields(
@@ -1609,8 +1665,9 @@ mod tests {
                 false,
                 2.0,
                 MakepadCameraTexturePath::DirectCpuYuvPlane,
+                &VideoTextureUpdateMetadata::default(),
             ),
-            "phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=2 importPlan=paired-camera-cpu-yuv-fallback cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane"
+            "phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=2 importPlan=paired-camera-cpu-yuv-fallback cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane visualColorStatus=accepted-cpu-yuv-reference eventResourcePath=unspecified descriptorShape=unspecified"
         );
         assert_eq!(
             makepad_hardware_buffer_import_complete_error_marker_fields(
@@ -1710,7 +1767,7 @@ mod tests {
                 false,
                 MakepadCameraTexturePath::DirectCpuYuvPlane,
             ),
-            "phase=prepared status=ok side=left width=1280 height=720 importPath=makepad-camera-cpu-yuv-plane textureMode=direct-camera-cpu-yuv-plane importPlan=paired-camera-cpu-yuv-fallback cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane"
+            "phase=prepared status=ok side=left width=1280 height=720 importPath=makepad-camera-cpu-yuv-plane textureMode=direct-camera-cpu-yuv-plane importPlan=paired-camera-cpu-yuv-fallback cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane visualColorStatus=accepted-cpu-yuv-reference"
         );
         assert_eq!(
             hardware_buffer_import_start_marker_fields(

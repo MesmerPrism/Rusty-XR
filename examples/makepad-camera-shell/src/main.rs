@@ -68,7 +68,7 @@ use source_metadata::{
 use makepad_widgets::makepad_platform::{
     event::video_playback::{
         BrokerH264VideoSource, CameraPreviewMode, TextureHandleReadyEvent, VideoSource,
-        VideoYuvMetadata,
+        VideoTextureResourcePath, VideoTextureUpdateMetadata, VideoYuvMetadata,
     },
     permission::Permission,
     thread::SignalToUI,
@@ -1057,6 +1057,10 @@ pub struct App {
     paired_import_left_yuv_metadata: Option<VideoYuvMetadata>,
     #[rust]
     paired_import_right_yuv_metadata: Option<VideoYuvMetadata>,
+    #[rust]
+    paired_import_left_update_metadata: Option<VideoTextureUpdateMetadata>,
+    #[rust]
+    paired_import_right_update_metadata: Option<VideoTextureUpdateMetadata>,
     #[rust]
     paired_import_left_prepared: bool,
     #[rust]
@@ -3097,10 +3101,65 @@ impl App {
         }
     }
 
-    fn record_camera_texture_metadata(&mut self, side: StereoEye, yuv: VideoYuvMetadata) {
+    fn record_camera_texture_metadata(
+        &mut self,
+        side: StereoEye,
+        yuv: VideoYuvMetadata,
+        metadata: VideoTextureUpdateMetadata,
+    ) {
         match side {
-            StereoEye::Left => self.paired_import_left_yuv_metadata = Some(yuv),
-            StereoEye::Right => self.paired_import_right_yuv_metadata = Some(yuv),
+            StereoEye::Left => {
+                self.paired_import_left_yuv_metadata = Some(yuv);
+                self.paired_import_left_update_metadata = Some(metadata);
+            }
+            StereoEye::Right => {
+                self.paired_import_right_yuv_metadata = Some(yuv);
+                self.paired_import_right_update_metadata = Some(metadata);
+            }
+        }
+    }
+
+    fn makepad_camera_texture_path_from_update_metadata(
+        broker_h264_enabled: bool,
+        direct_hardware_buffer_requested: bool,
+        yuv_enabled: bool,
+        metadata: &VideoTextureUpdateMetadata,
+    ) -> MakepadCameraTexturePath {
+        match metadata.resource_path {
+            VideoTextureResourcePath::CpuYuvPlanes
+            | VideoTextureResourcePath::SoftwareYuvPlanes => {
+                if broker_h264_enabled {
+                    MakepadCameraTexturePath::BrokerH264CpuYuv
+                } else {
+                    MakepadCameraTexturePath::DirectCpuYuvPlane
+                }
+            }
+            VideoTextureResourcePath::HardwareBufferExternal => {
+                MakepadCameraTexturePath::DirectHardwareBufferExternal
+            }
+            VideoTextureResourcePath::HardwareBufferYuvPlanes => {
+                MakepadCameraTexturePath::DirectHardwareBufferYuvPlane
+            }
+            VideoTextureResourcePath::SurfaceTextureExternal => {
+                if broker_h264_enabled {
+                    MakepadCameraTexturePath::BrokerH264SurfaceTexture
+                } else {
+                    MakepadCameraTexturePath::from_direct_video_update(
+                        direct_hardware_buffer_requested,
+                        yuv_enabled,
+                    )
+                }
+            }
+            VideoTextureResourcePath::Unspecified => {
+                if broker_h264_enabled {
+                    MakepadCameraTexturePath::from_video_update(true, yuv_enabled)
+                } else {
+                    MakepadCameraTexturePath::from_direct_video_update(
+                        direct_hardware_buffer_requested,
+                        yuv_enabled,
+                    )
+                }
+            }
         }
     }
 
@@ -3113,6 +3172,18 @@ impl App {
                 .paired_import_right_yuv_metadata
                 .as_ref()
                 .is_some_and(|metadata| metadata.enabled);
+        if let Some(metadata) = self
+            .paired_import_left_update_metadata
+            .as_ref()
+            .or(self.paired_import_right_update_metadata.as_ref())
+        {
+            return Self::makepad_camera_texture_path_from_update_metadata(
+                false,
+                Self::direct_camera_hardware_buffer_external_enabled(),
+                yuv_enabled,
+                metadata,
+            );
+        }
         MakepadCameraTexturePath::from_direct_video_update(
             Self::direct_camera_hardware_buffer_external_enabled(),
             yuv_enabled,
@@ -3139,6 +3210,18 @@ impl App {
                 || self.paired_import_left_yuv_textures.is_some()
                 || self.paired_import_right_yuv_textures.is_some()
             {
+                if let Some(metadata) = self
+                    .paired_import_left_update_metadata
+                    .as_ref()
+                    .or(self.paired_import_right_update_metadata.as_ref())
+                {
+                    return Self::makepad_camera_texture_path_from_update_metadata(
+                        true,
+                        false,
+                        true,
+                        metadata,
+                    );
+                }
                 MakepadCameraTexturePath::BrokerH264CpuYuv
             } else {
                 MakepadCameraTexturePath::BrokerH264SurfaceTexture
@@ -3485,7 +3568,11 @@ impl App {
                 emit_raw_video_event_marker("texture-updated", updated.video_id);
                 if let Some(side) = StereoEye::from_video_id(updated.video_id) {
                     self.record_camera_texture_update(side, updated.current_position_ms);
-                    self.record_camera_texture_metadata(side, updated.yuv);
+                    self.record_camera_texture_metadata(
+                        side,
+                        updated.yuv,
+                        updated.metadata.clone(),
+                    );
                     if !Self::broker_h264_enabled() {
                         self.emit_yuv_texture_content_probe(cx, side, updated.yuv);
                     }
@@ -3521,10 +3608,11 @@ impl App {
                         Self::emit_hardware_buffer_import_marker(
                             &makepad_hardware_buffer_import_texture_updated_marker_fields(
                                 side.label(),
-                            updated.yuv.enabled,
-                            updated.yuv.biplanar,
-                            updated.yuv.rotation_steps,
+                                updated.yuv.enabled,
+                                updated.yuv.biplanar,
+                                updated.yuv.rotation_steps,
                                 texture_path,
+                                &updated.metadata,
                             ),
                         );
                     }
