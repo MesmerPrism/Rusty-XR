@@ -419,6 +419,13 @@ foreground checks, and diagnostics, but only after an external authorized ADB
 host starts the helper. A normal installed headset APK cannot promote itself
 to Android `shell` or self-start that helper.
 
+Device harnesses that launch one public XR example should also clear sibling
+public XR example packages before launch. A focused OpenXR app can coexist with
+a paused or stopping package process from a previous lane, so standalone
+profile runs and Makepad gates record a prelaunch sibling force-stop artifact
+before starting the active package. Use the explicit skip switches only when
+the test is intentionally measuring cross-app residency.
+
 For the full public boundary, see
 [QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md](QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).
 For the distribution boundary between Store-style 2D apps, SideQuest or GitHub

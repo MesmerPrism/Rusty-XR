@@ -110,7 +110,9 @@ $projectionPropertyHygieneHelper = Join-Path $repoRoot "tools\quest-camera-profi
 $projectionRuntimeReadbackValidator = Join-Path $repoRoot "tools\quest-camera-profile\Validate-ProjectionRuntimeReadback.py"
 $freshnessAnalyzer = Join-Path $repoRoot "tools\quest-camera-profile\Analyze-ScreenshotFreshness.py"
 $metaPerfStaleAnalyzer = Join-Path $repoRoot "tools\quest-camera-profile\Analyze-MetaPerfStale.py"
+$publicExampleAppHygieneHelper = Join-Path $repoRoot "tools\quest-camera-profile\PublicExampleAppHygiene.ps1"
 . $projectionPropertyHygieneHelper
+. $publicExampleAppHygieneHelper
 
 function Invoke-Adb {
     param([string[]]$Arguments)
@@ -652,25 +654,13 @@ function Install-Apk {
 }
 
 function Stop-PreLaunchPackages {
-    if ($SkipPreLaunchForceStopPackages) {
-        return @()
-    }
-
-    $packages = @($PreLaunchForceStopPackages) |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne $PackageName } |
-        Select-Object -Unique
-    $records = foreach ($package in $packages) {
-        $pidBefore = ((Invoke-Adb -Arguments @("shell", "pidof", $package) 2>$null) -join " ").Trim()
-        $output = @(Invoke-Adb -Arguments @("shell", "am", "force-stop", $package) 2>&1)
-        [pscustomobject]@{
-            package = $package
-            pidBefore = $pidBefore
-            forceStopOutput = $output
-        }
-    }
-    $records | ConvertTo-Json -Depth 4 |
-        Set-Content -Path (Join-Path $OutDir "prelaunch-force-stop-packages.json") -Encoding UTF8
-    return @($records)
+    Invoke-RustyXrPublicExampleSiblingForceStop `
+        -Adb "adb" `
+        -Serial $Serial `
+        -ActivePackageName $PackageName `
+        -PackageNames $PreLaunchForceStopPackages `
+        -OutputPath (Join-Path $OutDir "prelaunch-force-stop-packages.json") `
+        -Skip:$SkipPreLaunchForceStopPackages
 }
 
 function Capture-LaunchState {

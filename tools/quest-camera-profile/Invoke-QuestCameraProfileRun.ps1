@@ -37,6 +37,12 @@ param(
     [string]$ProjectionPropertyHygiene = "fail",
     [ValidateSet("skip", "warn", "required")]
     [string]$ProjectionRuntimeReadback = "warn",
+    [string[]]$PreLaunchForceStopPackages = @(
+        "com.example.rustyxr.composite",
+        "com.example.rustyxr.opengles",
+        "io.github.mesmerprism.rustyxr.makepad.camera"
+    ),
+    [switch]$SkipPreLaunchForceStopPackages,
     [string]$ProjectionRuntimeReadbackValidator = "",
     [string]$Validator = ""
 )
@@ -56,6 +62,8 @@ if (-not $ProjectionRuntimeReadbackValidator) {
 }
 $projectionPropertyHygieneHelper = Join-Path $PSScriptRoot "ProjectionPropertyHygiene.ps1"
 . $projectionPropertyHygieneHelper
+$publicExampleAppHygieneHelper = Join-Path $PSScriptRoot "PublicExampleAppHygiene.ps1"
+. $publicExampleAppHygieneHelper
 
 function Get-ProjectionRuntimeExpectedBackend {
     if ($AppId -match "gl-openxr-video-stack" -or $Catalog -match "quest-gl-openxr-video-stack") {
@@ -1294,6 +1302,15 @@ if ($device) {
 }
 
 Invoke-ProfileTimedStep -Step "power-snapshot-preflight" -Action { Capture-PowerSnapshot -Dir $dir -Prefix "preflight" }
+$preLaunchForceStopSummary = Invoke-ProfileTimedStep -Step "prelaunch-sibling-force-stop" -Action {
+    Invoke-RustyXrPublicExampleSiblingForceStop `
+        -Adb $Adb `
+        -Serial $Serial `
+        -ActivePackageName $packageName `
+        -PackageNames $PreLaunchForceStopPackages `
+        -OutputPath (Join-Path $dir "prelaunch-sibling-force-stop.json") `
+        -Skip:$SkipPreLaunchForceStopPackages
+}
 Invoke-ProfileTimedStep -Step "force-stop-logcat-clear" -Action {
     Invoke-Adb -Arguments @("shell", "am", "force-stop", $packageName) | Out-Null
     Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
@@ -1370,6 +1387,9 @@ $manifest = [ordered]@{
     freshnessIntervalMs = $FreshnessIntervalMs
     failOnPowerStateDrift = [bool]$FailOnPowerStateDrift
     projectionPropertyHygiene = $projectionPropertyHygieneSummary
+    skipPreLaunchForceStopPackages = [bool]$SkipPreLaunchForceStopPackages
+    preLaunchForceStopPackages = $PreLaunchForceStopPackages
+    preLaunchForceStop = $preLaunchForceStopSummary
     projectionRuntimeReadbackMode = $ProjectionRuntimeReadback
     logcatCapture = $logcatWindowCapture
     logcatLines = $LogcatLines
