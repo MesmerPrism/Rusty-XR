@@ -2323,6 +2323,67 @@ def schemas() -> dict[str, dict]:
             "lane_records": array(loose_object()),
         },
     )
+    perfetto_trace_mode = enum("CameraPerfettoTraceMode", ["skip", "capture", "analyze", "required"])
+    perfetto_trace_provider = enum(
+        "CameraPerfettoTraceProvider", ["hzdb", "meta-mcp", "adb-perfetto", "manual", "skipped"]
+    )
+    perfetto_capture_preset = enum(
+        "CameraPerfettoCapturePreset", ["standard", "gpu", "cpu", "lightweight", "full", "custom"]
+    )
+    perfetto_analysis_focus = enum(
+        "CameraPerfettoAnalysisFocus", ["overview", "gpu", "cpu", "frames", "threads"]
+    )
+    perfetto_intended_use = enum(
+        "CameraPerfettoIntendedUse",
+        [
+            "diagnostic-calibration",
+            "effect-layer-ab",
+            "stale-localization",
+            "gpu-deep-dive",
+            "cpu-deep-dive",
+            "manual",
+        ],
+    )
+    perfetto_overhead_policy = enum(
+        "CameraPerfettoOverheadPolicy", ["rare-deep-trace", "routine-gate"]
+    )
+    perfetto_raw_trace_policy = enum(
+        "CameraPerfettoRawTracePolicy", ["ignored-artifact-only", "external-retention", "manual"]
+    )
+    perfetto_custom_flags = obj(
+        "CameraPerfettoCustomFlags",
+        {
+            "gpu_render_stage": boolean(),
+            "gpu_metrics": boolean(),
+            "cpu_scheduling": boolean(),
+            "xr_runtime": boolean(),
+            "vulkan_layer": boolean(),
+            "extended_scheduling": boolean(),
+        },
+    )
+    camera_perfetto_trace_plan = obj(
+        "CameraPerfettoTracePlan",
+        {
+            "schema_version": {"const": "rusty.xr.camera-perfetto-trace-plan.v1"},
+            "enabled": boolean(),
+            "mode": perfetto_trace_mode,
+            "provider": perfetto_trace_provider,
+            "capture_preset": perfetto_capture_preset,
+            "duration_ms": optional_non_negative_integer,
+            "package_name": nullable_string(),
+            "output_label": string(),
+            "artifact_dir": nullable_string(),
+            "trace_path": nullable_string(),
+            "analysis_path": nullable_string(),
+            "custom_flags": perfetto_custom_flags,
+            "analysis_focus": perfetto_analysis_focus,
+            "intended_use": perfetto_intended_use,
+            "overhead_policy": perfetto_overhead_policy,
+            "raw_trace_policy": perfetto_raw_trace_policy,
+            "notes": array(string()),
+            "suggested_commands": array(string()),
+        },
+    )
     projection_runtime_readback = open_obj(
         "ProjectionRuntimeReadback",
         {
@@ -2457,6 +2518,7 @@ def schemas() -> dict[str, dict]:
         "camera-texture-lane-contract.schema.json": camera_texture_lane_contract,
         "camera-texture-lane-contract-summary.schema.json": camera_texture_lane_contract_summary,
         "camera-texture-lane-suite-summary.schema.json": camera_texture_lane_suite_summary,
+        "camera-perfetto-trace-plan.schema.json": camera_perfetto_trace_plan,
         "projection-runtime-readback.schema.json": projection_runtime_readback,
         "plain-stereo-layer.schema.json": obj(
             "PlainStereoLayer",

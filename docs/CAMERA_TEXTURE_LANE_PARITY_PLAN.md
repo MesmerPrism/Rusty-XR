@@ -59,6 +59,32 @@ Color acceptance is intentionally separate from resource correctness. Makepad
 CPU-YUV can remain the accepted visual reference while Makepad HWB external is
 resource-cadence comparable but color-experimental.
 
+## Perfetto Deep-Trace Tier
+
+Perfetto capture belongs above the lane contract as an optional explanation
+tool. The default gate should stay lightweight: camera texture lane summaries,
+freshness screenshots, Meta stale counters, and focused log markers are the
+normal pass/fail evidence. Use Perfetto only when those lighter signals need a
+cause attribution pass, such as CPU-YUV raw versus blur at the same render
+scale, Makepad CPU-YUV versus HWB external under the same clean settings, or a
+GPU/CPU scheduling question that cannot be answered from lane timing fields.
+
+Build a host-side plan artifact before capturing:
+
+```powershell
+python tools\quest-camera-profile\Build-PerfettoTracePlan.py `
+  --mode capture `
+  --provider hzdb `
+  --preset lightweight `
+  --intended-use effect-layer-ab `
+  --artifact-dir artifacts\quest-camera-profile-runs\<run>\perfetto `
+  --out artifacts\quest-camera-profile-runs\<run>\perfetto\perfetto-trace-plan.json
+```
+
+The emitted plan uses `rusty.xr.camera-perfetto-trace-plan.v1`, records the
+provider and overhead policy, and keeps raw `.pftrace` files in ignored
+artifact folders. Commit only normalized contracts, summaries, or docs.
+
 ## Implementation Sequence
 
 1. Freeze all runner summaries and new marker work on the four lane-family

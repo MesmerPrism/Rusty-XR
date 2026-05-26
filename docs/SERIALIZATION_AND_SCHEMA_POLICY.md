@@ -91,6 +91,9 @@ The initial export covers:
   source-sampling contracts.
 - Camera texture lane contracts and summaries for comparing direct HWB, direct
   OES, Makepad CPU-YUV, and Makepad HWB external resource architectures.
+- Camera Perfetto trace plans for opt-in deep-trace capture and analysis,
+  including provider, preset, intended use, overhead policy, and raw-trace
+  retention policy.
 - Projection property hygiene summaries for launch wrappers that clear or gate
   persistent `debug.rustyxr.*` projection properties.
 - Projection runtime readback reports that compare launch extras or Android

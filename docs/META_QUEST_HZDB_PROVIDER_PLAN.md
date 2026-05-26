@@ -194,6 +194,13 @@ first, then mapping them in Companion or shell-helper code.
 ### P2 - Perfetto Pipeline
 
 Treat `hzdb perf` as the preferred first-pass Perfetto path when available.
+Perfetto is a deep-trace tier, not a routine camera-lane gate. Use it to
+calibrate and explain the lighter Rusty XR diagnostics when stale counters,
+camera texture lane summaries, or effect-layer A/B runs disagree. Because trace
+capture and analysis add overhead, normal HWB/OES/Makepad validation should
+continue to rely on focused log markers, freshness screenshots, Meta stale
+counters, and lane summary JSON.
+
 The provider should support:
 
 - timed capture and background start/stop
@@ -206,8 +213,11 @@ The provider should support:
 
 Rusty XR report attachments should store a `PerfTraceSession`, extracted
 `PerfMetric` rows, the relevant app/package/foreground state, and the broker
-clock or session stamp when available. Raw `.pftrace` payloads stay in ignored
-artifact folders.
+clock or session stamp when available. Camera-profile wrappers can also emit a
+`camera-perfetto-trace-plan.schema.json` artifact before any capture to record
+the provider, preset, intended use, overhead policy, raw-trace policy, and
+suggested `hzdb perf` commands. Raw `.pftrace` payloads stay in ignored artifact
+folders.
 
 ### P3 - Docs-First Quest Verification
 

@@ -113,6 +113,26 @@ when the source logs contain those markers. The focused Makepad device gate
 runs this builder automatically after log capture and embeds the resulting
 summary in its `summary.json`.
 
+Perfetto is a separate opt-in deep-trace tier. Use it to calibrate or explain
+the lighter camera diagnostics, then keep routine gates on lane summaries,
+freshness, stale counters, and log markers. Build a trace plan before any
+capture:
+
+```powershell
+python .\tools\quest-camera-profile\Build-PerfettoTracePlan.py `
+  --mode capture `
+  --provider hzdb `
+  --preset lightweight `
+  --intended-use diagnostic-calibration `
+  --artifact-dir .\artifacts\quest-camera-profile-runs\<run>\perfetto `
+  --out .\artifacts\quest-camera-profile-runs\<run>\perfetto\perfetto-trace-plan.json
+```
+
+The plan records the provider, preset, package, duration, analysis focus,
+overhead policy, raw trace policy, and suggested `hzdb perf` commands without
+running them. Raw `.pftrace` payloads stay in ignored artifact folders; public
+reports should carry normalized trace metrics only.
+
 For environment-depth particle or mesh profiles, build the world-space contract
 artifact from logcat markers with:
 
