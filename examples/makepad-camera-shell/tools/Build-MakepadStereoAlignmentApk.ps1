@@ -280,6 +280,32 @@ makepad-xr = { path = "$cargoPath" }
 "@
 }
 
+function New-FileSnapshot {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (Test-Path -LiteralPath $Path) {
+        return [pscustomobject]@{
+            Exists = $true
+            Bytes = [System.IO.File]::ReadAllBytes($Path)
+        }
+    }
+    return [pscustomobject]@{
+        Exists = $false
+        Bytes = $null
+    }
+}
+
+function Restore-FileSnapshot {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Snapshot
+    )
+    if ($Snapshot.Exists) {
+        [System.IO.File]::WriteAllBytes($Path, [byte[]]$Snapshot.Bytes)
+    } elseif (Test-Path -LiteralPath $Path) {
+        Remove-Item -LiteralPath $Path -Force
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($WslDistro)) {
     $WslDistro = Select-FirstNonEmpty @($env:MAKEPAD_WSL_DISTRO, "Ubuntu-Work")
 }
@@ -330,6 +356,12 @@ if ($UseWindowsHost) {
     $oldAndroidBuildToolsVersion = $env:ANDROID_BUILD_TOOLS_VERSION
     $oldMakepadAndroidSdk = $env:MAKEPAD_ANDROID_SDK
     $patchCargoHome = $null
+    $cargoLockPath = Join-Path $exampleRoot "Cargo.lock"
+    $cargoLockSnapshot = if ($patchMakepadXrFromSourceEffective) {
+        New-FileSnapshot -Path $cargoLockPath
+    } else {
+        $null
+    }
     $env:RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING = $DisplaySourceEyeMapping
     $env:JAVA_HOME = $sdkProfile.JavaHome
     $env:ANDROID_HOME = $sdkProfile.SdkRoot
@@ -402,6 +434,9 @@ if ($UseWindowsHost) {
         if ($patchCargoHome) {
             Remove-Item -LiteralPath $patchCargoHome -Recurse -Force -ErrorAction SilentlyContinue
         }
+        if ($cargoLockSnapshot) {
+            Restore-FileSnapshot -Path $cargoLockPath -Snapshot $cargoLockSnapshot
+        }
         Pop-Location
     }
     exit $LASTEXITCODE
@@ -469,7 +504,21 @@ $commandParts += @(
 )
 $command = $commandParts -join '; '
 
-& wsl.exe -d $WslDistro --exec /bin/bash -lc $command
-if ($LASTEXITCODE -ne 0) {
-    throw "WSL cargo makepad build failed with exit code $LASTEXITCODE"
+$cargoLockPath = Join-Path $exampleRoot "Cargo.lock"
+$cargoLockSnapshot = if ($patchMakepadXrFromSourceEffective) {
+    New-FileSnapshot -Path $cargoLockPath
+} else {
+    $null
+}
+$wslExitCode = 0
+try {
+    & wsl.exe -d $WslDistro --exec /bin/bash -lc $command
+    $wslExitCode = $LASTEXITCODE
+} finally {
+    if ($cargoLockSnapshot) {
+        Restore-FileSnapshot -Path $cargoLockPath -Snapshot $cargoLockSnapshot
+    }
+}
+if ($wslExitCode -ne 0) {
+    throw "WSL cargo makepad build failed with exit code $wslExitCode"
 }

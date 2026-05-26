@@ -1,21 +1,31 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MakepadCameraTexturePath {
     DirectHardwareBufferExternal,
+    DirectHardwareBufferYuvPlane,
     DirectCpuYuvPlane,
     BrokerH264CpuYuv,
     BrokerH264SurfaceTexture,
 }
 
 impl MakepadCameraTexturePath {
-    pub(crate) const fn from_video_update(
-        broker_h264_enabled: bool,
-        yuv_enabled: bool,
-    ) -> Self {
+    pub(crate) const fn from_video_update(broker_h264_enabled: bool, yuv_enabled: bool) -> Self {
         match (broker_h264_enabled, yuv_enabled) {
             (true, true) => Self::BrokerH264CpuYuv,
             (true, false) => Self::BrokerH264SurfaceTexture,
             (false, true) => Self::DirectCpuYuvPlane,
             (false, false) => Self::DirectHardwareBufferExternal,
+        }
+    }
+
+    pub(crate) const fn from_direct_video_update(
+        direct_hardware_buffer_requested: bool,
+        yuv_enabled: bool,
+    ) -> Self {
+        match (direct_hardware_buffer_requested, yuv_enabled) {
+            (true, true) => Self::DirectHardwareBufferYuvPlane,
+            (true, false) => Self::DirectHardwareBufferExternal,
+            (false, true) => Self::DirectCpuYuvPlane,
+            (false, false) => Self::DirectCpuYuvPlane,
         }
     }
 
@@ -33,7 +43,9 @@ impl MakepadCameraTexturePath {
 
     pub(crate) const fn yuv_sampling_enabled(self) -> bool {
         match self {
-            Self::DirectCpuYuvPlane | Self::BrokerH264CpuYuv => true,
+            Self::DirectHardwareBufferYuvPlane
+            | Self::DirectCpuYuvPlane
+            | Self::BrokerH264CpuYuv => true,
             Self::DirectHardwareBufferExternal | Self::BrokerH264SurfaceTexture => false,
         }
     }
@@ -48,7 +60,7 @@ impl MakepadCameraTexturePath {
 
     pub(crate) const fn makepad_vulkan_import(self) -> bool {
         match self {
-            Self::DirectHardwareBufferExternal => true,
+            Self::DirectHardwareBufferExternal | Self::DirectHardwareBufferYuvPlane => true,
             Self::DirectCpuYuvPlane | Self::BrokerH264CpuYuv | Self::BrokerH264SurfaceTexture => {
                 false
             }
@@ -58,6 +70,7 @@ impl MakepadCameraTexturePath {
     pub(crate) const fn stable_id(self) -> &'static str {
         match self {
             Self::DirectHardwareBufferExternal => "direct-camera-hardware-buffer-external",
+            Self::DirectHardwareBufferYuvPlane => "direct-camera-hardware-buffer-yuv-plane",
             Self::DirectCpuYuvPlane => "direct-camera-cpu-yuv-plane",
             Self::BrokerH264CpuYuv => "broker-h264-mediacodec-cpu-yuv",
             Self::BrokerH264SurfaceTexture => "broker-h264-surface-texture",
@@ -67,6 +80,7 @@ impl MakepadCameraTexturePath {
     pub(crate) const fn import_plan(self) -> &'static str {
         match self {
             Self::DirectHardwareBufferExternal => "paired-camera-hardware-buffer-external",
+            Self::DirectHardwareBufferYuvPlane => "paired-camera-hardware-buffer-yuv-plane",
             Self::DirectCpuYuvPlane => "paired-camera-cpu-yuv-fallback",
             Self::BrokerH264CpuYuv => "broker-h264-stereo-mediacodec-yuv-texture",
             Self::BrokerH264SurfaceTexture => "broker-h264-surface-texture",
@@ -76,6 +90,7 @@ impl MakepadCameraTexturePath {
     pub(crate) const fn texture_import_path(self) -> &'static str {
         match self {
             Self::DirectHardwareBufferExternal => "makepad-camera-hardware-buffer-vulkan-import",
+            Self::DirectHardwareBufferYuvPlane => "makepad-camera-hardware-buffer-vulkan-yuv-plane",
             Self::DirectCpuYuvPlane => "makepad-camera-cpu-yuv-plane",
             Self::BrokerH264CpuYuv => "broker-h264-mediacodec-cpu-yuv",
             Self::BrokerH264SurfaceTexture => "broker-h264-surface-texture",
@@ -85,6 +100,7 @@ impl MakepadCameraTexturePath {
     pub(crate) const fn cpu_upload_path(self) -> &'static str {
         match self {
             Self::DirectHardwareBufferExternal | Self::BrokerH264SurfaceTexture => "none",
+            Self::DirectHardwareBufferYuvPlane => "none",
             Self::DirectCpuYuvPlane => "makepad-camera-cpu-yuv-plane",
             Self::BrokerH264CpuYuv => "broker-h264-mediacodec-cpu-yuv",
         }
@@ -95,6 +111,7 @@ impl MakepadCameraTexturePath {
             Self::DirectHardwareBufferExternal | Self::BrokerH264SurfaceTexture => {
                 "per-eye-direct-camera-external-rgb"
             }
+            Self::DirectHardwareBufferYuvPlane => "per-eye-direct-camera-hardware-buffer-yuv",
             Self::DirectCpuYuvPlane | Self::BrokerH264CpuYuv => {
                 "per-eye-direct-camera-yuv-color-limited601-noswap-border"
             }
@@ -104,18 +121,16 @@ impl MakepadCameraTexturePath {
     pub(crate) const fn color_conversion(self) -> &'static str {
         match self {
             Self::DirectHardwareBufferExternal | Self::BrokerH264SurfaceTexture => "external-rgb",
-            Self::DirectCpuYuvPlane | Self::BrokerH264CpuYuv => {
-                "per-eye-yuv-noswap-limited-bt601"
-            }
+            Self::DirectHardwareBufferYuvPlane => "per-eye-hardware-buffer-yuv-limited-bt601",
+            Self::DirectCpuYuvPlane | Self::BrokerH264CpuYuv => "per-eye-yuv-noswap-limited-bt601",
         }
     }
 
     pub(crate) const fn color_reference(self) -> &'static str {
         match self {
             Self::DirectHardwareBufferExternal => "android-hardware-buffer-external-rgb",
-            Self::DirectCpuYuvPlane | Self::BrokerH264CpuYuv => {
-                "android-yuv420-888-plane-order"
-            }
+            Self::DirectHardwareBufferYuvPlane => "android-hardware-buffer-yuv-plane",
+            Self::DirectCpuYuvPlane | Self::BrokerH264CpuYuv => "android-yuv420-888-plane-order",
             Self::BrokerH264SurfaceTexture => "broker-h264-external-texture",
         }
     }
@@ -146,6 +161,19 @@ mod tests {
         assert!(path
             .marker_fields()
             .contains("textureImportPath=makepad-camera-hardware-buffer-vulkan-import"));
+    }
+
+    #[test]
+    fn direct_hardware_buffer_yuv_update_keeps_gpu_import_without_external_rgb() {
+        let path = MakepadCameraTexturePath::from_direct_video_update(true, true);
+
+        assert_eq!(path, MakepadCameraTexturePath::DirectHardwareBufferYuvPlane);
+        assert!(path.yuv_sampling_enabled());
+        assert!(path.makepad_vulkan_import());
+        assert_eq!(path.cpu_upload_path(), "none");
+        assert!(path
+            .marker_fields()
+            .contains("textureImportPath=makepad-camera-hardware-buffer-vulkan-yuv-plane"));
     }
 
     #[test]

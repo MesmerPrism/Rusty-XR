@@ -3113,11 +3113,10 @@ impl App {
                 .paired_import_right_yuv_metadata
                 .as_ref()
                 .is_some_and(|metadata| metadata.enabled);
-        if yuv_enabled {
-            MakepadCameraTexturePath::DirectCpuYuvPlane
-        } else {
-            Self::direct_camera_requested_texture_path()
-        }
+        MakepadCameraTexturePath::from_direct_video_update(
+            Self::direct_camera_hardware_buffer_external_enabled(),
+            yuv_enabled,
+        )
     }
 
     fn direct_camera_hardware_buffer_external_enabled() -> bool {
@@ -3511,6 +3510,14 @@ impl App {
                             Self::broker_h264_enabled(),
                             updated.yuv.enabled,
                         );
+                        let texture_path = if Self::broker_h264_enabled() {
+                            texture_path
+                        } else {
+                            MakepadCameraTexturePath::from_direct_video_update(
+                                Self::direct_camera_hardware_buffer_external_enabled(),
+                                updated.yuv.enabled,
+                            )
+                        };
                         Self::emit_hardware_buffer_import_marker(
                             &makepad_hardware_buffer_import_texture_updated_marker_fields(
                                 side.label(),

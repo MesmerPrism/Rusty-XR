@@ -1175,16 +1175,16 @@ if ($attempts[-1].ready) {
             Start-Sleep -Milliseconds $ReadySettleMs
         }
     }
-    $finalState = Invoke-GateTimedStep -Step "capture-final-state" -Action {
-        Capture-LaunchState -Label "$finalLabel-final" -LaunchStartedAt $launchStartedAt
-    }
-    $attempts += $finalState
     $frames = Invoke-GateTimedStep -Step "capture-freshness-frames" -Action {
         Capture-FreshnessFrames -Label "$finalLabel-final"
     }
     $freshnessAnalysis = Invoke-GateTimedStep -Step "analyze-freshness-frames" -Action {
         Invoke-FreshnessAnalysis -Label "$finalLabel-final"
     }
+    $finalState = Invoke-GateTimedStep -Step "capture-final-state" -Action {
+        Capture-LaunchState -Label "$finalLabel-final" -LaunchStartedAt $launchStartedAt
+    }
+    $attempts += $finalState
     $metaPerfStaleAnalysis = Invoke-GateTimedStep -Step "analyze-meta-perf-stale" -Action {
         Invoke-MetaPerfStaleAnalysis -State $finalState
     }
