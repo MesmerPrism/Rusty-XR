@@ -8,6 +8,7 @@ param(
     [string]$WslDistro,
     [string]$MakepadSourceRoot,
     [switch]$PatchMakepadXrFromSource,
+    [switch]$NoPatchMakepadXrFromSource,
     [switch]$UseWindowsHost
 )
 
@@ -230,6 +231,31 @@ function Quote-Bash {
     return "'" + ($Text -replace "'", "'\''") + "'"
 }
 
+function Resolve-DefaultCargoHome {
+    if (-not [string]::IsNullOrWhiteSpace($env:CARGO_HOME)) {
+        return $env:CARGO_HOME
+    }
+    return Join-Path $HOME ".cargo"
+}
+
+function Add-CargoCacheLinks {
+    param(
+        [Parameter(Mandatory = $true)][string]$PatchCargoHome,
+        [Parameter(Mandatory = $true)][string]$ExistingCargoHome
+    )
+    foreach ($cacheName in @("registry", "git")) {
+        $source = Join-Path $ExistingCargoHome $cacheName
+        $target = Join-Path $PatchCargoHome $cacheName
+        if ((Test-Path -LiteralPath $source) -and -not (Test-Path -LiteralPath $target)) {
+            try {
+                New-Item -ItemType Junction -Path $target -Target $source -ErrorAction Stop | Out-Null
+            } catch {
+                Write-Warning "Unable to link Cargo $cacheName cache into temporary Makepad patch home: $($_.Exception.Message)"
+            }
+        }
+    }
+}
+
 function New-MakepadPatchConfigText {
     param(
         [Parameter(Mandatory = $true)]
@@ -257,6 +283,16 @@ makepad-xr = { path = "$cargoPath" }
 if ([string]::IsNullOrWhiteSpace($WslDistro)) {
     $WslDistro = Select-FirstNonEmpty @($env:MAKEPAD_WSL_DISTRO, "Ubuntu-Work")
 }
+if ([string]::IsNullOrWhiteSpace($MakepadSourceRoot)) {
+    $MakepadSourceRoot = Select-FirstNonEmpty @($env:RUSTY_XR_MAKEPAD_SOURCE_ROOT)
+}
+if ($PatchMakepadXrFromSource -and $NoPatchMakepadXrFromSource) {
+    throw "Use either -PatchMakepadXrFromSource or -NoPatchMakepadXrFromSource, not both."
+}
+if ($PatchMakepadXrFromSource -and [string]::IsNullOrWhiteSpace($MakepadSourceRoot)) {
+    throw "-PatchMakepadXrFromSource requires -MakepadSourceRoot or RUSTY_XR_MAKEPAD_SOURCE_ROOT."
+}
+$patchMakepadXrFromSourceEffective = (-not [string]::IsNullOrWhiteSpace($MakepadSourceRoot)) -and (-not $NoPatchMakepadXrFromSource)
 
 $hostKind = if ($UseWindowsHost) { "windows" } else { "linux" }
 if ([string]::IsNullOrWhiteSpace($SdkPath)) {
@@ -276,7 +312,7 @@ Write-Host ("Makepad Android SDK profile: host={0} sdk={1} platform={2} buildToo
     $sdkProfile.HostKind, $sdkProfile.SdkRoot, $sdkProfile.Platform, $sdkProfile.BuildToolsVersion, $sdkProfile.CompilerApi, $sdkProfile.JavaHome, $sdkProfile.NdkPrebuiltRoot)
 if ($MakepadSourceRoot) {
     Write-Host ("Makepad packager: source-built cargo-makepad from {0}; app dependency patching={1}" -f `
-        (Resolve-Path -LiteralPath $MakepadSourceRoot).Path, [bool]$PatchMakepadXrFromSource)
+        (Resolve-Path -LiteralPath $MakepadSourceRoot).Path, $patchMakepadXrFromSourceEffective)
 } else {
     Write-Host "Makepad packager: installed cargo-makepad from the active Cargo environment"
 }
@@ -304,9 +340,10 @@ if ($UseWindowsHost) {
     $env:ANDROID_BUILD_TOOLS_VERSION = $sdkProfile.BuildToolsVersion
     $env:MAKEPAD_ANDROID_SDK = $sdkProfile.SdkRoot
     try {
-        if ($MakepadSourceRoot -and $PatchMakepadXrFromSource) {
+        if ($patchMakepadXrFromSourceEffective) {
             $patchCargoHome = Join-Path ([System.IO.Path]::GetTempPath()) "rusty-xr-makepad-cargo-$([guid]::NewGuid().ToString('N'))"
             New-Item -ItemType Directory -Force -Path $patchCargoHome | Out-Null
+            Add-CargoCacheLinks -PatchCargoHome $patchCargoHome -ExistingCargoHome (Resolve-DefaultCargoHome)
             Set-Content -Path (Join-Path $patchCargoHome "config.toml") `
                 -Value (New-MakepadPatchConfigText -SourceRoot $MakepadSourceRoot) `
                 -Encoding UTF8
@@ -375,7 +412,7 @@ $sdkPathWsl = Convert-ToWslPath -Path $SdkPath
 $javaHomeWsl = Convert-ToWslPath -Path $sdkProfile.JavaHome
 $wslPatchCargoHome = $null
 $wslPatchConfigBase64 = $null
-if ($MakepadSourceRoot -and $PatchMakepadXrFromSource) {
+if ($patchMakepadXrFromSourceEffective) {
     $wslPatchCargoHome = "/tmp/rusty-xr-makepad-cargo-$([guid]::NewGuid().ToString('N'))"
     $patchConfigText = New-MakepadPatchConfigText -SourceRoot $MakepadSourceRoot -Wsl
     $wslPatchConfigBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($patchConfigText))

@@ -25,9 +25,9 @@ fork-patch policy are documented in
   `rusty-xr/android-libstd-packaging`. The exact Makepad revision for this
   example is pinned in `Cargo.lock`. Local evidence builds should run the
   wrapper with `-MakepadSourceRoot <makepad-fork-checkout>` so the packager
-  itself comes from the maintained fork checkout. App dependency patching is a
-  separate opt-in switch, `-PatchMakepadXrFromSource`, for the narrower case
-  where an app build must consume uncommitted Makepad dependency changes.
+  and app Makepad dependencies both come from the maintained fork checkout.
+  Use `-NoPatchMakepadXrFromSource` only for an intentional upstream or pinned
+  dependency comparison.
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
@@ -102,7 +102,7 @@ cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-
 
 For local evidence builds, prefer the wrapper because it preflights the selected
 SDK before cargo runs and can run the maintained fork's `cargo-makepad` tool
-without rewriting this example's app dependencies:
+while patching the app's Makepad dependency to that same checkout:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
@@ -205,6 +205,9 @@ this Makepad lane; it only compiles the Rust target and does not exercise the
 actual packager. Android acceptance is a successful wrapper build through
 `Build-MakepadStereoAlignmentApk.ps1`, preferably with `-MakepadSourceRoot
 <makepad-fork-checkout>` when Makepad-side packaging or bridge code matters.
+That source root patches app Makepad dependencies by default; use
+`-NoPatchMakepadXrFromSource` only for a deliberate pinned-dependency
+comparison.
 
 When Android-only Rust in this example changes, optional target probes can add
 partial target coverage:

@@ -94,6 +94,7 @@ use std::{
 app_main!(App);
 
 #[cfg(target_os = "android")]
+#[allow(dead_code)]
 fn main() {
     // Makepad Android launches through the JNI entrypoint emitted by app_main!.
     // Plain Cargo target checks still compile this source as a binary crate.
@@ -3071,7 +3072,7 @@ impl App {
         self.cadence_frame_count = self.cadence_frame_count.saturating_add(1);
         let interval_seconds = (next_frame_event.time - self.cadence_last_sample_time).max(0.0);
         if interval_seconds >= CADENCE_SAMPLE_SECONDS {
-            self.emit_cadence_sample(next_frame_event.time, interval_seconds);
+            self.emit_cadence_sample(cx, next_frame_event.time, interval_seconds);
         }
 
         self.cadence_next_frame = Some(cx.new_next_frame());
@@ -3144,7 +3145,7 @@ impl App {
         }
     }
 
-    fn emit_cadence_sample(&mut self, now_seconds: f64, interval_seconds: f64) {
+    fn emit_cadence_sample(&mut self, cx: &mut Cx, now_seconds: f64, interval_seconds: f64) {
         let elapsed_seconds = (now_seconds - self.cadence_start_time).max(0.0);
         let frame_delta = self
             .cadence_frame_count
@@ -3180,6 +3181,7 @@ impl App {
         } else {
             (false, false)
         };
+        let xr_cpu = cx.xr_frame_cpu_breakdown();
 
         emit_marker_line(&makepad_cadence_sample_marker_line(
             MakepadCadenceSampleMarker {
@@ -3211,6 +3213,42 @@ impl App {
                 projection_mapping_ready,
                 aligned_projection,
                 visible_camera_projection_ready: self.camera_projection_textures_bound,
+                xr_display_refresh_rate_hz: cx.xr_display_refresh_rate_hz(),
+                xr_effective_frame_rate_hz: cx.xr_effective_frame_rate_hz(),
+                xr_frame_cpu_ms: cx.xr_frame_cpu_time_ms(),
+                xr_should_render: xr_cpu.map(|breakdown| breakdown.should_render),
+                xr_skipped_should_render_count: xr_cpu
+                    .map(|breakdown| breakdown.skipped_should_render_count),
+                xr_pre_frame_events_ms: xr_cpu.map(|breakdown| breakdown.pre_frame_events_ms),
+                xr_post_frame_media_events_ms: xr_cpu
+                    .map(|breakdown| breakdown.post_frame_media_events_ms),
+                xr_wait_frame_ms: xr_cpu.map(|breakdown| breakdown.wait_frame_ms),
+                xr_begin_frame_ms: xr_cpu.map(|breakdown| breakdown.begin_frame_ms),
+                xr_locate_space_ms: xr_cpu.map(|breakdown| breakdown.locate_space_ms),
+                xr_locate_views_ms: xr_cpu.map(|breakdown| breakdown.locate_views_ms),
+                xr_acquire_swapchain_ms: xr_cpu.map(|breakdown| breakdown.acquire_swapchain_ms),
+                xr_wait_swapchain_ms: xr_cpu.map(|breakdown| breakdown.wait_swapchain_ms),
+                xr_acquire_depth_ms: xr_cpu.map(|breakdown| breakdown.acquire_depth_ms),
+                xr_update_prepare_ms: xr_cpu.map(|breakdown| breakdown.update_prepare_ms),
+                xr_update_dispatch_ms: xr_cpu.map(|breakdown| breakdown.update_dispatch_ms),
+                xr_next_frame_ms: xr_cpu.map(|breakdown| breakdown.next_frame_ms),
+                xr_draw_event_ms: xr_cpu.map(|breakdown| breakdown.draw_event_ms),
+                xr_compile_shaders_ms: xr_cpu.map(|breakdown| breakdown.compile_shaders_ms),
+                xr_repaint_ms: xr_cpu.map(|breakdown| breakdown.repaint_ms),
+                xr_repaint_wait_inflight_ms: xr_cpu
+                    .map(|breakdown| breakdown.repaint_wait_inflight_ms),
+                xr_repaint_prepare_textures_ms: xr_cpu
+                    .map(|breakdown| breakdown.repaint_prepare_textures_ms),
+                xr_repaint_record_draw_ms: xr_cpu
+                    .map(|breakdown| breakdown.repaint_record_draw_ms),
+                xr_repaint_submit_ms: xr_cpu.map(|breakdown| breakdown.repaint_submit_ms),
+                xr_repaint_texture_upload_count: xr_cpu
+                    .map(|breakdown| breakdown.repaint_texture_upload_count),
+                xr_repaint_texture_upload_bytes: xr_cpu
+                    .map(|breakdown| breakdown.repaint_texture_upload_bytes),
+                xr_depth_readback_ms: xr_cpu.map(|breakdown| breakdown.depth_readback_ms),
+                xr_end_frame_ms: xr_cpu.map(|breakdown| breakdown.end_frame_ms),
+                xr_resize_projection_ms: xr_cpu.map(|breakdown| breakdown.resize_projection_ms),
                 texture_path: self.cadence_camera_texture_path(),
             },
         ));

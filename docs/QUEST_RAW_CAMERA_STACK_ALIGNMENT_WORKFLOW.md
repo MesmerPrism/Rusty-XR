@@ -348,9 +348,10 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 The Makepad build consumes a prepared Android SDK layout for Makepad. Pass
 `-UseWindowsHost` when the selected SDK is a Windows-host SDK; omit it only for
 an intentional WSL/Linux-host SDK and packager run. Pass `-MakepadSourceRoot`
-for evidence runs that must use the maintained fork's Android packager; leave
-app dependency patching off unless an uncommitted Makepad dependency change is
-explicitly under test. Current Makepad projection evidence uses
+for evidence runs that must use the maintained fork's Android packager and app
+Makepad dependencies; the wrapper patches the app dependency to that checkout
+by default. Use `-NoPatchMakepadXrFromSource` only for an intentional
+upstream/pinned-dependency comparison. Current Makepad projection evidence uses
 `display-left-from-left-source`, matching the HWB and GLES/OES camera-feed
 convention. Captured build commands should pass it explicitly unless
 source-eye mapping is the experiment. Host
@@ -721,7 +722,8 @@ Reference validation on 2026-05-21 used freshly built GL/OES and Makepad APKs.
 The Makepad APK was built through the Windows-host wrapper lane with
 `-UseWindowsHost`, an explicit standalone Windows SDK path, and the maintained
 Makepad fork passed through `-MakepadSourceRoot`; the build log identified a
-source-built `cargo_makepad` from that fork and SDK build-tools `36.0.0`.
+source-built `cargo_makepad` from that fork, app Makepad dependencies patched
+to the same checkout, and SDK build-tools `36.0.0`.
 The validation suite then installed those APKs and ran only the non-HWB custom
 projection modes:
 

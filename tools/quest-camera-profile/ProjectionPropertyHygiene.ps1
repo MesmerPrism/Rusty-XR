@@ -33,6 +33,8 @@ function Get-RustyXrProjectionPropertyHygieneKeys {
         "debug.rustyxr.source.visible.rect.width.uv",
         "debug.rustyxr.source.visible.rect.height.uv",
         "debug.rustyxr.oes.projection.runtime.resolution.enabled",
+        "debug.rustyxr.xr.render.scale",
+        "debug.rustyxr.xr.display.refresh.rate.hz",
         "debug.rustyxr.makepad.camera.projection.geometry.profile",
         "debug.rustyxr.makepad.broker.h264.enabled",
         "debug.rustyxr.makepad.broker.h264.host",

@@ -56,6 +56,7 @@ param(
     [double]$CameraPreviewOffsetYMeters = [double]::NaN,
     [double]$CameraRawOverlayOverscan = [double]::NaN,
     [double]$XrRenderScale = 1.0,
+    [double]$XrDisplayRefreshHz = 72.0,
     [double]$ProjectionAreaOffsetXUv = 0.0,
     [double]$ProjectionAreaOffsetLeftUv = [double]::NaN,
     [double]$ProjectionAreaOffsetRightUv = [double]::NaN,
@@ -83,6 +84,11 @@ param(
     [string]$ProjectionRuntimeReadback = "warn",
     [ValidateSet("cpu-yuv", "hardware-buffer-external")]
     [string]$DirectCameraTexturePath = "cpu-yuv",
+    [string[]]$PreLaunchForceStopPackages = @(
+        "com.example.rustyxr.composite",
+        "com.example.rustyxr.opengles"
+    ),
+    [switch]$SkipPreLaunchForceStopPackages,
     [switch]$EnableNativePassthrough
 )
 
@@ -102,6 +108,8 @@ if ($FreshnessRequiredUniqueHashes -gt $FreshnessFrames) {
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
 $projectionPropertyHygieneHelper = Join-Path $repoRoot "tools\quest-camera-profile\ProjectionPropertyHygiene.ps1"
 $projectionRuntimeReadbackValidator = Join-Path $repoRoot "tools\quest-camera-profile\Validate-ProjectionRuntimeReadback.py"
+$freshnessAnalyzer = Join-Path $repoRoot "tools\quest-camera-profile\Analyze-ScreenshotFreshness.py"
+$metaPerfStaleAnalyzer = Join-Path $repoRoot "tools\quest-camera-profile\Analyze-MetaPerfStale.py"
 . $projectionPropertyHygieneHelper
 
 function Invoke-Adb {
@@ -585,6 +593,7 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.camera.preview.offset.y.meters" = (Format-InvariantDouble -Value $previewOffsetYMeters)
         "debug.rustyxr.camera.raw.overlay.overscan" = (Format-InvariantDouble -Value $rawOverlayOverscan)
         "debug.rustyxr.xr.render.scale" = (Format-InvariantDouble -Value $XrRenderScale)
+        "debug.rustyxr.xr.display.refresh.rate.hz" = (Format-InvariantDouble -Value $XrDisplayRefreshHz)
         "debug.rustyxr.projection.area.left.offset.x.uv" = (Format-InvariantDouble -Value $canonicalOffsetLeftUv)
         "debug.rustyxr.projection.area.right.offset.x.uv" = (Format-InvariantDouble -Value $canonicalOffsetRightUv)
         "debug.rustyxr.projection.area.offset.y.uv" = (Format-InvariantDouble -Value $offsetVerticalUv)
@@ -640,6 +649,28 @@ function Install-Apk {
             throw "adb install failed; see $installPath"
         }
     }
+}
+
+function Stop-PreLaunchPackages {
+    if ($SkipPreLaunchForceStopPackages) {
+        return @()
+    }
+
+    $packages = @($PreLaunchForceStopPackages) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne $PackageName } |
+        Select-Object -Unique
+    $records = foreach ($package in $packages) {
+        $pidBefore = ((Invoke-Adb -Arguments @("shell", "pidof", $package) 2>$null) -join " ").Trim()
+        $output = @(Invoke-Adb -Arguments @("shell", "am", "force-stop", $package) 2>&1)
+        [pscustomobject]@{
+            package = $package
+            pidBefore = $pidBefore
+            forceStopOutput = $output
+        }
+    }
+    $records | ConvertTo-Json -Depth 4 |
+        Set-Content -Path (Join-Path $OutDir "prelaunch-force-stop-packages.json") -Encoding UTF8
+    return @($records)
 }
 
 function Capture-LaunchState {
@@ -958,6 +989,96 @@ function Capture-FreshnessFrames {
     return $hashes
 }
 
+function Invoke-FreshnessAnalysis {
+    param([string]$Label)
+    $dir = Join-Path $OutDir $Label
+    $shotDir = Join-Path $dir "screenshots"
+    $analysisPath = Join-Path $dir "freshness-analysis.json"
+    if (-not (Test-Path -LiteralPath $freshnessAnalyzer)) {
+        return [ordered]@{
+            status = "skipped"
+            reason = "analyzer-not-found"
+            path = $analysisPath
+        }
+    }
+    try {
+        $analysisOutput = & python $freshnessAnalyzer `
+            --sequence-dir $shotDir `
+            --pattern ("{0}-frame-*.png" -f $Label) `
+            --summary-out $analysisPath 2>&1
+        $toolExitCode = $LASTEXITCODE
+        if (Test-Path -LiteralPath $analysisPath) {
+            return Get-Content -Raw -Path $analysisPath | ConvertFrom-Json
+        }
+        return [ordered]@{
+            status = "tool-failed"
+            reason = "missing-analysis-output"
+            path = $analysisPath
+            exitCode = $toolExitCode
+            output = @($analysisOutput)
+        }
+    }
+    catch {
+        return [ordered]@{
+            status = "tool-failed"
+            reason = $_.Exception.Message
+            path = $analysisPath
+        }
+    }
+}
+
+function Invoke-MetaPerfStaleAnalysis {
+    param([object]$State)
+    $dir = Join-Path $OutDir $State.label
+    $logcatPath = Join-Path $dir "logcat.txt"
+    $analysisPath = Join-Path $dir "meta-perf-stale-analysis.json"
+    if (-not (Test-Path -LiteralPath $metaPerfStaleAnalyzer)) {
+        return [ordered]@{
+            status = "skipped"
+            reason = "analyzer-not-found"
+            path = $analysisPath
+        }
+    }
+    if (-not (Test-Path -LiteralPath $logcatPath)) {
+        return [ordered]@{
+            status = "skipped"
+            reason = "logcat-not-found"
+            path = $analysisPath
+        }
+    }
+
+    $arguments = @(
+        $metaPerfStaleAnalyzer,
+        "--logcat", $logcatPath,
+        "--summary-out", $analysisPath
+    )
+    if ($State.processId) {
+        $arguments += @("--app-pid", ([string]$State.processId))
+    }
+
+    try {
+        $analysisOutput = & python @arguments 2>&1
+        $toolExitCode = $LASTEXITCODE
+        if (Test-Path -LiteralPath $analysisPath) {
+            return Get-Content -Raw -Path $analysisPath | ConvertFrom-Json
+        }
+        return [ordered]@{
+            status = "tool-failed"
+            reason = "missing-analysis-output"
+            path = $analysisPath
+            exitCode = $toolExitCode
+            output = @($analysisOutput)
+        }
+    }
+    catch {
+        return [ordered]@{
+            status = "tool-failed"
+            reason = $_.Exception.Message
+            path = $analysisPath
+        }
+    }
+}
+
 function Wait-BrokerH264TextureReady {
     param([datetime]$LaunchStartedAt)
     if (-not ($UseBrokerH264Synthetic -or $UseBrokerH264Camera)) {
@@ -997,6 +1118,9 @@ $projectionPropertyHygieneSummary = Invoke-GateTimedStep -Step "projection-prope
         -Mode $ProjectionPropertyHygiene `
         -OutputPath (Join-Path $OutDir "projection-property-hygiene.json")
 }
+$preLaunchForceStopSummary = Invoke-GateTimedStep -Step "prelaunch-force-stop-packages" -Action {
+    Stop-PreLaunchPackages
+}
 Invoke-GateTimedStep -Step "install-apk" -Action { Install-Apk }
 Invoke-GateTimedStep -Step "grant-runtime-permissions" -Action { Grant-RuntimePermissions }
 Invoke-GateTimedStep -Step "set-projection-target-profile" -Action { Set-MakepadProjectionTargetProfile }
@@ -1007,6 +1131,8 @@ Invoke-GateTimedStep -Step "prelaunch-state-capture" -Action {
 }
 
 $attempts = @()
+$freshnessAnalysis = $null
+$metaPerfStaleAnalysis = $null
 if ($PreferDirectVrActivity) {
     $attempts += Invoke-GateTimedStep -Step "start-direct-vr-attempt-1" -Action {
         Start-ActivityAndProbe -Label "direct-vr-attempt-1" -Activity $XrActivity -ForceStopFirst -VrIntent
@@ -1066,6 +1192,12 @@ if ($attempts[-1].ready) {
     $frames = Invoke-GateTimedStep -Step "capture-freshness-frames" -Action {
         Capture-FreshnessFrames -Label "$finalLabel-final"
     }
+    $freshnessAnalysis = Invoke-GateTimedStep -Step "analyze-freshness-frames" -Action {
+        Invoke-FreshnessAnalysis -Label "$finalLabel-final"
+    }
+    $metaPerfStaleAnalysis = Invoke-GateTimedStep -Step "analyze-meta-perf-stale" -Action {
+        Invoke-MetaPerfStaleAnalysis -State $finalState
+    }
 } else {
     $frames = @()
 }
@@ -1123,6 +1255,8 @@ $freshnessStatus = if (-not $readyAttempt) {
     "skipped"
 } elseif ($freshnessGateFailures.Count -gt 0) {
     "stale"
+} elseif ($null -ne $freshnessAnalysis -and $freshnessAnalysis.status -eq "stale") {
+    "stale"
 } else {
     "ok"
 }
@@ -1163,6 +1297,7 @@ $summary = [ordered]@{
     brokerH264SyntheticProjectionProfile = $resolvedBrokerH264SyntheticProjectionProfile
     projectionBorderPolicy = $ProjectionBorderPolicy
     nativePassthroughRequested = [bool]($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0 -or $ProjectionAlphaMode -ne "fixed")
+    xrDisplayRefreshHz = $XrDisplayRefreshHz
     projectionAreaOpacity = $ProjectionAreaOpacity
     projectionBorderOpacity = $ProjectionBorderOpacity
     projectionAlphaMode = $ProjectionAlphaMode
@@ -1177,6 +1312,9 @@ $summary = [ordered]@{
     sampleSeconds = $SampleSeconds
     directCameraTexturePath = $DirectCameraTexturePath
     directCameraHardwareBufferExternalRequested = [bool]($DirectCameraTexturePath -eq "hardware-buffer-external")
+    skipPreLaunchForceStopPackages = [bool]$SkipPreLaunchForceStopPackages
+    preLaunchForceStopPackages = $PreLaunchForceStopPackages
+    preLaunchForceStop = $preLaunchForceStopSummary
     projectionPropertyHygiene = $projectionPropertyHygieneSummary
     projectionRuntimeReadbackMode = $effectiveProjectionRuntimeReadback
     projectionRuntimeReadback = $projectionRuntimeReadbackSummary
@@ -1211,6 +1349,8 @@ $summary = [ordered]@{
     freshnessStatus = $freshnessStatus
     freshnessGateFailureCount = $freshnessGateFailures.Count
     freshnessGateFailures = $freshnessGateFailures
+    freshnessAnalysis = $freshnessAnalysis
+    metaPerfStaleAnalysis = $metaPerfStaleAnalysis
     freshnessFrames = $frames
 }
 $summary | ConvertTo-Json -Depth 7 | Set-Content -Path (Join-Path $OutDir "summary.json") -Encoding UTF8

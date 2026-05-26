@@ -84,10 +84,11 @@ and rerun the validation ladder before interpreting camera, streaming, or
 renderer measurements from the Makepad lane.
 
 There are two pins to keep in sync. The standalone Makepad example's
-`Cargo.lock` pins the Rust crates used by `cargo check`, while APK generation
-uses the installed `cargo-makepad` binary. Reinstall `cargo-makepad` from the
-same maintained checkout after fork changes that affect generated Java,
-packaging, Android platform bridges, or native bootstrap code.
+`Cargo.lock` pins the Rust crates used by host checks. APK evidence generation
+should use `Build-MakepadStereoAlignmentApk.ps1` with `-MakepadSourceRoot` so
+the `cargo-makepad` tool and app Makepad dependencies both come from the same
+maintained checkout. Use an installed `cargo-makepad` binary only for an
+explicit upstream or portability comparison.
 
 ## Validation Ladder
 
@@ -95,13 +96,18 @@ Use the current custom APK lane as the diagnostic baseline and the Makepad lane
 as the ergonomic app-shell lane. A Makepad fork update should be validated in
 this order:
 
-1. Targeted formatting for the Makepad files changed by the branch.
+1. Targeted formatting for the Makepad files changed by the branch, using the
+   maintained fork's metadata-driven formatter (`tools/rusty_xr_format.py`)
+   rather than `cargo fmt --all`. Cargo's `--all` formatter route walks local
+   path dependencies, including vendored crates outside the Makepad patch
+   surface.
 2. Cargo metadata checks for any workspace or manifest changes.
 3. Android Java compile checks when Java bridge or generated template code is
    touched.
 4. `cargo-makepad` check and release build.
-5. Refresh the installed `cargo-makepad` binary from the maintained fork before
-   rebuilding a Rusty XR APK that depends on new Makepad Android code.
+5. Rebuild the Rusty XR APK through `Build-MakepadStereoAlignmentApk.ps1` with
+   `-MakepadSourceRoot`; this source-builds `cargo-makepad` and source-patches
+   the app Makepad dependency for that build.
 6. Quest/Vulkan smoke for the minimal Makepad Android surface.
 7. Rusty XR Makepad example launcher and generated-XR startup/liveness smoke,
    with short startup marker capture separated from longer fault-counter

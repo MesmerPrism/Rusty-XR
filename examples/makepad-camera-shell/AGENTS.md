@@ -66,14 +66,23 @@ workspace root; it does not select this package.
 For Android build validation, use `cargo-makepad` from the maintained Makepad
 fork and keep the generated `target/` output uncommitted.
 
+When editing the maintained Makepad fork for this example, use that fork's
+metadata-driven changed-file formatter (`tools/rusty_xr_format.py`). Do not
+use `cargo fmt --all` there: Cargo's `--all` formatter route also walks local
+path dependencies, including vendored crates outside the Makepad patch surface.
+
 Use `tools/Build-MakepadStereoAlignmentApk.ps1` as the Android/package gate for
 this example. Select the SDK for the host that will run `cargo-makepad`:
 Windows-host SDKs require `-UseWindowsHost`, while WSL/Linux-host builds must
-use a Linux-host Android SDK and NDK prebuilt. If a clean WSL/Linux-host rerun
-still fails in Makepad packaging while removing a missing bundled font asset,
-treat that as a packager-route failure rather than stale staging. Switch to the
-Windows-host wrapper lane or state explicitly that Linux-host packaging itself
-is under test.
+use a Linux-host Android SDK and NDK prebuilt. When `-MakepadSourceRoot` or
+`RUSTY_XR_MAKEPAD_SOURCE_ROOT` is set, the wrapper source-builds
+`cargo-makepad` from that checkout and patches the app's Makepad dependency to
+the same checkout by default. Use `-NoPatchMakepadXrFromSource` only for an
+intentional upstream/pinned-dependency comparison. If a clean WSL/Linux-host
+rerun still fails in Makepad packaging while removing a missing bundled font
+asset, treat that as a packager-route failure rather than stale staging. Switch
+to the Windows-host wrapper lane or state explicitly that Linux-host packaging
+itself is under test.
 
 Do not substitute plain `cargo check --target aarch64-linux-android` for the
 Makepad Android gate. This app's Android entrypoint is packaged through
@@ -94,13 +103,13 @@ a newer `aapt.exe`, do not create a fake SDK shadow or extensionless aliases as
 the primary fix. Select or update the maintained Makepad fork/tool so the
 packager and wrapper agree on the same SDK profile.
 
-The Makepad revision in this example's `Cargo.lock` controls Rust dependency
-resolution. Keep the locked host test passing and commit intentional lockfile
-updates when the maintained fork branch moves. Android APK generation uses the
-installed `cargo-makepad` binary; after changing the maintained Makepad fork,
-refresh that installed tool from the same checkout before rebuilding an APK so
-generated Java and native packaging code do not lag behind the pinned Rust
-revision.
+The Makepad revision in this example's `Cargo.lock` controls default Rust
+dependency resolution. Keep the locked host test passing and commit intentional
+lockfile updates when the maintained fork branch moves. Android APK evidence
+builds should pass `-MakepadSourceRoot` so generated Java/native packaging code
+and app Rust dependencies both come from the maintained checkout. Do not rely
+on an installed `cargo-makepad` binary after editing the fork unless that
+installed-binary route is the explicit thing under test.
 
 For broker-synthetic H.264 validation, the guarded device gate should report
 stream-header metadata for both eyes, prepared decode state, CPU-YUV texture

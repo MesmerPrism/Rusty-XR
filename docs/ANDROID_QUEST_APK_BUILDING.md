@@ -120,12 +120,13 @@ executable names from the selected `--sdk-path`.
 
 Use `-MakepadSourceRoot` when local evidence depends on the maintained Makepad
 fork's Android packager. That switch selects the fork checkout's
-`tools/cargo_makepad` tool. It does not rewrite this example's app dependency
-lockfile. The current Makepad evidence default is
+`tools/cargo_makepad` tool and patches the app's Makepad dependency to the
+same checkout for that build. The committed lockfile remains the default host
+Rust dependency pin. The current Makepad evidence default is
 `display-left-from-left-source`; pass `-DisplaySourceEyeMapping` explicitly in
-captured build commands so source-eye mapping cannot drift between runs. Only
-pass `-PatchMakepadXrFromSource` when the app must also consume uncommitted
-Makepad dependency source from the same checkout.
+captured build commands so source-eye mapping cannot drift between runs. Use
+`-NoPatchMakepadXrFromSource` only for an intentional upstream or
+pinned-dependency comparison.
 
 For the public Makepad comparison example, run the Makepad build from
 `examples/makepad-camera-shell` and pass Android options before the
@@ -174,7 +175,8 @@ For Makepad Android, split validation into two gates:
    metadata, projection-math changes, and committed lockfile resolution.
 2. Android/package gate: `Build-MakepadStereoAlignmentApk.ps1`, preferably with
    `-MakepadSourceRoot <makepad-fork-checkout>`, is the target acceptance gate
-   because it exercises Makepad's generated Android activity model and packager.
+   because it exercises Makepad's generated Android activity model and packager
+   while keeping the packager source and app Makepad dependencies aligned.
 
 A direct `cargo check --target aarch64-linux-android` is not the authoritative
 Makepad Android gate for this example. It compiles the Rust target, but it does

@@ -40,10 +40,20 @@ TOP_PROCESS_RE = re.compile(
     r"^\s*(?P<pid>\d+)\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S\s+"
     r"(?P<cpu>[-+0-9.]+)\s+(?P<mem>[-+0-9.]+)\s+\S+\s+(?P<name>\S+)\s*$"
 )
+THREADTIME_PREFIX_RE = re.compile(
+    r"^\d\d-\d\d\s+\d\d:\d\d:\d\d\.\d+\s+(?P<pid>\d+)\s+(?P<tid>\d+)\s+[A-Z]\s+(?P<tag>[^:]+?)\s*:"
+)
 PUBLIC_PROCESS_NAMES = {
     "com.example.rustyxr.broker",
     "com.example.rustyxr.composite",
 }
+PUBLIC_APP_MARKERS = (
+    "RustyXRMakepad",
+    "RustyXrComposite",
+    "Rusty XR OpenXR frame",
+    "Rusty XR final projection status",
+    "RUSTY_XR_MAKEPAD_",
+)
 
 
 def parse_scalar(value: str) -> Any:
@@ -212,6 +222,10 @@ def parse_vrapi(line: str) -> dict[str, Any]:
         value = parse_number_prefix(fields.get(raw_key))
         if value is not None:
             fields[normalized_key] = value
+    prefix = THREADTIME_PREFIX_RE.match(line)
+    if prefix:
+        fields["pid"] = int(prefix.group("pid"))
+        fields["tid"] = int(prefix.group("tid"))
     return fields
 
 
@@ -246,6 +260,7 @@ def parse_logcat(path: Path) -> dict[str, Any]:
     makepad_cadence_rows: list[dict[str, Any]] = []
     makepad_projection_statuses: list[dict[str, Any]] = []
     makepad_comparison_markers: list[dict[str, Any]] = []
+    app_pids: set[int] = set()
     launch_state: dict[str, int] = {
         "horizon_volumetric_window_launches": 0,
         "horizon_immersive_transition_events": 0,
@@ -257,6 +272,9 @@ def parse_logcat(path: Path) -> dict[str, Any]:
 
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
+            prefix = THREADTIME_PREFIX_RE.match(line)
+            if prefix and any(marker in line for marker in PUBLIC_APP_MARKERS):
+                app_pids.add(int(prefix.group("pid")))
             if "launch into NEW_VOLUMETRIC_WINDOW" in line:
                 launch_state["horizon_volumetric_window_launches"] += 1
             if "ImmersiveTransitionSystem" in line:
@@ -311,7 +329,9 @@ def parse_logcat(path: Path) -> dict[str, Any]:
                     parse_key_values(line.split(MAKEPAD_STEREO_COMPARISON_MARKER, 1)[1])
                 )
             elif "/VrApi" in line or "I/VrApi" in line or "I VrApi" in line:
-                vrapi_rows.append(parse_vrapi(line))
+                row = parse_vrapi(line)
+                if "FPS_observed" in row:
+                    vrapi_rows.append(row)
 
     return {
         "logcat_path": str(path),
@@ -328,6 +348,7 @@ def parse_logcat(path: Path) -> dict[str, Any]:
         "makepad_cadence_rows": makepad_cadence_rows,
         "makepad_projection_statuses": makepad_projection_statuses,
         "makepad_comparison_markers": makepad_comparison_markers,
+        "app_pids": sorted(app_pids),
         "launch_state": launch_state,
     }
 
@@ -526,6 +547,26 @@ def numeric_series(items: list[dict[str, Any]], key: str) -> list[float]:
     return values
 
 
+def counter_sum(items: list[dict[str, Any]], key: str) -> int | None:
+    values = numeric_series(items, key)
+    return int(sum(values)) if values else None
+
+
+def counter_max(items: list[dict[str, Any]], key: str) -> int | None:
+    values = numeric_series(items, key)
+    return int(max(values)) if values else None
+
+
+def steady_vrapi_rows(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sane = [
+        item
+        for item in items
+        if parse_number_prefix(item.get("App_ms")) is None
+        or float(item["App_ms"]) < 1000.0
+    ]
+    return sane[2:] if len(sane) > 2 else sane
+
+
 def temperature_delta(pre: dict[str, Any], post: dict[str, Any], sensor_name: str) -> float | None:
     pre_temps = pre.get("temperatures")
     post_temps = post.get("temperatures")
@@ -606,6 +647,9 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
 
     openxr_frames = logcat["openxr_frames"]
     vrapi_rows = logcat["vrapi_rows"]
+    app_pids = set(logcat.get("app_pids", []))
+    app_vrapi_rows = [row for row in vrapi_rows if row.get("pid") in app_pids]
+    steady_app_vrapi_rows = steady_vrapi_rows(app_vrapi_rows)
     openxr_fps_values = numeric_series(openxr_frames, "observedOpenXrFps")
     steady_openxr_fps_values = openxr_fps_values[1:] if len(openxr_fps_values) > 1 else openxr_fps_values
     openxr_avg_frame_ms_values = numeric_series(openxr_frames, "avgFrameMs")
@@ -616,6 +660,17 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
     vrapi_target_fps_values = numeric_series(vrapi_rows, "FPS_target")
     vrapi_tear_values = numeric_series(vrapi_rows, "Tear")
     vrapi_stale_values = numeric_series(vrapi_rows, "Stale")
+    app_vrapi_stale_values = numeric_series(app_vrapi_rows, "Stale")
+    makepad_display_refresh_hz = parse_number_prefix(final_makepad_cadence.get("xrDisplayRefreshRateHz"))
+    if makepad_display_refresh_hz is None:
+        makepad_display_refresh_hz = parse_number_prefix(summarize_numbers(numeric_series(steady_app_vrapi_rows, "FPS_target")).get("avg"))
+    makepad_effective_frame_hz = parse_number_prefix(final_makepad_cadence.get("xrEffectiveFrameRateHz"))
+    makepad_comparison_frame_hz = makepad_effective_frame_hz or parse_number_prefix(final_makepad_cadence.get("xrUpdateRateHz"))
+    makepad_display_cadence_deficit_hz = (
+        max(0.0, makepad_display_refresh_hz - makepad_comparison_frame_hz)
+        if makepad_display_refresh_hz is not None and makepad_comparison_frame_hz is not None
+        else None
+    )
 
     inferred_succeeded = consumer.get("succeeded", stereo_summary.get("succeeded"))
     if inferred_succeeded is None and (final_projection or final_gpu_draw):
@@ -1167,6 +1222,21 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
         "makepad_paired_texture_update_rate_hz": final_makepad_cadence.get("pairedTextureUpdateRateHz"),
         "makepad_paired_texture_update_count": final_makepad_cadence.get("pairedTextureUpdateCount"),
         "makepad_cadence_interval_ms": final_makepad_cadence.get("intervalMs"),
+        "makepad_xr_display_refresh_rate_hz": makepad_display_refresh_hz,
+        "makepad_xr_effective_frame_rate_hz": makepad_effective_frame_hz,
+        "makepad_display_cadence_deficit_hz": makepad_display_cadence_deficit_hz,
+        "makepad_xr_frame_cpu_ms": final_makepad_cadence.get("xrFrameCpuMs"),
+        "makepad_xr_wait_frame_ms": final_makepad_cadence.get("xrWaitFrameMs"),
+        "makepad_xr_wait_swapchain_ms": final_makepad_cadence.get("xrWaitSwapchainMs"),
+        "makepad_xr_acquire_depth_ms": final_makepad_cadence.get("xrAcquireDepthMs"),
+        "makepad_xr_update_prepare_ms": final_makepad_cadence.get("xrUpdatePrepareMs"),
+        "makepad_xr_repaint_ms": final_makepad_cadence.get("xrRepaintMs"),
+        "makepad_xr_compile_shaders_ms": final_makepad_cadence.get("xrCompileShadersMs"),
+        "makepad_xr_repaint_wait_inflight_ms": final_makepad_cadence.get("xrRepaintWaitInflightMs"),
+        "makepad_xr_repaint_texture_upload_count": final_makepad_cadence.get("xrRepaintTextureUploadCount"),
+        "makepad_xr_repaint_texture_upload_bytes": final_makepad_cadence.get("xrRepaintTextureUploadBytes"),
+        "makepad_xr_depth_readback_ms": final_makepad_cadence.get("xrDepthReadbackMs"),
+        "makepad_xr_resize_projection_ms": final_makepad_cadence.get("xrResizeProjectionMs"),
         "makepad_projection_status": final_makepad_projection.get("status"),
         "makepad_paired_left_right_gpu_buffers": pick_present(
             final_makepad_projection.get("pairedLeftRightGpuBuffers"),
@@ -1178,12 +1248,28 @@ def summarize_artifact(artifact_dir: Path) -> dict[str, Any]:
             final_makepad_cadence.get("cpuUploadCount"),
         ),
         "vrapi_rows": len(vrapi_rows),
+        "vrapi_app_pids": sorted(app_pids),
+        "vrapi_app_rows": len(app_vrapi_rows),
         "vrapi_fps": summarize_numbers(vrapi_fps_values),
         "vrapi_target_fps": summarize_numbers(vrapi_target_fps_values),
         "vrapi_tear_sum": int(sum(vrapi_tear_values)) if vrapi_tear_values else None,
         "vrapi_stale_sum": int(sum(vrapi_stale_values)) if vrapi_stale_values else None,
+        "vrapi_app_fps": summarize_numbers(numeric_series(app_vrapi_rows, "FPS_observed")),
+        "vrapi_app_steady_fps": summarize_numbers(numeric_series(steady_app_vrapi_rows, "FPS_observed")),
+        "vrapi_app_target_fps": summarize_numbers(numeric_series(app_vrapi_rows, "FPS_target")),
+        "vrapi_app_steady_target_fps": summarize_numbers(numeric_series(steady_app_vrapi_rows, "FPS_target")),
+        "vrapi_app_stale_sum": int(sum(app_vrapi_stale_values)) if app_vrapi_stale_values else None,
+        "vrapi_app_stale_max": counter_max(app_vrapi_rows, "Stale"),
+        "vrapi_app_steady_stale_sum": counter_sum(steady_app_vrapi_rows, "Stale"),
+        "vrapi_app_steady_stale_max": counter_max(steady_app_vrapi_rows, "Stale"),
+        "vrapi_app_tear_sum": counter_sum(app_vrapi_rows, "Tear"),
+        "vrapi_app_steady_tear_sum": counter_sum(steady_app_vrapi_rows, "Tear"),
         "vrapi_app_ms": summarize_numbers(numeric_series(vrapi_rows, "App_ms")),
+        "vrapi_app_process_ms": summarize_numbers(numeric_series(app_vrapi_rows, "App_ms")),
+        "vrapi_app_steady_process_ms": summarize_numbers(numeric_series(steady_app_vrapi_rows, "App_ms")),
         "vrapi_cpu_gpu_ms": summarize_numbers(numeric_series(vrapi_rows, "CPU_GPU_ms")),
+        "vrapi_app_cpu_gpu_ms": summarize_numbers(numeric_series(app_vrapi_rows, "CPU_GPU_ms")),
+        "vrapi_app_steady_cpu_gpu_ms": summarize_numbers(numeric_series(steady_app_vrapi_rows, "CPU_GPU_ms")),
         "vrapi_timewarp_ms": summarize_numbers(numeric_series(vrapi_rows, "TW_ms")),
         "vrapi_gpu_pct": summarize_numbers(numeric_series(vrapi_rows, "GPU_pct")),
         "vrapi_cpu_pct": summarize_numbers(numeric_series(vrapi_rows, "CPU_pct")),
@@ -1279,6 +1365,8 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("OpenXR fps last", None),
         ("OpenXR fps min", None),
         ("VrApi target", None),
+        ("VrApi app FPS", None),
+        ("VrApi app stale", "vrapi_app_steady_stale_sum"),
         ("OpenXR avg ms last", None),
         ("OpenXR avg ms steady", None),
         ("target px p95", "target_projection_motion_px_p95"),
@@ -1286,7 +1374,9 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("residual px p95", "projection_residual_px_p95"),
         ("lag ms p95", "visual_lag_ms_p95"),
         ("held", "held_frame_count"),
+        ("Makepad display Hz", "makepad_xr_display_refresh_rate_hz"),
         ("Makepad XrUpdate Hz", "makepad_xr_update_rate_hz"),
+        ("Makepad XR deficit", "makepad_display_cadence_deficit_hz"),
         ("Makepad NextFrame Hz", "makepad_app_frame_rate_hz"),
         ("Makepad cam Hz", "makepad_paired_texture_update_rate_hz"),
         ("camera consumed Hz", "camera_consumed_frame_hz"),
@@ -1296,6 +1386,7 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
         ("VrApi App ms", None),
         ("VrApi CPU+GPU ms", None),
         ("VrApi tear", "vrapi_tear_sum"),
+        ("VrApi app tear", "vrapi_app_steady_tear_sum"),
         ("Top comp CPU", "post_top_composite_cpu_pct"),
         ("Top broker CPU", "post_top_broker_cpu_pct"),
         ("GPU import fail", "gpuImportFailure"),
@@ -1322,15 +1413,20 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
                 elif heading == "OpenXR fps min":
                     cells.append(fmt(row.get("openxr_steady_observed_fps", {}).get("min")))
                 elif heading == "VrApi target":
-                    cells.append(fmt(row.get("vrapi_target_fps", {}).get("avg")))
+                    cells.append(fmt(
+                        row.get("vrapi_app_steady_target_fps", {}).get("avg")
+                        or row.get("vrapi_target_fps", {}).get("avg")
+                    ))
+                elif heading == "VrApi app FPS":
+                    cells.append(fmt(row.get("vrapi_app_steady_fps", {}).get("avg")))
                 elif heading == "OpenXR avg ms last":
                     cells.append(fmt(row.get("openxr_avg_frame_ms", {}).get("last")))
                 elif heading == "OpenXR avg ms steady":
                     cells.append(fmt(row.get("openxr_steady_avg_frame_ms", {}).get("avg")))
                 elif heading == "VrApi App ms":
-                    cells.append(fmt(row.get("vrapi_app_ms", {}).get("avg")))
+                    cells.append(fmt(row.get("vrapi_app_steady_process_ms", {}).get("avg")))
                 elif heading == "VrApi CPU+GPU ms":
-                    cells.append(fmt(row.get("vrapi_cpu_gpu_ms", {}).get("avg")))
+                    cells.append(fmt(row.get("vrapi_app_steady_cpu_gpu_ms", {}).get("avg")))
                 elif heading == "thermal":
                     cells.append(f"{fmt(row.get('thermal_status_pre'))}->{fmt(row.get('thermal_status_post'))}")
                 else:
