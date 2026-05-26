@@ -3235,6 +3235,7 @@ impl App {
                 xr_draw_event_ms: xr_cpu.map(|breakdown| breakdown.draw_event_ms),
                 xr_compile_shaders_ms: xr_cpu.map(|breakdown| breakdown.compile_shaders_ms),
                 xr_repaint_ms: xr_cpu.map(|breakdown| breakdown.repaint_ms),
+                xr_repaint_gpu_ms: xr_cpu.and_then(|breakdown| breakdown.repaint_gpu_ms),
                 xr_repaint_wait_inflight_ms: xr_cpu
                     .map(|breakdown| breakdown.repaint_wait_inflight_ms),
                 xr_repaint_prepare_textures_ms: xr_cpu
