@@ -449,7 +449,7 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
             else:
                 notes.append(f"camera input ID counts differ by {spread} markers")
     if route == "hardware-buffer-external" and wait_frame_ms is not None and wait_frame_ms > 8.0:
-        notes.append("HWB external is wait-frame dominated in this sample")
+        notes.append("HWB external time is mostly OpenXR wait-frame pacing in this sample")
     if upload_submit_avg is not None and upload_submit_avg > 100.0:
         notes.append("upload-to-submit marker spacing is coarse; treat it as localization, not exact latency")
     if texture_hz is not None and texture_hz < 60.0:
@@ -499,6 +499,7 @@ def build_comparison(run_specs: list[str]) -> dict[str, Any]:
             "Recent stale and latest stale are the primary Meta stale localization fields; freshness proves pixels changed.",
             "Makepad CPU-YUV color is the accepted Makepad visual reference, but its upload/repaint timing is tracked separately.",
             "Makepad HWB external can be resource-cadence-ok while remaining experimental for color.",
+            "OpenXR wait-frame time is scheduler pacing; separate it from texture upload/import or draw cost.",
             "Perfetto traces are not used by this comparison until the provider is calibrated for app-targeted captures.",
         ],
     }
