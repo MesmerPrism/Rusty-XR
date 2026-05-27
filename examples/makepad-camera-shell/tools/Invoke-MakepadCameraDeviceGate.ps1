@@ -76,6 +76,8 @@ param(
     [double]$ProjectionAreaCornerRadiusUv = 0.0,
     [double]$ProjectionAreaOpacity = 1.0,
     [double]$ProjectionBorderOpacity = 1.0,
+    [ValidateRange(0.0, 2.0)]
+    [double]$ProjectionAreaDiagnostic = 0.0,
     [ValidateSet("fixed", "red", "green", "blue", "luma", "inverse-red", "inverse-green", "inverse-blue", "inverse-luma", "red-dominance", "green-dominance", "blue-dominance", "saturation", "inverse-saturation")]
     [string]$ProjectionAlphaMode = "fixed",
     [double]$ProjectionAlphaScale = 1.0,
@@ -648,6 +650,7 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.projection.area.corner.radius.uv" = (Format-InvariantDouble -Value $ProjectionAreaCornerRadiusUv)
         "debug.rustyxr.projection.area.opacity" = (Format-InvariantDouble -Value $ProjectionAreaOpacity)
         "debug.rustyxr.projection.border.opacity" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
+        "debug.rustyxr.makepad.projection.area.diagnostic" = (Format-InvariantDouble -Value $ProjectionAreaDiagnostic)
         "debug.rustyxr.projection.border.policy" = $ProjectionBorderPolicy
         "debug.rustyxr.projection.alpha.mode" = $ProjectionAlphaMode
         "debug.rustyxr.projection.alpha.scale" = (Format-InvariantDouble -Value $ProjectionAlphaScale)
@@ -1459,11 +1462,13 @@ $summary = [ordered]@{
     mediaProjectionDelayMs = $MediaProjectionDelayMs
     processingLayer = $ProcessingLayer
     blurRadiusPx = $BlurRadiusPx
+    projectionAreaDiagnostic = [double]$ProjectionAreaDiagnostic
     runConfiguration = [ordered]@{
         xrRenderScale = [double]$XrRenderScale
         projectionBorderPolicy = $ProjectionBorderPolicy
         processingLayer = $ProcessingLayer
         blurRadiusPx = [double]$BlurRadiusPx
+        projectionAreaDiagnostic = [double]$ProjectionAreaDiagnostic
         directCameraTexturePath = $DirectCameraTexturePath
         cameraProjectionMode = $CameraProjectionMode
         cameraProjectionGeometryProfile = $CameraProjectionGeometryProfile
