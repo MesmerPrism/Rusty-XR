@@ -101,11 +101,19 @@ def route_from_summary(summary: dict[str, Any]) -> str | None:
     return None
 
 
+def vrapi_app_section(report: dict[str, Any]) -> dict[str, Any]:
+    for key in ("all", "app"):
+        section = nested(report, ["vrapi", key])
+        if isinstance(section, dict):
+            return section
+    return {}
+
+
 def row_from_report(name: str, report_path: Path) -> dict[str, Any]:
     report = load_json(report_path)
     summary = find_summary(report_path)
     summary_path = find_summary_path(report_path)
-    vrapi_app = nested(report, ["vrapi", "app"], {})
+    vrapi_app = vrapi_app_section(report)
     latest = nested(vrapi_app, ["latest"], {})
     recent = nested(vrapi_app, ["recent"], {})
     steady = nested(vrapi_app, ["steady"], {})
@@ -268,10 +276,10 @@ def run_self_test() -> int:
             "status": "ok",
             "reasons": ["vrapi-app-warmup-stale-cleared"],
             "vrapi": {
-                "app": {
+                "all": {
                     "latest": {"FPS": "72/72", "Stale": 0},
                     "recent": {
-                        "stale": {"sum": 0},
+                        "stale": {"sum": 2},
                         "fps": {"avg": 72.0},
                         "targetFps": {"avg": 72.0},
                         "appMs": {"avg": 3.0},
@@ -292,16 +300,26 @@ def run_self_test() -> int:
         }
         (cpu / REPORT_NAME).write_text(json.dumps(template), encoding="utf-8")
         hwb_report = json.loads(json.dumps(template))
-        hwb_report["vrapi"]["app"]["recent"]["cpuGpuMs"]["avg"] = 4.0
+        hwb_report["vrapi"]["all"]["recent"]["stale"]["sum"] = 0
+        hwb_report["vrapi"]["all"]["recent"]["cpuGpuMs"]["avg"] = 4.0
         hwb_report["makepadCadence"]["pairedTextureUpdateRateHz"] = 46.5
         (hwb / REPORT_NAME).write_text(json.dumps(hwb_report), encoding="utf-8")
         comparison = build_comparison([f"cpu={tmp / 'cpu'}", f"hwb={tmp / 'hwb'}"])
         assert comparison["rows"][0]["route"] == "cpu-yuv", comparison
         assert comparison["rows"][0]["summary"].endswith(SUMMARY_NAME), comparison
+        assert comparison["rows"][0]["gatePassed"] is False, comparison
+        assert comparison["rows"][0]["recentStaleSum"] == 2, comparison
+        assert comparison["rows"][1]["gatePassed"] is True, comparison
         assert comparison["rows"][1]["pairedTextureUpdateRateHz"] == 46.5, comparison
         assert comparison["baselineComparisons"][0]["recentCpuGpuMsDelta"] == -4.0, comparison
         table = markdown_table(comparison)
         assert "hardware-buffer-external" in table, table
+
+        legacy = json.loads(json.dumps(template))
+        legacy["vrapi"] = {"app": legacy["vrapi"]["all"]}
+        (cpu / REPORT_NAME).write_text(json.dumps(legacy), encoding="utf-8")
+        legacy_comparison = build_comparison([f"cpu={tmp / 'cpu'}"])
+        assert legacy_comparison["rows"][0]["recentStaleSum"] == 2, legacy_comparison
     print("Compare-MakepadCameraRuns self-test passed")
     return 0
 
