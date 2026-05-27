@@ -132,6 +132,19 @@ function Invoke-Adb {
     & adb -s $Serial @Arguments
 }
 
+function Join-NativeProcessArguments {
+    param([string[]]$Arguments)
+    $quoted = @()
+    foreach ($arg in $Arguments) {
+        $text = [string]$arg
+        if ($text -match '[\s"]') {
+            $text = '"' + ($text -replace '"', '\"') + '"'
+        }
+        $quoted += $text
+    }
+    return ($quoted -join " ")
+}
+
 function Save-Adb {
     param(
         [string[]]$Arguments,
@@ -149,9 +162,7 @@ function Save-Adb {
     $processInfo.RedirectStandardOutput = $true
     $processInfo.RedirectStandardError = $true
     $processInfo.CreateNoWindow = $true
-    @("-s", $Serial) + $Arguments | ForEach-Object {
-        [void]$processInfo.ArgumentList.Add($_)
-    }
+    $processInfo.Arguments = Join-NativeProcessArguments -Arguments (@("-s", $Serial) + $Arguments)
 
     $process = [System.Diagnostics.Process]::Start($processInfo)
     $timedOut = $false
