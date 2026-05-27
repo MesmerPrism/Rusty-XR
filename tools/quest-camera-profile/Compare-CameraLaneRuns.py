@@ -225,6 +225,7 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
 
     route = route_from_makepad_summary(makepad_summary) or route_from_lane_kind(lane_kind)
     recent_stale_sum = integer(nested(recent, ["stale", "sum"], 0)) or 0
+    repaint_upload_bytes = integer(nested(cadence_latest, ["xrRepaintTextureUploadBytes"]))
     row = {
         "name": name,
         "kind": classify_run_kind(lane_kind, makepad_summary),
@@ -262,6 +263,22 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "xrUpdateRateHz": rounded(cadence.get("xrUpdateRateHz")),
             "xrFrameCpuMs": rounded(nested(cadence_latest, ["xrFrameCpuMs"])),
             "xrRepaintGpuMs": rounded(nested(cadence_latest, ["xrRepaintGpuMs"])),
+            "xrRepaintMs": rounded(nested(cadence_latest, ["xrRepaintMs"])),
+            "xrRepaintPrepareTexturesMs": rounded(
+                nested(cadence_latest, ["xrRepaintPrepareTexturesMs"])
+            ),
+            "xrRepaintTextureUploadBytes": repaint_upload_bytes,
+            "xrRepaintTextureUploadMiB": rounded(
+                repaint_upload_bytes / (1024.0 * 1024.0), 2
+            )
+            if repaint_upload_bytes is not None
+            else None,
+            "xrRepaintTextureUploadCount": integer(
+                nested(cadence_latest, ["xrRepaintTextureUploadCount"])
+            ),
+            "xrWaitSwapchainMs": rounded(nested(cadence_latest, ["xrWaitSwapchainMs"])),
+            "xrWaitFrameMs": rounded(nested(cadence_latest, ["xrWaitFrameMs"])),
+            "xrEndFrameMs": rounded(nested(cadence_latest, ["xrEndFrameMs"])),
         },
         "freshness": {
             "uniqueFrames": freshness_unique_count(freshness, makepad_summary),
@@ -298,6 +315,8 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
     texture_hz = number(nested(row, ["performance", "pairedTextureUpdateRateHz"]))
     acquire_upload_avg = number(nested(row, ["makepadFrameFlow", "acquireToUploadMs", "avg"]))
     upload_submit_avg = number(nested(row, ["makepadFrameFlow", "uploadToNextSubmitMs", "avg"]))
+    repaint_upload_bytes = number(nested(row, ["performance", "xrRepaintTextureUploadBytes"]))
+    repaint_prepare_ms = number(nested(row, ["performance", "xrRepaintPrepareTexturesMs"]))
     route = str(row.get("route") or "")
     if stale_recent:
         notes.append("recent stale is nonzero; use latest/freshness together before calling the lane frozen")
@@ -305,6 +324,11 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
         notes.append("CPU-YUV CPU+GPU is high enough to inspect upload and repaint texture-upload cost first")
     if route == "cpu-yuv" and acquire_upload_avg is not None:
         notes.append(f"CPU-YUV acquire-to-upload avg is {round(acquire_upload_avg, 2)} ms")
+    if route == "cpu-yuv" and repaint_upload_bytes is not None and repaint_upload_bytes > 0:
+        mib = repaint_upload_bytes / (1024.0 * 1024.0)
+        notes.append(f"CPU-YUV repaint uploads {round(mib, 2)} MiB of texture data")
+    if route == "cpu-yuv" and repaint_prepare_ms is not None and repaint_prepare_ms > 3.0:
+        notes.append("CPU-YUV repaint texture preparation is a primary headroom target")
     if upload_submit_avg is not None and upload_submit_avg > 100.0:
         notes.append("upload-to-submit marker spacing is coarse; treat it as localization, not exact latency")
     if texture_hz is not None and texture_hz < 60.0:
@@ -381,6 +405,8 @@ def markdown_table(comparison: dict[str, Any]) -> str:
         ("FPS", ["performance", "recentFpsAvg"]),
         ("Texture Hz", ["performance", "pairedTextureUpdateRateHz"]),
         ("Acquire->Upload ms", ["makepadFrameFlow", "acquireToUploadMs", "avg"]),
+        ("Repaint Upload MiB", ["performance", "xrRepaintTextureUploadMiB"]),
+        ("Prepare Textures ms", ["performance", "xrRepaintPrepareTexturesMs"]),
         ("Resource", ["lane", "resourceKind"]),
         ("Descriptor", ["lane", "descriptorShape"]),
         ("Color", ["lane", "colorStatus"]),
@@ -463,7 +489,18 @@ def run_self_test() -> int:
                     "steady": {"stale": {"sum": 10}},
                 }
             },
-            "makepadCadence": {"pairedTextureUpdateRateHz": 49.8},
+            "makepadCadence": {
+                "pairedTextureUpdateRateHz": 49.8,
+                "latest": {
+                    "xrRepaintTextureUploadBytes": 4_915_200,
+                    "xrRepaintTextureUploadCount": 6,
+                    "xrRepaintPrepareTexturesMs": 5.5,
+                    "xrRepaintMs": 6.0,
+                    "xrWaitSwapchainMs": 4.0,
+                    "xrWaitFrameMs": 0.1,
+                    "xrEndFrameMs": 0.3,
+                },
+            },
             "makepadFrameFlow": {
                 "acquirePublishedCount": 10,
                 "cpuYuvUploadCount": 9,
@@ -525,11 +562,16 @@ def run_self_test() -> int:
         assert comparison["rows"][0]["kind"] == "makepad", comparison
         assert comparison["rows"][0]["stale"]["recentSum"] == 3, comparison
         assert comparison["rows"][0]["makepadFrameFlow"]["acquireToUploadMs"]["avg"] == 8.0, comparison
+        assert comparison["rows"][0]["performance"]["xrRepaintTextureUploadMiB"] == 4.69, comparison
+        assert any(
+            "repaint uploads" in note for note in comparison["rows"][0]["localizationNotes"]
+        ), comparison
         assert comparison["rows"][1]["route"] == "direct-hwb", comparison
         assert comparison["rows"][1]["freshness"]["uniqueFrames"] == 6, comparison
         assert comparison["baselineComparisons"][0]["recentCpuGpuMsVsBestDirect"] == 14.5, comparison
         table = markdown_table(comparison)
         assert "Acquire->Upload" in table, table
+        assert "Repaint Upload MiB" in table, table
     print("Compare-CameraLaneRuns self-test passed")
     return 0
 
