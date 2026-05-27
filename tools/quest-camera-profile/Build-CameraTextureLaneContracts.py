@@ -508,6 +508,8 @@ def base_contract(
             "delivered_size": delivered_size,
             "handoff_label": handoff_label,
             "source_eye_mapping": "display-left-from-left-source",
+            "camera_input_id": None,
+            "camera_format_id": None,
         },
         "resource": {
             "resource_kind": resource_kind,
@@ -766,6 +768,12 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
         or fields.get("shader_interface")
         or contract["resource"]["descriptor_shape"]
     )
+    contract["source"].update(
+        {
+            "camera_input_id": parse_int(fields.get("cameraInputId") or fields.get("inputId")),
+            "camera_format_id": parse_int(fields.get("cameraFormatId") or fields.get("formatId")),
+        }
+    )
     contract["transform"].update(
         {
             "transform_stage": (
@@ -986,6 +994,8 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "source_kind": source.get("source_kind", "other"),
         "delivered_size": source.get("delivered_size"),
+        "camera_input_id": source.get("camera_input_id"),
+        "camera_format_id": source.get("camera_format_id"),
         "resource_kind": resource.get("resource_kind", "other"),
         "descriptor_shape": resource.get("descriptor_shape", "unknown"),
         "color_status": color.get("color_status", "unknown"),
@@ -1089,11 +1099,11 @@ def self_test() -> None:
             "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-sampling status=ready source=headset-camera2 sourceMode=direct-camera2 contentWidth=1280 contentHeight=1280 source_sequence=5 frame=11",
             "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-color status=ready sourceColorTransform=srgb-to-linear swapchainColorFormat=GL_SRGB8_ALPHA8",
             'Rusty XR SurfaceTexture OES transform matrix {"schema":"rusty.xr.quest.surface_texture_oes_transform_matrix.v1","view_index":0,"source_eye":"left","update_tex_image_count":4,"surface_texture_timestamp_ns":12345,"transform_matrix_hash":"m44:test","transform_matrix":[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]}',
-            "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=cpu-yuv-upload status=ok path=cpu-yuv videoId=1 uploadSeq=3 cameraFrameSeq=2 cameraTimestampNs=123 uploadTimeNs=456 width=1280 height=1280",
+            "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=cpu-yuv-upload status=ok path=cpu-yuv videoId=1 inputId=10 formatId=20 uploadSeq=3 cameraFrameSeq=2 cameraTimestampNs=123 uploadTimeNs=456 width=1280 height=1280",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane eventResourcePath=cpu-yuv-planes descriptorShape=cpu-yuv-plane-textures cameraFrameSeq=2 cameraTimestampNs=123 acquireTimeNs=111 uploadSeq=3 uploadTimeNs=456 textureUpdateSeq=3 textureWidth=1280 textureHeight=1280",
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane eventResourcePath=cpu-yuv-planes descriptorShape=cpu-yuv-plane-textures cameraInputId=10 cameraFormatId=20 cameraFrameSeq=2 cameraTimestampNs=123 acquireTimeNs=111 uploadSeq=3 uploadTimeNs=456 textureUpdateSeq=3 textureWidth=1280 textureHeight=1280",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=sampled-image-and-sampler cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false",
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=sampled-image-and-sampler cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false",
             "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.xr.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=SAMPLED_IMAGE samplerDescriptorType=SAMPLER combinedImageSampler=false shaderSampleLowering=textureSampleLevel_separate_texture_sampler",
             "RUSTY_XR_MAKEPAD_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=xr-end-frame status=submitted renderPath=makepad-xr xrFrameSeq=9 shouldRender=true submitTimeNs=900 predictedDisplayTimeNs=1000 predictedDisplayPeriodNs=13888888 resultCode=0 layerCount=1",
         ]
@@ -1137,6 +1147,10 @@ def self_test() -> None:
             raise AssertionError("Makepad CPU-YUV color status was not accepted-reference")
         if lanes["makepad-cpuyuv-direct-camera2-raw"]["timing"]["acquire_time_ns"] != 111:
             raise AssertionError("Makepad CPU-YUV event acquire time was not parsed")
+        if lanes["makepad-cpuyuv-direct-camera2-raw"]["source"]["camera_input_id"] != 10:
+            raise AssertionError("Makepad CPU-YUV camera input id was not parsed")
+        if lanes["makepad-cpuyuv-direct-camera2-raw"]["source"]["camera_format_id"] != 20:
+            raise AssertionError("Makepad CPU-YUV camera format id was not parsed")
         if (
             lanes["makepad-hwb-external-direct-camera2-raw"]["resource"]["descriptor_shape"]
             != "sampled-image-and-sampler"
@@ -1167,6 +1181,8 @@ def self_test() -> None:
         hwb_summary = summary["lane_summaries"]["makepad-hwb-external-direct-camera2-raw"]
         if hwb_summary["timing_relations"]["import_to_xr_end_frame_ns"] != 100:
             raise AssertionError("summary did not compute HWB import-to-submit timing")
+        if hwb_summary["camera_input_id"] != 11:
+            raise AssertionError("summary did not expose Makepad HWB camera input id")
         for lane, record in lanes.items():
             size = record["source"]["delivered_size"]
             if size["width"] <= 0 or size["height"] <= 0:

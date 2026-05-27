@@ -112,6 +112,12 @@ fn video_texture_update_metadata_marker_fields(metadata: &VideoTextureUpdateMeta
         format!("eventResourcePath={}", metadata.resource_path.as_str()),
         format!("descriptorShape={}", metadata.descriptor_shape.as_str()),
     ];
+    if let Some(value) = metadata.camera_input_id {
+        fields.push(format!("cameraInputId={}", (value.0).0));
+    }
+    if let Some(value) = metadata.camera_format_id {
+        fields.push(format!("cameraFormatId={}", (value.0).0));
+    }
     if let Some(value) = metadata.camera_frame_sequence {
         fields.push(format!("cameraFrameSeq={value}"));
     }

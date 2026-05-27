@@ -312,8 +312,11 @@ def summarize_frame_flow(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "phaseCounts": count_by(rows, "phase"),
         "pathCounts": count_by(rows, "path"),
         "videoIdCounts": count_by(rows, "videoId"),
+        "inputIdCounts": count_by(rows, "inputId"),
+        "formatIdCounts": count_by(rows, "formatId"),
         "phasePathCounts": count_by_pair(rows, "phase", "path"),
         "phaseVideoIdCounts": count_by_pair(rows, "phase", "videoId"),
+        "phaseInputIdCounts": count_by_pair(rows, "phase", "inputId"),
         "acquirePublishedCount": len(acquired_rows),
         "acquireDroppedCount": len(dropped_rows),
         "cpuYuvUploadCount": len(upload_rows),
@@ -473,13 +476,15 @@ def run_self_test() -> int:
             _fixture_frame_flow_line(
                 10,
                 "phase=acquire status=published path=cpu-yuv videoId=100 cameraFrameSeq=42 "
-                "cameraTimestampNs=123 captureTimeMs=1000 width=1280 height=1280 layout=I420",
+                "inputId=10 formatId=20 cameraTimestampNs=123 captureTimeMs=1000 "
+                "width=1280 height=1280 layout=I420",
             ),
             _fixture_frame_flow_line(
                 11,
                 "phase=cpu-yuv-upload status=ok path=cpu-yuv videoId=100 uploadSeq=7 "
-                "cameraFrameSeq=42 cameraTimestampNs=123 uploadTimeMs=1005 width=1280 "
-                "height=1280 yBytes=1638400 uBytes=409600 vBytes=409600 totalBytes=2457600",
+                "inputId=10 formatId=20 cameraFrameSeq=42 cameraTimestampNs=123 "
+                "uploadTimeMs=1005 width=1280 height=1280 yBytes=1638400 "
+                "uBytes=409600 vBytes=409600 totalBytes=2457600",
             ),
             _fixture_frame_flow_line(
                 12,
@@ -498,6 +503,7 @@ def run_self_test() -> int:
     assert transient_report["makepadFrameFlow"]["cpuYuvUploadCount"] == 1, transient_report
     assert transient_report["makepadFrameFlow"]["xrEndFrameCount"] == 1, transient_report
     assert transient_report["makepadFrameFlow"]["pathCounts"]["cpu-yuv"] == 2, transient_report
+    assert transient_report["makepadFrameFlow"]["inputIdCounts"]["10"] == 2, transient_report
     assert (
         transient_report["makepadFrameFlow"]["phasePathCounts"]["cpu-yuv-upload"]["cpu-yuv"] == 1
     ), transient_report

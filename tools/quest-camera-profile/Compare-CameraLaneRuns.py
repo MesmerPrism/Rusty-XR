@@ -351,6 +351,8 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
         },
         "lane": {
             "sourceKind": lane_summary.get("source_kind"),
+            "cameraInputId": lane_summary.get("camera_input_id"),
+            "cameraFormatId": lane_summary.get("camera_format_id"),
             "resourceKind": lane_summary.get("resource_kind"),
             "descriptorShape": lane_summary.get("descriptor_shape"),
             "colorStatus": lane_summary.get("color_status"),
@@ -368,6 +370,9 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "pathCounts": frame_flow.get("pathCounts", {}),
             "phasePathCounts": frame_flow.get("phasePathCounts", {}),
             "phaseVideoIdCounts": frame_flow.get("phaseVideoIdCounts", {}),
+            "inputIdCounts": frame_flow.get("inputIdCounts", {}),
+            "formatIdCounts": frame_flow.get("formatIdCounts", {}),
+            "phaseInputIdCounts": frame_flow.get("phaseInputIdCounts", {}),
             "acquireToUploadMs": frame_flow.get("acquireToUploadMs", {}),
             "uploadToNextSubmitMs": frame_flow.get("uploadToNextSubmitMs", {}),
             "cpuYuvUploadBytes": frame_flow.get("cpuYuvUploadBytes", {}),
