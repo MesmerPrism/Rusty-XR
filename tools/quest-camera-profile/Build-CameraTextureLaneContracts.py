@@ -985,6 +985,7 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
     projection = record.get("projection", {})
     return {
         "source_kind": source.get("source_kind", "other"),
+        "delivered_size": source.get("delivered_size"),
         "resource_kind": resource.get("resource_kind", "other"),
         "descriptor_shape": resource.get("descriptor_shape", "unknown"),
         "color_status": color.get("color_status", "unknown"),

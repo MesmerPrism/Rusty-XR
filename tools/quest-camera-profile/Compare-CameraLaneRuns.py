@@ -190,6 +190,28 @@ def freshness_unique_count(freshness: dict[str, Any], makepad_summary: dict[str,
     return None
 
 
+def size_field(size: Any, key: str) -> int | None:
+    if not isinstance(size, dict):
+        return None
+    return integer(size.get(key))
+
+
+def expected_i420_upload_bytes(size: Any) -> int | None:
+    width = size_field(size, "width")
+    height = size_field(size, "height")
+    if width is None or height is None or width <= 0 or height <= 0:
+        return None
+    chroma_width = (width + 1) // 2
+    chroma_height = (height + 1) // 2
+    return width * height + 2 * chroma_width * chroma_height
+
+
+def observed_i420_eye_upload_count(observed_bytes: int | None, expected_per_eye: int | None) -> float | None:
+    if observed_bytes is None or expected_per_eye is None or expected_per_eye <= 0:
+        return None
+    return rounded(observed_bytes / expected_per_eye, 2)
+
+
 def latest_vrapi_scale(latest: dict[str, Any]) -> float | None:
     return rounded(latest.get("SF"), 3)
 
@@ -226,6 +248,14 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
     route = route_from_makepad_summary(makepad_summary) or route_from_lane_kind(lane_kind)
     recent_stale_sum = integer(nested(recent, ["stale", "sum"], 0)) or 0
     repaint_upload_bytes = integer(nested(cadence_latest, ["xrRepaintTextureUploadBytes"]))
+    delivered_size = lane_summary.get("delivered_size")
+    expected_cpu_yuv_upload_bytes_per_eye = (
+        expected_i420_upload_bytes(delivered_size) if route == "cpu-yuv" else None
+    )
+    observed_cpu_yuv_eye_upload_count = observed_i420_eye_upload_count(
+        repaint_upload_bytes,
+        expected_cpu_yuv_upload_bytes_per_eye,
+    )
     row = {
         "name": name,
         "kind": classify_run_kind(lane_kind, makepad_summary),
@@ -279,6 +309,8 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "xrWaitSwapchainMs": rounded(nested(cadence_latest, ["xrWaitSwapchainMs"])),
             "xrWaitFrameMs": rounded(nested(cadence_latest, ["xrWaitFrameMs"])),
             "xrEndFrameMs": rounded(nested(cadence_latest, ["xrEndFrameMs"])),
+            "expectedCpuYuvUploadBytesPerEye": expected_cpu_yuv_upload_bytes_per_eye,
+            "observedCpuYuvEyeUploadCount": observed_cpu_yuv_eye_upload_count,
         },
         "freshness": {
             "uniqueFrames": freshness_unique_count(freshness, makepad_summary),
@@ -289,6 +321,7 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "resourceKind": lane_summary.get("resource_kind"),
             "descriptorShape": lane_summary.get("descriptor_shape"),
             "colorStatus": lane_summary.get("color_status"),
+            "deliveredSize": delivered_size,
             "projectionBorderPolicy": lane_summary.get("projection_border_policy"),
             "processingLayer": lane_summary.get("processing_layer"),
             "timing": lane_summary.get("timing", {}),
@@ -317,6 +350,7 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
     upload_submit_avg = number(nested(row, ["makepadFrameFlow", "uploadToNextSubmitMs", "avg"]))
     repaint_upload_bytes = number(nested(row, ["performance", "xrRepaintTextureUploadBytes"]))
     repaint_prepare_ms = number(nested(row, ["performance", "xrRepaintPrepareTexturesMs"]))
+    observed_eye_upload_count = number(nested(row, ["performance", "observedCpuYuvEyeUploadCount"]))
     route = str(row.get("route") or "")
     if stale_recent:
         notes.append("recent stale is nonzero; use latest/freshness together before calling the lane frozen")
@@ -327,6 +361,8 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
     if route == "cpu-yuv" and repaint_upload_bytes is not None and repaint_upload_bytes > 0:
         mib = repaint_upload_bytes / (1024.0 * 1024.0)
         notes.append(f"CPU-YUV repaint uploads {round(mib, 2)} MiB of texture data")
+    if route == "cpu-yuv" and observed_eye_upload_count is not None:
+        notes.append(f"CPU-YUV repaint payload equals {observed_eye_upload_count:g} I420 eye uploads")
     if route == "cpu-yuv" and repaint_prepare_ms is not None and repaint_prepare_ms > 3.0:
         notes.append("CPU-YUV repaint texture preparation is a primary headroom target")
     if upload_submit_avg is not None and upload_submit_avg > 100.0:
@@ -406,6 +442,7 @@ def markdown_table(comparison: dict[str, Any]) -> str:
         ("Texture Hz", ["performance", "pairedTextureUpdateRateHz"]),
         ("Acquire->Upload ms", ["makepadFrameFlow", "acquireToUploadMs", "avg"]),
         ("Repaint Upload MiB", ["performance", "xrRepaintTextureUploadMiB"]),
+        ("I420 Eye Uploads", ["performance", "observedCpuYuvEyeUploadCount"]),
         ("Prepare Textures ms", ["performance", "xrRepaintPrepareTexturesMs"]),
         ("Resource", ["lane", "resourceKind"]),
         ("Descriptor", ["lane", "descriptorShape"]),
@@ -465,6 +502,7 @@ def run_self_test() -> int:
                             "resource_kind": "cpu-yuv-plane-textures",
                             "descriptor_shape": "cpu-yuv-plane-textures",
                             "color_status": "accepted-reference",
+                            "delivered_size": {"width": 1280, "height": 1280},
                             "projection_border_policy": "solid-red",
                             "processing_layer": "raw",
                             "timing": {},
@@ -563,8 +601,12 @@ def run_self_test() -> int:
         assert comparison["rows"][0]["stale"]["recentSum"] == 3, comparison
         assert comparison["rows"][0]["makepadFrameFlow"]["acquireToUploadMs"]["avg"] == 8.0, comparison
         assert comparison["rows"][0]["performance"]["xrRepaintTextureUploadMiB"] == 4.69, comparison
+        assert comparison["rows"][0]["performance"]["observedCpuYuvEyeUploadCount"] == 2.0, comparison
         assert any(
             "repaint uploads" in note for note in comparison["rows"][0]["localizationNotes"]
+        ), comparison
+        assert any(
+            "I420 eye uploads" in note for note in comparison["rows"][0]["localizationNotes"]
         ), comparison
         assert comparison["rows"][1]["route"] == "direct-hwb", comparison
         assert comparison["rows"][1]["freshness"]["uniqueFrames"] == 6, comparison
@@ -572,6 +614,7 @@ def run_self_test() -> int:
         table = markdown_table(comparison)
         assert "Acquire->Upload" in table, table
         assert "Repaint Upload MiB" in table, table
+        assert "I420 Eye Uploads" in table, table
     print("Compare-CameraLaneRuns self-test passed")
     return 0
 
