@@ -261,6 +261,7 @@ pub(crate) enum MakepadProjectionSampleMode {
     Camera,
     SolidColor,
     SolidNoTexture,
+    ClearOnly,
 }
 
 impl MakepadProjectionSampleMode {
@@ -275,6 +276,7 @@ impl MakepadProjectionSampleMode {
             "solid-no-texture" | "solid-notexture" | "no-texture" | "no-camera-texture" => {
                 Self::SolidNoTexture
             }
+            "clear" | "clear-only" | "no-draw" | "panel-off" => Self::ClearOnly,
             _ => Self::Camera,
         }
     }
@@ -284,20 +286,28 @@ impl MakepadProjectionSampleMode {
             Self::Camera => "camera",
             Self::SolidColor => "solid-color",
             Self::SolidNoTexture => "solid-no-texture",
+            Self::ClearOnly => "clear-only",
         }
     }
 
     pub(crate) fn shader_code(self) -> f32 {
         match self {
             Self::Camera => 0.0,
-            Self::SolidColor | Self::SolidNoTexture => 1.0,
+            Self::SolidColor | Self::SolidNoTexture | Self::ClearOnly => 1.0,
         }
     }
 
     pub(crate) fn binds_camera_textures(self) -> bool {
         match self {
             Self::Camera | Self::SolidColor => true,
-            Self::SolidNoTexture => false,
+            Self::SolidNoTexture | Self::ClearOnly => false,
+        }
+    }
+
+    pub(crate) fn draws_projection_panel(self) -> bool {
+        match self {
+            Self::Camera | Self::SolidColor | Self::SolidNoTexture => true,
+            Self::ClearOnly => false,
         }
     }
 }
@@ -326,6 +336,17 @@ mod tests {
         assert_eq!(mode.stable_id(), "solid-color");
         assert_eq!(mode.shader_code(), 1.0);
         assert!(mode.binds_camera_textures());
+        assert!(mode.draws_projection_panel());
+    }
+
+    #[test]
+    fn clear_only_skips_camera_binding_and_panel_draw() {
+        let mode = MakepadProjectionSampleMode::from_stable_id("clear-only");
+
+        assert_eq!(mode.stable_id(), "clear-only");
+        assert_eq!(mode.shader_code(), 1.0);
+        assert!(!mode.binds_camera_textures());
+        assert!(!mode.draws_projection_panel());
     }
 }
 

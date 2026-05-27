@@ -49,7 +49,7 @@ param(
     [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("raw", "blur")]
     [string]$ProcessingLayer = "raw",
-    [ValidateSet("camera", "solid-color", "solid-no-texture")]
+    [ValidateSet("camera", "solid-color", "solid-no-texture", "clear-only")]
     [string]$ProjectionSampleMode = "camera",
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionScale = 1.0,

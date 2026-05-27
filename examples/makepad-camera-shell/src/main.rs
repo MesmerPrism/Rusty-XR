@@ -2354,8 +2354,11 @@ impl Widget for MakepadStereoCameraPanel {
             return self.node.draw_3d(cx, scope);
         }
         if !CAMERA_PANEL_DRAW_MARKER_EMITTED.swap(true, Ordering::AcqRel) {
+            let projection_panel_draw_enabled =
+                MakepadProjectionSampleMode::current().draws_projection_panel();
             emit_marker_line(&makepad_visible_panel_draw_marker_line(
                 self.camera_ready,
+                projection_panel_draw_enabled,
                 self.draw_panel.projection_depth_meters,
                 self.draw_panel.projection_preview_fov_y_degrees,
                 self.draw_panel.projection_preview_offset_y_meters,
@@ -2366,7 +2369,9 @@ impl Widget for MakepadStereoCameraPanel {
         self.draw_panel.cube_pos = vec3f(0.0, 0.0, 0.0);
         self.draw_panel.cube_size = vec3f(1.0, 1.0, 0.0);
         self.draw_panel.depth_clip = 0.0;
-        self.draw_panel.draw(cx);
+        if MakepadProjectionSampleMode::current().draws_projection_panel() {
+            self.draw_panel.draw(cx);
+        }
 
         self.node.draw_3d(cx, scope)
     }
@@ -4133,6 +4138,7 @@ impl App {
         let broker_h264_enabled = Self::broker_h264_enabled();
         let projection_sample_mode = MakepadProjectionSampleMode::current();
         let camera_texture_binding_enabled = projection_sample_mode.binds_camera_textures();
+        let projection_panel_draw_enabled = projection_sample_mode.draws_projection_panel();
         let paired_streams_available =
             self.paired_import_left_updated && self.paired_import_right_updated;
         if self.camera_projection_textures_bound
@@ -4346,6 +4352,7 @@ impl App {
             single_stream_visual_proof,
             proof_source_side,
             camera_texture_binding_enabled,
+            projection_panel_draw_enabled,
         ));
         if !self.synthetic_scene_hidden_for_camera {
             self.synthetic_scene_hidden_for_camera = true;
@@ -4361,6 +4368,7 @@ impl App {
             single_stream_visual_proof,
             proof_source_side,
             camera_texture_binding_enabled,
+            projection_panel_draw_enabled,
         ));
         true
     }
