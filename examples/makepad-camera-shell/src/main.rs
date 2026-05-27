@@ -204,6 +204,7 @@ script_mod! {
         projection_border_opacity: 1.0
         projection_border_policy: 0.0
         processing_layer: 0.0
+        projection_sample_mode: 0.0
         blur_radius_px: 2.0
         projection_area_diagnostic: 0.0
         projection_area_offset_left_uv: 0.0
@@ -612,6 +613,15 @@ script_mod! {
             return self.sample_camera_rgb(coord, eye_selector);
         }
 
+        sample_or_solid_camera_rgb: fn(coord: vec2f, eye_selector: float) -> vec3f {
+            if self.projection_sample_mode > 0.5 {
+                let left_solid = vec3(0.08, 0.28, 0.72);
+                let right_solid = vec3(0.70, 0.16, 0.38);
+                return mix(left_solid, right_solid, eye_selector);
+            }
+            return self.sample_processed_camera_rgb(coord, eye_selector);
+        }
+
         projection_alpha_transform: fn(mask: float) -> float {
             return clamp(
                 mask * max(self.projection_alpha_scale, 0.0) + self.projection_alpha_bias,
@@ -849,7 +859,7 @@ script_mod! {
             if self.force_in_surface_camera_window > 0.5 {
                 let camera_window_uv = clamp(mapped_source_uv, vec2(0.0, 0.0), vec2(1.0, 1.0));
                 let window_sample_uv = self.source_sample_uv(camera_window_uv);
-                let camera_rgb = self.sample_processed_camera_rgb(window_sample_uv, eye_selector);
+                let camera_rgb = self.sample_or_solid_camera_rgb(window_sample_uv, eye_selector);
                 let passthrough_border_policy =
                     step(0.5, self.projection_border_policy);
                 let projection_area_opacity = clamp(self.projection_area_opacity, 0.0, 1.0);
@@ -872,7 +882,7 @@ script_mod! {
                 );
             }
             let direct_rgb =
-                self.sample_processed_camera_rgb(live_sample_uv, eye_selector) * mix(0.12, 1.0, live_projection_valid);
+                self.sample_or_solid_camera_rgb(live_sample_uv, eye_selector) * mix(0.12, 1.0, live_projection_valid);
             let guided_direct = mix(direct_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
             return vec4(guided_direct.x, guided_direct.y, guided_direct.z, 1.0);
 
@@ -1102,6 +1112,8 @@ pub struct App {
     #[rust]
     processing_layer: f32,
     #[rust]
+    projection_sample_mode: f32,
+    #[rust]
     blur_radius_px: f32,
     #[rust]
     projection_area_diagnostic: f32,
@@ -1231,6 +1243,8 @@ pub struct DrawMakepadStereoCameraPanel {
     pub projection_border_policy: f32,
     #[live(0.0_f32)]
     pub processing_layer: f32,
+    #[live(0.0_f32)]
+    pub projection_sample_mode: f32,
     #[live(2.0_f32)]
     pub blur_radius_px: f32,
     #[live(0.0_f32)]
@@ -1476,6 +1490,7 @@ struct HorizontalAlignmentTuning {
     projection_border_opacity: f32,
     projection_border_policy: f32,
     processing_layer: f32,
+    projection_sample_mode: f32,
     blur_radius_px: f32,
     projection_area_diagnostic: f32,
     projection_area_offset_left_uv: f32,
@@ -1505,6 +1520,7 @@ impl Default for HorizontalAlignmentTuning {
             projection_border_opacity: TARGET_PROJECTION_BORDER_OPACITY,
             projection_border_policy: MakepadProjectionBorderPolicy::current().shader_code(),
             processing_layer: MakepadProcessingLayer::current().shader_code(),
+            projection_sample_mode: MakepadProjectionSampleMode::current().shader_code(),
             blur_radius_px: makepad_blur_radius_px(),
             projection_area_diagnostic: TARGET_PROJECTION_AREA_DIAGNOSTIC,
             projection_area_offset_left_uv: TARGET_PROJECTION_AREA_OFFSET_LEFT_UV,
@@ -1690,6 +1706,8 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.projection_border_policy =
             MakepadProjectionBorderPolicy::current().shader_code();
         self.draw_panel.processing_layer = MakepadProcessingLayer::current().shader_code();
+        self.draw_panel.projection_sample_mode =
+            MakepadProjectionSampleMode::current().shader_code();
         self.draw_panel.blur_radius_px = makepad_blur_radius_px();
         self.draw_panel.projection_area_diagnostic = TARGET_PROJECTION_AREA_DIAGNOSTIC;
         self.draw_panel.projection_area_offset_left_uv = TARGET_PROJECTION_AREA_OFFSET_LEFT_UV;
@@ -1813,6 +1831,16 @@ impl MakepadStereoCameraPanel {
             cx,
             live_id!(processing_layer),
             &[self.draw_panel.processing_layer],
+        );
+        self.draw_panel.draw_vars.set_instance_on_area(
+            cx,
+            live_id!(projection_sample_mode),
+            &[self.draw_panel.projection_sample_mode],
+        );
+        self.draw_panel.draw_vars.set_uniform_on_area(
+            cx,
+            live_id!(projection_sample_mode),
+            &[self.draw_panel.projection_sample_mode],
         );
         self.draw_panel.draw_vars.set_instance_on_area(
             cx,
@@ -2187,6 +2215,7 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.projection_border_opacity = tuning.projection_border_opacity;
         self.draw_panel.projection_border_policy = tuning.projection_border_policy;
         self.draw_panel.processing_layer = tuning.processing_layer;
+        self.draw_panel.projection_sample_mode = tuning.projection_sample_mode;
         self.draw_panel.blur_radius_px = tuning.blur_radius_px;
         self.draw_panel.projection_area_diagnostic = tuning.projection_area_diagnostic;
         self.draw_panel.projection_area_offset_left_uv = tuning.projection_area_offset_left_uv;
@@ -2228,6 +2257,10 @@ impl MakepadStereoCameraPanel {
                 tuning.projection_border_policy,
             ),
             (live_id!(processing_layer), tuning.processing_layer),
+            (
+                live_id!(projection_sample_mode),
+                tuning.projection_sample_mode,
+            ),
             (live_id!(blur_radius_px), tuning.blur_radius_px),
             (
                 live_id!(projection_area_diagnostic),
@@ -2824,6 +2857,7 @@ impl App {
         let projection_border_opacity = makepad_projection_border_opacity();
         let projection_border_policy = MakepadProjectionBorderPolicy::current().shader_code();
         let processing_layer = MakepadProcessingLayer::current().shader_code();
+        let projection_sample_mode = MakepadProjectionSampleMode::current().shader_code();
         let blur_radius_px = makepad_blur_radius_px();
         let projection_area_diagnostic = hotload_f32(
             KEY_MAKEPAD_PROJECTION_AREA_DIAGNOSTIC,
@@ -2904,6 +2938,7 @@ impl App {
             projection_border_opacity,
             projection_border_policy,
             processing_layer,
+            projection_sample_mode,
             blur_radius_px,
             projection_area_diagnostic,
             projection_area_offset_left_uv,
@@ -2934,6 +2969,7 @@ impl App {
                 projection_border_opacity: self.projection_border_opacity,
                 projection_border_policy: self.projection_border_policy,
                 processing_layer: self.processing_layer,
+                projection_sample_mode: self.projection_sample_mode,
                 blur_radius_px: self.blur_radius_px,
                 projection_area_diagnostic: self.projection_area_diagnostic,
                 projection_area_offset_left_uv: self.projection_area_offset_left_uv,
@@ -2967,6 +3003,7 @@ impl App {
             || (self.projection_border_opacity - tuning.projection_border_opacity).abs() > 0.0001
             || (self.projection_border_policy - tuning.projection_border_policy).abs() > 0.0001
             || (self.processing_layer - tuning.processing_layer).abs() > 0.0001
+            || (self.projection_sample_mode - tuning.projection_sample_mode).abs() > 0.0001
             || (self.blur_radius_px - tuning.blur_radius_px).abs() > 0.0001
             || (self.projection_area_diagnostic - tuning.projection_area_diagnostic).abs() > 0.0001
             || (self.projection_area_offset_left_uv - tuning.projection_area_offset_left_uv).abs()
@@ -3006,6 +3043,7 @@ impl App {
         self.projection_border_opacity = tuning.projection_border_opacity;
         self.projection_border_policy = tuning.projection_border_policy;
         self.processing_layer = tuning.processing_layer;
+        self.projection_sample_mode = tuning.projection_sample_mode;
         self.blur_radius_px = tuning.blur_radius_px;
         self.projection_area_diagnostic = tuning.projection_area_diagnostic;
         self.projection_area_offset_left_uv = tuning.projection_area_offset_left_uv;

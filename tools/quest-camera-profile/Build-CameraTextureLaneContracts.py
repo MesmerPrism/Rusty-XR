@@ -130,6 +130,7 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
             "debug.rustyxr.makepad.projection.border.policy": "projectionBorderPolicy",
             "debug.rustyxr.processing.layer": "processingLayer",
             "debug.rustyxr.makepad.processing.layer": "processingLayer",
+            "debug.rustyxr.makepad.projection.sample.mode": "projectionSampleMode",
             "debug.rustyxr.xr.render.scale": "xrRenderScale",
             "debug.rustyxr.makepad.xr.render.scale": "xrRenderScale",
             "debug.rustyxr.makepad.blur.radius.px": "blurRadiusPx",
@@ -164,6 +165,7 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
             ("cameraProjectionMode", "cameraProjectionMode"),
             ("projectionBorderPolicy", "projectionBorderPolicy"),
             ("processingLayer", "processingLayer"),
+            ("projectionSampleMode", "projectionSampleMode"),
             ("blurRadiusPx", "blurRadiusPx"),
             ("xrRenderScale", "xrRenderScale"),
             ("directCameraTexturePath", "directCameraTexturePath"),
@@ -180,6 +182,7 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
                 ("rustyxr.projectionBorderPolicy", "projectionBorderPolicy"),
                 ("rustyxr.processingLayer", "processingLayer"),
                 ("rustyxr.makepad.processing.layer", "processingLayer"),
+                ("rustyxr.makepad.projection.sample.mode", "projectionSampleMode"),
                 ("rustyxr.cameraBlurRadiusPx", "blurRadiusPx"),
                 ("rustyxr.xrRenderScale", "xrRenderScale"),
             ):
@@ -841,6 +844,7 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
         {
             "projection_border_policy": str(fields.get("projectionBorderPolicy") or "unknown"),
             "processing_layer": str(fields.get("processingLayer") or "raw"),
+            "projection_sample_mode": str(fields.get("projectionSampleMode") or "camera"),
         }
     )
     return contract
@@ -857,6 +861,11 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
     lane_processing = nonempty_text(projection.get("processing_layer"))
     if context_processing is not None and (lane_processing is None or lane_processing == "unknown"):
         projection["processing_layer"] = context_processing
+
+    context_sample_mode = nonempty_text(context_fields.get("projectionSampleMode"))
+    lane_sample_mode = nonempty_text(projection.get("projection_sample_mode"))
+    if context_sample_mode is not None and (lane_sample_mode is None or lane_sample_mode == "unknown"):
+        projection["projection_sample_mode"] = context_sample_mode
 
 
 class ScanState:
@@ -980,6 +989,7 @@ def build_run_config_summary(context_fields: dict[str, Any]) -> dict[str, Any]:
         "xr_render_scale": parse_float(context_fields.get("xrRenderScale")),
         "projection_border_policy": nonempty_text(context_fields.get("projectionBorderPolicy")),
         "processing_layer": nonempty_text(context_fields.get("processingLayer")),
+        "projection_sample_mode": nonempty_text(context_fields.get("projectionSampleMode")),
         "blur_radius_px": parse_float(context_fields.get("blurRadiusPx")),
     }
 
@@ -1001,6 +1011,7 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
         "color_status": color.get("color_status", "unknown"),
         "projection_border_policy": projection.get("projection_border_policy", "unknown"),
         "processing_layer": projection.get("processing_layer", "unknown"),
+        "projection_sample_mode": projection.get("projection_sample_mode", "unknown"),
         "first_frame_seen": bool(lifecycle.get("first_frame_seen", False)),
         "fallback_active": bool(lifecycle.get("fallback_active", False)),
         "fallback_reason": lifecycle.get("fallback_reason"),
@@ -1057,6 +1068,9 @@ def build_summary(
         ),
         "processing_layer_counts": dict(
             Counter(record.get("projection", {}).get("processing_layer", "unknown") for record in records)
+        ),
+        "projection_sample_mode_counts": dict(
+            Counter(record.get("projection", {}).get("projection_sample_mode", "unknown") for record in records)
         ),
         "fallback_active_counts": dict(
             Counter(str(record.get("lifecycle", {}).get("fallback_active", False)).lower() for record in records)
@@ -1126,6 +1140,11 @@ def self_test() -> None:
                     "actual": "raw",
                 },
                 {
+                    "property": "debug.rustyxr.makepad.projection.sample.mode",
+                    "expected": "solid-color",
+                    "actual": "solid-color",
+                },
+                {
                     "property": "debug.rustyxr.makepad.xr.render.scale",
                     "expected": "0.75",
                     "actual": "0.75",
@@ -1170,7 +1189,11 @@ def self_test() -> None:
             raise AssertionError("summary did not expose XR render scale")
         if summary["run_config"]["processing_layer"] != "raw":
             raise AssertionError("summary did not expose processing layer")
+        if summary["run_config"]["projection_sample_mode"] != "solid-color":
+            raise AssertionError("summary did not expose projection sample mode")
         cpu_summary = summary["lane_summaries"]["makepad-cpuyuv-direct-camera2-raw"]
+        if cpu_summary["projection_sample_mode"] != "solid-color":
+            raise AssertionError("summary did not apply projection sample mode context")
         if cpu_summary["timing_relations"]["acquire_to_upload_ns"] != 345:
             raise AssertionError("summary did not compute CPU acquire-to-upload timing")
         if (

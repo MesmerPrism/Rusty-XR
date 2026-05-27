@@ -256,6 +256,40 @@ impl MakepadProcessingLayer {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MakepadProjectionSampleMode {
+    Camera,
+    SolidColor,
+}
+
+impl MakepadProjectionSampleMode {
+    pub(crate) fn current() -> Self {
+        let value = hotload_text(KEY_MAKEPAD_PROJECTION_SAMPLE_MODE, "camera");
+        Self::from_stable_id(&value)
+    }
+
+    pub(crate) fn from_stable_id(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "solid" | "solid-color" | "no-camera" | "sample-off" => Self::SolidColor,
+            _ => Self::Camera,
+        }
+    }
+
+    pub(crate) fn stable_id(self) -> &'static str {
+        match self {
+            Self::Camera => "camera",
+            Self::SolidColor => "solid-color",
+        }
+    }
+
+    pub(crate) fn shader_code(self) -> f32 {
+        match self {
+            Self::Camera => 0.0,
+            Self::SolidColor => 1.0,
+        }
+    }
+}
+
 pub(crate) fn makepad_blur_radius_px() -> f32 {
     hotload_f32(KEY_MAKEPAD_BLUR_RADIUS_PX, 2.0, 0.0, 16.0)
 }

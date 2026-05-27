@@ -12,6 +12,8 @@ param(
     [string]$ProjectionBorderPolicy = "",
     [ValidateSet("", "raw", "blur")]
     [string]$ProcessingLayer = "",
+    [ValidateSet("", "camera", "solid-color")]
+    [string]$ProjectionSampleMode = "",
     [double]$BlurRadiusPx = [double]::NaN,
     [double]$ProjectionDepthMeters = [double]::NaN,
     [double]$ProjectionAreaDiagnostic = [double]::NaN,
@@ -84,6 +86,7 @@ $properties = [ordered]@{
     ProjectionBorderPolicy = "debug.rustyxr.projection.border.policy"
     NativePassthroughEnabled = "debug.rustyxr.makepad.native.passthrough.enabled"
     ProcessingLayer = "debug.rustyxr.makepad.processing.layer"
+    ProjectionSampleMode = "debug.rustyxr.makepad.projection.sample.mode"
     BlurRadiusPx = "debug.rustyxr.makepad.blur.radius.px"
     ProjectionDepthMeters = "debug.rustyxr.projection.depth.meters"
     ProjectionAreaDiagnostic = "debug.rustyxr.makepad.projection.area.diagnostic"
@@ -195,6 +198,9 @@ if ($ProjectionAlphaMode) {
 }
 if ($ProcessingLayer) {
     Invoke-Adb -Arguments @("shell", "setprop", $properties.ProcessingLayer, $ProcessingLayer)
+}
+if ($ProjectionSampleMode) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionSampleMode, $ProjectionSampleMode)
 }
 if (-not [double]::IsNaN($BlurRadiusPx)) {
     Set-Prop -Name $properties.BlurRadiusPx -Value $BlurRadiusPx

@@ -361,6 +361,8 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "projectionBorderPolicy": run_config.get("projection_border_policy")
             or makepad_summary.get("projectionBorderPolicy"),
             "processingLayer": run_config.get("processing_layer") or makepad_summary.get("processingLayer"),
+            "projectionSampleMode": run_config.get("projection_sample_mode")
+            or makepad_summary.get("projectionSampleMode"),
             "xrRenderScale": run_config.get("xr_render_scale") or makepad_summary.get("xrRenderScale"),
             "vrapiScaleFactor": latest_vrapi_scale(latest) if isinstance(latest, dict) else None,
         },
@@ -437,6 +439,7 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "deliveredSize": delivered_size,
             "projectionBorderPolicy": lane_summary.get("projection_border_policy"),
             "processingLayer": lane_summary.get("processing_layer"),
+            "projectionSampleMode": lane_summary.get("projection_sample_mode"),
             "timing": lane_summary.get("timing", {}),
             "timingRelations": lane_summary.get("timing_relations", {}),
         },
@@ -484,8 +487,11 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
     path_counts = nested(row, ["makepadFrameFlow", "pathCounts"], {})
     input_counts = nested(row, ["makepadFrameFlow", "inputIdCounts"], {})
     route = str(row.get("route") or "")
+    sample_mode = str(nested(row, ["runConfig", "projectionSampleMode"], "") or "")
     if stale_recent:
         notes.append("recent stale is nonzero; use latest/freshness together before calling the lane frozen")
+    if row.get("kind") == "makepad" and sample_mode == "solid-color":
+        notes.append("solid sample mode isolates Makepad render-pass/fill overhead from camera fragment sampling")
     if route == "cpu-yuv" and cpu_gpu is not None and cpu_gpu > 12.0:
         notes.append("CPU-YUV CPU+GPU is high enough to inspect upload and repaint texture-upload cost first")
     if route == "cpu-yuv" and acquire_upload_avg is not None:
@@ -630,6 +636,7 @@ def markdown_table(comparison: dict[str, Any]) -> str:
         ("Resource", ["lane", "resourceKind"]),
         ("Descriptor", ["lane", "descriptorShape"]),
         ("Color", ["lane", "colorStatus"]),
+        ("Sample", ["runConfig", "projectionSampleMode"]),
         ("Scale", ["runConfig", "xrRenderScale"]),
         ("Notes", ["localizationNotes"]),
     ]

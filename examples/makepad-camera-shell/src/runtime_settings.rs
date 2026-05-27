@@ -143,6 +143,8 @@ pub(crate) const KEY_MAKEPAD_PROJECTION_ALPHA_SCALE: &str = "makepad_projection_
 pub(crate) const KEY_MAKEPAD_PROJECTION_ALPHA_BIAS: &str = "makepad_projection_alpha_bias";
 pub(crate) const KEY_MAKEPAD_PROJECTION_BORDER_POLICY: &str =
     "makepad_projection_border_policy";
+pub(crate) const KEY_MAKEPAD_PROJECTION_SAMPLE_MODE: &str =
+    "makepad_projection_sample_mode";
 pub(crate) const KEY_MAKEPAD_PROCESSING_LAYER: &str = "makepad_processing_layer";
 pub(crate) const KEY_MAKEPAD_BLUR_RADIUS_PX: &str = "makepad_blur_radius_px";
 pub(crate) const KEY_MAKEPAD_PROJECTION_RUNTIME_RESOLUTION_ENABLED: &str =

@@ -49,6 +49,8 @@ param(
     [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("raw", "blur")]
     [string]$ProcessingLayer = "raw",
+    [ValidateSet("camera", "solid-color")]
+    [string]$ProjectionSampleMode = "camera",
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionScale = 1.0,
     [double]$ProjectionDepthMeters = 1.0,
@@ -629,6 +631,7 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.makepad.native.passthrough.enabled" = $nativePassthrough
         "debug.rustyxr.makepad.projection.runtime.resolution.enabled" = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
         "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
+        "debug.rustyxr.makepad.projection.sample.mode" = $ProjectionSampleMode
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
         "debug.rustyxr.makepad.direct.camera.hardware.buffer.external" = $directHardwareBufferExternal
         "debug.rustyxr.camera.projection.mode" = $CameraProjectionMode
@@ -1461,12 +1464,14 @@ $summary = [ordered]@{
     mediaProjectionHeight = $MediaProjectionHeight
     mediaProjectionDelayMs = $MediaProjectionDelayMs
     processingLayer = $ProcessingLayer
+    projectionSampleMode = $ProjectionSampleMode
     blurRadiusPx = $BlurRadiusPx
     projectionAreaDiagnostic = [double]$ProjectionAreaDiagnostic
     runConfiguration = [ordered]@{
         xrRenderScale = [double]$XrRenderScale
         projectionBorderPolicy = $ProjectionBorderPolicy
         processingLayer = $ProcessingLayer
+        projectionSampleMode = $ProjectionSampleMode
         blurRadiusPx = [double]$BlurRadiusPx
         projectionAreaDiagnostic = [double]$ProjectionAreaDiagnostic
         directCameraTexturePath = $DirectCameraTexturePath

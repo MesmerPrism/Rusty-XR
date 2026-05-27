@@ -65,6 +65,7 @@ function Get-RustyXrProjectionPropertyHygieneKeys {
         "debug.rustyxr.makepad.projection.alpha.bias",
         "debug.rustyxr.makepad.projection.runtime.resolution.enabled",
         "debug.rustyxr.makepad.processing.layer",
+        "debug.rustyxr.makepad.projection.sample.mode",
         "debug.rustyxr.makepad.blur.radius.px",
         "debug.rustyxr.makepad.direct.camera.hardware.buffer.external",
         "debug.rustyxr.makepad.horizontal.alignment.strength",
