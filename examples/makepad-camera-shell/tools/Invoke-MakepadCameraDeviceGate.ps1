@@ -135,9 +135,57 @@ function Invoke-Adb {
 function Save-Adb {
     param(
         [string[]]$Arguments,
-        [string]$Path
+        [string]$Path,
+        [int]$TimeoutSeconds = 0
     )
-    Invoke-Adb -Arguments $Arguments 2>&1 | Set-Content -Path $Path -Encoding UTF8
+    if ($TimeoutSeconds -le 0) {
+        Invoke-Adb -Arguments $Arguments 2>&1 | Set-Content -Path $Path -Encoding UTF8
+        return
+    }
+
+    $processInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $processInfo.FileName = "adb"
+    $processInfo.UseShellExecute = $false
+    $processInfo.RedirectStandardOutput = $true
+    $processInfo.RedirectStandardError = $true
+    $processInfo.CreateNoWindow = $true
+    @("-s", $Serial) + $Arguments | ForEach-Object {
+        [void]$processInfo.ArgumentList.Add($_)
+    }
+
+    $process = [System.Diagnostics.Process]::Start($processInfo)
+    $timedOut = $false
+    try {
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            $timedOut = $true
+            try {
+                $process.Kill($true)
+            }
+            catch {
+                $process.Kill()
+            }
+            $process.WaitForExit()
+        }
+        $output = @()
+        $stdout = $process.StandardOutput.ReadToEnd()
+        $stderr = $process.StandardError.ReadToEnd()
+        if (-not [string]::IsNullOrWhiteSpace($stdout)) {
+            $output += $stdout.TrimEnd()
+        }
+        if (-not [string]::IsNullOrWhiteSpace($stderr)) {
+            $output += $stderr.TrimEnd()
+        }
+        if ($timedOut) {
+            $output += "adb command timed out after ${TimeoutSeconds}s"
+        }
+        elseif ($process.ExitCode -ne 0) {
+            $output += "adb command exited with code $($process.ExitCode)"
+        }
+        $output | Set-Content -Path $Path -Encoding UTF8
+    }
+    finally {
+        $process.Dispose()
+    }
 }
 
 function Convert-ToLongLiteralPath {
@@ -993,7 +1041,7 @@ function Start-ActivityAndProbe {
             "--ei", "rustyxr.mediaProjectionDelayMs", $MediaProjectionDelayMs.ToString()
         )
     }
-    Save-Adb -Arguments $launchArgs -Path (Join-Path $OutDir "$Label-start.txt")
+    Save-Adb -Arguments $launchArgs -Path (Join-Path $OutDir "$Label-start.txt") -TimeoutSeconds $StartupTimeoutSeconds
 
     $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
     do {
