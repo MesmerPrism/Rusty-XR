@@ -256,9 +256,25 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
         repaint_upload_bytes,
         expected_cpu_yuv_upload_bytes_per_eye,
     )
+    camera_cpu_yuv_upload_bytes = integer(
+        nested(frame_flow, ["cpuYuvUploadBytes", "totalBytes", "last"])
+    )
+    if camera_cpu_yuv_upload_bytes is None:
+        camera_cpu_yuv_upload_bytes = integer(
+            nested(frame_flow, ["latestCpuYuvUpload", "totalBytes"])
+        )
+    observed_repaint_to_camera_upload_count = observed_i420_eye_upload_count(
+        repaint_upload_bytes,
+        camera_cpu_yuv_upload_bytes,
+    )
     repaint_upload_mib = (
         rounded(repaint_upload_bytes / (1024.0 * 1024.0), 2)
         if repaint_upload_bytes is not None
+        else None
+    )
+    camera_cpu_yuv_upload_mib = (
+        rounded(camera_cpu_yuv_upload_bytes / (1024.0 * 1024.0), 2)
+        if camera_cpu_yuv_upload_bytes is not None
         else None
     )
     paired_texture_update_rate_hz = rounded(cadence.get("pairedTextureUpdateRateHz"))
@@ -317,6 +333,8 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             ),
             "xrRepaintTextureUploadBytes": repaint_upload_bytes,
             "xrRepaintTextureUploadMiB": repaint_upload_mib,
+            "cpuYuvMarkerUploadMiB": camera_cpu_yuv_upload_mib,
+            "observedRepaintToCpuYuvMarkerUploadCount": observed_repaint_to_camera_upload_count,
             "estimatedTextureUploadMiBPerSecond": upload_mib_per_second,
             "xrRepaintTextureUploadCount": integer(
                 nested(cadence_latest, ["xrRepaintTextureUploadCount"])
@@ -349,6 +367,7 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "xrEndFrameCount": frame_flow.get("xrEndFrameCount"),
             "acquireToUploadMs": frame_flow.get("acquireToUploadMs", {}),
             "uploadToNextSubmitMs": frame_flow.get("uploadToNextSubmitMs", {}),
+            "cpuYuvUploadBytes": frame_flow.get("cpuYuvUploadBytes", {}),
             "submitCorrelation": frame_flow.get("submitCorrelation", {}),
         },
     }
@@ -368,6 +387,9 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
     wait_frame_ms = number(nested(row, ["performance", "xrWaitFrameMs"]))
     wait_swapchain_ms = number(nested(row, ["performance", "xrWaitSwapchainMs"]))
     observed_eye_upload_count = number(nested(row, ["performance", "observedCpuYuvEyeUploadCount"]))
+    marker_upload_count = number(
+        nested(row, ["performance", "observedRepaintToCpuYuvMarkerUploadCount"])
+    )
     upload_mib_per_second = number(nested(row, ["performance", "estimatedTextureUploadMiBPerSecond"]))
     texture_to_xr_fraction = number(nested(row, ["performance", "textureToXrUpdateFraction"]))
     route = str(row.get("route") or "")
@@ -382,6 +404,10 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
         notes.append(f"CPU-YUV repaint uploads {round(mib, 2)} MiB of texture data")
     if route == "cpu-yuv" and observed_eye_upload_count is not None:
         notes.append(f"CPU-YUV repaint payload equals {observed_eye_upload_count:g} I420 eye uploads")
+    if route == "cpu-yuv" and marker_upload_count is not None:
+        notes.append(
+            f"CPU-YUV repaint payload equals {marker_upload_count:g} marker-reported CPU-YUV uploads"
+        )
     if route == "cpu-yuv" and upload_mib_per_second is not None:
         notes.append(f"CPU-YUV estimated texture upload bandwidth is {upload_mib_per_second:g} MiB/s")
     if route == "cpu-yuv" and texture_to_xr_fraction is not None:
@@ -469,6 +495,8 @@ def markdown_table(comparison: dict[str, Any]) -> str:
         ("Texture Hz", ["performance", "pairedTextureUpdateRateHz"]),
         ("Acquire->Upload ms", ["makepadFrameFlow", "acquireToUploadMs", "avg"]),
         ("Repaint Upload MiB", ["performance", "xrRepaintTextureUploadMiB"]),
+        ("Marker Upload MiB", ["performance", "cpuYuvMarkerUploadMiB"]),
+        ("Repaint/Marker", ["performance", "observedRepaintToCpuYuvMarkerUploadCount"]),
         ("I420 Eye Uploads", ["performance", "observedCpuYuvEyeUploadCount"]),
         ("Upload MiB/s", ["performance", "estimatedTextureUploadMiBPerSecond"]),
         ("Texture/XR", ["performance", "textureToXrUpdateFraction"]),
@@ -577,6 +605,16 @@ def run_self_test() -> int:
                 "xrEndFrameCount": 2,
                 "acquireToUploadMs": {"avg": 8.0},
                 "uploadToNextSubmitMs": {"avg": 150.0},
+                "cpuYuvUploadBytes": {
+                    "totalBytes": {
+                        "count": 9,
+                        "min": 2457600,
+                        "max": 2457600,
+                        "avg": 2457600,
+                        "last": 2457600,
+                        "sum": 22118400,
+                    }
+                },
             },
         }
         (makepad / "launcher-attempt-1-final" / "meta-perf-stale-analysis.json").write_text(
@@ -633,6 +671,8 @@ def run_self_test() -> int:
         assert comparison["rows"][0]["stale"]["recentSum"] == 3, comparison
         assert comparison["rows"][0]["makepadFrameFlow"]["acquireToUploadMs"]["avg"] == 8.0, comparison
         assert comparison["rows"][0]["performance"]["xrRepaintTextureUploadMiB"] == 4.69, comparison
+        assert comparison["rows"][0]["performance"]["cpuYuvMarkerUploadMiB"] == 2.34, comparison
+        assert comparison["rows"][0]["performance"]["observedRepaintToCpuYuvMarkerUploadCount"] == 2.0, comparison
         assert comparison["rows"][0]["performance"]["observedCpuYuvEyeUploadCount"] == 2.0, comparison
         assert comparison["rows"][0]["performance"]["estimatedTextureUploadMiBPerSecond"] == 233.56, comparison
         assert comparison["rows"][0]["performance"]["textureToXrUpdateFraction"] is None, comparison
@@ -649,6 +689,8 @@ def run_self_test() -> int:
         table = markdown_table(comparison)
         assert "Acquire->Upload" in table, table
         assert "Repaint Upload MiB" in table, table
+        assert "Marker Upload MiB" in table, table
+        assert "Repaint/Marker" in table, table
         assert "I420 Eye Uploads" in table, table
         assert "Upload MiB/s" in table, table
         assert "WaitSwapchain ms" in table, table

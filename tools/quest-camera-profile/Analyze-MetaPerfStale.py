@@ -301,6 +301,12 @@ def summarize_frame_flow(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "submitCorrelation": summarize_submit_correlation(submit_rows),
         "acquireToUploadMs": summarize_numbers(acquire_to_upload_ms),
         "uploadToNextSubmitMs": summarize_numbers(upload_to_submit_ms),
+        "cpuYuvUploadBytes": {
+            "yBytes": summarize_counter(upload_rows, "yBytes"),
+            "uBytes": summarize_counter(upload_rows, "uBytes"),
+            "vBytes": summarize_counter(upload_rows, "vBytes"),
+            "totalBytes": summarize_counter(upload_rows, "totalBytes"),
+        },
         "latestAcquire": acquired_rows[-1] if acquired_rows else {},
         "latestCpuYuvUpload": upload_rows[-1] if upload_rows else {},
         "latestXrEndFrame": submit_rows[-1] if submit_rows else {},
@@ -476,6 +482,12 @@ def run_self_test() -> int:
     ), transient_report
     assert transient_report["makepadFrameFlow"]["acquireToUploadMs"]["last"] == 5.0, transient_report
     assert transient_report["makepadFrameFlow"]["uploadToNextSubmitMs"]["last"] == 7.0, transient_report
+    assert (
+        transient_report["makepadFrameFlow"]["cpuYuvUploadBytes"]["totalBytes"]["last"] == 2457600
+    ), transient_report
+    assert (
+        transient_report["makepadFrameFlow"]["cpuYuvUploadBytes"]["totalBytes"]["sum"] == 2457600
+    ), transient_report
 
     sustained_report = _analyze_fixture(
         [
