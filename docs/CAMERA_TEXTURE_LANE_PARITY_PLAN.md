@@ -37,17 +37,17 @@ The builder scans existing public HWB, OES, and Makepad marker lines. It does
 not change renderer behavior.
 
 For Makepad lanes, `VideoTextureUpdated` now carries optional texture-update
-metadata for camera frame identity, acquire/upload/import timing, resource path,
-descriptor shape, Vulkan format facts, and fallback state. The Rusty XR Makepad
-adapter should prefer those event fields when emitting markers or lane-contract
-artifacts, and use older marker inference only as a compatibility fallback for
-old evidence bundles.
+metadata for camera source identity, camera frame identity,
+acquire/upload/import timing, resource path, descriptor shape, Vulkan format
+facts, and fallback state. The Rusty XR Makepad adapter should prefer those
+event fields when emitting markers or lane-contract artifacts, and use older
+marker inference only as a compatibility fallback for old evidence bundles.
 
 Each record separates these concerns:
 
 | Section | Required facts |
 | --- | --- |
-| `source` | Source kind, public source label, delivered size, handoff label, source-eye mapping |
+| `source` | Source kind, public source label, delivered size, handoff label, source-eye mapping, optional camera input/format ids |
 | `resource` | Texture resource kind, descriptor shape, texture label, optional buffer/import-cache identity, shader interface label |
 | `transform` | Visible source UV rect, transform stage, transform owner, OES matrix or HWB flags or YUV rotation when applicable |
 | `color` | Accepted/experimental/diagnostic status, color reference, matrix/range/transfer labels |
@@ -96,12 +96,13 @@ artifact folders. Commit only normalized contracts, summaries, or docs.
    `SurfaceTexture` timestamp, update count, transform matrix, color-transfer,
    swapchain-format, and projection-status facts.
 4. Promote Makepad CPU-YUV frame identity into the adapter contract. The
-   Makepad event side should expose camera frame id/timestamp and upload
-   id/timestamp so the Rusty XR shell does not infer freshness only from
-   `VideoTextureUpdated` plus `yuv.enabled`.
-5. Promote Makepad HWB external resource identity the same way. Carry AHB
-   frame timestamp, import/update id, Vulkan format/external format, fallback
-   state, and descriptor-shape evidence as contract fields.
+   Makepad event side should expose camera input/format ids, camera frame
+   id/timestamp, and upload id/timestamp so the Rusty XR shell does not infer
+   freshness only from `VideoTextureUpdated` plus `yuv.enabled`.
+5. Promote Makepad HWB external resource identity the same way. Carry camera
+   input/format ids, AHB frame timestamp, import/update id, Vulkan
+   format/external format, fallback state, and descriptor-shape evidence as
+   contract fields.
 6. Replace scattered Makepad shell path inference with one adapter that converts
    Makepad events into `CameraTextureLaneContract`.
 7. Align focused Makepad gate summaries with direct HWB/OES summaries:
