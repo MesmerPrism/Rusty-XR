@@ -59,6 +59,22 @@ Color acceptance is intentionally separate from resource correctness. Makepad
 CPU-YUV can remain the accepted visual reference while Makepad HWB external is
 resource-cadence comparable but color-experimental.
 
+## CPU-YUV Reference Accounting
+
+For the current Makepad CPU-YUV reference lane, a full I420 camera frame is
+represented as three single-channel plane textures. A stereo camera evidence
+run can therefore legitimately upload six dirty plane textures in one repaint
+window: two camera input streams times Y, U, and V. At 1280x1280 this is about
+2.34 MiB per camera upload marker and about 4.69 MiB when both streams update
+within the same repaint window.
+
+Treat that payload as baseline CPU-YUV reference cost, not as an automatic
+duplicate-upload bug. Headroom work should first separate camera-copy cost,
+CPU-YUV acquire-to-upload latency, Vulkan staging/upload cost, and XR
+swapchain/scheduler wait. Makepad HWB external remains the lower-copy resource
+cadence control, but its color status stays experimental until the video
+resource/shader contract is fixed.
+
 ## Perfetto Deep-Trace Tier
 
 Perfetto capture belongs above the lane contract as an optional explanation
