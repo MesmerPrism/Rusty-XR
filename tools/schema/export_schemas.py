@@ -2245,6 +2245,7 @@ def schemas() -> dict[str, dict]:
         "CameraTextureLaneSummary",
         {
             "source_kind": camera_texture_source_kind,
+            "delivered_size": image_size(),
             "resource_kind": camera_texture_resource_kind,
             "descriptor_shape": camera_texture_descriptor_shape,
             "color_status": camera_texture_color_status,
