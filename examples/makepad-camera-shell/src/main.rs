@@ -3333,6 +3333,19 @@ impl App {
                     .map(|breakdown| breakdown.repaint_texture_upload_count),
                 xr_repaint_texture_upload_bytes: xr_cpu
                     .map(|breakdown| breakdown.repaint_texture_upload_bytes),
+                xr_repaint_packet_buffer_count: xr_cpu
+                    .map(|breakdown| breakdown.repaint_packet_buffer_count),
+                xr_repaint_packet_buffer_bytes: xr_cpu
+                    .map(|breakdown| breakdown.repaint_packet_buffer_bytes),
+                xr_repaint_geometry_upload_bytes: xr_cpu
+                    .map(|breakdown| breakdown.repaint_geometry_upload_bytes),
+                xr_repaint_descriptor_set_count: xr_cpu
+                    .map(|breakdown| breakdown.repaint_descriptor_set_count),
+                xr_repaint_draw_items: xr_cpu.map(|breakdown| breakdown.repaint_draw_items),
+                xr_repaint_draw_calls: xr_cpu.map(|breakdown| breakdown.repaint_draw_calls),
+                xr_repaint_packets: xr_cpu.map(|breakdown| breakdown.repaint_packets),
+                xr_repaint_instances: xr_cpu.map(|breakdown| breakdown.repaint_instances),
+                xr_repaint_indices: xr_cpu.map(|breakdown| breakdown.repaint_indices),
                 xr_depth_readback_ms: xr_cpu.map(|breakdown| breakdown.depth_readback_ms),
                 xr_end_frame_ms: xr_cpu.map(|breakdown| breakdown.end_frame_ms),
                 xr_resize_projection_ms: xr_cpu.map(|breakdown| breakdown.resize_projection_ms),

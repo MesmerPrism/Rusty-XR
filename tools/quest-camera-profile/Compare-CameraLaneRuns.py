@@ -276,6 +276,10 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
     route = route_from_makepad_summary(makepad_summary) or route_from_lane_kind(lane_kind)
     recent_stale_sum = integer(nested(recent, ["stale", "sum"], 0)) or 0
     repaint_upload_bytes = integer(nested(cadence_latest, ["xrRepaintTextureUploadBytes"]))
+    repaint_geometry_bytes = integer(nested(cadence_latest, ["xrRepaintGeometryUploadBytes"]))
+    repaint_packet_buffer_bytes = integer(
+        nested(cadence_latest, ["xrRepaintPacketBufferBytes"])
+    )
     delivered_size = lane_summary.get("delivered_size")
     expected_cpu_yuv_upload_bytes_per_eye = (
         expected_i420_upload_bytes(delivered_size) if route == "cpu-yuv" else None
@@ -298,6 +302,16 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
     repaint_upload_mib = (
         rounded(repaint_upload_bytes / (1024.0 * 1024.0), 2)
         if repaint_upload_bytes is not None
+        else None
+    )
+    repaint_geometry_kib = (
+        rounded(repaint_geometry_bytes / 1024.0, 2)
+        if repaint_geometry_bytes is not None
+        else None
+    )
+    repaint_packet_buffer_kib = (
+        rounded(repaint_packet_buffer_bytes / 1024.0, 2)
+        if repaint_packet_buffer_bytes is not None
         else None
     )
     camera_cpu_yuv_upload_mib = (
@@ -361,6 +375,21 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             ),
             "xrRepaintTextureUploadBytes": repaint_upload_bytes,
             "xrRepaintTextureUploadMiB": repaint_upload_mib,
+            "xrRepaintPacketBufferCount": integer(
+                nested(cadence_latest, ["xrRepaintPacketBufferCount"])
+            ),
+            "xrRepaintPacketBufferBytes": repaint_packet_buffer_bytes,
+            "xrRepaintPacketBufferKiB": repaint_packet_buffer_kib,
+            "xrRepaintGeometryUploadBytes": repaint_geometry_bytes,
+            "xrRepaintGeometryUploadKiB": repaint_geometry_kib,
+            "xrRepaintDescriptorSetCount": integer(
+                nested(cadence_latest, ["xrRepaintDescriptorSetCount"])
+            ),
+            "xrRepaintDrawItems": integer(nested(cadence_latest, ["xrRepaintDrawItems"])),
+            "xrRepaintDrawCalls": integer(nested(cadence_latest, ["xrRepaintDrawCalls"])),
+            "xrRepaintPackets": integer(nested(cadence_latest, ["xrRepaintPackets"])),
+            "xrRepaintInstances": integer(nested(cadence_latest, ["xrRepaintInstances"])),
+            "xrRepaintIndices": integer(nested(cadence_latest, ["xrRepaintIndices"])),
             "cpuYuvMarkerUploadMiB": camera_cpu_yuv_upload_mib,
             "observedRepaintToCpuYuvMarkerUploadCount": observed_repaint_to_camera_upload_count,
             "estimatedTextureUploadMiBPerSecond": upload_mib_per_second,
@@ -419,7 +448,10 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
     acquire_upload_avg = number(nested(row, ["makepadFrameFlow", "acquireToUploadMs", "avg"]))
     upload_submit_avg = number(nested(row, ["makepadFrameFlow", "uploadToNextSubmitMs", "avg"]))
     repaint_upload_bytes = number(nested(row, ["performance", "xrRepaintTextureUploadBytes"]))
+    repaint_gpu_ms = number(nested(row, ["performance", "xrRepaintGpuMs"]))
     repaint_prepare_ms = number(nested(row, ["performance", "xrRepaintPrepareTexturesMs"]))
+    repaint_draw_calls = number(nested(row, ["performance", "xrRepaintDrawCalls"]))
+    repaint_instances = number(nested(row, ["performance", "xrRepaintInstances"]))
     wait_frame_ms = number(nested(row, ["performance", "xrWaitFrameMs"]))
     wait_swapchain_ms = number(nested(row, ["performance", "xrWaitSwapchainMs"]))
     observed_eye_upload_count = number(nested(row, ["performance", "observedCpuYuvEyeUploadCount"]))
@@ -469,6 +501,15 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
                 notes.append(f"camera input ID counts differ by {spread} markers")
     if route == "hardware-buffer-external" and wait_frame_ms is not None and wait_frame_ms > 8.0:
         notes.append("HWB external time is mostly OpenXR wait-frame pacing in this sample")
+    if row.get("kind") == "makepad" and repaint_gpu_ms is not None and repaint_gpu_ms > 4.0:
+        if repaint_draw_calls is not None and repaint_draw_calls <= 8:
+            notes.append(
+                "Makepad XR GPU time is high relative to a small draw-call count; inspect shader/fill/render-pass cost"
+            )
+        elif repaint_instances is not None:
+            notes.append(
+                f"Makepad XR GPU time is high with {repaint_instances:g} recorded instances; inspect draw-list shape"
+            )
     if upload_submit_avg is not None and upload_submit_avg > 100.0:
         notes.append("upload-to-submit marker spacing is coarse; treat it as localization, not exact latency")
     if texture_hz is not None and texture_hz < 60.0:
@@ -558,6 +599,13 @@ def markdown_table(comparison: dict[str, Any]) -> str:
         ("WaitFrame ms", ["performance", "xrWaitFrameMs"]),
         ("WaitSwapchain ms", ["performance", "xrWaitSwapchainMs"]),
         ("Repaint ms", ["performance", "xrRepaintMs"]),
+        ("GPU ms", ["performance", "xrRepaintGpuMs"]),
+        ("Record Draw ms", ["performance", "xrRepaintRecordDrawMs"]),
+        ("Draw Calls", ["performance", "xrRepaintDrawCalls"]),
+        ("Instances", ["performance", "xrRepaintInstances"]),
+        ("Descriptors", ["performance", "xrRepaintDescriptorSetCount"]),
+        ("Geom KiB", ["performance", "xrRepaintGeometryUploadKiB"]),
+        ("Packet KiB", ["performance", "xrRepaintPacketBufferKiB"]),
         ("Resource", ["lane", "resourceKind"]),
         ("Descriptor", ["lane", "descriptorShape"]),
         ("Color", ["lane", "colorStatus"]),
@@ -650,6 +698,17 @@ def run_self_test() -> int:
                     "xrRepaintTextureUploadCount": 6,
                     "xrRepaintPrepareTexturesMs": 5.5,
                     "xrRepaintMs": 6.0,
+                    "xrRepaintGpuMs": 4.5,
+                    "xrRepaintRecordDrawMs": 0.7,
+                    "xrRepaintPacketBufferCount": 3,
+                    "xrRepaintPacketBufferBytes": 4096,
+                    "xrRepaintGeometryUploadBytes": 8192,
+                    "xrRepaintDescriptorSetCount": 4,
+                    "xrRepaintDrawItems": 5,
+                    "xrRepaintDrawCalls": 6,
+                    "xrRepaintPackets": 7,
+                    "xrRepaintInstances": 8,
+                    "xrRepaintIndices": 9,
                     "xrWaitSwapchainMs": 4.0,
                     "xrWaitFrameMs": 0.1,
                     "xrEndFrameMs": 0.3,
@@ -759,6 +818,9 @@ def run_self_test() -> int:
         assert comparison["rows"][0]["performance"]["observedCpuYuvEyeUploadCount"] == 2.0, comparison
         assert comparison["rows"][0]["performance"]["estimatedTextureUploadMiBPerSecond"] == 233.56, comparison
         assert comparison["rows"][0]["performance"]["textureToXrUpdateFraction"] is None, comparison
+        assert comparison["rows"][0]["performance"]["xrRepaintDrawCalls"] == 6, comparison
+        assert comparison["rows"][0]["performance"]["xrRepaintGeometryUploadKiB"] == 8.0, comparison
+        assert comparison["rows"][0]["performance"]["xrRepaintPacketBufferKiB"] == 4.0, comparison
         assert comparison["rows"][0]["performance"]["xrWaitSwapchainMs"] == 4.0, comparison
         assert any(
             "repaint uploads" in note for note in comparison["rows"][0]["localizationNotes"]
@@ -787,6 +849,8 @@ def run_self_test() -> int:
         assert "I420 Eye Uploads" in table, table
         assert "Upload MiB/s" in table, table
         assert "WaitSwapchain ms" in table, table
+        assert "Draw Calls" in table, table
+        assert "Geom KiB" in table, table
     print("Compare-CameraLaneRuns self-test passed")
     return 0
 

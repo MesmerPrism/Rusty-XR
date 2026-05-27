@@ -66,6 +66,15 @@ pub(crate) struct MakepadCadenceSampleMarker {
     pub(crate) xr_repaint_submit_ms: Option<f64>,
     pub(crate) xr_repaint_texture_upload_count: Option<u32>,
     pub(crate) xr_repaint_texture_upload_bytes: Option<u64>,
+    pub(crate) xr_repaint_packet_buffer_count: Option<u32>,
+    pub(crate) xr_repaint_packet_buffer_bytes: Option<u64>,
+    pub(crate) xr_repaint_geometry_upload_bytes: Option<u64>,
+    pub(crate) xr_repaint_descriptor_set_count: Option<u32>,
+    pub(crate) xr_repaint_draw_items: Option<u64>,
+    pub(crate) xr_repaint_draw_calls: Option<u64>,
+    pub(crate) xr_repaint_packets: Option<u64>,
+    pub(crate) xr_repaint_instances: Option<u64>,
+    pub(crate) xr_repaint_indices: Option<u64>,
     pub(crate) xr_depth_readback_ms: Option<f64>,
     pub(crate) xr_end_frame_ms: Option<f64>,
     pub(crate) xr_resize_projection_ms: Option<f64>,
@@ -192,7 +201,7 @@ pub(crate) fn makepad_cadence_start_marker_line(sample_period_seconds: f64) -> S
 
 pub(crate) fn makepad_cadence_sample_marker_line(sample: MakepadCadenceSampleMarker) -> String {
     format!(
-        "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} xrUpdateCount={} xrUpdateDelta={} xrUpdateRateHz={:.2} drawEventCount={} drawEventDelta={} drawEventRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightCameraFrames={} projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated xrDisplayRefreshRateHz={} xrEffectiveFrameRateHz={} xrFrameCpuMs={} xrShouldRender={} xrSkippedShouldRenderCount={} xrPreFrameEventsMs={} xrPostFrameMediaEventsMs={} xrWaitFrameMs={} xrBeginFrameMs={} xrLocateSpaceMs={} xrLocateViewsMs={} xrAcquireSwapchainMs={} xrWaitSwapchainMs={} xrAcquireDepthMs={} xrUpdatePrepareMs={} xrUpdateDispatchMs={} xrNextFrameMs={} xrDrawEventMs={} xrCompileShadersMs={} xrRepaintMs={} xrRepaintGpuMs={} xrRepaintWaitInflightMs={} xrRepaintPrepareTexturesMs={} xrRepaintRecordDrawMs={} xrRepaintSubmitMs={} xrRepaintTextureUploadCount={} xrRepaintTextureUploadBytes={} xrDepthReadbackMs={} xrEndFrameMs={} xrResizeProjectionMs={} {}",
+        "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=sample status=ok elapsedMs={:.0} intervalMs={:.0} appFrameCount={} appFrameDelta={} appFrameRateHz={:.2} xrUpdateCount={} xrUpdateDelta={} xrUpdateRateHz={:.2} drawEventCount={} drawEventDelta={} drawEventRateHz={:.2} leftTextureUpdateCount={} rightTextureUpdateCount={} pairedTextureUpdateCount={} leftTextureUpdateDelta={} rightTextureUpdateDelta={} pairedTextureUpdateDelta={} leftTextureUpdateRateHz={:.2} rightTextureUpdateRateHz={:.2} pairedTextureUpdateRateHz={:.2} leftLastPositionMs={} rightLastPositionMs={} pairedLeftRightCameraFrames={} projectionMappingReady={} alignedProjection={} visibleCameraProjectionReady={} renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated xrDisplayRefreshRateHz={} xrEffectiveFrameRateHz={} xrFrameCpuMs={} xrShouldRender={} xrSkippedShouldRenderCount={} xrPreFrameEventsMs={} xrPostFrameMediaEventsMs={} xrWaitFrameMs={} xrBeginFrameMs={} xrLocateSpaceMs={} xrLocateViewsMs={} xrAcquireSwapchainMs={} xrWaitSwapchainMs={} xrAcquireDepthMs={} xrUpdatePrepareMs={} xrUpdateDispatchMs={} xrNextFrameMs={} xrDrawEventMs={} xrCompileShadersMs={} xrRepaintMs={} xrRepaintGpuMs={} xrRepaintWaitInflightMs={} xrRepaintPrepareTexturesMs={} xrRepaintRecordDrawMs={} xrRepaintSubmitMs={} xrRepaintTextureUploadCount={} xrRepaintTextureUploadBytes={} xrRepaintPacketBufferCount={} xrRepaintPacketBufferBytes={} xrRepaintGeometryUploadBytes={} xrRepaintDescriptorSetCount={} xrRepaintDrawItems={} xrRepaintDrawCalls={} xrRepaintPackets={} xrRepaintInstances={} xrRepaintIndices={} xrDepthReadbackMs={} xrEndFrameMs={} xrResizeProjectionMs={} {}",
         sample.elapsed_seconds * 1000.0,
         sample.interval_seconds * 1000.0,
         sample.app_frame_count,
@@ -246,6 +255,15 @@ pub(crate) fn makepad_cadence_sample_marker_line(sample: MakepadCadenceSampleMar
         optional_f64_marker(sample.xr_repaint_submit_ms),
         optional_u32_marker(sample.xr_repaint_texture_upload_count),
         optional_u64_marker(sample.xr_repaint_texture_upload_bytes),
+        optional_u32_marker(sample.xr_repaint_packet_buffer_count),
+        optional_u64_marker(sample.xr_repaint_packet_buffer_bytes),
+        optional_u64_marker(sample.xr_repaint_geometry_upload_bytes),
+        optional_u32_marker(sample.xr_repaint_descriptor_set_count),
+        optional_u64_marker(sample.xr_repaint_draw_items),
+        optional_u64_marker(sample.xr_repaint_draw_calls),
+        optional_u64_marker(sample.xr_repaint_packets),
+        optional_u64_marker(sample.xr_repaint_instances),
+        optional_u64_marker(sample.xr_repaint_indices),
         optional_f64_marker(sample.xr_depth_readback_ms),
         optional_f64_marker(sample.xr_end_frame_ms),
         optional_f64_marker(sample.xr_resize_projection_ms),
@@ -435,6 +453,15 @@ mod tests {
             xr_repaint_submit_ms: Some(1.1),
             xr_repaint_texture_upload_count: Some(2),
             xr_repaint_texture_upload_bytes: Some(3456),
+            xr_repaint_packet_buffer_count: Some(4),
+            xr_repaint_packet_buffer_bytes: Some(5678),
+            xr_repaint_geometry_upload_bytes: Some(6789),
+            xr_repaint_descriptor_set_count: Some(8),
+            xr_repaint_draw_items: Some(9),
+            xr_repaint_draw_calls: Some(10),
+            xr_repaint_packets: Some(11),
+            xr_repaint_instances: Some(12),
+            xr_repaint_indices: Some(13),
             xr_depth_readback_ms: Some(1.2),
             xr_end_frame_ms: Some(0.7),
             xr_resize_projection_ms: Some(1.3),
@@ -443,7 +470,7 @@ mod tests {
 
         assert_eq!(
             marker,
-            "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=sample status=ok elapsedMs=4250 intervalMs=2000 appFrameCount=120 appFrameDelta=60 appFrameRateHz=30.00 xrUpdateCount=118 xrUpdateDelta=59 xrUpdateRateHz=29.50 drawEventCount=90 drawEventDelta=45 drawEventRateHz=22.50 leftTextureUpdateCount=32 rightTextureUpdateCount=31 pairedTextureUpdateCount=31 leftTextureUpdateDelta=16 rightTextureUpdateDelta=15 pairedTextureUpdateDelta=15 leftTextureUpdateRateHz=8.00 rightTextureUpdateRateHz=7.50 pairedTextureUpdateRateHz=7.50 leftLastPositionMs=1001 rightLastPositionMs=1003 pairedLeftRightCameraFrames=true projectionMappingReady=true alignedProjection=false visibleCameraProjectionReady=true renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated xrDisplayRefreshRateHz=90.00 xrEffectiveFrameRateHz=30.00 xrFrameCpuMs=12.34 xrShouldRender=true xrSkippedShouldRenderCount=3 xrPreFrameEventsMs=0.25 xrPostFrameMediaEventsMs=1.25 xrWaitFrameMs=8.00 xrBeginFrameMs=0.10 xrLocateSpaceMs=0.11 xrLocateViewsMs=0.12 xrAcquireSwapchainMs=0.20 xrWaitSwapchainMs=0.30 xrAcquireDepthMs=0.35 xrUpdatePrepareMs=0.36 xrUpdateDispatchMs=0.40 xrNextFrameMs=0.50 xrDrawEventMs=0.60 xrCompileShadersMs=0.65 xrRepaintMs=1.70 xrRepaintGpuMs=2.10 xrRepaintWaitInflightMs=0.80 xrRepaintPrepareTexturesMs=0.90 xrRepaintRecordDrawMs=1.00 xrRepaintSubmitMs=1.10 xrRepaintTextureUploadCount=2 xrRepaintTextureUploadBytes=3456 xrDepthReadbackMs=1.20 xrEndFrameMs=0.70 xrResizeProjectionMs=1.30 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane visualColorStatus=accepted-cpu-yuv-reference"
+            "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 phase=sample status=ok elapsedMs=4250 intervalMs=2000 appFrameCount=120 appFrameDelta=60 appFrameRateHz=30.00 xrUpdateCount=118 xrUpdateDelta=59 xrUpdateRateHz=29.50 drawEventCount=90 drawEventDelta=45 drawEventRateHz=22.50 leftTextureUpdateCount=32 rightTextureUpdateCount=31 pairedTextureUpdateCount=31 leftTextureUpdateDelta=16 rightTextureUpdateDelta=15 pairedTextureUpdateDelta=15 leftTextureUpdateRateHz=8.00 rightTextureUpdateRateHz=7.50 pairedTextureUpdateRateHz=7.50 leftLastPositionMs=1001 rightLastPositionMs=1003 pairedLeftRightCameraFrames=true projectionMappingReady=true alignedProjection=false visibleCameraProjectionReady=true renderPath=makepad-xr appFrameSource=makepad-next-frame cameraFrameSource=makepad-video-texture-updated xrDisplayRefreshRateHz=90.00 xrEffectiveFrameRateHz=30.00 xrFrameCpuMs=12.34 xrShouldRender=true xrSkippedShouldRenderCount=3 xrPreFrameEventsMs=0.25 xrPostFrameMediaEventsMs=1.25 xrWaitFrameMs=8.00 xrBeginFrameMs=0.10 xrLocateSpaceMs=0.11 xrLocateViewsMs=0.12 xrAcquireSwapchainMs=0.20 xrWaitSwapchainMs=0.30 xrAcquireDepthMs=0.35 xrUpdatePrepareMs=0.36 xrUpdateDispatchMs=0.40 xrNextFrameMs=0.50 xrDrawEventMs=0.60 xrCompileShadersMs=0.65 xrRepaintMs=1.70 xrRepaintGpuMs=2.10 xrRepaintWaitInflightMs=0.80 xrRepaintPrepareTexturesMs=0.90 xrRepaintRecordDrawMs=1.00 xrRepaintSubmitMs=1.10 xrRepaintTextureUploadCount=2 xrRepaintTextureUploadBytes=3456 xrRepaintPacketBufferCount=4 xrRepaintPacketBufferBytes=5678 xrRepaintGeometryUploadBytes=6789 xrRepaintDescriptorSetCount=8 xrRepaintDrawItems=9 xrRepaintDrawCalls=10 xrRepaintPackets=11 xrRepaintInstances=12 xrRepaintIndices=13 xrDepthReadbackMs=1.20 xrEndFrameMs=0.70 xrResizeProjectionMs=1.30 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane visualColorStatus=accepted-cpu-yuv-reference"
         );
     }
 
