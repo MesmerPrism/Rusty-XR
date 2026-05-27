@@ -33,6 +33,7 @@ MAKEPAD_FRAME_FLOW_MARKERS = (
     "RUSTY_XR_MAKEPAD_FRAME_FLOW",
 )
 MAKEPAD_CADENCE_MARKER = "RUSTY_XR_MAKEPAD_CADENCE"
+MAKEPAD_STEREO_PROJECTION_MARKER = "RUSTY_XR_MAKEPAD_STEREO_PROJECTION"
 MAKEPAD_DESCRIPTOR_MARKER = "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE"
 TIMING_KEYS = (
     "camera_frame_sequence",
@@ -472,6 +473,14 @@ def makepad_path_from_flow_path(path: str) -> str | None:
     return aliases.get(path.strip())
 
 
+def makepad_path_from_fields_or_context(fields: dict[str, Any], context_fields: dict[str, Any]) -> str | None:
+    for key in ("cameraTexturePath", "path", "directCameraTexturePath"):
+        path = makepad_path_from_flow_path(str(fields.get(key) or ""))
+        if path:
+            return path
+    return makepad_path_from_flow_path(str(context_fields.get("directCameraTexturePath") or ""))
+
+
 def makepad_color_status(path: str) -> tuple[str, str, str, str, str]:
     if path == "direct-camera-cpu-yuv-plane":
         return (
@@ -560,6 +569,7 @@ def base_contract(
         "projection": {
             "projection_border_policy": "unknown",
             "processing_layer": "raw",
+            "camera_texture_binding": None,
             "projection_surface_label": "camera-projection-surface",
             "projection_status_label": "ready",
         },
@@ -845,6 +855,7 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
             "projection_border_policy": str(fields.get("projectionBorderPolicy") or "unknown"),
             "processing_layer": str(fields.get("processingLayer") or "raw"),
             "projection_sample_mode": str(fields.get("projectionSampleMode") or "camera"),
+            "camera_texture_binding": parse_bool(fields.get("cameraTextureBinding")),
         }
     )
     return contract
@@ -932,6 +943,13 @@ def scan_line(line: str, state: ScanState) -> None:
         path = makepad_path_from_flow_path(str(fields.get("cameraTexturePath") or ""))
         if path:
             state.update_makepad(path, fields)
+    if MAKEPAD_STEREO_PROJECTION_MARKER in line:
+        fields = parse_marker_fields(line.split(MAKEPAD_STEREO_PROJECTION_MARKER, 1)[1])
+        phase = str(fields.get("phase") or "")
+        if phase in {"draw-vars-bound", "visible-panel-bound"}:
+            path = makepad_path_from_fields_or_context(fields, state.makepad_global_fields)
+            if path:
+                state.update_makepad(path, fields)
     if MAKEPAD_DESCRIPTOR_MARKER in line:
         fields = parse_marker_fields(line.split(MAKEPAD_DESCRIPTOR_MARKER, 1)[1])
         state.update_makepad("direct-camera-hardware-buffer-external", fields)
@@ -1012,6 +1030,7 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
         "projection_border_policy": projection.get("projection_border_policy", "unknown"),
         "processing_layer": projection.get("processing_layer", "unknown"),
         "projection_sample_mode": projection.get("projection_sample_mode", "unknown"),
+        "camera_texture_binding": projection.get("camera_texture_binding"),
         "first_frame_seen": bool(lifecycle.get("first_frame_seen", False)),
         "fallback_active": bool(lifecycle.get("fallback_active", False)),
         "fallback_reason": lifecycle.get("fallback_reason"),
@@ -1037,6 +1056,13 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
             "texture_update_to_submit_sequence_relation": texture_update_to_submit_sequence_relation(record),
         },
     }
+
+
+def bool_count_label(value: Any) -> str:
+    parsed = parse_bool(value)
+    if parsed is None:
+        return "unknown"
+    return str(parsed).lower()
 
 
 def build_summary(
@@ -1071,6 +1097,9 @@ def build_summary(
         ),
         "projection_sample_mode_counts": dict(
             Counter(record.get("projection", {}).get("projection_sample_mode", "unknown") for record in records)
+        ),
+        "camera_texture_binding_counts": dict(
+            Counter(bool_count_label(record.get("projection", {}).get("camera_texture_binding")) for record in records)
         ),
         "fallback_active_counts": dict(
             Counter(str(record.get("lifecycle", {}).get("fallback_active", False)).lower() for record in records)
@@ -1116,6 +1145,7 @@ def self_test() -> None:
             "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=cpu-yuv-upload status=ok path=cpu-yuv videoId=1 inputId=10 formatId=20 uploadSeq=3 cameraFrameSeq=2 cameraTimestampNs=123 uploadTimeNs=456 width=1280 height=1280",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane eventResourcePath=cpu-yuv-planes descriptorShape=cpu-yuv-plane-textures cameraInputId=10 cameraFormatId=20 cameraFrameSeq=2 cameraTimestampNs=123 acquireTimeNs=111 uploadSeq=3 uploadTimeNs=456 textureUpdateSeq=3 textureWidth=1280 textureHeight=1280",
+            "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=draw-vars-bound status=ok cameraReady=true yuvMode=false cameraTextureBinding=false leftYuvTextureBound=false rightYuvTextureBound=false cameraTexturePath=direct-camera-cpu-yuv-plane",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=sampled-image-and-sampler cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false",
             "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.xr.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=SAMPLED_IMAGE samplerDescriptorType=SAMPLER combinedImageSampler=false shaderSampleLowering=textureSampleLevel_separate_texture_sampler",
@@ -1194,6 +1224,10 @@ def self_test() -> None:
         cpu_summary = summary["lane_summaries"]["makepad-cpuyuv-direct-camera2-raw"]
         if cpu_summary["projection_sample_mode"] != "solid-color":
             raise AssertionError("summary did not apply projection sample mode context")
+        if cpu_summary["camera_texture_binding"] is not False:
+            raise AssertionError("summary did not parse Makepad camera texture binding")
+        if summary["camera_texture_binding_counts"].get("false") != 1:
+            raise AssertionError("summary did not count Makepad camera texture binding")
         if cpu_summary["timing_relations"]["acquire_to_upload_ns"] != 345:
             raise AssertionError("summary did not compute CPU acquire-to-upload timing")
         if (
