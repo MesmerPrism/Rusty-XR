@@ -520,6 +520,8 @@ def markdown_table(comparison: dict[str, Any]) -> str:
         ("Run", ["name"]),
         ("Kind", ["kind"]),
         ("Route", ["route"]),
+        ("Camera Input", ["lane", "cameraInputId"]),
+        ("Camera Format", ["lane", "cameraFormatId"]),
         ("Recent Stale", ["stale", "recentSum"]),
         ("Steady Stale", ["stale", "steadySum"]),
         ("CPU+GPU ms", ["performance", "recentCpuGpuMsAvg"]),
@@ -593,6 +595,8 @@ def run_self_test() -> int:
                     "lane_summaries": {
                         "makepad-cpuyuv-direct-camera2-raw": {
                             "resource_kind": "cpu-yuv-plane-textures",
+                            "camera_input_id": 10,
+                            "camera_format_id": 20,
                             "descriptor_shape": "cpu-yuv-plane-textures",
                             "color_status": "accepted-reference",
                             "delivered_size": {"width": 1280, "height": 1280},
@@ -702,6 +706,8 @@ def run_self_test() -> int:
 
         comparison = build_comparison([f"cpu={makepad}", f"hwb={direct}"])
         assert comparison["rows"][0]["kind"] == "makepad", comparison
+        assert comparison["rows"][0]["lane"]["cameraInputId"] == 10, comparison
+        assert comparison["rows"][0]["lane"]["cameraFormatId"] == 20, comparison
         assert comparison["rows"][0]["stale"]["recentSum"] == 3, comparison
         assert comparison["rows"][0]["makepadFrameFlow"]["acquireToUploadMs"]["avg"] == 8.0, comparison
         assert comparison["rows"][0]["performance"]["xrRepaintTextureUploadMiB"] == 4.69, comparison
@@ -726,6 +732,8 @@ def run_self_test() -> int:
         assert comparison["baselineComparisons"][0]["recentCpuGpuMsVsBestDirect"] == 14.5, comparison
         table = markdown_table(comparison)
         assert "Acquire->Upload" in table, table
+        assert "Camera Input" in table, table
+        assert "Camera Format" in table, table
         assert "Repaint Upload MiB" in table, table
         assert "Marker Upload MiB" in table, table
         assert "Repaint/Marker" in table, table
