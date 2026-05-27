@@ -256,6 +256,23 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
         repaint_upload_bytes,
         expected_cpu_yuv_upload_bytes_per_eye,
     )
+    repaint_upload_mib = (
+        rounded(repaint_upload_bytes / (1024.0 * 1024.0), 2)
+        if repaint_upload_bytes is not None
+        else None
+    )
+    paired_texture_update_rate_hz = rounded(cadence.get("pairedTextureUpdateRateHz"))
+    xr_update_rate_hz = rounded(cadence.get("xrUpdateRateHz"))
+    upload_mib_per_second = (
+        rounded(repaint_upload_mib * paired_texture_update_rate_hz, 2)
+        if repaint_upload_mib is not None and paired_texture_update_rate_hz is not None
+        else None
+    )
+    texture_to_xr_update_fraction = (
+        rounded(paired_texture_update_rate_hz / xr_update_rate_hz, 4)
+        if paired_texture_update_rate_hz is not None and xr_update_rate_hz
+        else None
+    )
     row = {
         "name": name,
         "kind": classify_run_kind(lane_kind, makepad_summary),
@@ -288,9 +305,10 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "recentAppMsAvg": rounded(nested(recent, ["appMs", "avg"])),
             "recentCpuGpuMsAvg": rounded(nested(recent, ["cpuGpuMs", "avg"])),
             "recentTimewarpMsAvg": rounded(nested(recent, ["timewarpMs", "avg"])),
-            "pairedTextureUpdateRateHz": rounded(cadence.get("pairedTextureUpdateRateHz")),
+            "pairedTextureUpdateRateHz": paired_texture_update_rate_hz,
             "appFrameRateHz": rounded(cadence.get("appFrameRateHz")),
-            "xrUpdateRateHz": rounded(cadence.get("xrUpdateRateHz")),
+            "xrUpdateRateHz": xr_update_rate_hz,
+            "textureToXrUpdateFraction": texture_to_xr_update_fraction,
             "xrFrameCpuMs": rounded(nested(cadence_latest, ["xrFrameCpuMs"])),
             "xrRepaintGpuMs": rounded(nested(cadence_latest, ["xrRepaintGpuMs"])),
             "xrRepaintMs": rounded(nested(cadence_latest, ["xrRepaintMs"])),
@@ -298,11 +316,8 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
                 nested(cadence_latest, ["xrRepaintPrepareTexturesMs"])
             ),
             "xrRepaintTextureUploadBytes": repaint_upload_bytes,
-            "xrRepaintTextureUploadMiB": rounded(
-                repaint_upload_bytes / (1024.0 * 1024.0), 2
-            )
-            if repaint_upload_bytes is not None
-            else None,
+            "xrRepaintTextureUploadMiB": repaint_upload_mib,
+            "estimatedTextureUploadMiBPerSecond": upload_mib_per_second,
             "xrRepaintTextureUploadCount": integer(
                 nested(cadence_latest, ["xrRepaintTextureUploadCount"])
             ),
@@ -351,6 +366,8 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
     repaint_upload_bytes = number(nested(row, ["performance", "xrRepaintTextureUploadBytes"]))
     repaint_prepare_ms = number(nested(row, ["performance", "xrRepaintPrepareTexturesMs"]))
     observed_eye_upload_count = number(nested(row, ["performance", "observedCpuYuvEyeUploadCount"]))
+    upload_mib_per_second = number(nested(row, ["performance", "estimatedTextureUploadMiBPerSecond"]))
+    texture_to_xr_fraction = number(nested(row, ["performance", "textureToXrUpdateFraction"]))
     route = str(row.get("route") or "")
     if stale_recent:
         notes.append("recent stale is nonzero; use latest/freshness together before calling the lane frozen")
@@ -363,6 +380,10 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
         notes.append(f"CPU-YUV repaint uploads {round(mib, 2)} MiB of texture data")
     if route == "cpu-yuv" and observed_eye_upload_count is not None:
         notes.append(f"CPU-YUV repaint payload equals {observed_eye_upload_count:g} I420 eye uploads")
+    if route == "cpu-yuv" and upload_mib_per_second is not None:
+        notes.append(f"CPU-YUV estimated texture upload bandwidth is {upload_mib_per_second:g} MiB/s")
+    if route == "cpu-yuv" and texture_to_xr_fraction is not None:
+        notes.append(f"camera texture updates cover {round(texture_to_xr_fraction * 100.0, 1):g}% of XR updates")
     if route == "cpu-yuv" and repaint_prepare_ms is not None and repaint_prepare_ms > 3.0:
         notes.append("CPU-YUV repaint texture preparation is a primary headroom target")
     if upload_submit_avg is not None and upload_submit_avg > 100.0:
@@ -443,6 +464,8 @@ def markdown_table(comparison: dict[str, Any]) -> str:
         ("Acquire->Upload ms", ["makepadFrameFlow", "acquireToUploadMs", "avg"]),
         ("Repaint Upload MiB", ["performance", "xrRepaintTextureUploadMiB"]),
         ("I420 Eye Uploads", ["performance", "observedCpuYuvEyeUploadCount"]),
+        ("Upload MiB/s", ["performance", "estimatedTextureUploadMiBPerSecond"]),
+        ("Texture/XR", ["performance", "textureToXrUpdateFraction"]),
         ("Prepare Textures ms", ["performance", "xrRepaintPrepareTexturesMs"]),
         ("Resource", ["lane", "resourceKind"]),
         ("Descriptor", ["lane", "descriptorShape"]),
@@ -602,6 +625,8 @@ def run_self_test() -> int:
         assert comparison["rows"][0]["makepadFrameFlow"]["acquireToUploadMs"]["avg"] == 8.0, comparison
         assert comparison["rows"][0]["performance"]["xrRepaintTextureUploadMiB"] == 4.69, comparison
         assert comparison["rows"][0]["performance"]["observedCpuYuvEyeUploadCount"] == 2.0, comparison
+        assert comparison["rows"][0]["performance"]["estimatedTextureUploadMiBPerSecond"] == 233.56, comparison
+        assert comparison["rows"][0]["performance"]["textureToXrUpdateFraction"] is None, comparison
         assert any(
             "repaint uploads" in note for note in comparison["rows"][0]["localizationNotes"]
         ), comparison
@@ -615,6 +640,7 @@ def run_self_test() -> int:
         assert "Acquire->Upload" in table, table
         assert "Repaint Upload MiB" in table, table
         assert "I420 Eye Uploads" in table, table
+        assert "Upload MiB/s" in table, table
     print("Compare-CameraLaneRuns self-test passed")
     return 0
 
