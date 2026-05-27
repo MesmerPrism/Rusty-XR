@@ -223,6 +223,23 @@ def integer_count_values(counts: Any) -> list[int]:
     return values
 
 
+def matches_i420_plane_split(row: dict[str, Any]) -> bool:
+    y_bytes = number(nested(row, ["makepadFrameFlow", "cpuYuvUploadBytes", "yBytes", "last"]))
+    u_bytes = number(nested(row, ["makepadFrameFlow", "cpuYuvUploadBytes", "uBytes", "last"]))
+    v_bytes = number(nested(row, ["makepadFrameFlow", "cpuYuvUploadBytes", "vBytes", "last"]))
+    total_bytes = number(
+        nested(row, ["makepadFrameFlow", "cpuYuvUploadBytes", "totalBytes", "last"])
+    )
+    if y_bytes is None or u_bytes is None or v_bytes is None or total_bytes is None:
+        return False
+    tolerance = max(1.0, total_bytes * 0.001)
+    return (
+        abs((y_bytes + u_bytes + v_bytes) - total_bytes) <= tolerance
+        and abs(u_bytes - v_bytes) <= tolerance
+        and abs(y_bytes - (u_bytes + v_bytes) * 2.0) <= tolerance
+    )
+
+
 def latest_vrapi_scale(latest: dict[str, Any]) -> float | None:
     return rounded(latest.get("SF"), 3)
 
@@ -429,6 +446,8 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
         notes.append(
             f"CPU-YUV repaint payload equals {marker_upload_count:g} marker-reported CPU-YUV uploads"
         )
+    if route == "cpu-yuv" and matches_i420_plane_split(row):
+        notes.append("CPU-YUV marker bytes match the expected I420 Y/U/V plane split")
     if route == "cpu-yuv" and upload_mib_per_second is not None:
         notes.append(f"CPU-YUV estimated texture upload bandwidth is {upload_mib_per_second:g} MiB/s")
     if route == "cpu-yuv" and texture_to_xr_fraction is not None:
@@ -643,6 +662,30 @@ def run_self_test() -> int:
                 "acquireToUploadMs": {"avg": 8.0},
                 "uploadToNextSubmitMs": {"avg": 150.0},
                 "cpuYuvUploadBytes": {
+                    "yBytes": {
+                        "count": 9,
+                        "min": 1638400,
+                        "max": 1638400,
+                        "avg": 1638400,
+                        "last": 1638400,
+                        "sum": 14745600,
+                    },
+                    "uBytes": {
+                        "count": 9,
+                        "min": 409600,
+                        "max": 409600,
+                        "avg": 409600,
+                        "last": 409600,
+                        "sum": 3686400,
+                    },
+                    "vBytes": {
+                        "count": 9,
+                        "min": 409600,
+                        "max": 409600,
+                        "avg": 409600,
+                        "last": 409600,
+                        "sum": 3686400,
+                    },
                     "totalBytes": {
                         "count": 9,
                         "min": 2457600,
@@ -725,6 +768,10 @@ def run_self_test() -> int:
         ), comparison
         assert any(
             "camera input IDs are balanced" in note
+            for note in comparison["rows"][0]["localizationNotes"]
+        ), comparison
+        assert any(
+            "I420 Y/U/V plane split" in note
             for note in comparison["rows"][0]["localizationNotes"]
         ), comparison
         assert comparison["rows"][1]["route"] == "direct-hwb", comparison
