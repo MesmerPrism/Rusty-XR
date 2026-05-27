@@ -131,6 +131,7 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
             "debug.rustyxr.processing.layer": "processingLayer",
             "debug.rustyxr.makepad.processing.layer": "processingLayer",
             "debug.rustyxr.xr.render.scale": "xrRenderScale",
+            "debug.rustyxr.makepad.xr.render.scale": "xrRenderScale",
             "debug.rustyxr.makepad.blur.radius.px": "blurRadiusPx",
         }
         for item in props:
@@ -837,6 +838,19 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
     return contract
 
 
+def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str, Any]) -> None:
+    projection = record.setdefault("projection", {})
+    context_border = nonempty_text(context_fields.get("projectionBorderPolicy"))
+    lane_border = nonempty_text(projection.get("projection_border_policy"))
+    if context_border is not None and (lane_border is None or lane_border == "unknown"):
+        projection["projection_border_policy"] = context_border
+
+    context_processing = nonempty_text(context_fields.get("processingLayer"))
+    lane_processing = nonempty_text(projection.get("processing_layer"))
+    if context_processing is not None and (lane_processing is None or lane_processing == "unknown"):
+        projection["processing_layer"] = context_processing
+
+
 class ScanState:
     def __init__(self, makepad_context_fields: dict[str, Any] | None = None) -> None:
         self.hwb_fields: dict[str, Any] = {}
@@ -906,13 +920,18 @@ def scan_line(line: str, state: ScanState) -> None:
         state.update_makepad("direct-camera-hardware-buffer-external", fields)
 
 
-def build_records(log_files: list[Path], context_root: Path | None = None) -> list[dict[str, Any]]:
+def build_records(
+    log_files: list[Path],
+    context_root: Path | None = None,
+    context_fields: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     if context_root is None:
         if len(log_files) == 1:
             context_root = log_files[0].parent
         elif log_files:
             context_root = Path(os.path.commonpath([str(path.parent) for path in log_files]))
-    context_fields = load_run_context_fields(context_root) if context_root is not None else {}
+    if context_fields is None:
+        context_fields = load_run_context_fields(context_root) if context_root is not None else {}
     state = ScanState(context_fields)
     for log_file in log_files:
         for line in log_file.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -926,6 +945,8 @@ def build_records(log_files: list[Path], context_root: Path | None = None) -> li
         records.append(oes)
     for path, fields in sorted(state.makepad_fields_by_path.items()):
         records.append(build_makepad_contract(path, fields))
+    for record in records:
+        apply_run_context_fallbacks(record, context_fields)
     return records
 
 
@@ -1049,7 +1070,7 @@ def output_dir_for(root: Path, out_dir: Path | None) -> Path:
 def run(root: Path, out_dir: Path | None) -> tuple[list[dict[str, Any]], dict[str, Any], Path]:
     log_files = iter_log_files(root)
     context_fields = load_run_context_fields(root)
-    records = build_records(log_files, root)
+    records = build_records(log_files, root, context_fields)
     summary = build_summary(records, log_files, context_fields)
     resolved_out = output_dir_for(root, out_dir)
     resolved_out.mkdir(parents=True, exist_ok=True)
@@ -1064,7 +1085,7 @@ def self_test() -> None:
             "Rusty XR HWB source metadata frame=7 schema=rusty.xr.hwb-source-metadata.v1 phase=source-metadata status=ok sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler projectionMetadataReady=true source=headset-camera2 sourceMode=direct-camera2 contentWidth=1280 contentHeight=1280 sourceVisibleUvRect=0.0,0.0,1.0,1.0",
             "Rusty XR Vulkan imported camera hardware buffer size=1280x1280 nativeFormat=35 externalFormat=12 vkFormat=UNDEFINED samplerBindingMode=combined-immutable-sampler importImageLayout=GENERAL allocationSize=1024 memoryTypeBits=0xff importCacheSize=2 importCacheLimit=4 importCacheMiss=true importCacheEvict=false",
             "Rusty XR final projection status frame=9 openXrFrameCount=12 openXrFocused=true projectionBorderPolicy=solid-red processingLayer=raw leftCameraTextureTransformFlags=0 sourceSampleTransformStage=post_homography_pre_source_visible_rect_then_texture_sample sourceColorTransform=identity",
-            "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-sampling status=ready source=headset-camera2 sourceMode=direct-camera2 contentWidth=1280 contentHeight=1280 source_sequence=5 frame=11 projectionBorderPolicy=solid-red processingLayer=raw",
+            "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-sampling status=ready source=headset-camera2 sourceMode=direct-camera2 contentWidth=1280 contentHeight=1280 source_sequence=5 frame=11",
             "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-color status=ready sourceColorTransform=srgb-to-linear swapchainColorFormat=GL_SRGB8_ALPHA8",
             'Rusty XR SurfaceTexture OES transform matrix {"schema":"rusty.xr.quest.surface_texture_oes_transform_matrix.v1","view_index":0,"source_eye":"left","update_tex_image_count":4,"surface_texture_timestamp_ns":12345,"transform_matrix_hash":"m44:test","transform_matrix":[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]}',
             "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=cpu-yuv-upload status=ok path=cpu-yuv videoId=1 uploadSeq=3 cameraFrameSeq=2 cameraTimestampNs=123 uploadTimeNs=456 width=1280 height=1280",
@@ -1094,7 +1115,7 @@ def self_test() -> None:
                     "actual": "raw",
                 },
                 {
-                    "property": "debug.rustyxr.xr.render.scale",
+                    "property": "debug.rustyxr.makepad.xr.render.scale",
                     "expected": "0.75",
                     "actual": "0.75",
                 },
