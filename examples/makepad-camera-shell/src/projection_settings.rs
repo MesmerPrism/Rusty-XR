@@ -260,6 +260,7 @@ impl MakepadProcessingLayer {
 pub(crate) enum MakepadProjectionSampleMode {
     Camera,
     SolidColor,
+    SolidNoTexture,
 }
 
 impl MakepadProjectionSampleMode {
@@ -271,6 +272,9 @@ impl MakepadProjectionSampleMode {
     pub(crate) fn from_stable_id(value: &str) -> Self {
         match value.trim().to_ascii_lowercase().as_str() {
             "solid" | "solid-color" | "no-camera" | "sample-off" => Self::SolidColor,
+            "solid-no-texture" | "solid-notexture" | "no-texture" | "no-camera-texture" => {
+                Self::SolidNoTexture
+            }
             _ => Self::Camera,
         }
     }
@@ -279,19 +283,50 @@ impl MakepadProjectionSampleMode {
         match self {
             Self::Camera => "camera",
             Self::SolidColor => "solid-color",
+            Self::SolidNoTexture => "solid-no-texture",
         }
     }
 
     pub(crate) fn shader_code(self) -> f32 {
         match self {
             Self::Camera => 0.0,
-            Self::SolidColor => 1.0,
+            Self::SolidColor | Self::SolidNoTexture => 1.0,
+        }
+    }
+
+    pub(crate) fn binds_camera_textures(self) -> bool {
+        match self {
+            Self::Camera | Self::SolidColor => true,
+            Self::SolidNoTexture => false,
         }
     }
 }
 
 pub(crate) fn makepad_blur_radius_px() -> f32 {
     hotload_f32(KEY_MAKEPAD_BLUR_RADIUS_PX, 2.0, 0.0, 16.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MakepadProjectionSampleMode;
+
+    #[test]
+    fn solid_no_texture_is_solid_shader_without_camera_binding() {
+        let mode = MakepadProjectionSampleMode::from_stable_id("solid-no-texture");
+
+        assert_eq!(mode.stable_id(), "solid-no-texture");
+        assert_eq!(mode.shader_code(), 1.0);
+        assert!(!mode.binds_camera_textures());
+    }
+
+    #[test]
+    fn solid_color_keeps_camera_texture_binding() {
+        let mode = MakepadProjectionSampleMode::from_stable_id("solid-color");
+
+        assert_eq!(mode.stable_id(), "solid-color");
+        assert_eq!(mode.shader_code(), 1.0);
+        assert!(mode.binds_camera_textures());
+    }
 }
 
 fn makepad_source_color_contract_fields(transfer: MakepadSourceColorTransfer) -> String {

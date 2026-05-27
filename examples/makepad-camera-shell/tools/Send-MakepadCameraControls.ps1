@@ -12,7 +12,7 @@ param(
     [string]$ProjectionBorderPolicy = "",
     [ValidateSet("", "raw", "blur")]
     [string]$ProcessingLayer = "",
-    [ValidateSet("", "camera", "solid-color")]
+    [ValidateSet("", "camera", "solid-color", "solid-no-texture")]
     [string]$ProjectionSampleMode = "",
     [double]$BlurRadiusPx = [double]::NaN,
     [double]$ProjectionDepthMeters = [double]::NaN,

@@ -492,6 +492,10 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
         notes.append("recent stale is nonzero; use latest/freshness together before calling the lane frozen")
     if row.get("kind") == "makepad" and sample_mode == "solid-color":
         notes.append("solid sample mode isolates Makepad render-pass/fill overhead from camera fragment sampling")
+    if row.get("kind") == "makepad" and sample_mode == "solid-no-texture":
+        notes.append(
+            "solid no-texture mode isolates Makepad render-pass/fill overhead from camera texture binding"
+        )
     if route == "cpu-yuv" and cpu_gpu is not None and cpu_gpu > 12.0:
         notes.append("CPU-YUV CPU+GPU is high enough to inspect upload and repaint texture-upload cost first")
     if route == "cpu-yuv" and acquire_upload_avg is not None:

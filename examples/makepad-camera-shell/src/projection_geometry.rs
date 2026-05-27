@@ -968,12 +968,14 @@ pub(crate) fn makepad_draw_vars_bound_marker_fields(
     broker_h264_surface_texture: bool,
     single_stream_visual_proof: bool,
     updated_stream_visual_proof_side: &str,
+    camera_texture_binding_enabled: bool,
 ) -> String {
     draw_vars_bound_marker_fields(
         texture_path,
         broker_h264_surface_texture,
         single_stream_visual_proof,
         updated_stream_visual_proof_side,
+        camera_texture_binding_enabled,
         &projection_homography_marker_fields(pair),
     )
 }
@@ -985,6 +987,7 @@ pub(crate) fn makepad_visible_panel_bound_marker_fields(
     right_rotation_steps: f32,
     single_stream_visual_proof: bool,
     updated_stream_visual_proof_side: &str,
+    camera_texture_binding_enabled: bool,
 ) -> String {
     visible_panel_bound_marker_fields(
         &pair.source_eye_mapping,
@@ -995,6 +998,7 @@ pub(crate) fn makepad_visible_panel_bound_marker_fields(
         right_rotation_steps,
         single_stream_visual_proof,
         updated_stream_visual_proof_side,
+        camera_texture_binding_enabled,
         &projection_homography_marker_fields(pair),
     )
 }
@@ -1333,15 +1337,17 @@ fn draw_vars_bound_marker_fields(
     broker_h264_surface_texture: bool,
     single_stream_visual_proof: bool,
     updated_stream_visual_proof_side: &str,
+    camera_texture_binding_enabled: bool,
     homography_marker_fields: &str,
 ) -> String {
-    let yuv_mode = texture_path.yuv_sampling_enabled();
+    let yuv_mode = camera_texture_binding_enabled && texture_path.yuv_sampling_enabled();
     format!(
-        "phase=draw-vars-bound status=ok cameraReady=true yuvMode={} neutralWaitingPanel=true textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted={} directCameraYuvColorSwapUv=false colorConversion={} colorReference={} perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping drawVarsTextureRedraw=true shaderAreaStateUpdate=true leftYuvTextureBound={} rightYuvTextureBound={} brokerH264SurfaceTexture={} singleStreamVisualProof={} updatedStreamVisualProofSide={} visibleCameraProjectionReady=true sceneOwnedPanel=true projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDefaults=deprecated panelTargetFields=runtime {} diagnosticVisualLayer=none depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
+        "phase=draw-vars-bound status=ok cameraReady=true yuvMode={} neutralWaitingPanel=true textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted={} directCameraYuvColorSwapUv=false colorConversion={} colorReference={} perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping cameraTextureBinding={} drawVarsTextureRedraw=true shaderAreaStateUpdate=true leftYuvTextureBound={} rightYuvTextureBound={} brokerH264SurfaceTexture={} singleStreamVisualProof={} updatedStreamVisualProofSide={} visibleCameraProjectionReady=true sceneOwnedPanel=true projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDefaults=deprecated panelTargetFields=runtime {} diagnosticVisualLayer=none depthClip=false environmentDepthClip=false visualInspection=required visualReleaseAccepted=false",
         yuv_mode,
         yuv_mode,
         texture_path.color_conversion(),
         texture_path.color_reference(),
+        camera_texture_binding_enabled,
         yuv_mode,
         yuv_mode,
         broker_h264_surface_texture,
@@ -1736,19 +1742,22 @@ fn visible_panel_bound_marker_fields(
     right_rotation_steps: f32,
     single_stream_visual_proof: bool,
     updated_stream_visual_proof_side: &str,
+    camera_texture_binding_enabled: bool,
     homography_marker_fields: &str,
 ) -> String {
+    let yuv_mode = camera_texture_binding_enabled && texture_path.yuv_sampling_enabled();
     format!(
-        "phase=visible-panel-bound status=ok visibleCameraProjectionReady=true eyeSelection={} sourceEyeMapping={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftRotationSteps={:.0} rightRotationSteps={:.0} sceneOwnedPanel=true projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted={} directCameraYuvColorSwapUv=false colorConversion={} colorReference={} perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDefaults=deprecated panelTargetFields=runtime diagnosticVisualLayer=none neutralWaitingPanel=true visualIsolation=s118_projected_footprint_solid_red_exterior depthClip=false environmentDepthClip=false singleStreamVisualProof={} updatedStreamVisualProofSide={} {} drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false",
+        "phase=visible-panel-bound status=ok visibleCameraProjectionReady=true eyeSelection={} sourceEyeMapping={} leftEyeSource=makepad-camera-source-{} rightEyeSource=makepad-camera-source-{} leftRotationSteps={:.0} rightRotationSteps={:.0} sceneOwnedPanel=true projectionShaderPath=makepad-full-frame-source-display-row-vertical-uv textureProbeMode=single-quad-target-screen-uv syntheticLumaSlotProof=false directCameraYuvColorAccepted={} directCameraYuvColorSwapUv=false colorConversion={} colorReference={} perEyeTextureSelection=true activeEyeSelector=xr_view_id sourceEyeSelector=display_source_eye_mapping cameraTextureBinding={} projectionPanelPlacement=single-quad-fullscreen-target-screen-uv s62VisiblePanelBaseline=true s67bBasePassthroughOffPanel=true s68ActiveEyeNonWorldPanelPlacement=true s69SourceEyeSwap=true s69bHorizontalMirrorFix=false s70SquareAspectFix=true s72HeadCenteredSquareRestored=true s72MetadataUvBaselineCorrection=true s73ScalarHomographyBinding=true s74LiteralHomographyRows=false s75DynamicHomographyBinding=false s76DirectDrawVarsHomography=true s77SourceUvValidityFallback=true s78ClipSpaceSurfaceHomography=true s79TargetSourceEyeMapping=false s80FullViewContentUvScale=false s81DynamicScreenSurfaceUv=false s82CollapsedScreenToCameraHomography=false s83DrawPassProjectionInverseHomography=false s84ProjectionInverseNearFarFallback=false s85ForcedScreenToCameraFallback=false s86DirectYuvFullscreenControl=false s87RuntimeXrViewHomography=true s88SourceValidityFallback=true s89SingleQuadTargetScreenUv=true s90CameraIdSourceBinding=true s91ProjectionMathCorrection=true s91ConfigurableSourceEyeSelector=true s91DisplayIndexedHomographyRows=true s91VerticalOnlyTextureUv=true contentUvScale=1.6000 projectionUvCorrection=runtime-openxr-view-screen-to-camera-homography-configured-source-display-row-vertical-uv displayEyeOffsetMeters=0.032 displayFovSource=makepad_xr_update_runtime_openxr_view displayAspect=1.00 {} nativePassthroughStaticMarker=deprecated s98NativePassthroughHudSplitStaticMarker=deprecated s109SolidRedProjectionExterior=true s118ProjectedFootprintLiveWindow=true backgroundClearColor=203040 diagnosticUvTransform=see-source-sampling diagnosticUvRotation=0 diagnosticHorizontalMirrorCorrected=requires-visual-review legacyPanelTargetDefaults=deprecated panelTargetFields=runtime diagnosticVisualLayer=none neutralWaitingPanel=true visualIsolation=s118_projected_footprint_solid_red_exterior depthClip=false environmentDepthClip=false singleStreamVisualProof={} updatedStreamVisualProofSide={} {} drawVarsTextureRedraw=true shaderAreaStateUpdate=true visualInspection=required visualReleaseAccepted=false",
         texture_path.eye_selection(),
         source_eye_mapping,
         left_source_index,
         right_source_index,
         left_rotation_steps,
         right_rotation_steps,
-        texture_path.yuv_sampling_enabled(),
+        yuv_mode,
         texture_path.color_conversion(),
         texture_path.color_reference(),
+        camera_texture_binding_enabled,
         homography_marker_fields,
         single_stream_visual_proof,
         updated_stream_visual_proof_side,
@@ -2129,6 +2138,7 @@ mod tests {
             false,
             true,
             "left",
+            true,
             "projectionHomographyReady=true runtimeXrViewStateReady=true",
         );
 
@@ -2145,6 +2155,24 @@ mod tests {
     }
 
     #[test]
+    fn draw_vars_bound_marker_can_report_no_camera_texture_binding() {
+        let fields = draw_vars_bound_marker_fields(
+            MakepadCameraTexturePath::DirectCpuYuvPlane,
+            false,
+            false,
+            "paired",
+            false,
+            "projectionHomographyReady=true runtimeXrViewStateReady=true",
+        );
+
+        assert!(fields.contains("yuvMode=false"));
+        assert!(fields.contains("directCameraYuvColorAccepted=false"));
+        assert!(fields.contains("cameraTextureBinding=false"));
+        assert!(fields.contains("leftYuvTextureBound=false rightYuvTextureBound=false"));
+        assert!(fields.contains("cameraTexturePath=direct-camera-cpu-yuv-plane"));
+    }
+
+    #[test]
     fn visible_panel_bound_marker_keeps_projection_contract_shape() {
         let fields = visible_panel_bound_marker_fields(
             "left-right",
@@ -2155,6 +2183,7 @@ mod tests {
             270.0,
             false,
             "paired",
+            true,
             "projectionHomographyReady=true runtimeXrViewStateReady=true",
         );
 

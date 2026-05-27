@@ -4131,6 +4131,8 @@ impl App {
 
     fn bind_camera_projection_panel(&mut self, cx: &mut Cx) -> bool {
         let broker_h264_enabled = Self::broker_h264_enabled();
+        let projection_sample_mode = MakepadProjectionSampleMode::current();
+        let camera_texture_binding_enabled = projection_sample_mode.binds_camera_textures();
         let paired_streams_available =
             self.paired_import_left_updated && self.paired_import_right_updated;
         if self.camera_projection_textures_bound
@@ -4236,7 +4238,9 @@ impl App {
         } else {
             "identity-y-to-match-raster-metadata"
         };
-        let (left_yuv, right_yuv) = if texture_path.yuv_sampling_enabled() {
+        let (left_yuv, right_yuv) = if !camera_texture_binding_enabled {
+            (None, None)
+        } else if texture_path.yuv_sampling_enabled() {
             if broker_h264_enabled {
                 let left_yuv = left_yuv_source
                     .clone()
@@ -4277,10 +4281,20 @@ impl App {
         };
 
         panel.apply_projection_panel_geometry(cx);
+        let left_panel_texture = if camera_texture_binding_enabled {
+            Some(left_texture)
+        } else {
+            None
+        };
+        let right_panel_texture = if camera_texture_binding_enabled {
+            Some(right_texture)
+        } else {
+            None
+        };
         panel.set_camera_textures(
             cx,
-            Some(left_texture),
-            Some(right_texture),
+            left_panel_texture,
+            right_panel_texture,
             left_yuv,
             right_yuv,
             texture_path,
@@ -4331,6 +4345,7 @@ impl App {
             broker_h264_enabled && !broker_h264_cpu_yuv_decode,
             single_stream_visual_proof,
             proof_source_side,
+            camera_texture_binding_enabled,
         ));
         if !self.synthetic_scene_hidden_for_camera {
             self.synthetic_scene_hidden_for_camera = true;
@@ -4345,6 +4360,7 @@ impl App {
             self.paired_import_right_rotation_steps,
             single_stream_visual_proof,
             proof_source_side,
+            camera_texture_binding_enabled,
         ));
         true
     }
