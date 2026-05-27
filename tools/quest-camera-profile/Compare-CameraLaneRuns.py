@@ -57,6 +57,13 @@ def nested(data: dict[str, Any], keys: list[str], default: Any = None) -> Any:
     return current
 
 
+def cadence_value(cadence: dict[str, Any], latest: dict[str, Any], key: str, statistic: str = "last") -> Any:
+    summarized = nested(cadence, ["numericSummary", key, statistic])
+    if summarized is not None:
+        return summarized
+    return nested(latest, [key])
+
+
 def parse_run_spec(spec: str) -> tuple[str | None, Path]:
     if "=" in spec:
         name, path = spec.split("=", 1)
@@ -275,10 +282,14 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
 
     route = route_from_makepad_summary(makepad_summary) or route_from_lane_kind(lane_kind)
     recent_stale_sum = integer(nested(recent, ["stale", "sum"], 0)) or 0
-    repaint_upload_bytes = integer(nested(cadence_latest, ["xrRepaintTextureUploadBytes"]))
-    repaint_geometry_bytes = integer(nested(cadence_latest, ["xrRepaintGeometryUploadBytes"]))
+    repaint_upload_bytes = integer(
+        cadence_value(cadence, cadence_latest, "xrRepaintTextureUploadBytes", "max")
+    )
+    repaint_geometry_bytes = integer(
+        cadence_value(cadence, cadence_latest, "xrRepaintGeometryUploadBytes", "max")
+    )
     repaint_packet_buffer_bytes = integer(
-        nested(cadence_latest, ["xrRepaintPacketBufferBytes"])
+        cadence_value(cadence, cadence_latest, "xrRepaintPacketBufferBytes", "max")
     )
     delivered_size = lane_summary.get("delivered_size")
     expected_cpu_yuv_upload_bytes_per_eye = (
@@ -371,30 +382,40 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "xrRepaintGpuMs": rounded(nested(cadence_latest, ["xrRepaintGpuMs"])),
             "xrRepaintMs": rounded(nested(cadence_latest, ["xrRepaintMs"])),
             "xrRepaintPrepareTexturesMs": rounded(
-                nested(cadence_latest, ["xrRepaintPrepareTexturesMs"])
+                cadence_value(cadence, cadence_latest, "xrRepaintPrepareTexturesMs", "max")
             ),
             "xrRepaintTextureUploadBytes": repaint_upload_bytes,
             "xrRepaintTextureUploadMiB": repaint_upload_mib,
             "xrRepaintPacketBufferCount": integer(
-                nested(cadence_latest, ["xrRepaintPacketBufferCount"])
+                cadence_value(cadence, cadence_latest, "xrRepaintPacketBufferCount", "max")
             ),
             "xrRepaintPacketBufferBytes": repaint_packet_buffer_bytes,
             "xrRepaintPacketBufferKiB": repaint_packet_buffer_kib,
             "xrRepaintGeometryUploadBytes": repaint_geometry_bytes,
             "xrRepaintGeometryUploadKiB": repaint_geometry_kib,
             "xrRepaintDescriptorSetCount": integer(
-                nested(cadence_latest, ["xrRepaintDescriptorSetCount"])
+                cadence_value(cadence, cadence_latest, "xrRepaintDescriptorSetCount", "max")
             ),
-            "xrRepaintDrawItems": integer(nested(cadence_latest, ["xrRepaintDrawItems"])),
-            "xrRepaintDrawCalls": integer(nested(cadence_latest, ["xrRepaintDrawCalls"])),
-            "xrRepaintPackets": integer(nested(cadence_latest, ["xrRepaintPackets"])),
-            "xrRepaintInstances": integer(nested(cadence_latest, ["xrRepaintInstances"])),
-            "xrRepaintIndices": integer(nested(cadence_latest, ["xrRepaintIndices"])),
+            "xrRepaintDrawItems": integer(
+                cadence_value(cadence, cadence_latest, "xrRepaintDrawItems", "max")
+            ),
+            "xrRepaintDrawCalls": integer(
+                cadence_value(cadence, cadence_latest, "xrRepaintDrawCalls", "max")
+            ),
+            "xrRepaintPackets": integer(
+                cadence_value(cadence, cadence_latest, "xrRepaintPackets", "max")
+            ),
+            "xrRepaintInstances": integer(
+                cadence_value(cadence, cadence_latest, "xrRepaintInstances", "max")
+            ),
+            "xrRepaintIndices": integer(
+                cadence_value(cadence, cadence_latest, "xrRepaintIndices", "max")
+            ),
             "cpuYuvMarkerUploadMiB": camera_cpu_yuv_upload_mib,
             "observedRepaintToCpuYuvMarkerUploadCount": observed_repaint_to_camera_upload_count,
             "estimatedTextureUploadMiBPerSecond": upload_mib_per_second,
             "xrRepaintTextureUploadCount": integer(
-                nested(cadence_latest, ["xrRepaintTextureUploadCount"])
+                cadence_value(cadence, cadence_latest, "xrRepaintTextureUploadCount", "max")
             ),
             "xrWaitSwapchainMs": rounded(nested(cadence_latest, ["xrWaitSwapchainMs"])),
             "xrWaitFrameMs": rounded(nested(cadence_latest, ["xrWaitFrameMs"])),
@@ -693,10 +714,33 @@ def run_self_test() -> int:
             },
             "makepadCadence": {
                 "pairedTextureUpdateRateHz": 49.8,
+                "numericSummary": {
+                    "xrRepaintPrepareTexturesMs": {
+                        "count": 2,
+                        "min": 0.1,
+                        "max": 5.5,
+                        "avg": 2.8,
+                        "last": 0.1,
+                    },
+                    "xrRepaintTextureUploadBytes": {
+                        "count": 2,
+                        "min": 0,
+                        "max": 4_915_200,
+                        "avg": 2_457_600,
+                        "last": 0,
+                    },
+                    "xrRepaintTextureUploadCount": {
+                        "count": 2,
+                        "min": 0,
+                        "max": 6,
+                        "avg": 3.0,
+                        "last": 0,
+                    },
+                },
                 "latest": {
-                    "xrRepaintTextureUploadBytes": 4_915_200,
-                    "xrRepaintTextureUploadCount": 6,
-                    "xrRepaintPrepareTexturesMs": 5.5,
+                    "xrRepaintTextureUploadBytes": 0,
+                    "xrRepaintTextureUploadCount": 0,
+                    "xrRepaintPrepareTexturesMs": 0.1,
                     "xrRepaintMs": 6.0,
                     "xrRepaintGpuMs": 4.5,
                     "xrRepaintRecordDrawMs": 0.7,

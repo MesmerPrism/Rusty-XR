@@ -160,6 +160,19 @@ def summarize_vrapi(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def summarize_cadence(rows: list[dict[str, Any]], target_fps: float | None) -> dict[str, Any]:
     latest = rows[-1] if rows else {}
+    numeric_keys = sorted(
+        {
+            key
+            for row in rows
+            for key, value in row.items()
+            if not isinstance(value, bool) and isinstance(value, (int, float))
+        }
+    )
+    numeric_summary = {}
+    for key in numeric_keys:
+        summary = summarize_numbers(numeric_series(rows, key))
+        if summary["count"]:
+            numeric_summary[key] = summary
     reported_display_hz = number_prefix(latest.get("xrDisplayRefreshRateHz"))
     display_hz = target_fps or reported_display_hz
     effective_hz = number_prefix(latest.get("xrEffectiveFrameRateHz"))
@@ -175,6 +188,7 @@ def summarize_cadence(rows: list[dict[str, Any]], target_fps: float | None) -> d
     return {
         "rowCount": len(rows),
         "latest": latest,
+        "numericSummary": numeric_summary,
         "displayRefreshRateHz": display_hz,
         "reportedDisplayRefreshRateHz": reported_display_hz,
         "targetFps": target_fps,
@@ -499,6 +513,7 @@ def run_self_test() -> int:
     assert "makepad-xr-cadence-below-display" not in transient_report["reasons"], transient_report
     assert transient_report["makepadCadence"]["displayRefreshRateHz"] == 72.0, transient_report
     assert transient_report["makepadCadence"]["reportedDisplayRefreshRateHz"] == 90.0, transient_report
+    assert transient_report["makepadCadence"]["numericSummary"]["xrUpdateRateHz"]["last"] == 71.41, transient_report
     assert transient_report["makepadFrameFlow"]["acquirePublishedCount"] == 1, transient_report
     assert transient_report["makepadFrameFlow"]["cpuYuvUploadCount"] == 1, transient_report
     assert transient_report["makepadFrameFlow"]["xrEndFrameCount"] == 1, transient_report
