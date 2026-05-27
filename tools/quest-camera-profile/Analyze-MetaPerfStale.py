@@ -199,6 +199,23 @@ def count_by(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def count_by_pair(rows: list[dict[str, Any]], first_key: str, second_key: str) -> dict[str, dict[str, int]]:
+    counts: dict[str, dict[str, int]] = {}
+    for row in rows:
+        first = row.get(first_key)
+        second = row.get(second_key)
+        if first is None or second is None:
+            continue
+        first_label = str(first)
+        second_label = str(second)
+        bucket = counts.setdefault(first_label, {})
+        bucket[second_label] = bucket.get(second_label, 0) + 1
+    return {
+        first: dict(sorted(second_counts.items()))
+        for first, second_counts in sorted(counts.items())
+    }
+
+
 def numeric_value(row: dict[str, Any], key: str) -> float | None:
     return number_prefix(row.get(key))
 
@@ -293,7 +310,10 @@ def summarize_frame_flow(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "schema": "rusty.xr.makepad-camera-frame-flow-summary.v1",
         "rowCount": len(rows),
         "phaseCounts": count_by(rows, "phase"),
+        "pathCounts": count_by(rows, "path"),
         "videoIdCounts": count_by(rows, "videoId"),
+        "phasePathCounts": count_by_pair(rows, "phase", "path"),
+        "phaseVideoIdCounts": count_by_pair(rows, "phase", "videoId"),
         "acquirePublishedCount": len(acquired_rows),
         "acquireDroppedCount": len(dropped_rows),
         "cpuYuvUploadCount": len(upload_rows),
@@ -477,6 +497,10 @@ def run_self_test() -> int:
     assert transient_report["makepadFrameFlow"]["acquirePublishedCount"] == 1, transient_report
     assert transient_report["makepadFrameFlow"]["cpuYuvUploadCount"] == 1, transient_report
     assert transient_report["makepadFrameFlow"]["xrEndFrameCount"] == 1, transient_report
+    assert transient_report["makepadFrameFlow"]["pathCounts"]["cpu-yuv"] == 2, transient_report
+    assert (
+        transient_report["makepadFrameFlow"]["phasePathCounts"]["cpu-yuv-upload"]["cpu-yuv"] == 1
+    ), transient_report
     assert (
         transient_report["makepadFrameFlow"]["submitCorrelation"]["status"] == "single-sample"
     ), transient_report

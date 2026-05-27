@@ -365,6 +365,9 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "acquireDroppedCount": frame_flow.get("acquireDroppedCount"),
             "cpuYuvUploadCount": frame_flow.get("cpuYuvUploadCount"),
             "xrEndFrameCount": frame_flow.get("xrEndFrameCount"),
+            "pathCounts": frame_flow.get("pathCounts", {}),
+            "phasePathCounts": frame_flow.get("phasePathCounts", {}),
+            "phaseVideoIdCounts": frame_flow.get("phaseVideoIdCounts", {}),
             "acquireToUploadMs": frame_flow.get("acquireToUploadMs", {}),
             "uploadToNextSubmitMs": frame_flow.get("uploadToNextSubmitMs", {}),
             "cpuYuvUploadBytes": frame_flow.get("cpuYuvUploadBytes", {}),
@@ -392,6 +395,7 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
     )
     upload_mib_per_second = number(nested(row, ["performance", "estimatedTextureUploadMiBPerSecond"]))
     texture_to_xr_fraction = number(nested(row, ["performance", "textureToXrUpdateFraction"]))
+    path_counts = nested(row, ["makepadFrameFlow", "pathCounts"], {})
     route = str(row.get("route") or "")
     if stale_recent:
         notes.append("recent stale is nonzero; use latest/freshness together before calling the lane frozen")
@@ -416,6 +420,8 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
         notes.append("CPU-YUV repaint texture preparation is a primary headroom target")
     if route == "cpu-yuv" and wait_swapchain_ms is not None and wait_swapchain_ms > 3.0:
         notes.append("CPU-YUV also has visible swapchain wait in this sample")
+    if route == "cpu-yuv" and isinstance(path_counts, dict) and "cpu-yuv-fallback" in path_counts:
+        notes.append("CPU-YUV fallback path markers are present; separate fallback behavior before comparing cost")
     if route == "hardware-buffer-external" and wait_frame_ms is not None and wait_frame_ms > 8.0:
         notes.append("HWB external is wait-frame dominated in this sample")
     if upload_submit_avg is not None and upload_submit_avg > 100.0:
