@@ -212,6 +212,17 @@ def observed_i420_eye_upload_count(observed_bytes: int | None, expected_per_eye:
     return rounded(observed_bytes / expected_per_eye, 2)
 
 
+def integer_count_values(counts: Any) -> list[int]:
+    if not isinstance(counts, dict):
+        return []
+    values: list[int] = []
+    for value in counts.values():
+        parsed = integer(value)
+        if parsed is not None:
+            values.append(parsed)
+    return values
+
+
 def latest_vrapi_scale(latest: dict[str, Any]) -> float | None:
     return rounded(latest.get("SF"), 3)
 
@@ -401,6 +412,7 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
     upload_mib_per_second = number(nested(row, ["performance", "estimatedTextureUploadMiBPerSecond"]))
     texture_to_xr_fraction = number(nested(row, ["performance", "textureToXrUpdateFraction"]))
     path_counts = nested(row, ["makepadFrameFlow", "pathCounts"], {})
+    input_counts = nested(row, ["makepadFrameFlow", "inputIdCounts"], {})
     route = str(row.get("route") or "")
     if stale_recent:
         notes.append("recent stale is nonzero; use latest/freshness together before calling the lane frozen")
@@ -427,6 +439,15 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
         notes.append("CPU-YUV also has visible swapchain wait in this sample")
     if route == "cpu-yuv" and isinstance(path_counts, dict) and "cpu-yuv-fallback" in path_counts:
         notes.append("CPU-YUV fallback path markers are present; separate fallback behavior before comparing cost")
+    if row.get("kind") == "makepad":
+        input_count_values = integer_count_values(input_counts)
+        if len(input_count_values) >= 2:
+            spread = max(input_count_values) - min(input_count_values)
+            tolerance = max(1, round(sum(input_count_values) * 0.01))
+            if spread <= tolerance:
+                notes.append(f"camera input IDs are balanced across {len(input_count_values)} streams")
+            else:
+                notes.append(f"camera input ID counts differ by {spread} markers")
     if route == "hardware-buffer-external" and wait_frame_ms is not None and wait_frame_ms > 8.0:
         notes.append("HWB external is wait-frame dominated in this sample")
     if upload_submit_avg is not None and upload_submit_avg > 100.0:
@@ -626,6 +647,7 @@ def run_self_test() -> int:
                         "sum": 22118400,
                     }
                 },
+                "inputIdCounts": {"10": 10, "11": 10},
             },
         }
         (makepad / "launcher-attempt-1-final" / "meta-perf-stale-analysis.json").write_text(
@@ -693,6 +715,10 @@ def run_self_test() -> int:
         ), comparison
         assert any(
             "I420 eye uploads" in note for note in comparison["rows"][0]["localizationNotes"]
+        ), comparison
+        assert any(
+            "camera input IDs are balanced" in note
+            for note in comparison["rows"][0]["localizationNotes"]
         ), comparison
         assert comparison["rows"][1]["route"] == "direct-hwb", comparison
         assert comparison["rows"][1]["freshness"]["uniqueFrames"] == 6, comparison
