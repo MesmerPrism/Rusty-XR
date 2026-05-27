@@ -365,6 +365,8 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
     upload_submit_avg = number(nested(row, ["makepadFrameFlow", "uploadToNextSubmitMs", "avg"]))
     repaint_upload_bytes = number(nested(row, ["performance", "xrRepaintTextureUploadBytes"]))
     repaint_prepare_ms = number(nested(row, ["performance", "xrRepaintPrepareTexturesMs"]))
+    wait_frame_ms = number(nested(row, ["performance", "xrWaitFrameMs"]))
+    wait_swapchain_ms = number(nested(row, ["performance", "xrWaitSwapchainMs"]))
     observed_eye_upload_count = number(nested(row, ["performance", "observedCpuYuvEyeUploadCount"]))
     upload_mib_per_second = number(nested(row, ["performance", "estimatedTextureUploadMiBPerSecond"]))
     texture_to_xr_fraction = number(nested(row, ["performance", "textureToXrUpdateFraction"]))
@@ -386,6 +388,10 @@ def localization_notes(row: dict[str, Any]) -> list[str]:
         notes.append(f"camera texture updates cover {round(texture_to_xr_fraction * 100.0, 1):g}% of XR updates")
     if route == "cpu-yuv" and repaint_prepare_ms is not None and repaint_prepare_ms > 3.0:
         notes.append("CPU-YUV repaint texture preparation is a primary headroom target")
+    if route == "cpu-yuv" and wait_swapchain_ms is not None and wait_swapchain_ms > 3.0:
+        notes.append("CPU-YUV also has visible swapchain wait in this sample")
+    if route == "hardware-buffer-external" and wait_frame_ms is not None and wait_frame_ms > 8.0:
+        notes.append("HWB external is wait-frame dominated in this sample")
     if upload_submit_avg is not None and upload_submit_avg > 100.0:
         notes.append("upload-to-submit marker spacing is coarse; treat it as localization, not exact latency")
     if texture_hz is not None and texture_hz < 60.0:
@@ -467,6 +473,9 @@ def markdown_table(comparison: dict[str, Any]) -> str:
         ("Upload MiB/s", ["performance", "estimatedTextureUploadMiBPerSecond"]),
         ("Texture/XR", ["performance", "textureToXrUpdateFraction"]),
         ("Prepare Textures ms", ["performance", "xrRepaintPrepareTexturesMs"]),
+        ("WaitFrame ms", ["performance", "xrWaitFrameMs"]),
+        ("WaitSwapchain ms", ["performance", "xrWaitSwapchainMs"]),
+        ("Repaint ms", ["performance", "xrRepaintMs"]),
         ("Resource", ["lane", "resourceKind"]),
         ("Descriptor", ["lane", "descriptorShape"]),
         ("Color", ["lane", "colorStatus"]),
@@ -627,6 +636,7 @@ def run_self_test() -> int:
         assert comparison["rows"][0]["performance"]["observedCpuYuvEyeUploadCount"] == 2.0, comparison
         assert comparison["rows"][0]["performance"]["estimatedTextureUploadMiBPerSecond"] == 233.56, comparison
         assert comparison["rows"][0]["performance"]["textureToXrUpdateFraction"] is None, comparison
+        assert comparison["rows"][0]["performance"]["xrWaitSwapchainMs"] == 4.0, comparison
         assert any(
             "repaint uploads" in note for note in comparison["rows"][0]["localizationNotes"]
         ), comparison
@@ -641,6 +651,7 @@ def run_self_test() -> int:
         assert "Repaint Upload MiB" in table, table
         assert "I420 Eye Uploads" in table, table
         assert "Upload MiB/s" in table, table
+        assert "WaitSwapchain ms" in table, table
     print("Compare-CameraLaneRuns self-test passed")
     return 0
 
