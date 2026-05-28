@@ -1,11 +1,11 @@
 use rusty_xr_broker_model::{
-    BROKER_COMMAND_SCHEMA, BROKER_CONTROL_LEASE_RELEASE_COMMAND,
+    BrokerStreamRegistrySnapshot, BROKER_COMMAND_SCHEMA, BROKER_CONTROL_LEASE_RELEASE_COMMAND,
     BROKER_CONTROL_LEASE_RELEASE_SCHEMA, BROKER_CONTROL_LEASE_REQUEST_COMMAND,
     BROKER_CONTROL_LEASE_REQUEST_SCHEMA, BROKER_CONTROL_SCOPE_SCHEMA, BROKER_HOST_MANIFEST_COMMAND,
     BROKER_HOST_MANIFEST_HTTP_PATH, BROKER_LATENCY_SAMPLE_SCHEMA,
     BROKER_STREAM_REGISTRY_SNAPSHOT_COMMAND, BROKER_STREAM_REGISTRY_SNAPSHOT_HTTP_PATH,
-    BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA, BROKER_TRANSPORT_SESSION_OFFER_SCHEMA,
-    STREAM_LATENCY_SAMPLE,
+    BROKER_STREAM_REGISTRY_SNAPSHOT_SCHEMA, BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA,
+    BROKER_TRANSPORT_SESSION_OFFER_SCHEMA, STREAM_LATENCY_SAMPLE,
 };
 use serde_json::{json, Value};
 use std::env;
@@ -46,8 +46,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             print_messages(&response);
         }
+        "registry-summary" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                BROKER_STREAM_REGISTRY_SNAPSHOT_COMMAND,
+                None,
+            )?;
+            let snapshot = registry_snapshot_from_command_messages(&response)?;
+            println!("{}", format_registry_summary(&snapshot));
+        }
         "registry-http" => {
             println!("{}", http_registry_snapshot(&options.host, options.port)?);
+        }
+        "registry-http-summary" => {
+            let body = http_registry_snapshot(&options.host, options.port)?;
+            let snapshot = registry_snapshot_from_http_body(&body)?;
+            println!("{}", format_registry_summary(&snapshot));
         }
         "host-manifest" => {
             let response = send_command(
@@ -327,7 +342,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         _ => {
             return Err(format!(
-                "unknown command '{}'; use status, capabilities, streams, registry, registry-http, host-manifest, host-manifest-http, lease-request, lease-release, camera-provider, projection-profile, app-camera-probe, synthetic-h264-stream, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
+                "unknown command '{}'; use status, capabilities, streams, registry, registry-summary, registry-http, registry-http-summary, host-manifest, host-manifest-http, lease-request, lease-release, camera-provider, projection-profile, app-camera-probe, synthetic-h264-stream, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
                 options.command
             )
             .into());
@@ -347,6 +362,72 @@ fn http_registry_snapshot(host: &str, port: u16) -> io::Result<String> {
 
 fn http_host_manifest(host: &str, port: u16) -> io::Result<String> {
     http_get_body(host, port, BROKER_HOST_MANIFEST_HTTP_PATH)
+}
+
+fn registry_snapshot_from_http_body(body: &str) -> io::Result<BrokerStreamRegistrySnapshot> {
+    let value = serde_json::from_str::<Value>(body)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))?;
+    registry_snapshot_from_value(&value)
+}
+
+fn registry_snapshot_from_command_messages(
+    messages: &[Value],
+) -> io::Result<BrokerStreamRegistrySnapshot> {
+    let ack = messages
+        .iter()
+        .find(|message| {
+            message.get("type").and_then(Value::as_str) == Some("command_ack")
+                && message.get("command").and_then(Value::as_str)
+                    == Some(BROKER_STREAM_REGISTRY_SNAPSHOT_COMMAND)
+        })
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "no stream_registry.snapshot command_ack found",
+            )
+        })?;
+    let result = ack.get("result").ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "stream_registry.snapshot ack had no result",
+        )
+    })?;
+    registry_snapshot_from_value(result)
+}
+
+fn registry_snapshot_from_value(value: &Value) -> io::Result<BrokerStreamRegistrySnapshot> {
+    let candidate = if value.get("schema").and_then(Value::as_str)
+        == Some(BROKER_STREAM_REGISTRY_SNAPSHOT_SCHEMA)
+    {
+        value.clone()
+    } else {
+        value.get("registry").cloned().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "registry snapshot value had neither schema nor registry field",
+            )
+        })?
+    };
+    let snapshot = serde_json::from_value::<BrokerStreamRegistrySnapshot>(candidate)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))?;
+    if !snapshot.is_valid() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "registry snapshot failed public model validation",
+        ));
+    }
+    Ok(snapshot)
+}
+
+fn format_registry_summary(snapshot: &BrokerStreamRegistrySnapshot) -> String {
+    [
+        snapshot.summary_line(),
+        snapshot.modules_line(),
+        snapshot.providers_line(),
+        snapshot.streams_line(),
+        snapshot.adapters_line(),
+    ]
+    .join("\n")
 }
 
 fn http_get_body(host: &str, port: u16, path: &str) -> io::Result<String> {
@@ -1062,6 +1143,67 @@ mod tests {
         assert!(request.starts_with("GET /stream_registry/snapshot HTTP/1.1"));
         assert!(request.contains("Host: 127.0.0.1:8765"));
         assert!(build_http_get_request("127.0.0.1", 8765, "bad-path").is_err());
+    }
+
+    #[test]
+    fn registry_summary_parses_public_module_fixture() {
+        let snapshot = registry_snapshot_from_http_body(include_str!(
+            "../../../fixtures/broker-ui/synthetic-stream-registry-snapshot.json"
+        ))
+        .expect("public registry fixture should parse");
+
+        assert_eq!(snapshot.modules.len(), 5);
+        assert!(snapshot.module("breath.synthetic").is_some());
+        assert_eq!(snapshot.streams_for_module("breath.synthetic").len(), 1);
+        let summary = format_registry_summary(&snapshot);
+        assert!(summary.contains("synthetic-broker rev 5 / 5 module(s)"));
+        assert!(summary.contains("breath.synthetic"));
+        assert!(summary.contains("Bio provider"));
+        assert!(summary.contains("latency:sample"));
+    }
+
+    #[test]
+    fn registry_summary_extracts_snapshot_from_command_ack() {
+        let registry = serde_json::from_str::<Value>(include_str!(
+            "../../../fixtures/broker-ui/synthetic-module-registry-snapshot.json"
+        ))
+        .expect("public module registry fixture should parse as JSON");
+        let messages = vec![
+            json!({
+                "type": "status",
+                "brokerVersion": "fixture"
+            }),
+            json!({
+                "type": "command_ack",
+                "schema": "rusty.xr.broker.command_ack.v1",
+                "request_id": "registry-1",
+                "command": BROKER_STREAM_REGISTRY_SNAPSHOT_COMMAND,
+                "accepted": true,
+                "result": {
+                    "registry": registry
+                }
+            }),
+        ];
+
+        let snapshot = registry_snapshot_from_command_messages(&messages)
+            .expect("registry command ack should parse");
+
+        assert_eq!(snapshot.modules.len(), 1);
+        assert_eq!(snapshot.streams_for_module("synthetic.wave").len(), 1);
+    }
+
+    #[test]
+    fn registry_summary_rejects_unknown_module_links() {
+        let mut registry = serde_json::from_str::<Value>(include_str!(
+            "../../../fixtures/broker-ui/synthetic-module-registry-snapshot.json"
+        ))
+        .expect("public module registry fixture should parse as JSON");
+        registry["streams"][0]["module_id"] = json!("missing.module");
+
+        let error = registry_snapshot_from_value(&registry)
+            .expect_err("invalid module link should be rejected");
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]

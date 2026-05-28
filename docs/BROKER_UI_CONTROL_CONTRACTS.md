@@ -140,6 +140,15 @@ shape on both `GET /stream_registry/snapshot` and the
 module visibility does not imply plugin loading, media-payload routing through
 JSON, or permission to execute mutating commands.
 
+For operator or CI smoke checks against a reachable broker, the public Rust
+client probe can parse either entrypoint and validate module links against
+`BrokerStreamRegistrySnapshot`:
+
+```powershell
+cargo run -p rusty-xr-broker-client-probe -- registry-summary
+cargo run -p rusty-xr-broker-client-probe -- registry-http-summary
+```
+
 ## Public Fixtures
 
 Synthetic fixtures live under `fixtures/broker-ui`:
@@ -160,6 +169,7 @@ Recommended checks for this contract surface:
 
 ```powershell
 cargo test -p rusty-xr-broker-model --features serde
+cargo test -p rusty-xr-broker-client-probe
 python tools/schema/export_schemas.py --check
 python tools/schema/check_broker_ui_fixtures.py --repo-root .
 python tools/boundary-scan/rusty_xr_boundary_scan.py --repo-root .

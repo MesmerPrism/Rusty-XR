@@ -632,4 +632,6 @@ samples for broker-side LSL forwarding, and consumed OSC-driven broker events
 to drive a live scene parameter. A broker build with a user-supplied Android
 `liblsl.so` has also been validated by resolving `rusty_xr_broker_latency` from
 Windows and pulling forwarded string samples. The public Rust client probe now
-covers the same broker contract from a Rust-native code path.
+covers the same broker contract from a Rust-native code path, including
+module-aware registry summaries from both WebSocket and HTTP registry
+entrypoints.

@@ -12,7 +12,9 @@ dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- bro
 cargo run -p rusty-xr-broker-client-probe -- status
 cargo run -p rusty-xr-broker-client-probe -- streams
 cargo run -p rusty-xr-broker-client-probe -- registry
+cargo run -p rusty-xr-broker-client-probe -- registry-summary
 cargo run -p rusty-xr-broker-client-probe -- registry-http
+cargo run -p rusty-xr-broker-client-probe -- registry-http-summary
 cargo run -p rusty-xr-broker-client-probe -- host-manifest
 cargo run -p rusty-xr-broker-client-probe -- host-manifest-http
 cargo run -p rusty-xr-broker-client-probe -- lease-request --scope session.lifecycle --duration-ms 60000
@@ -47,8 +49,13 @@ Commands:
 - `streams`: send `list_streams` over WebSocket.
 - `registry`: send `stream_registry.snapshot` and print the broker topology
   snapshot.
+- `registry-summary`: send `stream_registry.snapshot`, parse it as public
+  `BrokerStreamRegistrySnapshot`, validate module links, and print compact
+  module/provider/stream topology lines.
 - `registry-http`: read `GET /stream_registry/snapshot` and print the broker
   topology snapshot.
+- `registry-http-summary`: parse the HTTP registry snapshot the same way as
+  `registry-summary`.
 - `host-manifest`: send `broker.host_manifest` and print the broker host role,
   endpoint visibility, security policy, clock domain, and capabilities.
 - `host-manifest-http`: read `GET /broker/host_manifest` and print the same

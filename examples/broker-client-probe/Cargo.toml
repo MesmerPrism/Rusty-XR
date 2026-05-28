@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-rusty-xr-broker-model = { path = "../../crates/rusty-xr-broker-model" }
+rusty-xr-broker-model = { path = "../../crates/rusty-xr-broker-model", features = ["serde"] }
 serde_json.workspace = true
 
 [lints]
