@@ -305,6 +305,11 @@ final class LocalBrokerServer implements Closeable {
                 return;
             }
 
+            if ("GET".equals(method) && BrokerState.HOST_MANIFEST_HTTP_PATH.equals(endpointPath)) {
+                writeJsonResponse(output, 200, state.hostManifestJson(bindHost, port, publisher, oscIngressServer).toString());
+                return;
+            }
+
             if ("GET".equals(method) && "/rustyxr/v1/events".equals(endpointPath) && wantsWebSocket(headers)) {
                 handleWebSocket(headers, input, output);
                 return;
@@ -450,6 +455,13 @@ final class LocalBrokerServer implements Closeable {
             JSONObject result = new JSONObject();
             result.put("registry", state.streamRegistrySnapshotJson(oscIngressServer));
             return commandAck(requestId, command, true, "stream_registry_snapshot", result);
+        }
+
+        if (BrokerState.HOST_MANIFEST_COMMAND.equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("host_manifest", state.hostManifestJson(bindHost, port, publisher, oscIngressServer));
+            return commandAck(requestId, command, true, "host_manifest", result);
         }
 
         if (BrokerState.CONTROL_LEASE_REQUEST_COMMAND.equals(command)) {
@@ -2401,6 +2413,7 @@ final class LocalBrokerServer implements Closeable {
         JSONObject status = state.toStatusJson(publisher, oscIngressServer);
         status.put("bindAddress", bindHost);
         status.put("lanControlEnabled", !isLoopbackBindHost(bindHost));
+        status.put("hostManifest", state.hostManifestJson(bindHost, port, publisher, oscIngressServer));
         if (connection != null) {
             JSONObject client = new JSONObject();
             client.put("connection_id", connection.connectionId);

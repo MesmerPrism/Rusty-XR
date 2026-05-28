@@ -1,7 +1,8 @@
 use rusty_xr_broker_model::{
     BROKER_COMMAND_SCHEMA, BROKER_CONTROL_LEASE_RELEASE_COMMAND,
     BROKER_CONTROL_LEASE_RELEASE_SCHEMA, BROKER_CONTROL_LEASE_REQUEST_COMMAND,
-    BROKER_CONTROL_LEASE_REQUEST_SCHEMA, BROKER_CONTROL_SCOPE_SCHEMA, BROKER_LATENCY_SAMPLE_SCHEMA,
+    BROKER_CONTROL_LEASE_REQUEST_SCHEMA, BROKER_CONTROL_SCOPE_SCHEMA, BROKER_HOST_MANIFEST_COMMAND,
+    BROKER_HOST_MANIFEST_HTTP_PATH, BROKER_LATENCY_SAMPLE_SCHEMA,
     BROKER_STREAM_REGISTRY_SNAPSHOT_COMMAND, BROKER_STREAM_REGISTRY_SNAPSHOT_HTTP_PATH,
     BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA, BROKER_TRANSPORT_SESSION_OFFER_SCHEMA,
     STREAM_LATENCY_SAMPLE,
@@ -47,6 +48,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         "registry-http" => {
             println!("{}", http_registry_snapshot(&options.host, options.port)?);
+        }
+        "host-manifest" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                BROKER_HOST_MANIFEST_COMMAND,
+                None,
+            )?;
+            print_messages(&response);
+        }
+        "host-manifest-http" => {
+            println!("{}", http_host_manifest(&options.host, options.port)?);
         }
         "lease-request" => {
             let response = send_command(
@@ -314,7 +327,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         _ => {
             return Err(format!(
-                "unknown command '{}'; use status, capabilities, streams, registry, registry-http, lease-request, lease-release, camera-provider, projection-profile, app-camera-probe, synthetic-h264-stream, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
+                "unknown command '{}'; use status, capabilities, streams, registry, registry-http, host-manifest, host-manifest-http, lease-request, lease-release, camera-provider, projection-profile, app-camera-probe, synthetic-h264-stream, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
                 options.command
             )
             .into());
@@ -330,6 +343,10 @@ fn http_status(host: &str, port: u16) -> io::Result<String> {
 
 fn http_registry_snapshot(host: &str, port: u16) -> io::Result<String> {
     http_get_body(host, port, BROKER_STREAM_REGISTRY_SNAPSHOT_HTTP_PATH)
+}
+
+fn http_host_manifest(host: &str, port: u16) -> io::Result<String> {
+    http_get_body(host, port, BROKER_HOST_MANIFEST_HTTP_PATH)
 }
 
 fn http_get_body(host: &str, port: u16, path: &str) -> io::Result<String> {
@@ -1045,6 +1062,17 @@ mod tests {
         assert!(request.starts_with("GET /stream_registry/snapshot HTTP/1.1"));
         assert!(request.contains("Host: 127.0.0.1:8765"));
         assert!(build_http_get_request("127.0.0.1", 8765, "bad-path").is_err());
+    }
+
+    #[test]
+    fn host_manifest_uses_public_command_and_path_constants() {
+        let command = build_command_json(BROKER_HOST_MANIFEST_COMMAND, None);
+        assert_eq!(command["command"], BROKER_HOST_MANIFEST_COMMAND);
+        assert_eq!(command["client_id"], CLIENT_ID);
+
+        let request = build_http_get_request("127.0.0.1", 8765, BROKER_HOST_MANIFEST_HTTP_PATH)
+            .expect("host manifest request should build");
+        assert!(request.starts_with("GET /broker/host_manifest HTTP/1.1"));
     }
 
     #[test]

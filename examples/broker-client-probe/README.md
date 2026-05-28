@@ -13,6 +13,8 @@ cargo run -p rusty-xr-broker-client-probe -- status
 cargo run -p rusty-xr-broker-client-probe -- streams
 cargo run -p rusty-xr-broker-client-probe -- registry
 cargo run -p rusty-xr-broker-client-probe -- registry-http
+cargo run -p rusty-xr-broker-client-probe -- host-manifest
+cargo run -p rusty-xr-broker-client-probe -- host-manifest-http
 cargo run -p rusty-xr-broker-client-probe -- lease-request --scope session.lifecycle --duration-ms 60000
 cargo run -p rusty-xr-broker-client-probe -- lease-release --lease control-lease-1 --reason operator_done
 cargo run -p rusty-xr-broker-client-probe -- camera-provider
@@ -47,6 +49,10 @@ Commands:
   snapshot.
 - `registry-http`: read `GET /stream_registry/snapshot` and print the broker
   topology snapshot.
+- `host-manifest`: send `broker.host_manifest` and print the broker host role,
+  endpoint visibility, security policy, clock domain, and capabilities.
+- `host-manifest-http`: read `GET /broker/host_manifest` and print the same
+  broker host manifest over HTTP.
 - `lease-request`: send `control_lease.request` with a public control-scope
   payload. Defaults to `session.lifecycle`; use `--scope`, `--command-scope`,
   `--resource`, `--duration-ms`, `--expected-revision`, and

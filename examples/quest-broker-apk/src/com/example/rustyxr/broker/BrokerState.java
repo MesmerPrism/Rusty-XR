@@ -28,6 +28,9 @@ final class BrokerState {
     static final String CONTROL_LEASE_REQUEST_COMMAND = "control_lease.request";
     static final String CONTROL_LEASE_RELEASE_COMMAND = "control_lease.release";
     static final String STREAM_REGISTRY_SNAPSHOT_SCHEMA = "rusty.xr.broker.stream_registry_snapshot.v1";
+    static final String HOST_MANIFEST_SCHEMA = "rusty.xr.broker.host_manifest.v1";
+    static final String HOST_MANIFEST_COMMAND = "broker.host_manifest";
+    static final String HOST_MANIFEST_HTTP_PATH = "/broker/host_manifest";
     private static final long DEFAULT_CONTROL_LEASE_DURATION_ELAPSED_NS = 60_000_000_000L;
 
     final long startedElapsedNanos = SystemClock.elapsedRealtimeNanos();
@@ -105,6 +108,7 @@ final class BrokerState {
         supportedCommands.put("list_capabilities");
         supportedCommands.put("list_streams");
         supportedCommands.put("stream_registry.snapshot");
+        supportedCommands.put(HOST_MANIFEST_COMMAND);
         supportedCommands.put(CONTROL_LEASE_REQUEST_COMMAND);
         supportedCommands.put(CONTROL_LEASE_RELEASE_COMMAND);
         supportedCommands.put("subscribe");
@@ -223,6 +227,8 @@ final class BrokerState {
         capabilities.put("broker.subscription.v1");
         capabilities.put("broker.stream_event.v1");
         capabilities.put("broker.stream_registry_snapshot.v1");
+        capabilities.put("broker.host_manifest.v1");
+        capabilities.put("broker.host_manifest.read");
         capabilities.put("broker.osc_ingress.configure");
         capabilities.put("broker.stream_event.publish");
         capabilities.put("broker.clock.status.v1");
@@ -444,6 +450,137 @@ final class BrokerState {
         snapshot.put("command_clients", new JSONArray().put(commandClient));
         snapshot.put("active_leases", activeControlLeasesJson());
         return snapshot;
+    }
+
+    JSONObject hostManifestJson(
+        String bindHost,
+        int port,
+        LatencyPublisher publisher,
+        OscIngressServer oscIngressServer) throws Exception {
+        String normalizedBindHost = bindHost != null && bindHost.trim().length() > 0
+            ? bindHost.trim()
+            : "127.0.0.1";
+        boolean loopbackOnly = isLoopbackHost(normalizedBindHost);
+        String endpointVisibility = loopbackOnly ? "loopback" : "paired_lan";
+
+        JSONObject security = new JSONObject();
+        security.put("schema", "rusty.xr.broker.transport_security_policy.v1");
+        security.put("mode", loopbackOnly ? "LoopbackOnly" : "ExternalSidecarOwned");
+        security.put("non_loopback_allowed", !loopbackOnly);
+        security.put("pairing_token_required", false);
+        security.put("expires_elapsed_ns", JSONObject.NULL);
+        security.put(
+            "capability_scope",
+            loopbackOnly ? new JSONArray() : jsonArrayOf("broker.lan_control.opt_in"));
+
+        JSONArray endpoints = new JSONArray();
+        endpoints.put(hostEndpointJson(
+            "events-ws",
+            "Broker WebSocket events",
+            "WebSocket",
+            normalizedBindHost,
+            port,
+            "/rustyxr/v1/events",
+            JSONObject.NULL,
+            false,
+            endpointVisibility,
+            "broker.control",
+            true));
+        endpoints.put(hostEndpointJson(
+            "status-http",
+            "Broker HTTP status",
+            "Tcp",
+            normalizedBindHost,
+            port,
+            "/status",
+            JSONObject.NULL,
+            false,
+            endpointVisibility,
+            "broker.status",
+            false));
+        endpoints.put(hostEndpointJson(
+            "stream-registry-http",
+            "Stream registry snapshot",
+            "Tcp",
+            normalizedBindHost,
+            port,
+            "/stream_registry/snapshot",
+            JSONObject.NULL,
+            false,
+            endpointVisibility,
+            "broker.stream_registry",
+            false));
+        endpoints.put(hostEndpointJson(
+            "host-manifest-http",
+            "Broker host manifest",
+            "Tcp",
+            normalizedBindHost,
+            port,
+            HOST_MANIFEST_HTTP_PATH,
+            JSONObject.NULL,
+            false,
+            endpointVisibility,
+            "broker.host_manifest",
+            false));
+
+        JSONObject manifest = new JSONObject();
+        manifest.put("schema", HOST_MANIFEST_SCHEMA);
+        manifest.put("host_id", "quest-broker-example");
+        manifest.put("label", "Quest broker example");
+        manifest.put("authority_role", "headset_local_primary");
+        manifest.put("endpoints", endpoints);
+        manifest.put("capabilities", capabilitiesJson(publisher, oscIngressServer));
+        manifest.put("security", security);
+        manifest.put("broker_clock_domain", "ElapsedRealtime");
+        manifest.put("session_manifest_required", true);
+        manifest.put("observed_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        manifest.put(
+            "notes",
+            loopbackOnly
+                ? jsonArrayOf("Loopback broker endpoint; host access normally uses an explicit forwarder.")
+                : jsonArrayOf("Non-loopback bind is opt-in and should be paired or sidecar-gated by the operator."));
+        return manifest;
+    }
+
+    private static JSONObject hostEndpointJson(
+        String endpointId,
+        String label,
+        String transport,
+        String host,
+        int port,
+        String path,
+        Object channelId,
+        boolean authRequired,
+        String visibility,
+        String commandScope,
+        boolean primary) throws Exception {
+        JSONObject endpoint = new JSONObject();
+        endpoint.put("transport", transport);
+        endpoint.put("host", host);
+        endpoint.put("port", port);
+        endpoint.put("path", path);
+        endpoint.put("channel_id", channelId);
+        endpoint.put("max_datagram_bytes", JSONObject.NULL);
+        endpoint.put("auth_required", authRequired);
+
+        JSONObject descriptor = new JSONObject();
+        descriptor.put("endpoint_id", endpointId);
+        descriptor.put("label", label);
+        descriptor.put("endpoint", endpoint);
+        descriptor.put("visibility", visibility);
+        descriptor.put("command_scope", commandScope);
+        descriptor.put("primary", primary);
+        return descriptor;
+    }
+
+    private static boolean isLoopbackHost(String host) {
+        if (host == null) {
+            return false;
+        }
+        String normalized = host.trim().toLowerCase(Locale.US);
+        return "127.0.0.1".equals(normalized)
+            || "localhost".equals(normalized)
+            || "::1".equals(normalized);
     }
 
     private static JSONObject streamJson(String id, String kind, String description, boolean active) throws Exception {
