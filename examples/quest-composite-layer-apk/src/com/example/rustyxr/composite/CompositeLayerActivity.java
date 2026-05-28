@@ -59,6 +59,10 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_OPACITY = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_BORDER_OPACITY = 1.0f;
     private static final String DEFAULT_PROJECTION_BORDER_POLICY = "solid-red";
+    private static final float DEFAULT_PROJECTION_TARGET_OFFSET_X_UV = 0.0f;
+    private static final float DEFAULT_PROJECTION_TARGET_OFFSET_Y_UV = 0.0f;
+    private static final float DEFAULT_PROJECTION_TARGET_SCALE = 1.0f;
+    private static final String DEFAULT_PROJECTION_TARGET_JOYSTICK_CONTROLS = "off";
     private static final String DEFAULT_CAMERA_PROJECTION_ALPHA_MODE = "fixed";
     private static final float DEFAULT_CAMERA_PROJECTION_ALPHA_SCALE = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_ALPHA_BIAS = 0.0f;
@@ -456,6 +460,11 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"projectionAreaCornerRadiusUv\":").append(floatJson(floatExtra("rustyxr.projectionAreaCornerRadiusUv", DEFAULT_CAMERA_PROJECTION_AREA_CORNER_RADIUS_UV)));
         builder.append(",\"projectionAreaOpacity\":").append(floatJson(floatExtra("rustyxr.projectionAreaOpacity", DEFAULT_CAMERA_PROJECTION_AREA_OPACITY)));
         builder.append(",\"projectionBorderOpacity\":").append(floatJson(floatExtra("rustyxr.projectionBorderOpacity", DEFAULT_CAMERA_PROJECTION_BORDER_OPACITY)));
+        builder.append(",\"projectionTargetOffsetXUv\":").append(floatJson(floatExtra("rustyxr.projectionTargetOffsetXUv", DEFAULT_PROJECTION_TARGET_OFFSET_X_UV)));
+        builder.append(",\"projectionTargetOffsetYUv\":").append(floatJson(floatExtra("rustyxr.projectionTargetOffsetYUv", DEFAULT_PROJECTION_TARGET_OFFSET_Y_UV)));
+        builder.append(",\"projectionTargetScale\":").append(floatJson(floatExtra("rustyxr.projectionTargetScale", DEFAULT_PROJECTION_TARGET_SCALE)));
+        builder.append(',');
+        appendJsonString(builder, "projectionTargetJoystickControls", stringExtra("rustyxr.projectionTargetJoystickControls", DEFAULT_PROJECTION_TARGET_JOYSTICK_CONTROLS));
         builder.append(',');
         appendJsonString(builder, "projectionBorderPolicy", stringExtra("rustyxr.projectionBorderPolicy", DEFAULT_PROJECTION_BORDER_POLICY));
         builder.append(',');

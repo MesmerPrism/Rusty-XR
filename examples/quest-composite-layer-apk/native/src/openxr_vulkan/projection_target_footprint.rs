@@ -24,6 +24,30 @@ impl HwbTargetFootprintParams {
                 area_params[1],
             ],
         }
+        .with_runtime_adjustment(config)
+    }
+
+    fn with_runtime_adjustment(mut self, config: &RuntimeConfig) -> Self {
+        let scale = config.projection_target_scale.clamp(0.05, 1.5);
+        let offset_x = config.projection_target_offset_x_uv.clamp(-0.5, 0.5);
+        let offset_y = config.projection_target_offset_y_uv.clamp(-0.5, 0.5);
+        if (scale - 1.0).abs() <= f32::EPSILON && offset_x == 0.0 && offset_y == 0.0 {
+            return self;
+        }
+
+        self.area_offset_params[0] = (self.area_offset_params[0] + offset_x).clamp(-0.5, 0.5);
+        self.area_offset_params[1] = (self.area_offset_params[1] + offset_y).clamp(-0.5, 0.5);
+        self.area_offset_params[2] = (self.area_offset_params[2] + offset_x).clamp(-0.5, 0.5);
+        self.area_offset_params[3] = (self.area_offset_params[3] + offset_y).clamp(-0.5, 0.5);
+        for radius in &mut self.area_radius_params {
+            *radius = (*radius * scale).clamp(0.001, 0.5);
+        }
+        self.area_params[0] =
+            ((self.area_radius_params[0] + self.area_radius_params[2]) * 0.5).clamp(0.001, 0.5);
+        self.area_params[1] =
+            ((self.area_radius_params[1] + self.area_radius_params[3]) * 0.5).clamp(0.001, 0.5);
+        self.area_params[3] = self.area_params[3].clamp(0.05, 4.0);
+        self
     }
 }
 
@@ -34,7 +58,7 @@ pub(super) fn target_footprint_params_from_mono_frame(
     let Some(target) = target_footprint_from_diagnostics(diagnostics) else {
         return HwbTargetFootprintParams::from_config(config);
     };
-    params_from_targets(target, target)
+    params_from_targets(target, target).with_runtime_adjustment(config)
 }
 
 pub(super) fn target_footprint_params_from_stereo_frame(
@@ -47,7 +71,7 @@ pub(super) fn target_footprint_params_from_stereo_frame(
     ) else {
         return HwbTargetFootprintParams::from_config(config);
     };
-    params_from_targets(left, right)
+    params_from_targets(left, right).with_runtime_adjustment(config)
 }
 
 pub(super) fn diagnostics_has_target_footprint(
@@ -131,5 +155,28 @@ mod tests {
             [0.375, 0.328125, 0.375, 0.3359375]
         );
         assert_eq!(params.area_params, [0.375, 0.33203125, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn runtime_adjustment_moves_and_scales_metadata_target_footprint() {
+        let config = RuntimeConfig {
+            projection_target_offset_x_uv: 0.05,
+            projection_target_offset_y_uv: -0.025,
+            projection_target_scale: 0.8,
+            ..Default::default()
+        };
+        let params = params_from_targets(
+            footprint(0.171875, 0.21875, 0.75, 0.65625),
+            footprint(0.078125, 0.21875, 0.75, 0.671875),
+        )
+        .with_runtime_adjustment(&config);
+
+        assert!(params.from_metadata);
+        assert_eq!(
+            params.area_offset_params,
+            [0.096875, 0.021875, 0.0031250007, 0.0296875]
+        );
+        assert_eq!(params.area_radius_params, [0.3, 0.26250002, 0.3, 0.26875]);
+        assert_eq!(params.area_params, [0.3, 0.265625, 0.0, 1.0]);
     }
 }

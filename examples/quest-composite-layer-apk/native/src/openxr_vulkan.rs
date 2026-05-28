@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-    apply_camera_alignment_tuning, diagnostic_hud_snapshot, gpu_probe_counters,
-    latest_headset_camera_frame, latest_headset_camera_gpu_frame,
+    apply_camera_alignment_tuning, apply_projection_target_control_update, diagnostic_hud_snapshot,
+    gpu_probe_counters, latest_headset_camera_frame, latest_headset_camera_gpu_frame,
     latest_headset_stereo_camera_gpu_frame, log_error, log_info, runtime_config,
     source_sampling::{
         hwb_final_projection_status_log_message, hwb_source_sampling_detail_log_message,
@@ -15,8 +15,8 @@ use crate::{
         HwbFinalProjectionStatusLog, HwbFinalProjectionTemporalMetrics, HwbSourceSamplingHandoff,
     },
     CameraAlignmentTuningUpdate, EnvironmentDepthMode, HandParticleMode, HeadsetCameraFrame,
-    HeadsetCameraGpuFrame, OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode, RuntimeConfig,
-    StereoGpuCameraFrame,
+    HeadsetCameraGpuFrame, OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode,
+    ProjectionTargetControlUpdate, RuntimeConfig, StereoGpuCameraFrame,
 };
 use android_activity::{InputStatus, MainEvent, PollEvent};
 use ash::vk::{self, Handle};
@@ -151,6 +151,12 @@ const CAMERA_ALIGNMENT_FOV_RATE_DEGREES_PER_SECOND: f32 = 15.0;
 const CAMERA_ALIGNMENT_OFFSET_Y_RATE_METERS_PER_SECOND: f32 = 0.20;
 const CAMERA_ALIGNMENT_OVERSCAN_RATE_PER_SECOND: f32 = 0.20;
 const CAMERA_ALIGNMENT_TUNING_FILE_NAME: &str = "controller-tuning-state.json";
+const PROJECTION_TARGET_JOYSTICK_DEADZONE: f32 = 0.18;
+const PROJECTION_TARGET_OFFSET_RATE_UV_PER_SECOND: f32 = 0.28;
+const PROJECTION_TARGET_SCALE_RATE_PER_SECOND: f32 = 0.45;
+const PROJECTION_TARGET_MIN_SCALE: f32 = 0.20;
+const PROJECTION_TARGET_MAX_SCALE: f32 = 1.25;
+const PROJECTION_TARGET_TUNING_FILE_NAME: &str = "projection-target-controller-state.json";
 
 type OpenXrVulkanGetInstanceProcAddr =
     unsafe extern "system" fn(
@@ -226,9 +232,7 @@ impl CameraAlignmentTuningActions {
         session
             .attach_action_sets(&[&action_set])
             .map_err(|error| format!("attach camera alignment action set: {error}"))?;
-        log_info(
-            "Rusty XR camera alignment controller tuning active controls=leftStickY:depth,leftStickX:fov,rightStickY:previewOffsetYMeters,rightStickX:rawOverscan,rightA:projectionLayerVisible",
-        );
+        log_info("Rusty XR OpenXR controller tuning actions active controls=mode-dependent");
 
         Ok(Self {
             action_set,
@@ -247,13 +251,37 @@ impl CameraAlignmentTuningActions {
         dt_seconds: f32,
         frame_count: u64,
     ) {
+        if let Some((left, right, right_primary)) = self.sample(session, frame_count) {
+            tuning.apply_input(left, right, right_primary, dt_seconds, frame_count);
+        }
+    }
+
+    fn update_projection_target(
+        &self,
+        session: &xr::Session<xr::Vulkan>,
+        tuning: &mut ProjectionTargetJoystickState,
+        dt_seconds: f32,
+        frame_count: u64,
+    ) {
+        if let Some((left, right, right_primary)) = self.sample(session, frame_count) {
+            tuning.apply_input(left, right, right_primary, dt_seconds, frame_count);
+        }
+    }
+
+    fn sample(
+        &self,
+        session: &xr::Session<xr::Vulkan>,
+        frame_count: u64,
+    ) -> Option<(
+        CameraAlignmentTuningAxisState,
+        CameraAlignmentTuningAxisState,
+        CameraAlignmentTuningButtonState,
+    )> {
         if let Err(error) = session.sync_actions(&[xr::ActiveActionSet::new(&self.action_set)]) {
             if frame_count == 0 || frame_count.is_multiple_of(120) {
-                log_error(format!(
-                    "Rusty XR camera alignment controller sync failed: {error}"
-                ));
+                log_error(format!("Rusty XR controller tuning sync failed: {error}"));
             }
-            return;
+            return None;
         }
 
         let left = self
@@ -263,7 +291,7 @@ impl CameraAlignmentTuningActions {
             .unwrap_or_else(|error| {
                 if frame_count == 0 || frame_count.is_multiple_of(120) {
                     log_error(format!(
-                        "Rusty XR left thumbstick alignment action unavailable: {error}"
+                        "Rusty XR left thumbstick tuning action unavailable: {error}"
                     ));
                 }
                 CameraAlignmentTuningAxisState::inactive()
@@ -275,7 +303,7 @@ impl CameraAlignmentTuningActions {
             .unwrap_or_else(|error| {
                 if frame_count == 0 || frame_count.is_multiple_of(120) {
                     log_error(format!(
-                        "Rusty XR right thumbstick alignment action unavailable: {error}"
+                        "Rusty XR right thumbstick tuning action unavailable: {error}"
                     ));
                 }
                 CameraAlignmentTuningAxisState::inactive()
@@ -287,13 +315,13 @@ impl CameraAlignmentTuningActions {
             .unwrap_or_else(|error| {
                 if frame_count == 0 || frame_count.is_multiple_of(120) {
                     log_error(format!(
-                        "Rusty XR right primary alignment action unavailable: {error}"
+                        "Rusty XR right primary tuning action unavailable: {error}"
                     ));
                 }
                 CameraAlignmentTuningButtonState::inactive()
             });
 
-        tuning.apply_input(left, right, right_primary, dt_seconds, frame_count);
+        Some((left, right, right_primary))
     }
 }
 
@@ -496,6 +524,186 @@ impl CameraAlignmentTuningState {
     }
 }
 
+struct ProjectionTargetJoystickState {
+    offset_x_uv: f32,
+    offset_y_uv: f32,
+    scale: f32,
+    right_primary_was_pressed: bool,
+    last_log_frame: Option<u64>,
+    last_dump_frame: Option<u64>,
+    output_path: Option<PathBuf>,
+}
+
+impl ProjectionTargetJoystickState {
+    fn new(config: &RuntimeConfig, output_path: Option<PathBuf>) -> Self {
+        if let Some(path) = output_path.as_ref() {
+            log_info(format!(
+                "Rusty XR projection-target controller readout file={}",
+                path.display()
+            ));
+        } else {
+            log_error(
+                "Rusty XR projection-target controller has no app data path for readout file",
+            );
+        }
+        log_info(
+            "Rusty XR projection-target controller active controls=leftStick:targetOffsetUv,rightStickY:targetScale,rightA:reset coordinateSpace=display-eye-screen-uv yConvention=stickUpMovesTargetUp",
+        );
+        Self {
+            offset_x_uv: config.projection_target_offset_x_uv.clamp(-0.5, 0.5),
+            offset_y_uv: config.projection_target_offset_y_uv.clamp(-0.5, 0.5),
+            scale: config
+                .projection_target_scale
+                .clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE),
+            right_primary_was_pressed: false,
+            last_log_frame: None,
+            last_dump_frame: None,
+            output_path,
+        }
+    }
+
+    fn apply_input(
+        &mut self,
+        left: CameraAlignmentTuningAxisState,
+        right: CameraAlignmentTuningAxisState,
+        right_primary: CameraAlignmentTuningButtonState,
+        dt_seconds: f32,
+        frame_count: u64,
+    ) {
+        let dt = dt_seconds.clamp(0.0, 0.1);
+        let mut changed = false;
+        if left.active {
+            let x_axis = projection_target_deadzone_axis(left.x);
+            let y_axis = projection_target_deadzone_axis(left.y);
+            if x_axis != 0.0 {
+                self.offset_x_uv = (self.offset_x_uv
+                    + x_axis * PROJECTION_TARGET_OFFSET_RATE_UV_PER_SECOND * dt)
+                    .clamp(-0.5, 0.5);
+                changed = true;
+            }
+            if y_axis != 0.0 {
+                self.offset_y_uv = (self.offset_y_uv
+                    - y_axis * PROJECTION_TARGET_OFFSET_RATE_UV_PER_SECOND * dt)
+                    .clamp(-0.5, 0.5);
+                changed = true;
+            }
+        }
+        if right.active {
+            let scale_axis = projection_target_deadzone_axis(right.y);
+            if scale_axis != 0.0 {
+                self.scale = (self.scale
+                    + scale_axis * PROJECTION_TARGET_SCALE_RATE_PER_SECOND * dt)
+                    .clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE);
+                changed = true;
+            }
+        }
+        let primary_pressed = right_primary.active && right_primary.pressed;
+        let reset = primary_pressed && !self.right_primary_was_pressed;
+        self.right_primary_was_pressed = primary_pressed;
+        if reset {
+            self.offset_x_uv = 0.0;
+            self.offset_y_uv = 0.0;
+            self.scale = 1.0;
+            changed = true;
+        }
+
+        let periodic_dump = self
+            .last_dump_frame
+            .map(|last| frame_count.saturating_sub(last) >= 120)
+            .unwrap_or(true);
+        if changed || periodic_dump {
+            self.publish(frame_count, changed, reset);
+        }
+    }
+
+    fn publish(&mut self, frame_count: u64, changed: bool, reset: bool) {
+        let config = apply_projection_target_control_update(ProjectionTargetControlUpdate {
+            offset_x_uv: self.offset_x_uv,
+            offset_y_uv: self.offset_y_uv,
+            scale: self.scale,
+        });
+        self.offset_x_uv = config.projection_target_offset_x_uv;
+        self.offset_y_uv = config.projection_target_offset_y_uv;
+        self.scale = config
+            .projection_target_scale
+            .clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE);
+        self.write_readout(frame_count);
+
+        let should_log = reset
+            || self
+                .last_log_frame
+                .map(|last| frame_count.saturating_sub(last) >= 30)
+                .unwrap_or(true);
+        if should_log {
+            log_info(format!(
+                "Rusty XR projection-target tuning source=controller frame={} changed={} reset={} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} readoutFile={}",
+                frame_count,
+                changed,
+                reset,
+                self.offset_x_uv,
+                self.offset_y_uv,
+                self.scale,
+                self.output_path
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "unavailable".to_string())
+            ));
+            self.last_log_frame = Some(frame_count);
+        }
+    }
+
+    fn write_readout(&mut self, frame_count: u64) {
+        let Some(path) = self.output_path.as_ref() else {
+            return;
+        };
+        let json = format!(
+            concat!(
+                "{{\n",
+                "  \"schemaVersion\": \"rusty.xr.projection-target-controller-tuning.v1\",\n",
+                "  \"source\": \"openxr-actions\",\n",
+                "  \"frame\": {},\n",
+                "  \"updatedUnixMs\": {},\n",
+                "  \"projectionTargetOffsetXUv\": {:.6},\n",
+                "  \"projectionTargetOffsetYUv\": {:.6},\n",
+                "  \"projectionTargetScale\": {:.6},\n",
+                "  \"controls\": {{\n",
+                "    \"leftJoystickX\": \"projectionTargetOffsetXUv\",\n",
+                "    \"leftJoystickY\": \"projectionTargetOffsetYUv, inverted so up moves target up\",\n",
+                "    \"rightJoystickY\": \"projectionTargetScale; up grows, down shrinks\",\n",
+                "    \"rightPrimaryButton\": \"reset offset and scale\"\n",
+                "  }}\n",
+                "}}\n"
+            ),
+            frame_count,
+            now_unix_ms(),
+            self.offset_x_uv,
+            self.offset_y_uv,
+            self.scale
+        );
+        if let Some(parent) = path.parent() {
+            if let Err(error) = std::fs::create_dir_all(parent) {
+                if frame_count == 0 || frame_count.is_multiple_of(120) {
+                    log_error(format!(
+                        "Rusty XR projection-target tuning readout directory failed {}: {error}",
+                        parent.display()
+                    ));
+                }
+                return;
+            }
+        }
+        if let Err(error) = std::fs::write(path, json) {
+            if frame_count == 0 || frame_count.is_multiple_of(120) {
+                log_error(format!(
+                    "Rusty XR projection-target tuning readout write failed {}: {error}",
+                    path.display()
+                ));
+            }
+            return;
+        }
+        self.last_dump_frame = Some(frame_count);
+    }
+}
+
 fn xr_path(instance: &xr::Instance, path: &str) -> Result<xr::Path, String> {
     instance
         .string_to_path(path)
@@ -582,6 +790,14 @@ fn button_state_from_openxr(state: xr::ActionState<bool>) -> CameraAlignmentTuni
 
 fn deadzone_axis(value: f32) -> f32 {
     if value.abs() <= CAMERA_ALIGNMENT_TUNING_DEADZONE {
+        0.0
+    } else {
+        value.clamp(-1.0, 1.0)
+    }
+}
+
+fn projection_target_deadzone_axis(value: f32) -> f32 {
+    if value.abs() <= PROJECTION_TARGET_JOYSTICK_DEADZONE {
         0.0
     } else {
         value.clamp(-1.0, 1.0)
@@ -2758,19 +2974,38 @@ unsafe fn run_vulkan(
         startup_config.xr_display_refresh_hz,
         &mut last_requested_display_refresh_hz,
     );
-    let mut camera_alignment_tuning = CameraAlignmentTuningState::new(
-        &startup_config,
-        app.internal_data_path()
-            .map(|path| path.join(CAMERA_ALIGNMENT_TUNING_FILE_NAME)),
-    );
-    camera_alignment_tuning.publish(0, false, false);
+    let controller_data_path = app.internal_data_path();
+    let projection_target_controller_active =
+        startup_config.projection_target_joystick_controls.enabled();
+    let mut camera_alignment_tuning = if projection_target_controller_active {
+        None
+    } else {
+        let mut tuning = CameraAlignmentTuningState::new(
+            &startup_config,
+            controller_data_path
+                .as_ref()
+                .map(|path| path.join(CAMERA_ALIGNMENT_TUNING_FILE_NAME)),
+        );
+        tuning.publish(0, false, false);
+        Some(tuning)
+    };
+    let mut projection_target_tuning = if projection_target_controller_active {
+        let mut tuning = ProjectionTargetJoystickState::new(
+            &startup_config,
+            controller_data_path
+                .as_ref()
+                .map(|path| path.join(PROJECTION_TARGET_TUNING_FILE_NAME)),
+        );
+        tuning.publish(0, false, false);
+        Some(tuning)
+    } else {
+        None
+    };
     let camera_alignment_tuning_actions =
         match CameraAlignmentTuningActions::new(&xr_instance, &session) {
             Ok(actions) => Some(actions),
             Err(error) => {
-                log_error(format!(
-                    "Rusty XR camera alignment controller tuning disabled: {error}"
-                ));
+                log_error(format!("Rusty XR controller tuning disabled: {error}"));
                 None
             }
         };
@@ -3037,12 +3272,11 @@ unsafe fn run_vulkan(
                 let dt_seconds = (frame_state.predicted_display_period.as_nanos() as f32
                     / 1_000_000_000.0)
                     .clamp(0.0, 0.1);
-                actions.update(
-                    &session,
-                    &mut camera_alignment_tuning,
-                    dt_seconds,
-                    frame_count,
-                );
+                if let Some(tuning) = projection_target_tuning.as_mut() {
+                    actions.update_projection_target(&session, tuning, dt_seconds, frame_count);
+                } else if let Some(tuning) = camera_alignment_tuning.as_mut() {
+                    actions.update(&session, tuning, dt_seconds, frame_count);
+                }
             }
         }
         let config = runtime_config();

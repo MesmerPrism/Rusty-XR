@@ -3,7 +3,8 @@ use super::log_info;
 use super::{
     CameraImageRotation, CameraPeripheralStretchCornerMode, CameraPeripheralStretchDebug,
     CameraPeripheralStretchMode, CameraProcessingLayer, CameraProjectionAlphaMode,
-    CameraProjectionBorderPolicy, CameraProjectionMode, RuntimeConfig, StereoSourceEyeMapping,
+    CameraProjectionBorderPolicy, CameraProjectionMode, ProjectionTargetJoystickControls,
+    RuntimeConfig, StereoSourceEyeMapping,
 };
 use rusty_xr_runtime_config as rxrc;
 
@@ -174,6 +175,30 @@ pub(super) fn public_projection_runtime_config(
         &mut public,
         rxrc::KEY_PROJECTION_BORDER_POLICY,
         config.camera_projection_border_policy.stable_id(),
+        source.clone(),
+    );
+    set_public_float(
+        &mut public,
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_X_UV,
+        config.projection_target_offset_x_uv,
+        source.clone(),
+    );
+    set_public_float(
+        &mut public,
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_Y_UV,
+        config.projection_target_offset_y_uv,
+        source.clone(),
+    );
+    set_public_float(
+        &mut public,
+        rxrc::KEY_PROJECTION_TARGET_SCALE,
+        config.projection_target_scale,
+        source.clone(),
+    );
+    set_public_text(
+        &mut public,
+        rxrc::KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+        config.projection_target_joystick_controls.stable_id(),
         source.clone(),
     );
     set_public_text(
@@ -488,6 +513,31 @@ pub(super) fn apply_hwb_projection_runtime_resolution(
         hwb_projection_runtime_text(resolution, rxrc::KEY_PROJECTION_BORDER_POLICY)
             .and_then(CameraProjectionBorderPolicy::parse)
             .unwrap_or(config.camera_projection_border_policy);
+    config.projection_target_offset_x_uv = hwb_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_X_UV,
+        config.projection_target_offset_x_uv,
+        -0.5,
+        0.5,
+    );
+    config.projection_target_offset_y_uv = hwb_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_Y_UV,
+        config.projection_target_offset_y_uv,
+        -0.5,
+        0.5,
+    );
+    config.projection_target_scale = hwb_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_TARGET_SCALE,
+        config.projection_target_scale,
+        0.05,
+        1.5,
+    );
+    config.projection_target_joystick_controls =
+        hwb_projection_runtime_text(resolution, rxrc::KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS)
+            .and_then(ProjectionTargetJoystickControls::parse)
+            .unwrap_or(config.projection_target_joystick_controls);
     config.camera_processing_layer =
         hwb_projection_runtime_text(resolution, rxrc::KEY_PROCESSING_LAYER)
             .and_then(CameraProcessingLayer::parse)

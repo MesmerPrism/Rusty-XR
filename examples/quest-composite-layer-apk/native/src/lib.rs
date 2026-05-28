@@ -642,6 +642,42 @@ impl CameraFrameAdoptionMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum ProjectionTargetJoystickControls {
+    #[default]
+    Off,
+    OffsetScale,
+}
+
+impl ProjectionTargetJoystickControls {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "" | "off" | "false" | "0" | "disabled" | "none" => Some(Self::Off),
+            "offset-scale"
+            | "target-offset-scale"
+            | "projection-target"
+            | "target-footprint"
+            | "joystick-offset-scale"
+            | "on"
+            | "true"
+            | "1"
+            | "enabled" => Some(Self::OffsetScale),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::OffsetScale => "offset-scale",
+        }
+    }
+
+    pub(crate) const fn enabled(self) -> bool {
+        matches!(self, Self::OffsetScale)
+    }
+}
+
 #[derive(Clone, Debug)]
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) struct RuntimeConfig {
@@ -670,6 +706,10 @@ pub(crate) struct RuntimeConfig {
     pub(crate) camera_projection_area_corner_radius_uv: f32,
     pub(crate) camera_projection_area_opacity: f32,
     pub(crate) camera_projection_border_opacity: f32,
+    pub(crate) projection_target_offset_x_uv: f32,
+    pub(crate) projection_target_offset_y_uv: f32,
+    pub(crate) projection_target_scale: f32,
+    pub(crate) projection_target_joystick_controls: ProjectionTargetJoystickControls,
     pub(crate) camera_projection_alpha_mode: CameraProjectionAlphaMode,
     pub(crate) camera_projection_alpha_scale: f32,
     pub(crate) camera_projection_alpha_bias: f32,
@@ -767,6 +807,10 @@ impl Default for RuntimeConfig {
             camera_projection_area_corner_radius_uv: 0.0,
             camera_projection_area_opacity: 1.0,
             camera_projection_border_opacity: 1.0,
+            projection_target_offset_x_uv: 0.0,
+            projection_target_offset_y_uv: 0.0,
+            projection_target_scale: 1.0,
+            projection_target_joystick_controls: ProjectionTargetJoystickControls::Off,
             camera_projection_alpha_mode: CameraProjectionAlphaMode::default(),
             camera_projection_alpha_scale: 1.0,
             camera_projection_alpha_bias: 0.0,
@@ -1159,6 +1203,16 @@ impl RuntimeConfig {
         )
     }
 
+    pub(crate) fn hwb_projection_target_contract_fields(&self) -> String {
+        format!(
+            "projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} projectionTargetJoystickControls={} projectionTargetControlCoordinateSpace=display-eye-screen-uv projectionTargetControlSemantics=runtime_adjustment_applied_after_source_metadata",
+            self.projection_target_offset_x_uv,
+            self.projection_target_offset_y_uv,
+            self.projection_target_scale,
+            self.projection_target_joystick_controls.stable_id()
+        )
+    }
+
     pub(crate) fn camera_effect_params_push(&self) -> [f32; 4] {
         let processing_diagnostic = self.camera_processing_layer.diagnostic_shader_code();
         [
@@ -1436,6 +1490,29 @@ pub(crate) fn apply_camera_alignment_tuning(update: CameraAlignmentTuningUpdate)
         .unwrap_or_default()
 }
 
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) struct ProjectionTargetControlUpdate {
+    pub(crate) offset_x_uv: f32,
+    pub(crate) offset_y_uv: f32,
+    pub(crate) scale: f32,
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) fn apply_projection_target_control_update(
+    update: ProjectionTargetControlUpdate,
+) -> RuntimeConfig {
+    runtime_config_state()
+        .lock()
+        .map(|mut state| {
+            state.projection_target_offset_x_uv = update.offset_x_uv.clamp(-0.5, 0.5);
+            state.projection_target_offset_y_uv = update.offset_y_uv.clamp(-0.5, 0.5);
+            state.projection_target_scale = update.scale.clamp(0.05, 1.5);
+            state.clone()
+        })
+        .unwrap_or_default()
+}
+
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) fn diagnostic_hud_snapshot() -> DiagnosticHudUpdate {
     diagnostic_hud_state()
@@ -1529,7 +1606,7 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} projectionBorderPolicy={} processingLayer={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} {} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBlurRadiusPx={} {} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} previewOffsetYMeters={} projectionScale={} projectionDepthMeters={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaLeftOffsetXUv={} projectionAreaLeftOffsetYUv={} projectionAreaRightOffsetXUv={} projectionAreaRightOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} projectionAlphaMode={} projectionAlphaScale={} projectionAlphaBias={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} projectionBorderPolicy={} processingLayer={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} {} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBlurRadiusPx={} {} {} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} previewOffsetYMeters={} projectionScale={} projectionDepthMeters={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaLeftOffsetXUv={} projectionAreaLeftOffsetYUv={} projectionAreaRightOffsetXUv={} projectionAreaRightOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} projectionAlphaMode={} projectionAlphaScale={} projectionAlphaBias={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -1556,6 +1633,7 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_color_saturation,
         config.camera_blur_radius_px,
         config.hwb_peripheral_stretch_contract_fields(),
+        config.hwb_projection_target_contract_fields(),
         config.camera_temporal_projection_enabled,
         config.camera_temporal_mode.stable_id(),
         config.camera_temporal_max_pixels_per_frame,
@@ -2117,6 +2195,10 @@ struct JavaRuntimeConfig {
     projection_area_corner_radius_uv: Option<f32>,
     projection_area_opacity: Option<f32>,
     projection_border_opacity: Option<f32>,
+    projection_target_offset_x_uv: Option<f32>,
+    projection_target_offset_y_uv: Option<f32>,
+    projection_target_scale: Option<f32>,
+    projection_target_joystick_controls: Option<String>,
     projection_alpha_mode: Option<String>,
     projection_alpha_scale: Option<f32>,
     projection_alpha_bias: Option<f32>,
@@ -2349,6 +2431,26 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             .filter(|value| value.is_finite())
             .unwrap_or(defaults.camera_projection_border_opacity)
             .clamp(0.0, 1.0),
+        projection_target_offset_x_uv: bridge
+            .projection_target_offset_x_uv
+            .filter(|value| value.is_finite())
+            .unwrap_or(defaults.projection_target_offset_x_uv)
+            .clamp(-0.5, 0.5),
+        projection_target_offset_y_uv: bridge
+            .projection_target_offset_y_uv
+            .filter(|value| value.is_finite())
+            .unwrap_or(defaults.projection_target_offset_y_uv)
+            .clamp(-0.5, 0.5),
+        projection_target_scale: finite_positive_or(
+            bridge.projection_target_scale,
+            defaults.projection_target_scale,
+        )
+        .clamp(0.05, 1.5),
+        projection_target_joystick_controls: bridge
+            .projection_target_joystick_controls
+            .as_deref()
+            .and_then(ProjectionTargetJoystickControls::parse)
+            .unwrap_or(defaults.projection_target_joystick_controls),
         camera_projection_alpha_mode: bridge
             .projection_alpha_mode
             .as_deref()
@@ -4151,7 +4253,8 @@ mod tests {
         CameraSamplerBindingMode, EnvironmentDepthMode, HandParticleMode, JavaCameraExtrinsics,
         JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind,
         JavaRuntimeConfig, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
-        OpenXrPassthroughStyleMode, RuntimeConfig, StereoSourceEyeMapping,
+        OpenXrPassthroughStyleMode, ProjectionTargetJoystickControls, RuntimeConfig,
+        StereoSourceEyeMapping,
     };
     use rusty_xr_contracts::{
         CameraCompositeTier, CameraImageRotation, CameraPixelDomainKind, ImageSize,
@@ -4385,6 +4488,10 @@ mod tests {
             projection_area_corner_radius_uv: Some(0.0),
             projection_area_opacity: Some(0.42),
             projection_border_opacity: Some(0.85),
+            projection_target_offset_x_uv: Some(0.0625),
+            projection_target_offset_y_uv: Some(-0.03125),
+            projection_target_scale: Some(0.75),
+            projection_target_joystick_controls: Some("offset-scale".to_string()),
             projection_alpha_mode: Some("green".to_string()),
             projection_alpha_scale: Some(1.5),
             projection_alpha_bias: Some(-0.1),
@@ -4514,6 +4621,13 @@ mod tests {
         assert_eq!(config.camera_projection_area_corner_radius_uv, 0.0);
         assert_eq!(config.camera_projection_area_opacity, 0.42);
         assert_eq!(config.camera_projection_border_opacity, 0.85);
+        assert_eq!(config.projection_target_offset_x_uv, 0.0625);
+        assert_eq!(config.projection_target_offset_y_uv, -0.03125);
+        assert_eq!(config.projection_target_scale, 0.75);
+        assert_eq!(
+            config.projection_target_joystick_controls,
+            ProjectionTargetJoystickControls::OffsetScale
+        );
         assert_eq!(
             config.camera_projection_alpha_mode,
             CameraProjectionAlphaMode::Green

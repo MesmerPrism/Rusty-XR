@@ -69,6 +69,7 @@ pub enum RuntimeKeyDomain {
 pub enum ProjectionRuntimeKeyOwner {
     Geometry,
     ProjectionArea,
+    TargetFootprint,
     SourceSampling,
     Alpha,
     RendererPolicy,
@@ -432,6 +433,10 @@ pub const KEY_PROJECTION_AREA_CORNER_RADIUS_UV: &str = "projection_area_corner_r
 pub const KEY_PROJECTION_AREA_OPACITY: &str = "projection_area_opacity";
 pub const KEY_PROJECTION_BORDER_OPACITY: &str = "projection_border_opacity";
 pub const KEY_PROJECTION_BORDER_POLICY: &str = "projection_border_policy";
+pub const KEY_PROJECTION_TARGET_OFFSET_X_UV: &str = "projection_target_offset_x_uv";
+pub const KEY_PROJECTION_TARGET_OFFSET_Y_UV: &str = "projection_target_offset_y_uv";
+pub const KEY_PROJECTION_TARGET_SCALE: &str = "projection_target_scale";
+pub const KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS: &str = "projection_target_joystick_controls";
 pub const KEY_PROCESSING_LAYER: &str = "processing_layer";
 pub const KEY_CAMERA_BLUR_RADIUS_PX: &str = "camera_blur_radius_px";
 pub const KEY_PERIPHERAL_STRETCH_MODE: &str = "peripheral_stretch_mode";
@@ -603,6 +608,30 @@ pub const PROJECTION_RUNTIME_KEY_DEFINITIONS: &[RuntimeKeyDefinition] = &[
         ProjectionRuntimeKeyOwner::ProjectionArea,
         RuntimeValueKind::Text,
         "Projection-area border fill policy.",
+    ),
+    projection_key(
+        KEY_PROJECTION_TARGET_OFFSET_X_UV,
+        ProjectionRuntimeKeyOwner::TargetFootprint,
+        RuntimeValueKind::Float,
+        "Runtime horizontal offset applied to the metadata or fallback target footprint.",
+    ),
+    projection_key(
+        KEY_PROJECTION_TARGET_OFFSET_Y_UV,
+        ProjectionRuntimeKeyOwner::TargetFootprint,
+        RuntimeValueKind::Float,
+        "Runtime vertical offset applied to the metadata or fallback target footprint.",
+    ),
+    projection_key(
+        KEY_PROJECTION_TARGET_SCALE,
+        ProjectionRuntimeKeyOwner::TargetFootprint,
+        RuntimeValueKind::Float,
+        "Runtime uniform scale applied around the target-footprint center.",
+    ),
+    projection_key(
+        KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+        ProjectionRuntimeKeyOwner::TargetFootprint,
+        RuntimeValueKind::Text,
+        "OpenXR controller target-footprint control mode.",
     ),
     projection_key(
         KEY_PROCESSING_LAYER,
@@ -855,6 +884,19 @@ pub const PROJECTION_RUNTIME_KEY_ALIASES: &[RuntimeKeyAlias] = &[
         "rustyxr.projectionBorderPolicy",
         KEY_PROJECTION_BORDER_POLICY,
     ),
+    launch_alias(
+        "rustyxr.projectionTargetOffsetXUv",
+        KEY_PROJECTION_TARGET_OFFSET_X_UV,
+    ),
+    launch_alias(
+        "rustyxr.projectionTargetOffsetYUv",
+        KEY_PROJECTION_TARGET_OFFSET_Y_UV,
+    ),
+    launch_alias("rustyxr.projectionTargetScale", KEY_PROJECTION_TARGET_SCALE),
+    launch_alias(
+        "rustyxr.projectionTargetJoystickControls",
+        KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+    ),
     launch_alias("rustyxr.processingLayer", KEY_PROCESSING_LAYER),
     launch_alias("rustyxr.cameraBlurRadiusPx", KEY_CAMERA_BLUR_RADIUS_PX),
     launch_alias("rustyxr.peripheralStretchMode", KEY_PERIPHERAL_STRETCH_MODE),
@@ -994,6 +1036,22 @@ pub const PROJECTION_RUNTIME_KEY_ALIASES: &[RuntimeKeyAlias] = &[
     property_alias(
         "debug.rustyxr.projection.border.policy",
         KEY_PROJECTION_BORDER_POLICY,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.target.offset.x.uv",
+        KEY_PROJECTION_TARGET_OFFSET_X_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.target.offset.y.uv",
+        KEY_PROJECTION_TARGET_OFFSET_Y_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.target.scale",
+        KEY_PROJECTION_TARGET_SCALE,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.target.joystick.controls",
+        KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
     ),
     property_alias("debug.rustyxr.processing.layer", KEY_PROCESSING_LAYER),
     property_alias(
@@ -2010,6 +2068,10 @@ mod tests {
                 (KEY_PROJECTION_AREA_OPACITY, "1.0"),
                 (KEY_PROJECTION_BORDER_OPACITY, "1.0"),
                 (KEY_PROJECTION_BORDER_POLICY, "solid-red"),
+                (KEY_PROJECTION_TARGET_OFFSET_X_UV, "0.0"),
+                (KEY_PROJECTION_TARGET_OFFSET_Y_UV, "0.0"),
+                (KEY_PROJECTION_TARGET_SCALE, "1.0"),
+                (KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS, "off"),
                 (KEY_PROJECTION_ALPHA_MODE, "fixed"),
                 (KEY_PROJECTION_ALPHA_SCALE, "1.0"),
                 (KEY_PROJECTION_ALPHA_BIAS, "0.0"),
@@ -2059,6 +2121,10 @@ mod tests {
             KEY_PROJECTION_AREA_OPACITY,
             KEY_PROJECTION_BORDER_OPACITY,
             KEY_PROJECTION_BORDER_POLICY,
+            KEY_PROJECTION_TARGET_OFFSET_X_UV,
+            KEY_PROJECTION_TARGET_OFFSET_Y_UV,
+            KEY_PROJECTION_TARGET_SCALE,
+            KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
             KEY_PROJECTION_ALPHA_MODE,
             KEY_PROJECTION_ALPHA_SCALE,
             KEY_PROJECTION_ALPHA_BIAS,
@@ -2105,6 +2171,10 @@ mod tests {
                 ("rustyxr.projectionAreaOpacity", "0.90"),
                 ("rustyxr.projectionBorderOpacity", "0.80"),
                 ("rustyxr.projectionBorderPolicy", "solid-red"),
+                ("rustyxr.projectionTargetOffsetXUv", "0.05"),
+                ("rustyxr.projectionTargetOffsetYUv", "-0.03"),
+                ("rustyxr.projectionTargetScale", "0.80"),
+                ("rustyxr.projectionTargetJoystickControls", "offset-scale"),
                 ("rustyxr.projectionAlphaMode", "fixed"),
                 ("rustyxr.projectionAlphaScale", "1.10"),
                 ("rustyxr.projectionAlphaBias", "-0.05"),
@@ -2136,6 +2206,10 @@ mod tests {
                 (KEY_PROJECTION_AREA_OPACITY, "0.90"),
                 (KEY_PROJECTION_BORDER_OPACITY, "0.80"),
                 (KEY_PROJECTION_BORDER_POLICY, "solid-red"),
+                (KEY_PROJECTION_TARGET_OFFSET_X_UV, "0.05"),
+                (KEY_PROJECTION_TARGET_OFFSET_Y_UV, "-0.03"),
+                (KEY_PROJECTION_TARGET_SCALE, "0.80"),
+                (KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS, "offset-scale"),
                 (KEY_PROJECTION_ALPHA_MODE, "fixed"),
                 (KEY_PROJECTION_ALPHA_SCALE, "1.10"),
                 (KEY_PROJECTION_ALPHA_BIAS, "-0.05"),
@@ -2171,6 +2245,13 @@ mod tests {
                 ("debug.rustyxr.projection.area.opacity", "0.90"),
                 ("debug.rustyxr.projection.border.opacity", "0.80"),
                 ("debug.rustyxr.projection.border.policy", "solid-red"),
+                ("debug.rustyxr.projection.target.offset.x.uv", "0.05"),
+                ("debug.rustyxr.projection.target.offset.y.uv", "-0.03"),
+                ("debug.rustyxr.projection.target.scale", "0.80"),
+                (
+                    "debug.rustyxr.projection.target.joystick.controls",
+                    "offset-scale",
+                ),
                 ("debug.rustyxr.projection.alpha.mode", "fixed"),
                 ("debug.rustyxr.projection.alpha.scale", "1.10"),
                 ("debug.rustyxr.projection.alpha.bias", "-0.05"),
