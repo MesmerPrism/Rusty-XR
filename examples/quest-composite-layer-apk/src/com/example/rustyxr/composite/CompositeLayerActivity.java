@@ -63,6 +63,18 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_PROJECTION_TARGET_OFFSET_Y_UV = 0.0f;
     private static final float DEFAULT_PROJECTION_TARGET_SCALE = 1.0f;
     private static final String DEFAULT_PROJECTION_TARGET_JOYSTICK_CONTROLS = "offset-scale";
+    private static final String DEFAULT_PROJECTION_TARGET_BREATH_CONTROLS = "off";
+    private static final String DEFAULT_PROJECTION_TARGET_BREATH_STREAM = "bio:breath";
+    private static final float DEFAULT_PROJECTION_TARGET_BREATH_MIN_SCALE = 0.75f;
+    private static final float DEFAULT_PROJECTION_TARGET_BREATH_MAX_SCALE = 1.15f;
+    private static final float DEFAULT_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA = 0.25f;
+    private static final boolean DEFAULT_PROJECTION_TARGET_BREATH_INVERT = false;
+    private static final float DEFAULT_PROJECTION_TARGET_BREATH_MIN_QUALITY = 0.0f;
+    private static final int DEFAULT_PROJECTION_TARGET_BREATH_RECONNECT_DELAY_MS = 1000;
+    private static final int DEFAULT_PROJECTION_TARGET_BREATH_SOCKET_TIMEOUT_MS = 5000;
+    private static final int DEFAULT_PROJECTION_TARGET_BREATH_UPDATE_INTERVAL_MS = 33;
+    private static final int DEFAULT_PROJECTION_TARGET_BREATH_LOG_INTERVAL_MS = 500;
+    private static final int DEFAULT_PROJECTION_TARGET_BREATH_MAX_FRAME_BYTES = 1_048_576;
     private static final String DEFAULT_CAMERA_PROJECTION_ALPHA_MODE = "fixed";
     private static final float DEFAULT_CAMERA_PROJECTION_ALPHA_SCALE = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_ALPHA_BIAS = 0.0f;
@@ -172,6 +184,7 @@ public final class CompositeLayerActivity extends NativeActivity {
 
     private MediaProjectionManager mediaProjectionManager;
     private BrokerH264ConsumerProbe brokerH264ConsumerProbe;
+    private BrokerBreathProjectionTargetController brokerBreathProjectionTargetController;
 
     static {
         System.loadLibrary("rusty_xr_quest_composite_native");
@@ -180,6 +193,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static native String contractJson();
     private static native void nativeActivityEvent(String eventJson);
     private static native void nativeRuntimeConfig(String configJson);
+    private static native void nativeProjectionTargetControl(String controlJson);
     private static native boolean nativeStartNativeCamera(String configJson);
     private static native void nativeStopNativeCamera();
 
@@ -228,6 +242,10 @@ public final class CompositeLayerActivity extends NativeActivity {
             startBrokerH264ConsumerProbe();
         }
 
+        if (shouldStartProjectionTargetBreathControls()) {
+            startProjectionTargetBreathController();
+        }
+
         if (mediaProjectionEnabled) {
             new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                 @Override
@@ -251,6 +269,12 @@ public final class CompositeLayerActivity extends NativeActivity {
         } else {
             stopBrokerH264ConsumerProbe();
         }
+        if (shouldStartProjectionTargetBreathControls()) {
+            stopProjectionTargetBreathController();
+            startProjectionTargetBreathController();
+        } else {
+            stopProjectionTargetBreathController();
+        }
         Log.i(TAG, "Rusty XR runtime config hotloaded from new intent");
     }
 
@@ -264,6 +288,21 @@ public final class CompositeLayerActivity extends NativeActivity {
 
     private boolean shouldStartBrokerH264Consumer() {
         return booleanExtra("rustyxr.brokerH264Consumer", false);
+    }
+
+    private boolean shouldStartProjectionTargetBreathControls() {
+        String controls = stringExtra(
+            "rustyxr.projectionTargetBreathControls",
+            DEFAULT_PROJECTION_TARGET_BREATH_CONTROLS);
+        String normalized = controls.trim().toLowerCase(java.util.Locale.US).replace('_', '-');
+        return "scale".equals(normalized) ||
+            "target-scale".equals(normalized) ||
+            "breath-scale".equals(normalized) ||
+            "zoom".equals(normalized) ||
+            "on".equals(normalized) ||
+            "true".equals(normalized) ||
+            "1".equals(normalized) ||
+            "enabled".equals(normalized);
     }
 
     private boolean shouldRenderBrokerH264HardwareBuffer() {
@@ -326,6 +365,13 @@ public final class CompositeLayerActivity extends NativeActivity {
     }
 
     private static int clampInt(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static float clampFloat(float value, float min, float max) {
+        if (Float.isNaN(value) || Float.isInfinite(value)) {
+            return min;
+        }
         return Math.max(min, Math.min(max, value));
     }
 
@@ -1131,6 +1177,110 @@ public final class CompositeLayerActivity extends NativeActivity {
         }
     }
 
+    private void startProjectionTargetBreathController() {
+        if (brokerBreathProjectionTargetController != null) {
+            return;
+        }
+
+        float minScale = clampFloat(
+            floatExtra("rustyxr.projectionTargetBreathMinScale", DEFAULT_PROJECTION_TARGET_BREATH_MIN_SCALE),
+            0.05f,
+            1.5f);
+        float maxScale = clampFloat(
+            floatExtra("rustyxr.projectionTargetBreathMaxScale", DEFAULT_PROJECTION_TARGET_BREATH_MAX_SCALE),
+            0.05f,
+            1.5f);
+        if (maxScale < minScale) {
+            float swap = maxScale;
+            maxScale = minScale;
+            minScale = swap;
+        }
+
+        BrokerBreathProjectionTargetController.Config config =
+            new BrokerBreathProjectionTargetController.Config(
+                stringExtra("rustyxr.brokerHost", DEFAULT_BROKER_HOST),
+                Math.max(1, intExtra("rustyxr.brokerPort", DEFAULT_BROKER_PORT)),
+                stringExtra("rustyxr.projectionTargetBreathStream", DEFAULT_PROJECTION_TARGET_BREATH_STREAM),
+                minScale,
+                maxScale,
+                clampFloat(
+                    floatExtra(
+                        "rustyxr.projectionTargetBreathSmoothingAlpha",
+                        DEFAULT_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA),
+                    0.0f,
+                    1.0f),
+                booleanExtra("rustyxr.projectionTargetBreathInvert", DEFAULT_PROJECTION_TARGET_BREATH_INVERT),
+                clampFloat(
+                    floatExtra(
+                        "rustyxr.projectionTargetBreathMinQuality",
+                        DEFAULT_PROJECTION_TARGET_BREATH_MIN_QUALITY),
+                    0.0f,
+                    1.0f),
+                Math.max(
+                    100,
+                    intExtra(
+                        "rustyxr.projectionTargetBreathReconnectDelayMs",
+                        DEFAULT_PROJECTION_TARGET_BREATH_RECONNECT_DELAY_MS)),
+                Math.max(
+                    500,
+                    intExtra(
+                        "rustyxr.projectionTargetBreathSocketTimeoutMs",
+                        DEFAULT_PROJECTION_TARGET_BREATH_SOCKET_TIMEOUT_MS)),
+                Math.max(
+                    16,
+                    intExtra(
+                        "rustyxr.projectionTargetBreathUpdateIntervalMs",
+                        DEFAULT_PROJECTION_TARGET_BREATH_UPDATE_INTERVAL_MS)),
+                Math.max(
+                    100,
+                    intExtra(
+                        "rustyxr.projectionTargetBreathLogIntervalMs",
+                        DEFAULT_PROJECTION_TARGET_BREATH_LOG_INTERVAL_MS)),
+                Math.max(
+                    1024,
+                    intExtra(
+                        "rustyxr.projectionTargetBreathMaxFrameBytes",
+                        DEFAULT_PROJECTION_TARGET_BREATH_MAX_FRAME_BYTES)));
+
+        Log.i(TAG, "Starting broker breath projection-target controller");
+        sendNativeEvent("projectionTargetBreathControllerStarting");
+        brokerBreathProjectionTargetController =
+            BrokerBreathProjectionTargetController.start(
+                config,
+                new BrokerBreathProjectionTargetController.Sink() {
+                    @Override
+                    public void onProjectionTargetBreathControl(JSONObject update) {
+                        try {
+                            nativeProjectionTargetControl(update.toString());
+                        } catch (RuntimeException error) {
+                            Log.w(TAG, "Could not apply broker breath projection-target update", error);
+                        } catch (UnsatisfiedLinkError error) {
+                            Log.w(TAG, "Native projection-target control bridge unavailable");
+                        }
+                    }
+
+                    @Override
+                    public void onProjectionTargetBreathStatus(JSONObject status) {
+                        try {
+                            status.put("event", "projectionTargetBreathStatus");
+                            nativeActivityEvent(status.toString());
+                        } catch (Exception error) {
+                            Log.w(TAG, "Could not forward broker breath projection-target status", error);
+                        } catch (UnsatisfiedLinkError error) {
+                            Log.w(TAG, "Native projection-target status bridge unavailable");
+                        }
+                    }
+                });
+    }
+
+    private void stopProjectionTargetBreathController() {
+        if (brokerBreathProjectionTargetController != null) {
+            brokerBreathProjectionTargetController.stop();
+            brokerBreathProjectionTargetController = null;
+            sendNativeEvent("projectionTargetBreathControllerStopped");
+        }
+    }
+
     private void startNativeHeadsetCamera() {
         String configJson = nativeCameraConfigJson();
         try {
@@ -1234,6 +1384,7 @@ public final class CompositeLayerActivity extends NativeActivity {
 
     @Override
     protected void onDestroy() {
+        stopProjectionTargetBreathController();
         stopBrokerH264ConsumerProbe();
         try {
             nativeStopNativeCamera();

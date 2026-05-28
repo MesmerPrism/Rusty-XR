@@ -545,6 +545,13 @@ MediaProjection off, `processingLayer=peripheral-stretch`,
 `projectionTargetJoystickControls=offset-scale`. Use catalog runtime profiles
 when a validation run needs to select an older CPU diagnostic, broker, raw,
 homography, or MediaProjection setup explicitly.
+Use `camera-stereo-gpu-composite-world-canvas-target-local-stretch-breath`
+when the broker is already publishing `bio:breath`: that profile disables
+joystick target tuning and maps the broker payload's `volume01` field onto
+`projectionTargetScale`. By default `volume01=0.0` maps to scale `0.75` and
+`volume01=1.0` maps to scale `1.15`; set
+`rustyxr.projectionTargetBreathInvert=true` if a run should reverse that
+relationship.
 When intrinsics or pose metadata is missing, this example logs the fallback
 reason and remains a GPU-buffer probe.
 If a profile supplies an estimated calibration pose, diagnostics say

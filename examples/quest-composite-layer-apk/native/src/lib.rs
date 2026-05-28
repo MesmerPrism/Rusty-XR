@@ -1514,6 +1514,19 @@ pub(crate) fn apply_projection_target_control_update(
 }
 
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) fn apply_projection_target_scale_update(scale: f32) -> RuntimeConfig {
+    runtime_config_state()
+        .lock()
+        .map(|mut state| {
+            if scale.is_finite() {
+                state.projection_target_scale = scale.clamp(0.05, 1.5);
+            }
+            state.clone()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) fn diagnostic_hud_snapshot() -> DiagnosticHudUpdate {
     diagnostic_hud_state()
         .lock()
@@ -2302,6 +2315,13 @@ struct JavaRuntimeConfig {
     osc_overlay_enabled: Option<bool>,
     osc_listen_addr: Option<String>,
     osc_max_packet_bytes: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JavaProjectionTargetControl {
+    #[serde(rename = "projectionTargetScale", alias = "scale")]
+    projection_target_scale: Option<f32>,
 }
 
 fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
@@ -3592,6 +3612,35 @@ pub extern "system" fn Java_com_example_rustyxr_composite_CompositeLayerActivity
         .map(|value| value.to_string_lossy().into_owned())
         .ok();
     store_runtime_config(config_json);
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "system" fn Java_com_example_rustyxr_composite_CompositeLayerActivity_nativeProjectionTargetControl(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    control_json: JString<'_>,
+) {
+    let Some(control_json) = env
+        .get_string(&control_json)
+        .map(|value| value.to_string_lossy().into_owned())
+        .ok()
+    else {
+        log_error("Rusty XR projection-target control bridge received invalid JNI string");
+        return;
+    };
+    let Ok(control) = serde_json::from_str::<JavaProjectionTargetControl>(&control_json) else {
+        log_error("Rusty XR projection-target control bridge could not parse control JSON");
+        return;
+    };
+    let Some(scale) = control
+        .projection_target_scale
+        .filter(|value| value.is_finite())
+    else {
+        log_error("Rusty XR projection-target control bridge missing finite projectionTargetScale");
+        return;
+    };
+    apply_projection_target_scale_update(scale);
 }
 
 #[allow(non_snake_case)]

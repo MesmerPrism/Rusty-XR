@@ -437,6 +437,14 @@ pub const KEY_PROJECTION_TARGET_OFFSET_X_UV: &str = "projection_target_offset_x_
 pub const KEY_PROJECTION_TARGET_OFFSET_Y_UV: &str = "projection_target_offset_y_uv";
 pub const KEY_PROJECTION_TARGET_SCALE: &str = "projection_target_scale";
 pub const KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS: &str = "projection_target_joystick_controls";
+pub const KEY_PROJECTION_TARGET_BREATH_CONTROLS: &str = "projection_target_breath_controls";
+pub const KEY_PROJECTION_TARGET_BREATH_STREAM: &str = "projection_target_breath_stream";
+pub const KEY_PROJECTION_TARGET_BREATH_MIN_SCALE: &str = "projection_target_breath_min_scale";
+pub const KEY_PROJECTION_TARGET_BREATH_MAX_SCALE: &str = "projection_target_breath_max_scale";
+pub const KEY_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA: &str =
+    "projection_target_breath_smoothing_alpha";
+pub const KEY_PROJECTION_TARGET_BREATH_INVERT: &str = "projection_target_breath_invert";
+pub const KEY_PROJECTION_TARGET_BREATH_MIN_QUALITY: &str = "projection_target_breath_min_quality";
 pub const KEY_PROCESSING_LAYER: &str = "processing_layer";
 pub const KEY_CAMERA_BLUR_RADIUS_PX: &str = "camera_blur_radius_px";
 pub const KEY_PERIPHERAL_STRETCH_MODE: &str = "peripheral_stretch_mode";
@@ -632,6 +640,48 @@ pub const PROJECTION_RUNTIME_KEY_DEFINITIONS: &[RuntimeKeyDefinition] = &[
         ProjectionRuntimeKeyOwner::TargetFootprint,
         RuntimeValueKind::Text,
         "OpenXR controller target-footprint control mode.",
+    ),
+    projection_key(
+        KEY_PROJECTION_TARGET_BREATH_CONTROLS,
+        ProjectionRuntimeKeyOwner::TargetFootprint,
+        RuntimeValueKind::Text,
+        "Broker breath target-footprint control mode.",
+    ),
+    projection_key(
+        KEY_PROJECTION_TARGET_BREATH_STREAM,
+        ProjectionRuntimeKeyOwner::TargetFootprint,
+        RuntimeValueKind::Text,
+        "Broker stream id that provides normalized breath volume for target-footprint scale control.",
+    ),
+    projection_key(
+        KEY_PROJECTION_TARGET_BREATH_MIN_SCALE,
+        ProjectionRuntimeKeyOwner::TargetFootprint,
+        RuntimeValueKind::Float,
+        "Projection-target scale mapped from breath volume 0.0 before optional inversion.",
+    ),
+    projection_key(
+        KEY_PROJECTION_TARGET_BREATH_MAX_SCALE,
+        ProjectionRuntimeKeyOwner::TargetFootprint,
+        RuntimeValueKind::Float,
+        "Projection-target scale mapped from breath volume 1.0 before optional inversion.",
+    ),
+    projection_key(
+        KEY_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA,
+        ProjectionRuntimeKeyOwner::TargetFootprint,
+        RuntimeValueKind::Float,
+        "Exponential smoothing alpha applied to broker breath target-scale updates.",
+    ),
+    projection_key(
+        KEY_PROJECTION_TARGET_BREATH_INVERT,
+        ProjectionRuntimeKeyOwner::TargetFootprint,
+        RuntimeValueKind::Bool,
+        "Whether breath volume is inverted before mapping it to projection-target scale.",
+    ),
+    projection_key(
+        KEY_PROJECTION_TARGET_BREATH_MIN_QUALITY,
+        ProjectionRuntimeKeyOwner::TargetFootprint,
+        RuntimeValueKind::Float,
+        "Minimum broker breath quality01 accepted for projection-target scale updates.",
     ),
     projection_key(
         KEY_PROCESSING_LAYER,
@@ -897,6 +947,34 @@ pub const PROJECTION_RUNTIME_KEY_ALIASES: &[RuntimeKeyAlias] = &[
         "rustyxr.projectionTargetJoystickControls",
         KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
     ),
+    launch_alias(
+        "rustyxr.projectionTargetBreathControls",
+        KEY_PROJECTION_TARGET_BREATH_CONTROLS,
+    ),
+    launch_alias(
+        "rustyxr.projectionTargetBreathStream",
+        KEY_PROJECTION_TARGET_BREATH_STREAM,
+    ),
+    launch_alias(
+        "rustyxr.projectionTargetBreathMinScale",
+        KEY_PROJECTION_TARGET_BREATH_MIN_SCALE,
+    ),
+    launch_alias(
+        "rustyxr.projectionTargetBreathMaxScale",
+        KEY_PROJECTION_TARGET_BREATH_MAX_SCALE,
+    ),
+    launch_alias(
+        "rustyxr.projectionTargetBreathSmoothingAlpha",
+        KEY_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA,
+    ),
+    launch_alias(
+        "rustyxr.projectionTargetBreathInvert",
+        KEY_PROJECTION_TARGET_BREATH_INVERT,
+    ),
+    launch_alias(
+        "rustyxr.projectionTargetBreathMinQuality",
+        KEY_PROJECTION_TARGET_BREATH_MIN_QUALITY,
+    ),
     launch_alias("rustyxr.processingLayer", KEY_PROCESSING_LAYER),
     launch_alias("rustyxr.cameraBlurRadiusPx", KEY_CAMERA_BLUR_RADIUS_PX),
     launch_alias("rustyxr.peripheralStretchMode", KEY_PERIPHERAL_STRETCH_MODE),
@@ -1052,6 +1130,34 @@ pub const PROJECTION_RUNTIME_KEY_ALIASES: &[RuntimeKeyAlias] = &[
     property_alias(
         "debug.rustyxr.projection.target.joystick.controls",
         KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.target.breath.controls",
+        KEY_PROJECTION_TARGET_BREATH_CONTROLS,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.target.breath.stream",
+        KEY_PROJECTION_TARGET_BREATH_STREAM,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.target.breath.min.scale",
+        KEY_PROJECTION_TARGET_BREATH_MIN_SCALE,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.target.breath.max.scale",
+        KEY_PROJECTION_TARGET_BREATH_MAX_SCALE,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.target.breath.smoothing.alpha",
+        KEY_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.target.breath.invert",
+        KEY_PROJECTION_TARGET_BREATH_INVERT,
+    ),
+    property_alias(
+        "debug.rustyxr.projection.target.breath.min.quality",
+        KEY_PROJECTION_TARGET_BREATH_MIN_QUALITY,
     ),
     property_alias("debug.rustyxr.processing.layer", KEY_PROCESSING_LAYER),
     property_alias(
@@ -2072,6 +2178,13 @@ mod tests {
                 (KEY_PROJECTION_TARGET_OFFSET_Y_UV, "0.0"),
                 (KEY_PROJECTION_TARGET_SCALE, "1.0"),
                 (KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS, "off"),
+                (KEY_PROJECTION_TARGET_BREATH_CONTROLS, "off"),
+                (KEY_PROJECTION_TARGET_BREATH_STREAM, "bio:breath"),
+                (KEY_PROJECTION_TARGET_BREATH_MIN_SCALE, "0.75"),
+                (KEY_PROJECTION_TARGET_BREATH_MAX_SCALE, "1.15"),
+                (KEY_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA, "0.25"),
+                (KEY_PROJECTION_TARGET_BREATH_INVERT, "false"),
+                (KEY_PROJECTION_TARGET_BREATH_MIN_QUALITY, "0.0"),
                 (KEY_PROJECTION_ALPHA_MODE, "fixed"),
                 (KEY_PROJECTION_ALPHA_SCALE, "1.0"),
                 (KEY_PROJECTION_ALPHA_BIAS, "0.0"),
@@ -2125,6 +2238,13 @@ mod tests {
             KEY_PROJECTION_TARGET_OFFSET_Y_UV,
             KEY_PROJECTION_TARGET_SCALE,
             KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+            KEY_PROJECTION_TARGET_BREATH_CONTROLS,
+            KEY_PROJECTION_TARGET_BREATH_STREAM,
+            KEY_PROJECTION_TARGET_BREATH_MIN_SCALE,
+            KEY_PROJECTION_TARGET_BREATH_MAX_SCALE,
+            KEY_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA,
+            KEY_PROJECTION_TARGET_BREATH_INVERT,
+            KEY_PROJECTION_TARGET_BREATH_MIN_QUALITY,
             KEY_PROJECTION_ALPHA_MODE,
             KEY_PROJECTION_ALPHA_SCALE,
             KEY_PROJECTION_ALPHA_BIAS,
@@ -2175,6 +2295,13 @@ mod tests {
                 ("rustyxr.projectionTargetOffsetYUv", "-0.03"),
                 ("rustyxr.projectionTargetScale", "0.80"),
                 ("rustyxr.projectionTargetJoystickControls", "offset-scale"),
+                ("rustyxr.projectionTargetBreathControls", "scale"),
+                ("rustyxr.projectionTargetBreathStream", "bio:breath"),
+                ("rustyxr.projectionTargetBreathMinScale", "0.70"),
+                ("rustyxr.projectionTargetBreathMaxScale", "1.20"),
+                ("rustyxr.projectionTargetBreathSmoothingAlpha", "0.30"),
+                ("rustyxr.projectionTargetBreathInvert", "true"),
+                ("rustyxr.projectionTargetBreathMinQuality", "0.20"),
                 ("rustyxr.projectionAlphaMode", "fixed"),
                 ("rustyxr.projectionAlphaScale", "1.10"),
                 ("rustyxr.projectionAlphaBias", "-0.05"),
@@ -2210,6 +2337,13 @@ mod tests {
                 (KEY_PROJECTION_TARGET_OFFSET_Y_UV, "-0.03"),
                 (KEY_PROJECTION_TARGET_SCALE, "0.80"),
                 (KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS, "offset-scale"),
+                (KEY_PROJECTION_TARGET_BREATH_CONTROLS, "scale"),
+                (KEY_PROJECTION_TARGET_BREATH_STREAM, "bio:breath"),
+                (KEY_PROJECTION_TARGET_BREATH_MIN_SCALE, "0.70"),
+                (KEY_PROJECTION_TARGET_BREATH_MAX_SCALE, "1.20"),
+                (KEY_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA, "0.30"),
+                (KEY_PROJECTION_TARGET_BREATH_INVERT, "true"),
+                (KEY_PROJECTION_TARGET_BREATH_MIN_QUALITY, "0.20"),
                 (KEY_PROJECTION_ALPHA_MODE, "fixed"),
                 (KEY_PROJECTION_ALPHA_SCALE, "1.10"),
                 (KEY_PROJECTION_ALPHA_BIAS, "-0.05"),
@@ -2252,6 +2386,19 @@ mod tests {
                     "debug.rustyxr.projection.target.joystick.controls",
                     "offset-scale",
                 ),
+                ("debug.rustyxr.projection.target.breath.controls", "scale"),
+                (
+                    "debug.rustyxr.projection.target.breath.stream",
+                    "bio:breath",
+                ),
+                ("debug.rustyxr.projection.target.breath.min.scale", "0.70"),
+                ("debug.rustyxr.projection.target.breath.max.scale", "1.20"),
+                (
+                    "debug.rustyxr.projection.target.breath.smoothing.alpha",
+                    "0.30",
+                ),
+                ("debug.rustyxr.projection.target.breath.invert", "true"),
+                ("debug.rustyxr.projection.target.breath.min.quality", "0.20"),
                 ("debug.rustyxr.projection.alpha.mode", "fixed"),
                 ("debug.rustyxr.projection.alpha.scale", "1.10"),
                 ("debug.rustyxr.projection.alpha.bias", "-0.05"),
