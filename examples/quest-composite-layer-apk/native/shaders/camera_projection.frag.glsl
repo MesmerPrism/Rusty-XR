@@ -41,6 +41,7 @@ layout(push_constant) uniform CameraProjectionPush {
     vec4 params;
     vec4 color_adjust;
     vec4 effect_params;
+    vec4 stretch_params;
     vec4 alpha_params;
     vec4 area_params;
     vec4 area_offset_params;
@@ -73,7 +74,9 @@ const int CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA = 32768;
 const int CAMERA_FLAG_PROJECTION_BORDER_SOLID_RED = 65536;
 const int CAMERA_FLAG_PROJECTION_AREA_DIAGNOSTIC = 8388608;
 const int CAMERA_FLAG_FULL_FRAME_STIMULUS_MAPPING = 16777216;
+const int CAMERA_FLAG_TARGET_FOOTPRINT_FROM_METADATA = 33554432;
 const int CAMERA_EFFECT_RAW_PROJECTION_BLUR = 5;
+const int CAMERA_EFFECT_PERIPHERAL_STRETCH = 6;
 const vec2 CAMERA_DIAGNOSTIC_BLUR_SOURCE_SIZE_PX = vec2(1280.0, 1280.0);
 const float CAMERA_DIAGNOSTIC_BLUR_SAMPLE_STEP_GAIN = 4.0;
 
@@ -433,6 +436,27 @@ vec2 projection_area_content_uv(vec2 area_uv) {
         clamp(pc.area_params.y, 0.05, 0.50)
     );
     return (area_uv - (vec2(0.5) - half_size)) / max(half_size * 2.0, vec2(0.001));
+}
+
+vec2 projection_area_rect_edge_uv(vec2 area_uv) {
+    vec2 half_size = vec2(
+        clamp(pc.area_params.x, 0.05, 0.50),
+        clamp(pc.area_params.y, 0.05, 0.50)
+    );
+    float core_scale = clamp(pc.stretch_params.x, 0.05, 1.0);
+    float configured_inset = clamp(
+        min(pc.stretch_params.y, pc.stretch_params.z),
+        0.0,
+        0.49
+    );
+    float curve_normalizer = max(abs(pc.stretch_params.w), 0.001);
+    float edge_inset = max(configured_inset - 0.015, 0.0) *
+        abs(pc.stretch_params.w) / curve_normalizer;
+    vec2 core_half_size = half_size * core_scale;
+    vec2 edge_inset_uv = min(vec2(edge_inset), max(core_half_size - vec2(0.001), vec2(0.0)));
+    vec2 min_uv = vec2(0.5) - core_half_size + edge_inset_uv;
+    vec2 max_uv = vec2(0.5) + core_half_size - edge_inset_uv;
+    return clamp(area_uv, min_uv, max_uv);
 }
 
 vec3 sample_source_eye_blur_raw(int source_eye, vec2 camera_uv, float radius_px) {
@@ -987,16 +1011,33 @@ void main() {
     float projection_area_scale = clamp(pc.area_params.w, 0.05, 4.0);
     bool full_frame_stimulus_mapping =
         (packed_flags & CAMERA_FLAG_FULL_FRAME_STIMULUS_MAPPING) != 0;
+    bool target_footprint_from_metadata =
+        (packed_flags & CAMERA_FLAG_TARGET_FOOTPRINT_FROM_METADATA) != 0;
     int diagnostic_mode = int(floor(pc.effect_params.w + 0.5));
+    int peripheral_stretch_debug = int(floor(pc.alpha_params.w + 0.5));
+    bool raw_projection_peripheral_stretch = diagnostic_mode == CAMERA_EFFECT_PERIPHERAL_STRETCH;
     bool camera_footprint_surface_mapping = diagnostic_mode == 4;
     bool full_frame_surface_mapping =
         full_frame_stimulus_mapping && camera_footprint_surface_mapping;
     vec2 projection_screen_uv_base =
         (v_surface_uv - vec2(0.5)) * projection_area_scale + vec2(0.5);
-    vec2 projection_screen_uv = full_frame_stimulus_mapping && !full_frame_surface_mapping
-        ? projection_screen_uv_base - projection_area_offset
-        : projection_screen_uv_base;
     vec2 projection_area_domain_uv = projection_screen_uv_base - projection_area_offset;
+    float projection_area_distance = resolve_camera_oval_distance(projection_area_domain_uv);
+    bool projection_area_inside = projection_area_distance <= 1.0;
+    bool stretch_exterior = raw_projection_peripheral_stretch && !projection_area_inside;
+    if (stretch_exterior) {
+        projection_area_domain_uv = projection_area_rect_edge_uv(projection_area_domain_uv);
+        projection_screen_uv_base = projection_area_domain_uv + projection_area_offset;
+    }
+    // Metadata target footprints define the mask/effect boundary. They do not
+    // change the screen-to-camera sampling domain for camera-homography runs.
+    // Only full-frame stimulus mapping intentionally remaps the source into the
+    // target-local projection-area domain.
+    bool target_local_source_mapping =
+        full_frame_stimulus_mapping && !full_frame_surface_mapping;
+    vec2 projection_screen_uv = target_local_source_mapping
+        ? projection_area_domain_uv
+        : projection_screen_uv_base;
 
     vec2 local_uv = vec2(0.5) + ((v_surface_uv - vec2(0.5)) / overscan);
     bool content_surface_valid = true;
@@ -1011,9 +1052,12 @@ void main() {
         : (projected
         ? projected_content_uv
         : (v_surface_uv - vec2(0.5)) * content_uv_scale + vec2(0.5));
+    if (target_footprint_from_metadata && !full_frame_surface_mapping) {
+        content_surface_valid = true;
+    }
     vec2 full_frame_content_uv = full_frame_surface_mapping
         ? projected_content_uv
-        : projection_area_content_uv(projection_screen_uv);
+        : projection_area_content_uv(projection_area_domain_uv);
     vec2 sample_content_uv = world_canvas
         ? (full_frame_stimulus_mapping ? full_frame_content_uv : projection_screen_uv)
         : (full_frame_stimulus_mapping
@@ -1028,17 +1072,33 @@ void main() {
         : (projected ? projection_screen_uv : sample_content_uv)));
 
     bool projection_valid = false;
+    bool apply_projection_homography =
+        world_canvas || (projected && (!full_frame_stimulus_mapping || full_frame_surface_mapping));
+    if (target_footprint_from_metadata && !full_frame_surface_mapping && !world_canvas) {
+        apply_projection_homography = projected && !full_frame_stimulus_mapping;
+    }
     vec2 raw_projected_uv = projected_camera_uv(
         projection_uv,
         eye,
         source_eye,
         transform_flags,
-        world_canvas || (projected && (!full_frame_stimulus_mapping || full_frame_surface_mapping)),
+        apply_projection_homography,
         projection_valid
     );
     projection_valid =
         projection_valid
         && ((full_frame_stimulus_mapping && !full_frame_surface_mapping) || content_surface_valid);
+    bool source_uv_stretchable =
+        abs(raw_projected_uv.x) <= 65536.0 &&
+        abs(raw_projected_uv.y) <= 65536.0;
+    if (raw_projection_peripheral_stretch && stretch_exterior) {
+        // Source-invalid exterior pixels still belong to the explicit stretch
+        // branch. Core/source-valid failures must stay diagnostic and must not
+        // expand the effect footprint.
+        vec2 source_edge_epsilon = max(camera_texel_size(source_eye) * 0.5, vec2(0.0001));
+        raw_projected_uv = clamp(raw_projected_uv, source_edge_epsilon, vec2(1.0) - source_edge_epsilon);
+        projection_valid = content_surface_valid && source_uv_stretchable;
+    }
     float coverage = projection_coverage(raw_projected_uv, projection_valid, max(edge_fade, 0.012));
     bool projection_area_diagnostic = (packed_flags & CAMERA_FLAG_PROJECTION_AREA_DIAGNOSTIC) != 0;
     if (projection_area_diagnostic && diagnostic_mode == 1) {
@@ -1089,8 +1149,7 @@ void main() {
         (packed_flags & CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA) != 0;
     bool direct_projection_area_mask =
         direct_projection_border_solid_red || direct_passthrough_underlay_alpha;
-    float direct_projection_area_distance = resolve_camera_oval_distance(projection_area_domain_uv);
-    bool direct_projection_area_inside = direct_projection_area_distance <= 1.0;
+    bool direct_projection_area_inside = projection_area_inside || stretch_exterior;
     bool direct_masked_projection_valid =
         projection_valid && (!direct_projection_area_mask || direct_projection_area_inside);
     float direct_surface_edge_distance = min(
@@ -1101,8 +1160,20 @@ void main() {
         ? mix(0.90, 1.0, smoothstep(0.0, edge_fade, direct_surface_edge_distance))
         : 1.0;
     float direct_source_edge_dim = mix(0.94, 1.0, coverage);
-    vec3 direct_diagnostic_color = vec3(1.0, 0.0, 0.0);
-    vec3 direct_color = direct_projection_border_solid_red && !direct_masked_projection_valid
+    vec3 direct_border_fill_color = vec3(1.0, 0.0, 0.0);
+    vec3 direct_source_invalid_color =
+        raw_projection_peripheral_stretch && peripheral_stretch_debug == 1
+        ? vec3(1.0, 0.0, 1.0)
+        : direct_border_fill_color;
+    bool direct_border_region =
+        direct_projection_area_mask && !direct_projection_area_inside;
+    bool direct_source_invalid_region =
+        !projection_valid && (!direct_projection_area_mask || direct_projection_area_inside);
+    vec3 direct_diagnostic_color = direct_source_invalid_region
+        ? direct_source_invalid_color
+        : direct_border_fill_color;
+    vec3 direct_color =
+        direct_projection_border_solid_red && (direct_border_region || direct_source_invalid_region)
         ? direct_diagnostic_color
         : center_color;
     float direct_out_alpha = 1.0;
@@ -1111,9 +1182,17 @@ void main() {
             ? projection_color_alpha(direct_color, projection_area_opacity)
             : (direct_passthrough_underlay_alpha ? 0.0 : projection_border_opacity);
     }
-    vec3 direct_final_color = direct_projection_border_solid_red && !direct_masked_projection_valid
+    vec3 direct_final_color =
+        direct_projection_border_solid_red && (direct_border_region || direct_source_invalid_region)
         ? direct_diagnostic_color
         : clamp01(direct_color * direct_surface_edge_dim * direct_source_edge_dim);
+    if (raw_projection_peripheral_stretch && stretch_exterior && peripheral_stretch_debug == 2) {
+        direct_final_color = vec3(clamp(raw_projected_uv, vec2(0.0), vec2(1.0)), 0.0);
+        direct_out_alpha = 1.0;
+    } else if (raw_projection_peripheral_stretch && stretch_exterior && peripheral_stretch_debug == 1) {
+        direct_final_color = vec3(0.0, 1.0, 1.0);
+        direct_out_alpha = 1.0;
+    }
     bool direct_source_alpha_output =
         direct_projection_area_mask &&
         (direct_passthrough_underlay_alpha ||
@@ -1133,19 +1212,32 @@ void main() {
     bool passthrough_underlay_alpha = (packed_flags & CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA) != 0;
     bool raw_projection_blur = diagnostic_mode == CAMERA_EFFECT_RAW_PROJECTION_BLUR;
     bool raw_projection_area_mask = projection_border_solid_red || passthrough_underlay_alpha;
-    float projection_area_distance = resolve_camera_oval_distance(projection_area_domain_uv);
-    bool projection_area_inside = projection_area_distance <= 1.0;
-    bool masked_projection_valid = projection_valid && (!raw_projection_area_mask || projection_area_inside);
-    vec3 raw_projection_diagnostic_color = vec3(1.0, 0.0, 0.0);
+    bool effective_projection_area_inside = projection_area_inside || stretch_exterior;
+    bool masked_projection_valid =
+        projection_valid && (!raw_projection_area_mask || effective_projection_area_inside);
+    vec3 raw_projection_border_fill_color = vec3(1.0, 0.0, 0.0);
+    vec3 raw_projection_source_invalid_color =
+        raw_projection_peripheral_stretch && peripheral_stretch_debug == 1
+        ? vec3(1.0, 0.0, 1.0)
+        : raw_projection_border_fill_color;
+    bool raw_projection_border_region = raw_projection_area_mask && !effective_projection_area_inside;
+    bool raw_projection_source_invalid_region =
+        !projection_valid && (!raw_projection_area_mask || effective_projection_area_inside);
+    vec3 raw_projection_diagnostic_color = raw_projection_source_invalid_region
+        ? raw_projection_source_invalid_color
+        : raw_projection_border_fill_color;
     vec3 color = center_color;
     if (raw_projection_blur) {
         color = masked_projection_valid
             ? sample_source_eye_blur_raw(source_eye, raw_projected_uv, pc.effect_params.x)
-            : (projection_border_solid_red
+            : (projection_border_solid_red &&
+                    (raw_projection_border_region || raw_projection_source_invalid_region)
                 ? raw_projection_diagnostic_color
                 : center_color);
     } else if (projection_border_solid_red) {
-        color = masked_projection_valid ? center_color : raw_projection_diagnostic_color;
+        color = masked_projection_valid
+            ? center_color
+            : raw_projection_diagnostic_color;
     } else if (raw_projection) {
         color = center_color;
     } else {
@@ -1179,8 +1271,16 @@ void main() {
             : (passthrough_underlay_alpha ? 0.0 : projection_border_opacity);
     }
     vec3 final_color = color * surface_edge_dim * source_edge_dim;
-    if (projection_border_solid_red && !masked_projection_valid) {
+    if (projection_border_solid_red &&
+            (raw_projection_border_region || raw_projection_source_invalid_region)) {
         final_color = raw_projection_diagnostic_color;
+    }
+    if (raw_projection_peripheral_stretch && stretch_exterior && peripheral_stretch_debug == 2) {
+        final_color = vec3(clamp(raw_projected_uv, vec2(0.0), vec2(1.0)), 0.0);
+        out_alpha = 1.0;
+    } else if (raw_projection_peripheral_stretch && stretch_exterior && peripheral_stretch_debug == 1) {
+        final_color = vec3(0.0, 1.0, 1.0);
+        out_alpha = 1.0;
     }
     bool source_alpha_output =
         raw_projection_area_mask &&

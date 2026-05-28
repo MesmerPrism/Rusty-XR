@@ -7,7 +7,9 @@ pub(crate) const CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA: u32 = 1 << 15;
 pub(crate) const CAMERA_SHADER_FLAG_PROJECTION_BORDER_SOLID_RED: u32 = 1 << 16;
 pub(crate) const CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC: u32 = 1 << 23;
 pub(crate) const CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING: u32 = 1 << 24;
+pub(crate) const CAMERA_SHADER_FLAG_TARGET_FOOTPRINT_FROM_METADATA: u32 = 1 << 25;
 const CAMERA_SHADER_EFFECT_RAW_PROJECTION_BLUR: f32 = 5.0;
+const CAMERA_SHADER_EFFECT_PERIPHERAL_STRETCH: f32 = 6.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum CameraFeedPipelineMode {
@@ -59,13 +61,19 @@ pub(crate) enum CameraProcessingLayer {
     #[default]
     Raw,
     Blur,
+    PeripheralStretch,
 }
 
 impl CameraProcessingLayer {
     pub(crate) fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
             "raw" => Some(Self::Raw),
             "blur" => Some(Self::Blur),
+            "stretch"
+            | "peripheral-stretch"
+            | "border-stretch"
+            | "projection-border-stretch"
+            | "edge-stretch" => Some(Self::PeripheralStretch),
             _ => None,
         }
     }
@@ -74,6 +82,7 @@ impl CameraProcessingLayer {
         match self {
             Self::Raw => "raw",
             Self::Blur => "blur",
+            Self::PeripheralStretch => "peripheral-stretch",
         }
     }
 
@@ -81,11 +90,149 @@ impl CameraProcessingLayer {
         match self {
             Self::Raw => 0.0,
             Self::Blur => CAMERA_SHADER_EFFECT_RAW_PROJECTION_BLUR,
+            Self::PeripheralStretch => CAMERA_SHADER_EFFECT_PERIPHERAL_STRETCH,
         }
     }
 
     pub(crate) const fn requires_full_projection_pipeline(self) -> bool {
-        matches!(self, Self::Blur)
+        matches!(self, Self::Blur | Self::PeripheralStretch)
+    }
+
+    pub(crate) const fn consumes_projection_exterior(self) -> bool {
+        matches!(self, Self::PeripheralStretch)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CameraPeripheralStretchMode {
+    #[default]
+    EdgeStretch,
+}
+
+impl CameraPeripheralStretchMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            ""
+            | "edge-stretch"
+            | "stretch"
+            | "peripheral-stretch"
+            | "border-stretch"
+            | "projection-border-stretch" => Some(Self::EdgeStretch),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::EdgeStretch => "edge-stretch",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CameraPeripheralStretchCornerMode {
+    #[default]
+    TargetFootprint,
+}
+
+impl CameraPeripheralStretchCornerMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            ""
+            | "target-footprint"
+            | "projection-area"
+            | "projection-area-rect"
+            | "rect"
+            | "rectangle" => Some(Self::TargetFootprint),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::TargetFootprint => "target-footprint",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CameraPeripheralStretchDebug {
+    #[default]
+    Off,
+    Regions,
+    SampleUv,
+}
+
+impl CameraPeripheralStretchDebug {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "" | "0" | "false" | "no" | "off" | "disabled" => Some(Self::Off),
+            "1" | "true" | "yes" | "on" | "enabled" | "regions" | "region" => Some(Self::Regions),
+            "2" | "sample-uv" | "sampleuv" | "uv" => Some(Self::SampleUv),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Regions => "regions",
+            Self::SampleUv => "sample-uv",
+        }
+    }
+
+    pub(crate) const fn shader_code(self) -> f32 {
+        match self {
+            Self::Off => 0.0,
+            Self::Regions => 1.0,
+            Self::SampleUv => 2.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct CameraPeripheralStretchConfig {
+    pub(crate) mode: CameraPeripheralStretchMode,
+    pub(crate) core_scale: f32,
+    pub(crate) edge_inset_uv: f32,
+    pub(crate) max_inset_uv: f32,
+    pub(crate) curve: f32,
+    pub(crate) corner_mode: CameraPeripheralStretchCornerMode,
+    pub(crate) debug: CameraPeripheralStretchDebug,
+}
+
+impl Default for CameraPeripheralStretchConfig {
+    fn default() -> Self {
+        Self {
+            mode: CameraPeripheralStretchMode::default(),
+            core_scale: 1.0,
+            edge_inset_uv: 0.015,
+            max_inset_uv: 0.14,
+            curve: 1.6,
+            corner_mode: CameraPeripheralStretchCornerMode::default(),
+            debug: CameraPeripheralStretchDebug::default(),
+        }
+    }
+}
+
+impl CameraPeripheralStretchConfig {
+    pub(crate) fn sanitized(self) -> Self {
+        let defaults = Self::default();
+        let edge_inset_uv = sanitize_f32(self.edge_inset_uv, defaults.edge_inset_uv, 0.0, 0.49);
+        Self {
+            mode: self.mode,
+            core_scale: sanitize_f32(self.core_scale, defaults.core_scale, 0.05, 1.0),
+            edge_inset_uv,
+            max_inset_uv: sanitize_f32(
+                self.max_inset_uv,
+                defaults.max_inset_uv,
+                edge_inset_uv,
+                0.49,
+            ),
+            curve: sanitize_f32(self.curve, defaults.curve, 0.05, 8.0),
+            corner_mode: self.corner_mode,
+            debug: self.debug,
+        }
     }
 }
 
@@ -330,5 +477,13 @@ impl OpenXrColorFormatMode {
             Self::Rgba8Srgb => vk::Format::R8G8B8A8_SRGB,
             Self::Rgba8Unorm => vk::Format::R8G8B8A8_UNORM,
         }
+    }
+}
+
+fn sanitize_f32(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(min, max)
+    } else {
+        fallback
     }
 }

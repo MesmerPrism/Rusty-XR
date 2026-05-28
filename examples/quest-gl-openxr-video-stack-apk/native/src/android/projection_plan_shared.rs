@@ -161,6 +161,18 @@ pub(super) fn screen_to_domain_with_visual_adjustment(
     rows
 }
 
+pub(super) fn source_sampling_visual_adjustment(
+    target_footprint_from_metadata: bool,
+    offset_uv: [f32; 2],
+    scale_uv: [f32; 2],
+) -> ([f32; 2], [f32; 2]) {
+    if target_footprint_from_metadata {
+        ([0.0, 0.0], [1.0, 1.0])
+    } else {
+        (offset_uv, scale_uv)
+    }
+}
+
 fn array_rect_xywh(rect: [f32; 4]) -> Rect2 {
     Rect2::new(Vec2::new(rect[0], rect[1]), Vec2::new(rect[2], rect[3]))
 }

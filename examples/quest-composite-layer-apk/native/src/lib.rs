@@ -38,8 +38,9 @@ pub(crate) const CAMERA_IMPORT_CACHE_LIMIT_MAX: usize = 16;
 
 mod camera_color_pipeline;
 pub(crate) use camera_color_pipeline::{
-    CameraFeedPipelineMode, CameraProcessingLayer, CameraProjectionBorderPolicy,
-    CameraProjectionEffectMode, OpenXrColorFormatMode,
+    CameraFeedPipelineMode, CameraPeripheralStretchConfig, CameraPeripheralStretchCornerMode,
+    CameraPeripheralStretchDebug, CameraPeripheralStretchMode, CameraProcessingLayer,
+    CameraProjectionBorderPolicy, CameraProjectionEffectMode, OpenXrColorFormatMode,
 };
 
 mod projection_runtime;
@@ -170,6 +171,12 @@ pub(crate) struct HeadsetCameraFrameDiagnostics {
     pub(crate) content_mapping_intent: Option<String>,
     pub(crate) content_geometry_metadata_source: Option<String>,
     pub(crate) content_geometry_default: Option<bool>,
+    pub(crate) target_footprint_schema: Option<String>,
+    pub(crate) target_coordinate_space: Option<String>,
+    pub(crate) target_screen_uv_rect: Option<[f32; 4]>,
+    pub(crate) target_clip_policy: Option<String>,
+    pub(crate) target_footprint_metadata_source: Option<String>,
+    pub(crate) target_footprint_default: Option<bool>,
     pub(crate) requested_stereo_layout: Option<String>,
     pub(crate) stereo_layout: StereoMediaLayout,
     pub(crate) mono_fallback: bool,
@@ -675,6 +682,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) camera_projection_effect_mode: CameraProjectionEffectMode,
     pub(crate) camera_projection_border_policy: CameraProjectionBorderPolicy,
     pub(crate) camera_processing_layer: CameraProcessingLayer,
+    pub(crate) camera_peripheral_stretch: CameraPeripheralStretchConfig,
     pub(crate) camera_feed_pipeline_mode: CameraFeedPipelineMode,
     pub(crate) camera_color_mode: CameraColorMode,
     pub(crate) camera_sampler_binding_mode: CameraSamplerBindingMode,
@@ -771,6 +779,7 @@ impl Default for RuntimeConfig {
             camera_projection_effect_mode: CameraProjectionEffectMode::default(),
             camera_projection_border_policy: CameraProjectionBorderPolicy::default(),
             camera_processing_layer: CameraProcessingLayer::default(),
+            camera_peripheral_stretch: CameraPeripheralStretchConfig::default(),
             camera_feed_pipeline_mode: CameraFeedPipelineMode::default(),
             camera_color_mode: CameraColorMode::default(),
             camera_sampler_binding_mode: CameraSamplerBindingMode::default(),
@@ -1132,6 +1141,21 @@ impl RuntimeConfig {
         )
     }
 
+    pub(crate) fn hwb_peripheral_stretch_contract_fields(&self) -> String {
+        let peripheral_stretch = self.camera_peripheral_stretch.sanitized();
+        format!(
+            "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion=target-footprint peripheralStretchBorderSource=projection-edge-sample",
+            peripheral_stretch.mode.stable_id(),
+            peripheral_stretch.core_scale,
+            peripheral_stretch.edge_inset_uv,
+            peripheral_stretch.max_inset_uv,
+            peripheral_stretch.curve,
+            peripheral_stretch.corner_mode.stable_id(),
+            peripheral_stretch.debug.stable_id(),
+            self.camera_processing_layer.consumes_projection_exterior()
+        )
+    }
+
     pub(crate) fn camera_effect_params_push(&self) -> [f32; 4] {
         let processing_diagnostic = self.camera_processing_layer.diagnostic_shader_code();
         [
@@ -1146,12 +1170,25 @@ impl RuntimeConfig {
         ]
     }
 
+    pub(crate) fn camera_peripheral_stretch_params_push(&self) -> [f32; 4] {
+        let peripheral_stretch = self.camera_peripheral_stretch.sanitized();
+        [
+            peripheral_stretch.core_scale,
+            peripheral_stretch.edge_inset_uv,
+            peripheral_stretch.max_inset_uv,
+            peripheral_stretch.curve,
+        ]
+    }
+
     pub(crate) fn camera_alpha_params_push(&self) -> [f32; 4] {
         [
             self.camera_projection_alpha_mode.shader_code(),
             self.camera_projection_alpha_scale.clamp(0.0, 16.0),
             self.camera_projection_alpha_bias.clamp(-1.0, 1.0),
-            0.0,
+            self.camera_peripheral_stretch
+                .sanitized()
+                .debug
+                .shader_code(),
         ]
     }
 
@@ -1489,7 +1526,7 @@ fn store_runtime_config(config_json: Option<String>) {
 
     #[cfg(target_os = "android")]
     log_info(format!(
-        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} projectionBorderPolicy={} processingLayer={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} {} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBlurRadiusPx={} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} previewOffsetYMeters={} projectionScale={} projectionDepthMeters={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaLeftOffsetXUv={} projectionAreaLeftOffsetYUv={} projectionAreaRightOffsetXUv={} projectionAreaRightOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} projectionAlphaMode={} projectionAlphaScale={} projectionAlphaBias={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
+        "Rusty XR camera path config requestedTier={} cameraAcquisition={} cameraEnabled={} mediaProjection={} allowCpuFallback={} cpuUploadHz={} stereoLayout={:?} projectionMode={} cameraPipelinePreset={} cameraProjectionEffectMode={} projectionBorderPolicy={} processingLayer={} cameraFeedMode={} cameraColorMode={} cameraColorShaderBit={} {} cameraSamplerBindingMode={} cameraImportImageLayout={} cameraImportCacheLimit={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={} cameraColorBrightness={} cameraColorSaturation={} cameraBlurRadiusPx={} {} temporalProjectionEnabled={} temporalProjectionMode={} temporalProjectionMaxPixelsPerFrame={} temporalProjectionMaxAngularDegreesPerFrame={} temporalProjectionMaxLinearMetersPerFrame={} temporalProjectionCatchupHalfLifeMs={} temporalProjectionMaxVisualLagMs={} temporalProjectionStereoLockstep={} temporalProjectionEdgeMode={} cameraFrameAdoptionMode={} cameraFrameAdoptionMaxJumpPx={} cameraFrameAdoptionMaxHoldMs={} projectionFovY={} previewFovY={} previewOffsetYMeters={} projectionScale={} projectionDepthMeters={} projectionAreaScaleUv={} projectionAreaOffsetXUv={} projectionAreaOffsetYUv={} projectionAreaLeftOffsetXUv={} projectionAreaLeftOffsetYUv={} projectionAreaRightOffsetXUv={} projectionAreaRightOffsetYUv={} projectionAreaRadiusXUv={} projectionAreaRadiusYUv={} projectionAreaCornerRadiusUv={} projectionAreaOpacity={} projectionBorderOpacity={} projectionAlphaMode={} projectionAlphaScale={} projectionAlphaBias={} rawOverscan={} fullViewOverscan={} edgeFade={} cameraTextureTransform={} leftCameraTextureTransform={} rightCameraTextureTransform={} sourceEyeMapping={} orientationDiagnosticMode={} cameraTextureTransformSource={} cameraTextureTransformReason={} orientationCheck={} visualReleaseAccepted={} xrRenderScale={} xrDisplayRefreshHz={} fixedFoveationLevel={} xrColorFormat={} environmentDepthMode={} environmentDepthHandRemoval={} openxrPassthroughProbe={} passthroughStyleMode={} passthroughOpacity={} passthroughEdgeColor={:?} passthroughBrightness={} passthroughContrast={} passthroughSaturation={} passthroughColorPhase={} passthroughColorAmplitude={} passthroughLutResolution={} passthroughLutWeight={} passthroughLutFlickerHz={} fullFieldFlickerHz={} projectionLayerVisible={} diagnosticHudVisible={}",
         config.camera_tier.stable_id(),
         config.camera_acquisition.as_str(),
         config.camera_enabled,
@@ -1515,6 +1552,7 @@ fn store_runtime_config(config_json: Option<String>) {
         config.camera_color_brightness,
         config.camera_color_saturation,
         config.camera_blur_radius_px,
+        config.hwb_peripheral_stretch_contract_fields(),
         config.camera_temporal_projection_enabled,
         config.camera_temporal_mode.stable_id(),
         config.camera_temporal_max_pixels_per_frame,
@@ -2095,6 +2133,13 @@ struct JavaRuntimeConfig {
     camera_projection_effect_mode: Option<String>,
     projection_border_policy: Option<String>,
     processing_layer: Option<String>,
+    peripheral_stretch_mode: Option<String>,
+    peripheral_stretch_core_scale: Option<f32>,
+    peripheral_stretch_edge_inset_uv: Option<f32>,
+    peripheral_stretch_max_inset_uv: Option<f32>,
+    peripheral_stretch_curve: Option<f32>,
+    peripheral_stretch_corner_mode: Option<String>,
+    peripheral_stretch_debug: Option<String>,
     camera_color_mode: Option<String>,
     camera_sampler_binding_mode: Option<String>,
     #[serde(rename = "cameraImportImageLayout")]
@@ -2373,6 +2418,7 @@ fn public_runtime_config(bridge: &JavaRuntimeConfig) -> RuntimeConfig {
             .as_deref()
             .and_then(CameraProcessingLayer::parse)
             .unwrap_or_default(),
+        camera_peripheral_stretch: public_peripheral_stretch_config(bridge),
         camera_feed_pipeline_mode: bridge
             .camera_feed_pipeline_mode
             .as_deref()
@@ -2773,6 +2819,38 @@ fn apply_projection_border_policy(config: &mut RuntimeConfig) {
     }
 }
 
+fn public_peripheral_stretch_config(bridge: &JavaRuntimeConfig) -> CameraPeripheralStretchConfig {
+    let defaults = CameraPeripheralStretchConfig::default();
+    CameraPeripheralStretchConfig {
+        mode: bridge
+            .peripheral_stretch_mode
+            .as_deref()
+            .and_then(CameraPeripheralStretchMode::parse)
+            .unwrap_or(defaults.mode),
+        core_scale: finite_positive_or(bridge.peripheral_stretch_core_scale, defaults.core_scale),
+        edge_inset_uv: finite_or(
+            bridge.peripheral_stretch_edge_inset_uv,
+            defaults.edge_inset_uv,
+        ),
+        max_inset_uv: finite_or(
+            bridge.peripheral_stretch_max_inset_uv,
+            defaults.max_inset_uv,
+        ),
+        curve: finite_positive_or(bridge.peripheral_stretch_curve, defaults.curve),
+        corner_mode: bridge
+            .peripheral_stretch_corner_mode
+            .as_deref()
+            .and_then(CameraPeripheralStretchCornerMode::parse)
+            .unwrap_or(defaults.corner_mode),
+        debug: bridge
+            .peripheral_stretch_debug
+            .as_deref()
+            .and_then(CameraPeripheralStretchDebug::parse)
+            .unwrap_or(defaults.debug),
+    }
+    .sanitized()
+}
+
 fn public_camera_texture_transform(bridge: &JavaRuntimeConfig) -> CameraTextureTransform {
     let rotation = bridge
         .camera_texture_rotation
@@ -3007,6 +3085,12 @@ struct JavaCameraFrameMetadata {
     content_mapping_intent: Option<String>,
     content_geometry_metadata_source: Option<String>,
     content_geometry_default: Option<bool>,
+    target_footprint_schema: Option<String>,
+    target_coordinate_space: Option<String>,
+    target_screen_uv_rect: Option<JavaTargetScreenUvRect>,
+    target_clip_policy: Option<String>,
+    target_footprint_metadata_source: Option<String>,
+    target_footprint_default: Option<bool>,
     extrinsics: Option<JavaCameraExtrinsics>,
     missing_intrinsics: Option<bool>,
     missing_pose: Option<bool>,
@@ -3052,6 +3136,15 @@ struct JavaUvRect {
     top: f32,
     right: f32,
     bottom: f32,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JavaTargetScreenUvRect {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -3221,6 +3314,15 @@ fn public_camera_metadata(
         content_geometry_metadata_source: bridge
             .and_then(|value| value.content_geometry_metadata_source.clone()),
         content_geometry_default: bridge.and_then(|value| value.content_geometry_default),
+        target_footprint_schema: bridge.and_then(|value| value.target_footprint_schema.clone()),
+        target_coordinate_space: bridge.and_then(|value| value.target_coordinate_space.clone()),
+        target_screen_uv_rect: bridge
+            .and_then(|value| value.target_screen_uv_rect)
+            .and_then(public_target_screen_uv_rect),
+        target_clip_policy: bridge.and_then(|value| value.target_clip_policy.clone()),
+        target_footprint_metadata_source: bridge
+            .and_then(|value| value.target_footprint_metadata_source.clone()),
+        target_footprint_default: bridge.and_then(|value| value.target_footprint_default),
         requested_stereo_layout: bridge.and_then(|value| value.requested_stereo_layout.clone()),
         stereo_layout: bridge
             .and_then(|value| value.stereo_layout.as_deref())
@@ -3274,6 +3376,12 @@ fn public_uv_rect(rect: JavaUvRect) -> Option<[f32; 4]> {
     } else {
         None
     }
+}
+
+fn public_target_screen_uv_rect(rect: JavaTargetScreenUvRect) -> Option<[f32; 4]> {
+    let values = [rect.x, rect.y, rect.width, rect.height];
+    (values.iter().all(|value| value.is_finite()) && rect.width > 0.0 && rect.height > 0.0)
+        .then_some(values)
 }
 
 fn public_pixel_rect(rect: JavaPixelRect) -> Option<[u32; 4]> {
@@ -4289,6 +4397,13 @@ mod tests {
             camera_projection_effect_mode: Some("raw-projection".to_string()),
             projection_border_policy: Some("solid-red".to_string()),
             processing_layer: Some("blur".to_string()),
+            peripheral_stretch_mode: Some("edge-stretch".to_string()),
+            peripheral_stretch_core_scale: Some(1.0),
+            peripheral_stretch_edge_inset_uv: Some(0.015),
+            peripheral_stretch_max_inset_uv: Some(0.14),
+            peripheral_stretch_curve: Some(1.6),
+            peripheral_stretch_corner_mode: Some("target-footprint".to_string()),
+            peripheral_stretch_debug: Some("off".to_string()),
             camera_color_mode: Some("external-rgb".to_string()),
             camera_sampler_binding_mode: Some("separate-image-sampler".to_string()),
             camera_import_image_layout_mode: Some("general-no-transition".to_string()),
@@ -4940,6 +5055,31 @@ mod tests {
         );
         assert_eq!(config.camera_blur_radius_px, 16.0);
         assert_eq!(config.camera_effect_params_push()[3], 5.0);
+    }
+
+    #[test]
+    fn runtime_config_processing_layer_peripheral_stretch_selects_effect_path() {
+        let config = public_runtime_config(&JavaRuntimeConfig {
+            camera_pipeline_preset: Some("raw-projection-unorm".to_string()),
+            camera_projection_effect_mode: Some("border-composite".to_string()),
+            projection_border_policy: Some("solid-red".to_string()),
+            processing_layer: Some("peripheral-stretch".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.camera_projection_effect_mode,
+            CameraProjectionEffectMode::RawProjection
+        );
+        assert_eq!(
+            config.camera_projection_border_policy,
+            CameraProjectionBorderPolicy::SolidRed
+        );
+        assert_eq!(
+            config.camera_processing_layer,
+            CameraProcessingLayer::PeripheralStretch
+        );
+        assert_eq!(config.camera_effect_params_push()[3], 6.0);
     }
 
     #[test]

@@ -1,4 +1,6 @@
-use rusty_xr_camera_model::{rect_xywh, uv_rect_token};
+use rusty_xr_camera_model::{
+    rect_xywh, target_footprint_debug_region_marker_fields, uv_rect_token,
+};
 
 use super::source_content_geometry::OesContentGeometryRecord;
 use super::source_metadata::{aspect_ratio_u32, OesProjectionMetadata};
@@ -40,8 +42,9 @@ pub(super) fn projection_source_label(
     let source_sampling_fields =
         crate::source_sampling::OesSourceSamplingHandoff::new(use_surface_texture_transform)
             .marker_fields();
+    let target_rect = target_screen_uv_rect_token(content_geometry.target_screen_uv_rect);
     format!(
-        "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:sourceValidUvRect={}:{}",
+        "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:sourceValidUvRect={}:targetFootprintSchema={}:targetCoordinateSpace={}:targetScreenUvRect={}:targetClipPolicy={}:targetFootprintMetadataSource={}:targetFootprintDefault={}:{}:{}",
         metadata_label,
         metadata.source,
         metadata.camera_id,
@@ -75,6 +78,13 @@ pub(super) fn projection_source_label(
         content_geometry.metadata_source,
         content_geometry.metadata_default,
         uv_rect_token(rect_xywh(content_geometry.source_valid_uv_rect)),
+        content_geometry.target_footprint_schema,
+        content_geometry.target_coordinate_space,
+        target_rect,
+        content_geometry.target_clip_policy,
+        content_geometry.target_footprint_metadata_source,
+        content_geometry.target_footprint_default,
+        target_footprint_debug_region_marker_fields(),
         source_sampling_fields,
     )
 }
@@ -84,8 +94,9 @@ pub(super) fn stream_projection_metadata_log_message(
     metadata: &OesProjectionMetadata,
 ) -> String {
     let content_geometry = OesContentGeometryRecord::from_metadata(metadata);
+    let target_rect = target_screen_uv_rect_token(content_geometry.target_screen_uv_rect);
     format!(
-        "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentSize={}x{} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={}",
+        "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentSize={}x{} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} targetFootprintSchema={} targetCoordinateSpace={} targetScreenUvRect={} targetClipPolicy={} targetFootprintMetadataSource={} targetFootprintDefault={} {}",
         view_index,
         metadata.source,
         metadata.camera_id,
@@ -115,5 +126,17 @@ pub(super) fn stream_projection_metadata_log_message(
         content_geometry.metadata_source,
         content_geometry.metadata_default,
         uv_rect_token(rect_xywh(content_geometry.source_valid_uv_rect)),
+        content_geometry.target_footprint_schema,
+        content_geometry.target_coordinate_space,
+        target_rect,
+        content_geometry.target_clip_policy,
+        content_geometry.target_footprint_metadata_source,
+        content_geometry.target_footprint_default,
+        target_footprint_debug_region_marker_fields(),
     )
+}
+
+fn target_screen_uv_rect_token(rect: Option<rusty_xr_camera_model::Rect2>) -> String {
+    rect.map(|rect| uv_rect_token(rect_xywh(rect)))
+        .unwrap_or_else(|| "not-logged".to_string())
 }

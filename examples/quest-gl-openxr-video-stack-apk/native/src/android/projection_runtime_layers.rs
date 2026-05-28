@@ -4,8 +4,9 @@ use crate::current_android_projection_property_config;
 
 use super::{
     openxr_gles_config::{
-        OesCameraProjectionMode, OesProjectionAlphaMode, OesProjectionBorderPolicy,
-        OesProjectionRuntimeState, OesProjectionTuning,
+        OesCameraProjectionMode, OesPeripheralStretchConfig, OesProcessingLayer,
+        OesProjectionAlphaMode, OesProjectionBorderPolicy, OesProjectionRuntimeState,
+        OesProjectionTuning,
     },
     projection_runtime_config_layers::{
         oes_projection_runtime_config, oes_projection_runtime_default_config,
@@ -32,6 +33,9 @@ pub(super) fn oes_projection_runtime_resolution_from_state(
         state.projection_alpha_bias,
         state.camera_projection_mode,
         state.projection_border_policy,
+        state.processing_layer,
+        state.blur_radius_px,
+        state.peripheral_stretch,
     )
 }
 
@@ -50,6 +54,9 @@ pub(super) fn oes_projection_runtime_resolution(
     projection_alpha_bias: f32,
     camera_projection_mode: OesCameraProjectionMode,
     projection_border_policy: OesProjectionBorderPolicy,
+    processing_layer: OesProcessingLayer,
+    blur_radius_px: f32,
+    peripheral_stretch: OesPeripheralStretchConfig,
 ) -> rxrc::ProjectionRuntimeConfigResolution {
     let defaults = oes_projection_runtime_default_config();
     let activity = oes_projection_runtime_config(
@@ -66,6 +73,9 @@ pub(super) fn oes_projection_runtime_resolution(
         projection_alpha_bias,
         camera_projection_mode,
         projection_border_policy,
+        processing_layer,
+        blur_radius_px,
+        peripheral_stretch,
         rxrc::RuntimeConfigSource::CommandLine,
     );
     let property_values = oes_current_android_projection_property_values();

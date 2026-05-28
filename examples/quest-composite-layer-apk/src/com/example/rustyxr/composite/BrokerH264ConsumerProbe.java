@@ -2734,6 +2734,14 @@ final class BrokerH264ConsumerProbe implements Runnable {
         if ("motion".equals(normalized) || "motion-bar".equals(normalized)) {
             return "motion-bar";
         }
+        if ("target-footprint".equals(normalized) ||
+                "target-footprint-edges".equals(normalized) ||
+                "footprint-edges".equals(normalized) ||
+                "edge-test".equals(normalized) ||
+                "stretch-test".equals(normalized) ||
+                "border-stretch-test".equals(normalized)) {
+            return "target-footprint-edges";
+        }
         return DEFAULT_SYNTHETIC_PATTERN;
     }
 
@@ -3545,6 +3553,11 @@ final class BrokerH264ConsumerProbe implements Runnable {
             copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentUvRect");
             copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentMappingIntent");
             copyOptionalStreamValue(streamProjectionMetadata, metadata, "contentGeometryMetadataSource");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "targetFootprintSchema");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "targetCoordinateSpace");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "targetScreenUvRect");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "targetClipPolicy");
+            copyOptionalStreamValue(streamProjectionMetadata, metadata, "targetFootprintMetadataSource");
             if (hasStreamProjectionMetadata && streamProjectionMetadata.has("diagnosticSource")) {
                 metadata.put("diagnosticSource", streamProjectionMetadata.optBoolean("diagnosticSource", false));
             }
@@ -3562,6 +3575,11 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 metadata.put(
                     "contentGeometryDefault",
                     streamProjectionMetadata.optBoolean("contentGeometryDefault", false));
+            }
+            if (hasStreamProjectionMetadata && streamProjectionMetadata.has("targetFootprintDefault")) {
+                metadata.put(
+                    "targetFootprintDefault",
+                    streamProjectionMetadata.optBoolean("targetFootprintDefault", false));
             }
             if (intrinsics != null) {
                 metadata.put("intrinsics", new JSONObject(intrinsics.toString()));

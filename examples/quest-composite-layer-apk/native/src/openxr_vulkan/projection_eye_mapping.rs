@@ -19,6 +19,7 @@ use super::{
         content_surface_aspect, frame_requests_full_frame_stimulus_mapping,
         full_target_canvas_aspect,
     },
+    projection_target_footprint::diagnostics_has_target_footprint,
     projection_view_basis::{
         camera_preview_surface_corners, eye_basis_from_view, tracking_basis_from_views,
     },
@@ -94,8 +95,12 @@ pub(super) fn projected_display_eye_homography(
     // feed as if a real quad had supplied rasterized surface coordinates.
     // The mode remains visible in logs/catalogs so a future mesh-quad backend
     // can be A/B tested without changing launch profiles.
-    let [offset_x_uv, offset_y_uv] =
-        config.camera_projection_area_offset_for_eye(display_eye_index);
+    let metadata_target_footprint = diagnostics_has_target_footprint(&frame.diagnostics);
+    let [offset_x_uv, offset_y_uv] = if metadata_target_footprint {
+        [0.0, 0.0]
+    } else {
+        config.camera_projection_area_offset_for_eye(display_eye_index)
+    };
     let screen_to_surface = screen_to_domain_with_visual_offset(
         invert_homography(surface_to_screen)?,
         offset_x_uv,
@@ -173,8 +178,12 @@ fn projected_full_frame_display_eye_homography(
     .ok()?;
     let canvas_clip =
         project_points_to_eye_clip(osc_overlay_eye_projection(display_view)?, surface_corners)?;
-    let [offset_x_uv, offset_y_uv] =
-        config.camera_projection_area_offset_for_eye(display_eye_index);
+    let metadata_target_footprint = diagnostics_has_target_footprint(&frame.diagnostics);
+    let [offset_x_uv, offset_y_uv] = if metadata_target_footprint {
+        [0.0, 0.0]
+    } else {
+        config.camera_projection_area_offset_for_eye(display_eye_index)
+    };
     let screen_to_surface = screen_to_domain_with_visual_offset(
         invert_homography(surface_to_screen)?,
         offset_x_uv,

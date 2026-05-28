@@ -432,6 +432,15 @@ pub const KEY_PROJECTION_AREA_CORNER_RADIUS_UV: &str = "projection_area_corner_r
 pub const KEY_PROJECTION_AREA_OPACITY: &str = "projection_area_opacity";
 pub const KEY_PROJECTION_BORDER_OPACITY: &str = "projection_border_opacity";
 pub const KEY_PROJECTION_BORDER_POLICY: &str = "projection_border_policy";
+pub const KEY_PROCESSING_LAYER: &str = "processing_layer";
+pub const KEY_CAMERA_BLUR_RADIUS_PX: &str = "camera_blur_radius_px";
+pub const KEY_PERIPHERAL_STRETCH_MODE: &str = "peripheral_stretch_mode";
+pub const KEY_PERIPHERAL_STRETCH_CORE_SCALE: &str = "peripheral_stretch_core_scale";
+pub const KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV: &str = "peripheral_stretch_edge_inset_uv";
+pub const KEY_PERIPHERAL_STRETCH_MAX_INSET_UV: &str = "peripheral_stretch_max_inset_uv";
+pub const KEY_PERIPHERAL_STRETCH_CURVE: &str = "peripheral_stretch_curve";
+pub const KEY_PERIPHERAL_STRETCH_CORNER_MODE: &str = "peripheral_stretch_corner_mode";
+pub const KEY_PERIPHERAL_STRETCH_DEBUG: &str = "peripheral_stretch_debug";
 pub const KEY_PROJECTION_ALPHA_MODE: &str = "projection_alpha_mode";
 pub const KEY_PROJECTION_ALPHA_SCALE: &str = "projection_alpha_scale";
 pub const KEY_PROJECTION_ALPHA_BIAS: &str = "projection_alpha_bias";
@@ -594,6 +603,60 @@ pub const PROJECTION_RUNTIME_KEY_DEFINITIONS: &[RuntimeKeyDefinition] = &[
         ProjectionRuntimeKeyOwner::ProjectionArea,
         RuntimeValueKind::Text,
         "Projection-area border fill policy.",
+    ),
+    projection_key(
+        KEY_PROCESSING_LAYER,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Text,
+        "Source-agnostic processing layer applied after target-footprint placement.",
+    ),
+    projection_key(
+        KEY_CAMERA_BLUR_RADIUS_PX,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Float,
+        "Diagnostic blur radius in source pixels for the blur processing layer.",
+    ),
+    projection_key(
+        KEY_PERIPHERAL_STRETCH_MODE,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Text,
+        "Peripheral-stretch exterior fill mode.",
+    ),
+    projection_key(
+        KEY_PERIPHERAL_STRETCH_CORE_SCALE,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Float,
+        "Scale of the coherent target-footprint core used by peripheral stretch.",
+    ),
+    projection_key(
+        KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Float,
+        "Optional source sample inset from the target-footprint edge for peripheral stretch.",
+    ),
+    projection_key(
+        KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Float,
+        "Maximum permitted target-edge inset for peripheral stretch.",
+    ),
+    projection_key(
+        KEY_PERIPHERAL_STRETCH_CURVE,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Float,
+        "Curve parameter reserved for non-linear peripheral stretch falloff.",
+    ),
+    projection_key(
+        KEY_PERIPHERAL_STRETCH_CORNER_MODE,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Text,
+        "Corner handling mode for target-footprint peripheral stretch.",
+    ),
+    projection_key(
+        KEY_PERIPHERAL_STRETCH_DEBUG,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Text,
+        "Debug overlay mode for peripheral-stretch exterior samples.",
     ),
     projection_key(
         KEY_PROJECTION_ALPHA_MODE,
@@ -792,6 +855,33 @@ pub const PROJECTION_RUNTIME_KEY_ALIASES: &[RuntimeKeyAlias] = &[
         "rustyxr.projectionBorderPolicy",
         KEY_PROJECTION_BORDER_POLICY,
     ),
+    launch_alias("rustyxr.processingLayer", KEY_PROCESSING_LAYER),
+    launch_alias("rustyxr.cameraBlurRadiusPx", KEY_CAMERA_BLUR_RADIUS_PX),
+    launch_alias("rustyxr.peripheralStretchMode", KEY_PERIPHERAL_STRETCH_MODE),
+    launch_alias(
+        "rustyxr.peripheralStretchCoreScale",
+        KEY_PERIPHERAL_STRETCH_CORE_SCALE,
+    ),
+    launch_alias(
+        "rustyxr.peripheralStretchEdgeInsetUv",
+        KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
+    ),
+    launch_alias(
+        "rustyxr.peripheralStretchMaxInsetUv",
+        KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
+    ),
+    launch_alias(
+        "rustyxr.peripheralStretchCurve",
+        KEY_PERIPHERAL_STRETCH_CURVE,
+    ),
+    launch_alias(
+        "rustyxr.peripheralStretchCornerMode",
+        KEY_PERIPHERAL_STRETCH_CORNER_MODE,
+    ),
+    launch_alias(
+        "rustyxr.peripheralStretchDebug",
+        KEY_PERIPHERAL_STRETCH_DEBUG,
+    ),
     launch_alias("rustyxr.projectionAlphaMode", KEY_PROJECTION_ALPHA_MODE),
     launch_alias("rustyxr.projectionAlphaScale", KEY_PROJECTION_ALPHA_SCALE),
     launch_alias("rustyxr.projectionAlphaBias", KEY_PROJECTION_ALPHA_BIAS),
@@ -904,6 +994,39 @@ pub const PROJECTION_RUNTIME_KEY_ALIASES: &[RuntimeKeyAlias] = &[
     property_alias(
         "debug.rustyxr.projection.border.policy",
         KEY_PROJECTION_BORDER_POLICY,
+    ),
+    property_alias("debug.rustyxr.processing.layer", KEY_PROCESSING_LAYER),
+    property_alias(
+        "debug.rustyxr.camera.blur.radius.px",
+        KEY_CAMERA_BLUR_RADIUS_PX,
+    ),
+    property_alias(
+        "debug.rustyxr.peripheral.stretch.mode",
+        KEY_PERIPHERAL_STRETCH_MODE,
+    ),
+    property_alias(
+        "debug.rustyxr.peripheral.stretch.core.scale",
+        KEY_PERIPHERAL_STRETCH_CORE_SCALE,
+    ),
+    property_alias(
+        "debug.rustyxr.peripheral.stretch.edge.inset.uv",
+        KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.peripheral.stretch.max.inset.uv",
+        KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.peripheral.stretch.curve",
+        KEY_PERIPHERAL_STRETCH_CURVE,
+    ),
+    property_alias(
+        "debug.rustyxr.peripheral.stretch.corner.mode",
+        KEY_PERIPHERAL_STRETCH_CORNER_MODE,
+    ),
+    property_alias(
+        "debug.rustyxr.peripheral.stretch.debug",
+        KEY_PERIPHERAL_STRETCH_DEBUG,
     ),
     property_alias(
         "debug.rustyxr.projection.alpha.mode",

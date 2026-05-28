@@ -28,6 +28,7 @@ pub(super) fn projection_plan_from_metadata(
     projection_preview_fov_y_degrees: f32,
     projection_preview_offset_y_meters: f32,
     projection_raw_overscan: f32,
+    target_footprint_from_metadata: bool,
 ) -> Option<OesProjectionPlan> {
     let width = left.delivered_width.max(right.delivered_width);
     let height = left.delivered_height.max(right.delivered_height);
@@ -46,26 +47,7 @@ pub(super) fn projection_plan_from_metadata(
         left.is_full_frame_diagnostic_projection() && right.is_full_frame_diagnostic_projection();
     let explicit_full_frame_content_mapping = left.requests_explicit_full_frame_content_mapping()
         && right.requests_explicit_full_frame_content_mapping();
-    if camera_projection_mode.uses_world_canvas() && metadata_backed_projection {
-        camera2_projection_plan_from_xr_views(
-            left,
-            right,
-            width,
-            height,
-            views,
-            projection_area_eye_offset_uv,
-            projection_area_scale,
-            projection_area_radius,
-            projection_area_opacity,
-            projection_border_policy,
-            projection_border_opacity,
-            projection_depth_meters,
-            projection_preview_fov_y_degrees,
-            projection_preview_offset_y_meters,
-            projection_raw_overscan,
-        )
-    } else if explicit_full_frame_content_mapping
-        || camera_projection_mode.uses_world_canvas()
+    if explicit_full_frame_content_mapping
         || (full_frame_diagnostic_profile && !metadata_backed_projection)
     {
         broker_full_frame_projection_plan_from_xr_views(
@@ -84,6 +66,45 @@ pub(super) fn projection_plan_from_metadata(
             projection_preview_fov_y_degrees,
             projection_preview_offset_y_meters,
             projection_raw_overscan,
+            target_footprint_from_metadata,
+        )
+    } else if camera_projection_mode.uses_world_canvas() && metadata_backed_projection {
+        camera2_projection_plan_from_xr_views(
+            left,
+            right,
+            width,
+            height,
+            views,
+            projection_area_eye_offset_uv,
+            projection_area_scale,
+            projection_area_radius,
+            projection_area_opacity,
+            projection_border_policy,
+            projection_border_opacity,
+            projection_depth_meters,
+            projection_preview_fov_y_degrees,
+            projection_preview_offset_y_meters,
+            projection_raw_overscan,
+            target_footprint_from_metadata,
+        )
+    } else if camera_projection_mode.uses_world_canvas() {
+        broker_full_frame_projection_plan_from_xr_views(
+            left,
+            right,
+            width,
+            height,
+            views,
+            projection_area_eye_offset_uv,
+            projection_area_scale,
+            projection_area_radius,
+            projection_area_opacity,
+            projection_border_policy,
+            projection_border_opacity,
+            projection_depth_meters,
+            projection_preview_fov_y_degrees,
+            projection_preview_offset_y_meters,
+            projection_raw_overscan,
+            target_footprint_from_metadata,
         )
     } else if metadata_backed_projection
         && (camera_projection_mapping || full_frame_diagnostic_profile)
@@ -104,6 +125,7 @@ pub(super) fn projection_plan_from_metadata(
             projection_preview_fov_y_degrees,
             projection_preview_offset_y_meters,
             projection_raw_overscan,
+            target_footprint_from_metadata,
         )
     } else if left.requests_head_anchored_projection_area_mapping()
         && right.requests_head_anchored_projection_area_mapping()
@@ -124,6 +146,7 @@ pub(super) fn projection_plan_from_metadata(
             projection_preview_fov_y_degrees,
             projection_preview_offset_y_meters,
             projection_raw_overscan,
+            target_footprint_from_metadata,
         )
     } else if left.has_camera2_projection() && right.has_camera2_projection() {
         camera2_projection_plan_from_xr_views(
@@ -142,6 +165,7 @@ pub(super) fn projection_plan_from_metadata(
             projection_preview_fov_y_degrees,
             projection_preview_offset_y_meters,
             projection_raw_overscan,
+            target_footprint_from_metadata,
         )
     } else {
         None
@@ -153,6 +177,7 @@ pub(super) fn projection_plan_from_metadata_and_state(
     right: &OesProjectionMetadata,
     views: &[xr::View],
     projection_state: OesProjectionRuntimeState,
+    target_footprint_from_metadata: bool,
 ) -> Option<OesProjectionPlan> {
     projection_plan_from_metadata(
         left,
@@ -169,5 +194,6 @@ pub(super) fn projection_plan_from_metadata_and_state(
         projection_state.tuning.camera_preview_fov_y_degrees,
         projection_state.tuning.camera_preview_offset_y_meters,
         projection_state.tuning.camera_raw_overlay_overscan,
+        target_footprint_from_metadata,
     )
 }

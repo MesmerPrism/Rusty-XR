@@ -8,6 +8,9 @@ use super::{
     gpu_camera_projection_uniforms::CameraProjectionUniforms,
     projection_geometry::{projected_stereo_homographies, ProjectedStereoHomographies},
     projection_homography_utils::pack_homography_row,
+    projection_target_footprint::{
+        target_footprint_params_from_mono_frame, target_footprint_params_from_stereo_frame,
+    },
     source_content_geometry::source_uv_rect_xywh_for_diagnostics,
 };
 
@@ -17,6 +20,7 @@ pub(super) struct CameraProjectionPush {
     params: [f32; 4],
     color_adjust: [f32; 4],
     effect_params: [f32; 4],
+    stretch_params: [f32; 4],
     alpha_params: [f32; 4],
     area_params: [f32; 4],
     area_offset_params: [f32; 4],
@@ -29,16 +33,20 @@ pub(super) struct CameraProjectionPush {
 }
 
 impl CameraProjectionPush {
-    pub(super) fn from_frame(
-        _frame: &HeadsetCameraGpuFrame,
-        config: &crate::RuntimeConfig,
-    ) -> Self {
+    pub(super) fn from_frame(frame: &HeadsetCameraGpuFrame, config: &crate::RuntimeConfig) -> Self {
         let mono_flags = config.camera_texture_transform.shader_flags() & 0x1f;
+        let target_footprint = target_footprint_params_from_mono_frame(&frame.diagnostics, config);
+        let target_footprint_flags = if target_footprint.from_metadata {
+            crate::camera_color_pipeline::CAMERA_SHADER_FLAG_TARGET_FOOTPRINT_FROM_METADATA
+        } else {
+            0
+        };
         let packed_flags = (mono_flags | (mono_flags << 5))
             | config.camera_color_mode.shader_bit()
             | config.camera_feed_pipeline_mode.shader_bit()
             | config.camera_projection_effect_mode.shader_bit()
-            | config.camera_projection_border_policy_shader_bit();
+            | config.camera_projection_border_policy_shader_bit()
+            | target_footprint_flags;
         let content_uv_scale = full_view_content_uv_scale(
             config.camera_full_view_overlay_overscan,
             config.camera_raw_overlay_overscan,
@@ -53,9 +61,10 @@ impl CameraProjectionPush {
             ],
             color_adjust: config.camera_color_adjust_push(),
             effect_params: config.camera_effect_params_push(),
+            stretch_params: config.camera_peripheral_stretch_params_push(),
             alpha_params: config.camera_alpha_params_push(),
-            area_params: config.camera_area_params_push(),
-            area_offset_params: config.camera_area_offset_params_push(),
+            area_params: target_footprint.area_params,
+            area_offset_params: target_footprint.area_offset_params,
             left_h0: [1.0, 0.0, 0.0, 0.0],
             left_h1: [0.0, 1.0, 0.0, 0.0],
             left_h2: [0.0, 0.0, 1.0, 0.0],
@@ -81,6 +90,12 @@ impl CameraProjectionPush {
             config.camera_raw_overlay_overscan,
         )
         .unwrap_or(1.0);
+        let target_footprint = target_footprint_params_from_stereo_frame(frame, config);
+        let target_footprint_flags = if target_footprint.from_metadata {
+            crate::camera_color_pipeline::CAMERA_SHADER_FLAG_TARGET_FOOTPRINT_FROM_METADATA
+        } else {
+            0
+        };
         let push = Self {
             params: [
                 config.camera_raw_overlay_overscan.max(1.0),
@@ -90,13 +105,15 @@ impl CameraProjectionPush {
                     | config.camera_color_mode.shader_bit()
                     | config.camera_feed_pipeline_mode.shader_bit()
                     | config.camera_projection_effect_mode.shader_bit()
-                    | config.camera_projection_border_policy_shader_bit()) as f32,
+                    | config.camera_projection_border_policy_shader_bit()
+                    | target_footprint_flags) as f32,
             ],
             color_adjust: config.camera_color_adjust_push(),
             effect_params: config.camera_effect_params_push(),
+            stretch_params: config.camera_peripheral_stretch_params_push(),
             alpha_params: config.camera_alpha_params_push(),
-            area_params: config.camera_area_params_push(),
-            area_offset_params: config.camera_area_offset_params_push(),
+            area_params: target_footprint.area_params,
+            area_offset_params: target_footprint.area_offset_params,
             left_h0: [1.0, 0.0, 0.0, 0.0],
             left_h1: [0.0, 1.0, 0.0, 0.0],
             left_h2: [0.0, 0.0, 1.0, 0.0],
@@ -157,6 +174,12 @@ impl CameraProjectionPush {
         } else {
             0
         };
+        let target_footprint = target_footprint_params_from_stereo_frame(frame, config);
+        let target_footprint_flags = if target_footprint.from_metadata {
+            crate::camera_color_pipeline::CAMERA_SHADER_FLAG_TARGET_FOOTPRINT_FROM_METADATA
+        } else {
+            0
+        };
         let mut push = Self {
             params: [
                 -config.camera_raw_overlay_overscan.max(1.0),
@@ -167,13 +190,15 @@ impl CameraProjectionPush {
                     | config.camera_feed_pipeline_mode.shader_bit()
                     | config.camera_projection_effect_mode.shader_bit()
                     | config.camera_projection_border_policy_shader_bit()
-                    | full_frame_mapping_flags) as f32,
+                    | full_frame_mapping_flags
+                    | target_footprint_flags) as f32,
             ],
             color_adjust: config.camera_color_adjust_push(),
             effect_params: config.camera_effect_params_push(),
+            stretch_params: config.camera_peripheral_stretch_params_push(),
             alpha_params: config.camera_alpha_params_push(),
-            area_params: config.camera_area_params_push(),
-            area_offset_params: config.camera_area_offset_params_push(),
+            area_params: target_footprint.area_params,
+            area_offset_params: target_footprint.area_offset_params,
             left_h0: [1.0, 0.0, 0.0, 0.0],
             left_h1: [0.0, 1.0, 0.0, 0.0],
             left_h2: [0.0, 0.0, 1.0, 0.0],

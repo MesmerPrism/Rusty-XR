@@ -34,6 +34,7 @@ layout(push_constant) uniform CameraProjectionPush {
     vec4 params;
     vec4 color_adjust;
     vec4 effect_params;
+    vec4 stretch_params;
     vec4 alpha_params;
     vec4 area_params;
     vec4 area_offset_params;

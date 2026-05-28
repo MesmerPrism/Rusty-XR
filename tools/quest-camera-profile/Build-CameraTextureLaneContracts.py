@@ -872,7 +872,11 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
 
     context_processing = nonempty_text(context_fields.get("processingLayer"))
     lane_processing = nonempty_text(projection.get("processing_layer"))
-    if context_processing is not None and (lane_processing is None or lane_processing == "unknown"):
+    if context_processing is not None and (
+        lane_processing is None
+        or lane_processing == "unknown"
+        or (lane_processing == "raw" and context_processing != "raw")
+    ):
         projection["processing_layer"] = context_processing
 
     context_sample_mode = nonempty_text(context_fields.get("projectionSampleMode"))
@@ -996,6 +1000,7 @@ def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
 
 
 def build_run_config_summary(context_fields: dict[str, Any]) -> dict[str, Any]:
+    processing_layer = nonempty_text(context_fields.get("processingLayer"))
     return {
         "app_id": nonempty_text(context_fields.get("appId")),
         "package_name": nonempty_text(context_fields.get("packageName")),
@@ -1008,7 +1013,10 @@ def build_run_config_summary(context_fields: dict[str, Any]) -> dict[str, Any]:
         "direct_camera_texture_path": nonempty_text(context_fields.get("directCameraTexturePath")),
         "xr_render_scale": parse_float(context_fields.get("xrRenderScale")),
         "projection_border_policy": nonempty_text(context_fields.get("projectionBorderPolicy")),
-        "processing_layer": nonempty_text(context_fields.get("processingLayer")),
+        "processing_layer": processing_layer,
+        "processing_run_kind": "raw-mask-footprint"
+        if (processing_layer or "raw") == "raw"
+        else "effect-run",
         "projection_sample_mode": nonempty_text(context_fields.get("projectionSampleMode")),
         "blur_radius_px": parse_float(context_fields.get("blurRadiusPx")),
     }

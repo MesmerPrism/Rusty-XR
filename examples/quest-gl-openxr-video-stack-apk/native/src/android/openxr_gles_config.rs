@@ -17,8 +17,9 @@ pub(super) const OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_EXTRA: &str =
     "rustyxr.projectionRuntimeResolutionEnabled";
 
 pub(super) use super::openxr_gles_contracts::{
-    OesCameraProjectionMode, OesContentMappingMode, OesProcessingLayer, OesProjectionAlphaMode,
-    OesProjectionBorderPolicy, OesSourceColorTransfer,
+    OesCameraProjectionMode, OesContentMappingMode, OesPeripheralStretchConfig,
+    OesPeripheralStretchCornerMode, OesPeripheralStretchDebug, OesPeripheralStretchMode,
+    OesProcessingLayer, OesProjectionAlphaMode, OesProjectionBorderPolicy, OesSourceColorTransfer,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -44,6 +45,9 @@ pub(super) struct OesProjectionRuntimeState {
     pub(super) projection_alpha_bias: f32,
     pub(super) camera_projection_mode: OesCameraProjectionMode,
     pub(super) projection_border_policy: OesProjectionBorderPolicy,
+    pub(super) processing_layer: OesProcessingLayer,
+    pub(super) blur_radius_px: f32,
+    pub(super) peripheral_stretch: OesPeripheralStretchConfig,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -71,8 +75,6 @@ impl Default for OesColorControls {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct OesActivityConfig {
-    pub(super) processing_layer: OesProcessingLayer,
-    pub(super) blur_radius_px: f32,
     pub(super) base_projection_tuning: OesProjectionTuning,
     pub(super) projection_state: OesProjectionRuntimeState,
     pub(super) camera_color_controls: OesColorControls,

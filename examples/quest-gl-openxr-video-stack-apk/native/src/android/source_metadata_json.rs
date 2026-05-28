@@ -63,6 +63,15 @@ pub(super) fn json_rect2_xywh_any(
         })
 }
 
+pub(super) fn json_rect2_xywh_any_unbounded(
+    object: &serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<Rect2> {
+    keys.iter()
+        .find_map(|key| json_rect2_xywh(object.get(*key)))
+        .filter(|rect| rect.is_valid() && rect.size.x > 0.0 && rect.size.y > 0.0)
+}
+
 fn json_rect2_xywh(value: Option<&serde_json::Value>) -> Option<Rect2> {
     let value = value?;
     if let Some(array) = value.as_array() {

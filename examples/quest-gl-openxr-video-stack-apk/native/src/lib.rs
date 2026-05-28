@@ -103,6 +103,7 @@ mod android {
     mod projection_runtime_resolution;
     mod projection_source_color;
     mod projection_stage_rows;
+    mod projection_target_footprint;
     mod source_content_geometry;
     mod source_metadata;
     mod source_metadata_json;
@@ -273,8 +274,6 @@ mod android {
         let mut status = OpenXrGlesFeasibilityStatus::new();
         log_status(&status);
         let activity_config = OesActivityConfig::from_activity(&app);
-        let processing_layer = activity_config.processing_layer;
-        let blur_radius_px = activity_config.blur_radius_px;
         let base_projection_tuning = activity_config.base_projection_tuning;
         let activity_projection_state = activity_config.projection_state;
         let camera_color_controls = activity_config.camera_color_controls;
@@ -327,8 +326,6 @@ mod android {
             .map_err(|error| format!("get HMD system: {error}"))?;
         log_oes_projection_startup_summary(
             projection_state,
-            processing_layer,
-            blur_radius_px,
             native_passthrough_underlay_requested,
             enabled_extensions.fb_passthrough,
             camera_color_controls,
@@ -449,10 +446,9 @@ mod android {
                             .projection_area_target_fields,
                     },
                     OesRenderTuning::from_projection_state(
-                        projection_state,
-                        processing_layer,
-                        blur_radius_px,
+                        projection_context.target_projection_state,
                         camera_color_controls,
+                        projection_context.target_footprint_from_metadata,
                     ),
                 )?;
 

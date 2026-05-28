@@ -1,12 +1,19 @@
-use rusty_xr_camera_model::{source_valid_screen_uv_footprint, Rect2};
+use rusty_xr_camera_model::{
+    source_valid_screen_uv_footprint, target_footprint_debug_region_marker_fields, Rect2,
+};
 
 use super::projection_geometry::{DisplayEyeProjectionMapping, ProjectedStereoHomographies};
+use super::projection_target_footprint::{
+    target_footprint_params_from_stereo_frame, HwbTargetFootprintParams,
+};
+use crate::StereoGpuCameraFrame;
 
 const SOURCE_VALID_FOOTPRINT_GRID: usize = 64;
 
 pub(super) fn projected_homography_marker_fields(
     homographies: &ProjectedStereoHomographies,
     config: &crate::RuntimeConfig,
+    target_footprint: HwbTargetFootprintParams,
 ) -> String {
     let surface_aspect_contract = if config.camera_projection_mode.uses_world_canvas() {
         "full_target_canvas_aspect"
@@ -40,7 +47,7 @@ pub(super) fn projected_homography_marker_fields(
         homography_token(homographies.left.surface_to_screen),
         homography_token(homographies.right.surface_to_screen),
         expected_source_valid_footprint_marker_fields(homographies),
-        projection_area_target_marker_fields(config),
+        projection_area_target_marker_fields(config, target_footprint, homographies),
     )
 }
 
@@ -48,10 +55,16 @@ pub(super) fn projected_homography_status_marker_fields(
     applied: Option<&ProjectedStereoHomographies>,
     target: Option<&ProjectedStereoHomographies>,
     config: &crate::RuntimeConfig,
+    frame: Option<&StereoGpuCameraFrame>,
 ) -> String {
+    let target_footprint = frame
+        .map(|frame| target_footprint_params_from_stereo_frame(frame, config))
+        .unwrap_or_else(|| HwbTargetFootprintParams::from_config(config));
     applied
         .or(target)
-        .map(|homographies| projected_homography_marker_fields(homographies, config))
+        .map(|homographies| {
+            projected_homography_marker_fields(homographies, config, target_footprint)
+        })
         .unwrap_or_else(|| {
             "projectionHomographyReady=false projectionAreaTransformStage=none projectionAreaWarpParity=reference_unwarped_screen_uv".to_string()
         })
@@ -118,17 +131,48 @@ fn projection_area_source_to_screen_gain_uv(radius_uv: [f32; 2], scale_uv: f32) 
     ]
 }
 
-fn projection_area_target_marker_fields(config: &crate::RuntimeConfig) -> String {
-    let left_offset = config.camera_projection_area_offset_for_eye(0);
-    let right_offset = config.camera_projection_area_offset_for_eye(1);
-    let [radius_x, radius_y, _corner_radius, scale] = config.camera_area_params_push();
+fn projection_area_target_marker_fields(
+    config: &crate::RuntimeConfig,
+    target_footprint: HwbTargetFootprintParams,
+    homographies: &ProjectedStereoHomographies,
+) -> String {
+    let left_offset = [
+        target_footprint.area_offset_params[0],
+        target_footprint.area_offset_params[1],
+    ];
+    let right_offset = [
+        target_footprint.area_offset_params[2],
+        target_footprint.area_offset_params[3],
+    ];
+    let [radius_x, radius_y, _corner_radius, scale] = target_footprint.area_params;
     let radius = [radius_x, radius_y];
     let source_to_screen_gain = projection_area_source_to_screen_gain_uv(radius, scale);
     let left_feed_rect = projection_area_screen_uv_rect(left_offset, radius, scale);
     let right_feed_rect = projection_area_screen_uv_rect(right_offset, radius, scale);
+    let target_source = if target_footprint.from_metadata {
+        "source-metadata"
+    } else {
+        "renderer-authored"
+    };
+    let resolved_source = if target_footprint.from_metadata {
+        "source-metadata"
+    } else {
+        "renderer-legacy-projection-area"
+    };
+    let source_sampling_domain = if homographies.left.full_frame_stimulus_mapping
+        && homographies.right.full_frame_stimulus_mapping
+    {
+        "target-local-uv"
+    } else {
+        "display-eye-screen-uv"
+    };
     format!(
-        "projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionAreaOffsetResponseCoordinateSpace=display-eye-screen-uv projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv_div_projectionAreaScaleUv projectionAreaShaderScreenBaseFormula=screenBase=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 projectionAreaFullFrameContentFormula=contentUv=(screenBase-offsetUv-(0.5-radiusUv))/(2*radiusUv) projectionAreaSourceToScreenGainUv={} surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=canvas-or-layer-covers-target-fov feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_surface borderRegionSemantics=surface_minus_feed cameraPipelinePreset={} cameraProjectionEffectMode={} projectionBorderPolicy={} projectionBorderPolicyActive={} projectionBorderShaderBit={} borderFillPolicy={} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} leftProjectionAreaOffsetUv={} rightProjectionAreaOffsetUv={} leftProjectionAreaOffsetResponseUv={} rightProjectionAreaOffsetResponseUv={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={}",
+        "projectionAreaTargetSource={} projectionAreaTargetStage=target_footprint_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh resolvedTargetFootprintSource={} targetFootprintSourceSamplingDomain={} effectBoundary=target-footprint projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionAreaOffsetResponseCoordinateSpace=display-eye-screen-uv projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv_div_projectionAreaScaleUv projectionAreaShaderScreenBaseFormula=screenBase=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 projectionAreaFullFrameContentFormula=contentUv=(screenBase-offsetUv-(0.5-radiusUv))/(2*radiusUv) projectionAreaSourceToScreenGainUv={} surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=canvas-or-layer-covers-target-fov feedPlacementSource={} feedPlacementSemantics=video_content_inside_target_footprint borderRegionSemantics=visible-render-surface-minus-target-footprint sourceInvalidSemantics=target-fragment-maps-outside-source-valid-uv cameraPipelinePreset={} cameraProjectionEffectMode={} projectionBorderPolicy={} projectionBorderPolicyActive={} projectionBorderShaderBit={} borderFillPolicy={} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} leftProjectionAreaOffsetUv={} rightProjectionAreaOffsetUv={} leftProjectionAreaOffsetResponseUv={} rightProjectionAreaOffsetResponseUv={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} {}",
+        target_source,
+        resolved_source,
+        source_sampling_domain,
         screen_uv_vec2_token(source_to_screen_gain),
+        target_source,
         config.camera_pipeline_preset.stable_id(),
         config.camera_projection_effect_mode.stable_id(),
         config.camera_projection_border_policy.stable_id(),
@@ -154,6 +198,7 @@ fn projection_area_target_marker_fields(config: &crate::RuntimeConfig) -> String
         screen_uv_rect_token(right_feed_rect),
         screen_uv_vec2_token(projection_area_center_uv(left_offset, scale)),
         screen_uv_vec2_token(projection_area_center_uv(right_offset, scale)),
+        target_footprint_debug_region_marker_fields(),
     )
 }
 

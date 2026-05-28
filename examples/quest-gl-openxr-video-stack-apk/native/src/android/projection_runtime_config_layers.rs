@@ -1,8 +1,9 @@
 use rusty_xr_runtime_config as rxrc;
 
 use super::openxr_gles_config::{
-    OesCameraProjectionMode, OesProjectionAlphaMode, OesProjectionBorderPolicy,
-    OesProjectionTuning, DEFAULT_PROJECTION_TARGET_DEPTH_METERS, PROJECTION_PREVIEW_FOV_Y_DEGREES,
+    OesCameraProjectionMode, OesPeripheralStretchConfig, OesProcessingLayer,
+    OesProjectionAlphaMode, OesProjectionBorderPolicy, OesProjectionTuning,
+    DEFAULT_PROJECTION_TARGET_DEPTH_METERS, PROJECTION_PREVIEW_FOV_Y_DEGREES,
     PROJECTION_RAW_OVERSCAN,
 };
 
@@ -26,6 +27,9 @@ pub(super) fn oes_projection_runtime_default_config() -> rxrc::RuntimeConfig {
         0.0,
         OesCameraProjectionMode::default(),
         OesProjectionBorderPolicy::default(),
+        OesProcessingLayer::default(),
+        2.0,
+        OesPeripheralStretchConfig::default(),
         rxrc::RuntimeConfigSource::Default,
     )
 }
@@ -45,6 +49,9 @@ pub(super) fn oes_projection_runtime_config(
     projection_alpha_bias: f32,
     camera_projection_mode: OesCameraProjectionMode,
     projection_border_policy: OesProjectionBorderPolicy,
+    processing_layer: OesProcessingLayer,
+    blur_radius_px: f32,
+    peripheral_stretch: OesPeripheralStretchConfig,
     source: rxrc::RuntimeConfigSource,
 ) -> rxrc::RuntimeConfig {
     let mut config = rxrc::RuntimeConfig::new();
@@ -160,6 +167,61 @@ pub(super) fn oes_projection_runtime_config(
         &mut config,
         rxrc::KEY_PROJECTION_BORDER_POLICY,
         projection_border_policy.stable_id(),
+        source.clone(),
+    );
+    set_public_text(
+        &mut config,
+        rxrc::KEY_PROCESSING_LAYER,
+        processing_layer.stable_id(),
+        source.clone(),
+    );
+    set_public_float(
+        &mut config,
+        rxrc::KEY_CAMERA_BLUR_RADIUS_PX,
+        blur_radius_px,
+        source.clone(),
+    );
+    let peripheral_stretch = peripheral_stretch.sanitized();
+    set_public_text(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_MODE,
+        peripheral_stretch.mode.stable_id(),
+        source.clone(),
+    );
+    set_public_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_CORE_SCALE,
+        peripheral_stretch.core_scale,
+        source.clone(),
+    );
+    set_public_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
+        peripheral_stretch.edge_inset_uv,
+        source.clone(),
+    );
+    set_public_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
+        peripheral_stretch.max_inset_uv,
+        source.clone(),
+    );
+    set_public_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_CURVE,
+        peripheral_stretch.curve,
+        source.clone(),
+    );
+    set_public_text(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_CORNER_MODE,
+        peripheral_stretch.corner_mode.stable_id(),
+        source.clone(),
+    );
+    set_public_text(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_DEBUG,
+        peripheral_stretch.debug.stable_id(),
         source.clone(),
     );
     set_public_text(

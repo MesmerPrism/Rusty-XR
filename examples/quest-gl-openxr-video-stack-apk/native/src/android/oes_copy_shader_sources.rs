@@ -9,7 +9,7 @@ gl_Position = vec4(a_position, 0.0, 1.0);
 
 pub(super) const OES_COPY_FRAGMENT_SHADER_SOURCE: &str = r#"#version 300 es
 #extension GL_OES_EGL_image_external_essl3 : require
-precision mediump float;
+precision highp float;
 uniform samplerExternalOES u_source;
 uniform vec3 u_screen_to_camera_h0;
 uniform vec3 u_screen_to_camera_h1;
@@ -20,12 +20,17 @@ uniform int u_content_mapping_mode;
 uniform int u_projection_border_policy;
 uniform int u_processing_layer;
 uniform float u_blur_radius_px;
+uniform int u_peripheral_stretch_mode;
+uniform vec4 u_peripheral_stretch_params;
+uniform int u_peripheral_stretch_corner_mode;
+uniform int u_peripheral_stretch_debug;
 uniform vec4 u_projection_area_eye_offset_uv;
 uniform vec2 u_projection_area_scale;
 uniform vec2 u_projection_area_radius;
 uniform float u_projection_area_corner_radius_uv;
 uniform float u_projection_area_opacity;
 uniform float u_projection_border_opacity;
+uniform int u_target_footprint_from_metadata;
 uniform int u_projection_alpha_mode;
 uniform vec2 u_projection_alpha_transform;
 uniform vec2 u_source_texel_size;
@@ -51,6 +56,9 @@ vec4 source_invalid_color() {
 if (u_projection_border_policy == 1) {
     return vec4(0.0, 0.0, 0.0, 0.0);
 }
+if (u_processing_layer == 2 && u_peripheral_stretch_debug == 1) {
+    return premultiplied_alpha_color(vec3(1.0, 0.0, 1.0), u_projection_border_opacity);
+}
 return premultiplied_alpha_color(vec3(1.0, 0.0, 0.0), u_projection_border_opacity);
 }
 float projection_area_distance(vec2 uv) {
@@ -75,6 +83,40 @@ vec2 half_size = vec2(
     clamp(u_projection_area_radius.y, 0.05, 0.50)
 );
 return (area_uv - (vec2(0.5) - half_size)) / max(half_size * 2.0, vec2(0.001));
+}
+vec2 projection_area_uv_to_screen_uv(
+    vec2 area_uv,
+    vec2 projection_area_offset_uv,
+    vec2 projection_scale
+) {
+return (area_uv + projection_area_offset_uv - vec2(0.5)) /
+    max(projection_scale, vec2(0.05)) + vec2(0.5);
+}
+vec2 projection_area_rect_edge_uv(vec2 area_uv) {
+vec2 half_size = vec2(
+    clamp(u_projection_area_radius.x, 0.05, 0.50),
+    clamp(u_projection_area_radius.y, 0.05, 0.50)
+);
+float core_scale = clamp(u_peripheral_stretch_params.x, 0.05, 1.0);
+float configured_inset = clamp(
+    min(u_peripheral_stretch_params.y, u_peripheral_stretch_params.z),
+    0.0,
+    0.49
+);
+float curve_normalizer = max(abs(u_peripheral_stretch_params.w), 0.001);
+float edge_inset = max(configured_inset - 0.015, 0.0) *
+    abs(u_peripheral_stretch_params.w) / curve_normalizer;
+vec2 core_half_size = half_size * core_scale;
+vec2 edge_inset_uv = min(vec2(edge_inset), max(core_half_size - vec2(0.001), vec2(0.0)));
+vec2 min_uv = vec2(0.5) - core_half_size + edge_inset_uv;
+vec2 max_uv = vec2(0.5) + core_half_size - edge_inset_uv;
+return clamp(area_uv, min_uv, max_uv);
+}
+bool peripheral_stretch_enabled() {
+// Keep the mode/corner uniforms live for the public runtime contract, but let
+// the processing layer own effect activation like the HWB shader path.
+return u_processing_layer == 2 ||
+    (u_peripheral_stretch_mode + u_peripheral_stretch_corner_mode) == -4096;
 }
 float srgb_channel_to_linear(float value) {
 float c = clamp(value, 0.0, 1.0);
@@ -192,31 +234,87 @@ vec2 projection_area_uv =
     (screen_uv - vec2(0.5)) * projection_scale + vec2(0.5) -
     projection_area_offset_uv;
 float area_distance = projection_area_distance(projection_area_uv);
-if (area_distance > 1.0) {
+bool stretch_exterior = false;
+bool peripheral_stretch_active = peripheral_stretch_enabled();
+if (area_distance > 1.0 && peripheral_stretch_active) {
+    projection_area_uv = projection_area_rect_edge_uv(projection_area_uv);
+    screen_uv = projection_area_uv_to_screen_uv(
+        projection_area_uv,
+        projection_area_offset_uv,
+        projection_scale
+    );
+    stretch_exterior = true;
+} else if (area_distance > 1.0) {
     out_color = intended_projection_mask_color();
     return;
 }
+vec2 target_content_uv = projection_area_content_uv(projection_area_uv);
 vec2 camera_uv = vec2(0.0);
 if (u_content_mapping_mode == 1) {
-    camera_uv = projection_area_content_uv(projection_area_uv);
+    camera_uv = target_content_uv;
 } else {
-    vec3 input_uv = vec3(screen_uv, 1.0);
+    vec2 homography_input_uv = screen_uv;
+    // Keep the metadata flag live for the uniform contract. The camera
+    // homography rows are screen-domain; the target footprint only owns the
+    // mask and edge-remap boundary.
+    if (u_target_footprint_from_metadata == 2) {
+        homography_input_uv = target_content_uv;
+    }
+    vec3 input_uv = vec3(homography_input_uv, 1.0);
     vec3 camera_uv_h = vec3(
         dot(u_screen_to_camera_h0, input_uv),
         dot(u_screen_to_camera_h1, input_uv),
         dot(u_screen_to_camera_h2, input_uv)
     );
-    if (abs(camera_uv_h.z) < 0.00001) {
+    if (abs(camera_uv_h.z) < 0.00001 && !peripheral_stretch_active) {
         out_color = source_invalid_color();
         return;
     }
-    camera_uv = camera_uv_h.xy / camera_uv_h.z;
+    float safe_camera_uv_z = abs(camera_uv_h.z) < 0.00001
+        ? (camera_uv_h.z < 0.0 ? -0.00001 : 0.00001)
+        : camera_uv_h.z;
+    camera_uv = camera_uv_h.xy / safe_camera_uv_z;
 }
-if (camera_uv.x < 0.0 || camera_uv.x > 1.0 || camera_uv.y < 0.0 || camera_uv.y > 1.0) {
+bool source_uv_numeric = camera_uv.x == camera_uv.x && camera_uv.y == camera_uv.y;
+if (peripheral_stretch_active && stretch_exterior && !source_uv_numeric) {
+    // NaN/undefined exterior samples still belong to the stretch exterior for
+    // this layer; core failures remain source-invalid diagnostics.
+    stretch_exterior = true;
+    camera_uv = vec2(0.5);
+    source_uv_numeric = true;
+}
+bool source_uv_valid =
+    source_uv_numeric &&
+    camera_uv.x >= 0.0 &&
+    camera_uv.x <= 1.0 &&
+    camera_uv.y >= 0.0 &&
+    camera_uv.y <= 1.0;
+if (peripheral_stretch_active && stretch_exterior && !source_uv_valid) {
+    // Treat source-invalid exterior pixels as part of the explicit stretch
+    // exterior so edge clamping cannot create an unlabeled camera-looking band.
+    stretch_exterior = true;
+    vec2 source_edge_epsilon = max(u_source_texel_size * 0.5, vec2(0.0001));
+    camera_uv = clamp(camera_uv, source_edge_epsilon, vec2(1.0) - source_edge_epsilon);
+    source_uv_valid =
+        camera_uv.x >= 0.0 &&
+        camera_uv.x <= 1.0 &&
+        camera_uv.y >= 0.0 &&
+        camera_uv.y <= 1.0;
+}
+if (!source_uv_valid) {
     out_color = source_invalid_color();
     return;
 }
-out_color = u_processing_layer == 1
+vec4 sample_color = u_processing_layer == 1
     ? blurred_camera_sample(camera_uv)
     : camera_sample(camera_uv);
+if (u_processing_layer == 2 && u_peripheral_stretch_debug == 2 && stretch_exterior) {
+    out_color = vec4(clamp(camera_uv, vec2(0.0), vec2(1.0)), 0.0, 1.0);
+    return;
+}
+if (u_processing_layer == 2 && u_peripheral_stretch_debug == 1 && stretch_exterior) {
+    out_color = premultiplied_alpha_color(vec3(0.0, 1.0, 1.0), 1.0);
+    return;
+}
+out_color = sample_color;
 }"#;

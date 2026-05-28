@@ -397,6 +397,24 @@ while still using the same suite and artifact contract. Pass one or more of
 records both `laneFilter` and `effectiveLanes` in
 `canvas-custom-projection-parity-suite-summary.json`.
 
+For projection-exterior effect work, use `-ProcessingLayer peripheral-stretch`
+with `-PeripheralStretchDebug off`, `regions`, or `sample-uv`. Stretch runs are
+effect runs: the resource lane names remain stable raw-family names such as
+`vulkan-hwb-direct-camera2-raw` and `gles-oes-direct-camera2-raw`, while the
+runtime and analyzer summaries report `processing_layer=peripheral-stretch`.
+The `regions` debug view paints the entire explicit stretch branch with a hard
+cyan effect-exterior color, and `sample-uv` recolors only that same stretch
+branch with source UV coordinates. Normal solid-red or passthrough-underlay
+fallback remains unchanged; only genuine source-invalid pixels in stretch
+`regions` debug use the separate magenta diagnostic fallback. Source-invalid
+pixels outside the target footprint are clamped through the stretch exterior
+path, so screenshots do not get an unlabeled camera-looking band between the
+valid core and the debug-colored effect region. Source-invalid pixels inside
+the target footprint remain diagnostics and must not expand the effect
+footprint. In the current metadata-backed architecture, the effect core is the
+resolved target footprint and the exterior is the visible render surface
+outside that coherent core.
+
 Examples:
 
 ```powershell
@@ -412,7 +430,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 # Shared HWB/OES change that does not affect Makepad.
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\tools\quest-camera-profile\Invoke-CanvasCustomProjectionParitySuite.ps1 `
-  -LaneFilter hwb,oes `
+  -LaneFilter @('hwb','oes') `
   -EvidenceMode fast-visual `
   -SkipMediaProjection `
   -ProjectionRuntimeReadback required `
@@ -640,7 +658,7 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.cameraProjectionEffectMode` | string | Selects the shader effect explicitly. Diagnostic runs use `raw-projection`; `border-composite` is the legacy feedback-border effect and should be requested deliberately. |
 | `rustyxr.projectionBorderPolicy` | string | Selects the projection exterior fill policy independently from the camera pipeline preset: `solid-red` or `passthrough-underlay`. |
 | `rustyxr.cameraSamplerBindingMode` | string | Selects the HWB Vulkan sampler binding path for direct diagnostics: `combined-immutable-sampler`, `separate-image-sampler`, or `separate-immutable-sampler`. The separate modes are descriptor-layout probes; visual acceptance should stay on the combined immutable path unless fresh device evidence proves another path color-correct. |
-| `rustyxr.processingLayer` | string | Selects the diagnostic content-processing layer. Use `raw` for unprocessed camera content or `blur` for the public diagnostic blur. |
+| `rustyxr.processingLayer` | string | Selects the diagnostic content-processing layer. Use `raw` for unprocessed camera content, `blur` for the public diagnostic blur, or `peripheral-stretch` for metadata target-footprint exterior replacement. |
 | `rustyxr.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `world-canvas`, `display-screen-homography`, or `quad-surface`. |
 | `rustyxr.cameraProjectionGeometryProfile` | string | Selects direct Camera2 source/content geometry metadata. Active direct lanes accept `full-frame-diagnostic` for full-frame-to-projection-area checks and `camera-projection` for per-eye screen-to-camera homography checks; other values are rejected or reported as unsupported. |
 | `rustyxr.directCamera2OesProjectionGeometryProfile` | string | GL/OES direct Camera2 override; falls back to `rustyxr.cameraProjectionGeometryProfile`. |
@@ -661,6 +679,13 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.projectionAlphaScale` | float | Shared multiplier applied to the selected alpha mask, clamped to `0..4`. |
 | `rustyxr.projectionAlphaBias` | float | Shared bias applied after alpha-mask scaling, clamped to `-1..1`. |
 | `rustyxr.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in 1280x1280 source pixels when `rustyxr.processingLayer=blur`. |
+| `rustyxr.peripheralStretchMode` | string | Selects the peripheral-stretch mode; the current public mode is `edge-stretch`. |
+| `rustyxr.peripheralStretchCoreScale` | float | Keeps the coherent target-footprint core unchanged at `1.0`; lower values are not part of the accepted v0 geometry contract. |
+| `rustyxr.peripheralStretchEdgeInsetUv` | float | Source UV inset used for sampling the nearest target-footprint edge. |
+| `rustyxr.peripheralStretchMaxInsetUv` | float | Maximum inset reserved for future shaped stretch sampling. |
+| `rustyxr.peripheralStretchCurve` | float | Curve parameter carried in the shared OES/HWB stretch contract. |
+| `rustyxr.peripheralStretchCornerMode` | string | Selects effect-boundary corner semantics; use `target-footprint` for metadata-backed runs. |
+| `rustyxr.peripheralStretchDebug` | string | Selects stretch debug output: `off`, `regions`, or `sample-uv`. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
 | `rustyxr.openxrPassthroughProbe` | string | Keeps native passthrough checks separate from camera projection: `off`, `warmup`, `client`, or `underlay`. |
 

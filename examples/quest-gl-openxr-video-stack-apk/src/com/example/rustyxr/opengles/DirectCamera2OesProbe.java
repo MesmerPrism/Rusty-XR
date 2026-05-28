@@ -40,9 +40,14 @@ public final class DirectCamera2OesProbe {
     private static final String STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN = "top-left-origin-y-down";
     private static final String STIMULUS_ORIENTATION_SCHEMA = "rusty.xr.stimulus_orientation.v1";
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
+    private static final String TARGET_FOOTPRINT_SCHEMA = "rusty.xr.target_screen_footprint.v1";
     private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-surface";
     private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
     private static final String PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION = "camera-projection";
+    private static final double DEFAULT_TARGET_SCREEN_X = 0.03d;
+    private static final double DEFAULT_TARGET_SCREEN_Y = 0.14d;
+    private static final double DEFAULT_TARGET_SCREEN_WIDTH = 0.94d;
+    private static final double DEFAULT_TARGET_SCREEN_HEIGHT = 0.72d;
     private static final int DEFAULT_WIDTH = 1280;
     private static final int DEFAULT_HEIGHT = 1280;
     private static final int DEFAULT_FRAME_RATE_HZ = 50;
@@ -455,6 +460,7 @@ public final class DirectCamera2OesProbe {
                 contentMappingIntentForProjectionGeometryProfile(projectionGeometryProfile));
             metadata.put("contentGeometryMetadataSource", "direct-camera2-oes-characteristics");
             metadata.put("contentGeometryDefault", false);
+            putDefaultTargetFootprint(metadata, "direct-camera2-oes-characteristics");
             Integer lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
             metadata.put("lensFacing", lensFacingLabel(lensFacing));
             metadata.put("lensFacingRank", lensFacingRank(lensFacing));
@@ -527,6 +533,20 @@ public final class DirectCamera2OesProbe {
             }
             metadata.put("projectionMetadataReady", hasIntrinsics && hasPose);
             return metadata;
+        }
+
+        private static void putDefaultTargetFootprint(JSONObject metadata, String metadataSource) throws Exception {
+            JSONObject targetRect = new JSONObject();
+            targetRect.put("x", DEFAULT_TARGET_SCREEN_X);
+            targetRect.put("y", DEFAULT_TARGET_SCREEN_Y);
+            targetRect.put("width", DEFAULT_TARGET_SCREEN_WIDTH);
+            targetRect.put("height", DEFAULT_TARGET_SCREEN_HEIGHT);
+            metadata.put("targetFootprintSchema", TARGET_FOOTPRINT_SCHEMA);
+            metadata.put("targetCoordinateSpace", "display-eye-screen-uv");
+            metadata.put("targetScreenUvRect", targetRect);
+            metadata.put("targetClipPolicy", "clip-to-visible-eye");
+            metadata.put("targetFootprintMetadataSource", metadataSource);
+            metadata.put("targetFootprintDefault", false);
         }
 
         void emitError(String code, String message) {

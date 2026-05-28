@@ -1823,7 +1823,7 @@ def schemas() -> dict[str, dict]:
             "headsetCapture": string(),
             "headsetCaptureProvider": parity_capture_provider,
             "brokerH264SourceMode": parity_source_mode,
-            "processingLayer": enum("ParitySuiteProcessingLayer", ["raw", "blur"]),
+            "processingLayer": enum("ParitySuiteProcessingLayer", ["raw", "blur", "peripheral-stretch"]),
             "blurRadiusPx": number(),
         },
     )
@@ -1865,7 +1865,7 @@ def schemas() -> dict[str, dict]:
                     "cameraPreviewOffsetYMeters": number(),
                     "cameraRawOverlayOverscan": number(),
                     "projectionBorderPolicy": enum("ProjectionBorderPolicy", ["passthrough-underlay", "solid-red"]),
-                    "processingLayer": enum("ParitySuiteGeometryProcessingLayer", ["raw", "blur"]),
+                    "processingLayer": enum("ParitySuiteGeometryProcessingLayer", ["raw", "blur", "peripheral-stretch"]),
                     "blurRadiusPx": number(),
                     "projectionAreaOpacity": number(),
                     "projectionBorderOpacity": number(),

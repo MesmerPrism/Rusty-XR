@@ -3527,6 +3527,12 @@ def build_projection_coordinate_contracts(
                     "native_passthrough_requested": bool_field(fields, "nativePassthroughRequested"),
                     "passthrough_underlay": bool_field(fields, "passthroughUnderlay"),
                     "processing_layer": first_field(fields, "processingLayer") or report.get("processing_layer"),
+                    "processing_run_kind": (
+                        "raw-mask-footprint"
+                        if (first_field(fields, "processingLayer") or report.get("processing_layer") or "raw")
+                        == "raw"
+                        else "effect-run"
+                    ),
                     "blur_disabled_for_coordinate_gate": (
                         (first_field(fields, "processingLayer") or report.get("processing_layer")) == "raw"
                     ),

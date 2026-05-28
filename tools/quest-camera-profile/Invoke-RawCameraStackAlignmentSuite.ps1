@@ -39,7 +39,7 @@ param(
     [int]$BrokerRestartSettleSeconds = 8,
     [ValidateSet("solid-red", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "solid-red",
-    [ValidateSet("raw", "blur")]
+    [ValidateSet("raw", "blur", "peripheral-stretch")]
     [string]$ProcessingLayer = "raw",
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionAreaOffsetXUv = 0.0,

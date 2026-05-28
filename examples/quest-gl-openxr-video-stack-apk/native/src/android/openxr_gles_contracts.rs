@@ -293,13 +293,19 @@ pub(super) enum OesProcessingLayer {
     #[default]
     Raw,
     Blur,
+    PeripheralStretch,
 }
 
 impl OesProcessingLayer {
     pub(super) fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
             "raw" => Some(Self::Raw),
             "blur" => Some(Self::Blur),
+            "stretch"
+            | "peripheral-stretch"
+            | "border-stretch"
+            | "projection-border-stretch"
+            | "edge-stretch" => Some(Self::PeripheralStretch),
             _ => None,
         }
     }
@@ -308,6 +314,7 @@ impl OesProcessingLayer {
         match self {
             Self::Raw => "raw",
             Self::Blur => "blur",
+            Self::PeripheralStretch => "peripheral-stretch",
         }
     }
 
@@ -315,6 +322,164 @@ impl OesProcessingLayer {
         match self {
             Self::Raw => 0,
             Self::Blur => 1,
+            Self::PeripheralStretch => 2,
         }
+    }
+
+    pub(super) const fn consumes_projection_exterior(self) -> bool {
+        matches!(self, Self::PeripheralStretch)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum OesPeripheralStretchMode {
+    #[default]
+    EdgeStretch,
+}
+
+impl OesPeripheralStretchMode {
+    pub(super) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            ""
+            | "edge-stretch"
+            | "stretch"
+            | "peripheral-stretch"
+            | "border-stretch"
+            | "projection-border-stretch" => Some(Self::EdgeStretch),
+            _ => None,
+        }
+    }
+
+    pub(super) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::EdgeStretch => "edge-stretch",
+        }
+    }
+
+    pub(super) const fn shader_id(self) -> c_int {
+        match self {
+            Self::EdgeStretch => 1,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum OesPeripheralStretchCornerMode {
+    #[default]
+    TargetFootprint,
+}
+
+impl OesPeripheralStretchCornerMode {
+    pub(super) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            ""
+            | "target-footprint"
+            | "projection-area"
+            | "projection-area-rect"
+            | "rect"
+            | "rectangle" => Some(Self::TargetFootprint),
+            _ => None,
+        }
+    }
+
+    pub(super) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::TargetFootprint => "target-footprint",
+        }
+    }
+
+    pub(super) const fn shader_id(self) -> c_int {
+        match self {
+            Self::TargetFootprint => 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum OesPeripheralStretchDebug {
+    #[default]
+    Off,
+    Regions,
+    SampleUv,
+}
+
+impl OesPeripheralStretchDebug {
+    pub(super) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "" | "0" | "false" | "no" | "off" | "disabled" => Some(Self::Off),
+            "1" | "true" | "yes" | "on" | "enabled" | "regions" | "region" => Some(Self::Regions),
+            "2" | "sample-uv" | "sampleuv" | "uv" => Some(Self::SampleUv),
+            _ => None,
+        }
+    }
+
+    pub(super) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Regions => "regions",
+            Self::SampleUv => "sample-uv",
+        }
+    }
+
+    pub(super) const fn shader_id(self) -> c_int {
+        match self {
+            Self::Off => 0,
+            Self::Regions => 1,
+            Self::SampleUv => 2,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct OesPeripheralStretchConfig {
+    pub(super) mode: OesPeripheralStretchMode,
+    pub(super) core_scale: f32,
+    pub(super) edge_inset_uv: f32,
+    pub(super) max_inset_uv: f32,
+    pub(super) curve: f32,
+    pub(super) corner_mode: OesPeripheralStretchCornerMode,
+    pub(super) debug: OesPeripheralStretchDebug,
+}
+
+impl Default for OesPeripheralStretchConfig {
+    fn default() -> Self {
+        Self {
+            mode: OesPeripheralStretchMode::default(),
+            core_scale: 1.0,
+            edge_inset_uv: 0.015,
+            max_inset_uv: 0.14,
+            curve: 1.6,
+            corner_mode: OesPeripheralStretchCornerMode::default(),
+            debug: OesPeripheralStretchDebug::default(),
+        }
+    }
+}
+
+impl OesPeripheralStretchConfig {
+    pub(super) fn sanitized(self) -> Self {
+        let defaults = Self::default();
+        let edge_inset_uv = sanitize_f32(self.edge_inset_uv, defaults.edge_inset_uv, 0.0, 0.49);
+        Self {
+            mode: self.mode,
+            core_scale: sanitize_f32(self.core_scale, defaults.core_scale, 0.05, 1.0),
+            edge_inset_uv,
+            max_inset_uv: sanitize_f32(
+                self.max_inset_uv,
+                defaults.max_inset_uv,
+                edge_inset_uv,
+                0.49,
+            ),
+            curve: sanitize_f32(self.curve, defaults.curve, 0.05, 8.0),
+            corner_mode: self.corner_mode,
+            debug: self.debug,
+        }
+    }
+}
+
+fn sanitize_f32(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(min, max)
+    } else {
+        fallback
     }
 }

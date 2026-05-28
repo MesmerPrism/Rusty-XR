@@ -22,11 +22,12 @@ impl OesActivityConfig {
             projection_alpha_bias: extras.projection_alpha_bias,
             camera_projection_mode: extras.camera_projection_mode,
             projection_border_policy: extras.projection_border_policy,
+            processing_layer: extras.processing_layer,
+            blur_radius_px: extras.blur_radius_px,
+            peripheral_stretch: extras.peripheral_stretch,
         };
 
         Self {
-            processing_layer: extras.processing_layer,
-            blur_radius_px: extras.blur_radius_px,
             base_projection_tuning: extras.base_projection_tuning,
             projection_state,
             camera_color_controls: extras.camera_color_controls,

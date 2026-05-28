@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn projected_homography_status_marker_fields_keeps_missing_shape() {
         assert_eq!(
-            projected_homography_status_marker_fields(None, None, &RuntimeConfig::default()),
+            projected_homography_status_marker_fields(None, None, &RuntimeConfig::default(), None),
             "projectionHomographyReady=false projectionAreaTransformStage=none projectionAreaWarpParity=reference_unwarped_screen_uv"
         );
     }

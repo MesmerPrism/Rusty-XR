@@ -1,8 +1,6 @@
 use super::{
     log_info,
-    openxr_gles_config::{
-        OesColorControls, OesProcessingLayer, OesProjectionRuntimeState, OesProjectionTuning,
-    },
+    openxr_gles_config::{OesColorControls, OesProjectionRuntimeState, OesProjectionTuning},
     projection_contract_markers::projection_area_target_marker_fields_from_state,
     projection_runtime_resolution::{
         oes_projection_runtime_resolution_enabled, oes_projection_runtime_resolution_from_state,
@@ -52,8 +50,9 @@ pub(super) fn oes_projection_runtime_hotload_log_message(
     frame_count: u64,
     projection_state: OesProjectionRuntimeState,
 ) -> String {
+    let peripheral_stretch_fields = oes_peripheral_stretch_log_fields(projection_state);
     format!(
-        "Rusty XR OpenXR GLES projection runtime hotload source={} frame={} projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} projectionAreaOffsetUv={:.6},{:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} cameraProjectionMode={} projectionBorderPolicy={} propertyPrefix=debug.rustyxr",
+        "Rusty XR OpenXR GLES projection runtime hotload source={} frame={} projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} projectionAreaOffsetUv={:.6},{:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} cameraProjectionMode={} projectionBorderPolicy={} processingLayer={} cameraBlurRadiusPx={:.3} {} propertyPrefix=debug.rustyxr",
         tuning_source,
         frame_count,
         projection_state.tuning.projection_depth_meters,
@@ -72,7 +71,10 @@ pub(super) fn oes_projection_runtime_hotload_log_message(
         projection_state.projection_alpha_scale,
         projection_state.projection_alpha_bias,
         projection_state.camera_projection_mode.stable_id(),
-        projection_state.projection_border_policy.stable_id()
+        projection_state.projection_border_policy.stable_id(),
+        projection_state.processing_layer.stable_id(),
+        projection_state.blur_radius_px,
+        peripheral_stretch_fields
     )
 }
 
@@ -168,20 +170,19 @@ impl OesProjectionRuntimeController {
 
 pub(super) fn log_oes_projection_startup_summary(
     projection_state: OesProjectionRuntimeState,
-    processing_layer: OesProcessingLayer,
-    blur_radius_px: f32,
     native_passthrough_underlay_requested: bool,
     native_passthrough_extension_enabled: bool,
     camera_color_controls: OesColorControls,
 ) {
     let projection_area_target_fields =
         projection_area_target_marker_fields_from_state(projection_state);
+    let peripheral_stretch_fields = oes_peripheral_stretch_log_fields(projection_state);
     log_info(format!(
-            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraProjectionMode={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} oesSourceColorTransfer={} sourceColorInputEncoding={} sourceColorOutputEncoding={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
+            "Rusty XR OpenXR GLES projection border policy={} processingLayer={} cameraProjectionMode={} cameraBlurRadiusPx={:.3} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAreaOffsetXUv={:.6} projectionAreaOffsetYUv={:.6} projectionAreaLeftOffsetXUv={:.6} projectionAreaLeftOffsetYUv={:.6} projectionAreaRightOffsetXUv={:.6} projectionAreaRightOffsetYUv={:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaCornerRadiusUv={:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} {} {} nativePassthroughUnderlayRequested={} nativePassthroughExtensionEnabled={} oesSourceColorTransfer={} sourceColorInputEncoding={} sourceColorOutputEncoding={} cameraColorMatrix={:?} cameraColorOffset={:?} cameraColorContrast={:.3} cameraColorBrightness={:.3} cameraColorSaturation={:.3}",
             projection_state.projection_border_policy.stable_id(),
-            processing_layer.stable_id(),
+            projection_state.processing_layer.stable_id(),
             projection_state.camera_projection_mode.stable_id(),
-            blur_radius_px,
+            projection_state.blur_radius_px,
             projection_state.tuning.projection_depth_meters,
             projection_state.tuning.camera_preview_fov_y_degrees,
             projection_state.tuning.camera_preview_offset_y_meters,
@@ -203,6 +204,7 @@ pub(super) fn log_oes_projection_startup_summary(
             projection_state.projection_alpha_scale,
             projection_state.projection_alpha_bias,
             projection_area_target_fields,
+            peripheral_stretch_fields,
             native_passthrough_underlay_requested,
             native_passthrough_extension_enabled,
             camera_color_controls.source_transfer.stable_id(),
@@ -216,10 +218,26 @@ pub(super) fn log_oes_projection_startup_summary(
         ));
 }
 
+fn oes_peripheral_stretch_log_fields(projection_state: OesProjectionRuntimeState) -> String {
+    let peripheral_stretch = projection_state.peripheral_stretch.sanitized();
+    format!(
+        "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion=target-footprint peripheralStretchBorderSource=projection-edge-sample",
+        peripheral_stretch.mode.stable_id(),
+        peripheral_stretch.core_scale,
+        peripheral_stretch.edge_inset_uv,
+        peripheral_stretch.max_inset_uv,
+        peripheral_stretch.curve,
+        peripheral_stretch.corner_mode.stable_id(),
+        peripheral_stretch.debug.stable_id(),
+        projection_state.processing_layer.consumes_projection_exterior()
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::openxr_gles_config::{
-        OesCameraProjectionMode, OesProjectionAlphaMode, OesProjectionBorderPolicy,
+        OesCameraProjectionMode, OesPeripheralStretchConfig, OesProcessingLayer,
+        OesProjectionAlphaMode, OesProjectionBorderPolicy,
     };
     use super::*;
 
@@ -266,12 +284,15 @@ mod tests {
                 projection_alpha_bias: -0.25,
                 camera_projection_mode: OesCameraProjectionMode::WorldCanvas,
                 projection_border_policy: OesProjectionBorderPolicy::PassthroughUnderlay,
+                processing_layer: OesProcessingLayer::PeripheralStretch,
+                blur_radius_px: 4.0,
+                peripheral_stretch: OesPeripheralStretchConfig::default(),
             },
         );
 
         assert_eq!(
             line,
-            "Rusty XR OpenXR GLES projection runtime hotload source=android-system-property frame=42 projectionDepthMeters=1.250000 cameraPreviewFovYDegrees=72.000000 cameraPreviewOffsetYMeters=0.125000 cameraRawOverlayOverscan=1.500000 projectionAreaOffsetUv=0.010000,-0.020000 projectionAreaScale=0.950000,0.850000 projectionAreaRadiusUv=0.470000,0.360000 projectionAreaOpacity=0.750 projectionBorderOpacity=0.500 projectionAlphaMode=green projectionAlphaScale=1.250 projectionAlphaBias=-0.250 cameraProjectionMode=world-canvas projectionBorderPolicy=passthrough-underlay propertyPrefix=debug.rustyxr"
+            "Rusty XR OpenXR GLES projection runtime hotload source=android-system-property frame=42 projectionDepthMeters=1.250000 cameraPreviewFovYDegrees=72.000000 cameraPreviewOffsetYMeters=0.125000 cameraRawOverlayOverscan=1.500000 projectionAreaOffsetUv=0.010000,-0.020000 projectionAreaScale=0.950000,0.850000 projectionAreaRadiusUv=0.470000,0.360000 projectionAreaOpacity=0.750 projectionBorderOpacity=0.500 projectionAlphaMode=green projectionAlphaScale=1.250 projectionAlphaBias=-0.250 cameraProjectionMode=world-canvas projectionBorderPolicy=passthrough-underlay processingLayer=peripheral-stretch cameraBlurRadiusPx=4.000 peripheralStretchMode=edge-stretch peripheralStretchCoreScale=1.000 peripheralStretchEdgeInsetUv=0.015 peripheralStretchMaxInsetUv=0.140 peripheralStretchCurve=1.600 peripheralStretchCornerMode=target-footprint peripheralStretchDebug=off peripheralStretchConsumesProjectionExterior=true peripheralStretchCoreRegion=target-footprint peripheralStretchBorderSource=projection-edge-sample propertyPrefix=debug.rustyxr"
         );
     }
 }

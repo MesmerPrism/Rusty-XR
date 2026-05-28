@@ -1,6 +1,6 @@
 use super::{
     openxr_gles_activity_color::camera_color_controls_from_activity,
-    openxr_gles_activity_env::with_activity_env,
+    openxr_gles_activity_env::{activity_float_extra, with_activity_env},
     openxr_gles_activity_projection::{
         camera_projection_mode_from_activity, projection_alpha_bias_from_activity,
         projection_alpha_mode_from_activity, projection_alpha_scale_from_activity,
@@ -11,8 +11,10 @@ use super::{
         projection_border_policy_from_activity, projection_tuning_from_activity,
     },
     openxr_gles_config::{
-        activity_string_extra, OesCameraProjectionMode, OesColorControls, OesProcessingLayer,
-        OesProjectionAlphaMode, OesProjectionBorderPolicy, OesProjectionTuning,
+        activity_string_extra, OesCameraProjectionMode, OesColorControls,
+        OesPeripheralStretchConfig, OesPeripheralStretchCornerMode, OesPeripheralStretchDebug,
+        OesPeripheralStretchMode, OesProcessingLayer, OesProjectionAlphaMode,
+        OesProjectionBorderPolicy, OesProjectionTuning,
     },
 };
 
@@ -34,6 +36,7 @@ pub(super) struct OesActivityExtras {
     pub(super) projection_alpha_bias: f32,
     pub(super) camera_projection_mode: OesCameraProjectionMode,
     pub(super) projection_border_policy: OesProjectionBorderPolicy,
+    pub(super) peripheral_stretch: OesPeripheralStretchConfig,
     pub(super) camera_color_controls: OesColorControls,
 }
 
@@ -59,6 +62,7 @@ pub(super) fn read_oes_activity_extras(app: &android_activity::AndroidApp) -> Oe
         projection_alpha_bias: projection_alpha_bias_from_activity(app),
         camera_projection_mode: camera_projection_mode_from_activity(app),
         projection_border_policy: projection_border_policy_from_activity(app),
+        peripheral_stretch: peripheral_stretch_from_activity(app),
         camera_color_controls: camera_color_controls_from_activity(app),
     }
 }
@@ -80,5 +84,52 @@ fn blur_radius_px_from_activity(app: &android_activity::AndroidApp) -> f32 {
             .filter(|value| value.is_finite())
             .unwrap_or(2.0)
             .clamp(0.0, 16.0)
+    })
+}
+
+fn peripheral_stretch_from_activity(
+    app: &android_activity::AndroidApp,
+) -> OesPeripheralStretchConfig {
+    let defaults = OesPeripheralStretchConfig::default();
+    with_activity_env(app, defaults, |env, activity| {
+        OesPeripheralStretchConfig {
+            mode: activity_string_extra(env, activity, "rustyxr.peripheralStretchMode")
+                .as_deref()
+                .and_then(OesPeripheralStretchMode::parse)
+                .unwrap_or(defaults.mode),
+            core_scale: activity_float_extra(
+                env,
+                activity,
+                &["rustyxr.peripheralStretchCoreScale"],
+            )
+            .unwrap_or(defaults.core_scale),
+            edge_inset_uv: activity_float_extra(
+                env,
+                activity,
+                &["rustyxr.peripheralStretchEdgeInsetUv"],
+            )
+            .unwrap_or(defaults.edge_inset_uv),
+            max_inset_uv: activity_float_extra(
+                env,
+                activity,
+                &["rustyxr.peripheralStretchMaxInsetUv"],
+            )
+            .unwrap_or(defaults.max_inset_uv),
+            curve: activity_float_extra(env, activity, &["rustyxr.peripheralStretchCurve"])
+                .unwrap_or(defaults.curve),
+            corner_mode: activity_string_extra(
+                env,
+                activity,
+                "rustyxr.peripheralStretchCornerMode",
+            )
+            .as_deref()
+            .and_then(OesPeripheralStretchCornerMode::parse)
+            .unwrap_or(defaults.corner_mode),
+            debug: activity_string_extra(env, activity, "rustyxr.peripheralStretchDebug")
+                .as_deref()
+                .and_then(OesPeripheralStretchDebug::parse)
+                .unwrap_or(defaults.debug),
+        }
+        .sanitized()
     })
 }

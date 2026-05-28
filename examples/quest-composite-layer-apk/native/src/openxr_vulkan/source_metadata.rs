@@ -1,4 +1,7 @@
 use crate::{CameraProjectionMode, HeadsetCameraFrameDiagnostics, StereoGpuCameraFrame};
+use rusty_xr_camera_model::{
+    target_footprint_debug_region_marker_fields, TARGET_SCREEN_FOOTPRINT_SCHEMA,
+};
 
 use super::source_content_geometry::HwbStereoContentGeometry;
 
@@ -72,8 +75,32 @@ pub(super) fn projection_source_metadata_marker_fields(
         right_width,
         right_height,
     );
+    let target_schema = marker_token(
+        left.target_footprint_schema
+            .as_deref()
+            .or(right.target_footprint_schema.as_deref()),
+        TARGET_SCREEN_FOOTPRINT_SCHEMA,
+    );
+    let target_coordinate_space = marker_token(
+        left.target_coordinate_space
+            .as_deref()
+            .or(right.target_coordinate_space.as_deref()),
+        "display-eye-screen-uv",
+    );
+    let target_clip_policy = marker_token(
+        left.target_clip_policy
+            .as_deref()
+            .or(right.target_clip_policy.as_deref()),
+        "clip-to-visible-eye",
+    );
+    let target_metadata_source = marker_token(
+        left.target_footprint_metadata_source
+            .as_deref()
+            .or(right.target_footprint_metadata_source.as_deref()),
+        "missing",
+    );
     format!(
-        "projectionMetadataReady=true source={} sourceMode={} brokerH264SourceMode={} sourceBindingMode=broker-h264-stream-header-{} brokerH264SyntheticProjectionProfile={} projection_profile={} geometry_profile={} syntheticPattern={} pattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={} desiredDisplayAspectRatio={} desiredProjectionAspectRatio={} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} contentUvRect={} sourceVisibleUvRect={} sourceCropRectState={} sourceCropRectOwner={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftContentWidth={} leftContentHeight={} rightContentWidth={} rightContentHeight={} leftContentUvRect={} rightContentUvRect={} leftSourceVisibleUvRect={} rightSourceVisibleUvRect={} leftSourceCropRectPx={} rightSourceCropRectPx={}",
+        "projectionMetadataReady=true source={} sourceMode={} brokerH264SourceMode={} sourceBindingMode=broker-h264-stream-header-{} brokerH264SyntheticProjectionProfile={} projection_profile={} geometry_profile={} syntheticPattern={} pattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={} desiredDisplayAspectRatio={} desiredProjectionAspectRatio={} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} contentUvRect={} sourceVisibleUvRect={} sourceCropRectState={} sourceCropRectOwner={} targetFootprintSchema={} targetCoordinateSpace={} leftTargetScreenUvRect={} rightTargetScreenUvRect={} targetClipPolicy={} targetFootprintMetadataSource={} targetFootprintDefault={} effectBoundary=target-footprint borderRegionSemantics=visible-render-surface-minus-target-footprint sourceInvalidSemantics=target-fragment-maps-outside-source-valid-uv {} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftContentWidth={} leftContentHeight={} rightContentWidth={} rightContentHeight={} leftContentUvRect={} rightContentUvRect={} leftSourceVisibleUvRect={} rightSourceVisibleUvRect={} leftSourceCropRectPx={} rightSourceCropRectPx={}",
         source,
         source_mode,
         source_mode,
@@ -115,6 +142,18 @@ pub(super) fn projection_source_metadata_marker_fields(
         uv_rect_token(content_geometry.uv_rect),
         content_geometry.source_crop_rect_state,
         content_geometry.source_crop_rect_owner,
+        target_schema,
+        target_coordinate_space,
+        target_screen_uv_rect_token(left.target_screen_uv_rect),
+        target_screen_uv_rect_token(right.target_screen_uv_rect),
+        target_clip_policy,
+        target_metadata_source,
+        marker_bool(
+            left.target_footprint_default
+                .or(right.target_footprint_default),
+            target_metadata_source == "missing",
+        ),
+        target_footprint_debug_region_marker_fields(),
         left_width,
         left_height,
         right_width,
@@ -194,4 +233,9 @@ fn uv_rect_token(rect: [f32; 4]) -> String {
         "{:.6},{:.6},{:.6},{:.6}",
         rect[0], rect[1], rect[2], rect[3]
     )
+}
+
+fn target_screen_uv_rect_token(rect: Option<[f32; 4]>) -> String {
+    rect.map(uv_rect_token)
+        .unwrap_or_else(|| "not-logged".to_string())
 }

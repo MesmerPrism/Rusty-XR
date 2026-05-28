@@ -2,7 +2,8 @@ use rusty_xr_camera_model::Rect2;
 
 use super::source_metadata::{aspect_ratio_u32, OesProjectionMetadata};
 use super::source_metadata_json::{
-    json_bool_any, json_f32_any, json_rect2_xywh_any, json_string_any, json_u32_any,
+    json_bool_any, json_f32_any, json_rect2_xywh_any, json_rect2_xywh_any_unbounded,
+    json_string_any, json_u32_any,
 };
 
 #[derive(Clone, Debug)]
@@ -21,6 +22,12 @@ pub(super) struct OesContentGeometryRecord {
     pub(super) metadata_source: String,
     pub(super) metadata_default: bool,
     pub(super) source_valid_uv_rect: Rect2,
+    pub(super) target_footprint_schema: String,
+    pub(super) target_coordinate_space: String,
+    pub(super) target_screen_uv_rect: Option<Rect2>,
+    pub(super) target_clip_policy: String,
+    pub(super) target_footprint_metadata_source: String,
+    pub(super) target_footprint_default: bool,
 }
 
 impl OesContentGeometryRecord {
@@ -33,6 +40,10 @@ impl OesContentGeometryRecord {
             || object.contains_key("contentWidth")
             || object.contains_key("contentHeight")
             || object.contains_key("contentMappingIntent");
+        let explicit_target_footprint = object.contains_key("targetFootprintSchema")
+            || object.contains_key("targetCoordinateSpace")
+            || object.contains_key("targetScreenUvRect")
+            || object.contains_key("targetFootprintScreenUvRect");
         let width =
             json_u32_any(object, &["contentWidth", "stimulusWidth"]).unwrap_or(delivered_width);
         let height =
@@ -62,6 +73,10 @@ impl OesContentGeometryRecord {
             &["sourceValidUvRect", "contentUvRect", "stimulusUvRect"],
         )
         .unwrap_or(Rect2::UNIT);
+        let target_screen_uv_rect = json_rect2_xywh_any_unbounded(
+            object,
+            &["targetScreenUvRect", "targetFootprintScreenUvRect"],
+        );
 
         Self {
             kind: json_string_any(object, &["contentKind", "stimulusKind"])
@@ -93,6 +108,24 @@ impl OesContentGeometryRecord {
             metadata_default: !explicit_content_geometry
                 || json_bool_any(object, &["contentGeometryDefault"]).unwrap_or(false),
             source_valid_uv_rect,
+            target_footprint_schema: json_string_any(object, &["targetFootprintSchema"])
+                .unwrap_or("missing")
+                .to_string(),
+            target_coordinate_space: json_string_any(object, &["targetCoordinateSpace"])
+                .unwrap_or("display-eye-screen-uv")
+                .to_string(),
+            target_screen_uv_rect,
+            target_clip_policy: json_string_any(object, &["targetClipPolicy"])
+                .unwrap_or("clip-to-visible-eye")
+                .to_string(),
+            target_footprint_metadata_source: json_string_any(
+                object,
+                &["targetFootprintMetadataSource"],
+            )
+            .unwrap_or("missing")
+            .to_string(),
+            target_footprint_default: !explicit_target_footprint
+                || json_bool_any(object, &["targetFootprintDefault"]).unwrap_or(false),
         }
     }
 
@@ -112,6 +145,12 @@ impl OesContentGeometryRecord {
             metadata_source: metadata.content_geometry_metadata_source.clone(),
             metadata_default: metadata.content_geometry_default,
             source_valid_uv_rect: metadata.source_valid_uv_rect,
+            target_footprint_schema: metadata.target_footprint_schema.clone(),
+            target_coordinate_space: metadata.target_coordinate_space.clone(),
+            target_screen_uv_rect: metadata.target_screen_uv_rect,
+            target_clip_policy: metadata.target_clip_policy.clone(),
+            target_footprint_metadata_source: metadata.target_footprint_metadata_source.clone(),
+            target_footprint_default: metadata.target_footprint_default,
         }
     }
 }

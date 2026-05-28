@@ -10,7 +10,8 @@ use super::{
     projection_geometry::{OesEyeProjection, OesProjectionPlan},
     projection_plan_shared::{
         eye_basis_from_xr_view, preview_surface_corners, screen_to_domain_with_visual_adjustment,
-        shared_per_eye_projection_plan, synthetic_broker_intrinsics, tracking_basis_from_xr_views,
+        shared_per_eye_projection_plan, source_sampling_visual_adjustment,
+        synthetic_broker_intrinsics, tracking_basis_from_xr_views,
         use_surface_texture_transform_for_stimulus,
     },
     source_metadata::OesProjectionMetadata,
@@ -34,6 +35,7 @@ pub(super) fn broker_synthetic_projection_plan_from_xr_views(
     projection_preview_fov_y_degrees: f32,
     projection_preview_offset_y_meters: f32,
     projection_raw_overscan: f32,
+    target_footprint_from_metadata: bool,
 ) -> Option<OesProjectionPlan> {
     let left_view = views.first()?;
     let right_view = views.get(1)?;
@@ -77,25 +79,35 @@ pub(super) fn broker_synthetic_projection_plan_from_xr_views(
         right_view.fov.angle_up.tan(),
     )
     .ok()?;
-    let left_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
-        invert_homography(left_surface_to_screen)?,
+    let (left_sample_offset_uv, left_sample_scale_uv) = source_sampling_visual_adjustment(
+        target_footprint_from_metadata,
         projection_area_eye_offset_uv[0],
         projection_area_scale,
+    );
+    let (right_sample_offset_uv, right_sample_scale_uv) = source_sampling_visual_adjustment(
+        target_footprint_from_metadata,
+        projection_area_eye_offset_uv[1],
+        projection_area_scale,
+    );
+    let left_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
+        invert_homography(left_surface_to_screen)?,
+        left_sample_offset_uv,
+        left_sample_scale_uv,
     );
     let right_screen_to_surface_h = screen_to_domain_with_visual_adjustment(
         invert_homography(right_surface_to_screen)?,
-        projection_area_eye_offset_uv[1],
-        projection_area_scale,
+        right_sample_offset_uv,
+        right_sample_scale_uv,
     );
     let left_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
         screen_to_camera_uv_homography(left_surface_to_screen, surface_to_camera).ok()?,
-        projection_area_eye_offset_uv[0],
-        projection_area_scale,
+        left_sample_offset_uv,
+        left_sample_scale_uv,
     );
     let right_screen_to_camera_h = screen_to_domain_with_visual_adjustment(
         screen_to_camera_uv_homography(right_surface_to_screen, surface_to_camera).ok()?,
-        projection_area_eye_offset_uv[1],
-        projection_area_scale,
+        right_sample_offset_uv,
+        right_sample_scale_uv,
     );
     let left_use_surface_texture_transform =
         use_surface_texture_transform_for_stimulus(left_metadata);

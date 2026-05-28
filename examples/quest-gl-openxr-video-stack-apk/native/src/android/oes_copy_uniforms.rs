@@ -4,8 +4,8 @@ use super::{
     glUniform1f, glUniform1i, glUniform2f, glUniform3f, glUniform4f, glUniformMatrix4fv,
     gles_shader_program::uniform_location,
     openxr_gles_config::{
-        OesColorControls, OesContentMappingMode, OesProcessingLayer, OesProjectionAlphaMode,
-        OesProjectionBorderPolicy,
+        OesColorControls, OesContentMappingMode, OesPeripheralStretchConfig, OesProcessingLayer,
+        OesProjectionAlphaMode, OesProjectionBorderPolicy,
     },
 };
 
@@ -20,12 +20,17 @@ pub(super) struct OesCopyUniformLocations {
     projection_border_policy_location: c_int,
     processing_layer_location: c_int,
     blur_radius_px_location: c_int,
+    peripheral_stretch_mode_location: c_int,
+    peripheral_stretch_params_location: c_int,
+    peripheral_stretch_corner_mode_location: c_int,
+    peripheral_stretch_debug_location: c_int,
     projection_area_eye_offset_uv_location: c_int,
     projection_area_scale_location: c_int,
     projection_area_radius_location: c_int,
     projection_area_corner_radius_uv_location: c_int,
     projection_area_opacity_location: c_int,
     projection_border_opacity_location: c_int,
+    target_footprint_from_metadata_location: c_int,
     projection_alpha_mode_location: c_int,
     projection_alpha_transform_location: c_int,
     source_texel_size_location: c_int,
@@ -53,6 +58,22 @@ impl OesCopyUniformLocations {
             )?,
             processing_layer_location: uniform_location(program, "u_processing_layer")?,
             blur_radius_px_location: uniform_location(program, "u_blur_radius_px")?,
+            peripheral_stretch_mode_location: uniform_location(
+                program,
+                "u_peripheral_stretch_mode",
+            )?,
+            peripheral_stretch_params_location: uniform_location(
+                program,
+                "u_peripheral_stretch_params",
+            )?,
+            peripheral_stretch_corner_mode_location: uniform_location(
+                program,
+                "u_peripheral_stretch_corner_mode",
+            )?,
+            peripheral_stretch_debug_location: uniform_location(
+                program,
+                "u_peripheral_stretch_debug",
+            )?,
             projection_area_eye_offset_uv_location: uniform_location(
                 program,
                 "u_projection_area_eye_offset_uv",
@@ -70,6 +91,10 @@ impl OesCopyUniformLocations {
             projection_border_opacity_location: uniform_location(
                 program,
                 "u_projection_border_opacity",
+            )?,
+            target_footprint_from_metadata_location: uniform_location(
+                program,
+                "u_target_footprint_from_metadata",
             )?,
             projection_alpha_mode_location: uniform_location(program, "u_projection_alpha_mode")?,
             projection_alpha_transform_location: uniform_location(
@@ -112,6 +137,26 @@ impl OesCopyUniformLocations {
                 self.blur_radius_px_location,
                 uniforms.blur_radius_px.clamp(0.0, 16.0),
             );
+            let peripheral_stretch = uniforms.peripheral_stretch.sanitized();
+            glUniform1i(
+                self.peripheral_stretch_mode_location,
+                peripheral_stretch.mode.shader_id(),
+            );
+            glUniform4f(
+                self.peripheral_stretch_params_location,
+                peripheral_stretch.core_scale,
+                peripheral_stretch.edge_inset_uv,
+                peripheral_stretch.max_inset_uv,
+                peripheral_stretch.curve,
+            );
+            glUniform1i(
+                self.peripheral_stretch_corner_mode_location,
+                peripheral_stretch.corner_mode.shader_id(),
+            );
+            glUniform1i(
+                self.peripheral_stretch_debug_location,
+                peripheral_stretch.debug.shader_id(),
+            );
             glUniform4f(
                 self.projection_area_eye_offset_uv_location,
                 uniforms.projection_area_eye_offset_uv[0][0].clamp(-0.5, 0.5),
@@ -140,6 +185,14 @@ impl OesCopyUniformLocations {
             glUniform1f(
                 self.projection_border_opacity_location,
                 uniforms.projection_border_opacity.clamp(0.0, 1.0),
+            );
+            glUniform1i(
+                self.target_footprint_from_metadata_location,
+                if uniforms.target_footprint_from_metadata {
+                    1
+                } else {
+                    0
+                },
             );
             glUniform1i(
                 self.projection_alpha_mode_location,
@@ -219,12 +272,14 @@ pub(super) struct OesCopyRenderUniforms {
     pub(super) projection_border_policy: OesProjectionBorderPolicy,
     pub(super) processing_layer: OesProcessingLayer,
     pub(super) blur_radius_px: f32,
+    pub(super) peripheral_stretch: OesPeripheralStretchConfig,
     pub(super) projection_area_eye_offset_uv: [[f32; 2]; 2],
     pub(super) projection_area_scale: [f32; 2],
     pub(super) projection_area_radius: [f32; 2],
     pub(super) projection_area_corner_radius_uv: f32,
     pub(super) projection_area_opacity: f32,
     pub(super) projection_border_opacity: f32,
+    pub(super) target_footprint_from_metadata: bool,
     pub(super) projection_alpha_mode: OesProjectionAlphaMode,
     pub(super) projection_alpha_scale: f32,
     pub(super) projection_alpha_bias: f32,

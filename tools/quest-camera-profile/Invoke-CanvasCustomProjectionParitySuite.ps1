@@ -40,8 +40,10 @@ param(
     [string]$ProjectionBorderPolicy = "passthrough-underlay",
     [ValidateSet("all", "hwb", "oes", "makepad")]
     [string[]]$LaneFilter = @("all"),
-    [ValidateSet("raw", "blur")]
+    [ValidateSet("raw", "blur", "peripheral-stretch")]
     [string]$ProcessingLayer = "raw",
+    [ValidateSet("off", "regions", "sample-uv")]
+    [string]$PeripheralStretchDebug = "off",
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionAreaOpacity = 1.0,
     [double]$ProjectionBorderOpacity = 1.0,
@@ -58,7 +60,7 @@ param(
     [int]$BrokerH264RightStreamPort = 8880,
     [int]$BrokerH264FrameRateHz = 50,
     [int]$BrokerH264BitrateBps = 6000000,
-    [ValidateSet("diagnostic-grid", "motion-bar", "checkerboard", "luma-ramp")]
+    [ValidateSet("diagnostic-grid", "motion-bar", "checkerboard", "luma-ramp", "target-footprint-edges")]
     [string]$BrokerH264SyntheticPattern = "diagnostic-grid",
     [ValidateSet("head-anchored-virtual-camera", "camera-matched", "full-frame-diagnostic")]
     [string]$BrokerH264SyntheticProjectionProfile = "camera-matched",
@@ -298,6 +300,7 @@ $projectionOpacityOverride = @(
 $blurRadiusPxText = Format-LaunchFloat -Value $BlurRadiusPx
 $processingLayerOverride = @(
     ("rustyxr.processingLayer={0}" -f $ProcessingLayer),
+    ("rustyxr.peripheralStretchDebug={0}" -f $PeripheralStretchDebug),
     ("rustyxr.cameraBlurRadiusPx={0}" -f $blurRadiusPxText)
 ) -join ","
 $ExpectedMakepadSourceEyeMapping = "display-left-from-left-source"
@@ -570,6 +573,17 @@ function ConvertTo-WindowsLongPath {
         return "\\?\UNC\" + $fullPath.Substring(2)
     }
     return "\\?\" + $fullPath
+}
+
+function ConvertFrom-WindowsLongPath {
+    param([string]$Path)
+    if ($Path.StartsWith("\\?\UNC\")) {
+        return "\\" + $Path.Substring(8)
+    }
+    if ($Path.StartsWith("\\?\")) {
+        return $Path.Substring(4)
+    }
+    return $Path
 }
 
 function Invoke-Adb {
@@ -1038,8 +1052,15 @@ function Assert-BoundedFootprintEvidence {
     } else {
         "bounded"
     }
+    $processingRunKind = if ($ProcessingLayer -eq "raw") {
+        "raw-mask-footprint"
+    } else {
+        "effect-run"
+    }
     $footprintContract = if (-not $sourceValidFootprintsPresent) {
         "missing-source-valid-footprint"
+    } elseif ($processingRunKind -eq "effect-run" -and $sourceValidFootprintFullscreen) {
+        "effect-run-target-footprint-with-fullscreen-source-valid-footprint"
     } elseif ($sourceValidFootprintFullscreen) {
         "fullscreen-source-valid-footprint"
     } elseif ($projectionAreaFullscreen) {
@@ -1048,6 +1069,9 @@ function Assert-BoundedFootprintEvidence {
         "bounded-render-surface-bounded-source-valid-footprint"
     }
     $contractSignals = @()
+    if ($processingRunKind -eq "effect-run") {
+        $contractSignals += "effect-run"
+    }
     if ($projectionAreaFullscreen -and $sourceValidFootprintBounded) {
         $contractSignals += "fullscreen-render-surface-with-bounded-source-valid-footprint"
     }
@@ -1066,6 +1090,7 @@ function Assert-BoundedFootprintEvidence {
         sourceValidFootprintFullscreen = $sourceValidFootprintFullscreen
         sourceValidFootprintBounded = $sourceValidFootprintBounded
         sourceValidFootprintUvCoverage = $sourceValidCoverage
+        processingRunKind = $processingRunKind
         footprintContract = $footprintContract
         contractSignals = $contractSignals
         status = "ok"
@@ -1077,7 +1102,7 @@ function Assert-BoundedFootprintEvidence {
     if ($null -eq $leftExpected -or $null -eq $rightExpected) {
         $issues += "missing-expected-source-valid-footprint"
     }
-    elseif ($sourceValidFootprintFullscreen) {
+    elseif ($processingRunKind -eq "raw-mask-footprint" -and $sourceValidFootprintFullscreen) {
         $issues += "effective-source-valid-footprint-fullscreen"
     }
 
@@ -1124,7 +1149,7 @@ function Copy-HeadsetCaptureFromProfileRun {
                         (ConvertTo-WindowsLongPath $source.FullName),
                         (ConvertTo-WindowsLongPath $OutputPng),
                         $true)
-                    return $latest.FullName
+                    return (ConvertFrom-WindowsLongPath $latest.FullName)
                 }
                 $lastError = "$captureLabel not found under $($latest.FullName)"
             }
@@ -1159,7 +1184,7 @@ function Copy-HeadsetCaptureFromMakepadRun {
         (ConvertTo-WindowsLongPath $source.FullName),
         (ConvertTo-WindowsLongPath $OutputPng),
         $true)
-    return $source.FullName
+    return (ConvertFrom-WindowsLongPath $source.FullName)
 }
 
 function Invoke-HwbOrGlesCase {
@@ -1612,6 +1637,7 @@ $summary = [ordered]@{
         cameraRawOverlayOverscan = 1.0
         projectionBorderPolicy = $ProjectionBorderPolicy
         processingLayer = $ProcessingLayer
+        peripheralStretchDebug = $PeripheralStretchDebug
         blurRadiusPx = $BlurRadiusPx
         projectionAreaOpacity = $ProjectionAreaOpacity
         projectionBorderOpacity = $ProjectionBorderOpacity

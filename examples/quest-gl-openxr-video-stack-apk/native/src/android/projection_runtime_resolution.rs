@@ -1,6 +1,8 @@
 use super::openxr_gles_config::{
-    OesCameraProjectionMode, OesProjectionAlphaMode, OesProjectionBorderPolicy,
-    OesProjectionRuntimeState, OesProjectionTuning,
+    OesCameraProjectionMode, OesPeripheralStretchConfig, OesPeripheralStretchCornerMode,
+    OesPeripheralStretchDebug, OesPeripheralStretchMode, OesProcessingLayer,
+    OesProjectionAlphaMode, OesProjectionBorderPolicy, OesProjectionRuntimeState,
+    OesProjectionTuning,
 };
 use rusty_xr_runtime_config as rxrc;
 
@@ -83,7 +85,71 @@ pub(super) fn oes_projection_runtime_state_from_resolution(
         )
         .and_then(OesProjectionBorderPolicy::parse)
         .unwrap_or(fallback.projection_border_policy),
+        processing_layer: oes_projection_runtime_text(resolution, rxrc::KEY_PROCESSING_LAYER)
+            .and_then(OesProcessingLayer::parse)
+            .unwrap_or(fallback.processing_layer),
+        blur_radius_px: oes_projection_runtime_float(
+            resolution,
+            rxrc::KEY_CAMERA_BLUR_RADIUS_PX,
+            fallback.blur_radius_px,
+            0.0,
+            16.0,
+        ),
+        peripheral_stretch: oes_peripheral_stretch_from_resolution(
+            fallback.peripheral_stretch,
+            resolution,
+        ),
     }
+}
+
+fn oes_peripheral_stretch_from_resolution(
+    fallback: OesPeripheralStretchConfig,
+    resolution: &rxrc::RuntimeConfigResolution,
+) -> OesPeripheralStretchConfig {
+    let edge_inset_uv = oes_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
+        fallback.edge_inset_uv,
+        0.0,
+        0.49,
+    );
+    OesPeripheralStretchConfig {
+        mode: oes_projection_runtime_text(resolution, rxrc::KEY_PERIPHERAL_STRETCH_MODE)
+            .and_then(OesPeripheralStretchMode::parse)
+            .unwrap_or(fallback.mode),
+        core_scale: oes_projection_runtime_float(
+            resolution,
+            rxrc::KEY_PERIPHERAL_STRETCH_CORE_SCALE,
+            fallback.core_scale,
+            0.05,
+            1.0,
+        ),
+        edge_inset_uv,
+        max_inset_uv: oes_projection_runtime_float(
+            resolution,
+            rxrc::KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
+            fallback.max_inset_uv,
+            edge_inset_uv,
+            0.49,
+        ),
+        curve: oes_projection_runtime_float(
+            resolution,
+            rxrc::KEY_PERIPHERAL_STRETCH_CURVE,
+            fallback.curve,
+            0.05,
+            8.0,
+        ),
+        corner_mode: oes_projection_runtime_text(
+            resolution,
+            rxrc::KEY_PERIPHERAL_STRETCH_CORNER_MODE,
+        )
+        .and_then(OesPeripheralStretchCornerMode::parse)
+        .unwrap_or(fallback.corner_mode),
+        debug: oes_projection_runtime_text(resolution, rxrc::KEY_PERIPHERAL_STRETCH_DEBUG)
+            .and_then(OesPeripheralStretchDebug::parse)
+            .unwrap_or(fallback.debug),
+    }
+    .sanitized()
 }
 
 fn oes_projection_tuning_from_resolution(

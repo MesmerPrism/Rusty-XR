@@ -1,8 +1,9 @@
 #[cfg(target_os = "android")]
 use super::log_info;
 use super::{
-    CameraImageRotation, CameraProjectionAlphaMode, CameraProjectionBorderPolicy,
-    CameraProjectionMode, RuntimeConfig, StereoSourceEyeMapping,
+    CameraImageRotation, CameraPeripheralStretchCornerMode, CameraPeripheralStretchDebug,
+    CameraPeripheralStretchMode, CameraProcessingLayer, CameraProjectionAlphaMode,
+    CameraProjectionBorderPolicy, CameraProjectionMode, RuntimeConfig, StereoSourceEyeMapping,
 };
 use rusty_xr_runtime_config as rxrc;
 
@@ -177,6 +178,61 @@ pub(super) fn public_projection_runtime_config(
     );
     set_public_text(
         &mut public,
+        rxrc::KEY_PROCESSING_LAYER,
+        config.camera_processing_layer.stable_id(),
+        source.clone(),
+    );
+    set_public_float(
+        &mut public,
+        rxrc::KEY_CAMERA_BLUR_RADIUS_PX,
+        config.camera_blur_radius_px,
+        source.clone(),
+    );
+    let peripheral_stretch = config.camera_peripheral_stretch.sanitized();
+    set_public_text(
+        &mut public,
+        rxrc::KEY_PERIPHERAL_STRETCH_MODE,
+        peripheral_stretch.mode.stable_id(),
+        source.clone(),
+    );
+    set_public_float(
+        &mut public,
+        rxrc::KEY_PERIPHERAL_STRETCH_CORE_SCALE,
+        peripheral_stretch.core_scale,
+        source.clone(),
+    );
+    set_public_float(
+        &mut public,
+        rxrc::KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
+        peripheral_stretch.edge_inset_uv,
+        source.clone(),
+    );
+    set_public_float(
+        &mut public,
+        rxrc::KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
+        peripheral_stretch.max_inset_uv,
+        source.clone(),
+    );
+    set_public_float(
+        &mut public,
+        rxrc::KEY_PERIPHERAL_STRETCH_CURVE,
+        peripheral_stretch.curve,
+        source.clone(),
+    );
+    set_public_text(
+        &mut public,
+        rxrc::KEY_PERIPHERAL_STRETCH_CORNER_MODE,
+        peripheral_stretch.corner_mode.stable_id(),
+        source.clone(),
+    );
+    set_public_text(
+        &mut public,
+        rxrc::KEY_PERIPHERAL_STRETCH_DEBUG,
+        peripheral_stretch.debug.stable_id(),
+        source.clone(),
+    );
+    set_public_text(
+        &mut public,
         rxrc::KEY_PROJECTION_ALPHA_MODE,
         config.camera_projection_alpha_mode.stable_id(),
         source.clone(),
@@ -233,6 +289,18 @@ pub(super) fn public_projection_runtime_config(
         &mut public,
         rxrc::KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE,
         config.camera_texture_transform.source_label.as_str(),
+        source.clone(),
+    );
+    set_public_text(
+        &mut public,
+        rxrc::KEY_LEFT_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+        config.left_camera_texture_transform.source_label.as_str(),
+        source.clone(),
+    );
+    set_public_text(
+        &mut public,
+        rxrc::KEY_RIGHT_SOURCE_TEXTURE_TRANSFORM_SOURCE,
+        config.right_camera_texture_transform.source_label.as_str(),
         source.clone(),
     );
     set_public_text(
@@ -420,6 +488,61 @@ pub(super) fn apply_hwb_projection_runtime_resolution(
         hwb_projection_runtime_text(resolution, rxrc::KEY_PROJECTION_BORDER_POLICY)
             .and_then(CameraProjectionBorderPolicy::parse)
             .unwrap_or(config.camera_projection_border_policy);
+    config.camera_processing_layer =
+        hwb_projection_runtime_text(resolution, rxrc::KEY_PROCESSING_LAYER)
+            .and_then(CameraProcessingLayer::parse)
+            .unwrap_or(config.camera_processing_layer);
+    config.camera_blur_radius_px = hwb_projection_runtime_float(
+        resolution,
+        rxrc::KEY_CAMERA_BLUR_RADIUS_PX,
+        config.camera_blur_radius_px,
+        0.0,
+        16.0,
+    );
+    config.camera_peripheral_stretch.mode =
+        hwb_projection_runtime_text(resolution, rxrc::KEY_PERIPHERAL_STRETCH_MODE)
+            .and_then(CameraPeripheralStretchMode::parse)
+            .unwrap_or(config.camera_peripheral_stretch.mode);
+    config.camera_peripheral_stretch.core_scale = hwb_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_CORE_SCALE,
+        config.camera_peripheral_stretch.core_scale,
+        0.05,
+        1.0,
+    );
+    config.camera_peripheral_stretch.edge_inset_uv = hwb_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
+        config.camera_peripheral_stretch.edge_inset_uv,
+        0.0,
+        0.49,
+    );
+    config.camera_peripheral_stretch.max_inset_uv = hwb_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
+        config
+            .camera_peripheral_stretch
+            .max_inset_uv
+            .max(config.camera_peripheral_stretch.edge_inset_uv),
+        config.camera_peripheral_stretch.edge_inset_uv,
+        0.49,
+    );
+    config.camera_peripheral_stretch.curve = hwb_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_CURVE,
+        config.camera_peripheral_stretch.curve,
+        0.05,
+        8.0,
+    );
+    config.camera_peripheral_stretch.corner_mode =
+        hwb_projection_runtime_text(resolution, rxrc::KEY_PERIPHERAL_STRETCH_CORNER_MODE)
+            .and_then(CameraPeripheralStretchCornerMode::parse)
+            .unwrap_or(config.camera_peripheral_stretch.corner_mode);
+    config.camera_peripheral_stretch.debug =
+        hwb_projection_runtime_text(resolution, rxrc::KEY_PERIPHERAL_STRETCH_DEBUG)
+            .and_then(CameraPeripheralStretchDebug::parse)
+            .unwrap_or(config.camera_peripheral_stretch.debug);
+    config.camera_peripheral_stretch = config.camera_peripheral_stretch.sanitized();
     config.camera_projection_alpha_mode =
         hwb_projection_runtime_text(resolution, rxrc::KEY_PROJECTION_ALPHA_MODE)
             .and_then(CameraProjectionAlphaMode::parse)
@@ -469,6 +592,16 @@ pub(super) fn apply_hwb_projection_runtime_resolution(
         hwb_projection_runtime_text(resolution, rxrc::KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE)
     {
         config.camera_texture_transform.source_label = value.to_string();
+    }
+    if let Some(value) =
+        hwb_projection_runtime_text(resolution, rxrc::KEY_LEFT_SOURCE_TEXTURE_TRANSFORM_SOURCE)
+    {
+        config.left_camera_texture_transform.source_label = value.to_string();
+    }
+    if let Some(value) =
+        hwb_projection_runtime_text(resolution, rxrc::KEY_RIGHT_SOURCE_TEXTURE_TRANSFORM_SOURCE)
+    {
+        config.right_camera_texture_transform.source_label = value.to_string();
     }
     if let Some(value) =
         hwb_projection_runtime_text(resolution, rxrc::KEY_SOURCE_TEXTURE_TRANSFORM_REASON)

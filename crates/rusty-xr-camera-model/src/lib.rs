@@ -33,6 +33,13 @@ pub use rusty_xr_contracts::{
 /// Crate version exposed for lightweight smoke checks.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Versioned schema id for metadata-authored screen target footprints.
+pub const TARGET_SCREEN_FOOTPRINT_SCHEMA: &str = "rusty.xr.target_screen_footprint.v1";
+
+/// Versioned schema id for diagnostic region colors used by projection lanes.
+pub const TARGET_FOOTPRINT_DEBUG_REGION_COLORS_SCHEMA: &str =
+    "rusty.xr.target_footprint_debug_region_colors.v1";
+
 /// Camera model helper error.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -269,6 +276,171 @@ pub enum VideoProjectionMapping {
     SurfaceToSourceHomography,
     /// The feed fills the chosen surface or canvas area directly.
     FullFrameSurface,
+}
+
+/// Coordinate space used by metadata-authored target footprint requests.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TargetFootprintCoordinateSpace {
+    /// Per-eye display screen UV, top-left origin, positive Y down.
+    #[default]
+    DisplayEyeScreenUv,
+    /// Per-eye visible region mapped to X/Y in `[-1, 1]`, positive Y down.
+    VisibleEyeNormalizedYDown,
+}
+
+impl TargetFootprintCoordinateSpace {
+    pub const fn stable_id(self) -> &'static str {
+        match self {
+            Self::DisplayEyeScreenUv => "display-eye-screen-uv",
+            Self::VisibleEyeNormalizedYDown => "visible-eye-normalized-y-down",
+        }
+    }
+}
+
+/// How a target footprint that leaves the visible eye region is handled.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TargetFootprintClipPolicy {
+    /// Draw the visible intersection and log that the requested target clipped.
+    #[default]
+    ClipToVisibleEye,
+}
+
+impl TargetFootprintClipPolicy {
+    pub const fn stable_id(self) -> &'static str {
+        match self {
+            Self::ClipToVisibleEye => "clip-to-visible-eye",
+        }
+    }
+}
+
+/// Explicit target footprint requested by a source or stimulus.
+///
+/// This is the metadata-owned screen placement. It is deliberately separate
+/// from source validity: a target can be clipped by the visible eye bounds,
+/// while a source sample can still be valid or invalid inside the visible part.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TargetScreenFootprint {
+    pub coordinate_space: TargetFootprintCoordinateSpace,
+    pub requested_screen_uv_rect: Rect2,
+    pub visible_screen_uv_rect: Rect2,
+    pub clip_policy: TargetFootprintClipPolicy,
+    pub clipped: bool,
+}
+
+impl TargetScreenFootprint {
+    pub fn from_display_eye_screen_uv_rect(rect: Rect2) -> Option<Self> {
+        Self::from_display_eye_screen_uv_rect_with_policy(
+            rect,
+            TargetFootprintClipPolicy::ClipToVisibleEye,
+        )
+    }
+
+    pub fn from_display_eye_screen_uv_rect_with_policy(
+        rect: Rect2,
+        clip_policy: TargetFootprintClipPolicy,
+    ) -> Option<Self> {
+        if !rect_is_non_empty(rect) {
+            return None;
+        }
+        let visible = rect_intersection(rect, Rect2::UNIT)?;
+        let clipped = rect_xywh(visible) != rect_xywh(rect);
+        Some(Self {
+            coordinate_space: TargetFootprintCoordinateSpace::DisplayEyeScreenUv,
+            requested_screen_uv_rect: rect,
+            visible_screen_uv_rect: visible,
+            clip_policy,
+            clipped,
+        })
+    }
+
+    pub fn from_visible_eye_normalized_center_height(
+        center: Vec2,
+        height: f32,
+        aspect_ratio: f32,
+    ) -> Option<Self> {
+        if !center.is_finite()
+            || !height.is_finite()
+            || height <= 0.0
+            || !aspect_ratio.is_finite()
+            || aspect_ratio <= 0.0
+        {
+            return None;
+        }
+        let center_uv = Vec2::new((center.x + 1.0) * 0.5, (center.y + 1.0) * 0.5);
+        let size = Vec2::new(height * aspect_ratio * 0.5, height * 0.5);
+        let rect = Rect2::new(center_uv - size * 0.5, size);
+        let mut footprint = Self::from_display_eye_screen_uv_rect(rect)?;
+        footprint.coordinate_space = TargetFootprintCoordinateSpace::VisibleEyeNormalizedYDown;
+        Some(footprint)
+    }
+
+    pub fn is_valid(self) -> bool {
+        rect_is_non_empty(self.requested_screen_uv_rect)
+            && rect_is_non_empty(self.visible_screen_uv_rect)
+    }
+}
+
+/// Diagnostic roles that must stay visually distinct from the stimulus itself.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectionDebugRegion {
+    ValidSourceSample,
+    BorderFill,
+    SourceInvalid,
+    TargetClipped,
+    EffectExterior,
+}
+
+impl ProjectionDebugRegion {
+    pub const fn stable_id(self) -> &'static str {
+        match self {
+            Self::ValidSourceSample => "valid-source-sample",
+            Self::BorderFill => "border-fill",
+            Self::SourceInvalid => "source-invalid",
+            Self::TargetClipped => "target-clipped",
+            Self::EffectExterior => "effect-exterior",
+        }
+    }
+
+    pub const fn debug_rgb(self) -> [f32; 3] {
+        match self {
+            Self::ValidSourceSample => [0.0, 0.85, 0.10],
+            Self::BorderFill => [1.0, 0.0, 0.0],
+            Self::SourceInvalid => [1.0, 0.0, 1.0],
+            Self::TargetClipped => [0.0, 0.45, 1.0],
+            Self::EffectExterior => [0.0, 1.0, 1.0],
+        }
+    }
+
+    pub fn debug_rgb_token(self) -> String {
+        let [r, g, b] = self.debug_rgb();
+        format!("{r:.3},{g:.3},{b:.3}")
+    }
+}
+
+pub fn target_footprint_debug_region_marker_fields() -> String {
+    let regions = [
+        ProjectionDebugRegion::ValidSourceSample,
+        ProjectionDebugRegion::BorderFill,
+        ProjectionDebugRegion::SourceInvalid,
+        ProjectionDebugRegion::TargetClipped,
+        ProjectionDebugRegion::EffectExterior,
+    ];
+    let mut fields = format!(
+        "targetFootprintDebugRegionColorsSchema={}",
+        TARGET_FOOTPRINT_DEBUG_REGION_COLORS_SCHEMA
+    );
+    for region in regions {
+        fields.push(' ');
+        fields.push_str("debugRegionColor_");
+        fields.push_str(region.stable_id());
+        fields.push('=');
+        fields.push_str(&region.debug_rgb_token());
+    }
+    fields
 }
 
 impl VideoProjectionMapping {

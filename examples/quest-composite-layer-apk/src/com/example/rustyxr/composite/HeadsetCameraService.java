@@ -103,9 +103,14 @@ public final class HeadsetCameraService extends Service {
     private static final String STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN = "top-left-origin-y-down";
     private static final String STIMULUS_ORIENTATION_SCHEMA = "rusty.xr.stimulus_orientation.v1";
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
+    private static final String TARGET_FOOTPRINT_SCHEMA = "rusty.xr.target_screen_footprint.v1";
     private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-area";
     private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
     private static final String PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION = "camera-projection";
+    private static final float DEFAULT_TARGET_SCREEN_X = 0.03f;
+    private static final float DEFAULT_TARGET_SCREEN_Y = 0.14f;
+    private static final float DEFAULT_TARGET_SCREEN_WIDTH = 0.94f;
+    private static final float DEFAULT_TARGET_SCREEN_HEIGHT = 0.72f;
 
     private HandlerThread cameraThread;
     private Handler cameraHandler;
@@ -2307,6 +2312,25 @@ public final class HeadsetCameraService extends Service {
         builder.append(',');
         appendJsonString(builder, "contentGeometryMetadataSource", metadataSource);
         builder.append(",\"contentGeometryDefault\":false");
+        appendDefaultTargetFootprint(builder, metadataSource);
+    }
+
+    private static void appendDefaultTargetFootprint(StringBuilder builder, String metadataSource) {
+        builder.append(',');
+        appendJsonString(builder, "targetFootprintSchema", TARGET_FOOTPRINT_SCHEMA);
+        builder.append(',');
+        appendJsonString(builder, "targetCoordinateSpace", "display-eye-screen-uv");
+        builder.append(",\"targetScreenUvRect\":{");
+        builder.append("\"x\":").append(floatJson(DEFAULT_TARGET_SCREEN_X));
+        builder.append(",\"y\":").append(floatJson(DEFAULT_TARGET_SCREEN_Y));
+        builder.append(",\"width\":").append(floatJson(DEFAULT_TARGET_SCREEN_WIDTH));
+        builder.append(",\"height\":").append(floatJson(DEFAULT_TARGET_SCREEN_HEIGHT));
+        builder.append('}');
+        builder.append(',');
+        appendJsonString(builder, "targetClipPolicy", "clip-to-visible-eye");
+        builder.append(',');
+        appendJsonString(builder, "targetFootprintMetadataSource", metadataSource);
+        builder.append(",\"targetFootprintDefault\":false");
     }
 
     private static Rect normalizedImageCropRect(Rect cropRect, int width, int height) {

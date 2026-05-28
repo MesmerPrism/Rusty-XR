@@ -71,6 +71,7 @@ final class BrokerAppCameraH264StreamSession {
     private static final String SYNTHETIC_STIMULUS_RASTER_ORIENTATION = "top-left-origin-y-down";
     private static final String SYNTHETIC_STIMULUS_UPRIGHT_MARKER = "color-bars-top";
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
+    private static final String TARGET_FOOTPRINT_SCHEMA = "rusty.xr.target_screen_footprint.v1";
     private static final String CONTENT_COORDINATE_SPACE_NORMALIZED_UV = "normalized-uv";
     private static final String CONTENT_ORIGIN_TOP_LEFT = "top-left";
     private static final String CONTENT_X_AXIS_RIGHT = "right";
@@ -82,6 +83,10 @@ final class BrokerAppCameraH264StreamSession {
     private static final String CONTENT_MAPPING_SYNTHETIC_HEAD_ANCHORED = "fit-stimulus-raster-in-head-anchored-projection-area";
     private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
     private static final String PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION = "camera-projection";
+    private static final double DEFAULT_TARGET_SCREEN_X = 0.03d;
+    private static final double DEFAULT_TARGET_SCREEN_Y = 0.14d;
+    private static final double DEFAULT_TARGET_SCREEN_WIDTH = 0.94d;
+    private static final double DEFAULT_TARGET_SCREEN_HEIGHT = 0.72d;
     private static final String MAGIC = "RXYRVID1";
     private static final int SCHEMA_VERSION = 3;
     private static final int CODEC_H264 = 1;
@@ -2515,6 +2520,21 @@ final class BrokerAppCameraH264StreamSession {
         target.put("contentMappingIntent", mappingIntent);
         target.put("contentGeometryMetadataSource", metadataSource);
         target.put("contentGeometryDefault", false);
+        putDefaultTargetFootprintFields(target, metadataSource);
+    }
+
+    private static void putDefaultTargetFootprintFields(JSONObject target, String metadataSource) throws Exception {
+        JSONObject targetRect = new JSONObject();
+        targetRect.put("x", DEFAULT_TARGET_SCREEN_X);
+        targetRect.put("y", DEFAULT_TARGET_SCREEN_Y);
+        targetRect.put("width", DEFAULT_TARGET_SCREEN_WIDTH);
+        targetRect.put("height", DEFAULT_TARGET_SCREEN_HEIGHT);
+        target.put("targetFootprintSchema", TARGET_FOOTPRINT_SCHEMA);
+        target.put("targetCoordinateSpace", "display-eye-screen-uv");
+        target.put("targetScreenUvRect", targetRect);
+        target.put("targetClipPolicy", "clip-to-visible-eye");
+        target.put("targetFootprintMetadataSource", metadataSource);
+        target.put("targetFootprintDefault", false);
     }
 
     private static void drawSyntheticEncoderFrame(
@@ -2539,10 +2559,14 @@ final class BrokerAppCameraH264StreamSession {
                 drawSyntheticCheckerboard(canvas, paint, width, height);
             } else if ("luma-ramp".equals(pattern)) {
                 drawSyntheticLumaRamp(canvas, paint, width, height);
+            } else if ("target-footprint-edges".equals(pattern)) {
+                drawSyntheticTargetFootprintEdges(canvas, paint, width, height);
             } else {
                 drawSyntheticDiagnosticGrid(canvas, paint, width, height);
             }
-            drawSyntheticOrientationMarkers(canvas, paint, width, height);
+            if (!"target-footprint-edges".equals(pattern)) {
+                drawSyntheticOrientationMarkers(canvas, paint, width, height);
+            }
             if ("motion-bar".equals(pattern)) {
                 drawSyntheticMotionMarker(canvas, paint, width, height, frameIndex);
             }
@@ -2689,6 +2713,80 @@ final class BrokerAppCameraH264StreamSession {
             int luma = width <= 1 ? 0 : (int) Math.round(255.0 * x / (double) (width - 1));
             paint.setColor(Color.rgb(luma, luma, luma));
             canvas.drawLine(x, 0, x, height, paint);
+        }
+    }
+
+    private static void drawSyntheticTargetFootprintEdges(Canvas canvas, Paint paint, int width, int height) {
+        canvas.drawColor(Color.rgb(18, 18, 22));
+        paint.setStyle(Paint.Style.FILL);
+
+        int edge = Math.max(28, Math.min(width, height) / 8);
+        int sampleStripe = Math.max(6, Math.min(width, height) / 160);
+        int innerLeft = edge;
+        int innerTop = edge;
+        int innerRight = Math.max(innerLeft + 1, width - edge);
+        int innerBottom = Math.max(innerTop + 1, height - edge);
+
+        paint.setColor(Color.rgb(36, 178, 214));
+        canvas.drawRect(new Rect(0, 0, width, edge), paint);
+        paint.setColor(Color.rgb(236, 166, 72));
+        canvas.drawRect(new Rect(0, height - edge, width, height), paint);
+        paint.setColor(Color.rgb(116, 204, 92));
+        canvas.drawRect(new Rect(0, 0, edge, height), paint);
+        paint.setColor(Color.rgb(72, 88, 156));
+        canvas.drawRect(new Rect(width - edge, 0, width, height), paint);
+        drawSyntheticStretchSampleStripe(canvas, paint, width, height, sampleStripe);
+
+        int cell = Math.max(12, Math.min(width, height) / 14);
+        for (int y = innerTop; y < innerBottom; y += cell) {
+            for (int x = innerLeft; x < innerRight; x += cell) {
+                boolean high = (((x - innerLeft) / cell + (y - innerTop) / cell) & 1) == 0;
+                paint.setColor(high ? Color.rgb(236, 232, 210) : Color.rgb(38, 36, 32));
+                canvas.drawRect(
+                    new Rect(x, y, Math.min(innerRight, x + cell), Math.min(innerBottom, y + cell)),
+                    paint);
+            }
+        }
+        drawSyntheticThinLineOverlay(canvas, paint, innerLeft, innerTop, innerRight, innerBottom, cell);
+
+        int line = Math.max(3, Math.min(width, height) / 160);
+        paint.setColor(Color.WHITE);
+        canvas.drawRect(new Rect(0, edge - line, width, edge + line), paint);
+        canvas.drawRect(new Rect(0, height - edge - line, width, height - edge + line), paint);
+        canvas.drawRect(new Rect(edge - line, 0, edge + line, height), paint);
+        canvas.drawRect(new Rect(width - edge - line, 0, width - edge + line, height), paint);
+
+        paint.setAntiAlias(true);
+        paint.setTextSize(Math.max(18.0f, Math.min(width, height) * 0.045f));
+        paint.setFakeBoldText(true);
+        paint.setColor(Color.rgb(12, 12, 14));
+        canvas.drawText("TOP EDGE ROW", edge * 0.35f, edge * 0.62f, paint);
+        canvas.drawText("LEFT EDGE COL", edge * 0.25f, height * 0.50f, paint);
+        paint.setColor(Color.WHITE);
+        canvas.drawText("BOTTOM EDGE ROW", edge * 0.35f, height - edge * 0.34f, paint);
+        canvas.drawText("RIGHT EDGE COL", width - edge * 3.25f, height * 0.50f, paint);
+        paint.setFakeBoldText(false);
+        paint.setAntiAlias(false);
+    }
+
+    private static void drawSyntheticStretchSampleStripe(
+        Canvas canvas,
+        Paint paint,
+        int width,
+        int height,
+        int stripe) {
+        int period = Math.max(stripe * 6, Math.min(width, height) / 18);
+        int mark = Math.max(stripe * 2, 1);
+        paint.setStyle(Paint.Style.FILL);
+        for (int x = 0; x < width; x += period) {
+            paint.setColor((((x / period) & 1) == 0) ? Color.rgb(12, 12, 14) : Color.rgb(246, 242, 218));
+            canvas.drawRect(new Rect(x, 0, Math.min(width, x + mark), stripe), paint);
+            canvas.drawRect(new Rect(x, Math.max(0, height - stripe), Math.min(width, x + mark), height), paint);
+        }
+        for (int y = 0; y < height; y += period) {
+            paint.setColor((((y / period) & 1) == 0) ? Color.rgb(246, 242, 218) : Color.rgb(12, 12, 14));
+            canvas.drawRect(new Rect(0, y, stripe, Math.min(height, y + mark)), paint);
+            canvas.drawRect(new Rect(Math.max(0, width - stripe), y, width, Math.min(height, y + mark)), paint);
         }
     }
 
@@ -3371,6 +3469,14 @@ final class BrokerAppCameraH264StreamSession {
         }
         if ("motion".equals(normalized) || "motion-bar".equals(normalized)) {
             return "motion-bar";
+        }
+        if ("target-footprint".equals(normalized) ||
+                "target-footprint-edges".equals(normalized) ||
+                "footprint-edges".equals(normalized) ||
+                "edge-test".equals(normalized) ||
+                "stretch-test".equals(normalized) ||
+                "border-stretch-test".equals(normalized)) {
+            return "target-footprint-edges";
         }
         if ("image".equals(normalized) ||
                 "image-file".equals(normalized) ||
