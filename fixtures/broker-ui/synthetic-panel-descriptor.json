@@ -24,6 +24,7 @@
       "kind": "command_group",
       "data_sensitivity": "diagnostic",
       "command_scope": "session.lifecycle",
+      "required_capability": "broker.session.read",
       "lease_required": false,
       "widgets": [
         {
@@ -33,7 +34,6 @@
           "command": "status_request",
           "read_only": true,
           "command_scope": "session.lifecycle",
-          "required_capability": "broker.status.read",
           "lease_required": false
         },
         {

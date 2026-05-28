@@ -144,9 +144,16 @@ pub struct BrokerCommandAuthorityRequirement {
     pub command_scope: String,
     pub mutation_class: BrokerCommandMutationClass,
     pub required_capability: Option<String>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub required_capabilities: Vec<String>,
+    pub required_role: Option<String>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub allowed_roles: Vec<String>,
     pub lease_required: bool,
     pub required_lease_scope: Option<BrokerControlScope>,
     pub required_revision: Option<u64>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub revision_required: bool,
     pub operator_confirm_required: bool,
 }
 
@@ -158,9 +165,13 @@ impl BrokerCommandAuthorityRequirement {
             command_scope: command_scope.into(),
             mutation_class: BrokerCommandMutationClass::ReadOnly,
             required_capability: None,
+            required_capabilities: Vec::new(),
+            required_role: None,
+            allowed_roles: Vec::new(),
             lease_required: false,
             required_lease_scope: None,
             required_revision: None,
+            revision_required: false,
             operator_confirm_required: false,
         }
     }
@@ -176,9 +187,13 @@ impl BrokerCommandAuthorityRequirement {
             command_scope: command_scope.into(),
             mutation_class: BrokerCommandMutationClass::ExclusiveLease,
             required_capability: None,
+            required_capabilities: Vec::new(),
+            required_role: None,
+            allowed_roles: Vec::new(),
             lease_required: true,
             required_lease_scope: Some(required_lease_scope),
             required_revision: None,
+            revision_required: true,
             operator_confirm_required: true,
         }
     }
@@ -188,8 +203,32 @@ impl BrokerCommandAuthorityRequirement {
         self
     }
 
+    pub fn with_required_capabilities<I, S>(mut self, capabilities: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.required_capabilities = capabilities.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn with_required_role(mut self, role: impl Into<String>) -> Self {
+        self.required_role = Some(role.into());
+        self
+    }
+
+    pub fn with_allowed_role(mut self, role: impl Into<String>) -> Self {
+        self.allowed_roles.push(role.into());
+        self
+    }
+
     pub const fn with_required_revision(mut self, revision: u64) -> Self {
         self.required_revision = Some(revision);
+        self
+    }
+
+    pub const fn with_revision_required(mut self, required: bool) -> Self {
+        self.revision_required = required;
         self
     }
 
@@ -205,11 +244,48 @@ impl BrokerCommandAuthorityRequirement {
         precondition
     }
 
+    pub fn precondition_for_revision(
+        &self,
+        lease_id: Option<String>,
+        current_revision: u64,
+    ) -> BrokerCommandPrecondition {
+        let mut precondition = self.precondition(lease_id);
+        if self.revision_required && precondition.expected_revision.is_none() {
+            precondition.expected_revision = Some(current_revision);
+        }
+        precondition
+    }
+
     pub fn is_read_only(&self) -> bool {
         matches!(self.mutation_class, BrokerCommandMutationClass::ReadOnly) && !self.lease_required
     }
 
+    pub fn requires_revision(&self) -> bool {
+        self.revision_required || self.required_revision.is_some()
+    }
+
+    pub fn required_capability_names(&self) -> Vec<&str> {
+        let mut capabilities = Vec::new();
+        if let Some(capability) = self.required_capability.as_deref() {
+            capabilities.push(capability);
+        }
+        for capability in &self.required_capabilities {
+            let capability = capability.as_str();
+            if !capabilities.iter().any(|existing| *existing == capability) {
+                capabilities.push(capability);
+            }
+        }
+        capabilities
+    }
+
     pub fn is_valid(&self) -> bool {
+        let mutating_requires_authority = matches!(
+            self.mutation_class,
+            BrokerCommandMutationClass::Mutating
+                | BrokerCommandMutationClass::ExclusiveLease
+                | BrokerCommandMutationClass::ExternalGate
+        );
+
         self.schema == BROKER_COMMAND_AUTHORITY_REQUIREMENT_SCHEMA
             && !self.command.trim().is_empty()
             && !self.command_scope.trim().is_empty()
@@ -219,6 +295,19 @@ impl BrokerCommandAuthorityRequirement {
                 .map(|capability| !capability.trim().is_empty())
                 .unwrap_or(true)
             && self
+                .required_capabilities
+                .iter()
+                .all(|capability| !capability.trim().is_empty())
+            && self
+                .required_role
+                .as_deref()
+                .map(|role| !role.trim().is_empty())
+                .unwrap_or(true)
+            && self
+                .allowed_roles
+                .iter()
+                .all(|role| !role.trim().is_empty())
+            && self
                 .required_lease_scope
                 .as_ref()
                 .map(BrokerControlScope::is_valid)
@@ -227,6 +316,8 @@ impl BrokerCommandAuthorityRequirement {
                 self.mutation_class,
                 BrokerCommandMutationClass::ExclusiveLease
             ) || self.lease_required)
+            && (!mutating_requires_authority
+                || (!self.required_capability_names().is_empty() && self.requires_revision()))
     }
 }
 
@@ -271,10 +362,31 @@ impl BrokerControlLease {
         self
     }
 
-    pub fn is_active_for(&self, scope: &BrokerControlScope, current_revision: u64) -> bool {
+    pub fn matches_scope_at_revision(
+        &self,
+        scope: &BrokerControlScope,
+        current_revision: u64,
+    ) -> bool {
         self.state == BrokerControlLeaseState::Active
             && self.scope.scope_id == scope.scope_id
+            && self.scope.command_scope == scope.command_scope
+            && self.scope.resource_id == scope.resource_id
             && self.granted_revision <= current_revision
+    }
+
+    pub fn is_active_for(
+        &self,
+        scope: &BrokerControlScope,
+        holder_client_id: &str,
+        current_revision: u64,
+        current_elapsed_ns: u64,
+    ) -> bool {
+        self.matches_scope_at_revision(scope, current_revision)
+            && self.holder_client_id == holder_client_id
+            && self
+                .expires_elapsed_ns
+                .map(|expires_elapsed_ns| current_elapsed_ns < expires_elapsed_ns)
+                .unwrap_or(true)
     }
 
     pub fn is_valid(&self) -> bool {
@@ -299,6 +411,8 @@ mod tests {
         let authority =
             BrokerCommandAuthorityRequirement::mutating("runtime.bio.pause", "runtime.bio", scope)
                 .with_required_capability("broker.bio.control")
+                .with_required_role("operator")
+                .with_allowed_role("operator")
                 .with_required_revision(7);
 
         assert!(authority.is_valid());
@@ -307,6 +421,11 @@ mod tests {
             BrokerCommandMutationClass::ExclusiveLease
         );
         assert!(!authority.is_read_only());
+        assert_eq!(
+            authority.required_capability_names(),
+            vec!["broker.bio.control"]
+        );
+        assert!(authority.requires_revision());
 
         let precondition = authority.precondition(Some("lease-1".to_string()));
         assert_eq!(precondition.expected_revision, Some(7));
@@ -325,13 +444,46 @@ mod tests {
     }
 
     #[test]
-    fn active_lease_matches_scope_and_revision() {
+    fn mutating_authority_requires_capability_and_revision_gate() {
+        let scope = BrokerControlScope::new("runtime.bio", "runtime.bio");
+        let missing_capability =
+            BrokerCommandAuthorityRequirement::mutating("runtime.bio.pause", "runtime.bio", scope);
+        let missing_revision =
+            BrokerCommandAuthorityRequirement::read_only("runtime.bio.pause", "runtime.bio")
+                .with_required_capability("broker.bio.control")
+                .with_operator_confirm_required(true);
+
+        let missing_revision = BrokerCommandAuthorityRequirement {
+            mutation_class: BrokerCommandMutationClass::Mutating,
+            ..missing_revision
+        };
+
+        assert!(!missing_capability.is_valid());
+        assert!(!missing_revision.is_valid());
+        assert!(missing_capability
+            .with_required_capabilities(["broker.bio.control"])
+            .with_revision_required(true)
+            .is_valid());
+    }
+
+    #[test]
+    fn active_lease_matches_scope_holder_revision_and_expiry() {
         let scope = BrokerControlScope::new("session.lifecycle", "session.lifecycle");
-        let lease = BrokerControlLease::new("lease-1", "client-1", scope.clone(), 3);
+        let lease = BrokerControlLease::new("lease-1", "client-1", scope.clone(), 3)
+            .with_expires_elapsed_ns(10);
 
         assert!(lease.is_valid());
-        assert!(lease.is_active_for(&scope, 4));
-        assert!(!lease.is_active_for(&scope, 2));
+        assert!(lease.matches_scope_at_revision(&scope, 4));
+        assert!(!lease.matches_scope_at_revision(&scope, 2));
+        assert!(lease.is_active_for(&scope, "client-1", 4, 9));
+        assert!(!lease.is_active_for(&scope, "client-2", 4, 9));
+        assert!(!lease.is_active_for(&scope, "client-1", 4, 10));
+        assert!(!lease.is_active_for(
+            &BrokerControlScope::new("session.lifecycle", "different.scope"),
+            "client-1",
+            4,
+            9
+        ));
     }
 
     #[test]

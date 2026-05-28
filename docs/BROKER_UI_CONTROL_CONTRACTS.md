@@ -17,8 +17,8 @@ lifecycles stay outside the model crate.
   checks needed before mutating commands.
 
 The contracts deliberately do not grant authority. A broker implementation must
-still validate capability, lease, revision, and operator-confirmation rules at
-command execution time.
+still validate role, capability, lease, revision, expiry, holder identity, and
+operator-confirmation rules at command execution time.
 
 ## UI Rules
 
@@ -26,6 +26,22 @@ Panel descriptors are safe to expose to read-only clients when their advertised
 data sensitivity and command scopes match the client capability set. A command
 button that is not read-only must be lease-aware before a client treats it as
 actionable.
+
+Panel-level capability is an authority default, not only a visibility hint. The
+effective command requirement for a command button uses the widget
+`required_capability` when present, otherwise it inherits the panel
+`required_capability`. Clients should use
+`BrokerPanelDescriptorDocument::command_authority_requirements()` or
+`BrokerPanelDescriptor::command_authority_requirements()` when deciding what a
+rendered command would require, so Makepad, web, and CLI surfaces do not
+interpret panel visibility differently from command authority.
+
+Mutating, exclusive-lease, and external-gate command requirements are valid only
+when they carry a capability gate and a revision gate. Exclusive-lease commands
+must also name a valid lease scope. `BrokerControlLease::is_active_for` checks
+the holder client id, exact scope, current registry revision, active state, and
+expiry; `matches_scope_at_revision` is the non-authoritative helper for
+descriptor/topology matching.
 
 Telemetry charts bind to stream ids and metric names from the stream registry.
 Low-rate telemetry can be retained in local UI history. High-rate or media-like

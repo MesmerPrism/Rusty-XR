@@ -122,8 +122,7 @@ impl BrokerPanelDescriptorDocument {
     pub fn command_authority_requirements(&self) -> Vec<BrokerCommandAuthorityRequirement> {
         self.panels
             .iter()
-            .flat_map(|panel| panel.widgets.iter())
-            .filter_map(BrokerPanelWidgetDescriptor::command_authority_requirement)
+            .flat_map(BrokerPanelDescriptor::command_authority_requirements)
             .collect()
     }
 
@@ -196,6 +195,18 @@ impl BrokerPanelDescriptor {
         self
     }
 
+    pub fn command_authority_requirements(&self) -> Vec<BrokerCommandAuthorityRequirement> {
+        self.widgets
+            .iter()
+            .filter_map(|widget| {
+                widget.command_authority_requirement_with_panel(
+                    self.required_capability.as_deref(),
+                    self.lease_required,
+                )
+            })
+            .collect()
+    }
+
     pub fn is_valid(&self) -> bool {
         !self.id.trim().is_empty()
             && !self.title.trim().is_empty()
@@ -209,6 +220,10 @@ impl BrokerPanelDescriptor {
                 .widgets
                 .iter()
                 .all(BrokerPanelWidgetDescriptor::is_valid)
+            && self
+                .command_authority_requirements()
+                .iter()
+                .all(BrokerCommandAuthorityRequirement::is_valid)
     }
 }
 
@@ -287,6 +302,14 @@ impl BrokerPanelWidgetDescriptor {
     }
 
     pub fn command_authority_requirement(&self) -> Option<BrokerCommandAuthorityRequirement> {
+        self.command_authority_requirement_with_panel(None, false)
+    }
+
+    pub fn command_authority_requirement_with_panel(
+        &self,
+        panel_required_capability: Option<&str>,
+        panel_lease_required: bool,
+    ) -> Option<BrokerCommandAuthorityRequirement> {
         match self {
             Self::CommandButton {
                 command,
@@ -296,7 +319,9 @@ impl BrokerPanelWidgetDescriptor {
                 lease_required,
                 ..
             } => {
-                let mut requirement = if *read_only {
+                let effective_lease_required = *lease_required || panel_lease_required;
+                let effective_read_only = *read_only && !effective_lease_required;
+                let mut requirement = if effective_read_only {
                     BrokerCommandAuthorityRequirement::read_only(
                         command.clone(),
                         command_scope.clone(),
@@ -306,21 +331,27 @@ impl BrokerPanelWidgetDescriptor {
                         schema: crate::BROKER_COMMAND_AUTHORITY_REQUIREMENT_SCHEMA.to_string(),
                         command: command.clone(),
                         command_scope: command_scope.clone(),
-                        mutation_class: if *lease_required {
+                        mutation_class: if effective_lease_required {
                             BrokerCommandMutationClass::ExclusiveLease
                         } else {
                             BrokerCommandMutationClass::Mutating
                         },
                         required_capability: None,
-                        lease_required: *lease_required,
-                        required_lease_scope: lease_required.then(|| {
+                        required_capabilities: Vec::new(),
+                        required_role: None,
+                        allowed_roles: Vec::new(),
+                        lease_required: effective_lease_required,
+                        required_lease_scope: effective_lease_required.then(|| {
                             BrokerControlScope::new(command_scope.clone(), command_scope.clone())
                         }),
                         required_revision: None,
-                        operator_confirm_required: !*read_only,
+                        revision_required: true,
+                        operator_confirm_required: true,
                     }
                 };
-                requirement.required_capability = required_capability.clone();
+                requirement.required_capability = required_capability
+                    .clone()
+                    .or_else(|| panel_required_capability.map(str::to_string));
                 Some(requirement)
             }
             _ => None,
@@ -338,10 +369,10 @@ impl BrokerPanelWidgetDescriptor {
                 id,
                 label,
                 command,
-                read_only,
+                read_only: _,
                 command_scope,
                 required_capability,
-                lease_required,
+                lease_required: _,
             } => {
                 non_empty(id)
                     && non_empty(label)
@@ -351,7 +382,6 @@ impl BrokerPanelWidgetDescriptor {
                         .as_deref()
                         .map(non_empty)
                         .unwrap_or(true)
-                    && (*read_only || *lease_required)
             }
             Self::StreamList {
                 id,
@@ -450,14 +480,34 @@ mod tests {
                     BrokerDataSensitivity::Diagnostic,
                     "session.lifecycle",
                 )
+                .with_required_capability("broker.session.read")
                 .with_widget(BrokerPanelWidgetDescriptor::CommandButton {
                     id: "command.status".to_string(),
                     label: "Status".to_string(),
                     command: "status_request".to_string(),
                     read_only: true,
                     command_scope: "session.lifecycle".to_string(),
-                    required_capability: Some("broker.status.read".to_string()),
+                    required_capability: None,
                     lease_required: false,
+                }),
+            )
+            .with_panel(
+                BrokerPanelDescriptor::new(
+                    "control.preview",
+                    "Control Preview",
+                    BrokerPanelKind::CommandGroup,
+                    BrokerDataSensitivity::Diagnostic,
+                    "runtime.bio",
+                )
+                .with_required_capability("broker.bio.control")
+                .with_widget(BrokerPanelWidgetDescriptor::CommandButton {
+                    id: "command.bio.pause".to_string(),
+                    label: "Pause Bio".to_string(),
+                    command: "runtime.bio.pause".to_string(),
+                    read_only: false,
+                    command_scope: "runtime.bio".to_string(),
+                    required_capability: None,
+                    lease_required: true,
                 }),
             )
             .with_panel(
@@ -486,7 +536,18 @@ mod tests {
         assert_eq!(document.schema, BROKER_PANEL_DESCRIPTOR_DOCUMENT_SCHEMA);
         assert_eq!(document.read_only_command_count(), 1);
         assert_eq!(document.telemetry_charts().len(), 1);
-        assert_eq!(document.command_authority_requirements().len(), 1);
+        let requirements = document.command_authority_requirements();
+        assert_eq!(requirements.len(), 2);
+        assert_eq!(
+            requirements[0].required_capability.as_deref(),
+            Some("broker.session.read")
+        );
+        assert!(requirements[1].lease_required);
+        assert!(requirements[1].revision_required);
+        assert_eq!(
+            requirements[1].required_capability.as_deref(),
+            Some("broker.bio.control")
+        );
         assert!(document.summary_line().contains("telemetry chart"));
     }
 
@@ -543,6 +604,13 @@ mod tests {
 
         assert!(document.is_valid());
         assert_eq!(document.read_only_command_count(), 2);
+        assert!(document
+            .command_authority_requirements()
+            .iter()
+            .any(|requirement| {
+                requirement.command == "status_request"
+                    && requirement.required_capability.as_deref() == Some("broker.session.read")
+            }));
         assert!(document.stream_list_line().contains("bio:breath"));
         assert_eq!(
             document.default_chart().expect("chart expected").metric,
