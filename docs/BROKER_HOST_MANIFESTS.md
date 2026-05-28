@@ -51,6 +51,26 @@ The command and HTTP response should return the same schema, host id,
 authority role, endpoint list, capabilities, security policy, clock domain, and
 session-manifest expectation.
 
+## UI Host Selection Flow
+
+A UI host should treat the manifest as the deployment picker before it opens a
+long-lived broker session:
+
+1. Read `/broker/host_manifest` over the already-known bootstrap route.
+2. Render only visible endpoints and surface their visibility, command scope,
+   transport, and security mode to the operator.
+3. Prefer the manifest primary endpoint when it is compatible with the UI's
+   transport stack; otherwise require an explicit endpoint choice.
+4. Open the selected WebSocket or forwarded endpoint and fetch
+   `stream_registry.snapshot`.
+5. Use the registry revision from that selected broker session for any later
+   control-lease request or mutating-command precondition.
+
+This keeps Makepad, web, and companion UIs deployment-aware without making the
+UI authoritative. Endpoint selection only chooses a transport route; capability,
+lease, holder, expiry, revision, and operator-confirmation checks still happen
+inside the broker.
+
 ## Fixture
 
 The public synthetic fixture lives at:

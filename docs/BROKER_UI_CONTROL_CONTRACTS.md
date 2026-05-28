@@ -58,6 +58,22 @@ conflicts with `BrokerCommandRejection` codes such as `stale_revision`,
 `lease_conflict`. Rejection hints can include `current_revision`, `lease_id`,
 and `required_lease_scope`.
 
+The recommended UI sequence for enabling a mutating command button is:
+
+1. Resolve the effective command requirement from the panel descriptor.
+2. Fetch the registry snapshot from the selected host-manifest endpoint.
+3. Request a lease for the exact required scope with the current registry
+   revision and explicit operator confirmation.
+4. Enable the mutating button only while
+   `BrokerControlLease::is_active_for` succeeds for the holder, scope,
+   revision, and elapsed-time expiry.
+5. Send the mutating command with a `BrokerCommandPrecondition` containing the
+   lease id, holder, and expected revision.
+6. Release the lease when the control window ends or the UI session changes.
+
+If a lease request is rejected, the UI should keep the button disabled and show
+the broker rejection code rather than guessing whether a retry is safe.
+
 Telemetry charts bind to stream ids and metric names from the stream registry.
 Low-rate telemetry can be retained in local UI history. High-rate or media-like
 streams should advertise explicit `ui_subscription_policy` and `chart_policy`
