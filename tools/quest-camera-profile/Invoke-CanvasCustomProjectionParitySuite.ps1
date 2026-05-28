@@ -42,12 +42,20 @@ param(
     [string[]]$LaneFilter = @("all"),
     [ValidateSet("raw", "blur", "peripheral-stretch")]
     [string]$ProcessingLayer = "raw",
+    [ValidateSet("edge-stretch")]
+    [string]$PeripheralStretchMode = "edge-stretch",
+    [double]$PeripheralStretchCoreScale = 1.0,
+    [double]$PeripheralStretchEdgeInsetUv = 0.015,
+    [double]$PeripheralStretchMaxInsetUv = 0.14,
+    [double]$PeripheralStretchCurve = 1.6,
     [ValidateSet("off", "regions", "sample-uv")]
     [string]$PeripheralStretchDebug = "off",
-    [double]$PeripheralStretchInnerBlendUv = 0.0,
-    [double]$PeripheralStretchBlendCurve = 1.5,
+    [double]$PeripheralStretchInnerBlendUv = 0.040,
+    [double]$PeripheralStretchBlendCurve = 1.6,
     [ValidateSet("off", "target-inner-band")]
     [string]$PeripheralStretchBlendMode = "target-inner-band",
+    [ValidateSet("target-footprint")]
+    [string]$PeripheralStretchCornerMode = "target-footprint",
     [ValidateSet("suite-default", "target-local-raster", "screen-to-camera-homography")]
     [string]$SourceSamplingMode = "suite-default",
     [ValidateSet("default", "homography-reference-bounds")]
@@ -308,10 +316,16 @@ $projectionOpacityOverride = @(
 $blurRadiusPxText = Format-LaunchFloat -Value $BlurRadiusPx
 $processingLayerOverride = @(
     ("rustyxr.processingLayer={0}" -f $ProcessingLayer),
-    ("rustyxr.peripheralStretchDebug={0}" -f $PeripheralStretchDebug),
+    ("rustyxr.peripheralStretchMode={0}" -f $PeripheralStretchMode),
+    ("rustyxr.peripheralStretchCoreScale={0}" -f (Format-LaunchFloat -Value $PeripheralStretchCoreScale)),
+    ("rustyxr.peripheralStretchEdgeInsetUv={0}" -f (Format-LaunchFloat -Value $PeripheralStretchEdgeInsetUv)),
+    ("rustyxr.peripheralStretchMaxInsetUv={0}" -f (Format-LaunchFloat -Value $PeripheralStretchMaxInsetUv)),
+    ("rustyxr.peripheralStretchCurve={0}" -f (Format-LaunchFloat -Value $PeripheralStretchCurve)),
     ("rustyxr.peripheralStretchInnerBlendUv={0}" -f (Format-LaunchFloat -Value $PeripheralStretchInnerBlendUv)),
     ("rustyxr.peripheralStretchBlendCurve={0}" -f (Format-LaunchFloat -Value $PeripheralStretchBlendCurve)),
     ("rustyxr.peripheralStretchBlendMode={0}" -f $PeripheralStretchBlendMode),
+    ("rustyxr.peripheralStretchCornerMode={0}" -f $PeripheralStretchCornerMode),
+    ("rustyxr.peripheralStretchDebug={0}" -f $PeripheralStretchDebug),
     ("rustyxr.cameraBlurRadiusPx={0}" -f $blurRadiusPxText)
 ) -join ","
 $sourceSamplingOverride = if ($SourceSamplingMode -eq "suite-default") {
@@ -1389,6 +1403,16 @@ function Invoke-MakepadCase {
         "-ProjectionBorderOpacity", (Format-LaunchFloat -Value $ProjectionBorderOpacity),
         "-ProjectionBorderPolicy", $ProjectionBorderPolicy,
         "-ProcessingLayer", $ProcessingLayer,
+        "-PeripheralStretchMode", $PeripheralStretchMode,
+        "-PeripheralStretchCoreScale", (Format-LaunchFloat -Value $PeripheralStretchCoreScale),
+        "-PeripheralStretchEdgeInsetUv", (Format-LaunchFloat -Value $PeripheralStretchEdgeInsetUv),
+        "-PeripheralStretchMaxInsetUv", (Format-LaunchFloat -Value $PeripheralStretchMaxInsetUv),
+        "-PeripheralStretchCurve", (Format-LaunchFloat -Value $PeripheralStretchCurve),
+        "-PeripheralStretchInnerBlendUv", (Format-LaunchFloat -Value $PeripheralStretchInnerBlendUv),
+        "-PeripheralStretchBlendCurve", (Format-LaunchFloat -Value $PeripheralStretchBlendCurve),
+        "-PeripheralStretchBlendMode", $PeripheralStretchBlendMode,
+        "-PeripheralStretchCornerMode", $PeripheralStretchCornerMode,
+        "-PeripheralStretchDebug", $PeripheralStretchDebug,
         "-ProjectionPropertyHygiene", "clear",
         "-ProjectionRuntimeReadback", $effectiveProjectionRuntimeReadback,
         "-BlurRadiusPx", $blurRadiusPxText
@@ -1677,14 +1701,20 @@ $summary = [ordered]@{
         cameraPreviewFovYDegrees = 69.763084
         cameraPreviewOffsetYMeters = -0.168832
         cameraRawOverlayOverscan = 1.0
-    projectionBorderPolicy = $ProjectionBorderPolicy
-    processingLayer = $ProcessingLayer
-    peripheralStretchDebug = $PeripheralStretchDebug
-    peripheralStretchInnerBlendUv = $PeripheralStretchInnerBlendUv
-    peripheralStretchBlendCurve = $PeripheralStretchBlendCurve
-    peripheralStretchBlendMode = $PeripheralStretchBlendMode
-    sourceSamplingMode = $SourceSamplingMode
-    targetLocalRasterFootprint = $TargetLocalRasterFootprint
+        projectionBorderPolicy = $ProjectionBorderPolicy
+        processingLayer = $ProcessingLayer
+        peripheralStretchMode = $PeripheralStretchMode
+        peripheralStretchCoreScale = $PeripheralStretchCoreScale
+        peripheralStretchEdgeInsetUv = $PeripheralStretchEdgeInsetUv
+        peripheralStretchMaxInsetUv = $PeripheralStretchMaxInsetUv
+        peripheralStretchCurve = $PeripheralStretchCurve
+        peripheralStretchInnerBlendUv = $PeripheralStretchInnerBlendUv
+        peripheralStretchBlendCurve = $PeripheralStretchBlendCurve
+        peripheralStretchBlendMode = $PeripheralStretchBlendMode
+        peripheralStretchCornerMode = $PeripheralStretchCornerMode
+        peripheralStretchDebug = $PeripheralStretchDebug
+        sourceSamplingMode = $SourceSamplingMode
+        targetLocalRasterFootprint = $TargetLocalRasterFootprint
         blurRadiusPx = $BlurRadiusPx
         projectionAreaOpacity = $ProjectionAreaOpacity
         projectionBorderOpacity = $ProjectionBorderOpacity

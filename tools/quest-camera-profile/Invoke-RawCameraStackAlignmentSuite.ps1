@@ -41,6 +41,20 @@ param(
     [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("raw", "blur", "peripheral-stretch")]
     [string]$ProcessingLayer = "raw",
+    [ValidateSet("edge-stretch")]
+    [string]$PeripheralStretchMode = "edge-stretch",
+    [double]$PeripheralStretchCoreScale = 1.0,
+    [double]$PeripheralStretchEdgeInsetUv = 0.015,
+    [double]$PeripheralStretchMaxInsetUv = 0.14,
+    [double]$PeripheralStretchCurve = 1.6,
+    [double]$PeripheralStretchInnerBlendUv = 0.040,
+    [double]$PeripheralStretchBlendCurve = 1.6,
+    [ValidateSet("off", "target-inner-band")]
+    [string]$PeripheralStretchBlendMode = "target-inner-band",
+    [ValidateSet("target-footprint")]
+    [string]$PeripheralStretchCornerMode = "target-footprint",
+    [ValidateSet("off", "regions", "sample-uv")]
+    [string]$PeripheralStretchDebug = "off",
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionAreaOffsetXUv = 0.0,
     [double]$VulkanProjectionAreaOffsetXUv = [double]::NaN,
@@ -614,6 +628,20 @@ function Format-OptionalInvariantDouble {
     return (Format-InvariantDouble -Value $Value)
 }
 
+function Add-PeripheralStretchRuntimeValues {
+    param([System.Collections.Generic.List[string]]$Values)
+    $Values.Add("rustyxr.peripheralStretchMode=$PeripheralStretchMode")
+    $Values.Add(("rustyxr.peripheralStretchCoreScale={0}" -f (Format-InvariantDouble -Value $PeripheralStretchCoreScale)))
+    $Values.Add(("rustyxr.peripheralStretchEdgeInsetUv={0}" -f (Format-InvariantDouble -Value $PeripheralStretchEdgeInsetUv)))
+    $Values.Add(("rustyxr.peripheralStretchMaxInsetUv={0}" -f (Format-InvariantDouble -Value $PeripheralStretchMaxInsetUv)))
+    $Values.Add(("rustyxr.peripheralStretchCurve={0}" -f (Format-InvariantDouble -Value $PeripheralStretchCurve)))
+    $Values.Add(("rustyxr.peripheralStretchInnerBlendUv={0}" -f (Format-InvariantDouble -Value $PeripheralStretchInnerBlendUv)))
+    $Values.Add(("rustyxr.peripheralStretchBlendCurve={0}" -f (Format-InvariantDouble -Value $PeripheralStretchBlendCurve)))
+    $Values.Add("rustyxr.peripheralStretchBlendMode=$PeripheralStretchBlendMode")
+    $Values.Add("rustyxr.peripheralStretchCornerMode=$PeripheralStretchCornerMode")
+    $Values.Add("rustyxr.peripheralStretchDebug=$PeripheralStretchDebug")
+}
+
 function Resolve-ProjectionAreaOffsetXUv {
     param([double]$RendererValue)
     if ([double]::IsNaN($RendererValue)) {
@@ -889,6 +917,7 @@ function Get-VulkanProjectionBorderOverride {
     $commonValues.Add("rustyxr.projectionAlphaBias=$alphaBias")
     $commonValues.Add("rustyxr.processingLayer=$ProcessingLayer")
     $commonValues.Add("rustyxr.cameraBlurRadiusPx=$blurRadius")
+    Add-PeripheralStretchRuntimeValues -Values $commonValues
     if (-not [double]::IsNaN($CameraPreviewFovYDegrees)) {
         $commonValues.Add(("rustyxr.cameraPreviewFovYDegrees={0}" -f (Format-InvariantDouble -Value $CameraPreviewFovYDegrees)))
     }
@@ -946,6 +975,7 @@ function Get-GlesProjectionBorderOverride {
     $values.Add("rustyxr.projectionBorderPolicy=$ProjectionBorderPolicy")
     $values.Add("rustyxr.processingLayer=$ProcessingLayer")
     $values.Add("rustyxr.cameraBlurRadiusPx=$blurRadius")
+    Add-PeripheralStretchRuntimeValues -Values $values
     $values.Add("rustyxr.projectionDepthMeters=$projectionDepth")
     $values.Add("rustyxr.projectionAreaOffsetXUv=$offsetX")
     $values.Add("rustyxr.projectionAreaOffsetYUv=$offsetY")
@@ -1217,6 +1247,26 @@ function Invoke-MakepadMode {
     $argList.Add($ProjectionBorderPolicy)
     $argList.Add("-ProcessingLayer")
     $argList.Add($ProcessingLayer)
+    $argList.Add("-PeripheralStretchMode")
+    $argList.Add($PeripheralStretchMode)
+    $argList.Add("-PeripheralStretchCoreScale")
+    $argList.Add((Format-InvariantDouble -Value $PeripheralStretchCoreScale))
+    $argList.Add("-PeripheralStretchEdgeInsetUv")
+    $argList.Add((Format-InvariantDouble -Value $PeripheralStretchEdgeInsetUv))
+    $argList.Add("-PeripheralStretchMaxInsetUv")
+    $argList.Add((Format-InvariantDouble -Value $PeripheralStretchMaxInsetUv))
+    $argList.Add("-PeripheralStretchCurve")
+    $argList.Add((Format-InvariantDouble -Value $PeripheralStretchCurve))
+    $argList.Add("-PeripheralStretchInnerBlendUv")
+    $argList.Add((Format-InvariantDouble -Value $PeripheralStretchInnerBlendUv))
+    $argList.Add("-PeripheralStretchBlendCurve")
+    $argList.Add((Format-InvariantDouble -Value $PeripheralStretchBlendCurve))
+    $argList.Add("-PeripheralStretchBlendMode")
+    $argList.Add($PeripheralStretchBlendMode)
+    $argList.Add("-PeripheralStretchCornerMode")
+    $argList.Add($PeripheralStretchCornerMode)
+    $argList.Add("-PeripheralStretchDebug")
+    $argList.Add($PeripheralStretchDebug)
     $argList.Add("-CameraProjectionGeometryProfile")
     $argList.Add($CameraProjectionGeometryProfile)
     $argList.Add("-BlurRadiusPx")
@@ -1601,6 +1651,7 @@ $lines.Add("")
 $lines.Add(("- Session: ``{0}``" -f $sessionId))
 $lines.Add(("- Projection exterior fill policy: ``{0}``" -f $ProjectionBorderPolicy))
 $lines.Add(("- Processing layer: ``{0}``" -f $ProcessingLayer))
+$lines.Add(("- Peripheral stretch: mode ``{0}``, core scale ``{1}``, edge/max inset UV ``{2}``/``{3}``, curve ``{4}``, inner blend UV ``{5}``, blend curve ``{6}``, blend mode ``{7}``, corner mode ``{8}``, debug ``{9}``" -f $PeripheralStretchMode, (Format-InvariantDouble -Value $PeripheralStretchCoreScale), (Format-InvariantDouble -Value $PeripheralStretchEdgeInsetUv), (Format-InvariantDouble -Value $PeripheralStretchMaxInsetUv), (Format-InvariantDouble -Value $PeripheralStretchCurve), (Format-InvariantDouble -Value $PeripheralStretchInnerBlendUv), (Format-InvariantDouble -Value $PeripheralStretchBlendCurve), $PeripheralStretchBlendMode, $PeripheralStretchCornerMode, $PeripheralStretchDebug))
 $lines.Add(("- Blur radius px: ``{0}``" -f (Format-InvariantDouble -Value $BlurRadiusPx)))
 $lines.Add(("- Selected modes: ``{0}``" -f ($Mode -join ", ")))
 if ($usesBrokerH264Modes) {

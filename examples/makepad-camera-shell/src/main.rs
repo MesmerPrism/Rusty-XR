@@ -5,29 +5,29 @@ mod acamera_sys;
 #[cfg(target_os = "android")]
 mod android_camera_probe;
 mod camera_texture_path;
-mod source_sampling;
-mod projection_runtime;
 mod projection_geometry;
-mod source_metadata;
-mod runtime_settings;
+mod projection_runtime;
 mod projection_settings;
+mod runtime_settings;
+mod source_metadata;
+mod source_sampling;
 use camera_texture_path::MakepadCameraTexturePath;
+#[cfg(target_os = "android")]
+use projection_geometry::broker_projection_plan_marker_fields;
 use projection_geometry::{
     makepad_draw_vars_bound_marker_fields, makepad_horizontal_alignment_hotload_marker_fields,
     makepad_native_video_widget_reset_error_marker_fields,
     makepad_native_video_widget_reset_waiting_marker_fields,
     makepad_native_video_widget_surface_marker_fields,
-    makepad_paired_projection_progress_marker_fields, makepad_projection_complete_marker_fields,
-    makepad_projection_complete_error_marker_fields, makepad_projection_enumerated_marker_fields,
-    makepad_projection_start_marker_fields, makepad_projection_target_marker_fields,
-    makepad_single_stream_proof_wait_marker_fields, makepad_stereo_comparison_marker_line,
-    makepad_stereo_projection_marker_line, makepad_synthetic_stereo_comparison_marker_line,
-    makepad_visible_panel_bound_marker_fields, makepad_visible_panel_draw_marker_line,
-    MakepadOpenXrProjectionContract,
+    makepad_paired_projection_progress_marker_fields,
+    makepad_projection_complete_error_marker_fields, makepad_projection_complete_marker_fields,
+    makepad_projection_enumerated_marker_fields, makepad_projection_start_marker_fields,
+    makepad_projection_target_marker_fields, makepad_single_stream_proof_wait_marker_fields,
+    makepad_stereo_comparison_marker_line, makepad_stereo_projection_marker_line,
+    makepad_synthetic_stereo_comparison_marker_line, makepad_visible_panel_bound_marker_fields,
+    makepad_visible_panel_draw_marker_line, MakepadOpenXrProjectionContract,
     MakepadStereoComparisonMarkerInputs,
 };
-#[cfg(target_os = "android")]
-use projection_geometry::broker_projection_plan_marker_fields;
 use projection_runtime::{
     makepad_current_projection_runtime_float, makepad_horizontal_alignment_tuning_from_resolution,
     makepad_projection_runtime_manifest_lines, makepad_projection_runtime_resolution,
@@ -35,15 +35,19 @@ use projection_runtime::{
 };
 use projection_settings::*;
 use runtime_settings::*;
+#[cfg(target_os = "android")]
 use source_metadata::{
-    makepad_camera_status_marker_line, makepad_camera2_acquisition_broker_h264_skipped_marker_line,
+    broker_projection_plan_decision, BrokerProjectionPlanDecision, BrokerProjectionPlanKind,
+};
+use source_metadata::{
+    makepad_camera2_acquisition_broker_h264_skipped_marker_line, makepad_camera_status_marker_line,
     makepad_content_geometry_marker_fields,
-    makepad_hardware_buffer_import_marker_line,
     makepad_hardware_buffer_import_broker_h264_prepare_request_marker_fields,
     makepad_hardware_buffer_import_broker_h264_startup_marker_fields,
     makepad_hardware_buffer_import_complete_error_marker_fields,
     makepad_hardware_buffer_import_enumerated_error_marker_fields,
     makepad_hardware_buffer_import_enumerated_marker_fields,
+    makepad_hardware_buffer_import_marker_line,
     makepad_hardware_buffer_import_prepared_marker_fields,
     makepad_hardware_buffer_import_raw_video_event_marker_line,
     makepad_hardware_buffer_import_start_error_marker_fields,
@@ -60,10 +64,6 @@ use source_metadata::{
     normalize_direct_camera_projection_geometry_profile, stream_header_metadata_marker_fields,
     BrokerH264ProjectionMetadata, MakepadContentGeometrySource,
 };
-#[cfg(target_os = "android")]
-use source_metadata::{
-    broker_projection_plan_decision, BrokerProjectionPlanDecision, BrokerProjectionPlanKind,
-};
 
 use makepad_widgets::makepad_platform::{
     event::video_playback::{
@@ -77,7 +77,7 @@ use makepad_widgets::makepad_platform::{
 };
 use makepad_widgets::*;
 use makepad_xr::scene::{xr_widget_world_transform, XrNode};
-use rusty_xr_camera_model::Rect2;
+use rusty_xr_camera_model::{Rect2, SourceSamplingMode};
 use rusty_xr_runtime_config::RuntimeConfig;
 use source_sampling::{
     makepad_cadence_sample_marker_line, makepad_cadence_start_marker_line,
@@ -206,6 +206,14 @@ script_mod! {
         processing_layer: 0.0
         projection_sample_mode: 0.0
         blur_radius_px: 2.0
+        peripheral_stretch_core_scale: 1.0
+        peripheral_stretch_edge_inset_uv: 0.015
+        peripheral_stretch_max_inset_uv: 0.14
+        peripheral_stretch_curve: 1.6
+        peripheral_stretch_inner_blend_uv: 0.040
+        peripheral_stretch_blend_curve: 1.6
+        peripheral_stretch_blend_mode: 1.0
+        peripheral_stretch_debug: 0.0
         projection_area_diagnostic: 0.0
         projection_area_offset_left_uv: 0.0
         projection_area_offset_right_uv: 0.0
@@ -607,7 +615,7 @@ script_mod! {
         }
 
         sample_processed_camera_rgb: fn(coord: vec2f, eye_selector: float) -> vec3f {
-            if self.processing_layer > 0.5 {
+            if self.processing_layer > 0.5 && self.processing_layer < 1.5 {
                 return self.sample_camera_blur_rgb(coord, eye_selector);
             }
             return self.sample_camera_rgb(coord, eye_selector);
@@ -701,6 +709,11 @@ script_mod! {
         }
 
         projection_area_mask: fn(area_uv: vec2f) -> float {
+            let signed_distance = self.target_footprint_signed_distance_uv(area_uv);
+            return 1.0 - step(0.0001, signed_distance);
+        }
+
+        target_footprint_signed_distance_uv: fn(area_uv: vec2f) -> float {
             let half_size = max(
                 vec2(self.projection_area_radius_x_uv, self.projection_area_radius_y_uv),
                 vec2(0.05, 0.05)
@@ -713,8 +726,64 @@ script_mod! {
             let q = abs(area_uv - vec2(0.5, 0.5)) - (half_size - vec2(corner_radius, corner_radius));
             let outside = length(max(q, vec2(0.0, 0.0)));
             let inside = min(max(q.x, q.y), 0.0);
-            let signed_distance = outside + inside - corner_radius;
-            return 1.0 - step(0.0001, signed_distance);
+            return outside + inside - corner_radius;
+        }
+
+        projection_area_rect_edge_uv: fn(
+            canonical_uv: vec2f,
+            domain_min_uv: vec2f,
+            domain_max_uv: vec2f,
+            force_edge_sample: float
+        ) -> vec2f {
+            let domain_size = max(domain_max_uv - domain_min_uv, vec2(0.001, 0.001));
+            let center = (domain_min_uv + domain_max_uv) * 0.5;
+            let half_size = domain_size * 0.5;
+            let normalized = (canonical_uv - center) / half_size;
+            let edge_distance = max(max(abs(normalized.x), abs(normalized.y)), 0.0001);
+            let edge_normalized = normalized / edge_distance;
+            let edge_uv = center + edge_normalized * half_size;
+            let interior_reach = max(1.0 - edge_distance, 0.0);
+            let exterior_reach = max(edge_distance - 1.0, 0.0001);
+            let edge_inset = clamp(self.peripheral_stretch_edge_inset_uv, 0.0, 0.49);
+            let max_inset = clamp(
+                self.peripheral_stretch_max_inset_uv,
+                edge_inset,
+                0.49
+            );
+            let curve = clamp(self.peripheral_stretch_curve, 0.25, 6.0);
+            let core_scale = clamp(self.peripheral_stretch_core_scale, 0.05, 1.0);
+            let core_inset = (1.0 - core_scale) * 0.5;
+            let reach = mix(interior_reach, exterior_reach, step(1.0, edge_distance));
+            let normalized_reach = clamp(reach / max(max_inset - edge_inset, 0.0001), 0.0, 1.0);
+            let inset = mix(edge_inset, max_inset, pow(normalized_reach, curve)) + core_inset;
+            let edge_direction = edge_normalized;
+            let inset_uv = vec2(
+                mix(0.0, inset, step(0.0001, abs(edge_direction.x))),
+                mix(0.0, inset, step(0.0001, abs(edge_direction.y)))
+            );
+            let remapped = clamp(edge_uv, domain_min_uv + inset_uv, domain_max_uv - inset_uv);
+            return mix(canonical_uv, remapped, clamp(force_edge_sample, 0.0, 1.0));
+        }
+
+        peripheral_stretch_active: fn() -> float {
+            return step(1.5, self.processing_layer);
+        }
+
+        peripheral_stretch_blend_weight: fn(signed_distance_uv: float) -> float {
+            let blend_mode = floor(self.peripheral_stretch_blend_mode + 0.5);
+            let inner_blend = clamp(self.peripheral_stretch_inner_blend_uv, 0.0, 0.25);
+            let blend_curve = clamp(self.peripheral_stretch_blend_curve, 0.25, 6.0);
+            if blend_mode < 0.5 {
+                return step(0.0, signed_distance_uv);
+            }
+            if signed_distance_uv >= 0.0 {
+                return 1.0;
+            }
+            if inner_blend <= 0.0001 {
+                return 0.0;
+            }
+            let t = smoothstep(-inner_blend, 0.0, signed_distance_uv);
+            return pow(t, blend_curve);
         }
 
         projection_area_edge_mask: fn(area_uv: vec2f) -> float {
@@ -809,8 +878,44 @@ script_mod! {
             let proof_guide = 0.0;
             let eye_selector = self.source_eye_selector();
             let display_eye_selector = self.active_eye_is_right();
-            let projection_screen_uv =
+            let canonical_projection_screen_uv =
                 self.projection_area_screen_uv(full_view_uv, display_eye_selector);
+            let signed_distance_uv =
+                self.target_footprint_signed_distance_uv(canonical_projection_screen_uv);
+            let projection_area_mask = self.projection_area_mask(canonical_projection_screen_uv);
+            let peripheral_stretch_active = self.peripheral_stretch_active();
+            let stretch_weight =
+                peripheral_stretch_active *
+                self.peripheral_stretch_blend_weight(signed_distance_uv);
+            let stretch_exterior =
+                peripheral_stretch_active * (1.0 - projection_area_mask);
+            let target_transition_band =
+                peripheral_stretch_active *
+                projection_area_mask *
+                step(0.0001, stretch_weight);
+            let stretch_effect_region =
+                clamp(max(stretch_exterior, target_transition_band), 0.0, 1.0);
+            let projection_area_offset_x = mix(
+                self.projection_area_offset_left_uv,
+                self.projection_area_offset_right_uv,
+                display_eye_selector
+            );
+            let projection_area_scale =
+                max(vec2(self.projection_area_scale_x, self.projection_area_scale_y), vec2(0.05, 0.05));
+            let projection_area_offset =
+                vec2(projection_area_offset_x, self.projection_area_offset_vertical_uv);
+            let projection_area_domain_min_uv =
+                vec2(0.5, 0.5) - projection_area_scale * 0.5 + projection_area_offset;
+            let projection_area_domain_max_uv =
+                vec2(0.5, 0.5) + projection_area_scale * 0.5 + projection_area_offset;
+            let stretched_projection_screen_uv = self.projection_area_rect_edge_uv(
+                canonical_projection_screen_uv,
+                projection_area_domain_min_uv,
+                projection_area_domain_max_uv,
+                1.0
+            );
+            let projection_screen_uv =
+                mix(canonical_projection_screen_uv, stretched_projection_screen_uv, clamp(stretch_weight, 0.0, 1.0));
             let projected_uv = self.source_screen_camera_uv(
                 projection_screen_uv,
                 display_eye_selector
@@ -821,8 +926,9 @@ script_mod! {
                 self.projection_area_content_uv(projection_screen_uv);
             let mapped_source_uv =
                 mix(projected_uv, projection_area_content_uv, full_frame_projection_area_mapping);
-            let projection_area_mask = self.projection_area_mask(projection_screen_uv);
-            let projection_valid = self.uv_valid(mapped_source_uv) * projection_area_mask;
+            let source_uv_valid = self.uv_valid(mapped_source_uv);
+            let projection_valid =
+                mix(source_uv_valid * projection_area_mask, source_uv_valid, stretch_effect_region);
             let surface_uv = mix(
                 self.screen_surface_uv(projection_screen_uv, display_eye_selector),
                 projection_area_content_uv,
@@ -864,14 +970,35 @@ script_mod! {
                     step(0.5, self.projection_border_policy);
                 let projection_area_opacity = clamp(self.projection_area_opacity, 0.0, 1.0);
                 let projection_border_opacity = clamp(self.projection_border_opacity, 0.0, 1.0);
-                let source_uv_valid = self.uv_valid(mapped_source_uv);
                 let diagnostic_fill_rgb = vec3(1.0, 0.0, 0.0);
                 let matte = mix(diagnostic_fill_rgb, vec3(0.0, 0.0, 0.0), passthrough_border_policy);
-                let camera_window_valid = source_uv_valid * projection_area_mask;
-                let window_rgb = mix(matte, camera_rgb, camera_window_valid);
+                let camera_window_valid = projection_valid;
+                let region_debug =
+                    step(0.5, self.peripheral_stretch_debug) *
+                    step(self.peripheral_stretch_debug, 1.5);
+                if peripheral_stretch_active > 0.5 &&
+                    self.peripheral_stretch_debug > 1.5 &&
+                    stretch_effect_region > 0.5 &&
+                    camera_window_valid > 0.5
+                {
+                    let sample_debug =
+                        vec3(window_sample_uv.x, window_sample_uv.y, 0.25 + 0.5 * target_transition_band);
+                    return vec4(sample_debug.x, sample_debug.y, sample_debug.z, 1.0);
+                }
+                let transition_tint = mix(camera_rgb, vec3(0.96, 1.0, 0.08), 0.42);
+                let exterior_tint = mix(camera_rgb, vec3(0.0, 0.88, 1.0), 0.48);
+                let region_rgb =
+                    mix(
+                        mix(camera_rgb, exterior_tint, stretch_exterior),
+                        transition_tint,
+                        target_transition_band
+                    );
+                let debug_camera_rgb =
+                    mix(camera_rgb, region_rgb, region_debug * camera_window_valid);
+                let window_rgb = mix(matte, debug_camera_rgb, camera_window_valid);
                 let guided_window = mix(window_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
                 let border_alpha = projection_border_opacity * (1.0 - passthrough_border_policy);
-                let area_alpha = projection_area_opacity * self.projection_color_alpha(camera_rgb);
+                let area_alpha = projection_area_opacity * self.projection_color_alpha(debug_camera_rgb);
                 let alpha = mix(border_alpha, area_alpha, camera_window_valid);
                 let premultiplied_window = guided_window * alpha;
                 return vec4(
@@ -1116,6 +1243,22 @@ pub struct App {
     #[rust]
     blur_radius_px: f32,
     #[rust]
+    peripheral_stretch_core_scale: f32,
+    #[rust]
+    peripheral_stretch_edge_inset_uv: f32,
+    #[rust]
+    peripheral_stretch_max_inset_uv: f32,
+    #[rust]
+    peripheral_stretch_curve: f32,
+    #[rust]
+    peripheral_stretch_inner_blend_uv: f32,
+    #[rust]
+    peripheral_stretch_blend_curve: f32,
+    #[rust]
+    peripheral_stretch_blend_mode: f32,
+    #[rust]
+    peripheral_stretch_debug: f32,
+    #[rust]
     projection_area_diagnostic: f32,
     #[rust]
     projection_area_offset_left_uv: f32,
@@ -1247,6 +1390,22 @@ pub struct DrawMakepadStereoCameraPanel {
     pub projection_sample_mode: f32,
     #[live(2.0_f32)]
     pub blur_radius_px: f32,
+    #[live(1.0_f32)]
+    pub peripheral_stretch_core_scale: f32,
+    #[live(0.015_f32)]
+    pub peripheral_stretch_edge_inset_uv: f32,
+    #[live(0.14_f32)]
+    pub peripheral_stretch_max_inset_uv: f32,
+    #[live(1.6_f32)]
+    pub peripheral_stretch_curve: f32,
+    #[live(0.040_f32)]
+    pub peripheral_stretch_inner_blend_uv: f32,
+    #[live(1.6_f32)]
+    pub peripheral_stretch_blend_curve: f32,
+    #[live(1.0_f32)]
+    pub peripheral_stretch_blend_mode: f32,
+    #[live(0.0_f32)]
+    pub peripheral_stretch_debug: f32,
     #[live(0.0_f32)]
     pub projection_area_diagnostic: f32,
     #[live(0.0_f32)]
@@ -1492,6 +1651,14 @@ struct HorizontalAlignmentTuning {
     processing_layer: f32,
     projection_sample_mode: f32,
     blur_radius_px: f32,
+    peripheral_stretch_core_scale: f32,
+    peripheral_stretch_edge_inset_uv: f32,
+    peripheral_stretch_max_inset_uv: f32,
+    peripheral_stretch_curve: f32,
+    peripheral_stretch_inner_blend_uv: f32,
+    peripheral_stretch_blend_curve: f32,
+    peripheral_stretch_blend_mode: f32,
+    peripheral_stretch_debug: f32,
     projection_area_diagnostic: f32,
     projection_area_offset_left_uv: f32,
     projection_area_offset_right_uv: f32,
@@ -1511,6 +1678,7 @@ struct HorizontalAlignmentTuning {
 
 impl Default for HorizontalAlignmentTuning {
     fn default() -> Self {
+        let peripheral_stretch = MakepadPeripheralStretchConfig::current();
         Self {
             strength: TARGET_HORIZONTAL_ALIGNMENT_STRENGTH,
             left_offset_uv: TARGET_MANUAL_HORIZONTAL_OFFSET_LEFT_UV,
@@ -1522,6 +1690,14 @@ impl Default for HorizontalAlignmentTuning {
             processing_layer: MakepadProcessingLayer::current().shader_code(),
             projection_sample_mode: MakepadProjectionSampleMode::current().shader_code(),
             blur_radius_px: makepad_blur_radius_px(),
+            peripheral_stretch_core_scale: peripheral_stretch.core_scale,
+            peripheral_stretch_edge_inset_uv: peripheral_stretch.edge_inset_uv,
+            peripheral_stretch_max_inset_uv: peripheral_stretch.max_inset_uv,
+            peripheral_stretch_curve: peripheral_stretch.curve,
+            peripheral_stretch_inner_blend_uv: peripheral_stretch.inner_blend_uv,
+            peripheral_stretch_blend_curve: peripheral_stretch.blend_curve,
+            peripheral_stretch_blend_mode: peripheral_stretch.blend_mode.shader_code(),
+            peripheral_stretch_debug: peripheral_stretch.debug.shader_code(),
             projection_area_diagnostic: TARGET_PROJECTION_AREA_DIAGNOSTIC,
             projection_area_offset_left_uv: TARGET_PROJECTION_AREA_OFFSET_LEFT_UV,
             projection_area_offset_right_uv: TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV,
@@ -1709,6 +1885,15 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.projection_sample_mode =
             MakepadProjectionSampleMode::current().shader_code();
         self.draw_panel.blur_radius_px = makepad_blur_radius_px();
+        let peripheral_stretch = MakepadPeripheralStretchConfig::current();
+        self.draw_panel.peripheral_stretch_core_scale = peripheral_stretch.core_scale;
+        self.draw_panel.peripheral_stretch_edge_inset_uv = peripheral_stretch.edge_inset_uv;
+        self.draw_panel.peripheral_stretch_max_inset_uv = peripheral_stretch.max_inset_uv;
+        self.draw_panel.peripheral_stretch_curve = peripheral_stretch.curve;
+        self.draw_panel.peripheral_stretch_inner_blend_uv = peripheral_stretch.inner_blend_uv;
+        self.draw_panel.peripheral_stretch_blend_curve = peripheral_stretch.blend_curve;
+        self.draw_panel.peripheral_stretch_blend_mode = peripheral_stretch.blend_mode.shader_code();
+        self.draw_panel.peripheral_stretch_debug = peripheral_stretch.debug.shader_code();
         self.draw_panel.projection_area_diagnostic = TARGET_PROJECTION_AREA_DIAGNOSTIC;
         self.draw_panel.projection_area_offset_left_uv = TARGET_PROJECTION_AREA_OFFSET_LEFT_UV;
         self.draw_panel.projection_area_offset_right_uv = TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV;
@@ -1873,6 +2058,38 @@ impl MakepadStereoCameraPanel {
             ),
             (live_id!(processing_layer), self.draw_panel.processing_layer),
             (live_id!(blur_radius_px), self.draw_panel.blur_radius_px),
+            (
+                live_id!(peripheral_stretch_core_scale),
+                self.draw_panel.peripheral_stretch_core_scale,
+            ),
+            (
+                live_id!(peripheral_stretch_edge_inset_uv),
+                self.draw_panel.peripheral_stretch_edge_inset_uv,
+            ),
+            (
+                live_id!(peripheral_stretch_max_inset_uv),
+                self.draw_panel.peripheral_stretch_max_inset_uv,
+            ),
+            (
+                live_id!(peripheral_stretch_curve),
+                self.draw_panel.peripheral_stretch_curve,
+            ),
+            (
+                live_id!(peripheral_stretch_inner_blend_uv),
+                self.draw_panel.peripheral_stretch_inner_blend_uv,
+            ),
+            (
+                live_id!(peripheral_stretch_blend_curve),
+                self.draw_panel.peripheral_stretch_blend_curve,
+            ),
+            (
+                live_id!(peripheral_stretch_blend_mode),
+                self.draw_panel.peripheral_stretch_blend_mode,
+            ),
+            (
+                live_id!(peripheral_stretch_debug),
+                self.draw_panel.peripheral_stretch_debug,
+            ),
             (
                 live_id!(projection_area_diagnostic),
                 TARGET_PROJECTION_AREA_DIAGNOSTIC,
@@ -2217,6 +2434,15 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.processing_layer = tuning.processing_layer;
         self.draw_panel.projection_sample_mode = tuning.projection_sample_mode;
         self.draw_panel.blur_radius_px = tuning.blur_radius_px;
+        self.draw_panel.peripheral_stretch_core_scale = tuning.peripheral_stretch_core_scale;
+        self.draw_panel.peripheral_stretch_edge_inset_uv = tuning.peripheral_stretch_edge_inset_uv;
+        self.draw_panel.peripheral_stretch_max_inset_uv = tuning.peripheral_stretch_max_inset_uv;
+        self.draw_panel.peripheral_stretch_curve = tuning.peripheral_stretch_curve;
+        self.draw_panel.peripheral_stretch_inner_blend_uv =
+            tuning.peripheral_stretch_inner_blend_uv;
+        self.draw_panel.peripheral_stretch_blend_curve = tuning.peripheral_stretch_blend_curve;
+        self.draw_panel.peripheral_stretch_blend_mode = tuning.peripheral_stretch_blend_mode;
+        self.draw_panel.peripheral_stretch_debug = tuning.peripheral_stretch_debug;
         self.draw_panel.projection_area_diagnostic = tuning.projection_area_diagnostic;
         self.draw_panel.projection_area_offset_left_uv = tuning.projection_area_offset_left_uv;
         self.draw_panel.projection_area_offset_right_uv = tuning.projection_area_offset_right_uv;
@@ -2262,6 +2488,38 @@ impl MakepadStereoCameraPanel {
                 tuning.projection_sample_mode,
             ),
             (live_id!(blur_radius_px), tuning.blur_radius_px),
+            (
+                live_id!(peripheral_stretch_core_scale),
+                tuning.peripheral_stretch_core_scale,
+            ),
+            (
+                live_id!(peripheral_stretch_edge_inset_uv),
+                tuning.peripheral_stretch_edge_inset_uv,
+            ),
+            (
+                live_id!(peripheral_stretch_max_inset_uv),
+                tuning.peripheral_stretch_max_inset_uv,
+            ),
+            (
+                live_id!(peripheral_stretch_curve),
+                tuning.peripheral_stretch_curve,
+            ),
+            (
+                live_id!(peripheral_stretch_inner_blend_uv),
+                tuning.peripheral_stretch_inner_blend_uv,
+            ),
+            (
+                live_id!(peripheral_stretch_blend_curve),
+                tuning.peripheral_stretch_blend_curve,
+            ),
+            (
+                live_id!(peripheral_stretch_blend_mode),
+                tuning.peripheral_stretch_blend_mode,
+            ),
+            (
+                live_id!(peripheral_stretch_debug),
+                tuning.peripheral_stretch_debug,
+            ),
             (
                 live_id!(projection_area_diagnostic),
                 tuning.projection_area_diagnostic,
@@ -2730,7 +2988,9 @@ impl App {
                     plan
                 })
                 .or_else(|| {
-                    decision.camera_matched_live_fallback_allowed.then_some(())?;
+                    decision
+                        .camera_matched_live_fallback_allowed
+                        .then_some(())?;
                     Self::camera2_stereo_plan().map(|mut plan| {
                         plan.left_camera_id = left_metadata.camera_id.clone();
                         plan.right_camera_id = right_metadata.camera_id.clone();
@@ -2864,6 +3124,7 @@ impl App {
         let processing_layer = MakepadProcessingLayer::current().shader_code();
         let projection_sample_mode = MakepadProjectionSampleMode::current().shader_code();
         let blur_radius_px = makepad_blur_radius_px();
+        let peripheral_stretch = MakepadPeripheralStretchConfig::current();
         let projection_area_diagnostic = hotload_f32(
             KEY_MAKEPAD_PROJECTION_AREA_DIAGNOSTIC,
             TARGET_PROJECTION_AREA_DIAGNOSTIC,
@@ -2945,6 +3206,14 @@ impl App {
             processing_layer,
             projection_sample_mode,
             blur_radius_px,
+            peripheral_stretch_core_scale: peripheral_stretch.core_scale,
+            peripheral_stretch_edge_inset_uv: peripheral_stretch.edge_inset_uv,
+            peripheral_stretch_max_inset_uv: peripheral_stretch.max_inset_uv,
+            peripheral_stretch_curve: peripheral_stretch.curve,
+            peripheral_stretch_inner_blend_uv: peripheral_stretch.inner_blend_uv,
+            peripheral_stretch_blend_curve: peripheral_stretch.blend_curve,
+            peripheral_stretch_blend_mode: peripheral_stretch.blend_mode.shader_code(),
+            peripheral_stretch_debug: peripheral_stretch.debug.shader_code(),
             projection_area_diagnostic,
             projection_area_offset_left_uv,
             projection_area_offset_right_uv,
@@ -2976,6 +3245,14 @@ impl App {
                 processing_layer: self.processing_layer,
                 projection_sample_mode: self.projection_sample_mode,
                 blur_radius_px: self.blur_radius_px,
+                peripheral_stretch_core_scale: self.peripheral_stretch_core_scale,
+                peripheral_stretch_edge_inset_uv: self.peripheral_stretch_edge_inset_uv,
+                peripheral_stretch_max_inset_uv: self.peripheral_stretch_max_inset_uv,
+                peripheral_stretch_curve: self.peripheral_stretch_curve,
+                peripheral_stretch_inner_blend_uv: self.peripheral_stretch_inner_blend_uv,
+                peripheral_stretch_blend_curve: self.peripheral_stretch_blend_curve,
+                peripheral_stretch_blend_mode: self.peripheral_stretch_blend_mode,
+                peripheral_stretch_debug: self.peripheral_stretch_debug,
                 projection_area_diagnostic: self.projection_area_diagnostic,
                 projection_area_offset_left_uv: self.projection_area_offset_left_uv,
                 projection_area_offset_right_uv: self.projection_area_offset_right_uv,
@@ -3010,6 +3287,23 @@ impl App {
             || (self.processing_layer - tuning.processing_layer).abs() > 0.0001
             || (self.projection_sample_mode - tuning.projection_sample_mode).abs() > 0.0001
             || (self.blur_radius_px - tuning.blur_radius_px).abs() > 0.0001
+            || (self.peripheral_stretch_core_scale - tuning.peripheral_stretch_core_scale).abs()
+                > 0.0001
+            || (self.peripheral_stretch_edge_inset_uv - tuning.peripheral_stretch_edge_inset_uv)
+                .abs()
+                > 0.0001
+            || (self.peripheral_stretch_max_inset_uv - tuning.peripheral_stretch_max_inset_uv)
+                .abs()
+                > 0.0001
+            || (self.peripheral_stretch_curve - tuning.peripheral_stretch_curve).abs() > 0.0001
+            || (self.peripheral_stretch_inner_blend_uv - tuning.peripheral_stretch_inner_blend_uv)
+                .abs()
+                > 0.0001
+            || (self.peripheral_stretch_blend_curve - tuning.peripheral_stretch_blend_curve).abs()
+                > 0.0001
+            || (self.peripheral_stretch_blend_mode - tuning.peripheral_stretch_blend_mode).abs()
+                > 0.0001
+            || (self.peripheral_stretch_debug - tuning.peripheral_stretch_debug).abs() > 0.0001
             || (self.projection_area_diagnostic - tuning.projection_area_diagnostic).abs() > 0.0001
             || (self.projection_area_offset_left_uv - tuning.projection_area_offset_left_uv).abs()
                 > 0.0001
@@ -3050,6 +3344,14 @@ impl App {
         self.processing_layer = tuning.processing_layer;
         self.projection_sample_mode = tuning.projection_sample_mode;
         self.blur_radius_px = tuning.blur_radius_px;
+        self.peripheral_stretch_core_scale = tuning.peripheral_stretch_core_scale;
+        self.peripheral_stretch_edge_inset_uv = tuning.peripheral_stretch_edge_inset_uv;
+        self.peripheral_stretch_max_inset_uv = tuning.peripheral_stretch_max_inset_uv;
+        self.peripheral_stretch_curve = tuning.peripheral_stretch_curve;
+        self.peripheral_stretch_inner_blend_uv = tuning.peripheral_stretch_inner_blend_uv;
+        self.peripheral_stretch_blend_curve = tuning.peripheral_stretch_blend_curve;
+        self.peripheral_stretch_blend_mode = tuning.peripheral_stretch_blend_mode;
+        self.peripheral_stretch_debug = tuning.peripheral_stretch_debug;
         self.projection_area_diagnostic = tuning.projection_area_diagnostic;
         self.projection_area_offset_left_uv = tuning.projection_area_offset_left_uv;
         self.projection_area_offset_right_uv = tuning.projection_area_offset_right_uv;
@@ -3259,10 +3561,7 @@ impl App {
                     .or(self.paired_import_right_update_metadata.as_ref())
                 {
                     return Self::makepad_camera_texture_path_from_update_metadata(
-                        true,
-                        false,
-                        true,
-                        metadata,
+                        true, false, true, metadata,
                     );
                 }
                 MakepadCameraTexturePath::BrokerH264CpuYuv
@@ -3369,8 +3668,7 @@ impl App {
                     .map(|breakdown| breakdown.repaint_wait_inflight_ms),
                 xr_repaint_prepare_textures_ms: xr_cpu
                     .map(|breakdown| breakdown.repaint_prepare_textures_ms),
-                xr_repaint_record_draw_ms: xr_cpu
-                    .map(|breakdown| breakdown.repaint_record_draw_ms),
+                xr_repaint_record_draw_ms: xr_cpu.map(|breakdown| breakdown.repaint_record_draw_ms),
                 xr_repaint_submit_ms: xr_cpu.map(|breakdown| breakdown.repaint_submit_ms),
                 xr_repaint_texture_upload_count: xr_cpu
                     .map(|breakdown| breakdown.repaint_texture_upload_count),
@@ -3609,13 +3907,13 @@ impl App {
                         StereoEye::Right => self.paired_import_right_prepared = true,
                     }
                     Self::emit_hardware_buffer_import_marker(
-                            &makepad_hardware_buffer_import_prepared_marker_fields(
+                        &makepad_hardware_buffer_import_prepared_marker_fields(
                             side.label(),
                             prepared.video_width,
                             prepared.video_height,
                             Self::broker_h264_enabled(),
                             Self::direct_camera_requested_texture_path(),
-                            ),
+                        ),
                     );
                     self.emit_paired_projection_progress("prepared");
                 }
@@ -3976,13 +4274,13 @@ impl App {
             if self.native_video_widget_retry_count >= NATIVE_VIDEO_WIDGET_MAX_RESETS {
                 Self::emit_stereo_projection_marker(
                     &makepad_native_video_widget_reset_error_marker_fields(
-                    left_unprepared,
-                    right_unprepared,
-                    left_video.is_playing(),
-                    right_video.is_playing(),
-                    left_video.is_cleaning_up(),
-                    right_video.is_cleaning_up(),
-                    self.native_video_widget_retry_count,
+                        left_unprepared,
+                        right_unprepared,
+                        left_video.is_playing(),
+                        right_video.is_playing(),
+                        left_video.is_cleaning_up(),
+                        right_video.is_cleaning_up(),
+                        self.native_video_widget_retry_count,
                     ),
                 );
                 return true;
@@ -4001,14 +4299,14 @@ impl App {
                 cx.start_timeout(NATIVE_VIDEO_WIDGET_RETRY_SECONDS);
             Self::emit_stereo_projection_marker(
                 &makepad_native_video_widget_reset_waiting_marker_fields(
-                left_unprepared,
-                right_unprepared,
-                left_video.is_playing(),
-                right_video.is_playing(),
-                left_video.is_cleaning_up(),
-                right_video.is_cleaning_up(),
-                self.native_video_widget_retry_count,
-                NATIVE_VIDEO_WIDGET_RETRY_SECONDS,
+                    left_unprepared,
+                    right_unprepared,
+                    left_video.is_playing(),
+                    right_video.is_playing(),
+                    left_video.is_cleaning_up(),
+                    right_video.is_cleaning_up(),
+                    self.native_video_widget_retry_count,
+                    NATIVE_VIDEO_WIDGET_RETRY_SECONDS,
                 ),
             );
             return false;
@@ -4105,11 +4403,11 @@ impl App {
         let Some(textures) = textures else {
             Self::emit_stereo_projection_marker(
                 &makepad_texture_content_probe_missing_marker_fields(
-                side.label(),
-                yuv.enabled,
-                yuv.biplanar,
-                yuv.matrix,
-                yuv.rotation_steps,
+                    side.label(),
+                    yuv.enabled,
+                    yuv.biplanar,
+                    yuv.matrix,
+                    yuv.rotation_steps,
                 ),
             );
             return;
@@ -4230,13 +4528,41 @@ impl App {
             FrameOrientationDecision::direct_camera2()
         };
         let source_sample_y_flip = orientation_decision.source_sample_y_flip;
-        let full_frame_diagnostic = pair.source_binding_mode.contains("full-frame-diagnostic")
-            || pair.projection_geometry_profile == "full-frame-diagnostic";
-        // Full-frame diagnostic content still has to land on the solved
-        // head-anchored surface. The fullscreen Makepad draw pass therefore
-        // uses the display-indexed screen-to-surface rows instead of mapping
-        // directly into the projection-area rectangle.
-        let projection_content_mapping_mode = 0.0;
+        let source_sampling_mode = if broker_h264_enabled {
+            match (
+                self.broker_h264_left_projection_metadata.as_ref(),
+                self.broker_h264_right_projection_metadata.as_ref(),
+            ) {
+                (Some(left), Some(right))
+                    if left.source_sampling_mode.uses_screen_to_camera_homography()
+                        && right
+                            .source_sampling_mode
+                            .uses_screen_to_camera_homography() =>
+                {
+                    SourceSamplingMode::ScreenToCameraHomography
+                }
+                (Some(left), Some(right))
+                    if left.source_sampling_mode.uses_target_local_raster()
+                        && right.source_sampling_mode.uses_target_local_raster() =>
+                {
+                    SourceSamplingMode::TargetLocalRaster
+                }
+                _ if pair.projection_geometry_profile == "camera-projection" => {
+                    SourceSamplingMode::ScreenToCameraHomography
+                }
+                _ => SourceSamplingMode::TargetLocalRaster,
+            }
+        } else if pair.projection_geometry_profile == "camera-projection" {
+            SourceSamplingMode::ScreenToCameraHomography
+        } else {
+            SourceSamplingMode::TargetLocalRaster
+        };
+        let full_frame_diagnostic = source_sampling_mode.uses_target_local_raster();
+        let projection_content_mapping_mode = if source_sampling_mode.uses_target_local_raster() {
+            1.0
+        } else {
+            0.0
+        };
         let source_sample_transform = if source_sample_y_flip >= 0.5 {
             "stimulus-raster-y-flip"
         } else if orientation_decision.raster_orientation == FRAME_RASTER_TOP_LEFT_Y_DOWN {
@@ -4335,6 +4661,7 @@ impl App {
             broker_h264_enabled,
             explicit_top_left_broker_stimulus,
             &orientation_decision,
+            source_sampling_mode,
             projection_content_mapping_mode,
             full_frame_diagnostic,
             &pair.source_eye_mapping,
@@ -4393,7 +4720,8 @@ impl App {
         let single_stream_ready = if broker_h264_enabled {
             false
         } else {
-            let one_stream_updated = self.paired_import_left_updated || self.paired_import_right_updated;
+            let one_stream_updated =
+                self.paired_import_left_updated || self.paired_import_right_updated;
             let direct_yuv_ready = self.paired_import_left_yuv_textures.is_some()
                 || self.paired_import_right_yuv_textures.is_some();
             one_stream_updated
@@ -4777,8 +5105,7 @@ fn emit_raw_video_event_marker(event_name: &str, video_id: LiveId) {
 }
 
 fn should_emit_texture_update_marker(marker_index: usize) -> bool {
-    marker_index < TEXTURE_UPDATE_MARKER_LIMIT
-        || marker_index % TEXTURE_UPDATE_MARKER_PERIOD == 0
+    marker_index < TEXTURE_UPDATE_MARKER_LIMIT || marker_index % TEXTURE_UPDATE_MARKER_PERIOD == 0
 }
 
 #[derive(Clone)]
@@ -5447,6 +5774,7 @@ mod tests {
                 "deliveredWidth": 1280,
                 "deliveredHeight": 1280,
                 "projectionGeometryProfile": "full-frame-diagnostic",
+                "sourceSamplingMode": "screen-to-camera-homography",
                 "contentMappingIntent": "map-camera-frame-to-full-frame-projection-area",
                 "projectionMetadataReady": true,
                 "poseSource": "platform",

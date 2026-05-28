@@ -213,7 +213,7 @@ separate diagnostic modes and should not be present in solid-red parity runs.
 | --- | --- | --- | --- | --- | --- |
 | Vulkan/HWB | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` with `rustyxr.cameraPipelinePreset=raw-projection-unorm` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.projectionAlphaMode`, `rustyxr.projectionAlphaScale`, `rustyxr.projectionAlphaBias` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.projectionAlphaMode`, `rustyxr.projectionAlphaScale`, `rustyxr.projectionAlphaBias` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
-| Makepad CPU-YUV | `debug.rustyxr.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.projection.area.opacity` | `debug.rustyxr.projection.border.opacity` | `debug.rustyxr.projection.alpha.mode`, `.scale`, `.bias` | `debug.rustyxr.makepad.processing.layer=blur`, plus `debug.rustyxr.makepad.blur.radius.px` |
+| Makepad CPU-YUV | `debug.rustyxr.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.projection.area.opacity` | `debug.rustyxr.projection.border.opacity` | `debug.rustyxr.projection.alpha.mode`, `.scale`, `.bias` | `debug.rustyxr.processing.layer=blur`, plus `debug.rustyxr.camera.blur.radius.px`; legacy `debug.rustyxr.makepad.*` aliases are compatibility-only |
 
 The suite-level `-ProjectionAreaOffsetXUv` and `-ProjectionAreaOffsetYUv`
 parameters forward the same screen-space sweep intent to Vulkan/HWB and GL/OES

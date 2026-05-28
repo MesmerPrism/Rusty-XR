@@ -47,11 +47,25 @@ param(
     [int]$BrokerH264DecodeTimeoutMs = 20000,
     [ValidateSet("solid-red", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "solid-red",
-    [ValidateSet("raw", "blur")]
+    [ValidateSet("raw", "blur", "peripheral-stretch")]
     [string]$ProcessingLayer = "raw",
     [ValidateSet("camera", "solid-color", "solid-no-texture", "clear-only")]
     [string]$ProjectionSampleMode = "camera",
     [double]$BlurRadiusPx = 2.0,
+    [ValidateSet("edge-stretch")]
+    [string]$PeripheralStretchMode = "edge-stretch",
+    [double]$PeripheralStretchCoreScale = 1.0,
+    [double]$PeripheralStretchEdgeInsetUv = 0.015,
+    [double]$PeripheralStretchMaxInsetUv = 0.14,
+    [double]$PeripheralStretchCurve = 1.6,
+    [double]$PeripheralStretchInnerBlendUv = 0.040,
+    [double]$PeripheralStretchBlendCurve = 1.6,
+    [ValidateSet("off", "target-inner-band")]
+    [string]$PeripheralStretchBlendMode = "target-inner-band",
+    [ValidateSet("target-footprint")]
+    [string]$PeripheralStretchCornerMode = "target-footprint",
+    [ValidateSet("off", "regions", "sample-uv")]
+    [string]$PeripheralStretchDebug = "off",
     [double]$ProjectionScale = 1.0,
     [double]$ProjectionDepthMeters = 1.0,
     [double]$CameraPreviewFovYDegrees = [double]::NaN,
@@ -689,9 +703,21 @@ function Set-MakepadProjectionTargetProfile {
     $props = [ordered]@{
         "debug.rustyxr.makepad.native.passthrough.enabled" = $nativePassthrough
         "debug.rustyxr.makepad.projection.runtime.resolution.enabled" = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
+        "debug.rustyxr.processing.layer" = $ProcessingLayer
         "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
         "debug.rustyxr.makepad.projection.sample.mode" = $ProjectionSampleMode
+        "debug.rustyxr.camera.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
         "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
+        "debug.rustyxr.peripheral.stretch.mode" = $PeripheralStretchMode
+        "debug.rustyxr.peripheral.stretch.core.scale" = (Format-InvariantDouble -Value $PeripheralStretchCoreScale)
+        "debug.rustyxr.peripheral.stretch.edge.inset.uv" = (Format-InvariantDouble -Value $PeripheralStretchEdgeInsetUv)
+        "debug.rustyxr.peripheral.stretch.max.inset.uv" = (Format-InvariantDouble -Value $PeripheralStretchMaxInsetUv)
+        "debug.rustyxr.peripheral.stretch.curve" = (Format-InvariantDouble -Value $PeripheralStretchCurve)
+        "debug.rustyxr.peripheral.stretch.inner.blend.uv" = (Format-InvariantDouble -Value $PeripheralStretchInnerBlendUv)
+        "debug.rustyxr.peripheral.stretch.blend.curve" = (Format-InvariantDouble -Value $PeripheralStretchBlendCurve)
+        "debug.rustyxr.peripheral.stretch.blend.mode" = $PeripheralStretchBlendMode
+        "debug.rustyxr.peripheral.stretch.corner.mode" = $PeripheralStretchCornerMode
+        "debug.rustyxr.peripheral.stretch.debug" = $PeripheralStretchDebug
         "debug.rustyxr.makepad.direct.camera.hardware.buffer.external" = $directHardwareBufferExternal
         "debug.rustyxr.camera.projection.mode" = $CameraProjectionMode
         "debug.rustyxr.makepad.camera.projection.geometry.profile" = $CameraProjectionGeometryProfile
@@ -1525,6 +1551,16 @@ $summary = [ordered]@{
     processingLayer = $ProcessingLayer
     projectionSampleMode = $ProjectionSampleMode
     blurRadiusPx = $BlurRadiusPx
+    peripheralStretchMode = $PeripheralStretchMode
+    peripheralStretchCoreScale = $PeripheralStretchCoreScale
+    peripheralStretchEdgeInsetUv = $PeripheralStretchEdgeInsetUv
+    peripheralStretchMaxInsetUv = $PeripheralStretchMaxInsetUv
+    peripheralStretchCurve = $PeripheralStretchCurve
+    peripheralStretchInnerBlendUv = $PeripheralStretchInnerBlendUv
+    peripheralStretchBlendCurve = $PeripheralStretchBlendCurve
+    peripheralStretchBlendMode = $PeripheralStretchBlendMode
+    peripheralStretchCornerMode = $PeripheralStretchCornerMode
+    peripheralStretchDebug = $PeripheralStretchDebug
     projectionAreaDiagnostic = [double]$ProjectionAreaDiagnostic
     runConfiguration = [ordered]@{
         xrRenderScale = [double]$XrRenderScale
@@ -1532,6 +1568,16 @@ $summary = [ordered]@{
         processingLayer = $ProcessingLayer
         projectionSampleMode = $ProjectionSampleMode
         blurRadiusPx = [double]$BlurRadiusPx
+        peripheralStretchMode = $PeripheralStretchMode
+        peripheralStretchCoreScale = [double]$PeripheralStretchCoreScale
+        peripheralStretchEdgeInsetUv = [double]$PeripheralStretchEdgeInsetUv
+        peripheralStretchMaxInsetUv = [double]$PeripheralStretchMaxInsetUv
+        peripheralStretchCurve = [double]$PeripheralStretchCurve
+        peripheralStretchInnerBlendUv = [double]$PeripheralStretchInnerBlendUv
+        peripheralStretchBlendCurve = [double]$PeripheralStretchBlendCurve
+        peripheralStretchBlendMode = $PeripheralStretchBlendMode
+        peripheralStretchCornerMode = $PeripheralStretchCornerMode
+        peripheralStretchDebug = $PeripheralStretchDebug
         projectionAreaDiagnostic = [double]$ProjectionAreaDiagnostic
         directCameraTexturePath = $DirectCameraTexturePath
         cameraProjectionMode = $CameraProjectionMode

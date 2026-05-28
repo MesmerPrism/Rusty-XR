@@ -5294,7 +5294,7 @@ mod tests {
         assert_eq!(config.camera_effect_params_push()[3], 6.0);
         assert_eq!(
             config.camera_peripheral_stretch_blend_params_push(),
-            [0.0, 1.5, 1.0, 0.0]
+            [0.04, 1.6, 1.0, 0.0]
         );
     }
 

@@ -1,8 +1,4 @@
 use crate::camera_texture_path::MakepadCameraTexturePath;
-use rusty_xr_camera_model::{
-    homography_unit_square_bounding_rect, rect_xywh, source_valid_screen_uv_footprint,
-    uv_rect_token, Rect2,
-};
 #[cfg(target_os = "android")]
 use rusty_xr_camera_model::{
     camera2_lens_pose_to_extrinsics, camera_basis_from_camera2_reference_pose_relative_to_center,
@@ -11,16 +7,28 @@ use rusty_xr_camera_model::{
     surface_to_eye_screen_uv_homography, CameraBasis, CameraIntrinsics, ImageSize, Quat,
     TrackingBasis, Vec2, Vec3,
 };
+use rusty_xr_camera_model::{
+    homography_unit_square_bounding_rect, rect_xywh, source_valid_screen_uv_footprint,
+    uv_rect_token, Rect2,
+};
 #[cfg(target_os = "android")]
 use std::ffi::CString;
 
+#[cfg(target_os = "android")]
+use super::source_metadata::{
+    broker_pair_content_geometry_marker_fields, BrokerH264ProjectionMetadata,
+};
+#[cfg(target_os = "android")]
+use super::Camera2StereoPlan;
 use super::{
-    hotload_bool, hotload_f32, makepad_blur_radius_px, makepad_current_source_color_contract_fields,
-    makepad_projection_depth_meters,
-    makepad_projection_panel_geometry, makepad_projection_preview_fov_y_degrees,
-    makepad_projection_preview_offset_y_meters, makepad_projection_raw_overscan, marker_token, App,
-    HorizontalAlignmentTuning, MakepadCameraPair, MakepadProcessingLayer,
-    MakepadProjectionAlphaMode, MakepadProjectionBorderPolicy, MakepadProjectionSampleMode,
+    hotload_bool, hotload_f32, makepad_current_source_color_contract_fields,
+    makepad_projection_depth_meters, makepad_projection_panel_geometry,
+    makepad_projection_preview_fov_y_degrees, makepad_projection_preview_offset_y_meters,
+    makepad_projection_raw_overscan, marker_token, App, HorizontalAlignmentTuning,
+    MakepadCameraPair, MakepadPeripheralStretchBlendMode, MakepadPeripheralStretchConfig,
+    MakepadPeripheralStretchCornerMode, MakepadPeripheralStretchDebug,
+    MakepadPeripheralStretchMode, MakepadProcessingLayer, MakepadProjectionAlphaMode,
+    MakepadProjectionBorderPolicy, MakepadProjectionSampleMode,
     KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED, KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV,
     KEY_MAKEPAD_PROJECTION_AREA_OFFSET_RIGHT_UV, KEY_MAKEPAD_PROJECTION_AREA_OFFSET_VERTICAL_UV,
     KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV, KEY_MAKEPAD_PROJECTION_AREA_RADIUS_Y_UV,
@@ -29,12 +37,6 @@ use super::{
     TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV, TARGET_PROJECTION_AREA_OFFSET_VERTICAL_UV,
     TARGET_PROJECTION_AREA_RADIUS_X_UV, TARGET_PROJECTION_AREA_RADIUS_Y_UV,
     TARGET_PROJECTION_AREA_SCALE_X, TARGET_PROJECTION_AREA_SCALE_Y,
-};
-#[cfg(target_os = "android")]
-use super::Camera2StereoPlan;
-#[cfg(target_os = "android")]
-use super::source_metadata::{
-    broker_pair_content_geometry_marker_fields, BrokerH264ProjectionMetadata,
 };
 #[cfg(target_os = "android")]
 use crate::acamera_sys::ACAMERA_LENS_FACING_BACK;
@@ -59,8 +61,7 @@ const DISPLAY_ASPECT: f32 = 1.0;
 #[cfg(target_os = "android")]
 const DEFAULT_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-left-source";
 #[cfg(target_os = "android")]
-const IDENTITY_HOMOGRAPHY: [[f32; 3]; 3] =
-    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+const IDENTITY_HOMOGRAPHY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
 #[cfg(target_os = "android")]
 #[derive(Clone, Copy, Debug)]
@@ -1222,6 +1223,9 @@ pub(crate) fn makepad_horizontal_alignment_hotload_marker_fields(
     tuning: HorizontalAlignmentTuning,
     panel_bound: bool,
 ) -> String {
+    let processing_layer = MakepadProcessingLayer::from_shader_code(tuning.processing_layer);
+    let peripheral_stretch_fields =
+        makepad_peripheral_stretch_config_from_tuning(tuning).marker_fields(processing_layer);
     horizontal_alignment_hotload_marker_fields(
         tuning.projection_border_opacity > 0.0001,
         &makepad_projection_target_marker_fields(),
@@ -1235,9 +1239,10 @@ pub(crate) fn makepad_horizontal_alignment_hotload_marker_fields(
         MakepadProjectionAlphaMode::current().stable_id(),
         tuning.projection_alpha_scale,
         tuning.projection_alpha_bias,
-        MakepadProcessingLayer::current().stable_id(),
+        processing_layer.stable_id(),
         MakepadProjectionSampleMode::current().stable_id(),
         tuning.blur_radius_px,
+        &peripheral_stretch_fields,
         tuning.projection_area_diagnostic,
         tuning.projection_area_offset_left_uv,
         tuning.projection_area_offset_right_uv,
@@ -1305,11 +1310,7 @@ pub(crate) fn makepad_stereo_comparison_marker_line(
     inputs: MakepadStereoComparisonMarkerInputs<'_>,
 ) -> String {
     let homography_marker_fields = projection_homography_marker_fields(pair);
-    stereo_comparison_marker_line(
-        pair,
-        &inputs,
-        &homography_marker_fields,
-    )
+    stereo_comparison_marker_line(pair, &inputs, &homography_marker_fields)
 }
 
 pub(crate) fn makepad_synthetic_stereo_comparison_marker_line(
@@ -1435,6 +1436,7 @@ fn horizontal_alignment_hotload_marker_fields(
     processing_layer: &str,
     projection_sample_mode: &str,
     blur_radius_px: f32,
+    peripheral_stretch_fields: &str,
     projection_area_diagnostic: f32,
     projection_area_left_uv: f32,
     projection_area_right_uv: f32,
@@ -1449,7 +1451,7 @@ fn horizontal_alignment_hotload_marker_fields(
     panel_bound: bool,
 ) -> String {
     format!(
-        "phase=horizontal-alignment-hotload status=applied s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109SolidRedProjectionExterior=true s110VerticalWindowOffsetHotload=true s111ProjectionAreaDiagnostic=true s112ProjectionAreaScreenOffset=true s113ProjectionAreaScreenScale=true s114ProjectionAreaFootprintOnlyDiagnostic=true s115ProjectionAreaKeystone=true s116ProjectionAreaMidpointBow=true s117PreHomographyDiagnosticOnly=true s118ProjectedFootprintLiveWindow=true s119ProcessingLayerHotload=true s120ProjectionAreaOpacityHotload=true s121ProjectionAreaRoundedMaskHotload=true s122ProjectionAlphaMaskHotload=true s123ProjectionSampleModeHotload=true horizontalAlignmentSource=screen_to_camera_center_delta_projection_area_source_valid_window manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true projectionBorderOpacityHotload=true projectionBorderPolicyHotload=true processingLayerHotload=true projectionSampleModeHotload=true projectionAreaDiagnosticHotload=true projectionAreaScreenOffsetHotload=true projectionAreaScreenScaleHotload=true projectionAreaRoundedMaskHotload=true projectionAreaKeystoneHotload=true projectionAreaBowHotload=true projectionAreaOpacityHotload=true projectionAlphaMaskHotload=true projectionAreaTransformStage=pre_homography_screen_uv borderlessWindowMask=false solidRedProjectionExterior={} propertyPrefix=debug.rustyxr {} projectionAreaDiagnosticMode=0_off_1_full_2_footprint_only horizontalAlignmentStrength={:.4} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} projectionBorderOpacity={:.4} projectionAreaOpacity={:.4} projectionAlphaMode={} projectionAlphaScale={:.4} projectionAlphaBias={:.4} processingLayer={} projectionSampleMode={} blurRadiusPx={:.2} projectionAreaDiagnostic={:.1} projectionAreaLeftUv={:.4} projectionAreaRightUv={:.4} projectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaKeystoneX={:.4} projectionAreaBowX={:.4} panelBound={} visualInspection=required",
+        "phase=horizontal-alignment-hotload status=applied s105HotloadHorizontalAlignmentControl=true s106SafeHorizontalWindowSampling=true s107WindowScaleHotload=true s108BorderlessWindowScale=false s109SolidRedProjectionExterior=true s110VerticalWindowOffsetHotload=true s111ProjectionAreaDiagnostic=true s112ProjectionAreaScreenOffset=true s113ProjectionAreaScreenScale=true s114ProjectionAreaFootprintOnlyDiagnostic=true s115ProjectionAreaKeystone=true s116ProjectionAreaMidpointBow=true s117PreHomographyDiagnosticOnly=true s118ProjectedFootprintLiveWindow=true s119ProcessingLayerHotload=true s120ProjectionAreaOpacityHotload=true s121ProjectionAreaRoundedMaskHotload=true s122ProjectionAlphaMaskHotload=true s123ProjectionSampleModeHotload=true s124PeripheralStretchLayerHotload=true horizontalAlignmentSource=screen_to_camera_center_delta_projection_area_source_valid_window manualHorizontalOffsetHotload=true verticalOffsetHotload=true contentUvScaleHotload=true projectionBorderOpacityHotload=true projectionBorderPolicyHotload=true processingLayerHotload=true projectionSampleModeHotload=true peripheralStretchHotload=true projectionAreaDiagnosticHotload=true projectionAreaScreenOffsetHotload=true projectionAreaScreenScaleHotload=true projectionAreaRoundedMaskHotload=true projectionAreaKeystoneHotload=true projectionAreaBowHotload=true projectionAreaOpacityHotload=true projectionAlphaMaskHotload=true projectionAreaTransformStage=pre_homography_screen_uv borderlessWindowMask=false solidRedProjectionExterior={} propertyPrefix=debug.rustyxr {} projectionAreaDiagnosticMode=0_off_1_full_2_footprint_only horizontalAlignmentStrength={:.4} manualLeftUv={:.4} manualRightUv={:.4} manualVerticalUv={:.4} contentUvScale={:.4} projectionBorderOpacity={:.4} projectionAreaOpacity={:.4} projectionAlphaMode={} projectionAlphaScale={:.4} projectionAlphaBias={:.4} processingLayer={} projectionSampleMode={} blurRadiusPx={:.2} {} projectionAreaDiagnostic={:.1} projectionAreaLeftUv={:.4} projectionAreaRightUv={:.4} projectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaKeystoneX={:.4} projectionAreaBowX={:.4} panelBound={} visualInspection=required",
         solid_red_projection_exterior,
         projection_target_fields,
         horizontal_alignment_strength,
@@ -1465,6 +1467,7 @@ fn horizontal_alignment_hotload_marker_fields(
         processing_layer,
         projection_sample_mode,
         blur_radius_px,
+        peripheral_stretch_fields,
         projection_area_diagnostic,
         projection_area_left_uv,
         projection_area_right_uv,
@@ -2027,11 +2030,32 @@ fn projection_area_center_uv(
     ]
 }
 
+fn makepad_peripheral_stretch_config_from_tuning(
+    tuning: HorizontalAlignmentTuning,
+) -> MakepadPeripheralStretchConfig {
+    MakepadPeripheralStretchConfig {
+        mode: MakepadPeripheralStretchMode::EdgeStretch,
+        core_scale: tuning.peripheral_stretch_core_scale,
+        edge_inset_uv: tuning.peripheral_stretch_edge_inset_uv,
+        max_inset_uv: tuning.peripheral_stretch_max_inset_uv,
+        curve: tuning.peripheral_stretch_curve,
+        inner_blend_uv: tuning.peripheral_stretch_inner_blend_uv,
+        blend_curve: tuning.peripheral_stretch_blend_curve,
+        blend_mode: MakepadPeripheralStretchBlendMode::from_shader_code(
+            tuning.peripheral_stretch_blend_mode,
+        ),
+        corner_mode: MakepadPeripheralStretchCornerMode::TargetFootprint,
+        debug: MakepadPeripheralStretchDebug::from_shader_code(tuning.peripheral_stretch_debug),
+    }
+}
+
 pub(crate) fn makepad_projection_target_marker_fields() -> String {
     let tuning = App::horizontal_alignment_tuning();
     let policy = MakepadProjectionBorderPolicy::from_shader_code(tuning.projection_border_policy);
-    let processing_layer = MakepadProcessingLayer::current();
+    let processing_layer = MakepadProcessingLayer::from_shader_code(tuning.processing_layer);
     let alpha_mode = MakepadProjectionAlphaMode::from_shader_code(tuning.projection_alpha_mode);
+    let peripheral_stretch_fields =
+        makepad_peripheral_stretch_config_from_tuning(tuning).marker_fields(processing_layer);
     let opacity_needs_passthrough =
         tuning.projection_area_opacity < 0.999 || tuning.projection_border_opacity < 0.999;
     let native_passthrough = hotload_bool(
@@ -2086,7 +2110,7 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
     );
     let source_color_contract = makepad_current_source_color_contract_fields();
     format!(
-        "nativePassthroughRequested={} projectionBorderPolicy={} passthroughUnderlay={} projectionDepthMeters={:.3} panelTargetDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} panelTargetAspect={:.3} panelTargetWidthMeters={:.3} panelTargetHeightMeters={:.3} panelTargetCenterYMeters={:.3} panelTargetZMeters={:.3} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} processingLayer={} blurRadiusPx={:.2} {} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=panel-covers-target-fov feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_panel borderRegionSemantics=surface_minus_feed borderFillPolicy={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv",
+        "nativePassthroughRequested={} projectionBorderPolicy={} passthroughUnderlay={} projectionDepthMeters={:.3} panelTargetDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} panelTargetAspect={:.3} panelTargetWidthMeters={:.3} panelTargetHeightMeters={:.3} panelTargetCenterYMeters={:.3} panelTargetZMeters={:.3} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} processingLayer={} blurRadiusPx={:.2} {} {} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=panel-covers-target-fov feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_panel borderRegionSemantics=visible-render-surface-minus-target-footprint borderFillPolicy={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv",
         native_passthrough,
         policy.stable_id(),
         policy.wants_native_passthrough(),
@@ -2106,7 +2130,8 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
         tuning.projection_alpha_scale,
         tuning.projection_alpha_bias,
         processing_layer.stable_id(),
-        makepad_blur_radius_px(),
+        tuning.blur_radius_px,
+        peripheral_stretch_fields,
         source_color_contract,
         projection_area_left_offset_x_uv,
         projection_area_right_offset_x_uv,
@@ -2140,8 +2165,8 @@ mod tests {
         projection_complete_error_marker_fields, projection_enumerated_marker_fields,
         projection_start_marker_fields, single_stream_proof_wait_marker_fields,
         stereo_comparison_marker_line_fields, visible_panel_bound_marker_fields,
-        CompleteMarkerFields, HorizontalAlignmentTuning,
-        MakepadStereoComparisonMarkerInputs, StereoComparisonPairFields,
+        CompleteMarkerFields, HorizontalAlignmentTuning, MakepadStereoComparisonMarkerInputs,
+        StereoComparisonPairFields,
     };
 
     #[test]
@@ -2156,14 +2181,11 @@ mod tests {
             "projectionHomographyReady=true runtimeXrViewStateReady=true",
         );
 
-        assert!(fields.starts_with(
-            "phase=draw-vars-bound status=ok cameraReady=true yuvMode=true"
-        ));
+        assert!(fields.starts_with("phase=draw-vars-bound status=ok cameraReady=true yuvMode=true"));
         assert!(fields.contains(
             "leftYuvTextureBound=true rightYuvTextureBound=true brokerH264SurfaceTexture=false"
         ));
-        assert!(fields
-            .contains("singleStreamVisualProof=true updatedStreamVisualProofSide=left"));
+        assert!(fields.contains("singleStreamVisualProof=true updatedStreamVisualProofSide=left"));
         assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
         assert!(fields.ends_with("visualInspection=required visualReleaseAccepted=false"));
     }
@@ -2203,16 +2225,16 @@ mod tests {
             "projectionHomographyReady=true runtimeXrViewStateReady=true",
         );
 
-        assert!(fields.starts_with(
-            "phase=visible-panel-bound status=ok visibleCameraProjectionReady=true"
-        ));
+        assert!(fields
+            .starts_with("phase=visible-panel-bound status=ok visibleCameraProjectionReady=true"));
         assert!(fields.contains(
             "sourceEyeMapping=left-right leftEyeSource=makepad-camera-source-0 rightEyeSource=makepad-camera-source-1"
         ));
         assert!(fields.contains("leftRotationSteps=90 rightRotationSteps=270"));
         assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
-        assert!(fields
-            .contains("singleStreamVisualProof=false updatedStreamVisualProofSide=paired"));
+        assert!(
+            fields.contains("singleStreamVisualProof=false updatedStreamVisualProofSide=paired")
+        );
         assert!(fields.ends_with("visualInspection=required visualReleaseAccepted=false"));
     }
 
@@ -2273,9 +2295,7 @@ mod tests {
             fallback_reason: "none",
         });
 
-        assert!(fields.starts_with(
-            "phase=complete status=ok pairedLeftRightCameraFrames=true"
-        ));
+        assert!(fields.starts_with("phase=complete status=ok pairedLeftRightCameraFrames=true"));
         assert!(fields.contains(
             "projectionMappingReady=true alignedProjection=true visibleCameraProjectionReady=true"
         ));
@@ -2316,9 +2336,7 @@ mod tests {
             "none",
         );
 
-        assert!(fields.starts_with(
-            "phase=start status=started pairedLeftRightGpuBuffers=false"
-        ));
+        assert!(fields.starts_with("phase=start status=started pairedLeftRightGpuBuffers=false"));
         assert!(fields.contains(
             "projectionMappingReady=true alignedProjection=false projectionMetadataReady=true"
         ));
@@ -2355,9 +2373,8 @@ mod tests {
         ));
         assert!(fields.contains("poseSource=camera2-openxr-view sourceEyeMapping=left-right"));
         assert!(fields.contains("projectionHomographyReady=true runtimeXrViewStateReady=true"));
-        assert!(fields.ends_with(
-            "leftSourceIndex=0 rightSourceIndex=1 fallbackReason=waiting_for_right"
-        ));
+        assert!(fields
+            .ends_with("leftSourceIndex=0 rightSourceIndex=1 fallbackReason=waiting_for_right"));
     }
 
     #[test]
@@ -2376,9 +2393,9 @@ mod tests {
         assert!(fields.starts_with(
             "phase=single-stream-proof status=waiting pairedLeftRightCameraFrames=false"
         ));
-        assert!(fields.contains(
-            "singleStreamCameraPixels=true leftUpdated=true rightUpdated=false"
-        ));
+        assert!(
+            fields.contains("singleStreamCameraPixels=true leftUpdated=true rightUpdated=false")
+        );
         assert!(fields.contains("leftYuvReady=true rightYuvReady=false"));
         assert!(fields.contains(
             "projectionMappingReady=true alignedProjection=false visibleCameraProjectionReady=true"
@@ -2410,9 +2427,8 @@ mod tests {
             "none",
         );
 
-        assert!(fields.starts_with(
-            "phase=enumerated status=ok makepadSourceCount=2 makepadFormatCount=4"
-        ));
+        assert!(fields
+            .starts_with("phase=enumerated status=ok makepadSourceCount=2 makepadFormatCount=4"));
         assert!(fields.contains(
             "projectionMappingReady=true alignedProjection=false projectionMetadataReady=true"
         ));
@@ -2508,11 +2524,12 @@ mod tests {
 
     #[test]
     fn native_video_widget_markers_keep_projection_contract_shape() {
-        let error =
-            native_video_widget_reset_marker_fields("error", false, true, true, false, false, true, 3, None);
-        assert!(error.starts_with(
-            "phase=native-video-widget-reset status=error leftUnprepared=false"
-        ));
+        let error = native_video_widget_reset_marker_fields(
+            "error", false, true, true, false, false, true, 3, None,
+        );
+        assert!(
+            error.starts_with("phase=native-video-widget-reset status=error leftUnprepared=false")
+        );
         assert!(!error.contains("retrySeconds="));
         assert!(error.ends_with("fallbackReason=makepad_video_widget_not_unprepared"));
 
@@ -2556,6 +2573,7 @@ mod tests {
             "none",
             "camera",
             0.0,
+            "peripheralStretchMode=edge-stretch peripheralStretchConsumesProjectionExterior=false",
             1.0,
             -0.1,
             0.1,
@@ -2570,9 +2588,7 @@ mod tests {
             true,
         );
 
-        assert!(fields.starts_with(
-            "phase=horizontal-alignment-hotload status=applied"
-        ));
+        assert!(fields.starts_with("phase=horizontal-alignment-hotload status=applied"));
         assert!(fields.contains("projectionAreaTransformStage=pre_homography_screen_uv"));
         assert!(fields.contains("projectionBorderPolicy=solid-red"));
         assert!(fields.contains("projectionSampleMode=camera"));

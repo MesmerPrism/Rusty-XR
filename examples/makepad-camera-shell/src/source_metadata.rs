@@ -1,6 +1,6 @@
 use crate::camera_texture_path::MakepadCameraTexturePath;
 use crate::makepad_widgets::makepad_platform::event::video_playback::VideoTextureUpdateMetadata;
-use rusty_xr_camera_model::{rect_xywh, uv_rect_token, Rect2, Vec2};
+use rusty_xr_camera_model::{rect_xywh, uv_rect_token, Rect2, SourceSamplingMode, Vec2};
 use serde_json::Value as JsonValue;
 
 use super::{
@@ -14,6 +14,53 @@ pub(crate) fn aspect_ratio_u32(width: u32, height: u32) -> f64 {
     } else {
         1.0
     }
+}
+
+fn source_sampling_mode_from_metadata(
+    projection_geometry_profile: &str,
+    synthetic_projection_profile: &str,
+    content_mapping_intent: &str,
+) -> SourceSamplingMode {
+    let profile = projection_geometry_profile
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-");
+    let synthetic_profile = synthetic_projection_profile
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-");
+    let intent = content_mapping_intent
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-")
+        .replace(' ', "-");
+    if SourceSamplingMode::parse(&intent).is_some_and(|mode| mode.uses_target_local_raster()) {
+        return SourceSamplingMode::TargetLocalRaster;
+    }
+    if SourceSamplingMode::parse(&intent)
+        .is_some_and(|mode| mode.uses_screen_to_camera_homography())
+    {
+        return SourceSamplingMode::ScreenToCameraHomography;
+    }
+    if matches!(
+        intent.as_str(),
+        "map-camera-frame-through-screen-to-camera-homography"
+            | "map-stimulus-raster-through-camera-projection"
+    ) {
+        return SourceSamplingMode::ScreenToCameraHomography;
+    }
+    if profile == "camera-projection"
+        || profile == "camera-matched"
+        || profile == "physical-camera"
+        || synthetic_profile == "camera-projection"
+        || synthetic_profile == "camera-matched"
+        || synthetic_profile == "physical-camera"
+        || profile == "head-anchored-virtual-camera"
+        || synthetic_profile == "head-anchored-virtual-camera"
+    {
+        return SourceSamplingMode::ScreenToCameraHomography;
+    }
+    SourceSamplingMode::TargetLocalRaster
 }
 
 pub(crate) fn makepad_camera_status_marker_line(
@@ -530,6 +577,7 @@ pub(crate) struct BrokerH264ProjectionMetadata {
     pub(crate) content_x_axis: String,
     pub(crate) content_y_axis: String,
     pub(crate) content_mapping_intent: String,
+    pub(crate) source_sampling_mode: SourceSamplingMode,
     pub(crate) content_geometry_metadata_source: String,
     pub(crate) content_geometry_default: bool,
     pub(crate) source_valid_uv_rect: Rect2,
@@ -731,6 +779,15 @@ impl BrokerH264ProjectionMetadata {
         let content_mapping_intent = json_string_any(object, &["contentMappingIntent"])
             .unwrap_or("unspecified")
             .to_string();
+        let source_sampling_mode = json_string_any(object, &["sourceSamplingMode"])
+            .and_then(SourceSamplingMode::parse)
+            .unwrap_or_else(|| {
+                source_sampling_mode_from_metadata(
+                    &projection_geometry_profile,
+                    &synthetic_projection_profile,
+                    &content_mapping_intent,
+                )
+            });
         let content_geometry_metadata_source =
             json_string_any(object, &["contentGeometryMetadataSource"])
                 .unwrap_or("missing")
@@ -776,6 +833,7 @@ impl BrokerH264ProjectionMetadata {
             content_x_axis,
             content_y_axis,
             content_mapping_intent,
+            source_sampling_mode,
             content_geometry_metadata_source,
             content_geometry_default,
             source_valid_uv_rect,
@@ -829,7 +887,9 @@ impl BrokerH264ProjectionMetadata {
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     pub(crate) fn requests_camera_projection_mapping(&self) -> bool {
-        self.projection_profile_is("camera-matched")
+        (self.source_sampling_mode.uses_screen_to_camera_homography()
+            && !self.requests_head_anchored_projection_area_mapping())
+            || self.projection_profile_is("camera-matched")
             || self.projection_profile_is("camera-projection")
             || self.projection_profile_is("physical-camera")
             || self.content_mapping_intent_is_any(&[
@@ -845,8 +905,10 @@ impl BrokerH264ProjectionMetadata {
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     pub(crate) fn requests_full_frame_projection_area_mapping(&self) -> bool {
-        self.projection_profile_is("full-frame-diagnostic")
+        self.source_sampling_mode.uses_target_local_raster()
+            || self.projection_profile_is("full-frame-diagnostic")
             || self.content_mapping_intent_is_any(&[
+                "target-local-raster",
                 "map-camera-frame-to-full-frame-projection-surface",
                 "map-camera-frame-to-full-frame-projection-area",
                 "map-full-frame-stimulus-to-projection-surface",
@@ -857,12 +919,14 @@ impl BrokerH264ProjectionMetadata {
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     pub(crate) fn requests_explicit_full_frame_content_mapping(&self) -> bool {
-        self.content_mapping_intent_is_any(&[
-            "map-full-frame-stimulus-to-projection-surface",
-            "map-full-frame-stimulus-to-projection-area",
-            "map-full-frame-content-to-projection-surface",
-            "map-full-frame-content-to-projection-area",
-        ])
+        self.source_sampling_mode.uses_target_local_raster()
+            || self.content_mapping_intent_is_any(&[
+                "target-local-raster",
+                "map-full-frame-stimulus-to-projection-surface",
+                "map-full-frame-stimulus-to-projection-area",
+                "map-full-frame-content-to-projection-surface",
+                "map-full-frame-content-to-projection-area",
+            ])
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -880,10 +944,10 @@ impl BrokerH264ProjectionMetadata {
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     pub(crate) fn projection_mapping_profile_id(&self) -> &'static str {
-        if self.requests_full_frame_projection_area_mapping() {
-            "full-frame-diagnostic"
-        } else if self.requests_camera_projection_mapping() {
+        if self.requests_camera_projection_mapping() {
             "camera-projection"
+        } else if self.requests_full_frame_projection_area_mapping() {
+            "full-frame-diagnostic"
         } else if self.requests_head_anchored_projection_area_mapping() {
             "head-anchored-virtual-camera"
         } else {
@@ -933,6 +997,7 @@ struct ContentGeometryRecord {
     x_axis: String,
     y_axis: String,
     mapping_intent: String,
+    source_sampling_mode: SourceSamplingMode,
     metadata_source: String,
     metadata_default: bool,
 }
@@ -951,6 +1016,7 @@ impl ContentGeometryRecord {
             x_axis: metadata.content_x_axis.clone(),
             y_axis: metadata.content_y_axis.clone(),
             mapping_intent: metadata.content_mapping_intent.clone(),
+            source_sampling_mode: metadata.source_sampling_mode,
             metadata_source: metadata.content_geometry_metadata_source.clone(),
             metadata_default: metadata.content_geometry_default,
         }
@@ -970,6 +1036,11 @@ impl ContentGeometryRecord {
             x_axis: "right".to_string(),
             y_axis: "down".to_string(),
             mapping_intent: mapping_intent.to_string(),
+            source_sampling_mode: source_sampling_mode_from_metadata(
+                mapping_intent,
+                mapping_intent,
+                mapping_intent,
+            ),
             metadata_source: "makepad-direct-camera2-import".to_string(),
             metadata_default: false,
         }
@@ -988,6 +1059,7 @@ impl ContentGeometryRecord {
             x_axis: "right".to_string(),
             y_axis: "down".to_string(),
             mapping_intent: "standard-missing-metadata-fallback".to_string(),
+            source_sampling_mode: SourceSamplingMode::TargetLocalRaster,
             metadata_source: "missing".to_string(),
             metadata_default: true,
         }
@@ -1033,7 +1105,7 @@ impl StereoContentGeometryRecord {
 
     fn marker_fields(&self) -> String {
         format!(
-            "leftContentKind={} rightContentKind={} leftContentWidth={} leftContentHeight={} rightContentWidth={} rightContentHeight={} leftContentAspectRatio={:.6} rightContentAspectRatio={:.6} leftDesiredDisplayAspectRatio={:.6} rightDesiredDisplayAspectRatio={:.6} leftDesiredProjectionAspectRatio={:.6} rightDesiredProjectionAspectRatio={:.6} leftContentCoordinateSpace={} rightContentCoordinateSpace={} leftContentOrigin={} rightContentOrigin={} leftContentXAxis={} rightContentXAxis={} leftContentYAxis={} rightContentYAxis={} leftContentMappingIntent={} rightContentMappingIntent={} leftContentGeometryMetadataSource={} rightContentGeometryMetadataSource={} leftContentGeometryDefault={} rightContentGeometryDefault={} contentGeometryFallbackReason={}",
+            "leftContentKind={} rightContentKind={} leftContentWidth={} leftContentHeight={} rightContentWidth={} rightContentHeight={} leftContentAspectRatio={:.6} rightContentAspectRatio={:.6} leftDesiredDisplayAspectRatio={:.6} rightDesiredDisplayAspectRatio={:.6} leftDesiredProjectionAspectRatio={:.6} rightDesiredProjectionAspectRatio={:.6} leftContentCoordinateSpace={} rightContentCoordinateSpace={} leftContentOrigin={} rightContentOrigin={} leftContentXAxis={} rightContentXAxis={} leftContentYAxis={} rightContentYAxis={} leftContentMappingIntent={} rightContentMappingIntent={} leftSourceSamplingMode={} rightSourceSamplingMode={} leftContentGeometryMetadataSource={} rightContentGeometryMetadataSource={} leftContentGeometryDefault={} rightContentGeometryDefault={} contentGeometryFallbackReason={}",
             marker_token(&self.left.kind),
             marker_token(&self.right.kind),
             self.left.width,
@@ -1056,6 +1128,8 @@ impl StereoContentGeometryRecord {
             marker_token(&self.right.y_axis),
             marker_token(&self.left.mapping_intent),
             marker_token(&self.right.mapping_intent),
+            self.left.source_sampling_mode.stable_id(),
+            self.right.source_sampling_mode.stable_id(),
             marker_token(&self.left.metadata_source),
             marker_token(&self.right.metadata_source),
             self.left.metadata_default,
@@ -1178,7 +1252,11 @@ pub(crate) fn makepad_content_geometry_marker_fields(
             width,
             height,
             projection_geometry_profile,
-        } => direct_camera2_content_geometry_marker_fields(width, height, projection_geometry_profile),
+        } => direct_camera2_content_geometry_marker_fields(
+            width,
+            height,
+            projection_geometry_profile,
+        ),
     }
 }
 
@@ -1208,12 +1286,15 @@ pub(crate) fn direct_camera2_content_geometry_marker_fields(
     let projection_geometry_profile =
         normalize_direct_camera_projection_geometry_profile(projection_geometry_profile);
     let content_mapping_intent = match projection_geometry_profile.as_str() {
-        "full-frame-diagnostic" => "map-full-frame-camera-frame-to-projection-surface",
+        "full-frame-diagnostic" => "target-local-raster",
         "camera-projection" => "map-camera-frame-through-screen-to-camera-homography",
         _ => "unsupported-direct-camera-projection-geometry-profile",
     };
-    let content_geometry =
-        StereoContentGeometryRecord::direct_camera2(content_width, content_height, content_mapping_intent);
+    let content_geometry = StereoContentGeometryRecord::direct_camera2(
+        content_width,
+        content_height,
+        content_mapping_intent,
+    );
     format!(
         "projectionGeometryProfile={} geometry_profile={} {}",
         projection_geometry_profile,
@@ -1232,7 +1313,7 @@ pub(crate) fn stream_header_metadata_marker_fields(
 ) -> String {
     let content_geometry = ContentGeometryRecord::from_broker_metadata(metadata);
     format!(
-        "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} projectionGeometryProfile={} geometry_profile={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+        "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} projectionGeometryProfile={} geometry_profile={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} sourceSamplingMode={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
         side_label,
         metadata.metadata_bytes,
         marker_token(&metadata.camera_id),
@@ -1264,6 +1345,7 @@ pub(crate) fn stream_header_metadata_marker_fields(
         marker_token(&content_geometry.x_axis),
         marker_token(&content_geometry.y_axis),
         marker_token(&content_geometry.mapping_intent),
+        content_geometry.source_sampling_mode.stable_id(),
         marker_token(&content_geometry.metadata_source),
         content_geometry.metadata_default,
         uv_rect_token(rect_xywh(metadata.source_valid_uv_rect)),
@@ -1442,15 +1524,12 @@ mod tests {
 
     #[test]
     fn direct_camera2_content_geometry_uses_stereo_record() {
-        let fields = direct_camera2_content_geometry_marker_fields(
-            1280,
-            720,
-            "camera2-platform-unprofiled",
-        );
+        let fields =
+            direct_camera2_content_geometry_marker_fields(1280, 720, "camera2-platform-unprofiled");
 
         assert_eq!(
             fields,
-            "projectionGeometryProfile=camera-projection geometry_profile=camera-projection leftContentKind=camera-frame rightContentKind=camera-frame leftContentWidth=1280 leftContentHeight=720 rightContentWidth=1280 rightContentHeight=720 leftContentAspectRatio=1.777778 rightContentAspectRatio=1.777778 leftDesiredDisplayAspectRatio=1.777778 rightDesiredDisplayAspectRatio=1.777778 leftDesiredProjectionAspectRatio=1.777778 rightDesiredProjectionAspectRatio=1.777778 leftContentCoordinateSpace=normalized-uv rightContentCoordinateSpace=normalized-uv leftContentOrigin=top-left rightContentOrigin=top-left leftContentXAxis=right rightContentXAxis=right leftContentYAxis=down rightContentYAxis=down leftContentMappingIntent=map-camera-frame-through-screen-to-camera-homography rightContentMappingIntent=map-camera-frame-through-screen-to-camera-homography leftContentGeometryMetadataSource=makepad-direct-camera2-import rightContentGeometryMetadataSource=makepad-direct-camera2-import leftContentGeometryDefault=false rightContentGeometryDefault=false contentGeometryFallbackReason=none"
+            "projectionGeometryProfile=camera-projection geometry_profile=camera-projection leftContentKind=camera-frame rightContentKind=camera-frame leftContentWidth=1280 leftContentHeight=720 rightContentWidth=1280 rightContentHeight=720 leftContentAspectRatio=1.777778 rightContentAspectRatio=1.777778 leftDesiredDisplayAspectRatio=1.777778 rightDesiredDisplayAspectRatio=1.777778 leftDesiredProjectionAspectRatio=1.777778 rightDesiredProjectionAspectRatio=1.777778 leftContentCoordinateSpace=normalized-uv rightContentCoordinateSpace=normalized-uv leftContentOrigin=top-left rightContentOrigin=top-left leftContentXAxis=right rightContentXAxis=right leftContentYAxis=down rightContentYAxis=down leftContentMappingIntent=map-camera-frame-through-screen-to-camera-homography rightContentMappingIntent=map-camera-frame-through-screen-to-camera-homography leftSourceSamplingMode=screen-to-camera-homography rightSourceSamplingMode=screen-to-camera-homography leftContentGeometryMetadataSource=makepad-direct-camera2-import rightContentGeometryMetadataSource=makepad-direct-camera2-import leftContentGeometryDefault=false rightContentGeometryDefault=false contentGeometryFallbackReason=none"
         );
     }
 
@@ -1458,19 +1537,18 @@ mod tests {
     fn missing_broker_content_geometry_uses_fallback_record() {
         assert_eq!(
             missing_broker_content_geometry_marker_fields(),
-            "leftContentKind=default-fallback rightContentKind=default-fallback leftContentWidth=0 leftContentHeight=0 rightContentWidth=0 rightContentHeight=0 leftContentAspectRatio=1.000000 rightContentAspectRatio=1.000000 leftDesiredDisplayAspectRatio=1.000000 rightDesiredDisplayAspectRatio=1.000000 leftDesiredProjectionAspectRatio=1.000000 rightDesiredProjectionAspectRatio=1.000000 leftContentCoordinateSpace=normalized-uv rightContentCoordinateSpace=normalized-uv leftContentOrigin=top-left rightContentOrigin=top-left leftContentXAxis=right rightContentXAxis=right leftContentYAxis=down rightContentYAxis=down leftContentMappingIntent=standard-missing-metadata-fallback rightContentMappingIntent=standard-missing-metadata-fallback leftContentGeometryMetadataSource=missing rightContentGeometryMetadataSource=missing leftContentGeometryDefault=true rightContentGeometryDefault=true contentGeometryFallbackReason=broker-h264-content-geometry-metadata-missing"
+            "leftContentKind=default-fallback rightContentKind=default-fallback leftContentWidth=0 leftContentHeight=0 rightContentWidth=0 rightContentHeight=0 leftContentAspectRatio=1.000000 rightContentAspectRatio=1.000000 leftDesiredDisplayAspectRatio=1.000000 rightDesiredDisplayAspectRatio=1.000000 leftDesiredProjectionAspectRatio=1.000000 rightDesiredProjectionAspectRatio=1.000000 leftContentCoordinateSpace=normalized-uv rightContentCoordinateSpace=normalized-uv leftContentOrigin=top-left rightContentOrigin=top-left leftContentXAxis=right rightContentXAxis=right leftContentYAxis=down rightContentYAxis=down leftContentMappingIntent=standard-missing-metadata-fallback rightContentMappingIntent=standard-missing-metadata-fallback leftSourceSamplingMode=target-local-raster rightSourceSamplingMode=target-local-raster leftContentGeometryMetadataSource=missing rightContentGeometryMetadataSource=missing leftContentGeometryDefault=true rightContentGeometryDefault=true contentGeometryFallbackReason=broker-h264-content-geometry-metadata-missing"
         );
     }
 
     #[test]
     fn makepad_content_geometry_source_selects_direct_and_missing_broker_records() {
-        let direct = makepad_content_geometry_marker_fields(
-            MakepadContentGeometrySource::DirectCamera2 {
+        let direct =
+            makepad_content_geometry_marker_fields(MakepadContentGeometrySource::DirectCamera2 {
                 width: 1280,
                 height: 720,
                 projection_geometry_profile: "full-frame-diagnostic",
-            },
-        );
+            });
         assert!(direct.contains("projectionGeometryProfile=full-frame-diagnostic"));
         assert!(direct.contains("leftContentKind=camera-frame"));
         assert!(direct.contains("contentGeometryFallbackReason=none"));
@@ -1533,6 +1611,7 @@ mod tests {
             r#"{
                 "projectionMetadataReady": true,
                 "projectionGeometryProfile": "full-frame-diagnostic",
+                "sourceSamplingMode": "screen-to-camera-homography",
                 "contentMappingIntent": "map-camera-frame-to-full-frame-projection-area",
                 "intrinsics": {"fx": 1024.0, "fy": 1024.0, "cx": 640.0, "cy": 640.0},
                 "extrinsics": {"px": 0.0, "py": 0.0, "pz": 0.0, "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0}

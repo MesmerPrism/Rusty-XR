@@ -579,7 +579,7 @@ The suite applies the same policy to every public lane:
 | --- | --- | --- |
 | Vulkan/HWB | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` with `rustyxr.cameraPipelinePreset=raw-projection-unorm` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
-| Makepad CPU-YUV | `debug.rustyxr.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.makepad.processing.layer=blur` plus `debug.rustyxr.makepad.blur.radius.px` |
+| Makepad CPU-YUV | `debug.rustyxr.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.processing.layer=blur` plus `debug.rustyxr.camera.blur.radius.px`; legacy `debug.rustyxr.makepad.*` aliases are compatibility-only |
 
 Use `-ProjectionAreaOffsetXUv <value>` and `-ProjectionAreaOffsetYUv <value>`
 on the suite to run repeatable centering sweeps. The suite-level contract uses

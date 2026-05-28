@@ -111,7 +111,12 @@ fn makepad_projection_runtime_alias_config(
     config
 }
 
-pub(super) fn makepad_current_projection_runtime_float(key: &str, fallback: f32, min: f32, max: f32) -> f32 {
+pub(super) fn makepad_current_projection_runtime_float(
+    key: &str,
+    fallback: f32,
+    min: f32,
+    max: f32,
+) -> f32 {
     let config = App::runtime_config();
     let legacy = App::legacy_horizontal_alignment_tuning();
     let runtime = makepad_projection_runtime_resolution(&config, legacy);
@@ -250,6 +255,73 @@ pub(super) fn makepad_horizontal_alignment_tuning_from_resolution(
         tuning.projection_border_policy =
             MakepadProjectionBorderPolicy::from_stable_id(policy).shader_code();
     }
+    if let Some(processing_layer) =
+        makepad_projection_runtime_text(resolution, rxrc::KEY_PROCESSING_LAYER)
+    {
+        tuning.processing_layer =
+            MakepadProcessingLayer::from_stable_id(processing_layer).shader_code();
+    }
+    tuning.blur_radius_px = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_CAMERA_BLUR_RADIUS_PX,
+        tuning.blur_radius_px,
+        0.0,
+        16.0,
+    );
+    tuning.peripheral_stretch_core_scale = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_CORE_SCALE,
+        tuning.peripheral_stretch_core_scale,
+        0.05,
+        1.0,
+    );
+    tuning.peripheral_stretch_edge_inset_uv = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
+        tuning.peripheral_stretch_edge_inset_uv,
+        0.0,
+        0.49,
+    );
+    tuning.peripheral_stretch_max_inset_uv = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
+        tuning.peripheral_stretch_max_inset_uv,
+        tuning.peripheral_stretch_edge_inset_uv,
+        0.49,
+    );
+    tuning.peripheral_stretch_curve = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_CURVE,
+        tuning.peripheral_stretch_curve,
+        0.25,
+        6.0,
+    );
+    tuning.peripheral_stretch_inner_blend_uv = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
+        tuning.peripheral_stretch_inner_blend_uv,
+        0.0,
+        0.25,
+    );
+    tuning.peripheral_stretch_blend_curve = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
+        tuning.peripheral_stretch_blend_curve,
+        0.25,
+        6.0,
+    );
+    if let Some(blend_mode) =
+        makepad_projection_runtime_text(resolution, rxrc::KEY_PERIPHERAL_STRETCH_BLEND_MODE)
+    {
+        tuning.peripheral_stretch_blend_mode =
+            MakepadPeripheralStretchBlendMode::from_stable_id(blend_mode).shader_code();
+    }
+    if let Some(debug) =
+        makepad_projection_runtime_text(resolution, rxrc::KEY_PERIPHERAL_STRETCH_DEBUG)
+    {
+        tuning.peripheral_stretch_debug =
+            MakepadPeripheralStretchDebug::from_stable_id(debug).shader_code();
+    }
     if let Some(alpha_mode) =
         makepad_projection_runtime_text(resolution, rxrc::KEY_PROJECTION_ALPHA_MODE)
     {
@@ -381,6 +453,80 @@ fn makepad_projection_runtime_config_defaults() -> rxrc::RuntimeConfig {
         &mut config,
         rxrc::KEY_PROJECTION_BORDER_POLICY,
         MakepadProjectionBorderPolicy::SolidRed.stable_id(),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    let default_processing_layer = MakepadProcessingLayer::Raw;
+    let default_peripheral_stretch = MakepadPeripheralStretchConfig::default();
+    set_projection_manifest_text(
+        &mut config,
+        rxrc::KEY_PROCESSING_LAYER,
+        default_processing_layer.stable_id(),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_CAMERA_BLUR_RADIUS_PX,
+        2.0,
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_text(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_MODE,
+        default_peripheral_stretch.mode.stable_id(),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_CORE_SCALE,
+        f64::from(default_peripheral_stretch.core_scale),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
+        f64::from(default_peripheral_stretch.edge_inset_uv),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
+        f64::from(default_peripheral_stretch.max_inset_uv),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_CURVE,
+        f64::from(default_peripheral_stretch.curve),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
+        f64::from(default_peripheral_stretch.inner_blend_uv),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
+        f64::from(default_peripheral_stretch.blend_curve),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_text(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_BLEND_MODE,
+        default_peripheral_stretch.blend_mode.stable_id(),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_text(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_CORNER_MODE,
+        default_peripheral_stretch.corner_mode.stable_id(),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_text(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_DEBUG,
+        default_peripheral_stretch.debug.stable_id(),
         rxrc::RuntimeConfigSource::Default,
     );
     set_projection_manifest_text(
@@ -523,6 +669,83 @@ fn makepad_projection_runtime_config_effective(
         MakepadProjectionBorderPolicy::current().stable_id(),
         rxrc::RuntimeConfigSource::AndroidProperty,
     );
+    let processing_layer = MakepadProcessingLayer::from_shader_code(tuning.processing_layer);
+    let stretch_blend_mode =
+        MakepadPeripheralStretchBlendMode::from_shader_code(tuning.peripheral_stretch_blend_mode);
+    let stretch_debug =
+        MakepadPeripheralStretchDebug::from_shader_code(tuning.peripheral_stretch_debug);
+    set_projection_manifest_text(
+        &mut manifest,
+        rxrc::KEY_PROCESSING_LAYER,
+        processing_layer.stable_id(),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_CAMERA_BLUR_RADIUS_PX,
+        f64::from(tuning.blur_radius_px),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_text(
+        &mut manifest,
+        rxrc::KEY_PERIPHERAL_STRETCH_MODE,
+        MakepadPeripheralStretchMode::EdgeStretch.stable_id(),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PERIPHERAL_STRETCH_CORE_SCALE,
+        f64::from(tuning.peripheral_stretch_core_scale),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
+        f64::from(tuning.peripheral_stretch_edge_inset_uv),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
+        f64::from(tuning.peripheral_stretch_max_inset_uv),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PERIPHERAL_STRETCH_CURVE,
+        f64::from(tuning.peripheral_stretch_curve),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
+        f64::from(tuning.peripheral_stretch_inner_blend_uv),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
+        f64::from(tuning.peripheral_stretch_blend_curve),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_text(
+        &mut manifest,
+        rxrc::KEY_PERIPHERAL_STRETCH_BLEND_MODE,
+        stretch_blend_mode.stable_id(),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_text(
+        &mut manifest,
+        rxrc::KEY_PERIPHERAL_STRETCH_CORNER_MODE,
+        MakepadPeripheralStretchCornerMode::TargetFootprint.stable_id(),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_text(
+        &mut manifest,
+        rxrc::KEY_PERIPHERAL_STRETCH_DEBUG,
+        stretch_debug.stable_id(),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
     set_projection_manifest_text(
         &mut manifest,
         rxrc::KEY_PROJECTION_ALPHA_MODE,
@@ -569,6 +792,18 @@ fn makepad_projection_alias_records() -> Vec<rxrc::RuntimeKeyAliasRecord> {
         "debug.rustyxr.projection.area.opacity",
         "debug.rustyxr.projection.border.opacity",
         "debug.rustyxr.projection.border.policy",
+        "debug.rustyxr.processing.layer",
+        "debug.rustyxr.camera.blur.radius.px",
+        "debug.rustyxr.peripheral.stretch.mode",
+        "debug.rustyxr.peripheral.stretch.core.scale",
+        "debug.rustyxr.peripheral.stretch.edge.inset.uv",
+        "debug.rustyxr.peripheral.stretch.max.inset.uv",
+        "debug.rustyxr.peripheral.stretch.curve",
+        "debug.rustyxr.peripheral.stretch.inner.blend.uv",
+        "debug.rustyxr.peripheral.stretch.blend.curve",
+        "debug.rustyxr.peripheral.stretch.blend.mode",
+        "debug.rustyxr.peripheral.stretch.corner.mode",
+        "debug.rustyxr.peripheral.stretch.debug",
         "debug.rustyxr.projection.alpha.mode",
         "debug.rustyxr.projection.alpha.scale",
         "debug.rustyxr.projection.alpha.bias",

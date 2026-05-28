@@ -1,7 +1,9 @@
 use crate::camera_texture_path::MakepadCameraTexturePath;
 use crate::FrameOrientationDecision;
+use rusty_xr_camera_model::SourceSamplingMode;
 use rusty_xr_contracts::{
-    SourceSamplerYAxis, SourceSamplingContract, SourceSamplingTransformStage, StereoSourceEyeMapping,
+    SourceSamplerYAxis, SourceSamplingContract, SourceSamplingTransformStage,
+    StereoSourceEyeMapping,
 };
 
 pub(crate) const MAKEPAD_SOURCE_UV_CONTRACT: &str =
@@ -85,6 +87,7 @@ pub(crate) struct MakepadSourceSamplingHandoff<'a> {
     broker_h264_enabled: bool,
     explicit_top_left_broker_stimulus: bool,
     orientation_decision: &'a FrameOrientationDecision,
+    source_sampling_mode: SourceSamplingMode,
     projection_content_mapping_mode: f32,
     full_frame_diagnostic: bool,
     source_eye_mapping: &'a str,
@@ -100,6 +103,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
         broker_h264_enabled: bool,
         explicit_top_left_broker_stimulus: bool,
         orientation_decision: &'a FrameOrientationDecision,
+        source_sampling_mode: SourceSamplingMode,
         projection_content_mapping_mode: f32,
         full_frame_diagnostic: bool,
         source_eye_mapping: &'a str,
@@ -112,6 +116,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
             broker_h264_enabled,
             explicit_top_left_broker_stimulus,
             orientation_decision,
+            source_sampling_mode,
             projection_content_mapping_mode,
             full_frame_diagnostic,
             source_eye_mapping,
@@ -150,7 +155,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
     pub(crate) fn marker_fields(&self) -> String {
         let contract = self.contract();
         format!(
-            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} diagnosticUvTransform={} sourceRasterYMappingStage={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv {} {} {}",
+            "phase=source-sampling status=ok brokerH264Enabled={} explicitTopLeftBrokerStimulus={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} orientationFallbackReason={} sourceSampleYFlip={:.1} sourceSampleYFlipReason={} projectionContentMappingMode={} sourceSamplingMode={} sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv={} sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} diagnosticUvTransform={} sourceRasterYMappingStage={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv {} {} {}",
             self.broker_h264_enabled,
             self.explicit_top_left_broker_stimulus,
             marker_token(&self.orientation_decision.orientation_kind),
@@ -162,8 +167,10 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
             self.orientation_decision.source_sample_y_flip,
             marker_token(&self.orientation_decision.source_sample_y_flip_reason),
             self.projection_content_mapping_label(),
+            self.source_sampling_mode.stable_id(),
             contract.source_eye_mapping.stable_id(),
-            MAKEPAD_SOURCE_UV_CONTRACT,
+            self.source_uv_contract_label(),
+            self.source_sample_input_uv_label(),
             legacy_transform_stage_token(contract.transform_stage),
             contract.transform_label,
             contract.transform_owner,
@@ -182,12 +189,30 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
     }
 
     fn projection_content_mapping_label(&self) -> &'static str {
-        if self.projection_content_mapping_mode >= 0.5 {
-            "full-frame-stimulus-to-projection-area"
+        if self.source_sampling_mode.uses_target_local_raster()
+            || self.projection_content_mapping_mode >= 0.5
+        {
+            "target-local-raster"
         } else if self.full_frame_diagnostic {
             "full-frame-stimulus-to-surface-homography"
         } else {
             "camera-projection-homography"
+        }
+    }
+
+    fn source_uv_contract_label(&self) -> &'static str {
+        if self.source_sampling_mode.uses_target_local_raster() {
+            "target_local_raster_uv_to_makepad_video_sampler"
+        } else {
+            MAKEPAD_SOURCE_UV_CONTRACT
+        }
+    }
+
+    fn source_sample_input_uv_label(&self) -> &'static str {
+        if self.source_sampling_mode.uses_target_local_raster() {
+            "target-local-raster-uv"
+        } else {
+            "screen-to-camera-homography-output"
         }
     }
 }
@@ -481,6 +506,7 @@ mod tests {
             false,
             false,
             &decision,
+            SourceSamplingMode::ScreenToCameraHomography,
             0.0,
             false,
             "display-left-from-left-source",
@@ -494,6 +520,7 @@ mod tests {
             false,
             false,
             &decision,
+            SourceSamplingMode::ScreenToCameraHomography,
             0.0,
             false,
             "display-left-from-left-source",
@@ -514,9 +541,9 @@ mod tests {
             SourceSamplerYAxis::MakepadSamplerOriginConvention
         );
         assert!(fields.contains("phase=source-sampling status=ok"));
-        assert!(fields.contains(
-            "sourceUvContract=screen_to_camera_content_uv_to_makepad_video_sampler"
-        ));
+        assert!(fields
+            .contains("sourceUvContract=screen_to_camera_content_uv_to_makepad_video_sampler"));
+        assert!(fields.contains("sourceSamplingMode=screen-to-camera-homography"));
         assert!(fields.contains("sourceSampleTransformApplied=false"));
         assert!(fields.contains("sourceColorTransformApplied=false"));
         assert!(fields.contains("projectionContentMappingMode=camera-projection-homography"));
@@ -530,6 +557,7 @@ mod tests {
             true,
             true,
             &decision,
+            SourceSamplingMode::TargetLocalRaster,
             0.0,
             true,
             "display-left-from-right-source",
@@ -543,6 +571,7 @@ mod tests {
             true,
             true,
             &decision,
+            SourceSamplingMode::TargetLocalRaster,
             0.0,
             true,
             "display-left-from-right-source",
@@ -562,18 +591,16 @@ mod tests {
         assert!(fields.contains("orientationKind=broker_stimulus"));
         assert!(fields.contains("sourceSampleTransformApplied=true"));
         assert!(fields.contains("sourceColorTransformApplied=true"));
-        assert!(fields
-            .contains("projectionContentMappingMode=full-frame-stimulus-to-surface-homography"));
+        assert!(fields.contains("projectionContentMappingMode=target-local-raster"));
+        assert!(fields.contains("sourceSamplingMode=target-local-raster"));
+        assert!(fields.contains("sourceSampleInputUv=target-local-raster-uv"));
     }
 
     #[test]
     fn texture_content_probe_markers_keep_source_sampling_shape() {
-        let missing = makepad_texture_content_probe_missing_marker_fields(
-            "left", true, false, 601.0, 90.0,
-        );
-        assert!(missing.starts_with(
-            "phase=texture-content-probe status=missing side=left"
-        ));
+        let missing =
+            makepad_texture_content_probe_missing_marker_fields("left", true, false, 601.0, 90.0);
+        assert!(missing.starts_with("phase=texture-content-probe status=missing side=left"));
         assert!(missing.contains("textureProbeMode=single-quad-target-screen-uv"));
         assert!(missing.contains("yuvEnabled=true yuvBiplanar=false yuvMatrix=601.0"));
         assert!(missing.ends_with(
@@ -592,9 +619,9 @@ mod tests {
             "vReadable=true",
         );
         assert!(ok.starts_with("phase=texture-content-probe status=ok side=right"));
-        assert!(ok.contains(
-            "cpuPlaneContentPresent=true yReadable=true uReadable=true vReadable=true"
-        ));
+        assert!(
+            ok.contains("cpuPlaneContentPresent=true yReadable=true uReadable=true vReadable=true")
+        );
         assert!(ok.ends_with(
             "gpuSamplingStillVisual=full-frame-source-display-row-vertical-uv-yuv visualInspection=required visualReleaseAccepted=false"
         ));

@@ -230,13 +230,26 @@ impl MakepadProjectionAlphaMode {
 pub(crate) enum MakepadProcessingLayer {
     Raw,
     Blur,
+    PeripheralStretch,
 }
 
 impl MakepadProcessingLayer {
     pub(crate) fn current() -> Self {
-        let value = hotload_text(KEY_MAKEPAD_PROCESSING_LAYER, "raw");
-        match value.trim().to_ascii_lowercase().as_str() {
+        let value = hotload_text_any(
+            &[rxrc::KEY_PROCESSING_LAYER, KEY_MAKEPAD_PROCESSING_LAYER],
+            "raw",
+        );
+        Self::from_stable_id(&value)
+    }
+
+    pub(crate) fn from_stable_id(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
             "blur" => Self::Blur,
+            "stretch"
+            | "peripheral-stretch"
+            | "border-stretch"
+            | "projection-border-stretch"
+            | "edge-stretch" => Self::PeripheralStretch,
             _ => Self::Raw,
         }
     }
@@ -245,6 +258,7 @@ impl MakepadProcessingLayer {
         match self {
             Self::Raw => "raw",
             Self::Blur => "blur",
+            Self::PeripheralStretch => "peripheral-stretch",
         }
     }
 
@@ -252,7 +266,265 @@ impl MakepadProcessingLayer {
         match self {
             Self::Raw => 0.0,
             Self::Blur => 1.0,
+            Self::PeripheralStretch => 2.0,
         }
+    }
+
+    pub(crate) fn from_shader_code(value: f32) -> Self {
+        match value.round() as i32 {
+            1 => Self::Blur,
+            2 => Self::PeripheralStretch,
+            _ => Self::Raw,
+        }
+    }
+
+    pub(crate) fn consumes_projection_exterior(self) -> bool {
+        matches!(self, Self::PeripheralStretch)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MakepadPeripheralStretchMode {
+    EdgeStretch,
+}
+
+impl MakepadPeripheralStretchMode {
+    pub(crate) fn current() -> Self {
+        let value = hotload_text(rxrc::KEY_PERIPHERAL_STRETCH_MODE, "edge-stretch");
+        Self::from_stable_id(&value)
+    }
+
+    pub(crate) fn from_stable_id(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            ""
+            | "edge-stretch"
+            | "stretch"
+            | "peripheral-stretch"
+            | "border-stretch"
+            | "projection-border-stretch" => Self::EdgeStretch,
+            _ => Self::EdgeStretch,
+        }
+    }
+
+    pub(crate) fn stable_id(self) -> &'static str {
+        match self {
+            Self::EdgeStretch => "edge-stretch",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MakepadPeripheralStretchBlendMode {
+    Off,
+    TargetInnerBand,
+}
+
+impl MakepadPeripheralStretchBlendMode {
+    pub(crate) fn current() -> Self {
+        let value = hotload_text(rxrc::KEY_PERIPHERAL_STRETCH_BLEND_MODE, "target-inner-band");
+        Self::from_stable_id(&value)
+    }
+
+    pub(crate) fn from_stable_id(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "0" | "false" | "no" | "off" | "disabled" => Self::Off,
+            _ => Self::TargetInnerBand,
+        }
+    }
+
+    pub(crate) fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::TargetInnerBand => "target-inner-band",
+        }
+    }
+
+    pub(crate) fn shader_code(self) -> f32 {
+        match self {
+            Self::Off => 0.0,
+            Self::TargetInnerBand => 1.0,
+        }
+    }
+
+    pub(crate) fn from_shader_code(value: f32) -> Self {
+        if value.round() as i32 == 0 {
+            Self::Off
+        } else {
+            Self::TargetInnerBand
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MakepadPeripheralStretchCornerMode {
+    TargetFootprint,
+}
+
+impl MakepadPeripheralStretchCornerMode {
+    pub(crate) fn current() -> Self {
+        let value = hotload_text(rxrc::KEY_PERIPHERAL_STRETCH_CORNER_MODE, "target-footprint");
+        Self::from_stable_id(&value)
+    }
+
+    pub(crate) fn from_stable_id(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            ""
+            | "target-footprint"
+            | "projection-area"
+            | "projection-area-rect"
+            | "rect"
+            | "rectangle" => Self::TargetFootprint,
+            _ => Self::TargetFootprint,
+        }
+    }
+
+    pub(crate) fn stable_id(self) -> &'static str {
+        match self {
+            Self::TargetFootprint => "target-footprint",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MakepadPeripheralStretchDebug {
+    Off,
+    Regions,
+    SampleUv,
+}
+
+impl MakepadPeripheralStretchDebug {
+    pub(crate) fn current() -> Self {
+        let value = hotload_text(rxrc::KEY_PERIPHERAL_STRETCH_DEBUG, "off");
+        Self::from_stable_id(&value)
+    }
+
+    pub(crate) fn from_stable_id(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "1" | "true" | "yes" | "on" | "enabled" | "regions" | "region" => Self::Regions,
+            "2" | "sample-uv" | "sampleuv" | "uv" => Self::SampleUv,
+            _ => Self::Off,
+        }
+    }
+
+    pub(crate) fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Regions => "regions",
+            Self::SampleUv => "sample-uv",
+        }
+    }
+
+    pub(crate) fn shader_code(self) -> f32 {
+        match self {
+            Self::Off => 0.0,
+            Self::Regions => 1.0,
+            Self::SampleUv => 2.0,
+        }
+    }
+
+    pub(crate) fn from_shader_code(value: f32) -> Self {
+        match value.round() as i32 {
+            1 => Self::Regions,
+            2 => Self::SampleUv,
+            _ => Self::Off,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct MakepadPeripheralStretchConfig {
+    pub(crate) mode: MakepadPeripheralStretchMode,
+    pub(crate) core_scale: f32,
+    pub(crate) edge_inset_uv: f32,
+    pub(crate) max_inset_uv: f32,
+    pub(crate) curve: f32,
+    pub(crate) inner_blend_uv: f32,
+    pub(crate) blend_curve: f32,
+    pub(crate) blend_mode: MakepadPeripheralStretchBlendMode,
+    pub(crate) corner_mode: MakepadPeripheralStretchCornerMode,
+    pub(crate) debug: MakepadPeripheralStretchDebug,
+}
+
+impl Default for MakepadPeripheralStretchConfig {
+    fn default() -> Self {
+        Self {
+            mode: MakepadPeripheralStretchMode::EdgeStretch,
+            core_scale: 1.0,
+            edge_inset_uv: 0.015,
+            max_inset_uv: 0.14,
+            curve: 1.6,
+            inner_blend_uv: 0.040,
+            blend_curve: 1.6,
+            blend_mode: MakepadPeripheralStretchBlendMode::TargetInnerBand,
+            corner_mode: MakepadPeripheralStretchCornerMode::TargetFootprint,
+            debug: MakepadPeripheralStretchDebug::Off,
+        }
+    }
+}
+
+impl MakepadPeripheralStretchConfig {
+    pub(crate) fn current() -> Self {
+        let defaults = Self::default();
+        let edge_inset_uv = hotload_f32(
+            rxrc::KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
+            defaults.edge_inset_uv,
+            0.0,
+            0.49,
+        );
+        Self {
+            mode: MakepadPeripheralStretchMode::current(),
+            core_scale: hotload_f32(
+                rxrc::KEY_PERIPHERAL_STRETCH_CORE_SCALE,
+                defaults.core_scale,
+                0.05,
+                1.0,
+            ),
+            edge_inset_uv,
+            max_inset_uv: hotload_f32(
+                rxrc::KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
+                defaults.max_inset_uv,
+                edge_inset_uv,
+                0.49,
+            ),
+            curve: hotload_f32(
+                rxrc::KEY_PERIPHERAL_STRETCH_CURVE,
+                defaults.curve,
+                0.25,
+                6.0,
+            ),
+            inner_blend_uv: hotload_f32(
+                rxrc::KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
+                defaults.inner_blend_uv,
+                0.0,
+                0.25,
+            ),
+            blend_curve: hotload_f32(
+                rxrc::KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
+                defaults.blend_curve,
+                0.25,
+                6.0,
+            ),
+            blend_mode: MakepadPeripheralStretchBlendMode::current(),
+            corner_mode: MakepadPeripheralStretchCornerMode::current(),
+            debug: MakepadPeripheralStretchDebug::current(),
+        }
+    }
+
+    pub(crate) fn marker_fields(self, processing_layer: MakepadProcessingLayer) -> String {
+        format!(
+            "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchInnerBlendUv={:.3} peripheralStretchBlendCurve={:.3} peripheralStretchBlendMode={} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample",
+            self.mode.stable_id(),
+            self.core_scale,
+            self.edge_inset_uv,
+            self.max_inset_uv,
+            self.curve,
+            self.inner_blend_uv,
+            self.blend_curve,
+            self.blend_mode.stable_id(),
+            self.corner_mode.stable_id(),
+            self.debug.stable_id(),
+            processing_layer.consumes_projection_exterior(),
+        )
     }
 }
 
@@ -313,7 +585,12 @@ impl MakepadProjectionSampleMode {
 }
 
 pub(crate) fn makepad_blur_radius_px() -> f32 {
-    hotload_f32(KEY_MAKEPAD_BLUR_RADIUS_PX, 2.0, 0.0, 16.0)
+    hotload_f32_any(
+        &[rxrc::KEY_CAMERA_BLUR_RADIUS_PX, KEY_MAKEPAD_BLUR_RADIUS_PX],
+        2.0,
+        0.0,
+        16.0,
+    )
 }
 
 #[cfg(test)]

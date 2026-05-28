@@ -331,11 +331,21 @@ def validate_suite_summary(value: Any) -> dict[str, Any]:
     geometry = require_object(summary["geometry"], "summary.geometry")
     border_policy = require_enum(geometry.get("projectionBorderPolicy"), "summary.geometry.projectionBorderPolicy", {"passthrough-underlay", "solid-red"})
     require_enum(geometry.get("processingLayer"), "summary.geometry.processingLayer", {"raw", "blur", "peripheral-stretch"})
+    require_enum(geometry.get("peripheralStretchMode"), "summary.geometry.peripheralStretchMode", {"edge-stretch"})
+    require_enum(geometry.get("peripheralStretchBlendMode"), "summary.geometry.peripheralStretchBlendMode", {"off", "target-inner-band"})
+    require_enum(geometry.get("peripheralStretchCornerMode"), "summary.geometry.peripheralStretchCornerMode", {"target-footprint"})
+    require_enum(geometry.get("peripheralStretchDebug"), "summary.geometry.peripheralStretchDebug", {"off", "regions", "sample-uv"})
     for key in (
         "projectionDepthMeters",
         "cameraPreviewFovYDegrees",
         "cameraPreviewOffsetYMeters",
         "cameraRawOverlayOverscan",
+        "peripheralStretchCoreScale",
+        "peripheralStretchEdgeInsetUv",
+        "peripheralStretchMaxInsetUv",
+        "peripheralStretchCurve",
+        "peripheralStretchInnerBlendUv",
+        "peripheralStretchBlendCurve",
         "blurRadiusPx",
         "projectionAreaOpacity",
         "projectionBorderOpacity",
@@ -615,6 +625,16 @@ def write_self_test_fixture(root: Path) -> None:
             "cameraRawOverlayOverscan": 1.0,
             "projectionBorderPolicy": "solid-red",
             "processingLayer": "raw",
+            "peripheralStretchMode": "edge-stretch",
+            "peripheralStretchCoreScale": 1.0,
+            "peripheralStretchEdgeInsetUv": 0.015,
+            "peripheralStretchMaxInsetUv": 0.14,
+            "peripheralStretchCurve": 1.6,
+            "peripheralStretchInnerBlendUv": 0.04,
+            "peripheralStretchBlendCurve": 1.6,
+            "peripheralStretchBlendMode": "target-inner-band",
+            "peripheralStretchCornerMode": "target-footprint",
+            "peripheralStretchDebug": "off",
             "blurRadiusPx": 0.0,
             "projectionAreaOpacity": 1.0,
             "projectionBorderOpacity": 1.0,

@@ -139,7 +139,18 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
             "debug.rustyxr.makepad.projection.sample.mode": "projectionSampleMode",
             "debug.rustyxr.xr.render.scale": "xrRenderScale",
             "debug.rustyxr.makepad.xr.render.scale": "xrRenderScale",
+            "debug.rustyxr.camera.blur.radius.px": "blurRadiusPx",
             "debug.rustyxr.makepad.blur.radius.px": "blurRadiusPx",
+            "debug.rustyxr.peripheral.stretch.mode": "peripheralStretchMode",
+            "debug.rustyxr.peripheral.stretch.core.scale": "peripheralStretchCoreScale",
+            "debug.rustyxr.peripheral.stretch.edge.inset.uv": "peripheralStretchEdgeInsetUv",
+            "debug.rustyxr.peripheral.stretch.max.inset.uv": "peripheralStretchMaxInsetUv",
+            "debug.rustyxr.peripheral.stretch.curve": "peripheralStretchCurve",
+            "debug.rustyxr.peripheral.stretch.inner.blend.uv": "peripheralStretchInnerBlendUv",
+            "debug.rustyxr.peripheral.stretch.blend.curve": "peripheralStretchBlendCurve",
+            "debug.rustyxr.peripheral.stretch.blend.mode": "peripheralStretchBlendMode",
+            "debug.rustyxr.peripheral.stretch.corner.mode": "peripheralStretchCornerMode",
+            "debug.rustyxr.peripheral.stretch.debug": "peripheralStretchDebug",
         }
         for item in props:
             if not isinstance(item, dict):
@@ -165,6 +176,7 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
             ("packageName", "packageName"),
             ("runtimeProfile", "runtimeProfile"),
             ("sourceMode", "sourceMode"),
+            ("brokerH264SourceMode", "sourceMode"),
             ("evidenceMode", "evidenceMode"),
             ("cameraPipelinePreset", "cameraPipelinePreset"),
             ("cameraProjectionEffectMode", "cameraProjectionEffectMode"),
@@ -202,6 +214,7 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
                 ("rustyxr.projectionTargetOffsetYUv", "projectionTargetOffsetYUv"),
                 ("rustyxr.projectionTargetScale", "projectionTargetScale"),
                 ("rustyxr.projectionTargetJoystickControls", "projectionTargetJoystickControls"),
+                ("rustyxr.peripheralStretchMode", "peripheralStretchMode"),
                 ("rustyxr.peripheralStretchCoreScale", "peripheralStretchCoreScale"),
                 ("rustyxr.peripheralStretchEdgeInsetUv", "peripheralStretchEdgeInsetUv"),
                 ("rustyxr.peripheralStretchMaxInsetUv", "peripheralStretchMaxInsetUv"),
@@ -209,6 +222,7 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
                 ("rustyxr.peripheralStretchInnerBlendUv", "peripheralStretchInnerBlendUv"),
                 ("rustyxr.peripheralStretchBlendCurve", "peripheralStretchBlendCurve"),
                 ("rustyxr.peripheralStretchBlendMode", "peripheralStretchBlendMode"),
+                ("rustyxr.peripheralStretchCornerMode", "peripheralStretchCornerMode"),
                 ("rustyxr.peripheralStretchDebug", "peripheralStretchDebug"),
                 ("rustyxr.makepad.projection.sample.mode", "projectionSampleMode"),
                 ("rustyxr.cameraBlurRadiusPx", "blurRadiusPx"),
@@ -465,6 +479,7 @@ def projection_effect_fields(fields: dict[str, Any]) -> dict[str, Any]:
             or fields.get("rightVisibleTargetScreenUvRect")
             or fields.get("targetScreenUvRect")
         ),
+        "peripheral_stretch_mode": nonempty_text(fields.get("peripheralStretchMode")),
         "peripheral_stretch_core_scale": parse_float(fields.get("peripheralStretchCoreScale")),
         "peripheral_stretch_edge_inset_uv": parse_float(fields.get("peripheralStretchEdgeInsetUv")),
         "peripheral_stretch_max_inset_uv": parse_float(fields.get("peripheralStretchMaxInsetUv")),
@@ -472,6 +487,7 @@ def projection_effect_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "peripheral_stretch_inner_blend_uv": parse_float(fields.get("peripheralStretchInnerBlendUv")),
         "peripheral_stretch_blend_curve": parse_float(fields.get("peripheralStretchBlendCurve")),
         "peripheral_stretch_blend_mode": nonempty_text(fields.get("peripheralStretchBlendMode")),
+        "peripheral_stretch_corner_mode": nonempty_text(fields.get("peripheralStretchCornerMode")),
         "peripheral_stretch_debug": nonempty_text(fields.get("peripheralStretchDebug")),
         "peripheral_stretch_core_region": nonempty_text(fields.get("peripheralStretchCoreRegion")),
         "peripheral_stretch_transition_region": nonempty_text(
@@ -513,6 +529,8 @@ def descriptor_shape_from_sampler_mode(value: Any) -> str:
 def makepad_lane_kind(path: str) -> str:
     if path == "direct-camera-cpu-yuv-plane":
         return "makepad-cpuyuv-direct-camera2-raw"
+    if path == "broker-h264-mediacodec-cpu-yuv":
+        return "makepad-cpuyuv-broker-h264-raw"
     if path in {
         "direct-camera-hardware-buffer-external",
         "direct-camera-hardware-buffer-yuv-plane",
@@ -522,7 +540,7 @@ def makepad_lane_kind(path: str) -> str:
 
 
 def makepad_resource_kind(path: str) -> str:
-    if path == "direct-camera-cpu-yuv-plane":
+    if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}:
         return "cpu-yuv-plane-textures"
     if path.startswith("direct-camera-hardware-buffer"):
         return "makepad-hardware-buffer-external"
@@ -534,7 +552,7 @@ def makepad_descriptor_shape(path: str, fields: dict[str, Any]) -> str:
     if descriptor_shape:
         normalized = str(descriptor_shape)
         return normalized if normalized in KNOWN_DESCRIPTOR_SHAPES else "unknown"
-    if path == "direct-camera-cpu-yuv-plane":
+    if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}:
         return "cpu-yuv-plane-textures"
     combined = parse_bool(fields.get("combinedImageSampler"))
     if combined is True:
@@ -548,6 +566,7 @@ def makepad_path_from_flow_path(path: str) -> str | None:
     aliases = {
         "cpu-yuv": "direct-camera-cpu-yuv-plane",
         "cpu-yuv-fallback": "direct-camera-cpu-yuv-plane",
+        "broker-h264-mediacodec-cpu-yuv": "broker-h264-mediacodec-cpu-yuv",
         "hardware-buffer-external": "direct-camera-hardware-buffer-external",
         "direct-camera-cpu-yuv-plane": "direct-camera-cpu-yuv-plane",
         "direct-camera-hardware-buffer-external": "direct-camera-hardware-buffer-external",
@@ -557,15 +576,31 @@ def makepad_path_from_flow_path(path: str) -> str | None:
 
 
 def makepad_path_from_fields_or_context(fields: dict[str, Any], context_fields: dict[str, Any]) -> str | None:
-    for key in ("cameraTexturePath", "path", "directCameraTexturePath"):
+    import_plan = str(fields.get("importPlan") or "").strip().lower()
+    source_mode = str(fields.get("sourceMode") or "").strip().lower()
+    source = str(fields.get("source") or "").strip().lower()
+    if "broker-h264" in import_plan or source_mode.startswith("broker-") or "broker_app" in source:
+        return "broker-h264-mediacodec-cpu-yuv"
+    for key in (
+        "cameraTexturePath",
+        "cpuUploadPath",
+        "textureImportPath",
+        "importPath",
+        "textureMode",
+        "path",
+        "directCameraTexturePath",
+    ):
         path = makepad_path_from_flow_path(str(fields.get(key) or ""))
         if path:
             return path
+    context_source_mode = str(context_fields.get("sourceMode") or "").strip().lower()
+    if context_source_mode.startswith("broker-"):
+        return "broker-h264-mediacodec-cpu-yuv"
     return makepad_path_from_flow_path(str(context_fields.get("directCameraTexturePath") or ""))
 
 
 def makepad_color_status(path: str) -> tuple[str, str, str, str, str]:
-    if path == "direct-camera-cpu-yuv-plane":
+    if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}:
         return (
             "accepted-reference",
             "android-yuv420-888-plane-order",
@@ -854,12 +889,27 @@ def build_oes_contract(fields: dict[str, Any], transform_payload: dict[str, Any]
 def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
     color_status, color_reference, matrix, color_range, transfer = makepad_color_status(path)
     size = size_from_fields(fields)
+    source_kind = normalized_source_kind(fields.get("sourceMode") or fields.get("source") or path)
+    source_label = (
+        str(fields.get("source") or "broker-h264-stream")
+        if path == "broker-h264-mediacodec-cpu-yuv"
+        else "headset-camera2"
+    )
+    handoff_label = (
+        "MediaCodec CPU YUV planes"
+        if path == "broker-h264-mediacodec-cpu-yuv"
+        else (
+            "AImageReader CPU YUV planes"
+            if path == "direct-camera-cpu-yuv-plane"
+            else "AImageReader AHardwareBuffer"
+        )
+    )
     contract = base_contract(
         makepad_lane_kind(path),
-        "direct-camera2",
-        "headset-camera2",
+        source_kind,
+        source_label,
         size,
-        "AImageReader CPU YUV planes" if path == "direct-camera-cpu-yuv-plane" else "AImageReader AHardwareBuffer",
+        handoff_label,
         makepad_resource_kind(path),
         str(fields.get("textureImportPath") or path),
         makepad_descriptor_shape(path, fields),
@@ -879,14 +929,14 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
         {
             "transform_stage": (
                 "post-homography-pre-yuv-sample"
-                if path == "direct-camera-cpu-yuv-plane"
+                if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}
                 else "post-homography-pre-texture-sample"
             ),
             "transform_label": "source_sample_uv"
-            if path == "direct-camera-cpu-yuv-plane"
+            if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}
             else "external-hardware-buffer-sampler",
             "transform_owner": "makepad-camera-yuv-shader"
-            if path == "direct-camera-cpu-yuv-plane"
+            if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}
             else "makepad-vulkan-video-texture",
             "yuv_rotation_steps": parse_int(fields.get("rotationSteps")),
         }
@@ -931,10 +981,10 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
             "fallback_active": fallback_active,
             "fallback_reason": str(fallback_reason) if fallback_reason is not None else None,
             "frame_reuse_policy": "latest-frame-ring"
-            if path == "direct-camera-cpu-yuv-plane"
+            if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}
             else "latest-hardware-buffer",
             "resource_release_policy": "makepad-texture-pool"
-            if path == "direct-camera-cpu-yuv-plane"
+            if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}
             else "makepad-vulkan-resource",
         }
     )
@@ -990,6 +1040,7 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
         ("targetFootprintMetadataSource", "target_footprint_metadata_source", nonempty_text),
         ("leftTargetScreenUvRect", "left_target_screen_uv_rect", nonempty_text),
         ("rightTargetScreenUvRect", "right_target_screen_uv_rect", nonempty_text),
+        ("peripheralStretchMode", "peripheral_stretch_mode", nonempty_text),
         ("peripheralStretchCoreScale", "peripheral_stretch_core_scale", parse_float),
         ("peripheralStretchEdgeInsetUv", "peripheral_stretch_edge_inset_uv", parse_float),
         ("peripheralStretchMaxInsetUv", "peripheral_stretch_max_inset_uv", parse_float),
@@ -997,6 +1048,7 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
         ("peripheralStretchInnerBlendUv", "peripheral_stretch_inner_blend_uv", parse_float),
         ("peripheralStretchBlendCurve", "peripheral_stretch_blend_curve", parse_float),
         ("peripheralStretchBlendMode", "peripheral_stretch_blend_mode", nonempty_text),
+        ("peripheralStretchCornerMode", "peripheral_stretch_corner_mode", nonempty_text),
         ("peripheralStretchDebug", "peripheral_stretch_debug", nonempty_text),
         ("peripheralStretchCoreRegion", "peripheral_stretch_core_region", nonempty_text),
         ("peripheralStretchTransitionRegion", "peripheral_stretch_transition_region", nonempty_text),
@@ -1007,6 +1059,7 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
             "peripheral_stretch_transition_semantics",
             nonempty_text,
         ),
+        ("peripheralStretchBorderSource", "peripheral_stretch_border_source", nonempty_text),
         ("peripheralStretchExteriorSource", "peripheral_stretch_exterior_source", nonempty_text),
         ("projectionTargetOffsetXUv", "projection_target_offset_x_uv", parse_float),
         ("projectionTargetOffsetYUv", "projection_target_offset_y_uv", parse_float),
@@ -1081,7 +1134,7 @@ def scan_line(line: str, state: ScanState) -> None:
 
     if MAKEPAD_IMPORT_MARKER in line:
         fields = parse_marker_fields(line.split(MAKEPAD_IMPORT_MARKER, 1)[1])
-        path = str(fields.get("cameraTexturePath") or "")
+        path = makepad_path_from_fields_or_context(fields, state.makepad_global_fields)
         if path:
             state.update_makepad(path, fields)
     for marker in MAKEPAD_FRAME_FLOW_MARKERS:
@@ -1179,6 +1232,7 @@ def build_run_config_summary(context_fields: dict[str, Any]) -> dict[str, Any]:
         "projection_target_joystick_controls": nonempty_text(
             context_fields.get("projectionTargetJoystickControls")
         ),
+        "peripheral_stretch_mode": nonempty_text(context_fields.get("peripheralStretchMode")),
         "peripheral_stretch_core_scale": parse_float(context_fields.get("peripheralStretchCoreScale")),
         "peripheral_stretch_edge_inset_uv": parse_float(
             context_fields.get("peripheralStretchEdgeInsetUv")
@@ -1190,6 +1244,7 @@ def build_run_config_summary(context_fields: dict[str, Any]) -> dict[str, Any]:
         ),
         "peripheral_stretch_blend_curve": parse_float(context_fields.get("peripheralStretchBlendCurve")),
         "peripheral_stretch_blend_mode": nonempty_text(context_fields.get("peripheralStretchBlendMode")),
+        "peripheral_stretch_corner_mode": nonempty_text(context_fields.get("peripheralStretchCornerMode")),
         "peripheral_stretch_debug": nonempty_text(context_fields.get("peripheralStretchDebug")),
     }
 
@@ -1224,6 +1279,7 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
         "left_target_screen_uv_rect": projection.get("left_target_screen_uv_rect"),
         "right_target_screen_uv_rect": projection.get("right_target_screen_uv_rect"),
         "peripheral_stretch": {
+            "mode": projection.get("peripheral_stretch_mode"),
             "core_scale": projection.get("peripheral_stretch_core_scale"),
             "edge_inset_uv": projection.get("peripheral_stretch_edge_inset_uv"),
             "max_inset_uv": projection.get("peripheral_stretch_max_inset_uv"),
@@ -1231,6 +1287,7 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
             "inner_blend_uv": projection.get("peripheral_stretch_inner_blend_uv"),
             "blend_curve": projection.get("peripheral_stretch_blend_curve"),
             "blend_mode": projection.get("peripheral_stretch_blend_mode"),
+            "corner_mode": projection.get("peripheral_stretch_corner_mode"),
             "debug": projection.get("peripheral_stretch_debug"),
             "core_region": projection.get("peripheral_stretch_core_region"),
             "transition_region": projection.get("peripheral_stretch_transition_region"),
@@ -1420,6 +1477,26 @@ def self_test() -> None:
                     "expected": "0.75",
                     "actual": "0.75",
                 },
+                {
+                    "property": "debug.rustyxr.peripheral.stretch.mode",
+                    "expected": "edge-stretch",
+                    "actual": "edge-stretch",
+                },
+                {
+                    "property": "debug.rustyxr.peripheral.stretch.inner.blend.uv",
+                    "expected": "0.04",
+                    "actual": "0.04",
+                },
+                {
+                    "property": "debug.rustyxr.peripheral.stretch.blend.curve",
+                    "expected": "1.6",
+                    "actual": "1.6",
+                },
+                {
+                    "property": "debug.rustyxr.peripheral.stretch.corner.mode",
+                    "expected": "target-footprint",
+                    "actual": "target-footprint",
+                },
             ],
         )
         records, summary, out_dir = run(root, None)
@@ -1460,6 +1537,10 @@ def self_test() -> None:
             raise AssertionError("summary did not expose XR render scale")
         if summary["run_config"]["processing_layer"] != "raw":
             raise AssertionError("summary did not expose processing layer")
+        if summary["run_config"]["peripheral_stretch_mode"] != "edge-stretch":
+            raise AssertionError("summary did not expose peripheral stretch mode")
+        if summary["run_config"]["peripheral_stretch_corner_mode"] != "target-footprint":
+            raise AssertionError("summary did not expose peripheral stretch corner mode")
         if summary["processing_run_kind_counts"].get("raw-mask-footprint") != 4:
             raise AssertionError("summary did not classify raw runs as raw-mask-footprint")
         fallback_record = {
@@ -1476,6 +1557,10 @@ def self_test() -> None:
         cpu_summary = summary["lane_summaries"]["makepad-cpuyuv-direct-camera2-raw"]
         if cpu_summary["projection_sample_mode"] != "solid-color":
             raise AssertionError("summary did not apply projection sample mode context")
+        if cpu_summary["peripheral_stretch"]["mode"] != "edge-stretch":
+            raise AssertionError("summary did not apply peripheral stretch mode context")
+        if cpu_summary["peripheral_stretch"]["corner_mode"] != "target-footprint":
+            raise AssertionError("summary did not apply peripheral stretch corner mode context")
         if cpu_summary["camera_texture_binding"] is not False:
             raise AssertionError("summary did not parse Makepad camera texture binding")
         if cpu_summary["projection_panel_draw_enabled"] is not False:
