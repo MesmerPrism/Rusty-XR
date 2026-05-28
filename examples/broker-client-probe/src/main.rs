@@ -1,6 +1,7 @@
 use rusty_xr_broker_model::{
-    BROKER_COMMAND_SCHEMA, BROKER_LATENCY_SAMPLE_SCHEMA, BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA,
-    BROKER_TRANSPORT_SESSION_OFFER_SCHEMA, STREAM_LATENCY_SAMPLE,
+    BROKER_COMMAND_SCHEMA, BROKER_LATENCY_SAMPLE_SCHEMA, BROKER_STREAM_REGISTRY_SNAPSHOT_COMMAND,
+    BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA, BROKER_TRANSPORT_SESSION_OFFER_SCHEMA,
+    STREAM_LATENCY_SAMPLE,
 };
 use serde_json::{json, Value};
 use std::env;
@@ -30,6 +31,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         "streams" => {
             let response = send_command(&options.host, options.port, "list_streams", None)?;
+            print_messages(&response);
+        }
+        "registry" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                BROKER_STREAM_REGISTRY_SNAPSHOT_COMMAND,
+                None,
+            )?;
             print_messages(&response);
         }
         "camera-provider" => {
@@ -280,7 +290,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         _ => {
             return Err(format!(
-                "unknown command '{}'; use status, capabilities, streams, camera-provider, projection-profile, app-camera-probe, synthetic-h264-stream, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
+                "unknown command '{}'; use status, capabilities, streams, registry, camera-provider, projection-profile, app-camera-probe, synthetic-h264-stream, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
                 options.command
             )
             .into());

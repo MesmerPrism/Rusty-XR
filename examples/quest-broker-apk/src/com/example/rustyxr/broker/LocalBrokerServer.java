@@ -268,6 +268,11 @@ final class LocalBrokerServer implements Closeable {
                 return;
             }
 
+            if ("GET".equals(method) && "/stream_registry/snapshot".equals(endpointPath)) {
+                writeJsonResponse(output, 200, state.streamRegistrySnapshotJson(oscIngressServer).toString());
+                return;
+            }
+
             if ("GET".equals(method) && "/rustyxr/v1/events".equals(endpointPath) && wantsWebSocket(headers)) {
                 handleWebSocket(headers, input, output);
                 return;
@@ -406,6 +411,13 @@ final class LocalBrokerServer implements Closeable {
             JSONObject result = new JSONObject();
             result.put("streams", state.streamsJson(oscIngressServer));
             return commandAck(requestId, command, true, "streams", result);
+        }
+
+        if ("stream_registry.snapshot".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("registry", state.streamRegistrySnapshotJson(oscIngressServer));
+            return commandAck(requestId, command, true, "stream_registry_snapshot", result);
         }
 
         if ("clock.status".equals(command)) {

@@ -1,0 +1,96 @@
+{
+  "schema": "rusty.xr.broker.panel_descriptor_set.v1",
+  "version": "synthetic-panels-20260528",
+  "panels": [
+    {
+      "id": "broker.overview",
+      "title": "Broker Overview",
+      "kind": "state_card",
+      "data_sensitivity": "diagnostic",
+      "command_scope": "session.lifecycle",
+      "lease_required": false,
+      "widgets": [
+        {
+          "kind": "state_card",
+          "id": "broker.version",
+          "label": "broker version",
+          "value_path": "brokerVersion"
+        }
+      ]
+    },
+    {
+      "id": "broker.commands.read_only",
+      "title": "Read-only Commands",
+      "kind": "command_group",
+      "data_sensitivity": "diagnostic",
+      "command_scope": "session.lifecycle",
+      "lease_required": false,
+      "widgets": [
+        {
+          "kind": "command_button",
+          "id": "command.status",
+          "label": "Status",
+          "command": "status_request",
+          "read_only": true,
+          "command_scope": "session.lifecycle",
+          "required_capability": "broker.status.read",
+          "lease_required": false
+        },
+        {
+          "kind": "command_button",
+          "id": "command.stream_registry",
+          "label": "Registry",
+          "command": "stream_registry.snapshot",
+          "read_only": true,
+          "command_scope": "session.lifecycle",
+          "required_capability": "broker.stream_registry.read",
+          "lease_required": false
+        }
+      ]
+    },
+    {
+      "id": "broker.streams",
+      "title": "Stream Registry",
+      "kind": "stream_list",
+      "data_sensitivity": "mixed",
+      "command_scope": "session.lifecycle",
+      "lease_required": false,
+      "widgets": [
+        {
+          "kind": "stream_list",
+          "id": "stream.low_rate",
+          "label": "low-rate diagnostic streams",
+          "stream_ids": [
+            "latency:sample",
+            "bio:heart",
+            "bio:breath"
+          ],
+          "data_sensitivity": "mixed"
+        }
+      ]
+    },
+    {
+      "id": "telemetry.breath_volume",
+      "title": "Breath Volume Telemetry",
+      "kind": "telemetry_chart",
+      "data_sensitivity": "derived_physiology",
+      "command_scope": "runtime.bio",
+      "lease_required": false,
+      "widgets": [
+        {
+          "kind": "telemetry_chart",
+          "id": "chart.breath_volume",
+          "title": "Breath volume over time",
+          "stream_id": "bio:breath",
+          "metric": "volume01",
+          "x_axis": "time_s",
+          "y_axis": "volume01",
+          "max_points": 240,
+          "data_sensitivity": "derived_physiology",
+          "command_scope": "runtime.bio",
+          "high_rate_policy": "descriptor only; low-rate telemetry chart"
+        }
+      ]
+    }
+  ]
+}

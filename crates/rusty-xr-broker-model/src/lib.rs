@@ -2,11 +2,12 @@
 //!
 //! This crate contains pure data models for broker control envelopes, stream
 //! manifests, sample headers, timing stamps, drop counters, diagnostic binary
-//! video headers, camera/source capabilities, H.264 stream invariants, and
-//! negotiated transport lanes. It also models broker-owned clock snapshots,
-//! stamps, health, and correlation reports. It does not open sockets, depend on
-//! Android, or implement a Unity, Makepad, OpenXR, LSL, OSC, ZeroMQ, or video
-//! backend.
+//! video headers, camera/source capabilities, H.264 stream invariants,
+//! broker-described UI panels, stream registry snapshots, lease-aware command
+//! authority contracts, and negotiated transport lanes. It also models
+//! broker-owned clock snapshots, stamps, health, and correlation reports. It
+//! does not open sockets, depend on Android, or implement a Unity, Makepad,
+//! OpenXR, LSL, OSC, ZeroMQ, or video backend.
 //!
 //! Enable the `serde` feature when these public contracts need to cross
 //! process boundaries.
@@ -27,6 +28,14 @@
 //!
 //! assert!(manifest.is_valid());
 //! ```
+
+pub mod control;
+pub mod panel;
+pub mod registry;
+
+pub use control::*;
+pub use panel::*;
+pub use registry::*;
 
 /// Crate version exposed for lightweight smoke checks.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

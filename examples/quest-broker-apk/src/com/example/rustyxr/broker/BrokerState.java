@@ -20,6 +20,7 @@ final class BrokerState {
     static final String KIOSK_CONTROL_PLANE_STATUS_SCHEMA = "rusty.xr.kiosk.control_plane.v1";
     static final String KIOSK_COMMAND_EVIDENCE_SCHEMA = "rusty.xr.kiosk.command_evidence.v1";
     static final String KIOSK_COMMAND_RUN_RECORD_SCHEMA = "rusty.xr.kiosk.command_run_record.v1";
+    static final String STREAM_REGISTRY_SNAPSHOT_SCHEMA = "rusty.xr.broker.stream_registry_snapshot.v1";
 
     final long startedElapsedNanos = SystemClock.elapsedRealtimeNanos();
     final long startedUnixMs = System.currentTimeMillis();
@@ -91,6 +92,7 @@ final class BrokerState {
         supportedCommands.put("status_request");
         supportedCommands.put("list_capabilities");
         supportedCommands.put("list_streams");
+        supportedCommands.put("stream_registry.snapshot");
         supportedCommands.put("subscribe");
         supportedCommands.put("unsubscribe");
         supportedCommands.put("configure_osc_ingress");
@@ -201,6 +203,7 @@ final class BrokerState {
         capabilities.put("broker.command.v1");
         capabilities.put("broker.subscription.v1");
         capabilities.put("broker.stream_event.v1");
+        capabilities.put("broker.stream_registry_snapshot.v1");
         capabilities.put("broker.osc_ingress.configure");
         capabilities.put("broker.stream_event.publish");
         capabilities.put("broker.clock.status.v1");
@@ -325,6 +328,102 @@ final class BrokerState {
         return streams;
     }
 
+    JSONObject streamRegistrySnapshotJson(OscIngressServer oscIngressServer) throws Exception {
+        JSONArray streams = streamsJson(oscIngressServer);
+        LinkedHashMap<String, JSONArray> providerStreams = new LinkedHashMap<>();
+        for (int index = 0; index < streams.length(); index++) {
+            JSONObject stream = streams.optJSONObject(index);
+            if (stream == null) {
+                continue;
+            }
+            String providerId = providerIdForKind(stream.optString("kind", "unknown"));
+            JSONArray streamIds = providerStreams.get(providerId);
+            if (streamIds == null) {
+                streamIds = new JSONArray();
+                providerStreams.put(providerId, streamIds);
+            }
+            streamIds.put(stream.optString("id", ""));
+        }
+
+        JSONArray providers = new JSONArray();
+        for (Map.Entry<String, JSONArray> entry : providerStreams.entrySet()) {
+            JSONObject provider = new JSONObject();
+            provider.put("provider_id", entry.getKey());
+            provider.put("label", providerLabel(entry.getKey()));
+            provider.put("state", "active");
+            provider.put("data_sensitivity", providerSensitivity(entry.getKey()));
+            provider.put("stream_ids", entry.getValue());
+            providers.put(provider);
+        }
+
+        JSONArray registeredStreams = new JSONArray();
+        for (int index = 0; index < streams.length(); index++) {
+            JSONObject stream = streams.optJSONObject(index);
+            if (stream == null) {
+                continue;
+            }
+            String streamId = stream.optString("id", "");
+            String kind = stream.optString("kind", "custom");
+            JSONObject descriptor = new JSONObject();
+            descriptor.put("stream_id", streamId);
+            descriptor.put("label", streamId);
+            descriptor.put("provider_id", providerIdForKind(kind));
+            descriptor.put("stream_kind", streamKindForStream(streamId, kind));
+            descriptor.put("payload_kind", payloadKindForStream(streamId));
+            descriptor.put("payload_schema", payloadSchemaForStream(streamId));
+            descriptor.put("metrics", metricsForStream(streamId));
+            descriptor.put("recommended_rate_hz", recommendedRateForStream(streamId, kind));
+            descriptor.put("rate_class", rateClassForStream(streamId, kind));
+            descriptor.put("data_sensitivity", dataSensitivityForStream(streamId, kind));
+            descriptor.put("retention_policy", retentionPolicyForStream(streamId, kind));
+            registeredStreams.put(descriptor);
+        }
+
+        JSONObject breathAdapter = new JSONObject();
+        breathAdapter.put("adapter_id", "breath-assessment");
+        breathAdapter.put("label", "Breath assessment");
+        breathAdapter.put("state", breathAssessment.hasAssessments() ? "active" : "idle");
+        breathAdapter.put("input_stream_ids", jsonArrayOf("bio:polar_acc", "xr:controller_pose"));
+        breathAdapter.put("output_stream_ids", jsonArrayOf("bio:breath"));
+
+        JSONObject videoAdapter = new JSONObject();
+        videoAdapter.put("adapter_id", "video-lab");
+        videoAdapter.put("label", "Video lab metadata");
+        videoAdapter.put("state", videoLabMetricSamples.get() > 0 ? "active" : "idle");
+        videoAdapter.put("input_stream_ids", jsonArrayOf("video_lab.encoded_sample_metadata"));
+        videoAdapter.put("output_stream_ids", jsonArrayOf("video_lab.metric_sample"));
+
+        JSONObject subscriber = new JSONObject();
+        subscriber.put("subscriber_id", "broker-websocket-clients");
+        subscriber.put("label", "WebSocket clients");
+        subscriber.put("transport", "WebSocket");
+        subscriber.put("stream_ids", activeStreamIds(streams));
+
+        JSONObject commandClient = new JSONObject();
+        commandClient.put("client_id", "broker-websocket-command-clients");
+        commandClient.put("label", "WebSocket command clients");
+        commandClient.put("command_scopes", jsonArrayOf(
+            "session.lifecycle",
+            "runtime.bio",
+            "runtime.visuals",
+            "camera.preview",
+            "transport.session"));
+        commandClient.put("held_lease_ids", new JSONArray());
+
+        JSONObject snapshot = new JSONObject();
+        snapshot.put("schema", STREAM_REGISTRY_SNAPSHOT_SCHEMA);
+        snapshot.put("broker_id", "quest-broker-example");
+        snapshot.put("revision", streamRegistryRevision());
+        snapshot.put("captured_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        snapshot.put("providers", providers);
+        snapshot.put("streams", registeredStreams);
+        snapshot.put("adapters", new JSONArray().put(breathAdapter).put(videoAdapter));
+        snapshot.put("subscribers", new JSONArray().put(subscriber));
+        snapshot.put("command_clients", new JSONArray().put(commandClient));
+        snapshot.put("active_leases", new JSONArray());
+        return snapshot;
+    }
+
     private static JSONObject streamJson(String id, String kind, String description, boolean active) throws Exception {
         JSONObject stream = new JSONObject();
         stream.put("id", id);
@@ -332,6 +431,209 @@ final class BrokerState {
         stream.put("description", description);
         stream.put("active", active);
         return stream;
+    }
+
+    private long streamRegistryRevision() {
+        return 1L
+            + acceptedCommands.get()
+            + rejectedCommands.get()
+            + publishedStreamEvents.get()
+            + videoLabMetricSamples.get()
+            + videoLabEncodedStreamManifests.get()
+            + videoLabEncodedSampleMetadata.get()
+            + transportSessions.createdCount()
+            + transportSessions.closedCount()
+            + transportSessions.failedCount();
+    }
+
+    private static JSONArray activeStreamIds(JSONArray streams) throws Exception {
+        JSONArray active = new JSONArray();
+        for (int index = 0; index < streams.length(); index++) {
+            JSONObject stream = streams.optJSONObject(index);
+            if (stream != null && stream.optBoolean("active", false)) {
+                active.put(stream.optString("id", ""));
+            }
+        }
+        return active;
+    }
+
+    private static String providerIdForKind(String kind) {
+        String clean = kind == null || kind.length() == 0 ? "custom" : kind;
+        return clean + "-provider";
+    }
+
+    private static String providerLabel(String providerId) {
+        if ("bio-provider".equals(providerId)) {
+            return "Bio provider";
+        }
+        if ("video-provider".equals(providerId)) {
+            return "Video provider";
+        }
+        if ("camera-provider".equals(providerId)) {
+            return "Camera provider";
+        }
+        if ("clock-provider".equals(providerId)) {
+            return "Clock provider";
+        }
+        if ("transport-provider".equals(providerId)) {
+            return "Transport provider";
+        }
+        if ("control-provider".equals(providerId)) {
+            return "Control provider";
+        }
+        return providerId;
+    }
+
+    private static String providerSensitivity(String providerId) {
+        if ("bio-provider".equals(providerId)) {
+            return "physiology";
+        }
+        if ("control-provider".equals(providerId)) {
+            return "restricted";
+        }
+        return "diagnostic";
+    }
+
+    private static String streamKindForStream(String streamId, String kind) {
+        if ("bio".equals(kind)) {
+            return "Bio";
+        }
+        if ("video".equals(kind) || streamId.contains("h264")) {
+            return "Media";
+        }
+        if ("control".equals(kind)) {
+            return "Control";
+        }
+        if ("xr".equals(kind)) {
+            return "XrInput";
+        }
+        if ("clock".equals(kind) || "latency".equals(kind) || "status".equals(kind)) {
+            return "Telemetry";
+        }
+        return "Custom";
+    }
+
+    private static String payloadKindForStream(String streamId) {
+        return streamId.contains("h264") ? "H264" : "Json";
+    }
+
+    private static String payloadSchemaForStream(String streamId) {
+        if ("latency:sample".equals(streamId)) {
+            return "rusty.xr.broker.latency_sample.v1";
+        }
+        if ("bio:breath".equals(streamId)) {
+            return "rusty.xr.bio.breath.v1";
+        }
+        if ("bio:polar_hr_rr".equals(streamId)) {
+            return "rusty.xr.bio.polar_hr_rr.v1";
+        }
+        if ("bio:polar_acc".equals(streamId)) {
+            return "rusty.xr.bio.polar_acc.v1";
+        }
+        if ("video_lab.metric_sample".equals(streamId)) {
+            return "rusty.xr.video_lab.metric_sample.v1";
+        }
+        if (streamId.contains("h264")) {
+            return "rusty.xr.video_lab.binary_stream.v1";
+        }
+        return "rusty.xr.broker.stream_payload.v1";
+    }
+
+    private static Object recommendedRateForStream(String streamId, String kind) {
+        if ("clock:openxr_frame".equals(streamId) || "xr".equals(kind)) {
+            return 72.0;
+        }
+        if ("video_lab.metric_sample".equals(streamId)) {
+            return 30.0;
+        }
+        if ("bio:polar_acc".equals(streamId)) {
+            return 52.0;
+        }
+        if ("bio".equals(kind) || "latency".equals(kind) || "clock".equals(kind)) {
+            return 15.0;
+        }
+        return JSONObject.NULL;
+    }
+
+    private static String rateClassForStream(String streamId, String kind) {
+        if (streamId.contains("h264")) {
+            return "media";
+        }
+        if ("clock:openxr_frame".equals(streamId) || "bio:polar_acc".equals(streamId) || "xr".equals(kind)) {
+            return "frame_rate_telemetry";
+        }
+        if (streamId.contains("encoded_stream_manifest") || streamId.contains("encoded_sample_metadata")) {
+            return "metadata_only";
+        }
+        if ("bio".equals(kind) || "clock".equals(kind) || "latency".equals(kind) || "video_lab.metric_sample".equals(streamId)) {
+            return "low_rate_telemetry";
+        }
+        return "unknown";
+    }
+
+    private static String dataSensitivityForStream(String streamId, String kind) {
+        if ("bio:breath".equals(streamId)) {
+            return "derived_physiology";
+        }
+        if ("bio".equals(kind)) {
+            return "physiology";
+        }
+        if ("control".equals(kind)) {
+            return "restricted";
+        }
+        return "diagnostic";
+    }
+
+    private static String retentionPolicyForStream(String streamId, String kind) {
+        if (streamId.contains("h264")) {
+            return "downstream_owned";
+        }
+        if ("unknown".equals(rateClassForStream(streamId, kind))) {
+            return "none";
+        }
+        return "rolling_window";
+    }
+
+    private static JSONArray metricsForStream(String streamId) throws Exception {
+        JSONArray metrics = new JSONArray();
+        if ("latency:sample".equals(streamId)) {
+            metrics.put(metricJson("latency_ms", "Latency", "ms", JSONObject.NULL, JSONObject.NULL));
+        } else if ("bio:polar_hr_rr".equals(streamId)) {
+            metrics.put(metricJson("heart_rate_bpm", "Heart rate", "bpm", JSONObject.NULL, JSONObject.NULL));
+            metrics.put(metricJson("mean_rr_ms", "Mean RR", "ms", JSONObject.NULL, JSONObject.NULL));
+        } else if ("bio:polar_acc".equals(streamId)) {
+            metrics.put(metricJson("acc_magnitude_g", "Acceleration magnitude", "g", JSONObject.NULL, JSONObject.NULL));
+        } else if ("bio:breath".equals(streamId)) {
+            metrics.put(metricJson("volume01", "Volume", JSONObject.NULL, 0.0, 1.0));
+            metrics.put(metricJson("quality01", "Quality", JSONObject.NULL, 0.0, 1.0));
+        } else if ("video_lab.metric_sample".equals(streamId)) {
+            metrics.put(metricJson("frame_age_ms", "Frame age", "ms", JSONObject.NULL, JSONObject.NULL));
+            metrics.put(metricJson("latency_ms", "Latency", "ms", JSONObject.NULL, JSONObject.NULL));
+        }
+        return metrics;
+    }
+
+    private static JSONObject metricJson(
+        String metric,
+        String label,
+        Object unit,
+        Object minValue,
+        Object maxValue) throws Exception {
+        JSONObject value = new JSONObject();
+        value.put("metric", metric);
+        value.put("label", label);
+        value.put("unit", unit);
+        value.put("min_value", minValue);
+        value.put("max_value", maxValue);
+        return value;
+    }
+
+    private static JSONArray jsonArrayOf(String... values) {
+        JSONArray array = new JSONArray();
+        for (String value : values) {
+            array.put(value);
+        }
+        return array;
     }
 
     private static Object nullableJsonString(String value) {

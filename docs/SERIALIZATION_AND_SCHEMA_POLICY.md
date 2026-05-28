@@ -80,7 +80,9 @@ The initial export covers:
 - Broker command envelopes, acknowledgements, stream manifests, stream sample
   headers, stream events, replay records, synthetic wave samples, session
   manifests, clock snapshots, clock stamps, clock correlations, clock health,
-  and clock sync probes.
+  clock sync probes, broker panel descriptors, stream registry snapshots,
+  control scopes, control leases, command preconditions, and command authority
+  requirements.
 - Eye screen-gaze points, XR gaze rays, screen AOI hits, and derived processor
   events.
 - Developer-home panel descriptors, home session state, launcher entries,

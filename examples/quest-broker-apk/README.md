@@ -23,6 +23,7 @@ owning decode, Vulkan import, projection, and OpenXR layer submission itself.
 ## Endpoints
 
 - HTTP status: `http://127.0.0.1:8765/status`
+- Stream registry snapshot: `http://127.0.0.1:8765/stream_registry/snapshot`
 - Broker clock: `http://127.0.0.1:8765/clock/now`
 - Rusty Kiosk control-plane status: `http://127.0.0.1:8765/kiosk/status`
 - WebSocket samples/events: `ws://127.0.0.1:8765/rustyxr/v1/events`
@@ -96,6 +97,7 @@ or an operator visual witness before accepting the run as camera-ready.
 - `clock.health`
 - `clock.compare_openxr`
 - `clock.sync_probe`
+- `stream_registry.snapshot`
 - `kiosk.get_status`
 - `camera_provider.get_status`
 - `camera_provider.get_projection_profile`

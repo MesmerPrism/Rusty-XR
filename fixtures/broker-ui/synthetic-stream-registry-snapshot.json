@@ -1,0 +1,199 @@
+{
+  "schema": "rusty.xr.broker.stream_registry_snapshot.v1",
+  "broker_id": "synthetic-broker",
+  "revision": 5,
+  "captured_elapsed_ns": 1000000000,
+  "providers": [
+    {
+      "provider_id": "broker-provider",
+      "label": "Broker diagnostics provider",
+      "state": "active",
+      "data_sensitivity": "diagnostic",
+      "stream_ids": [
+        "latency:sample",
+        "synthetic:wave"
+      ]
+    },
+    {
+      "provider_id": "bio-provider",
+      "label": "Bio provider",
+      "state": "active",
+      "data_sensitivity": "derived_physiology",
+      "stream_ids": [
+        "bio:heart",
+        "bio:breath"
+      ]
+    },
+    {
+      "provider_id": "video-provider",
+      "label": "Video diagnostics provider",
+      "state": "idle",
+      "data_sensitivity": "diagnostic",
+      "stream_ids": [
+        "video_lab.metric_sample"
+      ]
+    }
+  ],
+  "streams": [
+    {
+      "stream_id": "latency:sample",
+      "label": "Latency Sample",
+      "provider_id": "broker-provider",
+      "stream_kind": "Telemetry",
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.broker.latency_sample.v1",
+      "metrics": [
+        {
+          "metric": "latency_ms",
+          "label": "Latency",
+          "unit": "ms",
+          "min_value": 0.0,
+          "max_value": null
+        }
+      ],
+      "recommended_rate_hz": 10.0,
+      "rate_class": "low_rate_telemetry",
+      "data_sensitivity": "diagnostic",
+      "retention_policy": "rolling_window"
+    },
+    {
+      "stream_id": "synthetic:wave",
+      "label": "Synthetic Wave",
+      "provider_id": "broker-provider",
+      "stream_kind": "Synthetic",
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.synthetic.wave.v1",
+      "metrics": [
+        {
+          "metric": "value01",
+          "label": "Value",
+          "unit": null,
+          "min_value": 0.0,
+          "max_value": 1.0
+        }
+      ],
+      "recommended_rate_hz": 30.0,
+      "rate_class": "low_rate_telemetry",
+      "data_sensitivity": "public",
+      "retention_policy": "rolling_window"
+    },
+    {
+      "stream_id": "bio:heart",
+      "label": "Heart Telemetry",
+      "provider_id": "bio-provider",
+      "stream_kind": "Bio",
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.bio.heart.v1",
+      "metrics": [
+        {
+          "metric": "heart_rate_bpm",
+          "label": "Heart Rate",
+          "unit": "bpm",
+          "min_value": 0.0,
+          "max_value": 240.0
+        }
+      ],
+      "recommended_rate_hz": 1.0,
+      "rate_class": "low_rate_telemetry",
+      "data_sensitivity": "physiology",
+      "retention_policy": "rolling_window"
+    },
+    {
+      "stream_id": "bio:breath",
+      "label": "Breath",
+      "provider_id": "bio-provider",
+      "stream_kind": "Bio",
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.bio.breath.v1",
+      "metrics": [
+        {
+          "metric": "volume01",
+          "label": "Volume",
+          "unit": null,
+          "min_value": 0.0,
+          "max_value": 1.0
+        }
+      ],
+      "recommended_rate_hz": 15.0,
+      "rate_class": "low_rate_telemetry",
+      "data_sensitivity": "derived_physiology",
+      "retention_policy": "rolling_window"
+    },
+    {
+      "stream_id": "video_lab.metric_sample",
+      "label": "Video Lab Metrics",
+      "provider_id": "video-provider",
+      "stream_kind": "Telemetry",
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.video_lab.metric_sample.v1",
+      "metrics": [
+        {
+          "metric": "latency_ms",
+          "label": "Latency",
+          "unit": "ms",
+          "min_value": 0.0,
+          "max_value": null
+        },
+        {
+          "metric": "frame_age_ms",
+          "label": "Frame Age",
+          "unit": "ms",
+          "min_value": 0.0,
+          "max_value": null
+        }
+      ],
+      "recommended_rate_hz": 15.0,
+      "rate_class": "low_rate_telemetry",
+      "data_sensitivity": "diagnostic",
+      "retention_policy": "rolling_window"
+    }
+  ],
+  "adapters": [
+    {
+      "adapter_id": "breath-assessment",
+      "label": "Breath assessment adapter",
+      "state": "active",
+      "input_stream_ids": [
+        "bio:heart"
+      ],
+      "output_stream_ids": [
+        "bio:breath"
+      ]
+    },
+    {
+      "adapter_id": "video-lab-metrics",
+      "label": "Video lab metrics adapter",
+      "state": "idle",
+      "input_stream_ids": [],
+      "output_stream_ids": [
+        "video_lab.metric_sample"
+      ]
+    }
+  ],
+  "subscribers": [
+    {
+      "subscriber_id": "inspector",
+      "label": "Inspector",
+      "transport": "WebSocket",
+      "stream_ids": [
+        "latency:sample",
+        "synthetic:wave",
+        "bio:heart",
+        "bio:breath"
+      ]
+    }
+  ],
+  "command_clients": [
+    {
+      "client_id": "inspector",
+      "label": "Inspector",
+      "command_scopes": [
+        "session.lifecycle",
+        "runtime.bio",
+        "runtime.visuals"
+      ],
+      "held_lease_ids": []
+    }
+  ],
+  "active_leases": []
+}

@@ -647,6 +647,34 @@ def schemas() -> dict[str, dict]:
         "BrokerCameraPermissionState",
         ["Granted", "Denied", "Unavailable", "NotRequired", "Unknown"],
     )
+    broker_command_mutation_class = enum(
+        "BrokerCommandMutationClass",
+        ["read_only", "mutating", "exclusive_lease", "external_gate"],
+    )
+    broker_control_lease_state = enum(
+        "BrokerControlLeaseState",
+        ["offered", "active", "expired", "revoked", "released", "denied"],
+    )
+    broker_panel_kind = enum(
+        "BrokerPanelKind",
+        ["state_card", "command_group", "stream_list", "telemetry_chart", "domain_status", "custom"],
+    )
+    broker_data_sensitivity = enum(
+        "BrokerDataSensitivity",
+        ["public", "diagnostic", "mixed", "physiology", "derived_physiology", "restricted", "unknown"],
+    )
+    broker_stream_rate_class = enum(
+        "BrokerStreamRateClass",
+        ["low_rate_telemetry", "frame_rate_telemetry", "media", "burst", "metadata_only", "unknown"],
+    )
+    broker_stream_retention_policy = enum(
+        "BrokerStreamRetentionPolicy",
+        ["none", "rolling_window", "session_replay", "downstream_owned"],
+    )
+    broker_registry_node_state = enum(
+        "BrokerRegistryNodeState",
+        ["starting", "active", "idle", "stopped", "degraded", "failed", "unknown"],
+    )
     broker_drop_counters = obj(
         "BrokerDropCounters",
         {
@@ -715,6 +743,221 @@ def schemas() -> dict[str, dict]:
             "nominal_rate_hz": {"type": ["number", "null"], "exclusiveMinimum": 0},
             "target_latency_ms": {"type": ["number", "null"], "minimum": 0},
             "max_payload_bytes": {"type": ["integer", "null"], "minimum": 1},
+        },
+    )
+    broker_control_scope = obj(
+        "BrokerControlScope",
+        {
+            "schema": {"const": "rusty.xr.broker.control_scope.v1"},
+            "scope_id": string(),
+            "command_scope": string(),
+            "resource_id": nullable_string(),
+        },
+    )
+    broker_command_precondition = obj(
+        "BrokerCommandPrecondition",
+        {
+            "schema": {"const": "rusty.xr.broker.command_precondition.v1"},
+            "expected_revision": {"type": ["integer", "null"], "minimum": 0},
+            "lease_id": nullable_string(),
+            "holder_client_id": nullable_string(),
+        },
+    )
+    broker_command_authority_requirement = obj(
+        "BrokerCommandAuthorityRequirement",
+        {
+            "schema": {"const": "rusty.xr.broker.command_authority_requirement.v1"},
+            "command": string(),
+            "command_scope": string(),
+            "mutation_class": broker_command_mutation_class,
+            "required_capability": nullable_string(),
+            "lease_required": boolean(),
+            "required_lease_scope": {"oneOf": [broker_control_scope, {"type": "null"}]},
+            "required_revision": {"type": ["integer", "null"], "minimum": 0},
+            "operator_confirm_required": boolean(),
+        },
+    )
+    broker_control_lease = obj(
+        "BrokerControlLease",
+        {
+            "schema": {"const": "rusty.xr.broker.control_lease.v1"},
+            "lease_id": string(),
+            "holder_client_id": string(),
+            "scope": broker_control_scope,
+            "granted_revision": integer(0),
+            "expires_elapsed_ns": {"type": ["integer", "null"], "minimum": 0},
+            "state": broker_control_lease_state,
+        },
+    )
+    broker_panel_widget_state_card = obj(
+        "BrokerPanelWidgetStateCard",
+        {
+            "kind": {"const": "state_card"},
+            "id": string(),
+            "label": string(),
+            "value_path": string(),
+        },
+    )
+    broker_panel_widget_command_button = obj(
+        "BrokerPanelWidgetCommandButton",
+        {
+            "kind": {"const": "command_button"},
+            "id": string(),
+            "label": string(),
+            "command": string(),
+            "read_only": boolean(),
+            "command_scope": string(),
+            "required_capability": nullable_string(),
+            "lease_required": boolean(),
+        },
+    )
+    broker_panel_widget_stream_list = obj(
+        "BrokerPanelWidgetStreamList",
+        {
+            "kind": {"const": "stream_list"},
+            "id": string(),
+            "label": string(),
+            "stream_ids": array(string()),
+            "data_sensitivity": broker_data_sensitivity,
+        },
+    )
+    broker_telemetry_chart_descriptor = obj(
+        "BrokerTelemetryChartDescriptor",
+        {
+            "id": string(),
+            "title": string(),
+            "stream_id": string(),
+            "metric": string(),
+            "x_axis": string(),
+            "y_axis": string(),
+            "max_points": integer(1),
+            "data_sensitivity": broker_data_sensitivity,
+            "command_scope": string(),
+            "high_rate_policy": string(),
+        },
+    )
+    broker_panel_widget_telemetry_chart = obj(
+        "BrokerPanelWidgetTelemetryChart",
+        {
+            "kind": {"const": "telemetry_chart"},
+            "id": string(),
+            "title": string(),
+            "stream_id": string(),
+            "metric": string(),
+            "x_axis": string(),
+            "y_axis": string(),
+            "max_points": integer(1),
+            "data_sensitivity": broker_data_sensitivity,
+            "command_scope": string(),
+            "high_rate_policy": string(),
+        },
+    )
+    broker_panel_widget = {
+        "oneOf": [
+            broker_panel_widget_state_card,
+            broker_panel_widget_command_button,
+            broker_panel_widget_stream_list,
+            broker_panel_widget_telemetry_chart,
+        ]
+    }
+    broker_panel_descriptor = obj(
+        "BrokerPanelDescriptor",
+        {
+            "id": string(),
+            "title": string(),
+            "kind": broker_panel_kind,
+            "data_sensitivity": broker_data_sensitivity,
+            "command_scope": string(),
+            "required_capability": nullable_string(),
+            "lease_required": boolean(),
+            "widgets": array(broker_panel_widget),
+        },
+    )
+    broker_panel_descriptor_document = obj(
+        "BrokerPanelDescriptorDocument",
+        {
+            "schema": {"const": "rusty.xr.broker.panel_descriptor_set.v1"},
+            "version": string(),
+            "panels": array(broker_panel_descriptor),
+        },
+    )
+    broker_stream_metric_descriptor = obj(
+        "BrokerStreamMetricDescriptor",
+        {
+            "metric": string(),
+            "label": string(),
+            "unit": nullable_string(),
+            "min_value": {"type": ["number", "null"]},
+            "max_value": {"type": ["number", "null"]},
+        },
+    )
+    broker_registered_stream_descriptor = obj(
+        "BrokerRegisteredStreamDescriptor",
+        {
+            "stream_id": string(),
+            "label": string(),
+            "provider_id": nullable_string(),
+            "stream_kind": broker_stream_kind,
+            "payload_kind": broker_payload_kind,
+            "payload_schema": string(),
+            "metrics": array(broker_stream_metric_descriptor),
+            "recommended_rate_hz": {"type": ["number", "null"], "exclusiveMinimum": 0},
+            "rate_class": broker_stream_rate_class,
+            "data_sensitivity": broker_data_sensitivity,
+            "retention_policy": broker_stream_retention_policy,
+        },
+    )
+    broker_stream_provider_descriptor = obj(
+        "BrokerStreamProviderDescriptor",
+        {
+            "provider_id": string(),
+            "label": string(),
+            "state": broker_registry_node_state,
+            "data_sensitivity": broker_data_sensitivity,
+            "stream_ids": array(string()),
+        },
+    )
+    broker_stream_adapter_descriptor = obj(
+        "BrokerStreamAdapterDescriptor",
+        {
+            "adapter_id": string(),
+            "label": string(),
+            "state": broker_registry_node_state,
+            "input_stream_ids": array(string()),
+            "output_stream_ids": array(string()),
+        },
+    )
+    broker_stream_subscriber_descriptor = obj(
+        "BrokerStreamSubscriberDescriptor",
+        {
+            "subscriber_id": string(),
+            "label": string(),
+            "transport": broker_transport_kind,
+            "stream_ids": array(string()),
+        },
+    )
+    broker_command_client_descriptor = obj(
+        "BrokerCommandClientDescriptor",
+        {
+            "client_id": string(),
+            "label": string(),
+            "command_scopes": array(string()),
+            "held_lease_ids": array(string()),
+        },
+    )
+    broker_stream_registry_snapshot = obj(
+        "BrokerStreamRegistrySnapshot",
+        {
+            "schema": {"const": "rusty.xr.broker.stream_registry_snapshot.v1"},
+            "broker_id": string(),
+            "revision": integer(0),
+            "captured_elapsed_ns": {"type": ["integer", "null"], "minimum": 0},
+            "providers": array(broker_stream_provider_descriptor),
+            "streams": array(broker_registered_stream_descriptor),
+            "adapters": array(broker_stream_adapter_descriptor),
+            "subscribers": array(broker_stream_subscriber_descriptor),
+            "command_clients": array(broker_command_client_descriptor),
+            "active_leases": array(broker_control_lease),
         },
     )
     broker_transport_session_offer = obj(
@@ -2639,6 +2882,14 @@ def schemas() -> dict[str, dict]:
                 "last_seen_time_ns": {"type": ["integer", "null"], "minimum": 0},
             },
         ),
+        "broker-control-scope.schema.json": broker_control_scope,
+        "broker-command-precondition.schema.json": broker_command_precondition,
+        "broker-command-authority-requirement.schema.json": broker_command_authority_requirement,
+        "broker-control-lease.schema.json": broker_control_lease,
+        "broker-panel-descriptor.schema.json": broker_panel_descriptor,
+        "broker-panel-descriptor-document.schema.json": broker_panel_descriptor_document,
+        "broker-telemetry-chart-descriptor.schema.json": broker_telemetry_chart_descriptor,
+        "broker-stream-registry-snapshot.schema.json": broker_stream_registry_snapshot,
         "broker-stream-manifest.schema.json": broker_stream_manifest,
         "broker-stream-sample-header.schema.json": broker_sample_header,
         "broker-transport-security-policy.schema.json": broker_transport_security_policy,

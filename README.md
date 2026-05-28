@@ -47,8 +47,9 @@ Initial crate layout:
 - `rusty-xr-lsl`: Lab Streaming Layer models and utilities.
 - `rusty-xr-osc`: Open Sound Control packet and UDP helpers.
 - `rusty-xr-zmq`: optional pure-Rust ZeroMQ adapter helpers.
-- `rusty-xr-broker-model`: broker command, stream-manifest, sample-header, and
-  transport-lane contracts, plus synthetic stream and replay payload shapes.
+- `rusty-xr-broker-model`: broker command, stream-manifest, sample-header,
+  transport-lane, broker UI, stream registry, and lease-aware control
+  contracts, plus synthetic stream and replay payload shapes.
 - `rusty-xr-eye-model`: screen-space gaze, XR gaze-ray, AOI, processor-event,
   and synthetic eye-data contracts.
 - `rusty-xr-polar`: Polar H10 data contracts and protocol helpers.

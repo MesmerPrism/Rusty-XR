@@ -68,6 +68,9 @@ before reading chronological plans or investigation logs.
   focus recovery, and command evidence.
 - [Broker clock and timebase](BROKER_CLOCK_AND_TIMEBASE.md): broker-owned
   elapsed-realtime clock, stamps, sync probes, and health snapshots.
+- [Broker UI and control contracts](BROKER_UI_CONTROL_CONTRACTS.md): data-only
+  panel descriptors, telemetry chart descriptors, stream registry snapshots,
+  and lease-aware command authority models.
 
 ## Validation
 
