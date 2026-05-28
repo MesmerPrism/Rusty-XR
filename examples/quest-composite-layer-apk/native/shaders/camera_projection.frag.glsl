@@ -446,22 +446,51 @@ vec2 projection_area_content_uv(vec2 area_uv, int eye) {
     return (area_uv - (vec2(0.5) - half_size)) / max(half_size * 2.0, vec2(0.001));
 }
 
-vec2 projection_area_rect_edge_uv(vec2 area_uv, int eye) {
+vec2 projection_area_rect_edge_uv(
+    vec2 area_uv,
+    int eye,
+    vec2 domain_min_uv,
+    vec2 domain_max_uv
+) {
     vec2 half_size = projection_area_half_size(eye);
     float core_scale = clamp(pc.stretch_params.x, 0.05, 1.0);
-    float configured_inset = clamp(
-        min(pc.stretch_params.y, pc.stretch_params.z),
-        0.0,
-        0.49
-    );
-    float curve_normalizer = max(abs(pc.stretch_params.w), 0.001);
-    float edge_inset = max(configured_inset - 0.015, 0.0) *
-        abs(pc.stretch_params.w) / curve_normalizer;
     vec2 core_half_size = half_size * core_scale;
-    vec2 edge_inset_uv = min(vec2(edge_inset), max(core_half_size - vec2(0.001), vec2(0.0)));
-    vec2 min_uv = vec2(0.5) - core_half_size + edge_inset_uv;
-    vec2 max_uv = vec2(0.5) + core_half_size - edge_inset_uv;
-    return clamp(area_uv, min_uv, max_uv);
+    vec2 p = area_uv - vec2(0.5);
+    vec2 normalized = p / max(core_half_size, vec2(0.001));
+    float edge_distance = max(abs(normalized.x), abs(normalized.y));
+    if (edge_distance <= 1.0) {
+        return area_uv;
+    }
+
+    vec2 edge_normalized = normalized / max(edge_distance, 0.0001);
+    vec2 edge_direction_uv = edge_normalized * core_half_size;
+    vec2 bounded_min_uv = min(domain_min_uv, domain_max_uv);
+    vec2 bounded_max_uv = max(domain_min_uv, domain_max_uv);
+
+    float reach_x = 1.0e6;
+    if (edge_direction_uv.x > 0.0001) {
+        reach_x = (bounded_max_uv.x - 0.5) / edge_direction_uv.x;
+    } else if (edge_direction_uv.x < -0.0001) {
+        reach_x = (bounded_min_uv.x - 0.5) / edge_direction_uv.x;
+    }
+    float reach_y = 1.0e6;
+    if (edge_direction_uv.y > 0.0001) {
+        reach_y = (bounded_max_uv.y - 0.5) / edge_direction_uv.y;
+    } else if (edge_direction_uv.y < -0.0001) {
+        reach_y = (bounded_min_uv.y - 0.5) / edge_direction_uv.y;
+    }
+    float exterior_reach = max(min(reach_x, reach_y) - 1.0, 0.0001);
+    float exterior_t = clamp((edge_distance - 1.0) / exterior_reach, 0.0, 1.0);
+    exterior_t = smooth_unit(exterior_t);
+
+    float edge_inset = clamp(pc.stretch_params.y, 0.0, 0.49);
+    float max_inset = clamp(max(pc.stretch_params.z, edge_inset), 0.0, 0.49);
+    float curve = clamp(pc.stretch_params.w, 0.25, 6.0);
+    float shaped_t = pow(exterior_t, curve);
+    float inset = mix(edge_inset, max_inset, shaped_t);
+    vec2 sample_half_size = max(core_half_size - vec2(inset), vec2(0.001));
+    vec2 sample_uv = vec2(0.5) + edge_normalized * sample_half_size;
+    return clamp(sample_uv, bounded_min_uv, bounded_max_uv);
 }
 
 vec3 sample_source_eye_blur_raw(int source_eye, vec2 camera_uv, float radius_px) {
@@ -1033,7 +1062,16 @@ void main() {
     bool projection_area_inside = projection_area_distance <= 1.0;
     bool stretch_exterior = raw_projection_peripheral_stretch && !projection_area_inside;
     if (stretch_exterior) {
-        projection_area_domain_uv = projection_area_rect_edge_uv(projection_area_domain_uv, eye);
+        vec2 domain_min_uv =
+            vec2(0.5) - vec2(0.5) * projection_area_scale - projection_area_offset;
+        vec2 domain_max_uv =
+            vec2(0.5) + vec2(0.5) * projection_area_scale - projection_area_offset;
+        projection_area_domain_uv = projection_area_rect_edge_uv(
+            projection_area_domain_uv,
+            eye,
+            domain_min_uv,
+            domain_max_uv
+        );
         projection_screen_uv_base = projection_area_domain_uv + projection_area_offset;
     }
     // Metadata target footprints define the mask/effect boundary. They do not

@@ -92,25 +92,57 @@ vec2 projection_area_uv_to_screen_uv(
 return (area_uv + projection_area_offset_uv - vec2(0.5)) /
     max(projection_scale, vec2(0.05)) + vec2(0.5);
 }
-vec2 projection_area_rect_edge_uv(vec2 area_uv) {
+float smooth_unit(float value) {
+value = clamp(value, 0.0, 1.0);
+return value * value * (3.0 - 2.0 * value);
+}
+vec2 projection_area_rect_edge_uv(
+    vec2 area_uv,
+    vec2 domain_min_uv,
+    vec2 domain_max_uv
+) {
 vec2 half_size = vec2(
     clamp(u_projection_area_radius.x, 0.05, 0.50),
     clamp(u_projection_area_radius.y, 0.05, 0.50)
 );
 float core_scale = clamp(u_peripheral_stretch_params.x, 0.05, 1.0);
-float configured_inset = clamp(
-    min(u_peripheral_stretch_params.y, u_peripheral_stretch_params.z),
-    0.0,
-    0.49
-);
-float curve_normalizer = max(abs(u_peripheral_stretch_params.w), 0.001);
-float edge_inset = max(configured_inset - 0.015, 0.0) *
-    abs(u_peripheral_stretch_params.w) / curve_normalizer;
 vec2 core_half_size = half_size * core_scale;
-vec2 edge_inset_uv = min(vec2(edge_inset), max(core_half_size - vec2(0.001), vec2(0.0)));
-vec2 min_uv = vec2(0.5) - core_half_size + edge_inset_uv;
-vec2 max_uv = vec2(0.5) + core_half_size - edge_inset_uv;
-return clamp(area_uv, min_uv, max_uv);
+vec2 p = area_uv - vec2(0.5);
+vec2 normalized = p / max(core_half_size, vec2(0.001));
+float edge_distance = max(abs(normalized.x), abs(normalized.y));
+if (edge_distance <= 1.0) {
+    return area_uv;
+}
+
+vec2 edge_normalized = normalized / max(edge_distance, 0.0001);
+vec2 edge_direction_uv = edge_normalized * core_half_size;
+vec2 bounded_min_uv = min(domain_min_uv, domain_max_uv);
+vec2 bounded_max_uv = max(domain_min_uv, domain_max_uv);
+
+float reach_x = 1.0e6;
+if (edge_direction_uv.x > 0.0001) {
+    reach_x = (bounded_max_uv.x - 0.5) / edge_direction_uv.x;
+} else if (edge_direction_uv.x < -0.0001) {
+    reach_x = (bounded_min_uv.x - 0.5) / edge_direction_uv.x;
+}
+float reach_y = 1.0e6;
+if (edge_direction_uv.y > 0.0001) {
+    reach_y = (bounded_max_uv.y - 0.5) / edge_direction_uv.y;
+} else if (edge_direction_uv.y < -0.0001) {
+    reach_y = (bounded_min_uv.y - 0.5) / edge_direction_uv.y;
+}
+float exterior_reach = max(min(reach_x, reach_y) - 1.0, 0.0001);
+float exterior_t = clamp((edge_distance - 1.0) / exterior_reach, 0.0, 1.0);
+exterior_t = smooth_unit(exterior_t);
+
+float edge_inset = clamp(u_peripheral_stretch_params.y, 0.0, 0.49);
+float max_inset = clamp(max(u_peripheral_stretch_params.z, edge_inset), 0.0, 0.49);
+float curve = clamp(u_peripheral_stretch_params.w, 0.25, 6.0);
+float shaped_t = pow(exterior_t, curve);
+float inset = mix(edge_inset, max_inset, shaped_t);
+vec2 sample_half_size = max(core_half_size - vec2(inset), vec2(0.001));
+vec2 sample_uv = vec2(0.5) + edge_normalized * sample_half_size;
+return clamp(sample_uv, bounded_min_uv, bounded_max_uv);
 }
 bool peripheral_stretch_enabled() {
 // Keep the mode/corner uniforms live for the public runtime contract, but let
@@ -237,7 +269,15 @@ float area_distance = projection_area_distance(projection_area_uv);
 bool stretch_exterior = false;
 bool peripheral_stretch_active = peripheral_stretch_enabled();
 if (area_distance > 1.0 && peripheral_stretch_active) {
-    projection_area_uv = projection_area_rect_edge_uv(projection_area_uv);
+    vec2 domain_min_uv =
+        vec2(0.5) - vec2(0.5) * projection_scale - projection_area_offset_uv;
+    vec2 domain_max_uv =
+        vec2(0.5) + vec2(0.5) * projection_scale - projection_area_offset_uv;
+    projection_area_uv = projection_area_rect_edge_uv(
+        projection_area_uv,
+        domain_min_uv,
+        domain_max_uv
+    );
     screen_uv = projection_area_uv_to_screen_uv(
         projection_area_uv,
         projection_area_offset_uv,

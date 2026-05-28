@@ -702,9 +702,9 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in 1280x1280 source pixels when `rustyxr.processingLayer=blur`. |
 | `rustyxr.peripheralStretchMode` | string | Selects the peripheral-stretch mode; the current public mode is `edge-stretch`. |
 | `rustyxr.peripheralStretchCoreScale` | float | Keeps the coherent target-footprint core unchanged at `1.0`; lower values are not part of the accepted v0 geometry contract. |
-| `rustyxr.peripheralStretchEdgeInsetUv` | float | Source UV inset used for sampling the nearest target-footprint edge. |
-| `rustyxr.peripheralStretchMaxInsetUv` | float | Maximum inset reserved for future shaped stretch sampling. |
-| `rustyxr.peripheralStretchCurve` | float | Curve parameter carried in the shared OES/HWB stretch contract. |
+| `rustyxr.peripheralStretchEdgeInsetUv` | float | Near-edge source UV inset used when the exterior first leaves the target footprint. |
+| `rustyxr.peripheralStretchMaxInsetUv` | float | Far-exterior source UV inset used by the graded stretch mapping. |
+| `rustyxr.peripheralStretchCurve` | float | Shapes the exterior distance ramp between `peripheralStretchEdgeInsetUv` and `peripheralStretchMaxInsetUv`. |
 | `rustyxr.peripheralStretchCornerMode` | string | Selects effect-boundary corner semantics; use `target-footprint` for metadata-backed runs. |
 | `rustyxr.peripheralStretchDebug` | string | Selects stretch debug output: `off`, `regions`, or `sample-uv`. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
