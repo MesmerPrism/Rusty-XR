@@ -827,6 +827,15 @@ public final class CompositeLayerActivity extends NativeActivity {
             stringExtra(
                 "rustyxr.brokerH264SourceSamplingMode",
                 stringExtra("rustyxr.cameraSourceSamplingMode", "")),
+            stringExtra(
+                "rustyxr.brokerH264TargetScreenUvRect",
+                stringExtra("rustyxr.cameraTargetScreenUvRect", "")),
+            stringExtra(
+                "rustyxr.brokerH264LeftTargetScreenUvRect",
+                stringExtra("rustyxr.cameraLeftTargetScreenUvRect", "")),
+            stringExtra(
+                "rustyxr.brokerH264RightTargetScreenUvRect",
+                stringExtra("rustyxr.cameraRightTargetScreenUvRect", "")),
             booleanExtra("rustyxr.brokerH264LiveDecode", DEFAULT_BROKER_H264_LIVE_DECODE),
             booleanExtra("rustyxr.brokerH264ByteIdentityProbe", DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE),
             stringExtra("rustyxr.brokerH264StereoPairingMode", DEFAULT_BROKER_H264_STEREO_PAIRING_MODE),

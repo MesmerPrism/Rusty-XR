@@ -109,6 +109,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final String syntheticProjectionProfile;
         final String projectionGeometryProfile;
         final String sourceSamplingMode;
+        final String targetScreenUvRect;
+        final String leftTargetScreenUvRect;
+        final String rightTargetScreenUvRect;
         final boolean liveDecode;
         final boolean byteIdentityProbe;
         final String stereoPairingMode;
@@ -145,6 +148,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
             String syntheticProjectionProfile,
             String projectionGeometryProfile,
             String sourceSamplingMode,
+            String targetScreenUvRect,
+            String leftTargetScreenUvRect,
+            String rightTargetScreenUvRect,
             boolean liveDecode,
             boolean byteIdentityProbe,
             String stereoPairingMode,
@@ -190,6 +196,13 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 ? normalizeCameraProjectionGeometryProfile(requestedProjectionGeometryProfile)
                 : normalizeSyntheticProjectionProfile(requestedProjectionGeometryProfile);
             this.sourceSamplingMode = sourceSamplingMode != null ? sourceSamplingMode.trim() : "";
+            this.targetScreenUvRect = targetScreenUvRect != null ? targetScreenUvRect.trim() : "";
+            this.leftTargetScreenUvRect = leftTargetScreenUvRect != null
+                ? leftTargetScreenUvRect.trim()
+                : this.targetScreenUvRect;
+            this.rightTargetScreenUvRect = rightTargetScreenUvRect != null
+                ? rightTargetScreenUvRect.trim()
+                : this.targetScreenUvRect;
             this.liveDecode = liveDecode;
             this.byteIdentityProbe = byteIdentityProbe;
             this.stereoPairingMode = normalizeStereoPairingMode(stereoPairingMode);
@@ -1069,6 +1082,11 @@ final class BrokerH264ConsumerProbe implements Runnable {
             params.put("source_sampling_mode", config.sourceSamplingMode);
             params.put("sourceSamplingMode", config.sourceSamplingMode);
         }
+        String targetScreenUvRect = targetScreenUvRectForLabel(label);
+        if (targetScreenUvRect.length() > 0) {
+            params.put("target_screen_uv_rect", targetScreenUvRect);
+            params.put("targetScreenUvRect", targetScreenUvRect);
+        }
         if (cameraId != null && cameraId.length() > 0) {
             params.put("camera_id", cameraId);
         }
@@ -1092,6 +1110,17 @@ final class BrokerH264ConsumerProbe implements Runnable {
         command.put("app_version", "source-example");
         command.put("params", params);
         return command;
+    }
+
+    private String targetScreenUvRectForLabel(String label) {
+        String normalized = label != null ? label.trim().toLowerCase(Locale.US) : "";
+        if ("left".equals(normalized) && config.leftTargetScreenUvRect.length() > 0) {
+            return config.leftTargetScreenUvRect;
+        }
+        if ("right".equals(normalized) && config.rightTargetScreenUvRect.length() > 0) {
+            return config.rightTargetScreenUvRect;
+        }
+        return config.targetScreenUvRect;
     }
 
     private static JSONObject extractStreamProjectionMetadata(JSONObject ack) {

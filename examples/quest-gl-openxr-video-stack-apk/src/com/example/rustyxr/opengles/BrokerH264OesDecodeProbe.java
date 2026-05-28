@@ -200,6 +200,9 @@ public final class BrokerH264OesDecodeProbe {
         final String syntheticProjectionProfile;
         final String projectionGeometryProfile;
         final String sourceSamplingMode;
+        final String targetScreenUvRect;
+        final String leftTargetScreenUvRect;
+        final String rightTargetScreenUvRect;
         final String leftCameraId;
         final String rightCameraId;
 
@@ -222,6 +225,9 @@ public final class BrokerH264OesDecodeProbe {
             String syntheticProjectionProfile,
             String projectionGeometryProfile,
             String sourceSamplingMode,
+            String targetScreenUvRect,
+            String leftTargetScreenUvRect,
+            String rightTargetScreenUvRect,
             String leftCameraId,
             String rightCameraId) {
             this.host = normalizeHost(host);
@@ -257,6 +263,13 @@ public final class BrokerH264OesDecodeProbe {
                     : BrokerH264OesDecodeProbe.normalizeSyntheticProjectionProfile(
                         requestedProjectionGeometryProfile);
             this.sourceSamplingMode = sourceSamplingMode != null ? sourceSamplingMode.trim() : "";
+            this.targetScreenUvRect = targetScreenUvRect != null ? targetScreenUvRect.trim() : "";
+            this.leftTargetScreenUvRect = leftTargetScreenUvRect != null
+                ? leftTargetScreenUvRect.trim()
+                : this.targetScreenUvRect;
+            this.rightTargetScreenUvRect = rightTargetScreenUvRect != null
+                ? rightTargetScreenUvRect.trim()
+                : this.targetScreenUvRect;
             boolean cameraMatchedSynthetic =
                 SOURCE_MODE_BROKER_SYNTHETIC.equals(this.sourceMode) &&
                 "camera-matched".equals(this.projectionGeometryProfile);
@@ -304,6 +317,18 @@ public final class BrokerH264OesDecodeProbe {
                     activity,
                     "rustyxr.brokerH264SourceSamplingMode",
                     stringExtra(activity, "rustyxr.cameraSourceSamplingMode", "")),
+                stringExtra(
+                    activity,
+                    "rustyxr.brokerH264TargetScreenUvRect",
+                    stringExtra(activity, "rustyxr.cameraTargetScreenUvRect", "")),
+                stringExtra(
+                    activity,
+                    "rustyxr.brokerH264LeftTargetScreenUvRect",
+                    stringExtra(activity, "rustyxr.cameraLeftTargetScreenUvRect", "")),
+                stringExtra(
+                    activity,
+                    "rustyxr.brokerH264RightTargetScreenUvRect",
+                    stringExtra(activity, "rustyxr.cameraRightTargetScreenUvRect", "")),
                 leftCameraId,
                 rightCameraId);
         }
@@ -518,6 +543,11 @@ public final class BrokerH264OesDecodeProbe {
             params.put("source_sampling_mode", config.sourceSamplingMode);
             params.put("sourceSamplingMode", config.sourceSamplingMode);
         }
+        String targetScreenUvRect = targetScreenUvRectForLabel(config, label);
+        if (targetScreenUvRect.length() > 0) {
+            params.put("target_screen_uv_rect", targetScreenUvRect);
+            params.put("targetScreenUvRect", targetScreenUvRect);
+        }
         if (config.startBrokerSyntheticStream()) {
             params.put("source_mode", "synthetic_surface");
             params.put("synthetic_pattern", config.syntheticPattern);
@@ -543,6 +573,17 @@ public final class BrokerH264OesDecodeProbe {
         command.put("app_version", "public-opengl-openxr-video-stack");
         command.put("params", params);
         return command;
+    }
+
+    private static String targetScreenUvRectForLabel(Config config, String label) {
+        String normalized = label != null ? label.trim().toLowerCase(Locale.US) : "";
+        if ("left".equals(normalized) && config.leftTargetScreenUvRect.length() > 0) {
+            return config.leftTargetScreenUvRect;
+        }
+        if ("right".equals(normalized) && config.rightTargetScreenUvRect.length() > 0) {
+            return config.rightTargetScreenUvRect;
+        }
+        return config.targetScreenUvRect;
     }
 
     private static final class EyeDecoder implements Runnable, SurfaceTexture.OnFrameAvailableListener {

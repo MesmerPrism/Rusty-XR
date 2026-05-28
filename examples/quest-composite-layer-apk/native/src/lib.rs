@@ -44,6 +44,8 @@ pub(crate) use camera_color_pipeline::{
 };
 
 mod projection_runtime;
+#[path = "openxr_vulkan/projection_target_footprint.rs"]
+mod projection_target_footprint;
 mod source_sampling;
 #[cfg(target_os = "android")]
 use projection_runtime::log_projection_runtime_manifest;

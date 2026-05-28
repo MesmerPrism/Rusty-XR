@@ -19,11 +19,11 @@ use super::{
         content_surface_aspect, frame_requests_target_local_raster_sampling,
         full_target_canvas_aspect,
     },
-    projection_target_footprint::diagnostics_has_target_footprint,
     projection_view_basis::{
         camera_preview_surface_corners, eye_basis_from_view, tracking_basis_from_views,
     },
 };
+use crate::projection_target_footprint::diagnostics_has_target_footprint;
 
 pub(super) fn projected_display_eye_homography(
     frame: &HeadsetCameraGpuFrame,

@@ -64,7 +64,6 @@ mod projection_homography_markers;
 mod projection_homography_utils;
 mod projection_openxr_contract_markers;
 mod projection_profile;
-mod projection_target_footprint;
 mod projection_view_basis;
 mod source_content_geometry;
 mod source_content_geometry_rects;

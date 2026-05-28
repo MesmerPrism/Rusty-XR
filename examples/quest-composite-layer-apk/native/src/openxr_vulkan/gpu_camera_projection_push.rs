@@ -8,10 +8,10 @@ use super::{
     gpu_camera_projection_uniforms::CameraProjectionUniforms,
     projection_geometry::{projected_stereo_homographies, ProjectedStereoHomographies},
     projection_homography_utils::pack_homography_row,
-    projection_target_footprint::{
-        target_footprint_params_from_mono_frame, target_footprint_params_from_stereo_frame,
-    },
     source_content_geometry::source_uv_rect_xywh_for_diagnostics,
+};
+use crate::projection_target_footprint::{
+    target_footprint_params_from_mono_frame, target_footprint_params_from_stereo_frame,
 };
 
 #[repr(C)]
@@ -24,6 +24,7 @@ pub(super) struct CameraProjectionPush {
     alpha_params: [f32; 4],
     area_params: [f32; 4],
     area_offset_params: [f32; 4],
+    area_radius_params: [f32; 4],
     left_h0: [f32; 4],
     left_h1: [f32; 4],
     left_h2: [f32; 4],
@@ -65,6 +66,7 @@ impl CameraProjectionPush {
             alpha_params: config.camera_alpha_params_push(),
             area_params: target_footprint.area_params,
             area_offset_params: target_footprint.area_offset_params,
+            area_radius_params: target_footprint.area_radius_params,
             left_h0: [1.0, 0.0, 0.0, 0.0],
             left_h1: [0.0, 1.0, 0.0, 0.0],
             left_h2: [0.0, 0.0, 1.0, 0.0],
@@ -114,6 +116,7 @@ impl CameraProjectionPush {
             alpha_params: config.camera_alpha_params_push(),
             area_params: target_footprint.area_params,
             area_offset_params: target_footprint.area_offset_params,
+            area_radius_params: target_footprint.area_radius_params,
             left_h0: [1.0, 0.0, 0.0, 0.0],
             left_h1: [0.0, 1.0, 0.0, 0.0],
             left_h2: [0.0, 0.0, 1.0, 0.0],
@@ -199,6 +202,7 @@ impl CameraProjectionPush {
             alpha_params: config.camera_alpha_params_push(),
             area_params: target_footprint.area_params,
             area_offset_params: target_footprint.area_offset_params,
+            area_radius_params: target_footprint.area_radius_params,
             left_h0: [1.0, 0.0, 0.0, 0.0],
             left_h1: [0.0, 1.0, 0.0, 0.0],
             left_h2: [0.0, 0.0, 1.0, 0.0],

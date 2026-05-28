@@ -322,6 +322,8 @@ $targetLocalRasterFootprintOverride = switch ($TargetLocalRasterFootprint) {
         @(
             "rustyxr.cameraLeftTargetScreenUvRect=0.171875;0.21875;0.75;0.65625",
             "rustyxr.cameraRightTargetScreenUvRect=0.078125;0.21875;0.75;0.671875",
+            "rustyxr.brokerH264LeftTargetScreenUvRect=0.171875;0.21875;0.75;0.65625",
+            "rustyxr.brokerH264RightTargetScreenUvRect=0.078125;0.21875;0.75;0.671875",
             "rustyxr.directCamera2OesLeftTargetScreenUvRect=0.171875;0.21875;0.75;0.65625",
             "rustyxr.directCamera2OesRightTargetScreenUvRect=0.078125;0.21875;0.75;0.671875"
         ) -join ","

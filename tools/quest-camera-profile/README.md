@@ -346,8 +346,8 @@ from camera versus synthetic source kind.
 
 Use `-TargetLocalRasterFootprint homography-reference-bounds` for the focused
 diagnostic A/B where the source still declares `target-local-raster`, but the
-direct-camera metadata target rect is authored to match the current bounded
-screen-to-camera homography footprint.
+direct Camera2 or broker H.264 metadata target rect is authored to match the
+current bounded screen-to-camera homography footprint.
 
 For GLES/OES, launch the canvas case with
 `rustyxr.directCamera2OesProjectionGeometryProfile=full-frame-diagnostic` and
@@ -675,6 +675,7 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.cameraProjectionGeometryProfile` | string | Selects direct Camera2 source/content geometry metadata. Active direct lanes accept `full-frame-diagnostic` for full-frame-to-projection-area checks and `camera-projection` for per-eye screen-to-camera homography checks; other values are rejected or reported as unsupported. |
 | `rustyxr.cameraSourceSamplingMode` | string | Selects the stream metadata source-sampling contract: `target-local-raster` places the incoming raster in the metadata target footprint; `screen-to-camera-homography` maps display-eye screen UV through the calibrated camera homography. |
 | `rustyxr.cameraLeftTargetScreenUvRect` / `rustyxr.cameraRightTargetScreenUvRect` | string | Direct Camera2 metadata target-footprint overrides, encoded as `x,y,width,height` in display-eye screen UV. |
+| `rustyxr.brokerH264LeftTargetScreenUvRect` / `rustyxr.brokerH264RightTargetScreenUvRect` | string | Broker H.264 per-eye target-footprint overrides, encoded as `x,y,width,height`; these are forwarded into broker stream metadata so HWB/OES consume the same target-local raster contract as direct Camera2. |
 | `rustyxr.directCamera2OesProjectionGeometryProfile` | string | GL/OES direct Camera2 override; falls back to `rustyxr.cameraProjectionGeometryProfile`. |
 | `rustyxr.directCamera2OesSourceSamplingMode` | string | GL/OES direct Camera2 source-sampling override; falls back to `rustyxr.cameraSourceSamplingMode` and is emitted as `sourceSamplingMode` metadata. |
 | `rustyxr.directCamera2OesLeftTargetScreenUvRect` / `rustyxr.directCamera2OesRightTargetScreenUvRect` | string | GL/OES direct Camera2 per-eye target-footprint override, encoded as `x,y,width,height`; falls back to the generic camera target rect. |

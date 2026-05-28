@@ -45,6 +45,7 @@ layout(push_constant) uniform CameraProjectionPush {
     vec4 alpha_params;
     vec4 area_params;
     vec4 area_offset_params;
+    vec4 area_radius_params;
     vec4 left_h0;
     vec4 left_h1;
     vec4 left_h2;
@@ -352,11 +353,21 @@ float resolve_fov_border_mix(float coverage) {
         * BORDER_FEEDBACK_MIX;
 }
 
-float resolve_camera_oval_distance(vec2 content_uv) {
-    vec2 half_size = vec2(
-        clamp(pc.area_params.x, 0.05, 0.50),
-        clamp(pc.area_params.y, 0.05, 0.50)
+vec2 projection_area_half_size(int eye) {
+    vec2 per_eye_radius = eye == 0 ? pc.area_radius_params.xy : pc.area_radius_params.zw;
+    vec2 fallback_radius = pc.area_params.xy;
+    vec2 radius = vec2(
+        per_eye_radius.x > 0.001 ? per_eye_radius.x : fallback_radius.x,
+        per_eye_radius.y > 0.001 ? per_eye_radius.y : fallback_radius.y
     );
+    return vec2(
+        clamp(radius.x, 0.05, 0.50),
+        clamp(radius.y, 0.05, 0.50)
+    );
+}
+
+float resolve_camera_oval_distance(vec2 content_uv, int eye) {
+    vec2 half_size = projection_area_half_size(eye);
     float corner_radius = clamp(
         pc.area_params.z,
         0.0,
@@ -430,19 +441,13 @@ vec2 diagnostic_blur_texel_size() {
     return 1.0 / max(CAMERA_DIAGNOSTIC_BLUR_SOURCE_SIZE_PX, vec2(1.0));
 }
 
-vec2 projection_area_content_uv(vec2 area_uv) {
-    vec2 half_size = vec2(
-        clamp(pc.area_params.x, 0.05, 0.50),
-        clamp(pc.area_params.y, 0.05, 0.50)
-    );
+vec2 projection_area_content_uv(vec2 area_uv, int eye) {
+    vec2 half_size = projection_area_half_size(eye);
     return (area_uv - (vec2(0.5) - half_size)) / max(half_size * 2.0, vec2(0.001));
 }
 
-vec2 projection_area_rect_edge_uv(vec2 area_uv) {
-    vec2 half_size = vec2(
-        clamp(pc.area_params.x, 0.05, 0.50),
-        clamp(pc.area_params.y, 0.05, 0.50)
-    );
+vec2 projection_area_rect_edge_uv(vec2 area_uv, int eye) {
+    vec2 half_size = projection_area_half_size(eye);
     float core_scale = clamp(pc.stretch_params.x, 0.05, 1.0);
     float configured_inset = clamp(
         min(pc.stretch_params.y, pc.stretch_params.z),
@@ -678,10 +683,11 @@ vec3 resolve_fov_border_color(
 
 float resolve_fov_border_composite_mix(
     vec2 content_uv,
+    int display_eye,
     float guide_brightness,
     float raw_feedback_signal
 ) {
-    float oval_distance = resolve_camera_oval_distance(content_uv);
+    float oval_distance = resolve_camera_oval_distance(content_uv, display_eye);
     float noise = bleed_noise(content_uv);
     float spatial_gate = resolve_brightness_bleed_spatial_gate(oval_distance, noise);
     if (spatial_gate <= 0.0001) {
@@ -723,7 +729,7 @@ vec3 resolve_fov_border_composite(
     vec2 center = vec2(0.5);
     vec2 screen_delta = content_uv - center;
     float screen_radius = max(length(screen_delta), 0.0001);
-    float oval_distance = resolve_camera_oval_distance(content_uv);
+    float oval_distance = resolve_camera_oval_distance(content_uv, display_eye);
     float noise = bleed_noise(content_uv);
     float spatial_gate = resolve_brightness_bleed_spatial_gate(oval_distance, noise);
     float oval_shape_mix = resolve_camera_oval_border_mix_from_distance(oval_distance);
@@ -753,6 +759,7 @@ vec3 resolve_fov_border_composite(
     float border_feedback_signal = 1.0 - smoothstep(0.10, 0.55, border_brightness);
     float border_mix = resolve_fov_border_composite_mix(
         content_uv,
+        display_eye,
         border_brightness,
         border_feedback_signal
     );
@@ -1022,11 +1029,11 @@ void main() {
     vec2 projection_screen_uv_base =
         (v_surface_uv - vec2(0.5)) * projection_area_scale + vec2(0.5);
     vec2 projection_area_domain_uv = projection_screen_uv_base - projection_area_offset;
-    float projection_area_distance = resolve_camera_oval_distance(projection_area_domain_uv);
+    float projection_area_distance = resolve_camera_oval_distance(projection_area_domain_uv, eye);
     bool projection_area_inside = projection_area_distance <= 1.0;
     bool stretch_exterior = raw_projection_peripheral_stretch && !projection_area_inside;
     if (stretch_exterior) {
-        projection_area_domain_uv = projection_area_rect_edge_uv(projection_area_domain_uv);
+        projection_area_domain_uv = projection_area_rect_edge_uv(projection_area_domain_uv, eye);
         projection_screen_uv_base = projection_area_domain_uv + projection_area_offset;
     }
     // Metadata target footprints define the mask/effect boundary. They do not
@@ -1057,14 +1064,14 @@ void main() {
     }
     vec2 full_frame_content_uv = full_frame_surface_mapping
         ? projected_content_uv
-        : projection_area_content_uv(projection_area_domain_uv);
+        : projection_area_content_uv(projection_area_domain_uv, eye);
     vec2 sample_content_uv = world_canvas
         ? (target_local_raster_sampling ? full_frame_content_uv : projection_screen_uv)
         : (target_local_raster_sampling
         ? full_frame_content_uv
         : (projected ? content_uv : clamp(local_uv, vec2(0.0), vec2(1.0))));
     vec2 projection_uv = world_canvas
-        ? projection_screen_uv
+        ? (target_local_raster_sampling ? full_frame_content_uv : projection_screen_uv)
         : (full_frame_surface_mapping
         ? projection_screen_uv
         : (target_local_raster_sampling
