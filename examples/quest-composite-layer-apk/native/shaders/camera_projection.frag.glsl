@@ -73,7 +73,7 @@ const int CAMERA_FLAG_RAW_PROJECTION = 16384;
 const int CAMERA_FLAG_PASSTHROUGH_UNDERLAY_ALPHA = 32768;
 const int CAMERA_FLAG_PROJECTION_BORDER_SOLID_RED = 65536;
 const int CAMERA_FLAG_PROJECTION_AREA_DIAGNOSTIC = 8388608;
-const int CAMERA_FLAG_FULL_FRAME_STIMULUS_MAPPING = 16777216;
+const int CAMERA_FLAG_TARGET_LOCAL_RASTER_SAMPLING = 16777216;
 const int CAMERA_FLAG_TARGET_FOOTPRINT_FROM_METADATA = 33554432;
 const int CAMERA_EFFECT_RAW_PROJECTION_BLUR = 5;
 const int CAMERA_EFFECT_PERIPHERAL_STRETCH = 6;
@@ -1009,8 +1009,8 @@ void main() {
         vec2(0.5)
     );
     float projection_area_scale = clamp(pc.area_params.w, 0.05, 4.0);
-    bool full_frame_stimulus_mapping =
-        (packed_flags & CAMERA_FLAG_FULL_FRAME_STIMULUS_MAPPING) != 0;
+    bool target_local_raster_sampling =
+        (packed_flags & CAMERA_FLAG_TARGET_LOCAL_RASTER_SAMPLING) != 0;
     bool target_footprint_from_metadata =
         (packed_flags & CAMERA_FLAG_TARGET_FOOTPRINT_FROM_METADATA) != 0;
     int diagnostic_mode = int(floor(pc.effect_params.w + 0.5));
@@ -1018,7 +1018,7 @@ void main() {
     bool raw_projection_peripheral_stretch = diagnostic_mode == CAMERA_EFFECT_PERIPHERAL_STRETCH;
     bool camera_footprint_surface_mapping = diagnostic_mode == 4;
     bool full_frame_surface_mapping =
-        full_frame_stimulus_mapping && camera_footprint_surface_mapping;
+        target_local_raster_sampling && camera_footprint_surface_mapping;
     vec2 projection_screen_uv_base =
         (v_surface_uv - vec2(0.5)) * projection_area_scale + vec2(0.5);
     vec2 projection_area_domain_uv = projection_screen_uv_base - projection_area_offset;
@@ -1031,10 +1031,10 @@ void main() {
     }
     // Metadata target footprints define the mask/effect boundary. They do not
     // change the screen-to-camera sampling domain for camera-homography runs.
-    // Only full-frame stimulus mapping intentionally remaps the source into the
-    // target-local projection-area domain.
+    // Target-local raster sampling intentionally remaps the source into the
+    // target-local footprint domain.
     bool target_local_source_mapping =
-        full_frame_stimulus_mapping && !full_frame_surface_mapping;
+        target_local_raster_sampling && !full_frame_surface_mapping;
     vec2 projection_screen_uv = target_local_source_mapping
         ? projection_area_domain_uv
         : projection_screen_uv_base;
@@ -1059,23 +1059,23 @@ void main() {
         ? projected_content_uv
         : projection_area_content_uv(projection_area_domain_uv);
     vec2 sample_content_uv = world_canvas
-        ? (full_frame_stimulus_mapping ? full_frame_content_uv : projection_screen_uv)
-        : (full_frame_stimulus_mapping
+        ? (target_local_raster_sampling ? full_frame_content_uv : projection_screen_uv)
+        : (target_local_raster_sampling
         ? full_frame_content_uv
         : (projected ? content_uv : clamp(local_uv, vec2(0.0), vec2(1.0))));
     vec2 projection_uv = world_canvas
         ? projection_screen_uv
         : (full_frame_surface_mapping
         ? projection_screen_uv
-        : (full_frame_stimulus_mapping
+        : (target_local_raster_sampling
         ? full_frame_content_uv
         : (projected ? projection_screen_uv : sample_content_uv)));
 
     bool projection_valid = false;
     bool apply_projection_homography =
-        world_canvas || (projected && (!full_frame_stimulus_mapping || full_frame_surface_mapping));
+        world_canvas || (projected && (!target_local_raster_sampling || full_frame_surface_mapping));
     if (target_footprint_from_metadata && !full_frame_surface_mapping && !world_canvas) {
-        apply_projection_homography = projected && !full_frame_stimulus_mapping;
+        apply_projection_homography = projected && !target_local_raster_sampling;
     }
     vec2 raw_projected_uv = projected_camera_uv(
         projection_uv,
@@ -1087,7 +1087,7 @@ void main() {
     );
     projection_valid =
         projection_valid
-        && ((full_frame_stimulus_mapping && !full_frame_surface_mapping) || content_surface_valid);
+        && ((target_local_raster_sampling && !full_frame_surface_mapping) || content_surface_valid);
     bool source_uv_stretchable =
         abs(raw_projected_uv.x) <= 65536.0 &&
         abs(raw_projected_uv.y) <= 65536.0;

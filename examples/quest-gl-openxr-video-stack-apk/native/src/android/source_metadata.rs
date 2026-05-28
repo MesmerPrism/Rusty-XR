@@ -80,6 +80,7 @@ pub(super) struct OesProjectionMetadata {
     pub(super) content_origin: String,
     pub(super) content_x_axis: String,
     pub(super) content_y_axis: String,
+    pub(super) source_sampling_mode: String,
     pub(super) content_mapping_intent: String,
     pub(super) content_geometry_metadata_source: String,
     pub(super) content_geometry_default: bool,
@@ -236,6 +237,7 @@ impl OesProjectionMetadata {
             content_origin: content_geometry.origin,
             content_x_axis: content_geometry.x_axis,
             content_y_axis: content_geometry.y_axis,
+            source_sampling_mode: content_geometry.source_sampling_mode,
             content_mapping_intent: content_geometry.mapping_intent,
             content_geometry_metadata_source: content_geometry.metadata_source,
             content_geometry_default: content_geometry.metadata_default,
@@ -332,6 +334,16 @@ mod tests {
 
             assert_eq!(content_geometry.kind, kind);
             assert_eq!(content_geometry.mapping_intent, mapping_intent);
+            let expected_source_sampling_mode = match mapping_intent {
+                "map-camera-frame-through-screen-to-camera-homography" => {
+                    "screen-to-camera-homography"
+                }
+                _ => "target-local-raster",
+            };
+            assert_eq!(
+                content_geometry.source_sampling_mode,
+                expected_source_sampling_mode
+            );
             assert_eq!(content_geometry.metadata_source, "stream-header");
             assert!(!content_geometry.metadata_default);
 
@@ -340,10 +352,16 @@ mod tests {
                 "{OES_PROJECTED_RENDER_PATH}:metadata={metadata_label}"
             )));
             assert!(source_label.contains(&format!("contentKind={kind}")));
+            assert!(source_label.contains(&format!(
+                "sourceSamplingMode={expected_source_sampling_mode}"
+            )));
             assert!(source_label.contains(&format!("contentMappingIntent={mapping_intent}")));
 
             let log_line = stream_projection_metadata_log_message(0, &metadata);
             assert!(log_line.contains(&format!("contentKind={kind}")));
+            assert!(log_line.contains(&format!(
+                "sourceSamplingMode={expected_source_sampling_mode}"
+            )));
             assert!(log_line.contains(&format!("contentMappingIntent={mapping_intent}")));
             assert!(log_line.contains("contentGeometryMetadataSource=stream-header"));
         }

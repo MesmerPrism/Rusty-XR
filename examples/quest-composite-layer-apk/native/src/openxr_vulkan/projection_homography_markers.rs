@@ -159,12 +159,12 @@ fn projection_area_target_marker_fields(
     } else {
         "renderer-legacy-projection-area"
     };
-    let source_sampling_domain = if homographies.left.full_frame_stimulus_mapping
-        && homographies.right.full_frame_stimulus_mapping
+    let source_sampling_domain = if homographies.left.target_local_raster_sampling
+        && homographies.right.target_local_raster_sampling
     {
-        "target-local-uv"
+        "target-local-raster"
     } else {
-        "display-eye-screen-uv"
+        "screen-to-camera-homography"
     };
     format!(
         "projectionAreaTargetSource={} projectionAreaTargetStage=target_footprint_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh resolvedTargetFootprintSource={} targetFootprintSourceSamplingDomain={} effectBoundary=target-footprint projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionAreaOffsetResponseCoordinateSpace=display-eye-screen-uv projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv_div_projectionAreaScaleUv projectionAreaShaderScreenBaseFormula=screenBase=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 projectionAreaFullFrameContentFormula=contentUv=(screenBase-offsetUv-(0.5-radiusUv))/(2*radiusUv) projectionAreaSourceToScreenGainUv={} surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=canvas-or-layer-covers-target-fov feedPlacementSource={} feedPlacementSemantics=video_content_inside_target_footprint borderRegionSemantics=visible-render-surface-minus-target-footprint sourceInvalidSemantics=target-fragment-maps-outside-source-valid-uv cameraPipelinePreset={} cameraProjectionEffectMode={} projectionBorderPolicy={} projectionBorderPolicyActive={} projectionBorderShaderBit={} borderFillPolicy={} projectionDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} leftProjectionAreaOffsetUv={} rightProjectionAreaOffsetUv={} leftProjectionAreaOffsetResponseUv={} rightProjectionAreaOffsetResponseUv={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} {}",
@@ -203,7 +203,7 @@ fn projection_area_target_marker_fields(
 }
 
 fn expected_source_valid_screen_uv_rect(mapping: &DisplayEyeProjectionMapping) -> [f32; 4] {
-    if mapping.full_frame_stimulus_mapping {
+    if mapping.target_local_raster_sampling {
         return [0.0, 0.0, 1.0, 1.0];
     }
     source_valid_screen_uv_footprint(

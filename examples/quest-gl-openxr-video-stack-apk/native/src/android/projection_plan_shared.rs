@@ -179,11 +179,11 @@ fn array_rect_xywh(rect: [f32; 4]) -> Rect2 {
 
 fn shared_projection_mapping(mode: OesContentMappingMode) -> VideoProjectionMapping {
     match mode {
-        OesContentMappingMode::CameraProjection => VideoProjectionMapping::ScreenToSourceHomography,
-        OesContentMappingMode::FullFrameStimulusToProjectionArea => {
-            VideoProjectionMapping::FullFrameSurface
+        OesContentMappingMode::ScreenToCameraHomography => {
+            VideoProjectionMapping::ScreenToSourceHomography
         }
-        OesContentMappingMode::FullFrameStimulusToSurfaceHomography => {
+        OesContentMappingMode::TargetLocalRaster => VideoProjectionMapping::FullFrameSurface,
+        OesContentMappingMode::SurfaceToCameraHomography => {
             VideoProjectionMapping::SurfaceToSourceHomography
         }
     }

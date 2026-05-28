@@ -1993,6 +1993,8 @@ def prefer_full_frame_envelope_measurement(fields: dict[str, str]) -> bool:
     )
     if profile == "full-frame-diagnostic":
         return True
+    if first_field(fields, "sourceSamplingMode") == "target-local-raster":
+        return True
     if first_field(fields, "contentMappingIntent") == "map-full-frame-stimulus-to-projection-area":
         return True
     return uv_rect_is_full_frame(
@@ -2092,6 +2094,7 @@ def content_record(fields: dict[str, str], eye: str) -> dict[str, Any]:
         "origin": prefixed_eye_field(fields, eye, "contentOrigin"),
         "x_axis": prefixed_eye_field(fields, eye, "contentXAxis"),
         "y_axis": prefixed_eye_field(fields, eye, "contentYAxis"),
+        "source_sampling_mode": prefixed_eye_field(fields, eye, "sourceSamplingMode"),
         "uv_rect": parse_uv_rect(
             prefixed_eye_field(fields, eye, "contentUvRect")
             or descriptor_field(fields, "contentUvRect", "content_uv_rect")

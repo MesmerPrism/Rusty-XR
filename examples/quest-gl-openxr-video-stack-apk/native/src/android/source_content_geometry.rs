@@ -18,6 +18,7 @@ pub(super) struct OesContentGeometryRecord {
     pub(super) origin: String,
     pub(super) x_axis: String,
     pub(super) y_axis: String,
+    pub(super) source_sampling_mode: String,
     pub(super) mapping_intent: String,
     pub(super) metadata_source: String,
     pub(super) metadata_default: bool,
@@ -39,6 +40,7 @@ impl OesContentGeometryRecord {
         let explicit_content_geometry = object.contains_key("contentGeometrySchema")
             || object.contains_key("contentWidth")
             || object.contains_key("contentHeight")
+            || object.contains_key("sourceSamplingMode")
             || object.contains_key("contentMappingIntent");
         let explicit_target_footprint = object.contains_key("targetFootprintSchema")
             || object.contains_key("targetCoordinateSpace")
@@ -99,6 +101,18 @@ impl OesContentGeometryRecord {
             y_axis: json_string_any(object, &["contentYAxis", "stimulusYAxis"])
                 .unwrap_or("down")
                 .to_string(),
+            source_sampling_mode: json_string_any(object, &["sourceSamplingMode"])
+                .map(normalize_source_sampling_mode)
+                .unwrap_or_else(|| {
+                    source_sampling_mode_for_legacy_intent(
+                        json_string_any(object, &["contentMappingIntent"]),
+                        json_string_any(
+                            object,
+                            &["projectionGeometryProfile", "syntheticProjectionProfile"],
+                        ),
+                    )
+                    .to_string()
+                }),
             mapping_intent: json_string_any(object, &["contentMappingIntent"])
                 .unwrap_or("unspecified")
                 .to_string(),
@@ -141,6 +155,7 @@ impl OesContentGeometryRecord {
             origin: metadata.content_origin.clone(),
             x_axis: metadata.content_x_axis.clone(),
             y_axis: metadata.content_y_axis.clone(),
+            source_sampling_mode: metadata.source_sampling_mode.clone(),
             mapping_intent: metadata.content_mapping_intent.clone(),
             metadata_source: metadata.content_geometry_metadata_source.clone(),
             metadata_default: metadata.content_geometry_default,
@@ -152,5 +167,47 @@ impl OesContentGeometryRecord {
             target_footprint_metadata_source: metadata.target_footprint_metadata_source.clone(),
             target_footprint_default: metadata.target_footprint_default,
         }
+    }
+}
+
+pub(super) fn normalize_source_sampling_mode(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+        "target-local-raster"
+        | "target-local"
+        | "target-raster"
+        | "local-raster"
+        | "raster"
+        | "default" => "target-local-raster".to_string(),
+        "screen-to-camera-homography"
+        | "screen-camera-homography"
+        | "screen-to-source-homography"
+        | "camera-homography"
+        | "camera-projection"
+        | "homography" => "screen-to-camera-homography".to_string(),
+        _ => "target-local-raster".to_string(),
+    }
+}
+
+pub(super) fn source_sampling_mode_for_legacy_intent(
+    mapping_intent: Option<&str>,
+    projection_profile: Option<&str>,
+) -> &'static str {
+    match mapping_intent {
+        Some(
+            "map-camera-frame-through-screen-to-camera-homography"
+            | "map-stimulus-raster-through-camera-projection",
+        ) => "screen-to-camera-homography",
+        Some(
+            "map-camera-frame-to-full-frame-projection-area"
+            | "map-camera-frame-to-full-frame-projection-surface"
+            | "map-full-frame-stimulus-to-projection-area"
+            | "map-full-frame-stimulus-to-projection-surface"
+            | "map-full-frame-content-to-projection-area"
+            | "map-full-frame-content-to-projection-surface",
+        ) => "target-local-raster",
+        _ if projection_profile.is_some_and(|value| value == "camera-projection") => {
+            "screen-to-camera-homography"
+        }
+        _ => "target-local-raster",
     }
 }

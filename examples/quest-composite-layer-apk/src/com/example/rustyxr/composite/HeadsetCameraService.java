@@ -83,6 +83,7 @@ public final class HeadsetCameraService extends Service {
     public static final String EXTRA_STEREO_PAIR_MAX_DELTA_NS = "stereoPairMaxDeltaNs";
     public static final String EXTRA_STEREO_IMAGE_READER_MAX_IMAGES = "stereoImageReaderMaxImages";
     public static final String EXTRA_PROJECTION_GEOMETRY_PROFILE = "projectionGeometryProfile";
+    public static final String EXTRA_SOURCE_SAMPLING_MODE = "sourceSamplingMode";
 
     private static final String TAG = "RustyXrHeadsetCamera";
     private static final String HEADSET_CAMERA_PERMISSION = "horizonos.permission.HEADSET_CAMERA";
@@ -104,6 +105,9 @@ public final class HeadsetCameraService extends Service {
     private static final String STIMULUS_ORIENTATION_SCHEMA = "rusty.xr.stimulus_orientation.v1";
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
     private static final String TARGET_FOOTPRINT_SCHEMA = "rusty.xr.target_screen_footprint.v1";
+    private static final String SOURCE_SAMPLING_MODE_SCHEMA = "rusty.xr.source_sampling_mode.v1";
+    private static final String SOURCE_SAMPLING_TARGET_LOCAL_RASTER = "target-local-raster";
+    private static final String SOURCE_SAMPLING_SCREEN_TO_CAMERA_HOMOGRAPHY = "screen-to-camera-homography";
     private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-area";
     private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
     private static final String PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION = "camera-projection";
@@ -142,6 +146,7 @@ public final class HeadsetCameraService extends Service {
     private String estimatedPoseVersion;
     private String poseCoordinateConvention;
     private String projectionGeometryProfile;
+    private String sourceSamplingMode;
     private float estimatedPoseX;
     private float estimatedPoseY;
     private float estimatedPoseZ;
@@ -281,6 +286,9 @@ public final class HeadsetCameraService extends Service {
         stereoImageReaderMaxImages = intent != null ? intent.getIntExtra(EXTRA_STEREO_IMAGE_READER_MAX_IMAGES, DEFAULT_STEREO_IMAGE_READER_MAX_IMAGES) : DEFAULT_STEREO_IMAGE_READER_MAX_IMAGES;
         projectionGeometryProfile = normalizeProjectionGeometryProfile(
             intent != null ? intent.getStringExtra(EXTRA_PROJECTION_GEOMETRY_PROFILE) : null);
+        sourceSamplingMode = normalizeSourceSamplingMode(
+            intent != null ? intent.getStringExtra(EXTRA_SOURCE_SAMPLING_MODE) : null,
+            projectionGeometryProfile);
         if (cameraTier == null || cameraTier.trim().isEmpty()) {
             cameraTier = TIER_CPU_DIAGNOSTIC;
         }
@@ -1731,7 +1739,8 @@ public final class HeadsetCameraService extends Service {
             image.getHeight(),
             image.getCropRect(),
             projectionGeometryProfile,
-            contentMappingIntentForProjectionGeometryProfile(projectionGeometryProfile),
+            sourceSamplingMode,
+            contentMappingIntentForSourceSamplingMode(sourceSamplingMode),
             "headset-camera-service-camera2");
         appendFpsTelemetry(builder, requestedCameraFpsRange(), monoAppliedAeFpsRange, monoDeliveryStats);
         if (sensorOrientation != null) {
@@ -1832,7 +1841,8 @@ public final class HeadsetCameraService extends Service {
             image.getHeight(),
             image.getCropRect(),
             projectionGeometryProfile,
-            contentMappingIntentForProjectionGeometryProfile(projectionGeometryProfile),
+            sourceSamplingMode,
+            contentMappingIntentForSourceSamplingMode(sourceSamplingMode),
             "headset-camera-service-stereo-camera2");
         Range<Integer> appliedRange = leftEye ? leftAppliedAeFpsRange : rightAppliedAeFpsRange;
         if (appliedRange == null && logicalStereoAppliedAeFpsRange != null) {
@@ -2244,6 +2254,7 @@ public final class HeadsetCameraService extends Service {
         int height,
         Rect cropRect,
         String projectionGeometryProfile,
+        String sourceSamplingMode,
         String mappingIntent,
         String metadataSource) {
         float aspectRatio = width > 0 && height > 0 ? (float) width / (float) height : 1.0f;
@@ -2280,6 +2291,10 @@ public final class HeadsetCameraService extends Service {
         builder.append(",\"stimulusOrientationDefault\":false");
         builder.append(',');
         appendJsonString(builder, "projectionGeometryProfile", projectionGeometryProfile);
+        builder.append(',');
+        appendJsonString(builder, "sourceSamplingModeSchema", SOURCE_SAMPLING_MODE_SCHEMA);
+        builder.append(',');
+        appendJsonString(builder, "sourceSamplingMode", sourceSamplingMode);
         builder.append(',');
         appendJsonString(builder, "contentGeometrySchema", STREAM_CONTENT_GEOMETRY_SCHEMA);
         builder.append(',');
@@ -2372,6 +2387,43 @@ public final class HeadsetCameraService extends Service {
 
     private static String contentMappingIntentForProjectionGeometryProfile(String profile) {
         if (PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION.equals(profile)) {
+            return "map-camera-frame-through-screen-to-camera-homography";
+        }
+        return CONTENT_MAPPING_CAMERA_FULL_FRAME;
+    }
+
+    private static String normalizeSourceSamplingMode(String requested, String projectionGeometryProfile) {
+        if (requested == null || requested.trim().isEmpty()) {
+            return sourceSamplingModeForProjectionGeometryProfile(projectionGeometryProfile);
+        }
+        String normalized = requested.trim().toLowerCase().replace('_', '-');
+        if ("target-local-raster".equals(normalized) ||
+                "target-local".equals(normalized) ||
+                "target-raster".equals(normalized) ||
+                "local-raster".equals(normalized) ||
+                "raster".equals(normalized) ||
+                "default".equals(normalized)) {
+            return SOURCE_SAMPLING_TARGET_LOCAL_RASTER;
+        }
+        if ("screen-to-camera-homography".equals(normalized) ||
+                "screen-camera-homography".equals(normalized) ||
+                "screen-to-source-homography".equals(normalized) ||
+                "camera-homography".equals(normalized) ||
+                "camera-projection".equals(normalized) ||
+                "homography".equals(normalized)) {
+            return SOURCE_SAMPLING_SCREEN_TO_CAMERA_HOMOGRAPHY;
+        }
+        throw new IllegalArgumentException("Unsupported Camera2 source sampling mode: " + requested);
+    }
+
+    private static String sourceSamplingModeForProjectionGeometryProfile(String profile) {
+        return PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION.equals(profile)
+            ? SOURCE_SAMPLING_SCREEN_TO_CAMERA_HOMOGRAPHY
+            : SOURCE_SAMPLING_TARGET_LOCAL_RASTER;
+    }
+
+    private static String contentMappingIntentForSourceSamplingMode(String mode) {
+        if (SOURCE_SAMPLING_SCREEN_TO_CAMERA_HOMOGRAPHY.equals(mode)) {
             return "map-camera-frame-through-screen-to-camera-homography";
         }
         return CONTENT_MAPPING_CAMERA_FULL_FRAME;

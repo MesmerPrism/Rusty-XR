@@ -40,6 +40,59 @@ pub const TARGET_SCREEN_FOOTPRINT_SCHEMA: &str = "rusty.xr.target_screen_footpri
 pub const TARGET_FOOTPRINT_DEBUG_REGION_COLORS_SCHEMA: &str =
     "rusty.xr.target_footprint_debug_region_colors.v1";
 
+/// Versioned schema id for the source-to-target sampling mode carried by stream metadata.
+pub const SOURCE_SAMPLING_MODE_SCHEMA: &str = "rusty.xr.source_sampling_mode.v1";
+
+/// Source raster is placed in the metadata-authored target footprint as local 0..1 UV.
+pub const SOURCE_SAMPLING_MODE_TARGET_LOCAL_RASTER: &str = "target-local-raster";
+
+/// Display-eye screen UV is mapped to source UV through calibrated camera homography.
+pub const SOURCE_SAMPLING_MODE_SCREEN_TO_CAMERA_HOMOGRAPHY: &str = "screen-to-camera-homography";
+
+/// Public source-sampling modes understood by renderer lanes.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SourceSamplingMode {
+    #[default]
+    TargetLocalRaster,
+    ScreenToCameraHomography,
+}
+
+impl SourceSamplingMode {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "target-local-raster"
+            | "target-local"
+            | "target-raster"
+            | "local-raster"
+            | "raster"
+            | "default" => Some(Self::TargetLocalRaster),
+            "screen-to-camera-homography"
+            | "screen-camera-homography"
+            | "screen-to-source-homography"
+            | "camera-homography"
+            | "camera-projection"
+            | "homography" => Some(Self::ScreenToCameraHomography),
+            _ => None,
+        }
+    }
+
+    pub const fn stable_id(self) -> &'static str {
+        match self {
+            Self::TargetLocalRaster => SOURCE_SAMPLING_MODE_TARGET_LOCAL_RASTER,
+            Self::ScreenToCameraHomography => SOURCE_SAMPLING_MODE_SCREEN_TO_CAMERA_HOMOGRAPHY,
+        }
+    }
+
+    pub const fn uses_target_local_raster(self) -> bool {
+        matches!(self, Self::TargetLocalRaster)
+    }
+
+    pub const fn uses_screen_to_camera_homography(self) -> bool {
+        matches!(self, Self::ScreenToCameraHomography)
+    }
+}
+
 /// Camera model helper error.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

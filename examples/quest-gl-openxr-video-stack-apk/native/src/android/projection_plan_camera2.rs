@@ -139,7 +139,7 @@ pub(super) fn camera2_projection_plan_from_xr_views(
         height,
         right_use_surface_texture_transform,
     );
-    let content_mapping_mode = OesContentMappingMode::CameraProjection;
+    let content_mapping_mode = OesContentMappingMode::ScreenToCameraHomography;
     let left_geometry_plan = shared_per_eye_projection_plan(
         Eye::Left,
         content_mapping_mode,

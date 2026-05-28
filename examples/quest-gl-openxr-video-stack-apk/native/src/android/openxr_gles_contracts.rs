@@ -262,28 +262,26 @@ impl OesCameraProjectionMode {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum OesContentMappingMode {
     #[default]
-    CameraProjection,
+    ScreenToCameraHomography,
     #[allow(dead_code)]
-    FullFrameStimulusToProjectionArea,
-    FullFrameStimulusToSurfaceHomography,
+    TargetLocalRaster,
+    SurfaceToCameraHomography,
 }
 
 impl OesContentMappingMode {
     pub(super) const fn shader_id(self) -> c_int {
         match self {
-            Self::CameraProjection => 0,
-            Self::FullFrameStimulusToProjectionArea => 1,
-            Self::FullFrameStimulusToSurfaceHomography => 0,
+            Self::ScreenToCameraHomography => 0,
+            Self::TargetLocalRaster => 1,
+            Self::SurfaceToCameraHomography => 0,
         }
     }
 
     pub(super) const fn stable_id(self) -> &'static str {
         match self {
-            Self::CameraProjection => "camera-projection-homography",
-            Self::FullFrameStimulusToProjectionArea => "full-frame-stimulus-to-projection-area",
-            Self::FullFrameStimulusToSurfaceHomography => {
-                "full-frame-stimulus-to-surface-homography"
-            }
+            Self::ScreenToCameraHomography => "screen-to-camera-homography",
+            Self::TargetLocalRaster => "target-local-raster",
+            Self::SurfaceToCameraHomography => "surface-to-camera-homography",
         }
     }
 }

@@ -199,6 +199,7 @@ public final class BrokerH264OesDecodeProbe {
         final String syntheticPattern;
         final String syntheticProjectionProfile;
         final String projectionGeometryProfile;
+        final String sourceSamplingMode;
         final String leftCameraId;
         final String rightCameraId;
 
@@ -220,6 +221,7 @@ public final class BrokerH264OesDecodeProbe {
             String syntheticPattern,
             String syntheticProjectionProfile,
             String projectionGeometryProfile,
+            String sourceSamplingMode,
             String leftCameraId,
             String rightCameraId) {
             this.host = normalizeHost(host);
@@ -254,6 +256,7 @@ public final class BrokerH264OesDecodeProbe {
                         requestedProjectionGeometryProfile)
                     : BrokerH264OesDecodeProbe.normalizeSyntheticProjectionProfile(
                         requestedProjectionGeometryProfile);
+            this.sourceSamplingMode = sourceSamplingMode != null ? sourceSamplingMode.trim() : "";
             boolean cameraMatchedSynthetic =
                 SOURCE_MODE_BROKER_SYNTHETIC.equals(this.sourceMode) &&
                 "camera-matched".equals(this.projectionGeometryProfile);
@@ -297,6 +300,10 @@ public final class BrokerH264OesDecodeProbe {
                     activity,
                     "rustyxr.brokerH264ProjectionGeometryProfile",
                     stringExtra(activity, "rustyxr.brokerH264SyntheticProjectionProfile", SYNTHETIC_PROJECTION_PROFILE)),
+                stringExtra(
+                    activity,
+                    "rustyxr.brokerH264SourceSamplingMode",
+                    stringExtra(activity, "rustyxr.cameraSourceSamplingMode", "")),
                 leftCameraId,
                 rightCameraId);
         }
@@ -366,6 +373,7 @@ public final class BrokerH264OesDecodeProbe {
             report.put("synthetic_pattern", config.syntheticPattern);
             report.put("synthetic_projection_profile", config.syntheticProjectionProfile);
             report.put("projection_geometry_profile", config.projectionGeometryProfile);
+            report.put("source_sampling_mode", config.sourceSamplingMode);
             report.put("left_camera_id", config.leftCameraId);
             report.put("right_camera_id", config.rightCameraId);
         } catch (Exception error) {
@@ -402,6 +410,7 @@ public final class BrokerH264OesDecodeProbe {
             report.put("synthetic_pattern", config.syntheticPattern);
             report.put("synthetic_projection_profile", config.syntheticProjectionProfile);
             report.put("projection_geometry_profile", config.projectionGeometryProfile);
+            report.put("source_sampling_mode", config.sourceSamplingMode);
             report.put("camera_id", cameraId);
             report.put("max_packets", config.maxPackets);
             report.put("accepted", true);
@@ -505,6 +514,10 @@ public final class BrokerH264OesDecodeProbe {
         params.put("live_stream", config.liveStream);
         params.put("projection_geometry_profile", config.projectionGeometryProfile);
         params.put("projectionGeometryProfile", config.projectionGeometryProfile);
+        if (config.sourceSamplingMode.length() > 0) {
+            params.put("source_sampling_mode", config.sourceSamplingMode);
+            params.put("sourceSamplingMode", config.sourceSamplingMode);
+        }
         if (config.startBrokerSyntheticStream()) {
             params.put("source_mode", "synthetic_surface");
             params.put("synthetic_pattern", config.syntheticPattern);

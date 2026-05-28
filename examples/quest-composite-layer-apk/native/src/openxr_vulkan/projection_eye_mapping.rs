@@ -16,7 +16,7 @@ use super::{
         screen_to_domain_with_visual_offset,
     },
     projection_profile::{
-        content_surface_aspect, frame_requests_full_frame_stimulus_mapping,
+        content_surface_aspect, frame_requests_target_local_raster_sampling,
         full_target_canvas_aspect,
     },
     projection_target_footprint::diagnostics_has_target_footprint,
@@ -34,8 +34,8 @@ pub(super) fn projected_display_eye_homography(
     resolution: vk::Extent2D,
     reference_center: Vec3,
 ) -> Option<DisplayEyeProjectionMapping> {
-    if frame_requests_full_frame_stimulus_mapping(frame) {
-        return projected_full_frame_display_eye_homography(
+    if frame_requests_target_local_raster_sampling(frame) {
+        return projected_target_local_raster_display_eye_mapping(
             frame,
             config,
             views,
@@ -149,11 +149,11 @@ pub(super) fn projected_display_eye_homography(
         canvas_clip,
         surface_aspect,
         surface_aspect_source,
-        full_frame_stimulus_mapping: false,
+        target_local_raster_sampling: false,
     })
 }
 
-fn projected_full_frame_display_eye_homography(
+fn projected_target_local_raster_display_eye_mapping(
     frame: &HeadsetCameraGpuFrame,
     config: &crate::RuntimeConfig,
     views: &[xr::View],
@@ -219,6 +219,6 @@ fn projected_full_frame_display_eye_homography(
         canvas_clip,
         surface_aspect,
         surface_aspect_source,
-        full_frame_stimulus_mapping: true,
+        target_local_raster_sampling: true,
     })
 }

@@ -44,6 +44,8 @@ param(
     [string]$ProcessingLayer = "raw",
     [ValidateSet("off", "regions", "sample-uv")]
     [string]$PeripheralStretchDebug = "off",
+    [ValidateSet("suite-default", "target-local-raster", "screen-to-camera-homography")]
+    [string]$SourceSamplingMode = "suite-default",
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionAreaOpacity = 1.0,
     [double]$ProjectionBorderOpacity = 1.0,
@@ -303,6 +305,15 @@ $processingLayerOverride = @(
     ("rustyxr.peripheralStretchDebug={0}" -f $PeripheralStretchDebug),
     ("rustyxr.cameraBlurRadiusPx={0}" -f $blurRadiusPxText)
 ) -join ","
+$sourceSamplingOverride = if ($SourceSamplingMode -eq "suite-default") {
+    ""
+} else {
+    @(
+        ("rustyxr.cameraSourceSamplingMode={0}" -f $SourceSamplingMode),
+        ("rustyxr.directCamera2OesSourceSamplingMode={0}" -f $SourceSamplingMode),
+        ("rustyxr.brokerH264SourceSamplingMode={0}" -f $SourceSamplingMode)
+    ) -join ","
+}
 $ExpectedMakepadSourceEyeMapping = "display-left-from-left-source"
 $brokerSourceRequested = $SourceMode -eq "broker-camera" -or $SourceMode -eq "broker-synthetic"
 
@@ -358,6 +369,7 @@ function Get-BrokerH264Override {
     return @(
         ("rustyxr.brokerH264SourceMode={0}" -f $SourceMode),
         ("rustyxr.brokerH264ProjectionGeometryProfile={0}" -f $brokerProjectionGeometryProfile),
+        $(if ($SourceSamplingMode -ne "suite-default") { ("rustyxr.brokerH264SourceSamplingMode={0}" -f $SourceSamplingMode) } else { "" }),
         ("rustyxr.brokerH264SyntheticPattern={0}" -f $BrokerH264SyntheticPattern),
         ("rustyxr.brokerH264SyntheticProjectionProfile={0}" -f $BrokerH264SyntheticProjectionProfile),
         ("rustyxr.brokerH264StreamPort={0}" -f $BrokerH264LeftStreamPort),
@@ -1532,6 +1544,7 @@ if (Test-LaneEnabled -Lane "hwb") {
             "rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic",
             (Get-HwbProjectionStyleOverride -Mode "canvas"),
             $projectionAreaOverride,
+            $sourceSamplingOverride,
             $hwbCanvasSourceOverride,
             $surfaceOverride
         ))
@@ -1548,6 +1561,7 @@ if (Test-LaneEnabled -Lane "hwb") {
             "rustyxr.cameraProjectionGeometryProfile=camera-projection",
             (Get-HwbProjectionStyleOverride -Mode "custom"),
             $projectionAreaOverride,
+            $sourceSamplingOverride,
             $hwbCustomSourceOverride,
             $surfaceOverride
         ))
@@ -1567,6 +1581,7 @@ if (Test-LaneEnabled -Lane "oes") {
             "rustyxr.directCamera2OesProjectionGeometryProfile=full-frame-diagnostic",
             (Get-GlesProjectionStyleOverride),
             $projectionAreaOverride,
+            $sourceSamplingOverride,
             $glesCanvasSourceOverride,
             $surfaceOverride
         ))
@@ -1584,6 +1599,7 @@ if (Test-LaneEnabled -Lane "oes") {
             "rustyxr.directCamera2OesProjectionGeometryProfile=camera-projection",
             (Get-GlesProjectionStyleOverride),
             $projectionAreaOverride,
+            $sourceSamplingOverride,
             $glesCustomSourceOverride,
             $surfaceOverride
         ))
@@ -1635,9 +1651,10 @@ $summary = [ordered]@{
         cameraPreviewFovYDegrees = 69.763084
         cameraPreviewOffsetYMeters = -0.168832
         cameraRawOverlayOverscan = 1.0
-        projectionBorderPolicy = $ProjectionBorderPolicy
-        processingLayer = $ProcessingLayer
-        peripheralStretchDebug = $PeripheralStretchDebug
+    projectionBorderPolicy = $ProjectionBorderPolicy
+    processingLayer = $ProcessingLayer
+    peripheralStretchDebug = $PeripheralStretchDebug
+    sourceSamplingMode = $SourceSamplingMode
         blurRadiusPx = $BlurRadiusPx
         projectionAreaOpacity = $ProjectionAreaOpacity
         projectionBorderOpacity = $ProjectionBorderOpacity

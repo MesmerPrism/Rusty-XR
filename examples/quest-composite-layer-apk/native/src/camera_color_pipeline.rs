@@ -6,7 +6,7 @@ pub(crate) const CAMERA_SHADER_FLAG_RAW_PROJECTION: u32 = 1 << 14;
 pub(crate) const CAMERA_SHADER_FLAG_PASSTHROUGH_UNDERLAY_ALPHA: u32 = 1 << 15;
 pub(crate) const CAMERA_SHADER_FLAG_PROJECTION_BORDER_SOLID_RED: u32 = 1 << 16;
 pub(crate) const CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC: u32 = 1 << 23;
-pub(crate) const CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING: u32 = 1 << 24;
+pub(crate) const CAMERA_SHADER_FLAG_TARGET_LOCAL_RASTER_SAMPLING: u32 = 1 << 24;
 pub(crate) const CAMERA_SHADER_FLAG_TARGET_FOOTPRINT_FROM_METADATA: u32 = 1 << 25;
 const CAMERA_SHADER_EFFECT_RAW_PROJECTION_BLUR: f32 = 5.0;
 const CAMERA_SHADER_EFFECT_PERIPHERAL_STRETCH: f32 = 6.0;
@@ -398,12 +398,12 @@ impl CameraProjectionEffectMode {
             Self::ProjectionContentUvFiducial => {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION
                     | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
-                    | CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING
+                    | CAMERA_SHADER_FLAG_TARGET_LOCAL_RASTER_SAMPLING
             }
             Self::SourceSamplingWitness => {
                 CAMERA_SHADER_FLAG_RAW_PROJECTION
                     | CAMERA_SHADER_FLAG_PROJECTION_AREA_DIAGNOSTIC
-                    | CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING
+                    | CAMERA_SHADER_FLAG_TARGET_LOCAL_RASTER_SAMPLING
             }
             Self::FullFrameStimulusSurfaceMapping => CAMERA_SHADER_FLAG_RAW_PROJECTION,
         }

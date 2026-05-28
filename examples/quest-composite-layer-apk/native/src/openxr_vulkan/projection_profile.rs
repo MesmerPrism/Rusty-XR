@@ -38,28 +38,53 @@ pub(super) fn content_surface_aspect(
     (1.0, "square-fallback")
 }
 
-pub(super) fn frame_requests_full_frame_stimulus_mapping(frame: &HeadsetCameraGpuFrame) -> bool {
-    let full_frame_profile = frame
-        .diagnostics
-        .synthetic_projection_profile
-        .as_deref()
-        .is_some_and(|value| value == "full-frame-diagnostic")
-        || frame
-            .diagnostics
-            .projection_geometry_profile
-            .as_deref()
-            .is_some_and(|value| value == "full-frame-diagnostic");
-    if !full_frame_profile {
-        return false;
+pub(super) fn frame_source_sampling_mode(frame: &HeadsetCameraGpuFrame) -> &'static str {
+    if let Some(mode) = frame.diagnostics.source_sampling_mode.as_deref() {
+        match mode.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "target-local-raster"
+            | "target-local"
+            | "target-raster"
+            | "local-raster"
+            | "raster"
+            | "default" => return "target-local-raster",
+            "screen-to-camera-homography"
+            | "screen-camera-homography"
+            | "screen-to-source-homography"
+            | "camera-homography"
+            | "camera-projection"
+            | "homography" => return "screen-to-camera-homography",
+            _ => {}
+        }
     }
-    let Some(mapping_intent) = frame.diagnostics.content_mapping_intent.as_deref() else {
-        return false;
-    };
-    matches!(
-        mapping_intent,
-        "map-full-frame-stimulus-to-projection-area"
+    let mapping_intent = frame.diagnostics.content_mapping_intent.as_deref();
+    match mapping_intent {
+        Some(
+            "map-camera-frame-through-screen-to-camera-homography"
+            | "map-stimulus-raster-through-camera-projection",
+        ) => "screen-to-camera-homography",
+        Some(
+            "map-camera-frame-to-full-frame-projection-area"
+            | "map-camera-frame-to-full-frame-projection-surface"
+            | "map-full-frame-stimulus-to-projection-area"
             | "map-full-frame-stimulus-to-projection-surface"
             | "map-full-frame-content-to-projection-area"
-            | "map-full-frame-content-to-projection-surface"
-    )
+            | "map-full-frame-content-to-projection-surface",
+        ) => "target-local-raster",
+        _ => {
+            if frame
+                .diagnostics
+                .projection_geometry_profile
+                .as_deref()
+                .is_some_and(|value| value == "camera-projection")
+            {
+                "screen-to-camera-homography"
+            } else {
+                "target-local-raster"
+            }
+        }
+    }
+}
+
+pub(super) fn frame_requests_target_local_raster_sampling(frame: &HeadsetCameraGpuFrame) -> bool {
+    frame_source_sampling_mode(frame) == "target-local-raster"
 }

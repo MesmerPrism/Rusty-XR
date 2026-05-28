@@ -44,7 +44,7 @@ pub(super) fn projection_source_label(
             .marker_fields();
     let target_rect = target_screen_uv_rect_token(content_geometry.target_screen_uv_rect);
     format!(
-        "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:sourceValidUvRect={}:targetFootprintSchema={}:targetCoordinateSpace={}:targetScreenUvRect={}:targetClipPolicy={}:targetFootprintMetadataSource={}:targetFootprintDefault={}:{}:{}",
+        "{OES_PROJECTED_RENDER_PATH}:metadata={}:source={}:camera_id={}:pose_source={}:coordinate_convention={}:projection_profile={}:geometry_profile={}:pattern={}:size={}x{}:projectionMetadataReady={}:orientationKind={}:rasterOrientation={}:uprightMarker={}:orientationMetadataSource={}:orientationDefault={}:stimulusRasterOrientation={}:stimulusUprightMarker={}:stimulusOrientationDefault={}:contentKind={}:contentWidth={}:contentHeight={}:contentAspectRatio={:.6}:desiredDisplayAspectRatio={:.6}:desiredProjectionAspectRatio={:.6}:contentCoordinateSpace={}:contentOrigin={}:contentXAxis={}:contentYAxis={}:sourceSamplingMode={}:contentMappingIntent={}:contentGeometryMetadataSource={}:contentGeometryDefault={}:sourceValidUvRect={}:targetFootprintSchema={}:targetCoordinateSpace={}:targetScreenUvRect={}:targetClipPolicy={}:targetFootprintMetadataSource={}:targetFootprintDefault={}:{}:{}",
         metadata_label,
         metadata.source,
         metadata.camera_id,
@@ -74,6 +74,7 @@ pub(super) fn projection_source_label(
         content_geometry.origin,
         content_geometry.x_axis,
         content_geometry.y_axis,
+        content_geometry.source_sampling_mode,
         content_geometry.mapping_intent,
         content_geometry.metadata_source,
         content_geometry.metadata_default,
@@ -96,7 +97,7 @@ pub(super) fn stream_projection_metadata_log_message(
     let content_geometry = OesContentGeometryRecord::from_metadata(metadata);
     let target_rect = target_screen_uv_rect_token(content_geometry.target_screen_uv_rect);
     format!(
-        "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentSize={}x{} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} targetFootprintSchema={} targetCoordinateSpace={} targetScreenUvRect={} targetClipPolicy={} targetFootprintMetadataSource={} targetFootprintDefault={} {}",
+        "Rusty XR OpenXR GLES OES stream projection metadata eye={} source={} cameraId={} ready={} size={}x{} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} contentKind={} contentSize={}x{} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} sourceSamplingMode={} contentMappingIntent={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} targetFootprintSchema={} targetCoordinateSpace={} targetScreenUvRect={} targetClipPolicy={} targetFootprintMetadataSource={} targetFootprintDefault={} {}",
         view_index,
         metadata.source,
         metadata.camera_id,
@@ -122,6 +123,7 @@ pub(super) fn stream_projection_metadata_log_message(
         content_geometry.origin,
         content_geometry.x_axis,
         content_geometry.y_axis,
+        content_geometry.source_sampling_mode,
         content_geometry.mapping_intent,
         content_geometry.metadata_source,
         content_geometry.metadata_default,

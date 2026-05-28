@@ -17,6 +17,12 @@ impl OesProjectionMetadata {
     }
 
     pub(super) fn requests_camera_projection_mapping(&self) -> bool {
+        if self.source_sampling_mode == "screen-to-camera-homography" {
+            return true;
+        }
+        if self.source_sampling_mode == "target-local-raster" {
+            return false;
+        }
         self.projection_profile_is("camera-matched")
             || self.projection_profile_is("camera-projection")
             || self.projection_profile_is("physical-camera")
@@ -31,6 +37,12 @@ impl OesProjectionMetadata {
     }
 
     pub(super) fn requests_full_frame_projection_area_mapping(&self) -> bool {
+        if self.source_sampling_mode == "target-local-raster" {
+            return true;
+        }
+        if self.source_sampling_mode == "screen-to-camera-homography" {
+            return false;
+        }
         self.projection_profile_is("full-frame-diagnostic")
             || self.content_mapping_intent_is_any(&[
                 "map-camera-frame-to-full-frame-projection-surface",
@@ -42,12 +54,13 @@ impl OesProjectionMetadata {
     }
 
     pub(super) fn requests_explicit_full_frame_content_mapping(&self) -> bool {
-        self.content_mapping_intent_is_any(&[
-            "map-full-frame-stimulus-to-projection-surface",
-            "map-full-frame-stimulus-to-projection-area",
-            "map-full-frame-content-to-projection-surface",
-            "map-full-frame-content-to-projection-area",
-        ])
+        self.source_sampling_mode == "target-local-raster"
+            || self.content_mapping_intent_is_any(&[
+                "map-full-frame-stimulus-to-projection-surface",
+                "map-full-frame-stimulus-to-projection-area",
+                "map-full-frame-content-to-projection-surface",
+                "map-full-frame-content-to-projection-area",
+            ])
     }
 
     pub(super) fn requests_head_anchored_projection_area_mapping(&self) -> bool {

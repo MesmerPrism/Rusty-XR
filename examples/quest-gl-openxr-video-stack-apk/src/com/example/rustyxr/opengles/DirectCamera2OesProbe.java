@@ -41,6 +41,9 @@ public final class DirectCamera2OesProbe {
     private static final String STIMULUS_ORIENTATION_SCHEMA = "rusty.xr.stimulus_orientation.v1";
     private static final String STREAM_CONTENT_GEOMETRY_SCHEMA = "rusty.xr.stream_content_geometry.v1";
     private static final String TARGET_FOOTPRINT_SCHEMA = "rusty.xr.target_screen_footprint.v1";
+    private static final String SOURCE_SAMPLING_MODE_SCHEMA = "rusty.xr.source_sampling_mode.v1";
+    private static final String SOURCE_SAMPLING_TARGET_LOCAL_RASTER = "target-local-raster";
+    private static final String SOURCE_SAMPLING_SCREEN_TO_CAMERA_HOMOGRAPHY = "screen-to-camera-homography";
     private static final String CONTENT_MAPPING_CAMERA_FULL_FRAME = "map-camera-frame-to-full-frame-projection-surface";
     private static final String PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC = "full-frame-diagnostic";
     private static final String PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION = "camera-projection";
@@ -92,7 +95,8 @@ public final class DirectCamera2OesProbe {
             config.width,
             config.height,
             config.frameRateHz,
-            config.projectionGeometryProfile);
+            config.projectionGeometryProfile,
+            config.sourceSamplingMode);
         EyeCamera right = new EyeCamera(
             activity,
             1,
@@ -103,7 +107,8 @@ public final class DirectCamera2OesProbe {
             config.width,
             config.height,
             config.frameRateHz,
-            config.projectionGeometryProfile);
+            config.projectionGeometryProfile,
+            config.sourceSamplingMode);
         DirectCamera2OesProbe probe = new DirectCamera2OesProbe(left, right);
         emitReport(baseReport("start", config));
         left.start(probe.running);
@@ -130,6 +135,7 @@ public final class DirectCamera2OesProbe {
             report.put("height", config.height);
             report.put("requested_frame_rate_hz", config.frameRateHz);
             report.put("projection_geometry_profile", config.projectionGeometryProfile);
+            report.put("source_sampling_mode", config.sourceSamplingMode);
         } catch (Exception ignored) {
         }
         return report;
@@ -183,6 +189,43 @@ public final class DirectCamera2OesProbe {
         return CONTENT_MAPPING_CAMERA_FULL_FRAME;
     }
 
+    private static String normalizeSourceSamplingMode(String requested, String projectionGeometryProfile) {
+        if (requested == null || requested.trim().isEmpty()) {
+            return sourceSamplingModeForProjectionGeometryProfile(projectionGeometryProfile);
+        }
+        String normalized = requested.trim().toLowerCase().replace('_', '-');
+        if ("target-local-raster".equals(normalized) ||
+                "target-local".equals(normalized) ||
+                "target-raster".equals(normalized) ||
+                "local-raster".equals(normalized) ||
+                "raster".equals(normalized) ||
+                "default".equals(normalized)) {
+            return SOURCE_SAMPLING_TARGET_LOCAL_RASTER;
+        }
+        if ("screen-to-camera-homography".equals(normalized) ||
+                "screen-camera-homography".equals(normalized) ||
+                "screen-to-source-homography".equals(normalized) ||
+                "camera-homography".equals(normalized) ||
+                "camera-projection".equals(normalized) ||
+                "homography".equals(normalized)) {
+            return SOURCE_SAMPLING_SCREEN_TO_CAMERA_HOMOGRAPHY;
+        }
+        throw new IllegalArgumentException("Unsupported direct Camera2 OES source sampling mode: " + requested);
+    }
+
+    private static String sourceSamplingModeForProjectionGeometryProfile(String profile) {
+        return PROJECTION_GEOMETRY_PROFILE_CAMERA_PROJECTION.equals(profile)
+            ? SOURCE_SAMPLING_SCREEN_TO_CAMERA_HOMOGRAPHY
+            : SOURCE_SAMPLING_TARGET_LOCAL_RASTER;
+    }
+
+    private static String contentMappingIntentForSourceSamplingMode(String mode) {
+        if (SOURCE_SAMPLING_SCREEN_TO_CAMERA_HOMOGRAPHY.equals(mode)) {
+            return "map-camera-frame-through-screen-to-camera-homography";
+        }
+        return CONTENT_MAPPING_CAMERA_FULL_FRAME;
+    }
+
     private static final class Config {
         final String leftCameraId;
         final String rightCameraId;
@@ -190,6 +233,7 @@ public final class DirectCamera2OesProbe {
         final int height;
         final int frameRateHz;
         final String projectionGeometryProfile;
+        final String sourceSamplingMode;
 
         Config(
             String leftCameraId,
@@ -197,13 +241,16 @@ public final class DirectCamera2OesProbe {
             int width,
             int height,
             int frameRateHz,
-            String projectionGeometryProfile) {
+            String projectionGeometryProfile,
+            String sourceSamplingMode) {
             this.leftCameraId = leftCameraId != null && leftCameraId.length() > 0 ? leftCameraId : "50";
             this.rightCameraId = rightCameraId != null && rightCameraId.length() > 0 ? rightCameraId : "51";
             this.width = Math.max(16, width);
             this.height = Math.max(16, height);
             this.frameRateHz = Math.max(1, Math.min(120, frameRateHz));
             this.projectionGeometryProfile = normalizeProjectionGeometryProfile(projectionGeometryProfile);
+            this.sourceSamplingMode =
+                normalizeSourceSamplingMode(sourceSamplingMode, this.projectionGeometryProfile);
         }
 
         static Config fromActivity(Activity activity, int defaultWidth, int defaultHeight, int defaultFrameRateHz) {
@@ -237,7 +284,11 @@ public final class DirectCamera2OesProbe {
                 stringExtra(
                     activity,
                     "rustyxr.directCamera2OesProjectionGeometryProfile",
-                    stringExtra(activity, "rustyxr.cameraProjectionGeometryProfile", PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC)));
+                    stringExtra(activity, "rustyxr.cameraProjectionGeometryProfile", PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC)),
+                stringExtra(
+                    activity,
+                    "rustyxr.directCamera2OesSourceSamplingMode",
+                    stringExtra(activity, "rustyxr.cameraSourceSamplingMode", "")));
         }
     }
 
@@ -252,6 +303,7 @@ public final class DirectCamera2OesProbe {
         final int height;
         final int frameRateHz;
         final String projectionGeometryProfile;
+        final String sourceSamplingMode;
         final AtomicLong sequence = new AtomicLong(0L);
 
         HandlerThread thread;
@@ -269,7 +321,8 @@ public final class DirectCamera2OesProbe {
             int width,
             int height,
             int frameRateHz,
-            String projectionGeometryProfile) {
+            String projectionGeometryProfile,
+            String sourceSamplingMode) {
             this.activity = activity;
             this.viewIndex = viewIndex;
             this.eye = eye;
@@ -280,6 +333,7 @@ public final class DirectCamera2OesProbe {
             this.height = height;
             this.frameRateHz = frameRateHz;
             this.projectionGeometryProfile = projectionGeometryProfile;
+            this.sourceSamplingMode = sourceSamplingMode;
         }
 
         void start(AtomicBoolean running) {
@@ -422,6 +476,8 @@ public final class DirectCamera2OesProbe {
             metadata.put("deliveredWidth", width);
             metadata.put("deliveredHeight", height);
             metadata.put("projectionGeometryProfile", projectionGeometryProfile);
+            metadata.put("sourceSamplingModeSchema", SOURCE_SAMPLING_MODE_SCHEMA);
+            metadata.put("sourceSamplingMode", sourceSamplingMode);
             metadata.put("rasterOrientationSchema", STREAM_RASTER_ORIENTATION_SCHEMA);
             metadata.put("orientationKind", "camera-frame");
             metadata.put("rasterOrientation", STREAM_RASTER_ORIENTATION_TOP_LEFT_Y_DOWN);
@@ -457,7 +513,7 @@ public final class DirectCamera2OesProbe {
             metadata.put("contentUvRect", contentUvRect);
             metadata.put(
                 "contentMappingIntent",
-                contentMappingIntentForProjectionGeometryProfile(projectionGeometryProfile));
+                contentMappingIntentForSourceSamplingMode(sourceSamplingMode));
             metadata.put("contentGeometryMetadataSource", "direct-camera2-oes-characteristics");
             metadata.put("contentGeometryDefault", false);
             putDefaultTargetFootprint(metadata, "direct-camera2-oes-characteristics");

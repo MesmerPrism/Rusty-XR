@@ -108,6 +108,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final String syntheticPattern;
         final String syntheticProjectionProfile;
         final String projectionGeometryProfile;
+        final String sourceSamplingMode;
         final boolean liveDecode;
         final boolean byteIdentityProbe;
         final String stereoPairingMode;
@@ -143,6 +144,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             String syntheticPattern,
             String syntheticProjectionProfile,
             String projectionGeometryProfile,
+            String sourceSamplingMode,
             boolean liveDecode,
             boolean byteIdentityProbe,
             String stereoPairingMode,
@@ -187,6 +189,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             this.projectionGeometryProfile = this.startBrokerCameraStream
                 ? normalizeCameraProjectionGeometryProfile(requestedProjectionGeometryProfile)
                 : normalizeSyntheticProjectionProfile(requestedProjectionGeometryProfile);
+            this.sourceSamplingMode = sourceSamplingMode != null ? sourceSamplingMode.trim() : "";
             this.liveDecode = liveDecode;
             this.byteIdentityProbe = byteIdentityProbe;
             this.stereoPairingMode = normalizeStereoPairingMode(stereoPairingMode);
@@ -330,6 +333,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("synthetic_pattern", config.syntheticPattern);
             report.put("synthetic_projection_profile", config.syntheticProjectionProfile);
             report.put("projection_geometry_profile", config.projectionGeometryProfile);
+            report.put("source_sampling_mode", config.sourceSamplingMode);
             report.put("decode_output_mode", config.decodeOutputMode);
             report.put("live_decode_requested", config.liveDecode);
             report.put("byte_identity_probe_requested", config.byteIdentityProbe);
@@ -1061,6 +1065,10 @@ final class BrokerH264ConsumerProbe implements Runnable {
         params.put("live_stream", config.liveStream);
         params.put("projection_geometry_profile", config.projectionGeometryProfile);
         params.put("projectionGeometryProfile", config.projectionGeometryProfile);
+        if (config.sourceSamplingMode.length() > 0) {
+            params.put("source_sampling_mode", config.sourceSamplingMode);
+            params.put("sourceSamplingMode", config.sourceSamplingMode);
+        }
         if (cameraId != null && cameraId.length() > 0) {
             params.put("camera_id", cameraId);
         }
@@ -3526,6 +3534,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
             copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticProjectionProfileFallbackReason");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticGeometryReferenceCameraId");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "syntheticGeometryReferenceSource");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "sourceSamplingModeSchema");
+            copyOptionalStreamString(streamProjectionMetadata, metadata, "sourceSamplingMode");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "rasterOrientationSchema");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "orientationKind");
             copyOptionalStreamString(streamProjectionMetadata, metadata, "rasterOrientation");

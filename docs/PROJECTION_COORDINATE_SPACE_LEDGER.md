@@ -553,6 +553,26 @@ sampling decision and is logged as `sourceSampleYFlip=1.0` with a
 sampler-origin reason. Do not collapse these into a generic "manual Y flip";
 that label hides the layer boundary that previously let the bug recur.
 
+## Source Sampling Mode
+
+Every video source that carries projection metadata should also carry
+`sourceSamplingMode`. This field is source-kind agnostic: direct Camera2,
+broker H.264 camera, and broker synthetic streams all use the same names.
+
+- `target-local-raster`: the incoming raster is placed in the metadata
+  `targetScreenUvRect` as local 0..1 content. Pixels outside that target
+  footprint may be filled by effect layers such as `peripheral-stretch` by
+  sampling from the target raster edge. This is the default app-facing raster
+  placement mode.
+- `screen-to-camera-homography`: display-eye screen UV is mapped through the
+  calibrated `screen_to_camera` homography before sampling. This is a camera
+  calibration diagnostic mode and can expose source-invalid regions when the
+  homography maps part of the visible target outside the valid source UV rect.
+
+`projectionGeometryProfile` remains a geometry/profile hint. It must not be
+used as the only way to infer whether source sampling is target-local or
+homography once `sourceSamplingMode` is present.
+
 ## Projection Coordinate Contract
 
 Each alignment run should emit or preserve a compact public-safe contract.
@@ -583,6 +603,7 @@ The schema name is currently `rusty.xr.projection-coordinate-contract.v1`.
     "valid_source_uv_rect": [0.0, 0.0, 1.0, 1.0]
   },
   "source_sampling": {
+    "mode": "target-local-raster-or-screen-to-camera-homography",
     "contract": "screen_to_camera_content_uv_to_renderer_sampler",
     "homography_output_uv": "content-normalized-top-left-y-down",
     "sample_input_uv": "screen-to-camera-homography-output",

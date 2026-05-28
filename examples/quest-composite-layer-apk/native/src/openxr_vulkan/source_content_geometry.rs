@@ -18,6 +18,7 @@ pub(super) struct HwbStereoContentGeometry {
     pub(super) origin: String,
     pub(super) x_axis: String,
     pub(super) y_axis: String,
+    pub(super) source_sampling_mode: String,
     pub(super) mapping_intent: String,
     pub(super) metadata_source: String,
     pub(super) metadata_default: bool,
@@ -113,6 +114,12 @@ impl HwbStereoContentGeometry {
                     .or(right.content_y_axis.as_deref()),
                 "down",
             ),
+            source_sampling_mode: marker_token(
+                left.source_sampling_mode
+                    .as_deref()
+                    .or(right.source_sampling_mode.as_deref()),
+                inferred_source_sampling_mode(left, right),
+            ),
             mapping_intent: marker_token(
                 left.content_mapping_intent
                     .as_deref()
@@ -202,6 +209,9 @@ mod tests {
             source_crop_rect_px: Some([0, 0, 1280, 720]),
             source_crop_rect_state: Some("metadata-ready".to_string()),
             source_crop_rect_owner: Some("source-metadata".to_string()),
+            source_sampling_mode: Some(
+                source_sampling_mode_for_mapping_intent(mapping_intent).to_string(),
+            ),
             content_mapping_intent: mapping_intent.map(str::to_string),
             content_geometry_metadata_source: Some("source-metadata".to_string()),
             content_geometry_default: Some(false),
@@ -250,6 +260,10 @@ mod tests {
                 content_geometry.mapping_intent,
                 marker_token(Some(mapping_intent), "missing")
             );
+            assert_eq!(
+                content_geometry.source_sampling_mode,
+                source_sampling_mode_for_mapping_intent(Some(mapping_intent))
+            );
             assert!(!content_geometry.metadata_default);
 
             let fields = projection_source_metadata_marker_fields(
@@ -269,7 +283,40 @@ mod tests {
                 "contentMappingIntent={}",
                 marker_token(Some(mapping_intent), "missing")
             )));
+            assert!(fields.contains(&format!(
+                "sourceSamplingMode={}",
+                source_sampling_mode_for_mapping_intent(Some(mapping_intent))
+            )));
             assert!(fields.contains("contentGeometryMetadataSource=source-metadata"));
         }
+    }
+}
+
+fn inferred_source_sampling_mode(
+    left: &HeadsetCameraFrameDiagnostics,
+    right: &HeadsetCameraFrameDiagnostics,
+) -> &'static str {
+    let mapping_intent = left
+        .content_mapping_intent
+        .as_deref()
+        .or(right.content_mapping_intent.as_deref());
+    source_sampling_mode_for_mapping_intent(mapping_intent)
+}
+
+fn source_sampling_mode_for_mapping_intent(mapping_intent: Option<&str>) -> &'static str {
+    match mapping_intent {
+        Some(
+            "map-camera-frame-through-screen-to-camera-homography"
+            | "map-stimulus-raster-through-camera-projection",
+        ) => "screen-to-camera-homography",
+        Some(
+            "map-camera-frame-to-full-frame-projection-area"
+            | "map-camera-frame-to-full-frame-projection-surface"
+            | "map-full-frame-stimulus-to-projection-area"
+            | "map-full-frame-stimulus-to-projection-surface"
+            | "map-full-frame-content-to-projection-area"
+            | "map-full-frame-content-to-projection-surface",
+        ) => "target-local-raster",
+        _ => "target-local-raster",
     }
 }

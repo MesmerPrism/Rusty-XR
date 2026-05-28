@@ -166,6 +166,7 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
             ("cameraProjectionMode", "cameraProjectionMode"),
             ("projectionBorderPolicy", "projectionBorderPolicy"),
             ("processingLayer", "processingLayer"),
+            ("sourceSamplingMode", "sourceSamplingMode"),
             ("projectionSampleMode", "projectionSampleMode"),
             ("blurRadiusPx", "blurRadiusPx"),
             ("xrRenderScale", "xrRenderScale"),
@@ -183,6 +184,9 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
                 ("rustyxr.projectionBorderPolicy", "projectionBorderPolicy"),
                 ("rustyxr.processingLayer", "processingLayer"),
                 ("rustyxr.makepad.processing.layer", "processingLayer"),
+                ("rustyxr.cameraSourceSamplingMode", "sourceSamplingMode"),
+                ("rustyxr.directCamera2OesSourceSamplingMode", "sourceSamplingMode"),
+                ("rustyxr.brokerH264SourceSamplingMode", "sourceSamplingMode"),
                 ("rustyxr.makepad.projection.sample.mode", "projectionSampleMode"),
                 ("rustyxr.cameraBlurRadiusPx", "blurRadiusPx"),
                 ("rustyxr.xrRenderScale", "xrRenderScale"),
@@ -661,6 +665,7 @@ def build_hwb_contract(fields: dict[str, Any]) -> dict[str, Any] | None:
         {
             "projection_border_policy": str(fields.get("projectionBorderPolicy") or "unknown"),
             "processing_layer": str(fields.get("processingLayer") or "raw"),
+            "source_sampling_mode": str(fields.get("sourceSamplingMode") or "unknown"),
             "projection_surface_label": str(fields.get("projectionSurface") or "camera-projection-surface"),
             "projection_status_label": "ready",
         }
@@ -758,6 +763,7 @@ def build_oes_contract(fields: dict[str, Any], transform_payload: dict[str, Any]
         {
             "projection_border_policy": str(merged.get("projectionBorderPolicy") or "unknown"),
             "processing_layer": str(merged.get("processingLayer") or "raw"),
+            "source_sampling_mode": str(merged.get("sourceSamplingMode") or "unknown"),
             "projection_status_label": str(merged.get("status") or "ready"),
         }
     )
@@ -855,6 +861,7 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
         {
             "projection_border_policy": str(fields.get("projectionBorderPolicy") or "unknown"),
             "processing_layer": str(fields.get("processingLayer") or "raw"),
+            "source_sampling_mode": str(fields.get("sourceSamplingMode") or "unknown"),
             "projection_sample_mode": str(fields.get("projectionSampleMode") or "camera"),
             "camera_texture_binding": parse_bool(fields.get("cameraTextureBinding")),
             "projection_panel_draw_enabled": parse_bool(fields.get("projectionPanelDrawEnabled")),
@@ -883,6 +890,13 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
     lane_sample_mode = nonempty_text(projection.get("projection_sample_mode"))
     if context_sample_mode is not None and (lane_sample_mode is None or lane_sample_mode == "unknown"):
         projection["projection_sample_mode"] = context_sample_mode
+
+    context_source_sampling = nonempty_text(context_fields.get("sourceSamplingMode"))
+    lane_source_sampling = nonempty_text(projection.get("source_sampling_mode"))
+    if context_source_sampling is not None and (
+        lane_source_sampling is None or lane_source_sampling == "unknown"
+    ):
+        projection["source_sampling_mode"] = context_source_sampling
 
 
 class ScanState:
@@ -1017,6 +1031,7 @@ def build_run_config_summary(context_fields: dict[str, Any]) -> dict[str, Any]:
         "processing_run_kind": "raw-mask-footprint"
         if (processing_layer or "raw") == "raw"
         else "effect-run",
+        "source_sampling_mode": nonempty_text(context_fields.get("sourceSamplingMode")),
         "projection_sample_mode": nonempty_text(context_fields.get("projectionSampleMode")),
         "blur_radius_px": parse_float(context_fields.get("blurRadiusPx")),
     }

@@ -104,9 +104,9 @@ pub(super) fn broker_full_frame_projection_plan_from_xr_views(
         right_use_surface_texture_transform,
     );
     let content_mapping_mode = if target_footprint_from_metadata {
-        OesContentMappingMode::FullFrameStimulusToProjectionArea
+        OesContentMappingMode::TargetLocalRaster
     } else {
-        OesContentMappingMode::FullFrameStimulusToSurfaceHomography
+        OesContentMappingMode::SurfaceToCameraHomography
     };
     let left_geometry_plan = shared_per_eye_projection_plan(
         Eye::Left,

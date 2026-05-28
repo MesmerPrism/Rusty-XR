@@ -168,6 +168,7 @@ pub(crate) struct HeadsetCameraFrameDiagnostics {
     pub(crate) source_crop_rect_px: Option<[u32; 4]>,
     pub(crate) source_crop_rect_state: Option<String>,
     pub(crate) source_crop_rect_owner: Option<String>,
+    pub(crate) source_sampling_mode: Option<String>,
     pub(crate) content_mapping_intent: Option<String>,
     pub(crate) content_geometry_metadata_source: Option<String>,
     pub(crate) content_geometry_default: Option<bool>,
@@ -3082,6 +3083,7 @@ struct JavaCameraFrameMetadata {
     source_crop_rect_px: Option<JavaPixelRect>,
     source_crop_rect_state: Option<String>,
     source_crop_rect_owner: Option<String>,
+    source_sampling_mode: Option<String>,
     content_mapping_intent: Option<String>,
     content_geometry_metadata_source: Option<String>,
     content_geometry_default: Option<bool>,
@@ -3310,6 +3312,7 @@ fn public_camera_metadata(
             .and_then(public_pixel_rect),
         source_crop_rect_state: bridge.and_then(|value| value.source_crop_rect_state.clone()),
         source_crop_rect_owner: bridge.and_then(|value| value.source_crop_rect_owner.clone()),
+        source_sampling_mode: bridge.and_then(|value| value.source_sampling_mode.clone()),
         content_mapping_intent: bridge.and_then(|value| value.content_mapping_intent.clone()),
         content_geometry_metadata_source: bridge
             .and_then(|value| value.content_geometry_metadata_source.clone()),

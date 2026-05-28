@@ -162,13 +162,26 @@ impl<'a> HwbSourceSamplingHandoff<'a> {
         );
         let source_mode = source_mode_for_frame(self.frame);
         let geometry_profile = projection_geometry_profile_for_frame(self.frame, self.config);
+        let source_sampling_mode = source_sampling_mode_for_frame(self.frame);
+        let source_uv_contract = if source_sampling_mode == "target-local-raster" {
+            "target_local_raster_uv_to_hardware_buffer_sampler"
+        } else {
+            HWB_SOURCE_UV_CONTRACT
+        };
+        let source_sample_input_uv = if source_sampling_mode == "target-local-raster" {
+            "target-local-raster-uv"
+        } else {
+            "screen-to-camera-homography-output"
+        };
         format!(
-            "schema=rusty.xr.hwb-source-sampling.v1 phase=source-sampling status=ok sourceMode={} projectionGeometryProfile={} geometry_profile={} sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv=screen-to-camera-homography-output sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} contentUvRect={} sourceVisibleUvRect={} sourceCropRectState={} sourceCropRectOwner={} leftSourceVisibleUvRect={} rightSourceVisibleUvRect={} leftSourceCropRectPx={} rightSourceCropRectPx={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} {}",
+            "schema=rusty.xr.hwb-source-sampling.v1 phase=source-sampling status=ok sourceMode={} projectionGeometryProfile={} geometry_profile={} sourceSamplingMode={} sourceEyeMapping={} sourceUvContract={} sourceHomographyOutputUv=content-normalized-top-left-y-down sourceSampleInputUv={} sourceSampleTransformStage={} sourceSampleTransform={} sourceSampleTransformOwner={} sourceSampleTransformApplied={} sourceSampleOutputUv={} sourceSamplerUvOrigin={} sourceSamplerYAxis={} sourceTextureTransformStage={} sourceTextureTransformOwner={} contentUvRect={} sourceVisibleUvRect={} sourceCropRectState={} sourceCropRectOwner={} leftSourceVisibleUvRect={} rightSourceVisibleUvRect={} leftSourceCropRectPx={} rightSourceCropRectPx={} leftCameraTextureTransform={} rightCameraTextureTransform={} leftCameraTextureTransformFlags={} rightCameraTextureTransformFlags={} cameraTextureTransformSource={} cameraTextureTransformReason={} {}",
             source_mode,
             geometry_profile,
             geometry_profile,
+            source_sampling_mode,
             contract.source_eye_mapping.stable_id(),
-            HWB_SOURCE_UV_CONTRACT,
+            source_uv_contract,
+            source_sample_input_uv,
             legacy_transform_stage_token(contract.transform_stage),
             contract.transform_label,
             contract.transform_owner,
@@ -409,6 +422,53 @@ pub(crate) fn hwb_final_projection_status_log_message(
     )
 }
 
+fn source_sampling_mode_for_frame(frame: &StereoGpuCameraFrame) -> &'static str {
+    if let Some(mode) = frame
+        .left
+        .diagnostics
+        .source_sampling_mode
+        .as_deref()
+        .or(frame.right.diagnostics.source_sampling_mode.as_deref())
+    {
+        match mode.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "target-local-raster"
+            | "target-local"
+            | "target-raster"
+            | "local-raster"
+            | "raster"
+            | "default" => return "target-local-raster",
+            "screen-to-camera-homography"
+            | "screen-camera-homography"
+            | "screen-to-source-homography"
+            | "camera-homography"
+            | "camera-projection"
+            | "homography" => return "screen-to-camera-homography",
+            _ => {}
+        }
+    }
+    match frame
+        .left
+        .diagnostics
+        .content_mapping_intent
+        .as_deref()
+        .or(frame.right.diagnostics.content_mapping_intent.as_deref())
+    {
+        Some(
+            "map-camera-frame-through-screen-to-camera-homography"
+            | "map-stimulus-raster-through-camera-projection",
+        ) => "screen-to-camera-homography",
+        Some(
+            "map-camera-frame-to-full-frame-projection-area"
+            | "map-camera-frame-to-full-frame-projection-surface"
+            | "map-full-frame-stimulus-to-projection-area"
+            | "map-full-frame-stimulus-to-projection-surface"
+            | "map-full-frame-content-to-projection-area"
+            | "map-full-frame-content-to-projection-surface",
+        ) => "target-local-raster",
+        _ => "target-local-raster",
+    }
+}
+
 fn source_mode_for_frame(frame: &StereoGpuCameraFrame) -> &'static str {
     let source = frame
         .left
@@ -646,6 +706,7 @@ mod tests {
             source_crop_rect_px: Some([16, 32, 1200, 1240]),
             source_crop_rect_state: Some("metadata ready".to_string()),
             source_crop_rect_owner: Some("android media image".to_string()),
+            source_sampling_mode: Some("screen-to-camera-homography".to_string()),
             content_mapping_intent: None,
             content_geometry_metadata_source: None,
             content_geometry_default: None,
@@ -730,6 +791,7 @@ mod tests {
         assert!(fields.contains("schema=rusty.xr.hwb-source-sampling.v1"));
         assert!(fields.contains("sourceMode=direct-camera2"));
         assert!(fields.contains("projectionGeometryProfile=camera-projection"));
+        assert!(fields.contains("sourceSamplingMode=screen-to-camera-homography"));
         assert!(fields
             .contains("sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler"));
         assert!(fields.contains("sourceEyeMapping=display-left-from-left-source"));

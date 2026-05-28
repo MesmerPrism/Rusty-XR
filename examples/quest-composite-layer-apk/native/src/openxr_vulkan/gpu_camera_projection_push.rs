@@ -167,10 +167,10 @@ impl CameraProjectionPush {
             config.camera_raw_overlay_overscan,
         )
         .unwrap_or(1.0);
-        let full_frame_mapping_flags = if homographies.left.full_frame_stimulus_mapping
-            && homographies.right.full_frame_stimulus_mapping
+        let source_sampling_flags = if homographies.left.target_local_raster_sampling
+            && homographies.right.target_local_raster_sampling
         {
-            crate::camera_color_pipeline::CAMERA_SHADER_FLAG_FULL_FRAME_STIMULUS_MAPPING
+            crate::camera_color_pipeline::CAMERA_SHADER_FLAG_TARGET_LOCAL_RASTER_SAMPLING
         } else {
             0
         };
@@ -190,7 +190,7 @@ impl CameraProjectionPush {
                     | config.camera_feed_pipeline_mode.shader_bit()
                     | config.camera_projection_effect_mode.shader_bit()
                     | config.camera_projection_border_policy_shader_bit()
-                    | full_frame_mapping_flags
+                    | source_sampling_flags
                     | target_footprint_flags) as f32,
             ],
             color_adjust: config.camera_color_adjust_push(),

@@ -3,7 +3,7 @@ use openxr as xr;
 use rusty_xr_camera_model::Vec3;
 
 use super::projection_eye_mapping::projected_display_eye_homography;
-use super::projection_profile::frame_requests_full_frame_stimulus_mapping;
+use super::projection_profile::frame_requests_target_local_raster_sampling;
 use super::StereoHomographyProjection;
 use crate::StereoGpuCameraFrame;
 
@@ -22,7 +22,7 @@ pub(super) struct DisplayEyeProjectionMapping {
     pub(super) canvas_clip: [[f32; 4]; 4],
     pub(super) surface_aspect: f32,
     pub(super) surface_aspect_source: &'static str,
-    pub(super) full_frame_stimulus_mapping: bool,
+    pub(super) target_local_raster_sampling: bool,
 }
 
 pub(super) fn projected_homographies_with_screen_to_camera(
@@ -48,9 +48,9 @@ pub(super) fn projected_stereo_homographies(
     views: &[xr::View],
     resolution: vk::Extent2D,
 ) -> Option<(DisplayEyeProjectionMapping, DisplayEyeProjectionMapping)> {
-    let full_frame_stimulus_mapping = frame_requests_full_frame_stimulus_mapping(&frame.left)
-        && frame_requests_full_frame_stimulus_mapping(&frame.right);
-    let reference_center = if full_frame_stimulus_mapping {
+    let target_local_raster_sampling = frame_requests_target_local_raster_sampling(&frame.left)
+        && frame_requests_target_local_raster_sampling(&frame.right);
+    let reference_center = if target_local_raster_sampling {
         Vec3::ZERO
     } else {
         let left_extrinsics = frame.left.metadata.extrinsics?;

@@ -361,6 +361,8 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "projectionBorderPolicy": run_config.get("projection_border_policy")
             or makepad_summary.get("projectionBorderPolicy"),
             "processingLayer": run_config.get("processing_layer") or makepad_summary.get("processingLayer"),
+            "sourceSamplingMode": run_config.get("source_sampling_mode")
+            or makepad_summary.get("sourceSamplingMode"),
             "projectionSampleMode": run_config.get("projection_sample_mode")
             or makepad_summary.get("projectionSampleMode"),
             "xrRenderScale": run_config.get("xr_render_scale") or makepad_summary.get("xrRenderScale"),
@@ -439,6 +441,7 @@ def build_row(name: str, root: Path) -> dict[str, Any]:
             "deliveredSize": delivered_size,
             "projectionBorderPolicy": lane_summary.get("projection_border_policy"),
             "processingLayer": lane_summary.get("processing_layer"),
+            "sourceSamplingMode": lane_summary.get("source_sampling_mode"),
             "projectionSampleMode": lane_summary.get("projection_sample_mode"),
             "timing": lane_summary.get("timing", {}),
             "timingRelations": lane_summary.get("timing_relations", {}),
