@@ -26,6 +26,7 @@ HWB_IMPORT_MARKER = "Rusty XR Vulkan imported camera hardware buffer"
 HWB_RECEIVED_MARKER = "Rusty XR received headset camera GPU buffer frame"
 HWB_FINAL_MARKER = "Rusty XR final projection status"
 OES_CONTRACT_MARKER = "Rusty XR OpenXR GLES projection contract"
+OES_STARTUP_MARKER = "Rusty XR OpenXR GLES projection border policy="
 OES_TRANSFORM_MARKER = "Rusty XR SurfaceTexture OES transform matrix"
 MAKEPAD_IMPORT_MARKER = "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT"
 MAKEPAD_FRAME_FLOW_MARKERS = (
@@ -187,6 +188,21 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
                 ("rustyxr.cameraSourceSamplingMode", "sourceSamplingMode"),
                 ("rustyxr.directCamera2OesSourceSamplingMode", "sourceSamplingMode"),
                 ("rustyxr.brokerH264SourceSamplingMode", "sourceSamplingMode"),
+                ("rustyxr.cameraLeftTargetScreenUvRect", "leftTargetScreenUvRect"),
+                ("rustyxr.cameraRightTargetScreenUvRect", "rightTargetScreenUvRect"),
+                ("rustyxr.directCamera2OesLeftTargetScreenUvRect", "leftTargetScreenUvRect"),
+                ("rustyxr.directCamera2OesRightTargetScreenUvRect", "rightTargetScreenUvRect"),
+                ("rustyxr.brokerH264LeftTargetScreenUvRect", "leftTargetScreenUvRect"),
+                ("rustyxr.brokerH264RightTargetScreenUvRect", "rightTargetScreenUvRect"),
+                ("rustyxr.projectionTargetOffsetXUv", "projectionTargetOffsetXUv"),
+                ("rustyxr.projectionTargetOffsetYUv", "projectionTargetOffsetYUv"),
+                ("rustyxr.projectionTargetScale", "projectionTargetScale"),
+                ("rustyxr.projectionTargetJoystickControls", "projectionTargetJoystickControls"),
+                ("rustyxr.peripheralStretchCoreScale", "peripheralStretchCoreScale"),
+                ("rustyxr.peripheralStretchEdgeInsetUv", "peripheralStretchEdgeInsetUv"),
+                ("rustyxr.peripheralStretchMaxInsetUv", "peripheralStretchMaxInsetUv"),
+                ("rustyxr.peripheralStretchCurve", "peripheralStretchCurve"),
+                ("rustyxr.peripheralStretchDebug", "peripheralStretchDebug"),
                 ("rustyxr.makepad.projection.sample.mode", "projectionSampleMode"),
                 ("rustyxr.cameraBlurRadiusPx", "blurRadiusPx"),
                 ("rustyxr.xrRenderScale", "xrRenderScale"),
@@ -413,6 +429,50 @@ def source_eye_mapping(fields: dict[str, Any]) -> str:
         "swapped": "display-left-from-right-source",
     }
     return aliases.get(raw.strip().lower(), "display-left-from-left-source")
+
+
+def projection_effect_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    processing_layer = str(fields.get("processingLayer") or fields.get("processing_layer") or "raw")
+    processing_layer = processing_layer.strip().lower()
+    processing_run_kind = "raw-mask-footprint" if processing_layer == "raw" else "effect-run"
+    return {
+        "processing_run_kind": processing_run_kind,
+        "effect_boundary": nonempty_text(fields.get("effectBoundary")),
+        "border_region_semantics": nonempty_text(fields.get("borderRegionSemantics")),
+        "source_invalid_semantics": nonempty_text(fields.get("sourceInvalidSemantics")),
+        "target_footprint_schema": nonempty_text(fields.get("targetFootprintSchema")),
+        "target_coordinate_space": nonempty_text(fields.get("targetCoordinateSpace")),
+        "target_clip_policy": nonempty_text(fields.get("targetClipPolicy")),
+        "target_footprint_metadata_source": nonempty_text(
+            fields.get("targetFootprintMetadataSource")
+            or fields.get("resolvedTargetFootprintSource")
+        ),
+        "target_footprint_default": parse_bool(fields.get("targetFootprintDefault")),
+        "left_target_screen_uv_rect": nonempty_text(
+            fields.get("leftTargetScreenUvRect")
+            or fields.get("leftVisibleTargetScreenUvRect")
+            or fields.get("targetScreenUvRect")
+        ),
+        "right_target_screen_uv_rect": nonempty_text(
+            fields.get("rightTargetScreenUvRect")
+            or fields.get("rightVisibleTargetScreenUvRect")
+            or fields.get("targetScreenUvRect")
+        ),
+        "peripheral_stretch_core_scale": parse_float(fields.get("peripheralStretchCoreScale")),
+        "peripheral_stretch_edge_inset_uv": parse_float(fields.get("peripheralStretchEdgeInsetUv")),
+        "peripheral_stretch_max_inset_uv": parse_float(fields.get("peripheralStretchMaxInsetUv")),
+        "peripheral_stretch_curve": parse_float(fields.get("peripheralStretchCurve")),
+        "peripheral_stretch_debug": nonempty_text(fields.get("peripheralStretchDebug")),
+        "peripheral_stretch_core_region": nonempty_text(fields.get("peripheralStretchCoreRegion")),
+        "peripheral_stretch_border_source": nonempty_text(fields.get("peripheralStretchBorderSource")),
+        "peripheral_stretch_consumes_projection_exterior": parse_bool(
+            fields.get("peripheralStretchConsumesProjectionExterior")
+        ),
+        "projection_target_offset_x_uv": parse_float(fields.get("projectionTargetOffsetXUv")),
+        "projection_target_offset_y_uv": parse_float(fields.get("projectionTargetOffsetYUv")),
+        "projection_target_scale": parse_float(fields.get("projectionTargetScale")),
+        "projection_target_joystick_controls": nonempty_text(fields.get("projectionTargetJoystickControls")),
+    }
 
 
 def descriptor_shape_from_sampler_mode(value: Any) -> str:
@@ -668,6 +728,7 @@ def build_hwb_contract(fields: dict[str, Any]) -> dict[str, Any] | None:
             "source_sampling_mode": str(fields.get("sourceSamplingMode") or "unknown"),
             "projection_surface_label": str(fields.get("projectionSurface") or "camera-projection-surface"),
             "projection_status_label": "ready",
+            **projection_effect_fields(fields),
         }
     )
     return contract
@@ -765,6 +826,7 @@ def build_oes_contract(fields: dict[str, Any], transform_payload: dict[str, Any]
             "processing_layer": str(merged.get("processingLayer") or "raw"),
             "source_sampling_mode": str(merged.get("sourceSamplingMode") or "unknown"),
             "projection_status_label": str(merged.get("status") or "ready"),
+            **projection_effect_fields(merged),
         }
     )
     return contract
@@ -865,6 +927,7 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
             "projection_sample_mode": str(fields.get("projectionSampleMode") or "camera"),
             "camera_texture_binding": parse_bool(fields.get("cameraTextureBinding")),
             "projection_panel_draw_enabled": parse_bool(fields.get("projectionPanelDrawEnabled")),
+            **projection_effect_fields(fields),
         }
     )
     return contract
@@ -897,6 +960,41 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
         lane_source_sampling is None or lane_source_sampling == "unknown"
     ):
         projection["source_sampling_mode"] = context_source_sampling
+
+    for context_key, projection_key, parser in (
+        ("effectBoundary", "effect_boundary", nonempty_text),
+        ("borderRegionSemantics", "border_region_semantics", nonempty_text),
+        ("sourceInvalidSemantics", "source_invalid_semantics", nonempty_text),
+        ("targetFootprintSchema", "target_footprint_schema", nonempty_text),
+        ("targetCoordinateSpace", "target_coordinate_space", nonempty_text),
+        ("targetClipPolicy", "target_clip_policy", nonempty_text),
+        ("targetFootprintMetadataSource", "target_footprint_metadata_source", nonempty_text),
+        ("leftTargetScreenUvRect", "left_target_screen_uv_rect", nonempty_text),
+        ("rightTargetScreenUvRect", "right_target_screen_uv_rect", nonempty_text),
+        ("peripheralStretchCoreScale", "peripheral_stretch_core_scale", parse_float),
+        ("peripheralStretchEdgeInsetUv", "peripheral_stretch_edge_inset_uv", parse_float),
+        ("peripheralStretchMaxInsetUv", "peripheral_stretch_max_inset_uv", parse_float),
+        ("peripheralStretchCurve", "peripheral_stretch_curve", parse_float),
+        ("peripheralStretchDebug", "peripheral_stretch_debug", nonempty_text),
+        ("projectionTargetOffsetXUv", "projection_target_offset_x_uv", parse_float),
+        ("projectionTargetOffsetYUv", "projection_target_offset_y_uv", parse_float),
+        ("projectionTargetScale", "projection_target_scale", parse_float),
+        ("projectionTargetJoystickControls", "projection_target_joystick_controls", nonempty_text),
+    ):
+        if projection.get(projection_key) is not None:
+            continue
+        value = parser(context_fields.get(context_key))
+        if value is not None:
+            projection[projection_key] = value
+
+    layer = str(projection.get("processing_layer") or "raw").strip().lower()
+    current_run_kind = nonempty_text(projection.get("processing_run_kind"))
+    if current_run_kind is None or current_run_kind == "unknown" or (
+        current_run_kind == "raw-mask-footprint" and layer != "raw"
+    ):
+        projection["processing_run_kind"] = (
+            "raw-mask-footprint" if layer == "raw" else "effect-run"
+        )
 
 
 class ScanState:
@@ -938,6 +1036,11 @@ def scan_line(line: str, state: ScanState) -> None:
         phase = fields.get("phase")
         if phase in {None, "source-sampling", "source-color", "draw-vars-bound", "projection-plan"}:
             state.update_oes(fields)
+    if OES_STARTUP_MARKER in line:
+        fields = parse_marker_fields(
+            "projectionBorderPolicy=" + line.split(OES_STARTUP_MARKER, 1)[1]
+        )
+        state.update_oes(fields)
     transform_payload = parse_json_after_marker(line, OES_TRANSFORM_MARKER)
     if transform_payload is not None:
         state.oes_transform = transform_payload
@@ -1034,6 +1137,21 @@ def build_run_config_summary(context_fields: dict[str, Any]) -> dict[str, Any]:
         "source_sampling_mode": nonempty_text(context_fields.get("sourceSamplingMode")),
         "projection_sample_mode": nonempty_text(context_fields.get("projectionSampleMode")),
         "blur_radius_px": parse_float(context_fields.get("blurRadiusPx")),
+        "left_target_screen_uv_rect": nonempty_text(context_fields.get("leftTargetScreenUvRect")),
+        "right_target_screen_uv_rect": nonempty_text(context_fields.get("rightTargetScreenUvRect")),
+        "projection_target_offset_x_uv": parse_float(context_fields.get("projectionTargetOffsetXUv")),
+        "projection_target_offset_y_uv": parse_float(context_fields.get("projectionTargetOffsetYUv")),
+        "projection_target_scale": parse_float(context_fields.get("projectionTargetScale")),
+        "projection_target_joystick_controls": nonempty_text(
+            context_fields.get("projectionTargetJoystickControls")
+        ),
+        "peripheral_stretch_core_scale": parse_float(context_fields.get("peripheralStretchCoreScale")),
+        "peripheral_stretch_edge_inset_uv": parse_float(
+            context_fields.get("peripheralStretchEdgeInsetUv")
+        ),
+        "peripheral_stretch_max_inset_uv": parse_float(context_fields.get("peripheralStretchMaxInsetUv")),
+        "peripheral_stretch_curve": parse_float(context_fields.get("peripheralStretchCurve")),
+        "peripheral_stretch_debug": nonempty_text(context_fields.get("peripheralStretchDebug")),
     }
 
 
@@ -1054,6 +1172,36 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
         "color_status": color.get("color_status", "unknown"),
         "projection_border_policy": projection.get("projection_border_policy", "unknown"),
         "processing_layer": projection.get("processing_layer", "unknown"),
+        "processing_run_kind": projection.get("processing_run_kind", "unknown"),
+        "source_sampling_mode": projection.get("source_sampling_mode", "unknown"),
+        "effect_boundary": projection.get("effect_boundary"),
+        "border_region_semantics": projection.get("border_region_semantics"),
+        "source_invalid_semantics": projection.get("source_invalid_semantics"),
+        "target_footprint_schema": projection.get("target_footprint_schema"),
+        "target_coordinate_space": projection.get("target_coordinate_space"),
+        "target_clip_policy": projection.get("target_clip_policy"),
+        "target_footprint_metadata_source": projection.get("target_footprint_metadata_source"),
+        "target_footprint_default": projection.get("target_footprint_default"),
+        "left_target_screen_uv_rect": projection.get("left_target_screen_uv_rect"),
+        "right_target_screen_uv_rect": projection.get("right_target_screen_uv_rect"),
+        "peripheral_stretch": {
+            "core_scale": projection.get("peripheral_stretch_core_scale"),
+            "edge_inset_uv": projection.get("peripheral_stretch_edge_inset_uv"),
+            "max_inset_uv": projection.get("peripheral_stretch_max_inset_uv"),
+            "curve": projection.get("peripheral_stretch_curve"),
+            "debug": projection.get("peripheral_stretch_debug"),
+            "core_region": projection.get("peripheral_stretch_core_region"),
+            "border_source": projection.get("peripheral_stretch_border_source"),
+            "consumes_projection_exterior": projection.get(
+                "peripheral_stretch_consumes_projection_exterior"
+            ),
+        },
+        "projection_target": {
+            "offset_x_uv": projection.get("projection_target_offset_x_uv"),
+            "offset_y_uv": projection.get("projection_target_offset_y_uv"),
+            "scale": projection.get("projection_target_scale"),
+            "joystick_controls": projection.get("projection_target_joystick_controls"),
+        },
         "projection_sample_mode": projection.get("projection_sample_mode", "unknown"),
         "camera_texture_binding": projection.get("camera_texture_binding"),
         "projection_panel_draw_enabled": projection.get("projection_panel_draw_enabled"),
@@ -1120,6 +1268,15 @@ def build_summary(
         ),
         "processing_layer_counts": dict(
             Counter(record.get("projection", {}).get("processing_layer", "unknown") for record in records)
+        ),
+        "processing_run_kind_counts": dict(
+            Counter(record.get("projection", {}).get("processing_run_kind", "unknown") for record in records)
+        ),
+        "source_sampling_mode_counts": dict(
+            Counter(record.get("projection", {}).get("source_sampling_mode", "unknown") for record in records)
+        ),
+        "effect_boundary_counts": dict(
+            Counter(str(record.get("projection", {}).get("effect_boundary") or "unknown") for record in records)
         ),
         "projection_sample_mode_counts": dict(
             Counter(record.get("projection", {}).get("projection_sample_mode", "unknown") for record in records)
@@ -1251,6 +1408,17 @@ def self_test() -> None:
             raise AssertionError("summary did not expose XR render scale")
         if summary["run_config"]["processing_layer"] != "raw":
             raise AssertionError("summary did not expose processing layer")
+        if summary["processing_run_kind_counts"].get("raw-mask-footprint") != 4:
+            raise AssertionError("summary did not classify raw runs as raw-mask-footprint")
+        fallback_record = {
+            "projection": {
+                "processing_layer": "raw",
+                "processing_run_kind": "raw-mask-footprint",
+            }
+        }
+        apply_run_context_fallbacks(fallback_record, {"processingLayer": "peripheral-stretch"})
+        if fallback_record["projection"]["processing_run_kind"] != "effect-run":
+            raise AssertionError("effect run fallback did not override stale raw classification")
         if summary["run_config"]["projection_sample_mode"] != "solid-color":
             raise AssertionError("summary did not expose projection sample mode")
         cpu_summary = summary["lane_summaries"]["makepad-cpuyuv-direct-camera2-raw"]
