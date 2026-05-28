@@ -420,6 +420,42 @@ final class LocalBrokerServer implements Closeable {
             return commandAck(requestId, command, true, "stream_registry_snapshot", result);
         }
 
+        if (BrokerState.CONTROL_LEASE_REQUEST_COMMAND.equals(command)) {
+            try {
+                JSONObject result = state.requestControlLease(
+                    message.optJSONObject("params"),
+                    connection != null ? connection.clientId : message.optString("client_id", ""));
+                state.acceptedCommands.incrementAndGet();
+                return commandAck(
+                    requestId,
+                    command,
+                    true,
+                    result.optString("outcome", "control_lease_granted"),
+                    result);
+            } catch (BrokerState.CommandRejection ex) {
+                state.rejectedCommands.incrementAndGet();
+                return commandError(requestId, command, ex);
+            }
+        }
+
+        if (BrokerState.CONTROL_LEASE_RELEASE_COMMAND.equals(command)) {
+            try {
+                JSONObject result = state.releaseControlLease(
+                    message.optJSONObject("params"),
+                    connection != null ? connection.clientId : message.optString("client_id", ""));
+                state.acceptedCommands.incrementAndGet();
+                return commandAck(
+                    requestId,
+                    command,
+                    true,
+                    result.optString("outcome", "control_lease_released"),
+                    result);
+            } catch (BrokerState.CommandRejection ex) {
+                state.rejectedCommands.incrementAndGet();
+                return commandError(requestId, command, ex);
+            }
+        }
+
         if ("clock.status".equals(command)) {
             state.acceptedCommands.incrementAndGet();
             JSONObject result = new JSONObject();
@@ -2243,9 +2279,25 @@ final class LocalBrokerServer implements Closeable {
         String code,
         String message) throws Exception {
         JSONObject error = new JSONObject();
+        error.put("schema", BrokerState.COMMAND_REJECTION_SCHEMA);
         error.put("code", code);
         error.put("message", message);
+        error.put("retryable", false);
 
+        return commandError(requestId, command, error);
+    }
+
+    private JSONObject commandError(
+        String requestId,
+        String command,
+        BrokerState.CommandRejection rejection) throws Exception {
+        return commandError(requestId, command, rejection.toErrorJson());
+    }
+
+    private JSONObject commandError(
+        String requestId,
+        String command,
+        JSONObject error) throws Exception {
         JSONObject ack = new JSONObject();
         ack.put("type", "command_ack");
         ack.put("schema", "rusty.xr.broker.command_ack.v1");

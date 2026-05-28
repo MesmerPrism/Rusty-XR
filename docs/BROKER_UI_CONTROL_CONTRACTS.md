@@ -13,8 +13,11 @@ lifecycles stay outside the model crate.
 - `BrokerStreamRegistrySnapshot` describes providers, streams, adapters,
   subscribers, command clients, and active leases at one broker revision.
 - `BrokerCommandAuthorityRequirement`, `BrokerControlScope`,
-  `BrokerCommandPrecondition`, and `BrokerControlLease` describe the authority
-  checks needed before mutating commands.
+  `BrokerCommandPrecondition`, `BrokerControlLeaseRequest`,
+  `BrokerControlLeaseRelease`, and `BrokerControlLease` describe the authority
+  checks and lease lifecycle messages needed before mutating commands.
+- `BrokerCommandRejection` gives command acknowledgements structured rejection
+  reasons instead of plain text only.
 
 The contracts deliberately do not grant authority. A broker implementation must
 still validate role, capability, lease, revision, expiry, holder identity, and
@@ -42,6 +45,18 @@ must also name a valid lease scope. `BrokerControlLease::is_active_for` checks
 the holder client id, exact scope, current registry revision, active state, and
 expiry; `matches_scope_at_revision` is the non-authoritative helper for
 descriptor/topology matching.
+
+Lease-aware clients request authority with the `control_lease.request` command
+and release it with `control_lease.release`. Request payloads must identify the
+holder client id and exact `BrokerControlScope`, may include an expected
+registry revision, and may request a bounded elapsed-time duration. Release
+payloads must identify both the lease id and holder client id, and may carry the
+scope, expected revision, and a short reason. Brokers should reject stale
+revisions, holder mismatches, missing scopes, invalid durations, and scope
+conflicts with `BrokerCommandRejection` codes such as `stale_revision`,
+`lease_holder_mismatch`, `missing_scope`, `invalid_duration`, and
+`lease_conflict`. Rejection hints can include `current_revision`, `lease_id`,
+and `required_lease_scope`.
 
 Telemetry charts bind to stream ids and metric names from the stream registry.
 Low-rate telemetry can be retained in local UI history. High-rate or media-like

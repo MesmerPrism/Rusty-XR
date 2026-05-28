@@ -20,7 +20,15 @@ final class BrokerState {
     static final String KIOSK_CONTROL_PLANE_STATUS_SCHEMA = "rusty.xr.kiosk.control_plane.v1";
     static final String KIOSK_COMMAND_EVIDENCE_SCHEMA = "rusty.xr.kiosk.command_evidence.v1";
     static final String KIOSK_COMMAND_RUN_RECORD_SCHEMA = "rusty.xr.kiosk.command_run_record.v1";
+    static final String COMMAND_REJECTION_SCHEMA = "rusty.xr.broker.command_rejection.v1";
+    static final String CONTROL_SCOPE_SCHEMA = "rusty.xr.broker.control_scope.v1";
+    static final String CONTROL_LEASE_SCHEMA = "rusty.xr.broker.control_lease.v1";
+    static final String CONTROL_LEASE_REQUEST_SCHEMA = "rusty.xr.broker.control_lease_request.v1";
+    static final String CONTROL_LEASE_RELEASE_SCHEMA = "rusty.xr.broker.control_lease_release.v1";
+    static final String CONTROL_LEASE_REQUEST_COMMAND = "control_lease.request";
+    static final String CONTROL_LEASE_RELEASE_COMMAND = "control_lease.release";
     static final String STREAM_REGISTRY_SNAPSHOT_SCHEMA = "rusty.xr.broker.stream_registry_snapshot.v1";
+    private static final long DEFAULT_CONTROL_LEASE_DURATION_ELAPSED_NS = 60_000_000_000L;
 
     final long startedElapsedNanos = SystemClock.elapsedRealtimeNanos();
     final long startedUnixMs = System.currentTimeMillis();
@@ -39,6 +47,10 @@ final class BrokerState {
     final AtomicLong videoLabMetricSamples = new AtomicLong();
     final AtomicLong videoLabEncodedStreamManifests = new AtomicLong();
     final AtomicLong videoLabEncodedSampleMetadata = new AtomicLong();
+    private final AtomicLong controlLeaseSequence = new AtomicLong();
+    private final AtomicLong controlLeaseRevision = new AtomicLong();
+    private final Object controlLeaseLock = new Object();
+    private final LinkedHashMap<String, JSONObject> activeControlLeases = new LinkedHashMap<>();
     private final CameraProjectionProviderState cameraProjectionProvider = new CameraProjectionProviderState();
     private final ShellHelperState shellHelper = new ShellHelperState();
     private final ExperimentControlState experimentControl = new ExperimentControlState();
@@ -93,6 +105,8 @@ final class BrokerState {
         supportedCommands.put("list_capabilities");
         supportedCommands.put("list_streams");
         supportedCommands.put("stream_registry.snapshot");
+        supportedCommands.put(CONTROL_LEASE_REQUEST_COMMAND);
+        supportedCommands.put(CONTROL_LEASE_RELEASE_COMMAND);
         supportedCommands.put("subscribe");
         supportedCommands.put("unsubscribe");
         supportedCommands.put("configure_osc_ingress");
@@ -201,6 +215,10 @@ final class BrokerState {
         capabilities.put("websocket.control");
         capabilities.put("http.status");
         capabilities.put("broker.command.v1");
+        capabilities.put("broker.command_rejection.v1");
+        capabilities.put("broker.control_lease.v1");
+        capabilities.put("broker.control_lease_request.v1");
+        capabilities.put("broker.control_lease_release.v1");
         capabilities.put("broker.subscription.v1");
         capabilities.put("broker.stream_event.v1");
         capabilities.put("broker.stream_registry_snapshot.v1");
@@ -410,7 +428,7 @@ final class BrokerState {
             "runtime.visuals",
             "camera.preview",
             "transport.session"));
-        commandClient.put("held_lease_ids", new JSONArray());
+        commandClient.put("held_lease_ids", activeControlLeaseIds());
 
         JSONObject snapshot = new JSONObject();
         snapshot.put("schema", STREAM_REGISTRY_SNAPSHOT_SCHEMA);
@@ -422,7 +440,7 @@ final class BrokerState {
         snapshot.put("adapters", new JSONArray().put(breathAdapter).put(videoAdapter));
         snapshot.put("subscribers", new JSONArray().put(subscriber));
         snapshot.put("command_clients", new JSONArray().put(commandClient));
-        snapshot.put("active_leases", new JSONArray());
+        snapshot.put("active_leases", activeControlLeasesJson());
         return snapshot;
     }
 
@@ -443,7 +461,269 @@ final class BrokerState {
             + videoLabEncodedSampleMetadata.get()
             + transportSessions.createdCount()
             + transportSessions.closedCount()
-            + transportSessions.failedCount();
+            + transportSessions.failedCount()
+            + controlLeaseRevision.get();
+    }
+
+    JSONObject requestControlLease(JSONObject params, String fallbackHolderClientId) throws Exception {
+        if (params == null) {
+            throw new CommandRejection("missing_params", "Command requires control lease request params.", false);
+        }
+
+        String holderClientId = params.optString(
+            "holder_client_id",
+            fallbackHolderClientId != null ? fallbackHolderClientId : "").trim();
+        if (holderClientId.length() == 0) {
+            throw new CommandRejection(
+                "missing_holder_client_id",
+                "Command requires params.holder_client_id or a command client_id.",
+                false);
+        }
+
+        JSONObject requestedScope = params.optJSONObject("scope");
+        if (requestedScope == null) {
+            throw new CommandRejection("missing_scope", "Command requires params.scope.", false);
+        }
+
+        JSONObject scope = normalizedControlScope(requestedScope);
+        Long expectedRevision = optionalLong(params, "expected_revision");
+        if (expectedRevision != null && expectedRevision.longValue() < 0L) {
+            throw new CommandRejection(
+                "invalid_expected_revision",
+                "params.expected_revision must be zero or greater.",
+                false);
+        }
+
+        Long requestedDurationNs = optionalLong(params, "requested_duration_elapsed_ns");
+        if (requestedDurationNs != null && requestedDurationNs.longValue() <= 0L) {
+            throw new CommandRejection(
+                "invalid_duration",
+                "params.requested_duration_elapsed_ns must be positive when present.",
+                false);
+        }
+
+        synchronized (controlLeaseLock) {
+            long now = SystemClock.elapsedRealtimeNanos();
+            pruneExpiredControlLeasesLocked(now);
+            long currentRevision = streamRegistrySemanticRevision();
+            if (expectedRevision != null && expectedRevision.longValue() != currentRevision) {
+                throw new CommandRejection(
+                    "stale_revision",
+                    "Control lease request expected registry revision " + expectedRevision +
+                        " but broker is at revision " + currentRevision + ".",
+                    true)
+                    .withCurrentRevision(currentRevision)
+                    .withRequiredLeaseScope(scope);
+            }
+
+            for (JSONObject activeLease : activeControlLeases.values()) {
+                JSONObject activeScope = activeLease.optJSONObject("scope");
+                if (!sameControlScope(activeScope, scope)) {
+                    continue;
+                }
+
+                String activeHolder = activeLease.optString("holder_client_id", "");
+                if (holderClientId.equals(activeHolder)) {
+                    return controlLeaseResult("control_lease_already_active", activeLease);
+                }
+
+                throw new CommandRejection(
+                    "lease_conflict",
+                    "Control scope is already leased by another holder.",
+                    true)
+                    .withLeaseId(activeLease.optString("lease_id", ""))
+                    .withCurrentRevision(currentRevision)
+                    .withRequiredLeaseScope(scope);
+            }
+
+            String leaseId = "control-lease-" + controlLeaseSequence.incrementAndGet();
+            long durationNs = requestedDurationNs != null
+                ? requestedDurationNs.longValue()
+                : DEFAULT_CONTROL_LEASE_DURATION_ELAPSED_NS;
+            long expiresElapsedNs = now > Long.MAX_VALUE - durationNs ? Long.MAX_VALUE : now + durationNs;
+            controlLeaseRevision.incrementAndGet();
+            long grantedRevision = streamRegistrySemanticRevision();
+
+            JSONObject lease = new JSONObject();
+            lease.put("schema", CONTROL_LEASE_SCHEMA);
+            lease.put("lease_id", leaseId);
+            lease.put("holder_client_id", holderClientId);
+            lease.put("scope", scope);
+            lease.put("granted_revision", grantedRevision);
+            lease.put("expires_elapsed_ns", expiresElapsedNs);
+            lease.put("state", "active");
+            activeControlLeases.put(leaseId, lease);
+            return controlLeaseResult("control_lease_granted", lease);
+        }
+    }
+
+    JSONObject releaseControlLease(JSONObject params, String fallbackHolderClientId) throws Exception {
+        if (params == null) {
+            throw new CommandRejection("missing_params", "Command requires control lease release params.", false);
+        }
+
+        String leaseId = params.optString("lease_id", "").trim();
+        if (leaseId.length() == 0) {
+            throw new CommandRejection("missing_lease_id", "Command requires params.lease_id.", false);
+        }
+
+        String holderClientId = params.optString(
+            "holder_client_id",
+            fallbackHolderClientId != null ? fallbackHolderClientId : "").trim();
+        if (holderClientId.length() == 0) {
+            throw new CommandRejection(
+                "missing_holder_client_id",
+                "Command requires params.holder_client_id or a command client_id.",
+                false);
+        }
+
+        Long expectedRevision = optionalLong(params, "expected_revision");
+        if (expectedRevision != null && expectedRevision.longValue() < 0L) {
+            throw new CommandRejection(
+                "invalid_expected_revision",
+                "params.expected_revision must be zero or greater.",
+                false);
+        }
+
+        JSONObject requestedScope = params.optJSONObject("scope");
+        JSONObject normalizedScope = requestedScope != null ? normalizedControlScope(requestedScope) : null;
+
+        synchronized (controlLeaseLock) {
+            long now = SystemClock.elapsedRealtimeNanos();
+            pruneExpiredControlLeasesLocked(now);
+            long currentRevision = streamRegistrySemanticRevision();
+            if (expectedRevision != null && expectedRevision.longValue() != currentRevision) {
+                throw new CommandRejection(
+                    "stale_revision",
+                    "Control lease release expected registry revision " + expectedRevision +
+                        " but broker is at revision " + currentRevision + ".",
+                    true)
+                    .withCurrentRevision(currentRevision);
+            }
+
+            JSONObject lease = activeControlLeases.get(leaseId);
+            if (lease == null) {
+                throw new CommandRejection("lease_not_found", "Control lease was not found.", false)
+                    .withLeaseId(leaseId)
+                    .withCurrentRevision(currentRevision);
+            }
+
+            String activeHolder = lease.optString("holder_client_id", "");
+            if (!holderClientId.equals(activeHolder)) {
+                throw new CommandRejection(
+                    "lease_holder_mismatch",
+                    "Control lease is held by a different client.",
+                    false)
+                    .withLeaseId(leaseId)
+                    .withCurrentRevision(currentRevision);
+            }
+
+            if (normalizedScope != null && !sameControlScope(lease.optJSONObject("scope"), normalizedScope)) {
+                throw new CommandRejection(
+                    "lease_scope_mismatch",
+                    "Control lease does not match the requested release scope.",
+                    false)
+                    .withLeaseId(leaseId)
+                    .withCurrentRevision(currentRevision)
+                    .withRequiredLeaseScope(lease.optJSONObject("scope"));
+            }
+
+            JSONObject releasedLease = copyObject(lease);
+            releasedLease.put("state", "released");
+            activeControlLeases.remove(leaseId);
+            controlLeaseRevision.incrementAndGet();
+            return controlLeaseResult("control_lease_released", releasedLease);
+        }
+    }
+
+    private JSONArray activeControlLeasesJson() throws Exception {
+        synchronized (controlLeaseLock) {
+            pruneExpiredControlLeasesLocked(SystemClock.elapsedRealtimeNanos());
+            JSONArray leases = new JSONArray();
+            for (JSONObject lease : activeControlLeases.values()) {
+                leases.put(copyObject(lease));
+            }
+            return leases;
+        }
+    }
+
+    private JSONArray activeControlLeaseIds() throws Exception {
+        synchronized (controlLeaseLock) {
+            pruneExpiredControlLeasesLocked(SystemClock.elapsedRealtimeNanos());
+            JSONArray leaseIds = new JSONArray();
+            for (String leaseId : activeControlLeases.keySet()) {
+                leaseIds.put(leaseId);
+            }
+            return leaseIds;
+        }
+    }
+
+    private void pruneExpiredControlLeasesLocked(long nowElapsedNs) {
+        List<String> expiredLeaseIds = new ArrayList<>();
+        for (Map.Entry<String, JSONObject> entry : activeControlLeases.entrySet()) {
+            JSONObject lease = entry.getValue();
+            if (!lease.isNull("expires_elapsed_ns")
+                && lease.optLong("expires_elapsed_ns", Long.MAX_VALUE) <= nowElapsedNs) {
+                expiredLeaseIds.add(entry.getKey());
+            }
+        }
+
+        for (String leaseId : expiredLeaseIds) {
+            activeControlLeases.remove(leaseId);
+            controlLeaseRevision.incrementAndGet();
+        }
+    }
+
+    private JSONObject controlLeaseResult(String outcome, JSONObject lease) throws Exception {
+        JSONObject result = new JSONObject();
+        result.put("outcome", outcome);
+        result.put("lease", copyObject(lease));
+        result.put("revision", streamRegistrySemanticRevision());
+        return result;
+    }
+
+    private static JSONObject normalizedControlScope(JSONObject scope) throws Exception {
+        String scopeId = scope.optString("scope_id", "").trim();
+        String commandScope = scope.optString("command_scope", "").trim();
+        if (scopeId.length() == 0) {
+            throw new CommandRejection("invalid_scope", "params.scope.scope_id is required.", false);
+        }
+        if (commandScope.length() == 0) {
+            throw new CommandRejection("invalid_scope", "params.scope.command_scope is required.", false);
+        }
+
+        JSONObject normalized = new JSONObject();
+        normalized.put("schema", CONTROL_SCOPE_SCHEMA);
+        normalized.put("scope_id", scopeId);
+        normalized.put("command_scope", commandScope);
+        if (scope.has("resource_id") && !scope.isNull("resource_id")) {
+            String resourceId = scope.optString("resource_id", "").trim();
+            normalized.put("resource_id", resourceId.length() > 0 ? resourceId : JSONObject.NULL);
+        } else {
+            normalized.put("resource_id", JSONObject.NULL);
+        }
+        return normalized;
+    }
+
+    private static boolean sameControlScope(JSONObject left, JSONObject right) {
+        if (left == null || right == null) {
+            return false;
+        }
+
+        return left.optString("scope_id", "").equals(right.optString("scope_id", ""))
+            && left.optString("command_scope", "").equals(right.optString("command_scope", ""))
+            && left.optString("resource_id", "").equals(right.optString("resource_id", ""));
+    }
+
+    private static Long optionalLong(JSONObject object, String key) {
+        if (object == null || !object.has(key) || object.isNull(key)) {
+            return null;
+        }
+        return Long.valueOf(object.optLong(key));
+    }
+
+    private static JSONObject copyObject(JSONObject object) throws Exception {
+        return object != null ? new JSONObject(object.toString()) : new JSONObject();
     }
 
     private static JSONArray activeStreamIds(JSONArray streams) throws Exception {
@@ -455,6 +735,49 @@ final class BrokerState {
             }
         }
         return active;
+    }
+
+    static final class CommandRejection extends Exception {
+        private final String code;
+        private final boolean retryable;
+        private final LinkedHashMap<String, Object> hints = new LinkedHashMap<>();
+
+        CommandRejection(String code, String message, boolean retryable) {
+            super(message);
+            this.code = code != null ? code : "";
+            this.retryable = retryable;
+        }
+
+        CommandRejection withCurrentRevision(long currentRevision) {
+            hints.put("current_revision", Long.valueOf(currentRevision));
+            return this;
+        }
+
+        CommandRejection withLeaseId(String leaseId) {
+            if (leaseId != null && leaseId.length() > 0) {
+                hints.put("lease_id", leaseId);
+            }
+            return this;
+        }
+
+        CommandRejection withRequiredLeaseScope(JSONObject scope) throws Exception {
+            if (scope != null) {
+                hints.put("required_lease_scope", copyObject(scope));
+            }
+            return this;
+        }
+
+        JSONObject toErrorJson() throws Exception {
+            JSONObject error = new JSONObject();
+            error.put("schema", COMMAND_REJECTION_SCHEMA);
+            error.put("code", code);
+            error.put("message", getMessage() != null ? getMessage() : "");
+            error.put("retryable", retryable);
+            for (Map.Entry<String, Object> hint : hints.entrySet()) {
+                error.put(hint.getKey(), hint.getValue());
+            }
+            return error;
+        }
     }
 
     private static String providerIdForKind(String kind) {

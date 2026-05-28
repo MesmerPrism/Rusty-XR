@@ -365,8 +365,10 @@ public final class BrokerService extends Service {
 
     private static JSONObject consoleError(String command, String code, String message) throws Exception {
         JSONObject error = new JSONObject();
+        error.put("schema", BrokerState.COMMAND_REJECTION_SCHEMA);
         error.put("code", code != null ? code : "");
         error.put("message", message != null ? message : "");
+        error.put("retryable", false);
 
         JSONObject ack = new JSONObject();
         ack.put("type", "command_ack");

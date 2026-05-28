@@ -1,7 +1,10 @@
 use rusty_xr_broker_model::{
-    BROKER_COMMAND_SCHEMA, BROKER_LATENCY_SAMPLE_SCHEMA, BROKER_STREAM_REGISTRY_SNAPSHOT_COMMAND,
-    BROKER_STREAM_REGISTRY_SNAPSHOT_HTTP_PATH, BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA,
-    BROKER_TRANSPORT_SESSION_OFFER_SCHEMA, STREAM_LATENCY_SAMPLE,
+    BROKER_COMMAND_SCHEMA, BROKER_CONTROL_LEASE_RELEASE_COMMAND,
+    BROKER_CONTROL_LEASE_RELEASE_SCHEMA, BROKER_CONTROL_LEASE_REQUEST_COMMAND,
+    BROKER_CONTROL_LEASE_REQUEST_SCHEMA, BROKER_CONTROL_SCOPE_SCHEMA, BROKER_LATENCY_SAMPLE_SCHEMA,
+    BROKER_STREAM_REGISTRY_SNAPSHOT_COMMAND, BROKER_STREAM_REGISTRY_SNAPSHOT_HTTP_PATH,
+    BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA, BROKER_TRANSPORT_SESSION_OFFER_SCHEMA,
+    STREAM_LATENCY_SAMPLE,
 };
 use serde_json::{json, Value};
 use std::env;
@@ -44,6 +47,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         "registry-http" => {
             println!("{}", http_registry_snapshot(&options.host, options.port)?);
+        }
+        "lease-request" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                BROKER_CONTROL_LEASE_REQUEST_COMMAND,
+                Some(build_control_lease_request_params_json(&options)),
+            )?;
+            print_messages(&response);
+        }
+        "lease-release" => {
+            let response = send_command(
+                &options.host,
+                options.port,
+                BROKER_CONTROL_LEASE_RELEASE_COMMAND,
+                Some(build_control_lease_release_params_json(&options)?),
+            )?;
+            print_messages(&response);
         }
         "camera-provider" => {
             let response = send_command(
@@ -293,7 +314,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         _ => {
             return Err(format!(
-                "unknown command '{}'; use status, capabilities, streams, registry, registry-http, camera-provider, projection-profile, app-camera-probe, synthetic-h264-stream, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
+                "unknown command '{}'; use status, capabilities, streams, registry, registry-http, lease-request, lease-release, camera-provider, projection-profile, app-camera-probe, synthetic-h264-stream, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
                 options.command
             )
             .into());
@@ -619,6 +640,14 @@ struct ProbeOptions {
     port: u16,
     stream: Option<String>,
     session: Option<String>,
+    lease: Option<String>,
+    scope: Option<String>,
+    command_scope: Option<String>,
+    resource: Option<String>,
+    duration_ms: Option<u64>,
+    expected_revision: Option<u64>,
+    reason: Option<String>,
+    operator_confirmed: bool,
     camera_id: Option<String>,
     frame_output_dir: Option<String>,
     persist_frame: bool,
@@ -645,6 +674,14 @@ impl ProbeOptions {
         let mut port = DEFAULT_PORT;
         let mut stream = None;
         let mut session = None;
+        let mut lease = None;
+        let mut scope = None;
+        let mut command_scope = None;
+        let mut resource = None;
+        let mut duration_ms = None;
+        let mut expected_revision = None;
+        let mut reason = None;
+        let mut operator_confirmed = false;
         let mut camera_id = None;
         let mut frame_output_dir = None;
         let mut persist_frame = false;
@@ -678,6 +715,34 @@ impl ProbeOptions {
                 }
                 "--session" => {
                     session = Some(iterator.next().ok_or("--session requires a value")?);
+                }
+                "--lease" => {
+                    lease = Some(iterator.next().ok_or("--lease requires a value")?);
+                }
+                "--scope" => {
+                    scope = Some(iterator.next().ok_or("--scope requires a value")?);
+                }
+                "--command-scope" => {
+                    command_scope =
+                        Some(iterator.next().ok_or("--command-scope requires a value")?);
+                }
+                "--resource" => {
+                    resource = Some(iterator.next().ok_or("--resource requires a value")?);
+                }
+                "--duration-ms" => {
+                    duration_ms = Some(parse_positive_u64_arg("--duration-ms", iterator.next())?);
+                }
+                "--expected-revision" => {
+                    expected_revision = Some(parse_nonnegative_u64_arg(
+                        "--expected-revision",
+                        iterator.next(),
+                    )?);
+                }
+                "--reason" => {
+                    reason = Some(iterator.next().ok_or("--reason requires a value")?);
+                }
+                "--operator-confirmed" => {
+                    operator_confirmed = true;
                 }
                 "--camera-id" => {
                     camera_id = Some(iterator.next().ok_or("--camera-id requires a value")?);
@@ -770,6 +835,14 @@ impl ProbeOptions {
             port,
             stream,
             session,
+            lease,
+            scope,
+            command_scope,
+            resource,
+            duration_ms,
+            expected_revision,
+            reason,
+            operator_confirmed,
             camera_id,
             frame_output_dir,
             persist_frame,
@@ -809,6 +882,76 @@ fn parse_positive_u32_arg(name: &str, raw: Option<String>) -> Result<u32, Box<dy
         return Err(format!("{name} must be positive").into());
     }
     Ok(value)
+}
+
+fn parse_positive_u64_arg(name: &str, raw: Option<String>) -> Result<u64, Box<dyn Error>> {
+    let value: u64 = raw
+        .ok_or_else(|| format!("{name} requires a value"))?
+        .parse()?;
+    if value == 0 {
+        return Err(format!("{name} must be positive").into());
+    }
+    Ok(value)
+}
+
+fn parse_nonnegative_u64_arg(name: &str, raw: Option<String>) -> Result<u64, Box<dyn Error>> {
+    raw.ok_or_else(|| format!("{name} requires a value"))?
+        .parse()
+        .map_err(|err| format!("invalid {name}: {err}").into())
+}
+
+fn build_control_lease_request_params_json(options: &ProbeOptions) -> Value {
+    let scope = options.scope.as_deref().unwrap_or("session.lifecycle");
+    let command_scope = options.command_scope.as_deref().unwrap_or(scope);
+    let mut params = json!({
+        "schema": BROKER_CONTROL_LEASE_REQUEST_SCHEMA,
+        "holder_client_id": CLIENT_ID,
+        "scope": {
+            "schema": BROKER_CONTROL_SCOPE_SCHEMA,
+            "scope_id": scope,
+            "command_scope": command_scope,
+            "resource_id": options.resource.as_deref()
+        },
+        "requested_duration_elapsed_ns": options
+            .duration_ms
+            .map(|duration_ms| duration_ms.saturating_mul(1_000_000)),
+        "expected_revision": options.expected_revision,
+        "operator_confirmed": options.operator_confirmed
+    });
+    if options.resource.is_none() {
+        params["scope"]["resource_id"] = Value::Null;
+    }
+    params
+}
+
+fn build_control_lease_release_params_json(
+    options: &ProbeOptions,
+) -> Result<Value, Box<dyn Error>> {
+    let lease_id = options
+        .lease
+        .as_deref()
+        .ok_or("--lease <id> is required for lease-release")?;
+    let mut params = json!({
+        "schema": BROKER_CONTROL_LEASE_RELEASE_SCHEMA,
+        "lease_id": lease_id,
+        "holder_client_id": CLIENT_ID,
+        "scope": null,
+        "expected_revision": options.expected_revision,
+        "reason": options.reason.as_deref()
+    });
+    if let Some(scope) = options.scope.as_deref() {
+        let command_scope = options.command_scope.as_deref().unwrap_or(scope);
+        params["scope"] = json!({
+            "schema": BROKER_CONTROL_SCOPE_SCHEMA,
+            "scope_id": scope,
+            "command_scope": command_scope,
+            "resource_id": options.resource.as_deref()
+        });
+        if options.resource.is_none() {
+            params["scope"]["resource_id"] = Value::Null;
+        }
+    }
+    Ok(params)
 }
 
 fn build_app_camera_probe_params_json(options: &ProbeOptions) -> Value {
@@ -902,6 +1045,71 @@ mod tests {
         assert!(request.starts_with("GET /stream_registry/snapshot HTTP/1.1"));
         assert!(request.contains("Host: 127.0.0.1:8765"));
         assert!(build_http_get_request("127.0.0.1", 8765, "bad-path").is_err());
+    }
+
+    #[test]
+    fn lease_request_uses_public_control_contracts() {
+        let options = ProbeOptions::parse(vec![
+            "lease-request".to_string(),
+            "--scope".to_string(),
+            "runtime.bio".to_string(),
+            "--resource".to_string(),
+            "bio:breath".to_string(),
+            "--duration-ms".to_string(),
+            "5000".to_string(),
+            "--expected-revision".to_string(),
+            "3".to_string(),
+            "--operator-confirmed".to_string(),
+        ])
+        .expect("lease request options should parse");
+        let params = build_control_lease_request_params_json(&options);
+        let command = build_command_json(BROKER_CONTROL_LEASE_REQUEST_COMMAND, Some(params));
+
+        assert_eq!(command["command"], BROKER_CONTROL_LEASE_REQUEST_COMMAND);
+        assert_eq!(
+            command["params"]["schema"],
+            BROKER_CONTROL_LEASE_REQUEST_SCHEMA
+        );
+        assert_eq!(command["params"]["holder_client_id"], CLIENT_ID);
+        assert_eq!(
+            command["params"]["scope"]["schema"],
+            BROKER_CONTROL_SCOPE_SCHEMA
+        );
+        assert_eq!(command["params"]["scope"]["scope_id"], "runtime.bio");
+        assert_eq!(command["params"]["scope"]["command_scope"], "runtime.bio");
+        assert_eq!(command["params"]["scope"]["resource_id"], "bio:breath");
+        assert_eq!(
+            command["params"]["requested_duration_elapsed_ns"],
+            5_000_000_000u64
+        );
+        assert_eq!(command["params"]["expected_revision"], 3);
+        assert_eq!(command["params"]["operator_confirmed"], true);
+    }
+
+    #[test]
+    fn lease_release_requires_lease_id_and_can_carry_scope() {
+        let missing = ProbeOptions::parse(vec!["lease-release".to_string()])
+            .expect("lease release options should parse");
+        assert!(build_control_lease_release_params_json(&missing).is_err());
+
+        let options = ProbeOptions::parse(vec![
+            "lease-release".to_string(),
+            "--lease".to_string(),
+            "control-lease-1".to_string(),
+            "--scope".to_string(),
+            "session.lifecycle".to_string(),
+            "--reason".to_string(),
+            "operator_done".to_string(),
+        ])
+        .expect("lease release options should parse");
+        let params = build_control_lease_release_params_json(&options)
+            .expect("lease release params should build");
+
+        assert_eq!(params["schema"], BROKER_CONTROL_LEASE_RELEASE_SCHEMA);
+        assert_eq!(params["lease_id"], "control-lease-1");
+        assert_eq!(params["holder_client_id"], CLIENT_ID);
+        assert_eq!(params["scope"]["scope_id"], "session.lifecycle");
+        assert_eq!(params["reason"], "operator_done");
     }
 
     #[test]

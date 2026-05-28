@@ -13,6 +13,8 @@ cargo run -p rusty-xr-broker-client-probe -- status
 cargo run -p rusty-xr-broker-client-probe -- streams
 cargo run -p rusty-xr-broker-client-probe -- registry
 cargo run -p rusty-xr-broker-client-probe -- registry-http
+cargo run -p rusty-xr-broker-client-probe -- lease-request --scope session.lifecycle --duration-ms 60000
+cargo run -p rusty-xr-broker-client-probe -- lease-release --lease control-lease-1 --reason operator_done
 cargo run -p rusty-xr-broker-client-probe -- camera-provider
 cargo run -p rusty-xr-broker-client-probe -- projection-profile
 cargo run -p rusty-xr-broker-client-probe -- app-camera-probe
@@ -45,6 +47,13 @@ Commands:
   snapshot.
 - `registry-http`: read `GET /stream_registry/snapshot` and print the broker
   topology snapshot.
+- `lease-request`: send `control_lease.request` with a public control-scope
+  payload. Defaults to `session.lifecycle`; use `--scope`, `--command-scope`,
+  `--resource`, `--duration-ms`, `--expected-revision`, and
+  `--operator-confirmed` to exercise stricter broker gates.
+- `lease-release --lease <id>`: send `control_lease.release`. Use `--scope`
+  to require the released lease to match a specific scope and `--reason` to
+  tag the release.
 - `camera-provider`: send `camera_provider.get_status`.
 - `projection-profile`: send `camera_provider.get_projection_profile`.
 - `app-camera-probe`: send `camera_provider.run_app_camera_probe`; the broker
@@ -97,6 +106,11 @@ Connection options:
 - `--host <host>` defaults to `127.0.0.1`.
 - `--port <port>` defaults to `8765`.
 - `--session <id>` selects a transport session id for transport commands.
+- `--lease <id>` selects a control lease id for `lease-release`.
+- `--scope <id>`, `--command-scope <scope>`, and `--resource <id>` select the
+  broker control scope for lease commands.
+- `--duration-ms <ms>`, `--expected-revision <revision>`,
+  `--operator-confirmed`, and `--reason <text>` tune lease command payloads.
 - `--camera-id <id>` restricts `app-camera-probe` to one Camera2 id.
 - `--persist-frame` asks `app-camera-probe` to write the captured frame to
   device storage.

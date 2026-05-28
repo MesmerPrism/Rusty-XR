@@ -49,6 +49,9 @@ pub const BROKER_COMMAND_SCHEMA: &str = "rusty.xr.broker.command.v1";
 /// Versioned JSON schema id for broker command acknowledgement messages.
 pub const BROKER_COMMAND_ACK_SCHEMA: &str = "rusty.xr.broker.command_ack.v1";
 
+/// Versioned JSON schema id for broker command rejection details.
+pub const BROKER_COMMAND_REJECTION_SCHEMA: &str = "rusty.xr.broker.command_rejection.v1";
+
 /// Versioned JSON schema id for broker stream event messages.
 pub const BROKER_STREAM_EVENT_SCHEMA: &str = "rusty.xr.broker.stream_event.v1";
 
@@ -2940,6 +2943,113 @@ impl<TParams> BrokerCommand<TParams> {
     }
 }
 
+/// Structured rejection details carried by a broker command acknowledgement.
+///
+/// Existing brokers may send only `code` and `message`; the optional fields
+/// let newer brokers point clients at the missing lease, capability, role, or
+/// registry revision without making command acknowledgements framework-aware.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokerCommandRejection {
+    pub schema: Option<String>,
+    pub code: String,
+    pub message: String,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub retryable: bool,
+    pub required_capability: Option<String>,
+    pub required_role: Option<String>,
+    pub required_lease_scope: Option<BrokerControlScope>,
+    pub current_revision: Option<u64>,
+    pub lease_id: Option<String>,
+}
+
+impl BrokerCommandRejection {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            schema: Some(BROKER_COMMAND_REJECTION_SCHEMA.to_string()),
+            code: code.into(),
+            message: message.into(),
+            retryable: false,
+            required_capability: None,
+            required_role: None,
+            required_lease_scope: None,
+            current_revision: None,
+            lease_id: None,
+        }
+    }
+
+    pub const fn with_retryable(mut self, retryable: bool) -> Self {
+        self.retryable = retryable;
+        self
+    }
+
+    pub fn with_required_capability(mut self, capability: impl Into<String>) -> Self {
+        self.required_capability = Some(capability.into());
+        self
+    }
+
+    pub fn with_required_role(mut self, role: impl Into<String>) -> Self {
+        self.required_role = Some(role.into());
+        self
+    }
+
+    pub fn with_required_lease_scope(mut self, scope: BrokerControlScope) -> Self {
+        self.required_lease_scope = Some(scope);
+        self
+    }
+
+    pub const fn with_current_revision(mut self, current_revision: u64) -> Self {
+        self.current_revision = Some(current_revision);
+        self
+    }
+
+    pub fn with_lease_id(mut self, lease_id: impl Into<String>) -> Self {
+        self.lease_id = Some(lease_id.into());
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.schema
+            .as_deref()
+            .map(|schema| schema == BROKER_COMMAND_REJECTION_SCHEMA)
+            .unwrap_or(true)
+            && !self.code.trim().is_empty()
+            && !self.message.trim().is_empty()
+            && self
+                .required_capability
+                .as_deref()
+                .map(|capability| !capability.trim().is_empty())
+                .unwrap_or(true)
+            && self
+                .required_role
+                .as_deref()
+                .map(|role| !role.trim().is_empty())
+                .unwrap_or(true)
+            && self
+                .required_lease_scope
+                .as_ref()
+                .map(BrokerControlScope::is_valid)
+                .unwrap_or(true)
+            && self
+                .lease_id
+                .as_deref()
+                .map(|lease_id| !lease_id.trim().is_empty())
+                .unwrap_or(true)
+    }
+}
+
+impl From<&str> for BrokerCommandRejection {
+    fn from(message: &str) -> Self {
+        Self::new("rejected", message)
+    }
+}
+
+impl From<String> for BrokerCommandRejection {
+    fn from(message: String) -> Self {
+        Self::new("rejected", message)
+    }
+}
+
 /// Versioned broker command acknowledgement envelope.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2950,7 +3060,7 @@ pub struct BrokerCommandAck<TResult = ()> {
     pub request_id: String,
     pub accepted: bool,
     pub result: Option<TResult>,
-    pub error: Option<String>,
+    pub error: Option<BrokerCommandRejection>,
 }
 
 impl<TResult> BrokerCommandAck<TResult> {
@@ -2965,7 +3075,10 @@ impl<TResult> BrokerCommandAck<TResult> {
         }
     }
 
-    pub fn rejected(request_id: impl Into<String>, error: impl Into<String>) -> Self {
+    pub fn rejected(
+        request_id: impl Into<String>,
+        error: impl Into<BrokerCommandRejection>,
+    ) -> Self {
         Self {
             message_type: "command_ack".to_string(),
             schema: BROKER_COMMAND_ACK_SCHEMA.to_string(),
@@ -2978,12 +3091,14 @@ impl<TResult> BrokerCommandAck<TResult> {
 
     pub fn is_valid(&self) -> bool {
         !self.request_id.trim().is_empty()
-            && (self.accepted
-                || self
-                    .error
-                    .as_deref()
-                    .map(|error| !error.trim().is_empty())
-                    .unwrap_or(false))
+            && ((self.accepted && self.error.is_none())
+                || (!self.accepted
+                    && self.result.is_none()
+                    && self
+                        .error
+                        .as_ref()
+                        .map(BrokerCommandRejection::is_valid)
+                        .unwrap_or(false)))
     }
 }
 
@@ -3822,11 +3937,42 @@ mod tests {
     fn command_and_ack_validate_required_ids() {
         let command = BrokerCommand::new("req-1", "client-1", "subscribe", Some("synthetic:wave"));
         let ack = BrokerCommandAck::accepted("req-1", Some("sub-1"));
+        let rejection = BrokerCommandRejection::new("unknown_stream", "unknown stream")
+            .with_retryable(false)
+            .with_current_revision(8);
 
         assert!(command.is_valid());
         assert!(ack.is_valid());
-        assert!(BrokerCommandAck::<()>::rejected("req-2", "unknown stream").is_valid());
+        assert!(BrokerCommandAck::<()>::rejected("req-2", rejection).is_valid());
+        assert!(BrokerCommandAck::<()>::rejected("req-3", "unknown stream").is_valid());
+        assert!(!BrokerCommandAck::<()>::rejected("req-4", "").is_valid());
         assert!(!BrokerCommand::<()>::new("", "client-1", "subscribe", None).is_valid());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn command_ack_deserializes_java_style_rejection_object() {
+        let ack: BrokerCommandAck<serde_json::Value> = serde_json::from_str(
+            r#"{
+                "type": "command_ack",
+                "schema": "rusty.xr.broker.command_ack.v1",
+                "request_id": "req-1",
+                "accepted": false,
+                "result": null,
+                "error": {
+                    "code": "missing_lease",
+                    "message": "Command requires an active lease."
+                }
+            }"#,
+        )
+        .expect("java-style command rejection should deserialize");
+
+        assert!(ack.is_valid());
+        let error = ack.error.expect("rejected ack should include error");
+        assert_eq!(error.schema, None);
+        assert_eq!(error.code, "missing_lease");
+        assert_eq!(error.message, "Command requires an active lease.");
+        assert!(!error.retryable);
     }
 
     #[test]

@@ -98,6 +98,8 @@ or an operator visual witness before accepting the run as camera-ready.
 - `clock.compare_openxr`
 - `clock.sync_probe`
 - `stream_registry.snapshot`
+- `control_lease.request`
+- `control_lease.release`
 - `kiosk.get_status`
 - `camera_provider.get_status`
 - `camera_provider.get_projection_profile`

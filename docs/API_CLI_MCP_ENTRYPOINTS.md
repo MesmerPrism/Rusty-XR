@@ -59,6 +59,7 @@ mandatory.
 | Emit a synthetic kiosk record | `cargo run -p rusty-xr-contracts --example kiosk_command_run_record --features serde` | Schema check | No headset or provider is used. |
 | Query broker state | `cargo run -p rusty-xr-broker-client-probe -- status` | `GET /status`, `GET /kiosk/status` | Requires a broker only when querying live state. |
 | Query broker stream topology | `cargo run -p rusty-xr-broker-client-probe -- registry` | `GET /stream_registry/snapshot`, WebSocket `stream_registry.snapshot` | Read-only topology; it does not grant command authority. |
+| Exercise broker control leases | `cargo run -p rusty-xr-broker-client-probe -- lease-request` | WebSocket `control_lease.request` / `control_lease.release` | Grants temporary broker-side authority only after the broker accepts holder, scope, revision, and conflict checks. |
 | Query broker clock | Broker `/clock/now` and `/clock/health` | Companion broker report | Use clock epoch IDs in kiosk records when available. |
 | Verify app catalog | Companion `catalog verify ... --json` | Source catalog schema checks | Device validation requires operator/resource workflow. |
 | Inspect Quest provider readiness | `rusty-xr-quest-diagnostics` provider snapshot | Companion or `hzdb`/ADB probe | Read-only by default. |

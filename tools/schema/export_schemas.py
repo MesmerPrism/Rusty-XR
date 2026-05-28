@@ -771,6 +771,43 @@ def schemas() -> dict[str, dict]:
             "holder_client_id": nullable_string(),
         },
     )
+    broker_control_lease_request = obj(
+        "BrokerControlLeaseRequest",
+        {
+            "schema": {"const": "rusty.xr.broker.control_lease_request.v1"},
+            "holder_client_id": string(),
+            "scope": broker_control_scope,
+            "requested_duration_elapsed_ns": {"type": ["integer", "null"], "minimum": 1},
+            "expected_revision": {"type": ["integer", "null"], "minimum": 0},
+            "operator_confirmed": boolean(),
+        },
+    )
+    broker_control_lease_release = obj(
+        "BrokerControlLeaseRelease",
+        {
+            "schema": {"const": "rusty.xr.broker.control_lease_release.v1"},
+            "lease_id": string(),
+            "holder_client_id": string(),
+            "scope": {"oneOf": [broker_control_scope, {"type": "null"}]},
+            "expected_revision": {"type": ["integer", "null"], "minimum": 0},
+            "reason": nullable_string(),
+        },
+    )
+    broker_command_rejection = obj(
+        "BrokerCommandRejection",
+        {
+            "schema": {"oneOf": [{"const": "rusty.xr.broker.command_rejection.v1"}, {"type": "null"}]},
+            "code": string(),
+            "message": string(),
+            "retryable": boolean(),
+            "required_capability": nullable_string(),
+            "required_role": nullable_string(),
+            "required_lease_scope": {"oneOf": [broker_control_scope, {"type": "null"}]},
+            "current_revision": {"type": ["integer", "null"], "minimum": 0},
+            "lease_id": nullable_string(),
+        },
+        required=["code", "message"],
+    )
     broker_command_authority_requirement = obj(
         "BrokerCommandAuthorityRequirement",
         {
@@ -2936,6 +2973,9 @@ def schemas() -> dict[str, dict]:
         ),
         "broker-control-scope.schema.json": broker_control_scope,
         "broker-command-precondition.schema.json": broker_command_precondition,
+        "broker-control-lease-request.schema.json": broker_control_lease_request,
+        "broker-control-lease-release.schema.json": broker_control_lease_release,
+        "broker-command-rejection.schema.json": broker_command_rejection,
         "broker-command-authority-requirement.schema.json": broker_command_authority_requirement,
         "broker-control-lease.schema.json": broker_control_lease,
         "broker-panel-descriptor.schema.json": broker_panel_descriptor,
@@ -2986,10 +3026,13 @@ def schemas() -> dict[str, dict]:
                 "type": {"const": "command_ack"},
                 "schema": string(),
                 "request_id": string(),
+                "command": nullable_string(),
                 "accepted": boolean(),
+                "message": nullable_string(),
                 "result": {"type": ["object", "null"], "additionalProperties": True},
-                "error": nullable_string(),
+                "error": {"oneOf": [broker_command_rejection, {"type": "null"}]},
             },
+            required=["type", "schema", "request_id", "accepted"],
         ),
         "broker-stream-event.schema.json": obj(
             "BrokerStreamEvent",
