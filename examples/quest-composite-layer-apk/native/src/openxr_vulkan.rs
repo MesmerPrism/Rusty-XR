@@ -3931,8 +3931,16 @@ unsafe fn run_vulkan(
             frame_state.predicted_display_time,
             frame_count,
         );
+        let projected_camera_wait_clear = config.camera_tier == CameraCompositeTier::GpuProjected
+            && prepared_stereo_camera.is_none();
         let clear = if let Some(clear) = depth_visual_clear {
             clear
+        } else if projected_camera_wait_clear {
+            if frame_count % 120 < 60 {
+                [0.68, 0.03, 0.82, 1.0]
+            } else {
+                [0.02, 0.35, 0.95, 1.0]
+            }
         } else if config.full_field_flicker_hz > 0.0 {
             if full_field_red {
                 [1.0, 0.0, 0.0, 1.0]
@@ -3948,6 +3956,13 @@ unsafe fn run_vulkan(
         } else {
             [0.08, 0.12, 0.30, 1.0]
         };
+        if projected_camera_wait_clear && frame_count.is_multiple_of(120) {
+            let (success, failure, cache_size) = gpu_probe_counters();
+            log_info(format!(
+                "Rusty XR projected camera fallback clear visible frame={} reason=waiting-for-stereo-gpu-camera-frame colorMode=pulsing-magenta-blue renderLoopAlive=true gpuProbeSuccess={} gpuProbeFailure={} descriptorProbeCacheSize={}",
+                frame_count, success, failure, cache_size
+            ));
+        }
         if let Some(frame) = depth_visual_frame {
             environment_depth_visualizer.record_particle_update(
                 &vk_device,
@@ -5029,6 +5044,7 @@ fn find_memory_type(
 fn wait_for_android_foreground(app: &android_activity::AndroidApp) -> Result<(), String> {
     let start = Instant::now();
     let mut state = AndroidForegroundState::default();
+    let mut ready_since: Option<Instant> = None;
     log_info("Rusty XR waiting for Android resume/focus before OpenXR session setup");
 
     loop {
@@ -5042,14 +5058,19 @@ fn wait_for_android_foreground(app: &android_activity::AndroidApp) -> Result<(),
             return Err("Android activity was destroyed before OpenXR setup".to_string());
         }
         if state.resumed && state.focused && state.has_window {
-            log_info("Rusty XR Android activity is foreground; continuing OpenXR setup");
-            return Ok(());
+            let candidate_since = *ready_since.get_or_insert_with(Instant::now);
+            if candidate_since.elapsed() >= Duration::from_millis(250) {
+                log_info("Rusty XR Android activity is stable foreground; continuing OpenXR setup");
+                return Ok(());
+            }
+        } else {
+            ready_since = None;
         }
-        if start.elapsed() >= Duration::from_secs(10) {
-            log_error(
-                "Timed out waiting for Android focus before OpenXR setup; continuing best-effort",
-            );
-            return Ok(());
+        if start.elapsed() >= Duration::from_secs(60) {
+            return Err(format!(
+                "Timed out waiting for stable Android foreground before OpenXR setup: resumed={} focused={} hasWindow={} destroyed={}",
+                state.resumed, state.focused, state.has_window, state.destroyed
+            ));
         }
     }
 }
