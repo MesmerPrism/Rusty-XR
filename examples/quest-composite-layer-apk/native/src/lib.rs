@@ -38,9 +38,10 @@ pub(crate) const CAMERA_IMPORT_CACHE_LIMIT_MAX: usize = 16;
 
 mod camera_color_pipeline;
 pub(crate) use camera_color_pipeline::{
-    CameraFeedPipelineMode, CameraPeripheralStretchConfig, CameraPeripheralStretchCornerMode,
-    CameraPeripheralStretchDebug, CameraPeripheralStretchMode, CameraProcessingLayer,
-    CameraProjectionBorderPolicy, CameraProjectionEffectMode, OpenXrColorFormatMode,
+    CameraFeedPipelineMode, CameraPeripheralStretchBlendMode, CameraPeripheralStretchConfig,
+    CameraPeripheralStretchCornerMode, CameraPeripheralStretchDebug, CameraPeripheralStretchMode,
+    CameraProcessingLayer, CameraProjectionBorderPolicy, CameraProjectionEffectMode,
+    OpenXrColorFormatMode,
 };
 
 mod projection_runtime;
@@ -79,6 +80,11 @@ pub(crate) fn log_error(message: impl AsRef<str>) {
         ndk_sys::android_LogPriority::ANDROID_LOG_ERROR,
         message.as_ref(),
     );
+}
+
+#[cfg(not(target_os = "android"))]
+pub(crate) fn log_error(message: impl AsRef<str>) {
+    eprintln!("{}", message.as_ref());
 }
 
 #[cfg(target_os = "android")]
@@ -1191,12 +1197,15 @@ impl RuntimeConfig {
     pub(crate) fn hwb_peripheral_stretch_contract_fields(&self) -> String {
         let peripheral_stretch = self.camera_peripheral_stretch.sanitized();
         format!(
-            "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion=target-footprint peripheralStretchBorderSource=projection-edge-sample",
+            "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchInnerBlendUv={:.3} peripheralStretchBlendCurve={:.3} peripheralStretchBlendMode={} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample",
             peripheral_stretch.mode.stable_id(),
             peripheral_stretch.core_scale,
             peripheral_stretch.edge_inset_uv,
             peripheral_stretch.max_inset_uv,
             peripheral_stretch.curve,
+            peripheral_stretch.inner_blend_uv,
+            peripheral_stretch.blend_curve,
+            peripheral_stretch.blend_mode.stable_id(),
             peripheral_stretch.corner_mode.stable_id(),
             peripheral_stretch.debug.stable_id(),
             self.camera_processing_layer.consumes_projection_exterior()
@@ -1234,6 +1243,16 @@ impl RuntimeConfig {
             peripheral_stretch.edge_inset_uv,
             peripheral_stretch.max_inset_uv,
             peripheral_stretch.curve,
+        ]
+    }
+
+    pub(crate) fn camera_peripheral_stretch_blend_params_push(&self) -> [f32; 4] {
+        let peripheral_stretch = self.camera_peripheral_stretch.sanitized();
+        [
+            peripheral_stretch.inner_blend_uv,
+            peripheral_stretch.blend_curve,
+            peripheral_stretch.blend_mode.shader_code(),
+            0.0,
         ]
     }
 
@@ -2236,6 +2255,9 @@ struct JavaRuntimeConfig {
     peripheral_stretch_edge_inset_uv: Option<f32>,
     peripheral_stretch_max_inset_uv: Option<f32>,
     peripheral_stretch_curve: Option<f32>,
+    peripheral_stretch_inner_blend_uv: Option<f32>,
+    peripheral_stretch_blend_curve: Option<f32>,
+    peripheral_stretch_blend_mode: Option<String>,
     peripheral_stretch_corner_mode: Option<String>,
     peripheral_stretch_debug: Option<String>,
     camera_color_mode: Option<String>,
@@ -2962,6 +2984,19 @@ fn public_peripheral_stretch_config(bridge: &JavaRuntimeConfig) -> CameraPeriphe
             defaults.max_inset_uv,
         ),
         curve: finite_positive_or(bridge.peripheral_stretch_curve, defaults.curve),
+        inner_blend_uv: finite_or(
+            bridge.peripheral_stretch_inner_blend_uv,
+            defaults.inner_blend_uv,
+        ),
+        blend_curve: finite_positive_or(
+            bridge.peripheral_stretch_blend_curve,
+            defaults.blend_curve,
+        ),
+        blend_mode: bridge
+            .peripheral_stretch_blend_mode
+            .as_deref()
+            .and_then(CameraPeripheralStretchBlendMode::parse)
+            .unwrap_or(defaults.blend_mode),
         corner_mode: bridge
             .peripheral_stretch_corner_mode
             .as_deref()
@@ -4297,11 +4332,11 @@ mod tests {
         apply_hwb_projection_runtime_resolution, contract_json, parse_diagnostic_hud_command,
         public_camera_metadata, public_runtime_config, CameraColorMode, CameraFeedPipelineMode,
         CameraFrameAdoptionMode, CameraImportImageLayoutMode, CameraOrientationDiagnosticMode,
-        CameraPipelinePreset, CameraProcessingLayer, CameraProjectionAlphaMode,
-        CameraProjectionBorderPolicy, CameraProjectionEffectMode, CameraProjectionMode,
-        CameraSamplerBindingMode, EnvironmentDepthMode, HandParticleMode, JavaCameraExtrinsics,
-        JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain, JavaPixelDomainKind,
-        JavaRuntimeConfig, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
+        CameraPeripheralStretchBlendMode, CameraPipelinePreset, CameraProcessingLayer,
+        CameraProjectionAlphaMode, CameraProjectionBorderPolicy, CameraProjectionEffectMode,
+        CameraProjectionMode, CameraSamplerBindingMode, EnvironmentDepthMode, HandParticleMode,
+        JavaCameraExtrinsics, JavaCameraFrameMetadata, JavaCameraIntrinsics, JavaPixelDomain,
+        JavaPixelDomainKind, JavaRuntimeConfig, OpenXrColorFormatMode, OpenXrPassthroughProbeMode,
         OpenXrPassthroughStyleMode, ProjectionTargetJoystickControls, RuntimeConfig,
         StereoSourceEyeMapping,
     };
@@ -4563,6 +4598,9 @@ mod tests {
             peripheral_stretch_edge_inset_uv: Some(0.015),
             peripheral_stretch_max_inset_uv: Some(0.14),
             peripheral_stretch_curve: Some(1.6),
+            peripheral_stretch_inner_blend_uv: Some(0.04),
+            peripheral_stretch_blend_curve: Some(1.6),
+            peripheral_stretch_blend_mode: Some("target-inner-band".to_string()),
             peripheral_stretch_corner_mode: Some("target-footprint".to_string()),
             peripheral_stretch_debug: Some("off".to_string()),
             camera_color_mode: Some("external-rgb".to_string()),
@@ -4718,6 +4756,12 @@ mod tests {
             CameraProjectionBorderPolicy::SolidRed
         );
         assert_eq!(config.camera_processing_layer, CameraProcessingLayer::Blur);
+        assert_eq!(config.camera_peripheral_stretch.inner_blend_uv, 0.04);
+        assert_eq!(config.camera_peripheral_stretch.blend_curve, 1.6);
+        assert_eq!(
+            config.camera_peripheral_stretch.blend_mode,
+            CameraPeripheralStretchBlendMode::TargetInnerBand
+        );
         assert_eq!(
             config.camera_feed_pipeline_mode,
             CameraFeedPipelineMode::RawFeed
@@ -5248,6 +5292,10 @@ mod tests {
             CameraProcessingLayer::PeripheralStretch
         );
         assert_eq!(config.camera_effect_params_push()[3], 6.0);
+        assert_eq!(
+            config.camera_peripheral_stretch_blend_params_push(),
+            [0.0, 1.5, 1.0, 0.0]
+        );
     }
 
     #[test]

@@ -394,6 +394,39 @@ impl OesPeripheralStretchCornerMode {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum OesPeripheralStretchBlendMode {
+    Off,
+    #[default]
+    TargetInnerBand,
+}
+
+impl OesPeripheralStretchBlendMode {
+    pub(super) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "" | "target-inner-band" | "inner-band" | "target-footprint-inner-band" => {
+                Some(Self::TargetInnerBand)
+            }
+            "0" | "false" | "no" | "off" | "disabled" => Some(Self::Off),
+            _ => None,
+        }
+    }
+
+    pub(super) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::TargetInnerBand => "target-inner-band",
+        }
+    }
+
+    pub(super) const fn shader_id(self) -> c_int {
+        match self {
+            Self::Off => 0,
+            Self::TargetInnerBand => 1,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum OesPeripheralStretchDebug {
     #[default]
     Off,
@@ -435,6 +468,9 @@ pub(super) struct OesPeripheralStretchConfig {
     pub(super) edge_inset_uv: f32,
     pub(super) max_inset_uv: f32,
     pub(super) curve: f32,
+    pub(super) inner_blend_uv: f32,
+    pub(super) blend_curve: f32,
+    pub(super) blend_mode: OesPeripheralStretchBlendMode,
     pub(super) corner_mode: OesPeripheralStretchCornerMode,
     pub(super) debug: OesPeripheralStretchDebug,
 }
@@ -447,6 +483,9 @@ impl Default for OesPeripheralStretchConfig {
             edge_inset_uv: 0.015,
             max_inset_uv: 0.14,
             curve: 1.6,
+            inner_blend_uv: 0.0,
+            blend_curve: 1.5,
+            blend_mode: OesPeripheralStretchBlendMode::default(),
             corner_mode: OesPeripheralStretchCornerMode::default(),
             debug: OesPeripheralStretchDebug::default(),
         }
@@ -467,7 +506,10 @@ impl OesPeripheralStretchConfig {
                 edge_inset_uv,
                 0.49,
             ),
-            curve: sanitize_f32(self.curve, defaults.curve, 0.05, 8.0),
+            curve: sanitize_f32(self.curve, defaults.curve, 0.25, 6.0),
+            inner_blend_uv: sanitize_f32(self.inner_blend_uv, defaults.inner_blend_uv, 0.0, 0.25),
+            blend_curve: sanitize_f32(self.blend_curve, defaults.blend_curve, 0.25, 6.0),
+            blend_mode: self.blend_mode,
             corner_mode: self.corner_mode,
             debug: self.debug,
         }

@@ -12,9 +12,9 @@ use super::{
     },
     openxr_gles_config::{
         activity_string_extra, OesCameraProjectionMode, OesColorControls,
-        OesPeripheralStretchConfig, OesPeripheralStretchCornerMode, OesPeripheralStretchDebug,
-        OesPeripheralStretchMode, OesProcessingLayer, OesProjectionAlphaMode,
-        OesProjectionBorderPolicy, OesProjectionTuning,
+        OesPeripheralStretchBlendMode, OesPeripheralStretchConfig, OesPeripheralStretchCornerMode,
+        OesPeripheralStretchDebug, OesPeripheralStretchMode, OesProcessingLayer,
+        OesProjectionAlphaMode, OesProjectionBorderPolicy, OesProjectionTuning,
     },
 };
 
@@ -117,6 +117,22 @@ fn peripheral_stretch_from_activity(
             .unwrap_or(defaults.max_inset_uv),
             curve: activity_float_extra(env, activity, &["rustyxr.peripheralStretchCurve"])
                 .unwrap_or(defaults.curve),
+            inner_blend_uv: activity_float_extra(
+                env,
+                activity,
+                &["rustyxr.peripheralStretchInnerBlendUv"],
+            )
+            .unwrap_or(defaults.inner_blend_uv),
+            blend_curve: activity_float_extra(
+                env,
+                activity,
+                &["rustyxr.peripheralStretchBlendCurve"],
+            )
+            .unwrap_or(defaults.blend_curve),
+            blend_mode: activity_string_extra(env, activity, "rustyxr.peripheralStretchBlendMode")
+                .as_deref()
+                .and_then(OesPeripheralStretchBlendMode::parse)
+                .unwrap_or(defaults.blend_mode),
             corner_mode: activity_string_extra(
                 env,
                 activity,

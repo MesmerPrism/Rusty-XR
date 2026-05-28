@@ -212,6 +212,24 @@ pub(super) fn oes_projection_runtime_config(
         peripheral_stretch.curve,
         source.clone(),
     );
+    set_public_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
+        peripheral_stretch.inner_blend_uv,
+        source.clone(),
+    );
+    set_public_float(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
+        peripheral_stretch.blend_curve,
+        source.clone(),
+    );
+    set_public_text(
+        &mut config,
+        rxrc::KEY_PERIPHERAL_STRETCH_BLEND_MODE,
+        peripheral_stretch.blend_mode.stable_id(),
+        source.clone(),
+    );
     set_public_text(
         &mut config,
         rxrc::KEY_PERIPHERAL_STRETCH_CORNER_MODE,

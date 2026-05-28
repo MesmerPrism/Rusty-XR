@@ -452,6 +452,9 @@ pub const KEY_PERIPHERAL_STRETCH_CORE_SCALE: &str = "peripheral_stretch_core_sca
 pub const KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV: &str = "peripheral_stretch_edge_inset_uv";
 pub const KEY_PERIPHERAL_STRETCH_MAX_INSET_UV: &str = "peripheral_stretch_max_inset_uv";
 pub const KEY_PERIPHERAL_STRETCH_CURVE: &str = "peripheral_stretch_curve";
+pub const KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV: &str = "peripheral_stretch_inner_blend_uv";
+pub const KEY_PERIPHERAL_STRETCH_BLEND_CURVE: &str = "peripheral_stretch_blend_curve";
+pub const KEY_PERIPHERAL_STRETCH_BLEND_MODE: &str = "peripheral_stretch_blend_mode";
 pub const KEY_PERIPHERAL_STRETCH_CORNER_MODE: &str = "peripheral_stretch_corner_mode";
 pub const KEY_PERIPHERAL_STRETCH_DEBUG: &str = "peripheral_stretch_debug";
 pub const KEY_PROJECTION_ALPHA_MODE: &str = "projection_alpha_mode";
@@ -726,6 +729,24 @@ pub const PROJECTION_RUNTIME_KEY_DEFINITIONS: &[RuntimeKeyDefinition] = &[
         "Curve parameter reserved for non-linear peripheral stretch falloff.",
     ),
     projection_key(
+        KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Float,
+        "Width of the target-footprint inner transition band for peripheral stretch.",
+    ),
+    projection_key(
+        KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Float,
+        "Curve parameter for peripheral-stretch target inner-band blending.",
+    ),
+    projection_key(
+        KEY_PERIPHERAL_STRETCH_BLEND_MODE,
+        ProjectionRuntimeKeyOwner::RendererPolicy,
+        RuntimeValueKind::Text,
+        "Peripheral-stretch target-footprint blend mode.",
+    ),
+    projection_key(
         KEY_PERIPHERAL_STRETCH_CORNER_MODE,
         ProjectionRuntimeKeyOwner::RendererPolicy,
         RuntimeValueKind::Text,
@@ -995,6 +1016,18 @@ pub const PROJECTION_RUNTIME_KEY_ALIASES: &[RuntimeKeyAlias] = &[
         KEY_PERIPHERAL_STRETCH_CURVE,
     ),
     launch_alias(
+        "rustyxr.peripheralStretchInnerBlendUv",
+        KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
+    ),
+    launch_alias(
+        "rustyxr.peripheralStretchBlendCurve",
+        KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
+    ),
+    launch_alias(
+        "rustyxr.peripheralStretchBlendMode",
+        KEY_PERIPHERAL_STRETCH_BLEND_MODE,
+    ),
+    launch_alias(
         "rustyxr.peripheralStretchCornerMode",
         KEY_PERIPHERAL_STRETCH_CORNER_MODE,
     ),
@@ -1183,6 +1216,18 @@ pub const PROJECTION_RUNTIME_KEY_ALIASES: &[RuntimeKeyAlias] = &[
     property_alias(
         "debug.rustyxr.peripheral.stretch.curve",
         KEY_PERIPHERAL_STRETCH_CURVE,
+    ),
+    property_alias(
+        "debug.rustyxr.peripheral.stretch.inner.blend.uv",
+        KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
+    ),
+    property_alias(
+        "debug.rustyxr.peripheral.stretch.blend.curve",
+        KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
+    ),
+    property_alias(
+        "debug.rustyxr.peripheral.stretch.blend.mode",
+        KEY_PERIPHERAL_STRETCH_BLEND_MODE,
     ),
     property_alias(
         "debug.rustyxr.peripheral.stretch.corner.mode",

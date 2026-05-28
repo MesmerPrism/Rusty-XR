@@ -919,10 +919,13 @@ evidence rather than hard-mask footprint evidence.
 
 For `processingLayer=peripheral-stretch`, do not use the solid-red exterior as
 a raw footprint measurement. In target-local metadata runs, the coherent core
-is the resolved target footprint and the effect exterior is the visible render
-surface outside that target footprint. Analyzer summaries should classify those
-runs as `effect-run`, with `borderRegionSemantics` set to
-`visible-render-surface-minus-target-footprint`.
+is the resolved target footprint minus any configured inner transition band.
+The transition band is still inside the target footprint and belongs to the
+processing layer, not to `projectionBorderPolicy`. The effect exterior is the
+visible render surface outside that target footprint. Analyzer summaries should
+classify those runs as `effect-run`, with `borderRegionSemantics` set to
+`visible-render-surface-minus-target-footprint` and transition-region fields
+read from renderer logs rather than inferred from screenshot color alone.
 
 Reject mixed evidence: a `solid-red` run with feedback-colored, feathered, or
 camera-sampled border pixels is a border-policy failure, not a valid projection

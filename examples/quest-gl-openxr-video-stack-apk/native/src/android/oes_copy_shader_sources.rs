@@ -22,6 +22,7 @@ uniform int u_processing_layer;
 uniform float u_blur_radius_px;
 uniform int u_peripheral_stretch_mode;
 uniform vec4 u_peripheral_stretch_params;
+uniform vec4 u_peripheral_stretch_blend_params;
 uniform int u_peripheral_stretch_corner_mode;
 uniform int u_peripheral_stretch_debug;
 uniform vec4 u_projection_area_eye_offset_uv;
@@ -61,7 +62,7 @@ if (u_processing_layer == 2 && u_peripheral_stretch_debug == 1) {
 }
 return premultiplied_alpha_color(vec3(1.0, 0.0, 0.0), u_projection_border_opacity);
 }
-float projection_area_distance(vec2 uv) {
+float target_footprint_signed_distance_uv(vec2 uv) {
 vec2 half_size = vec2(
     clamp(u_projection_area_radius.x, 0.05, 0.50),
     clamp(u_projection_area_radius.y, 0.05, 0.50)
@@ -74,7 +75,14 @@ float corner_radius = clamp(
 vec2 q = abs(uv - vec2(0.5)) - (half_size - vec2(corner_radius));
 float outside = length(max(q, vec2(0.0)));
 float inside = min(max(q.x, q.y), 0.0);
-float signed_distance = outside + inside - corner_radius;
+return outside + inside - corner_radius;
+}
+float projection_area_distance(vec2 uv) {
+float signed_distance = target_footprint_signed_distance_uv(uv);
+vec2 half_size = vec2(
+    clamp(u_projection_area_radius.x, 0.05, 0.50),
+    clamp(u_projection_area_radius.y, 0.05, 0.50)
+);
 return clamp(1.0 + signed_distance / max(min(half_size.x, half_size.y), 0.001), 0.0, 2.0);
 }
 vec2 projection_area_content_uv(vec2 area_uv) {
@@ -99,7 +107,8 @@ return value * value * (3.0 - 2.0 * value);
 vec2 projection_area_rect_edge_uv(
     vec2 area_uv,
     vec2 domain_min_uv,
-    vec2 domain_max_uv
+    vec2 domain_max_uv,
+    bool force_edge_sample
 ) {
 vec2 half_size = vec2(
     clamp(u_projection_area_radius.x, 0.05, 0.50),
@@ -110,10 +119,11 @@ vec2 core_half_size = half_size * core_scale;
 vec2 p = area_uv - vec2(0.5);
 vec2 normalized = p / max(core_half_size, vec2(0.001));
 float edge_distance = max(abs(normalized.x), abs(normalized.y));
-if (edge_distance <= 1.0) {
+if (edge_distance <= 1.0 && !force_edge_sample) {
     return area_uv;
 }
 
+float effective_edge_distance = force_edge_sample ? max(edge_distance, 1.0) : edge_distance;
 vec2 edge_normalized = normalized / max(edge_distance, 0.0001);
 vec2 edge_direction_uv = edge_normalized * core_half_size;
 vec2 bounded_min_uv = min(domain_min_uv, domain_max_uv);
@@ -132,7 +142,7 @@ if (edge_direction_uv.y > 0.0001) {
     reach_y = (bounded_min_uv.y - 0.5) / edge_direction_uv.y;
 }
 float exterior_reach = max(min(reach_x, reach_y) - 1.0, 0.0001);
-float exterior_t = clamp((edge_distance - 1.0) / exterior_reach, 0.0, 1.0);
+float exterior_t = clamp((effective_edge_distance - 1.0) / exterior_reach, 0.0, 1.0);
 exterior_t = smooth_unit(exterior_t);
 
 float edge_inset = clamp(u_peripheral_stretch_params.y, 0.0, 0.49);
@@ -143,6 +153,19 @@ float inset = mix(edge_inset, max_inset, shaped_t);
 vec2 sample_half_size = max(core_half_size - vec2(inset), vec2(0.001));
 vec2 sample_uv = vec2(0.5) + edge_normalized * sample_half_size;
 return clamp(sample_uv, bounded_min_uv, bounded_max_uv);
+}
+float peripheral_stretch_blend_weight(float signed_distance_uv) {
+float inner_blend = clamp(u_peripheral_stretch_blend_params.x, 0.0, 0.25);
+float blend_curve = clamp(u_peripheral_stretch_blend_params.y, 0.25, 6.0);
+float blend_mode = floor(u_peripheral_stretch_blend_params.z + 0.5);
+if (blend_mode < 0.5) {
+    return signed_distance_uv >= 0.0 ? 1.0 : 0.0;
+}
+if (inner_blend <= 0.0001) {
+    return signed_distance_uv >= 0.0 ? 1.0 : 0.0;
+}
+float t = smoothstep(-inner_blend, 0.0, signed_distance_uv);
+return pow(t, blend_curve);
 }
 bool peripheral_stretch_enabled() {
 // Keep the mode/corner uniforms live for the public runtime contract, but let
@@ -265,25 +288,41 @@ vec2 projection_area_offset_uv = vec2(
 vec2 projection_area_uv =
     (screen_uv - vec2(0.5)) * projection_scale + vec2(0.5) -
     projection_area_offset_uv;
-float area_distance = projection_area_distance(projection_area_uv);
+vec2 canonical_projection_area_uv = projection_area_uv;
+float signed_distance_uv = target_footprint_signed_distance_uv(canonical_projection_area_uv);
+float area_distance = projection_area_distance(canonical_projection_area_uv);
 bool stretch_exterior = false;
+bool target_transition_band = false;
 bool peripheral_stretch_active = peripheral_stretch_enabled();
-if (area_distance > 1.0 && peripheral_stretch_active) {
+float stretch_weight = peripheral_stretch_active
+    ? peripheral_stretch_blend_weight(signed_distance_uv)
+    : 0.0;
+bool projection_area_inside = signed_distance_uv <= 0.0;
+stretch_exterior = peripheral_stretch_active && !projection_area_inside;
+target_transition_band =
+    peripheral_stretch_active && projection_area_inside && stretch_weight > 0.0001;
+bool stretch_effect_sample_region = stretch_exterior || target_transition_band;
+if (stretch_effect_sample_region) {
     vec2 domain_min_uv =
         vec2(0.5) - vec2(0.5) * projection_scale - projection_area_offset_uv;
     vec2 domain_max_uv =
         vec2(0.5) + vec2(0.5) * projection_scale - projection_area_offset_uv;
-    projection_area_uv = projection_area_rect_edge_uv(
-        projection_area_uv,
+    vec2 stretch_projection_area_uv = projection_area_rect_edge_uv(
+        canonical_projection_area_uv,
         domain_min_uv,
-        domain_max_uv
+        domain_max_uv,
+        stretch_weight > 0.0001
+    );
+    projection_area_uv = mix(
+        canonical_projection_area_uv,
+        stretch_projection_area_uv,
+        clamp(stretch_weight, 0.0, 1.0)
     );
     screen_uv = projection_area_uv_to_screen_uv(
         projection_area_uv,
         projection_area_offset_uv,
         projection_scale
     );
-    stretch_exterior = true;
 } else if (area_distance > 1.0) {
     out_color = intended_projection_mask_color();
     return;
@@ -316,10 +355,9 @@ if (u_content_mapping_mode == 1) {
     camera_uv = camera_uv_h.xy / safe_camera_uv_z;
 }
 bool source_uv_numeric = camera_uv.x == camera_uv.x && camera_uv.y == camera_uv.y;
-if (peripheral_stretch_active && stretch_exterior && !source_uv_numeric) {
-    // NaN/undefined exterior samples still belong to the stretch exterior for
-    // this layer; core failures remain source-invalid diagnostics.
-    stretch_exterior = true;
+if (peripheral_stretch_active && stretch_effect_sample_region && !source_uv_numeric) {
+    // NaN/undefined transition/exterior samples still belong to the stretch
+    // layer; core failures remain source-invalid diagnostics.
     camera_uv = vec2(0.5);
     source_uv_numeric = true;
 }
@@ -329,10 +367,9 @@ bool source_uv_valid =
     camera_uv.x <= 1.0 &&
     camera_uv.y >= 0.0 &&
     camera_uv.y <= 1.0;
-if (peripheral_stretch_active && stretch_exterior && !source_uv_valid) {
-    // Treat source-invalid exterior pixels as part of the explicit stretch
-    // exterior so edge clamping cannot create an unlabeled camera-looking band.
-    stretch_exterior = true;
+if (peripheral_stretch_active && stretch_effect_sample_region && !source_uv_valid) {
+    // Treat source-invalid transition/exterior pixels as part of the explicit
+    // stretch layer so edge clamping cannot create an unlabeled band.
     vec2 source_edge_epsilon = max(u_source_texel_size * 0.5, vec2(0.0001));
     camera_uv = clamp(camera_uv, source_edge_epsilon, vec2(1.0) - source_edge_epsilon);
     source_uv_valid =
@@ -348,8 +385,16 @@ if (!source_uv_valid) {
 vec4 sample_color = u_processing_layer == 1
     ? blurred_camera_sample(camera_uv)
     : camera_sample(camera_uv);
-if (u_processing_layer == 2 && u_peripheral_stretch_debug == 2 && stretch_exterior) {
-    out_color = vec4(clamp(camera_uv, vec2(0.0), vec2(1.0)), 0.0, 1.0);
+if (u_processing_layer == 2 && u_peripheral_stretch_debug == 2 && stretch_effect_sample_region) {
+    out_color = vec4(
+        clamp(camera_uv, vec2(0.0), vec2(1.0)),
+        target_transition_band ? 0.5 : 0.0,
+        1.0
+    );
+    return;
+}
+if (u_processing_layer == 2 && u_peripheral_stretch_debug == 1 && target_transition_band) {
+    out_color = premultiplied_alpha_color(vec3(1.0, 0.85, 0.0), 1.0);
     return;
 }
 if (u_processing_layer == 2 && u_peripheral_stretch_debug == 1 && stretch_exterior) {

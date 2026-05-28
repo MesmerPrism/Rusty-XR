@@ -414,10 +414,12 @@ with `-PeripheralStretchDebug off`, `regions`, or `sample-uv`. Stretch runs are
 effect runs: the resource lane names remain stable raw-family names such as
 `vulkan-hwb-direct-camera2-raw` and `gles-oes-direct-camera2-raw`, while the
 runtime and analyzer summaries report `processing_layer=peripheral-stretch`.
-The `regions` debug view paints the entire explicit stretch branch with a hard
-cyan effect-exterior color, and `sample-uv` recolors only that same stretch
-branch with source UV coordinates. Normal solid-red or passthrough-underlay
-fallback remains unchanged; only genuine source-invalid pixels in stretch
+The `regions` debug view leaves the target core as normal camera content, paints
+the target-footprint inner transition band yellow, paints the stretch exterior
+cyan, and keeps genuine source-invalid fallback magenta. `sample-uv` recolors
+the transition/exterior stretch branch with source UV coordinates and uses the
+blue channel to distinguish the transition band. Normal solid-red or
+passthrough-underlay fallback remains unchanged; only genuine source-invalid pixels in stretch
 `regions` debug use the separate magenta diagnostic fallback. Source-invalid
 pixels outside the target footprint are clamped through the stretch exterior
 path, so screenshots do not get an unlabeled camera-looking band between the
@@ -705,6 +707,9 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | `rustyxr.peripheralStretchEdgeInsetUv` | float | Near-edge source UV inset used when the exterior first leaves the target footprint. |
 | `rustyxr.peripheralStretchMaxInsetUv` | float | Far-exterior source UV inset used by the graded stretch mapping. |
 | `rustyxr.peripheralStretchCurve` | float | Shapes the exterior distance ramp between `peripheralStretchEdgeInsetUv` and `peripheralStretchMaxInsetUv`. |
+| `rustyxr.peripheralStretchInnerBlendUv` | float | Width of the target-footprint inner transition band that UV-blends canonical sampling into the stretch remap. |
+| `rustyxr.peripheralStretchBlendCurve` | float | Shapes the transition-band blend ramp. |
+| `rustyxr.peripheralStretchBlendMode` | string | Selects the transition-band blend mode; use `target-inner-band` for the metadata-backed target-footprint transition. |
 | `rustyxr.peripheralStretchCornerMode` | string | Selects effect-boundary corner semantics; use `target-footprint` for metadata-backed runs. |
 | `rustyxr.peripheralStretchDebug` | string | Selects stretch debug output: `off`, `regions`, or `sample-uv`. |
 | `rustyxr.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |

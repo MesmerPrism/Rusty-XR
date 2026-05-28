@@ -17,9 +17,10 @@ pub(super) const OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_EXTRA: &str =
     "rustyxr.projectionRuntimeResolutionEnabled";
 
 pub(super) use super::openxr_gles_contracts::{
-    OesCameraProjectionMode, OesContentMappingMode, OesPeripheralStretchConfig,
-    OesPeripheralStretchCornerMode, OesPeripheralStretchDebug, OesPeripheralStretchMode,
-    OesProcessingLayer, OesProjectionAlphaMode, OesProjectionBorderPolicy, OesSourceColorTransfer,
+    OesCameraProjectionMode, OesContentMappingMode, OesPeripheralStretchBlendMode,
+    OesPeripheralStretchConfig, OesPeripheralStretchCornerMode, OesPeripheralStretchDebug,
+    OesPeripheralStretchMode, OesProcessingLayer, OesProjectionAlphaMode,
+    OesProjectionBorderPolicy, OesSourceColorTransfer,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]

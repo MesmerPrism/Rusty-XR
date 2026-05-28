@@ -1,8 +1,8 @@
 use super::openxr_gles_config::{
-    OesCameraProjectionMode, OesPeripheralStretchConfig, OesPeripheralStretchCornerMode,
-    OesPeripheralStretchDebug, OesPeripheralStretchMode, OesProcessingLayer,
-    OesProjectionAlphaMode, OesProjectionBorderPolicy, OesProjectionRuntimeState,
-    OesProjectionTuning,
+    OesCameraProjectionMode, OesPeripheralStretchBlendMode, OesPeripheralStretchConfig,
+    OesPeripheralStretchCornerMode, OesPeripheralStretchDebug, OesPeripheralStretchMode,
+    OesProcessingLayer, OesProjectionAlphaMode, OesProjectionBorderPolicy,
+    OesProjectionRuntimeState, OesProjectionTuning,
 };
 use rusty_xr_runtime_config as rxrc;
 
@@ -136,9 +136,29 @@ fn oes_peripheral_stretch_from_resolution(
             resolution,
             rxrc::KEY_PERIPHERAL_STRETCH_CURVE,
             fallback.curve,
-            0.05,
-            8.0,
+            0.25,
+            6.0,
         ),
+        inner_blend_uv: oes_projection_runtime_float(
+            resolution,
+            rxrc::KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
+            fallback.inner_blend_uv,
+            0.0,
+            0.25,
+        ),
+        blend_curve: oes_projection_runtime_float(
+            resolution,
+            rxrc::KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
+            fallback.blend_curve,
+            0.25,
+            6.0,
+        ),
+        blend_mode: oes_projection_runtime_text(
+            resolution,
+            rxrc::KEY_PERIPHERAL_STRETCH_BLEND_MODE,
+        )
+        .and_then(OesPeripheralStretchBlendMode::parse)
+        .unwrap_or(fallback.blend_mode),
         corner_mode: oes_projection_runtime_text(
             resolution,
             rxrc::KEY_PERIPHERAL_STRETCH_CORNER_MODE,

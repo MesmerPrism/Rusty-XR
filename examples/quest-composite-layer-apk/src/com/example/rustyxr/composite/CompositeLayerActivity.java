@@ -95,6 +95,9 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_PERIPHERAL_STRETCH_EDGE_INSET_UV = 0.015f;
     private static final float DEFAULT_PERIPHERAL_STRETCH_MAX_INSET_UV = 0.14f;
     private static final float DEFAULT_PERIPHERAL_STRETCH_CURVE = 1.6f;
+    private static final float DEFAULT_PERIPHERAL_STRETCH_INNER_BLEND_UV = 0.040f;
+    private static final float DEFAULT_PERIPHERAL_STRETCH_BLEND_CURVE = 1.6f;
+    private static final String DEFAULT_PERIPHERAL_STRETCH_BLEND_MODE = "target-inner-band";
     private static final String DEFAULT_PERIPHERAL_STRETCH_CORNER_MODE = "target-footprint";
     private static final String DEFAULT_PERIPHERAL_STRETCH_DEBUG = "off";
     private static final String DEFAULT_CAMERA_FEED_MODE = "projected-feed";
@@ -539,6 +542,10 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"peripheralStretchEdgeInsetUv\":").append(floatJson(floatExtra("rustyxr.peripheralStretchEdgeInsetUv", DEFAULT_PERIPHERAL_STRETCH_EDGE_INSET_UV)));
         builder.append(",\"peripheralStretchMaxInsetUv\":").append(floatJson(floatExtra("rustyxr.peripheralStretchMaxInsetUv", DEFAULT_PERIPHERAL_STRETCH_MAX_INSET_UV)));
         builder.append(",\"peripheralStretchCurve\":").append(floatJson(floatExtra("rustyxr.peripheralStretchCurve", DEFAULT_PERIPHERAL_STRETCH_CURVE)));
+        builder.append(",\"peripheralStretchInnerBlendUv\":").append(floatJson(floatExtra("rustyxr.peripheralStretchInnerBlendUv", DEFAULT_PERIPHERAL_STRETCH_INNER_BLEND_UV)));
+        builder.append(",\"peripheralStretchBlendCurve\":").append(floatJson(floatExtra("rustyxr.peripheralStretchBlendCurve", DEFAULT_PERIPHERAL_STRETCH_BLEND_CURVE)));
+        builder.append(',');
+        appendJsonString(builder, "peripheralStretchBlendMode", stringExtra("rustyxr.peripheralStretchBlendMode", DEFAULT_PERIPHERAL_STRETCH_BLEND_MODE));
         builder.append(',');
         appendJsonString(builder, "peripheralStretchCornerMode", stringExtra("rustyxr.peripheralStretchCornerMode", DEFAULT_PERIPHERAL_STRETCH_CORNER_MODE));
         builder.append(',');

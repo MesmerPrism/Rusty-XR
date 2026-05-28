@@ -221,12 +221,15 @@ pub(super) fn log_oes_projection_startup_summary(
 fn oes_peripheral_stretch_log_fields(projection_state: OesProjectionRuntimeState) -> String {
     let peripheral_stretch = projection_state.peripheral_stretch.sanitized();
     format!(
-        "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion=target-footprint peripheralStretchBorderSource=projection-edge-sample",
+        "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchInnerBlendUv={:.3} peripheralStretchBlendCurve={:.3} peripheralStretchBlendMode={} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample",
         peripheral_stretch.mode.stable_id(),
         peripheral_stretch.core_scale,
         peripheral_stretch.edge_inset_uv,
         peripheral_stretch.max_inset_uv,
         peripheral_stretch.curve,
+        peripheral_stretch.inner_blend_uv,
+        peripheral_stretch.blend_curve,
+        peripheral_stretch.blend_mode.stable_id(),
         peripheral_stretch.corner_mode.stable_id(),
         peripheral_stretch.debug.stable_id(),
         projection_state.processing_layer.consumes_projection_exterior()
@@ -292,7 +295,7 @@ mod tests {
 
         assert_eq!(
             line,
-            "Rusty XR OpenXR GLES projection runtime hotload source=android-system-property frame=42 projectionDepthMeters=1.250000 cameraPreviewFovYDegrees=72.000000 cameraPreviewOffsetYMeters=0.125000 cameraRawOverlayOverscan=1.500000 projectionAreaOffsetUv=0.010000,-0.020000 projectionAreaScale=0.950000,0.850000 projectionAreaRadiusUv=0.470000,0.360000 projectionAreaOpacity=0.750 projectionBorderOpacity=0.500 projectionAlphaMode=green projectionAlphaScale=1.250 projectionAlphaBias=-0.250 cameraProjectionMode=world-canvas projectionBorderPolicy=passthrough-underlay processingLayer=peripheral-stretch cameraBlurRadiusPx=4.000 peripheralStretchMode=edge-stretch peripheralStretchCoreScale=1.000 peripheralStretchEdgeInsetUv=0.015 peripheralStretchMaxInsetUv=0.140 peripheralStretchCurve=1.600 peripheralStretchCornerMode=target-footprint peripheralStretchDebug=off peripheralStretchConsumesProjectionExterior=true peripheralStretchCoreRegion=target-footprint peripheralStretchBorderSource=projection-edge-sample propertyPrefix=debug.rustyxr"
+            "Rusty XR OpenXR GLES projection runtime hotload source=android-system-property frame=42 projectionDepthMeters=1.250000 cameraPreviewFovYDegrees=72.000000 cameraPreviewOffsetYMeters=0.125000 cameraRawOverlayOverscan=1.500000 projectionAreaOffsetUv=0.010000,-0.020000 projectionAreaScale=0.950000,0.850000 projectionAreaRadiusUv=0.470000,0.360000 projectionAreaOpacity=0.750 projectionBorderOpacity=0.500 projectionAlphaMode=green projectionAlphaScale=1.250 projectionAlphaBias=-0.250 cameraProjectionMode=world-canvas projectionBorderPolicy=passthrough-underlay processingLayer=peripheral-stretch cameraBlurRadiusPx=4.000 peripheralStretchMode=edge-stretch peripheralStretchCoreScale=1.000 peripheralStretchEdgeInsetUv=0.015 peripheralStretchMaxInsetUv=0.140 peripheralStretchCurve=1.600 peripheralStretchInnerBlendUv=0.000 peripheralStretchBlendCurve=1.500 peripheralStretchBlendMode=target-inner-band peripheralStretchCornerMode=target-footprint peripheralStretchDebug=off peripheralStretchConsumesProjectionExterior=true peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample propertyPrefix=debug.rustyxr"
         );
     }
 }

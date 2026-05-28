@@ -1,10 +1,10 @@
 #[cfg(target_os = "android")]
 use super::log_info;
 use super::{
-    CameraImageRotation, CameraPeripheralStretchCornerMode, CameraPeripheralStretchDebug,
-    CameraPeripheralStretchMode, CameraProcessingLayer, CameraProjectionAlphaMode,
-    CameraProjectionBorderPolicy, CameraProjectionMode, ProjectionTargetJoystickControls,
-    RuntimeConfig, StereoSourceEyeMapping,
+    CameraImageRotation, CameraPeripheralStretchBlendMode, CameraPeripheralStretchCornerMode,
+    CameraPeripheralStretchDebug, CameraPeripheralStretchMode, CameraProcessingLayer,
+    CameraProjectionAlphaMode, CameraProjectionBorderPolicy, CameraProjectionMode,
+    ProjectionTargetJoystickControls, RuntimeConfig, StereoSourceEyeMapping,
 };
 use rusty_xr_runtime_config as rxrc;
 
@@ -242,6 +242,24 @@ pub(super) fn public_projection_runtime_config(
         &mut public,
         rxrc::KEY_PERIPHERAL_STRETCH_CURVE,
         peripheral_stretch.curve,
+        source.clone(),
+    );
+    set_public_float(
+        &mut public,
+        rxrc::KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
+        peripheral_stretch.inner_blend_uv,
+        source.clone(),
+    );
+    set_public_float(
+        &mut public,
+        rxrc::KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
+        peripheral_stretch.blend_curve,
+        source.clone(),
+    );
+    set_public_text(
+        &mut public,
+        rxrc::KEY_PERIPHERAL_STRETCH_BLEND_MODE,
+        peripheral_stretch.blend_mode.stable_id(),
         source.clone(),
     );
     set_public_text(
@@ -581,9 +599,27 @@ pub(super) fn apply_hwb_projection_runtime_resolution(
         resolution,
         rxrc::KEY_PERIPHERAL_STRETCH_CURVE,
         config.camera_peripheral_stretch.curve,
-        0.05,
-        8.0,
+        0.25,
+        6.0,
     );
+    config.camera_peripheral_stretch.inner_blend_uv = hwb_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
+        config.camera_peripheral_stretch.inner_blend_uv,
+        0.0,
+        0.25,
+    );
+    config.camera_peripheral_stretch.blend_curve = hwb_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
+        config.camera_peripheral_stretch.blend_curve,
+        0.25,
+        6.0,
+    );
+    config.camera_peripheral_stretch.blend_mode =
+        hwb_projection_runtime_text(resolution, rxrc::KEY_PERIPHERAL_STRETCH_BLEND_MODE)
+            .and_then(CameraPeripheralStretchBlendMode::parse)
+            .unwrap_or(config.camera_peripheral_stretch.blend_mode);
     config.camera_peripheral_stretch.corner_mode =
         hwb_projection_runtime_text(resolution, rxrc::KEY_PERIPHERAL_STRETCH_CORNER_MODE)
             .and_then(CameraPeripheralStretchCornerMode::parse)

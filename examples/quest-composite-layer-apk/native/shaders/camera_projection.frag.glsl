@@ -42,6 +42,7 @@ layout(push_constant) uniform CameraProjectionPush {
     vec4 color_adjust;
     vec4 effect_params;
     vec4 stretch_params;
+    vec4 stretch_blend_params;
     vec4 alpha_params;
     vec4 area_params;
     vec4 area_offset_params;
@@ -366,7 +367,7 @@ vec2 projection_area_half_size(int eye) {
     );
 }
 
-float resolve_camera_oval_distance(vec2 content_uv, int eye) {
+float target_footprint_signed_distance_uv(vec2 content_uv, int eye) {
     vec2 half_size = projection_area_half_size(eye);
     float corner_radius = clamp(
         pc.area_params.z,
@@ -376,7 +377,12 @@ float resolve_camera_oval_distance(vec2 content_uv, int eye) {
     vec2 q = abs(content_uv - vec2(0.5)) - (half_size - vec2(corner_radius));
     float outside = length(max(q, vec2(0.0)));
     float inside = min(max(q.x, q.y), 0.0);
-    float signed_distance = outside + inside - corner_radius;
+    return outside + inside - corner_radius;
+}
+
+float resolve_camera_oval_distance(vec2 content_uv, int eye) {
+    float signed_distance = target_footprint_signed_distance_uv(content_uv, eye);
+    vec2 half_size = projection_area_half_size(eye);
     return clamp(1.0 + signed_distance / max(min(half_size.x, half_size.y), 0.001), 0.0, 2.0);
 }
 
@@ -450,7 +456,8 @@ vec2 projection_area_rect_edge_uv(
     vec2 area_uv,
     int eye,
     vec2 domain_min_uv,
-    vec2 domain_max_uv
+    vec2 domain_max_uv,
+    bool force_edge_sample
 ) {
     vec2 half_size = projection_area_half_size(eye);
     float core_scale = clamp(pc.stretch_params.x, 0.05, 1.0);
@@ -458,10 +465,11 @@ vec2 projection_area_rect_edge_uv(
     vec2 p = area_uv - vec2(0.5);
     vec2 normalized = p / max(core_half_size, vec2(0.001));
     float edge_distance = max(abs(normalized.x), abs(normalized.y));
-    if (edge_distance <= 1.0) {
+    if (edge_distance <= 1.0 && !force_edge_sample) {
         return area_uv;
     }
 
+    float effective_edge_distance = force_edge_sample ? max(edge_distance, 1.0) : edge_distance;
     vec2 edge_normalized = normalized / max(edge_distance, 0.0001);
     vec2 edge_direction_uv = edge_normalized * core_half_size;
     vec2 bounded_min_uv = min(domain_min_uv, domain_max_uv);
@@ -480,7 +488,7 @@ vec2 projection_area_rect_edge_uv(
         reach_y = (bounded_min_uv.y - 0.5) / edge_direction_uv.y;
     }
     float exterior_reach = max(min(reach_x, reach_y) - 1.0, 0.0001);
-    float exterior_t = clamp((edge_distance - 1.0) / exterior_reach, 0.0, 1.0);
+    float exterior_t = clamp((effective_edge_distance - 1.0) / exterior_reach, 0.0, 1.0);
     exterior_t = smooth_unit(exterior_t);
 
     float edge_inset = clamp(pc.stretch_params.y, 0.0, 0.49);
@@ -491,6 +499,20 @@ vec2 projection_area_rect_edge_uv(
     vec2 sample_half_size = max(core_half_size - vec2(inset), vec2(0.001));
     vec2 sample_uv = vec2(0.5) + edge_normalized * sample_half_size;
     return clamp(sample_uv, bounded_min_uv, bounded_max_uv);
+}
+
+float peripheral_stretch_blend_weight(float signed_distance_uv) {
+    float inner_blend = clamp(pc.stretch_blend_params.x, 0.0, 0.25);
+    float blend_curve = clamp(pc.stretch_blend_params.y, 0.25, 6.0);
+    float blend_mode = floor(pc.stretch_blend_params.z + 0.5);
+    if (blend_mode < 0.5) {
+        return signed_distance_uv >= 0.0 ? 1.0 : 0.0;
+    }
+    if (inner_blend <= 0.0001) {
+        return signed_distance_uv >= 0.0 ? 1.0 : 0.0;
+    }
+    float t = smoothstep(-inner_blend, 0.0, signed_distance_uv);
+    return pow(t, blend_curve);
 }
 
 vec3 sample_source_eye_blur_raw(int source_eye, vec2 camera_uv, float radius_px) {
@@ -1058,19 +1080,34 @@ void main() {
     vec2 projection_screen_uv_base =
         (v_surface_uv - vec2(0.5)) * projection_area_scale + vec2(0.5);
     vec2 projection_area_domain_uv = projection_screen_uv_base - projection_area_offset;
-    float projection_area_distance = resolve_camera_oval_distance(projection_area_domain_uv, eye);
-    bool projection_area_inside = projection_area_distance <= 1.0;
+    vec2 canonical_projection_area_domain_uv = projection_area_domain_uv;
+    float projection_area_signed_distance_uv =
+        target_footprint_signed_distance_uv(canonical_projection_area_domain_uv, eye);
+    bool projection_area_inside = projection_area_signed_distance_uv <= 0.0;
+    float stretch_weight = raw_projection_peripheral_stretch
+        ? peripheral_stretch_blend_weight(projection_area_signed_distance_uv)
+        : 0.0;
     bool stretch_exterior = raw_projection_peripheral_stretch && !projection_area_inside;
-    if (stretch_exterior) {
+    bool target_transition_band = raw_projection_peripheral_stretch
+        && projection_area_inside
+        && stretch_weight > 0.0001;
+    bool stretch_effect_sample_region = stretch_exterior || target_transition_band;
+    if (stretch_effect_sample_region) {
         vec2 domain_min_uv =
             vec2(0.5) - vec2(0.5) * projection_area_scale - projection_area_offset;
         vec2 domain_max_uv =
             vec2(0.5) + vec2(0.5) * projection_area_scale - projection_area_offset;
-        projection_area_domain_uv = projection_area_rect_edge_uv(
-            projection_area_domain_uv,
+        vec2 stretch_projection_area_domain_uv = projection_area_rect_edge_uv(
+            canonical_projection_area_domain_uv,
             eye,
             domain_min_uv,
-            domain_max_uv
+            domain_max_uv,
+            stretch_weight > 0.0001
+        );
+        projection_area_domain_uv = mix(
+            canonical_projection_area_domain_uv,
+            stretch_projection_area_domain_uv,
+            clamp(stretch_weight, 0.0, 1.0)
         );
         projection_screen_uv_base = projection_area_domain_uv + projection_area_offset;
     }
@@ -1136,10 +1173,10 @@ void main() {
     bool source_uv_stretchable =
         abs(raw_projected_uv.x) <= 65536.0 &&
         abs(raw_projected_uv.y) <= 65536.0;
-    if (raw_projection_peripheral_stretch && stretch_exterior) {
-        // Source-invalid exterior pixels still belong to the explicit stretch
-        // branch. Core/source-valid failures must stay diagnostic and must not
-        // expand the effect footprint.
+    if (raw_projection_peripheral_stretch && stretch_effect_sample_region) {
+        // Source-invalid transition/exterior pixels still belong to the
+        // explicit stretch branch. Core/source-valid failures must stay
+        // diagnostic and must not expand the effect footprint.
         vec2 source_edge_epsilon = max(camera_texel_size(source_eye) * 0.5, vec2(0.0001));
         raw_projected_uv = clamp(raw_projected_uv, source_edge_epsilon, vec2(1.0) - source_edge_epsilon);
         projection_valid = content_surface_valid && source_uv_stretchable;
@@ -1231,10 +1268,22 @@ void main() {
         direct_projection_border_solid_red && (direct_border_region || direct_source_invalid_region)
         ? direct_diagnostic_color
         : clamp01(direct_color * direct_surface_edge_dim * direct_source_edge_dim);
-    if (raw_projection_peripheral_stretch && stretch_exterior && peripheral_stretch_debug == 2) {
-        direct_final_color = vec3(clamp(raw_projected_uv, vec2(0.0), vec2(1.0)), 0.0);
+    if (raw_projection_peripheral_stretch && stretch_effect_sample_region && peripheral_stretch_debug == 2) {
+        direct_final_color = vec3(
+            clamp(raw_projected_uv, vec2(0.0), vec2(1.0)),
+            target_transition_band ? 0.5 : 0.0
+        );
         direct_out_alpha = 1.0;
-    } else if (raw_projection_peripheral_stretch && stretch_exterior && peripheral_stretch_debug == 1) {
+    } else if (raw_projection_peripheral_stretch
+        && target_transition_band
+        && peripheral_stretch_debug == 1
+        && !direct_source_invalid_region) {
+        direct_final_color = mix(direct_final_color, vec3(1.0, 0.85, 0.0), 0.65);
+        direct_out_alpha = 1.0;
+    } else if (raw_projection_peripheral_stretch
+        && stretch_exterior
+        && peripheral_stretch_debug == 1
+        && !direct_source_invalid_region) {
         direct_final_color = vec3(0.0, 1.0, 1.0);
         direct_out_alpha = 1.0;
     }
@@ -1320,10 +1369,22 @@ void main() {
             (raw_projection_border_region || raw_projection_source_invalid_region)) {
         final_color = raw_projection_diagnostic_color;
     }
-    if (raw_projection_peripheral_stretch && stretch_exterior && peripheral_stretch_debug == 2) {
-        final_color = vec3(clamp(raw_projected_uv, vec2(0.0), vec2(1.0)), 0.0);
+    if (raw_projection_peripheral_stretch && stretch_effect_sample_region && peripheral_stretch_debug == 2) {
+        final_color = vec3(
+            clamp(raw_projected_uv, vec2(0.0), vec2(1.0)),
+            target_transition_band ? 0.5 : 0.0
+        );
         out_alpha = 1.0;
-    } else if (raw_projection_peripheral_stretch && stretch_exterior && peripheral_stretch_debug == 1) {
+    } else if (raw_projection_peripheral_stretch
+        && target_transition_band
+        && peripheral_stretch_debug == 1
+        && !raw_projection_source_invalid_region) {
+        final_color = mix(final_color, vec3(1.0, 0.85, 0.0), 0.65);
+        out_alpha = 1.0;
+    } else if (raw_projection_peripheral_stretch
+        && stretch_exterior
+        && peripheral_stretch_debug == 1
+        && !raw_projection_source_invalid_region) {
         final_color = vec3(0.0, 1.0, 1.0);
         out_alpha = 1.0;
     }

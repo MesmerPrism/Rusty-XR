@@ -206,6 +206,9 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
                 ("rustyxr.peripheralStretchEdgeInsetUv", "peripheralStretchEdgeInsetUv"),
                 ("rustyxr.peripheralStretchMaxInsetUv", "peripheralStretchMaxInsetUv"),
                 ("rustyxr.peripheralStretchCurve", "peripheralStretchCurve"),
+                ("rustyxr.peripheralStretchInnerBlendUv", "peripheralStretchInnerBlendUv"),
+                ("rustyxr.peripheralStretchBlendCurve", "peripheralStretchBlendCurve"),
+                ("rustyxr.peripheralStretchBlendMode", "peripheralStretchBlendMode"),
                 ("rustyxr.peripheralStretchDebug", "peripheralStretchDebug"),
                 ("rustyxr.makepad.projection.sample.mode", "projectionSampleMode"),
                 ("rustyxr.cameraBlurRadiusPx", "blurRadiusPx"),
@@ -466,9 +469,21 @@ def projection_effect_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "peripheral_stretch_edge_inset_uv": parse_float(fields.get("peripheralStretchEdgeInsetUv")),
         "peripheral_stretch_max_inset_uv": parse_float(fields.get("peripheralStretchMaxInsetUv")),
         "peripheral_stretch_curve": parse_float(fields.get("peripheralStretchCurve")),
+        "peripheral_stretch_inner_blend_uv": parse_float(fields.get("peripheralStretchInnerBlendUv")),
+        "peripheral_stretch_blend_curve": parse_float(fields.get("peripheralStretchBlendCurve")),
+        "peripheral_stretch_blend_mode": nonempty_text(fields.get("peripheralStretchBlendMode")),
         "peripheral_stretch_debug": nonempty_text(fields.get("peripheralStretchDebug")),
         "peripheral_stretch_core_region": nonempty_text(fields.get("peripheralStretchCoreRegion")),
+        "peripheral_stretch_transition_region": nonempty_text(
+            fields.get("peripheralStretchTransitionRegion")
+        ),
+        "peripheral_stretch_exterior_region": nonempty_text(fields.get("peripheralStretchExteriorRegion")),
+        "peripheral_stretch_transition_space": nonempty_text(fields.get("peripheralStretchTransitionSpace")),
+        "peripheral_stretch_transition_semantics": nonempty_text(
+            fields.get("peripheralStretchTransitionSemantics")
+        ),
         "peripheral_stretch_border_source": nonempty_text(fields.get("peripheralStretchBorderSource")),
+        "peripheral_stretch_exterior_source": nonempty_text(fields.get("peripheralStretchExteriorSource")),
         "peripheral_stretch_consumes_projection_exterior": parse_bool(
             fields.get("peripheralStretchConsumesProjectionExterior")
         ),
@@ -979,7 +994,20 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
         ("peripheralStretchEdgeInsetUv", "peripheral_stretch_edge_inset_uv", parse_float),
         ("peripheralStretchMaxInsetUv", "peripheral_stretch_max_inset_uv", parse_float),
         ("peripheralStretchCurve", "peripheral_stretch_curve", parse_float),
+        ("peripheralStretchInnerBlendUv", "peripheral_stretch_inner_blend_uv", parse_float),
+        ("peripheralStretchBlendCurve", "peripheral_stretch_blend_curve", parse_float),
+        ("peripheralStretchBlendMode", "peripheral_stretch_blend_mode", nonempty_text),
         ("peripheralStretchDebug", "peripheral_stretch_debug", nonempty_text),
+        ("peripheralStretchCoreRegion", "peripheral_stretch_core_region", nonempty_text),
+        ("peripheralStretchTransitionRegion", "peripheral_stretch_transition_region", nonempty_text),
+        ("peripheralStretchExteriorRegion", "peripheral_stretch_exterior_region", nonempty_text),
+        ("peripheralStretchTransitionSpace", "peripheral_stretch_transition_space", nonempty_text),
+        (
+            "peripheralStretchTransitionSemantics",
+            "peripheral_stretch_transition_semantics",
+            nonempty_text,
+        ),
+        ("peripheralStretchExteriorSource", "peripheral_stretch_exterior_source", nonempty_text),
         ("projectionTargetOffsetXUv", "projection_target_offset_x_uv", parse_float),
         ("projectionTargetOffsetYUv", "projection_target_offset_y_uv", parse_float),
         ("projectionTargetScale", "projection_target_scale", parse_float),
@@ -1157,6 +1185,11 @@ def build_run_config_summary(context_fields: dict[str, Any]) -> dict[str, Any]:
         ),
         "peripheral_stretch_max_inset_uv": parse_float(context_fields.get("peripheralStretchMaxInsetUv")),
         "peripheral_stretch_curve": parse_float(context_fields.get("peripheralStretchCurve")),
+        "peripheral_stretch_inner_blend_uv": parse_float(
+            context_fields.get("peripheralStretchInnerBlendUv")
+        ),
+        "peripheral_stretch_blend_curve": parse_float(context_fields.get("peripheralStretchBlendCurve")),
+        "peripheral_stretch_blend_mode": nonempty_text(context_fields.get("peripheralStretchBlendMode")),
         "peripheral_stretch_debug": nonempty_text(context_fields.get("peripheralStretchDebug")),
     }
 
@@ -1195,9 +1228,17 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
             "edge_inset_uv": projection.get("peripheral_stretch_edge_inset_uv"),
             "max_inset_uv": projection.get("peripheral_stretch_max_inset_uv"),
             "curve": projection.get("peripheral_stretch_curve"),
+            "inner_blend_uv": projection.get("peripheral_stretch_inner_blend_uv"),
+            "blend_curve": projection.get("peripheral_stretch_blend_curve"),
+            "blend_mode": projection.get("peripheral_stretch_blend_mode"),
             "debug": projection.get("peripheral_stretch_debug"),
             "core_region": projection.get("peripheral_stretch_core_region"),
+            "transition_region": projection.get("peripheral_stretch_transition_region"),
+            "exterior_region": projection.get("peripheral_stretch_exterior_region"),
+            "transition_space": projection.get("peripheral_stretch_transition_space"),
+            "transition_semantics": projection.get("peripheral_stretch_transition_semantics"),
             "border_source": projection.get("peripheral_stretch_border_source"),
+            "exterior_source": projection.get("peripheral_stretch_exterior_source"),
             "consumes_projection_exterior": projection.get(
                 "peripheral_stretch_consumes_projection_exterior"
             ),

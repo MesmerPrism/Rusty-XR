@@ -44,6 +44,10 @@ param(
     [string]$ProcessingLayer = "raw",
     [ValidateSet("off", "regions", "sample-uv")]
     [string]$PeripheralStretchDebug = "off",
+    [double]$PeripheralStretchInnerBlendUv = 0.0,
+    [double]$PeripheralStretchBlendCurve = 1.5,
+    [ValidateSet("off", "target-inner-band")]
+    [string]$PeripheralStretchBlendMode = "target-inner-band",
     [ValidateSet("suite-default", "target-local-raster", "screen-to-camera-homography")]
     [string]$SourceSamplingMode = "suite-default",
     [ValidateSet("default", "homography-reference-bounds")]
@@ -305,6 +309,9 @@ $blurRadiusPxText = Format-LaunchFloat -Value $BlurRadiusPx
 $processingLayerOverride = @(
     ("rustyxr.processingLayer={0}" -f $ProcessingLayer),
     ("rustyxr.peripheralStretchDebug={0}" -f $PeripheralStretchDebug),
+    ("rustyxr.peripheralStretchInnerBlendUv={0}" -f (Format-LaunchFloat -Value $PeripheralStretchInnerBlendUv)),
+    ("rustyxr.peripheralStretchBlendCurve={0}" -f (Format-LaunchFloat -Value $PeripheralStretchBlendCurve)),
+    ("rustyxr.peripheralStretchBlendMode={0}" -f $PeripheralStretchBlendMode),
     ("rustyxr.cameraBlurRadiusPx={0}" -f $blurRadiusPxText)
 ) -join ","
 $sourceSamplingOverride = if ($SourceSamplingMode -eq "suite-default") {
@@ -1673,6 +1680,9 @@ $summary = [ordered]@{
     projectionBorderPolicy = $ProjectionBorderPolicy
     processingLayer = $ProcessingLayer
     peripheralStretchDebug = $PeripheralStretchDebug
+    peripheralStretchInnerBlendUv = $PeripheralStretchInnerBlendUv
+    peripheralStretchBlendCurve = $PeripheralStretchBlendCurve
+    peripheralStretchBlendMode = $PeripheralStretchBlendMode
     sourceSamplingMode = $SourceSamplingMode
     targetLocalRasterFootprint = $TargetLocalRasterFootprint
         blurRadiusPx = $BlurRadiusPx

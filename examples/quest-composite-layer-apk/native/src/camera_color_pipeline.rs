@@ -156,6 +156,39 @@ impl CameraPeripheralStretchCornerMode {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CameraPeripheralStretchBlendMode {
+    Off,
+    #[default]
+    TargetInnerBand,
+}
+
+impl CameraPeripheralStretchBlendMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "" | "target-inner-band" | "inner-band" | "target-footprint-inner-band" => {
+                Some(Self::TargetInnerBand)
+            }
+            "0" | "false" | "no" | "off" | "disabled" => Some(Self::Off),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::TargetInnerBand => "target-inner-band",
+        }
+    }
+
+    pub(crate) const fn shader_code(self) -> f32 {
+        match self {
+            Self::Off => 0.0,
+            Self::TargetInnerBand => 1.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum CameraPeripheralStretchDebug {
     #[default]
     Off,
@@ -197,6 +230,9 @@ pub(crate) struct CameraPeripheralStretchConfig {
     pub(crate) edge_inset_uv: f32,
     pub(crate) max_inset_uv: f32,
     pub(crate) curve: f32,
+    pub(crate) inner_blend_uv: f32,
+    pub(crate) blend_curve: f32,
+    pub(crate) blend_mode: CameraPeripheralStretchBlendMode,
     pub(crate) corner_mode: CameraPeripheralStretchCornerMode,
     pub(crate) debug: CameraPeripheralStretchDebug,
 }
@@ -209,6 +245,9 @@ impl Default for CameraPeripheralStretchConfig {
             edge_inset_uv: 0.015,
             max_inset_uv: 0.14,
             curve: 1.6,
+            inner_blend_uv: 0.0,
+            blend_curve: 1.5,
+            blend_mode: CameraPeripheralStretchBlendMode::default(),
             corner_mode: CameraPeripheralStretchCornerMode::default(),
             debug: CameraPeripheralStretchDebug::default(),
         }
@@ -229,7 +268,10 @@ impl CameraPeripheralStretchConfig {
                 edge_inset_uv,
                 0.49,
             ),
-            curve: sanitize_f32(self.curve, defaults.curve, 0.05, 8.0),
+            curve: sanitize_f32(self.curve, defaults.curve, 0.25, 6.0),
+            inner_blend_uv: sanitize_f32(self.inner_blend_uv, defaults.inner_blend_uv, 0.0, 0.25),
+            blend_curve: sanitize_f32(self.blend_curve, defaults.blend_curve, 0.25, 6.0),
+            blend_mode: self.blend_mode,
             corner_mode: self.corner_mode,
             debug: self.debug,
         }

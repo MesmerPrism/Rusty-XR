@@ -22,6 +22,7 @@ pub(super) struct OesCopyUniformLocations {
     blur_radius_px_location: c_int,
     peripheral_stretch_mode_location: c_int,
     peripheral_stretch_params_location: c_int,
+    peripheral_stretch_blend_params_location: c_int,
     peripheral_stretch_corner_mode_location: c_int,
     peripheral_stretch_debug_location: c_int,
     projection_area_eye_offset_uv_location: c_int,
@@ -65,6 +66,10 @@ impl OesCopyUniformLocations {
             peripheral_stretch_params_location: uniform_location(
                 program,
                 "u_peripheral_stretch_params",
+            )?,
+            peripheral_stretch_blend_params_location: uniform_location(
+                program,
+                "u_peripheral_stretch_blend_params",
             )?,
             peripheral_stretch_corner_mode_location: uniform_location(
                 program,
@@ -148,6 +153,13 @@ impl OesCopyUniformLocations {
                 peripheral_stretch.edge_inset_uv,
                 peripheral_stretch.max_inset_uv,
                 peripheral_stretch.curve,
+            );
+            glUniform4f(
+                self.peripheral_stretch_blend_params_location,
+                peripheral_stretch.inner_blend_uv,
+                peripheral_stretch.blend_curve,
+                peripheral_stretch.blend_mode.shader_id() as f32,
+                0.0,
             );
             glUniform1i(
                 self.peripheral_stretch_corner_mode_location,

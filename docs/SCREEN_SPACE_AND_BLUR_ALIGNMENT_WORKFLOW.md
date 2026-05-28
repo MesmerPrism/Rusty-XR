@@ -197,8 +197,10 @@ Keep source kind, processing layer, and projection exterior fill independent:
   the submitted projection surface in raw/blur footprint evidence runs;
 - `processingLayer=peripheral-stretch` is an effect run, not a raw mask
   measurement. For metadata-backed target-local runs, the coherent core is the
-  resolved target footprint and the effect exterior is the visible render
-  surface outside that target footprint.
+  resolved target footprint minus any configured inner transition band, the
+  transition band is a processing-layer subregion inside the target footprint,
+  and the effect exterior is the visible render surface outside that target
+  footprint.
 
 The solid-red fill is not a diagnostic guide border. It is the current hard
 matte for pixels outside the camera-feed footprint when no exterior effect
