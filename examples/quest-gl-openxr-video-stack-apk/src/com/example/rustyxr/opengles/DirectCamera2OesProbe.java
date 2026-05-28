@@ -96,7 +96,8 @@ public final class DirectCamera2OesProbe {
             config.height,
             config.frameRateHz,
             config.projectionGeometryProfile,
-            config.sourceSamplingMode);
+            config.sourceSamplingMode,
+            config.leftTargetScreenUvRect);
         EyeCamera right = new EyeCamera(
             activity,
             1,
@@ -108,7 +109,8 @@ public final class DirectCamera2OesProbe {
             config.height,
             config.frameRateHz,
             config.projectionGeometryProfile,
-            config.sourceSamplingMode);
+            config.sourceSamplingMode,
+            config.rightTargetScreenUvRect);
         DirectCamera2OesProbe probe = new DirectCamera2OesProbe(left, right);
         emitReport(baseReport("start", config));
         left.start(probe.running);
@@ -136,6 +138,8 @@ public final class DirectCamera2OesProbe {
             report.put("requested_frame_rate_hz", config.frameRateHz);
             report.put("projection_geometry_profile", config.projectionGeometryProfile);
             report.put("source_sampling_mode", config.sourceSamplingMode);
+            report.put("left_target_screen_uv_rect", config.leftTargetScreenUvRect.toCsv());
+            report.put("right_target_screen_uv_rect", config.rightTargetScreenUvRect.toCsv());
         } catch (Exception ignored) {
         }
         return report;
@@ -226,6 +230,76 @@ public final class DirectCamera2OesProbe {
         return CONTENT_MAPPING_CAMERA_FULL_FRAME;
     }
 
+    private static final class TargetScreenUvRect {
+        static final TargetScreenUvRect DEFAULT = new TargetScreenUvRect(
+            DEFAULT_TARGET_SCREEN_X,
+            DEFAULT_TARGET_SCREEN_Y,
+            DEFAULT_TARGET_SCREEN_WIDTH,
+            DEFAULT_TARGET_SCREEN_HEIGHT);
+
+        final double x;
+        final double y;
+        final double width;
+        final double height;
+
+        TargetScreenUvRect(double x, double y, double width, double height) {
+            this.x = clamp01(x);
+            this.y = clamp01(y);
+            this.width = clampSize(width, this.x);
+            this.height = clampSize(height, this.y);
+        }
+
+        static TargetScreenUvRect parseOrDefault(String value, TargetScreenUvRect fallback) {
+            TargetScreenUvRect parsed = parse(value);
+            return parsed != null ? parsed : fallback;
+        }
+
+        String toCsv() {
+            return String.format(
+                Locale.US,
+                "%.6f,%.6f,%.6f,%.6f",
+                x,
+                y,
+                width,
+                height);
+        }
+
+        private static TargetScreenUvRect parse(String value) {
+            if (value == null || value.trim().isEmpty()) {
+                return null;
+            }
+            String[] parts = value.trim().split("[,; ]+");
+            if (parts.length != 4) {
+                Log.w(TAG, "Ignoring target screen UV rect with invalid component count: " + value);
+                return null;
+            }
+            try {
+                return new TargetScreenUvRect(
+                    Double.parseDouble(parts[0]),
+                    Double.parseDouble(parts[1]),
+                    Double.parseDouble(parts[2]),
+                    Double.parseDouble(parts[3]));
+            } catch (NumberFormatException error) {
+                Log.w(TAG, "Ignoring target screen UV rect with invalid numeric value: " + value);
+                return null;
+            }
+        }
+
+        private static double clamp01(double value) {
+            if (Double.isNaN(value) || Double.isInfinite(value)) {
+                return 0.0;
+            }
+            return Math.max(0.0, Math.min(1.0, value));
+        }
+
+        private static double clampSize(double value, double origin) {
+            if (Double.isNaN(value) || Double.isInfinite(value)) {
+                return 0.01;
+            }
+            return Math.max(0.01, Math.min(1.0 - origin, value));
+        }
+    }
+
     private static final class Config {
         final String leftCameraId;
         final String rightCameraId;
@@ -234,6 +308,8 @@ public final class DirectCamera2OesProbe {
         final int frameRateHz;
         final String projectionGeometryProfile;
         final String sourceSamplingMode;
+        final TargetScreenUvRect leftTargetScreenUvRect;
+        final TargetScreenUvRect rightTargetScreenUvRect;
 
         Config(
             String leftCameraId,
@@ -242,7 +318,9 @@ public final class DirectCamera2OesProbe {
             int height,
             int frameRateHz,
             String projectionGeometryProfile,
-            String sourceSamplingMode) {
+            String sourceSamplingMode,
+            TargetScreenUvRect leftTargetScreenUvRect,
+            TargetScreenUvRect rightTargetScreenUvRect) {
             this.leftCameraId = leftCameraId != null && leftCameraId.length() > 0 ? leftCameraId : "50";
             this.rightCameraId = rightCameraId != null && rightCameraId.length() > 0 ? rightCameraId : "51";
             this.width = Math.max(16, width);
@@ -251,6 +329,12 @@ public final class DirectCamera2OesProbe {
             this.projectionGeometryProfile = normalizeProjectionGeometryProfile(projectionGeometryProfile);
             this.sourceSamplingMode =
                 normalizeSourceSamplingMode(sourceSamplingMode, this.projectionGeometryProfile);
+            this.leftTargetScreenUvRect = leftTargetScreenUvRect != null
+                ? leftTargetScreenUvRect
+                : TargetScreenUvRect.DEFAULT;
+            this.rightTargetScreenUvRect = rightTargetScreenUvRect != null
+                ? rightTargetScreenUvRect
+                : this.leftTargetScreenUvRect;
         }
 
         static Config fromActivity(Activity activity, int defaultWidth, int defaultHeight, int defaultFrameRateHz) {
@@ -263,6 +347,21 @@ public final class DirectCamera2OesProbe {
                 activity,
                 "rustyxr.directCamera2OesRightCameraId",
                 stringExtra(activity, "rustyxr.brokerH264RightCameraId", ""));
+            TargetScreenUvRect defaultTargetRect = TargetScreenUvRect.parseOrDefault(
+                stringExtra(activity, "rustyxr.cameraTargetScreenUvRect", ""),
+                TargetScreenUvRect.DEFAULT);
+            TargetScreenUvRect leftTargetRect = TargetScreenUvRect.parseOrDefault(
+                stringExtra(
+                    activity,
+                    "rustyxr.directCamera2OesLeftTargetScreenUvRect",
+                    stringExtra(activity, "rustyxr.cameraLeftTargetScreenUvRect", "")),
+                defaultTargetRect);
+            TargetScreenUvRect rightTargetRect = TargetScreenUvRect.parseOrDefault(
+                stringExtra(
+                    activity,
+                    "rustyxr.directCamera2OesRightTargetScreenUvRect",
+                    stringExtra(activity, "rustyxr.cameraRightTargetScreenUvRect", "")),
+                defaultTargetRect);
             return new Config(
                 leftCameraId,
                 rightCameraId,
@@ -288,7 +387,9 @@ public final class DirectCamera2OesProbe {
                 stringExtra(
                     activity,
                     "rustyxr.directCamera2OesSourceSamplingMode",
-                    stringExtra(activity, "rustyxr.cameraSourceSamplingMode", "")));
+                    stringExtra(activity, "rustyxr.cameraSourceSamplingMode", "")),
+                leftTargetRect,
+                rightTargetRect);
         }
     }
 
@@ -304,6 +405,7 @@ public final class DirectCamera2OesProbe {
         final int frameRateHz;
         final String projectionGeometryProfile;
         final String sourceSamplingMode;
+        final TargetScreenUvRect targetScreenUvRect;
         final AtomicLong sequence = new AtomicLong(0L);
 
         HandlerThread thread;
@@ -322,7 +424,8 @@ public final class DirectCamera2OesProbe {
             int height,
             int frameRateHz,
             String projectionGeometryProfile,
-            String sourceSamplingMode) {
+            String sourceSamplingMode,
+            TargetScreenUvRect targetScreenUvRect) {
             this.activity = activity;
             this.viewIndex = viewIndex;
             this.eye = eye;
@@ -334,6 +437,9 @@ public final class DirectCamera2OesProbe {
             this.frameRateHz = frameRateHz;
             this.projectionGeometryProfile = projectionGeometryProfile;
             this.sourceSamplingMode = sourceSamplingMode;
+            this.targetScreenUvRect = targetScreenUvRect != null
+                ? targetScreenUvRect
+                : TargetScreenUvRect.DEFAULT;
         }
 
         void start(AtomicBoolean running) {
@@ -516,7 +622,7 @@ public final class DirectCamera2OesProbe {
                 contentMappingIntentForSourceSamplingMode(sourceSamplingMode));
             metadata.put("contentGeometryMetadataSource", "direct-camera2-oes-characteristics");
             metadata.put("contentGeometryDefault", false);
-            putDefaultTargetFootprint(metadata, "direct-camera2-oes-characteristics");
+            putTargetFootprint(metadata, "direct-camera2-oes-characteristics", targetScreenUvRect);
             Integer lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
             metadata.put("lensFacing", lensFacingLabel(lensFacing));
             metadata.put("lensFacingRank", lensFacingRank(lensFacing));
@@ -591,12 +697,16 @@ public final class DirectCamera2OesProbe {
             return metadata;
         }
 
-        private static void putDefaultTargetFootprint(JSONObject metadata, String metadataSource) throws Exception {
+        private static void putTargetFootprint(
+            JSONObject metadata,
+            String metadataSource,
+            TargetScreenUvRect rect) throws Exception {
+            TargetScreenUvRect resolvedRect = rect != null ? rect : TargetScreenUvRect.DEFAULT;
             JSONObject targetRect = new JSONObject();
-            targetRect.put("x", DEFAULT_TARGET_SCREEN_X);
-            targetRect.put("y", DEFAULT_TARGET_SCREEN_Y);
-            targetRect.put("width", DEFAULT_TARGET_SCREEN_WIDTH);
-            targetRect.put("height", DEFAULT_TARGET_SCREEN_HEIGHT);
+            targetRect.put("x", resolvedRect.x);
+            targetRect.put("y", resolvedRect.y);
+            targetRect.put("width", resolvedRect.width);
+            targetRect.put("height", resolvedRect.height);
             metadata.put("targetFootprintSchema", TARGET_FOOTPRINT_SCHEMA);
             metadata.put("targetCoordinateSpace", "display-eye-screen-uv");
             metadata.put("targetScreenUvRect", targetRect);

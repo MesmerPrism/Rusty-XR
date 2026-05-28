@@ -652,6 +652,15 @@ public final class CompositeLayerActivity extends NativeActivity {
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_SOURCE_SAMPLING_MODE,
             stringExtra("rustyxr.cameraSourceSamplingMode", ""));
+        serviceIntent.putExtra(
+            HeadsetCameraService.EXTRA_TARGET_SCREEN_UV_RECT,
+            stringExtra("rustyxr.cameraTargetScreenUvRect", ""));
+        serviceIntent.putExtra(
+            HeadsetCameraService.EXTRA_LEFT_TARGET_SCREEN_UV_RECT,
+            stringExtra("rustyxr.cameraLeftTargetScreenUvRect", ""));
+        serviceIntent.putExtra(
+            HeadsetCameraService.EXTRA_RIGHT_TARGET_SCREEN_UV_RECT,
+            stringExtra("rustyxr.cameraRightTargetScreenUvRect", ""));
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_CAMERA_TIER, cameraTier());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_STEREO_LAYOUT, cameraStereoLayout());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_ALLOW_CPU_FALLBACK, allowCpuFallback());

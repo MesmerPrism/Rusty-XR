@@ -84,6 +84,9 @@ public final class HeadsetCameraService extends Service {
     public static final String EXTRA_STEREO_IMAGE_READER_MAX_IMAGES = "stereoImageReaderMaxImages";
     public static final String EXTRA_PROJECTION_GEOMETRY_PROFILE = "projectionGeometryProfile";
     public static final String EXTRA_SOURCE_SAMPLING_MODE = "sourceSamplingMode";
+    public static final String EXTRA_TARGET_SCREEN_UV_RECT = "targetScreenUvRect";
+    public static final String EXTRA_LEFT_TARGET_SCREEN_UV_RECT = "leftTargetScreenUvRect";
+    public static final String EXTRA_RIGHT_TARGET_SCREEN_UV_RECT = "rightTargetScreenUvRect";
 
     private static final String TAG = "RustyXrHeadsetCamera";
     private static final String HEADSET_CAMERA_PERMISSION = "horizonos.permission.HEADSET_CAMERA";
@@ -147,6 +150,9 @@ public final class HeadsetCameraService extends Service {
     private String poseCoordinateConvention;
     private String projectionGeometryProfile;
     private String sourceSamplingMode;
+    private TargetScreenUvRect targetScreenUvRect;
+    private TargetScreenUvRect leftTargetScreenUvRect;
+    private TargetScreenUvRect rightTargetScreenUvRect;
     private float estimatedPoseX;
     private float estimatedPoseY;
     private float estimatedPoseZ;
@@ -289,6 +295,15 @@ public final class HeadsetCameraService extends Service {
         sourceSamplingMode = normalizeSourceSamplingMode(
             intent != null ? intent.getStringExtra(EXTRA_SOURCE_SAMPLING_MODE) : null,
             projectionGeometryProfile);
+        targetScreenUvRect = TargetScreenUvRect.parseOrDefault(
+            intent != null ? intent.getStringExtra(EXTRA_TARGET_SCREEN_UV_RECT) : null,
+            TargetScreenUvRect.DEFAULT);
+        leftTargetScreenUvRect = TargetScreenUvRect.parseOrDefault(
+            intent != null ? intent.getStringExtra(EXTRA_LEFT_TARGET_SCREEN_UV_RECT) : null,
+            targetScreenUvRect);
+        rightTargetScreenUvRect = TargetScreenUvRect.parseOrDefault(
+            intent != null ? intent.getStringExtra(EXTRA_RIGHT_TARGET_SCREEN_UV_RECT) : null,
+            targetScreenUvRect);
         if (cameraTier == null || cameraTier.trim().isEmpty()) {
             cameraTier = TIER_CPU_DIAGNOSTIC;
         }
@@ -1741,7 +1756,8 @@ public final class HeadsetCameraService extends Service {
             projectionGeometryProfile,
             sourceSamplingMode,
             contentMappingIntentForSourceSamplingMode(sourceSamplingMode),
-            "headset-camera-service-camera2");
+            "headset-camera-service-camera2",
+            targetScreenUvRect);
         appendFpsTelemetry(builder, requestedCameraFpsRange(), monoAppliedAeFpsRange, monoDeliveryStats);
         if (sensorOrientation != null) {
             builder.append(",\"sensorOrientationDegrees\":").append(sensorOrientation.intValue());
@@ -1843,7 +1859,8 @@ public final class HeadsetCameraService extends Service {
             projectionGeometryProfile,
             sourceSamplingMode,
             contentMappingIntentForSourceSamplingMode(sourceSamplingMode),
-            "headset-camera-service-stereo-camera2");
+            "headset-camera-service-stereo-camera2",
+            leftEye ? leftTargetScreenUvRect : rightTargetScreenUvRect);
         Range<Integer> appliedRange = leftEye ? leftAppliedAeFpsRange : rightAppliedAeFpsRange;
         if (appliedRange == null && logicalStereoAppliedAeFpsRange != null) {
             appliedRange = logicalStereoAppliedAeFpsRange;
@@ -2256,7 +2273,8 @@ public final class HeadsetCameraService extends Service {
         String projectionGeometryProfile,
         String sourceSamplingMode,
         String mappingIntent,
-        String metadataSource) {
+        String metadataSource,
+        TargetScreenUvRect targetRect) {
         float aspectRatio = width > 0 && height > 0 ? (float) width / (float) height : 1.0f;
         Rect normalizedCrop = normalizedImageCropRect(cropRect, width, height);
         boolean cropReported = cropRect != null;
@@ -2327,25 +2345,89 @@ public final class HeadsetCameraService extends Service {
         builder.append(',');
         appendJsonString(builder, "contentGeometryMetadataSource", metadataSource);
         builder.append(",\"contentGeometryDefault\":false");
-        appendDefaultTargetFootprint(builder, metadataSource);
+        appendTargetFootprint(builder, metadataSource, targetRect);
     }
 
-    private static void appendDefaultTargetFootprint(StringBuilder builder, String metadataSource) {
+    private static void appendTargetFootprint(
+        StringBuilder builder,
+        String metadataSource,
+        TargetScreenUvRect targetRect) {
+        TargetScreenUvRect rect = targetRect != null ? targetRect : TargetScreenUvRect.DEFAULT;
         builder.append(',');
         appendJsonString(builder, "targetFootprintSchema", TARGET_FOOTPRINT_SCHEMA);
         builder.append(',');
         appendJsonString(builder, "targetCoordinateSpace", "display-eye-screen-uv");
         builder.append(",\"targetScreenUvRect\":{");
-        builder.append("\"x\":").append(floatJson(DEFAULT_TARGET_SCREEN_X));
-        builder.append(",\"y\":").append(floatJson(DEFAULT_TARGET_SCREEN_Y));
-        builder.append(",\"width\":").append(floatJson(DEFAULT_TARGET_SCREEN_WIDTH));
-        builder.append(",\"height\":").append(floatJson(DEFAULT_TARGET_SCREEN_HEIGHT));
+        builder.append("\"x\":").append(floatJson(rect.x));
+        builder.append(",\"y\":").append(floatJson(rect.y));
+        builder.append(",\"width\":").append(floatJson(rect.width));
+        builder.append(",\"height\":").append(floatJson(rect.height));
         builder.append('}');
         builder.append(',');
         appendJsonString(builder, "targetClipPolicy", "clip-to-visible-eye");
         builder.append(',');
         appendJsonString(builder, "targetFootprintMetadataSource", metadataSource);
         builder.append(",\"targetFootprintDefault\":false");
+    }
+
+    private static final class TargetScreenUvRect {
+        static final TargetScreenUvRect DEFAULT = new TargetScreenUvRect(
+            DEFAULT_TARGET_SCREEN_X,
+            DEFAULT_TARGET_SCREEN_Y,
+            DEFAULT_TARGET_SCREEN_WIDTH,
+            DEFAULT_TARGET_SCREEN_HEIGHT);
+
+        final float x;
+        final float y;
+        final float width;
+        final float height;
+
+        TargetScreenUvRect(float x, float y, float width, float height) {
+            this.x = clamp01(x);
+            this.y = clamp01(y);
+            this.width = clampSize(width, this.x);
+            this.height = clampSize(height, this.y);
+        }
+
+        static TargetScreenUvRect parseOrDefault(String value, TargetScreenUvRect fallback) {
+            TargetScreenUvRect parsed = parse(value);
+            return parsed != null ? parsed : fallback;
+        }
+
+        private static TargetScreenUvRect parse(String value) {
+            if (value == null || value.trim().isEmpty()) {
+                return null;
+            }
+            String[] parts = value.trim().split("[,; ]+");
+            if (parts.length != 4) {
+                Log.w(TAG, "Ignoring target screen UV rect with invalid component count: " + value);
+                return null;
+            }
+            try {
+                return new TargetScreenUvRect(
+                    Float.parseFloat(parts[0]),
+                    Float.parseFloat(parts[1]),
+                    Float.parseFloat(parts[2]),
+                    Float.parseFloat(parts[3]));
+            } catch (NumberFormatException error) {
+                Log.w(TAG, "Ignoring target screen UV rect with invalid numeric value: " + value);
+                return null;
+            }
+        }
+
+        private static float clamp01(float value) {
+            if (Float.isNaN(value) || Float.isInfinite(value)) {
+                return 0.0f;
+            }
+            return Math.max(0.0f, Math.min(1.0f, value));
+        }
+
+        private static float clampSize(float value, float origin) {
+            if (Float.isNaN(value) || Float.isInfinite(value)) {
+                return 0.01f;
+            }
+            return Math.max(0.01f, Math.min(1.0f - origin, value));
+        }
     }
 
     private static Rect normalizedImageCropRect(Rect cropRect, int width, int height) {

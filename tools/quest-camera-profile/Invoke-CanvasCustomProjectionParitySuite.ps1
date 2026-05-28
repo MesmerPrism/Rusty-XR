@@ -46,6 +46,8 @@ param(
     [string]$PeripheralStretchDebug = "off",
     [ValidateSet("suite-default", "target-local-raster", "screen-to-camera-homography")]
     [string]$SourceSamplingMode = "suite-default",
+    [ValidateSet("default", "homography-reference-bounds")]
+    [string]$TargetLocalRasterFootprint = "default",
     [double]$BlurRadiusPx = 2.0,
     [double]$ProjectionAreaOpacity = 1.0,
     [double]$ProjectionBorderOpacity = 1.0,
@@ -313,6 +315,17 @@ $sourceSamplingOverride = if ($SourceSamplingMode -eq "suite-default") {
         ("rustyxr.directCamera2OesSourceSamplingMode={0}" -f $SourceSamplingMode),
         ("rustyxr.brokerH264SourceSamplingMode={0}" -f $SourceSamplingMode)
     ) -join ","
+}
+$targetLocalRasterFootprintOverride = switch ($TargetLocalRasterFootprint) {
+    "default" { "" }
+    "homography-reference-bounds" {
+        @(
+            "rustyxr.cameraLeftTargetScreenUvRect=0.171875;0.21875;0.75;0.65625",
+            "rustyxr.cameraRightTargetScreenUvRect=0.078125;0.21875;0.75;0.671875",
+            "rustyxr.directCamera2OesLeftTargetScreenUvRect=0.171875;0.21875;0.75;0.65625",
+            "rustyxr.directCamera2OesRightTargetScreenUvRect=0.078125;0.21875;0.75;0.671875"
+        ) -join ","
+    }
 }
 $ExpectedMakepadSourceEyeMapping = "display-left-from-left-source"
 $brokerSourceRequested = $SourceMode -eq "broker-camera" -or $SourceMode -eq "broker-synthetic"
@@ -1545,6 +1558,7 @@ if (Test-LaneEnabled -Lane "hwb") {
             (Get-HwbProjectionStyleOverride -Mode "canvas"),
             $projectionAreaOverride,
             $sourceSamplingOverride,
+            $targetLocalRasterFootprintOverride,
             $hwbCanvasSourceOverride,
             $surfaceOverride
         ))
@@ -1562,6 +1576,7 @@ if (Test-LaneEnabled -Lane "hwb") {
             (Get-HwbProjectionStyleOverride -Mode "custom"),
             $projectionAreaOverride,
             $sourceSamplingOverride,
+            $targetLocalRasterFootprintOverride,
             $hwbCustomSourceOverride,
             $surfaceOverride
         ))
@@ -1582,6 +1597,7 @@ if (Test-LaneEnabled -Lane "oes") {
             (Get-GlesProjectionStyleOverride),
             $projectionAreaOverride,
             $sourceSamplingOverride,
+            $targetLocalRasterFootprintOverride,
             $glesCanvasSourceOverride,
             $surfaceOverride
         ))
@@ -1600,6 +1616,7 @@ if (Test-LaneEnabled -Lane "oes") {
             (Get-GlesProjectionStyleOverride),
             $projectionAreaOverride,
             $sourceSamplingOverride,
+            $targetLocalRasterFootprintOverride,
             $glesCustomSourceOverride,
             $surfaceOverride
         ))
@@ -1655,6 +1672,7 @@ $summary = [ordered]@{
     processingLayer = $ProcessingLayer
     peripheralStretchDebug = $PeripheralStretchDebug
     sourceSamplingMode = $SourceSamplingMode
+    targetLocalRasterFootprint = $TargetLocalRasterFootprint
         blurRadiusPx = $BlurRadiusPx
         projectionAreaOpacity = $ProjectionAreaOpacity
         projectionBorderOpacity = $ProjectionBorderOpacity
