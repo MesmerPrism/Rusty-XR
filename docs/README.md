@@ -71,6 +71,9 @@ before reading chronological plans or investigation logs.
 - [Broker UI and control contracts](BROKER_UI_CONTROL_CONTRACTS.md): data-only
   panel descriptors, telemetry chart descriptors, stream registry snapshots,
   and lease-aware command authority models.
+- [Broker host manifests](BROKER_HOST_MANIFESTS.md): deployment manifest for
+  broker host role, endpoint visibility, security policy, clock domain, and
+  session-manifest expectations.
 
 ## Validation
 

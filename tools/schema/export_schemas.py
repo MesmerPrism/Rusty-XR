@@ -683,6 +683,21 @@ def schemas() -> dict[str, dict]:
         "BrokerRegistryNodeState",
         ["starting", "active", "idle", "stopped", "degraded", "failed", "unknown"],
     )
+    broker_host_authority_role = enum(
+        "BrokerHostAuthorityRole",
+        [
+            "headset_local_primary",
+            "desktop_primary",
+            "embedded_in_process_primary",
+            "relay_primary",
+            "observer",
+            "unknown",
+        ],
+    )
+    broker_endpoint_visibility = enum(
+        "BrokerEndpointVisibility",
+        ["loopback", "adb_forwarded", "paired_lan", "public_relay", "external_sidecar", "hidden", "unknown"],
+    )
     broker_drop_counters = obj(
         "BrokerDropCounters",
         {
@@ -1047,6 +1062,33 @@ def schemas() -> dict[str, dict]:
             "subscribers": array(broker_stream_subscriber_descriptor),
             "command_clients": array(broker_command_client_descriptor),
             "active_leases": array(broker_control_lease),
+        },
+    )
+    broker_host_endpoint_descriptor = obj(
+        "BrokerHostEndpointDescriptor",
+        {
+            "endpoint_id": string(),
+            "label": string(),
+            "endpoint": broker_transport_endpoint,
+            "visibility": broker_endpoint_visibility,
+            "command_scope": string(),
+            "primary": boolean(),
+        },
+    )
+    broker_host_manifest = obj(
+        "BrokerHostManifest",
+        {
+            "schema": {"const": "rusty.xr.broker.host_manifest.v1"},
+            "host_id": string(),
+            "label": string(),
+            "authority_role": broker_host_authority_role,
+            "endpoints": array(broker_host_endpoint_descriptor),
+            "capabilities": array(string()),
+            "security": broker_transport_security_policy,
+            "broker_clock_domain": broker_timestamp_domain,
+            "session_manifest_required": boolean(),
+            "observed_elapsed_ns": {"type": ["integer", "null"], "minimum": 0},
+            "notes": array(string()),
         },
     )
     broker_transport_session_offer = obj(
@@ -2982,6 +3024,7 @@ def schemas() -> dict[str, dict]:
         "broker-panel-descriptor-document.schema.json": broker_panel_descriptor_document,
         "broker-telemetry-chart-descriptor.schema.json": broker_telemetry_chart_descriptor,
         "broker-stream-registry-snapshot.schema.json": broker_stream_registry_snapshot,
+        "broker-host-manifest.schema.json": broker_host_manifest,
         "broker-stream-manifest.schema.json": broker_stream_manifest,
         "broker-stream-sample-header.schema.json": broker_sample_header,
         "broker-transport-security-policy.schema.json": broker_transport_security_policy,

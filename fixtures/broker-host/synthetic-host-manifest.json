@@ -1,0 +1,61 @@
+{
+  "schema": "rusty.xr.broker.host_manifest.v1",
+  "host_id": "synthetic-headset-broker",
+  "label": "Synthetic headset broker",
+  "authority_role": "headset_local_primary",
+  "endpoints": [
+    {
+      "endpoint_id": "events-ws-loopback",
+      "label": "Loopback WebSocket events",
+      "endpoint": {
+        "transport": "WebSocket",
+        "host": null,
+        "port": null,
+        "path": "/rustyxr/v1/events",
+        "channel_id": null,
+        "max_datagram_bytes": null,
+        "auth_required": false
+      },
+      "visibility": "loopback",
+      "command_scope": "broker.control",
+      "primary": true
+    },
+    {
+      "endpoint_id": "status-http-loopback",
+      "label": "Loopback HTTP status",
+      "endpoint": {
+        "transport": "Tcp",
+        "host": "127.0.0.1",
+        "port": 8765,
+        "path": "/status",
+        "channel_id": null,
+        "max_datagram_bytes": null,
+        "auth_required": false
+      },
+      "visibility": "loopback",
+      "command_scope": "broker.status",
+      "primary": false
+    }
+  ],
+  "capabilities": [
+    "broker.status.read",
+    "broker.clock.read",
+    "broker.stream_registry.read",
+    "broker.host_manifest.read"
+  ],
+  "security": {
+    "schema": "rusty.xr.broker.transport_security_policy.v1",
+    "mode": "LoopbackOnly",
+    "non_loopback_allowed": false,
+    "pairing_token_required": false,
+    "expires_elapsed_ns": null,
+    "capability_scope": []
+  },
+  "broker_clock_domain": "ElapsedRealtime",
+  "session_manifest_required": true,
+  "observed_elapsed_ns": 123456789000,
+  "notes": [
+    "Synthetic manifest for UI and schema validation.",
+    "LAN and relay endpoints are intentionally absent until pairing is explicit."
+  ]
+}
