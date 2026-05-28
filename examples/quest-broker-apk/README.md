@@ -24,6 +24,8 @@ owning decode, Vulkan import, projection, and OpenXR layer submission itself.
 
 - HTTP status: `http://127.0.0.1:8765/status`
 - Stream registry snapshot: `http://127.0.0.1:8765/stream_registry/snapshot`
+  with module runtime states and module links for providers, streams, and
+  adapters.
 - Broker clock: `http://127.0.0.1:8765/clock/now`
 - Rusty Kiosk control-plane status: `http://127.0.0.1:8765/kiosk/status`
 - WebSocket samples/events: `ws://127.0.0.1:8765/rustyxr/v1/events`

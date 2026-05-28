@@ -134,6 +134,12 @@ Registry providers, streams, and adapters may carry `module_id` and
 processor, diagnostic, bridge, sink, supervisor, or control adapter while still
 using stream ids as the data-plane handles.
 
+The public Quest broker example now populates the same module-aware registry
+shape on both `GET /stream_registry/snapshot` and the
+`stream_registry.snapshot` WebSocket command. This is still read-only discovery:
+module visibility does not imply plugin loading, media-payload routing through
+JSON, or permission to execute mutating commands.
+
 ## Public Fixtures
 
 Synthetic fixtures live under `fixtures/broker-ui`:

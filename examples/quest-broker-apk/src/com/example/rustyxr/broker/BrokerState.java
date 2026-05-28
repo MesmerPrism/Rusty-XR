@@ -357,18 +357,30 @@ final class BrokerState {
     JSONObject streamRegistrySnapshotJson(OscIngressServer oscIngressServer) throws Exception {
         JSONArray streams = streamsJson(oscIngressServer);
         LinkedHashMap<String, JSONArray> providerStreams = new LinkedHashMap<>();
+        LinkedHashMap<String, String> providerModuleIds = new LinkedHashMap<>();
+        LinkedHashMap<String, String> providerModuleKinds = new LinkedHashMap<>();
+        LinkedHashMap<String, Boolean> providerActive = new LinkedHashMap<>();
         for (int index = 0; index < streams.length(); index++) {
             JSONObject stream = streams.optJSONObject(index);
             if (stream == null) {
                 continue;
             }
-            String providerId = providerIdForKind(stream.optString("kind", "unknown"));
+            String streamId = stream.optString("id", "");
+            String kind = stream.optString("kind", "unknown");
+            String providerId = providerIdForStream(streamId, kind);
             JSONArray streamIds = providerStreams.get(providerId);
             if (streamIds == null) {
                 streamIds = new JSONArray();
                 providerStreams.put(providerId, streamIds);
             }
-            streamIds.put(stream.optString("id", ""));
+            streamIds.put(streamId);
+            providerModuleIds.put(providerId, moduleIdForStream(streamId, kind));
+            providerModuleKinds.put(providerId, moduleKindForStream(streamId, kind));
+            Boolean wasActive = providerActive.get(providerId);
+            providerActive.put(
+                providerId,
+                Boolean.valueOf((wasActive != null && wasActive.booleanValue())
+                    || stream.optBoolean("active", false)));
         }
 
         JSONArray providers = new JSONArray();
@@ -376,7 +388,11 @@ final class BrokerState {
             JSONObject provider = new JSONObject();
             provider.put("provider_id", entry.getKey());
             provider.put("label", providerLabel(entry.getKey()));
-            provider.put("state", "active");
+            provider.put("module_id", nullableJsonString(providerModuleIds.get(entry.getKey())));
+            provider.put("module_kind", nullableJsonString(providerModuleKinds.get(entry.getKey())));
+            provider.put(
+                "state",
+                Boolean.TRUE.equals(providerActive.get(entry.getKey())) ? "active" : "idle");
             provider.put("data_sensitivity", providerSensitivity(entry.getKey()));
             provider.put("stream_ids", entry.getValue());
             providers.put(provider);
@@ -393,7 +409,9 @@ final class BrokerState {
             JSONObject descriptor = new JSONObject();
             descriptor.put("stream_id", streamId);
             descriptor.put("label", streamId);
-            descriptor.put("provider_id", providerIdForKind(kind));
+            descriptor.put("provider_id", providerIdForStream(streamId, kind));
+            descriptor.put("module_id", moduleIdForStream(streamId, kind));
+            descriptor.put("module_kind", moduleKindForStream(streamId, kind));
             descriptor.put("stream_kind", streamKindForStream(streamId, kind));
             descriptor.put("payload_kind", payloadKindForStream(streamId));
             descriptor.put("payload_schema", payloadSchemaForStream(streamId));
@@ -410,6 +428,8 @@ final class BrokerState {
         JSONObject breathAdapter = new JSONObject();
         breathAdapter.put("adapter_id", "breath-assessment");
         breathAdapter.put("label", "Breath assessment");
+        breathAdapter.put("module_id", "bio.breath_assessment");
+        breathAdapter.put("module_kind", "processor");
         breathAdapter.put("state", breathAssessment.hasAssessments() ? "active" : "idle");
         breathAdapter.put("input_stream_ids", jsonArrayOf("bio:polar_acc", "xr:controller_pose"));
         breathAdapter.put("output_stream_ids", jsonArrayOf("bio:breath"));
@@ -417,6 +437,8 @@ final class BrokerState {
         JSONObject videoAdapter = new JSONObject();
         videoAdapter.put("adapter_id", "video-lab");
         videoAdapter.put("label", "Video lab metadata");
+        videoAdapter.put("module_id", "video.lab");
+        videoAdapter.put("module_kind", "diagnostic");
         videoAdapter.put("state", videoLabMetricSamples.get() > 0 ? "active" : "idle");
         videoAdapter.put("input_stream_ids", jsonArrayOf("video_lab.encoded_sample_metadata"));
         videoAdapter.put("output_stream_ids", jsonArrayOf("video_lab.metric_sample"));
@@ -438,11 +460,15 @@ final class BrokerState {
             "transport.session"));
         commandClient.put("held_lease_ids", activeControlLeaseIds());
 
+        long revision = streamRegistrySemanticRevision();
+        JSONArray modules = modulesJson(streams, oscIngressServer, revision);
+
         JSONObject snapshot = new JSONObject();
         snapshot.put("schema", STREAM_REGISTRY_SNAPSHOT_SCHEMA);
         snapshot.put("broker_id", "quest-broker-example");
-        snapshot.put("revision", streamRegistrySemanticRevision());
+        snapshot.put("revision", revision);
         snapshot.put("captured_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        snapshot.put("modules", modules);
         snapshot.put("providers", providers);
         snapshot.put("streams", registeredStreams);
         snapshot.put("adapters", new JSONArray().put(breathAdapter).put(videoAdapter));
@@ -590,6 +616,178 @@ final class BrokerState {
         stream.put("description", description);
         stream.put("active", active);
         return stream;
+    }
+
+    private JSONArray modulesJson(JSONArray streams, OscIngressServer oscIngressServer, long revision) throws Exception {
+        boolean oscRunning = oscIngressServer != null && oscIngressServer.isRunning();
+        boolean shellHelperActive = shellHelper.isConnected();
+        boolean breathActive = breathAssessment.hasAssessments();
+        boolean videoLabActive = videoLabMetricSamples.get() > 0
+            || videoLabEncodedStreamManifests.get() > 0
+            || videoLabEncodedSampleMetadata.get() > 0;
+        boolean transportActive = transportSessions.createdCount() > 0
+            || transportSessions.closedCount() > 0
+            || transportSessions.failedCount() > 0;
+
+        JSONArray modules = new JSONArray();
+        modules.put(moduleRuntimeState(
+            "diagnostics.broker",
+            "diagnostic",
+            "active",
+            revision,
+            providedStreamIdsForModule(streams, "diagnostics.broker"),
+            new JSONArray(),
+            new JSONArray()
+                .put(healthMetricJson("accepted_latency_samples", "Accepted latency samples", null, 0.0, null, acceptedLatencySamples.get(), "healthy"))
+                .put(healthMetricJson("published_stream_events", "Published stream events", null, 0.0, null, publishedStreamEvents.get(), "healthy")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
+            "diagnostics.clock",
+            "diagnostic",
+            "active",
+            revision,
+            providedStreamIdsForModule(streams, "diagnostics.clock"),
+            new JSONArray(),
+            new JSONArray().put(healthMetricJson("clock_streams", "Clock streams", null, 1.0, null, providedStreamIdsForModule(streams, "diagnostics.clock").length(), "healthy")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
+            "control.kiosk",
+            "control_adapter",
+            "active",
+            revision,
+            providedStreamIdsForModule(streams, "control.kiosk"),
+            new JSONArray(),
+            new JSONArray().put(healthMetricJson("console_open_requests", "Console open requests", null, 0.0, null, brokerConsoleOpenRequests.get(), "healthy")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
+            "bio.telemetry",
+            "provider",
+            "active",
+            revision,
+            providedStreamIdsForModule(streams, "bio.telemetry"),
+            new JSONArray(),
+            new JSONArray().put(healthMetricJson("bio_streams", "Bio input streams", null, 1.0, null, providedStreamIdsForModule(streams, "bio.telemetry").length(), "healthy")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
+            "bio.breath_assessment",
+            "processor",
+            breathActive ? "active" : "idle",
+            revision,
+            providedStreamIdsForModule(streams, "bio.breath_assessment"),
+            jsonArrayOf("bio:polar_acc", "xr:controller_pose"),
+            new JSONArray().put(healthMetricJson("assessment_available", "Assessment available", null, 0.0, 1.0, breathActive ? 1.0 : 0.0, breathActive ? "healthy" : "unknown")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
+            "camera.projection",
+            "provider",
+            "active",
+            revision,
+            providedStreamIdsForModule(streams, "camera.projection"),
+            new JSONArray(),
+            new JSONArray().put(healthMetricJson("projection_streams", "Projection streams", null, 1.0, null, providedStreamIdsForModule(streams, "camera.projection").length(), "healthy")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
+            "shell.helper",
+            "control_adapter",
+            shellHelperActive ? "active" : "idle",
+            revision,
+            providedStreamIdsForModule(streams, "shell.helper"),
+            new JSONArray(),
+            new JSONArray().put(healthMetricJson("helper_connected", "Helper connected", null, 0.0, 1.0, shellHelperActive ? 1.0 : 0.0, shellHelperActive ? "healthy" : "unknown")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
+            "transport.sessions",
+            "bridge",
+            transportActive ? "active" : "idle",
+            revision,
+            providedStreamIdsForModule(streams, "transport.sessions"),
+            new JSONArray(),
+            new JSONArray()
+                .put(healthMetricJson("sessions_created", "Sessions created", null, 0.0, null, transportSessions.createdCount(), "healthy"))
+                .put(healthMetricJson("sessions_failed", "Sessions failed", null, 0.0, null, transportSessions.failedCount(), transportSessions.failedCount() > 0 ? "warning" : "healthy")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
+            "video.lab",
+            "diagnostic",
+            videoLabActive ? "active" : "idle",
+            revision,
+            providedStreamIdsForModule(streams, "video.lab"),
+            jsonArrayOf("video_lab.encoded_sample_metadata"),
+            new JSONArray()
+                .put(healthMetricJson("metric_samples", "Metric samples", null, 0.0, null, videoLabMetricSamples.get(), videoLabActive ? "healthy" : "unknown"))
+                .put(healthMetricJson("encoded_manifests", "Encoded manifests", null, 0.0, null, videoLabEncodedStreamManifests.get(), "healthy")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
+            "osc.ingress",
+            "bridge",
+            oscRunning ? "active" : "idle",
+            revision,
+            providedStreamIdsForModule(streams, "osc.ingress"),
+            new JSONArray(),
+            new JSONArray()
+                .put(healthMetricJson("packets_received", "Packets received", null, 0.0, null, oscIngressPackets.get(), oscRunning ? "healthy" : "unknown"))
+                .put(healthMetricJson("packets_rejected", "Packets rejected", null, 0.0, null, oscIngressRejectedPackets.get(), oscIngressRejectedPackets.get() > 0 ? "warning" : "healthy")),
+            new JSONArray()));
+        return modules;
+    }
+
+    private JSONObject moduleRuntimeState(
+        String moduleId,
+        String moduleKind,
+        String lifecycleState,
+        long revision,
+        JSONArray providedStreamIds,
+        JSONArray consumedStreamIds,
+        JSONArray healthMetrics,
+        JSONArray issueCodes) throws Exception {
+        JSONObject module = new JSONObject();
+        module.put("schema", "rusty.xr.broker.module_runtime_state.v1");
+        module.put("module_id", moduleId);
+        module.put("module_kind", moduleKind);
+        module.put("lifecycle_state", lifecycleState);
+        module.put("revision", revision);
+        module.put("last_transition_elapsed_ns", startedElapsedNanos);
+        module.put("provided_stream_ids", providedStreamIds);
+        module.put("consumed_stream_ids", consumedStreamIds);
+        module.put("active_resource_locks", new JSONArray());
+        module.put("health_metrics", healthMetrics);
+        module.put("issue_codes", issueCodes);
+        return module;
+    }
+
+    private static JSONArray providedStreamIdsForModule(JSONArray streams, String moduleId) throws Exception {
+        JSONArray streamIds = new JSONArray();
+        for (int index = 0; index < streams.length(); index++) {
+            JSONObject stream = streams.optJSONObject(index);
+            if (stream == null) {
+                continue;
+            }
+            String streamId = stream.optString("id", "");
+            String kind = stream.optString("kind", "custom");
+            if (moduleId.equals(moduleIdForStream(streamId, kind))) {
+                streamIds.put(streamId);
+            }
+        }
+        return streamIds;
+    }
+
+    private static JSONObject healthMetricJson(
+        String metric,
+        String label,
+        Object unit,
+        Object healthyMin,
+        Object healthyMax,
+        Object observedValue,
+        String state) throws Exception {
+        JSONObject value = new JSONObject();
+        value.put("metric", metric);
+        value.put("label", label);
+        value.put("unit", unit != null ? unit : JSONObject.NULL);
+        value.put("healthy_min", healthyMin != null ? healthyMin : JSONObject.NULL);
+        value.put("healthy_max", healthyMax != null ? healthyMax : JSONObject.NULL);
+        value.put("observed_value", observedValue != null ? observedValue : JSONObject.NULL);
+        value.put("state", state != null && state.length() > 0 ? state : "unknown");
+        return value;
     }
 
     private long streamRegistrySemanticRevision() {
@@ -924,9 +1122,106 @@ final class BrokerState {
         return clean + "-provider";
     }
 
+    private static String providerIdForStream(String streamId, String kind) {
+        String moduleId = moduleIdForStream(streamId, kind);
+        if ("diagnostics.broker".equals(moduleId)) {
+            return "diagnostics-provider";
+        }
+        if ("diagnostics.clock".equals(moduleId)) {
+            return "clock-provider";
+        }
+        if ("control.kiosk".equals(moduleId)) {
+            return "control-provider";
+        }
+        if ("bio.telemetry".equals(moduleId)) {
+            return "bio-provider";
+        }
+        if ("bio.breath_assessment".equals(moduleId)) {
+            return "breath-assessment-provider";
+        }
+        if ("camera.projection".equals(moduleId)) {
+            return "camera-provider";
+        }
+        if ("shell.helper".equals(moduleId)) {
+            return "shell-helper-provider";
+        }
+        if ("transport.sessions".equals(moduleId)) {
+            return "transport-provider";
+        }
+        if ("video.lab".equals(moduleId)) {
+            return "video-provider";
+        }
+        if ("osc.ingress".equals(moduleId)) {
+            return "osc-provider";
+        }
+        return providerIdForKind(kind);
+    }
+
+    private static String moduleIdForStream(String streamId, String kind) {
+        if (streamId == null) {
+            return "diagnostics.broker";
+        }
+        if (streamId.startsWith("clock:")) {
+            return "diagnostics.clock";
+        }
+        if (streamId.startsWith("broker:") || streamId.startsWith("latency:")) {
+            return "diagnostics.broker";
+        }
+        if (streamId.startsWith("kiosk:") || "experiment.control".equals(streamId) || "control".equals(kind)) {
+            return "control.kiosk";
+        }
+        if ("bio:breath".equals(streamId)) {
+            return "bio.breath_assessment";
+        }
+        if (streamId.startsWith("bio:") || streamId.startsWith("xr:")) {
+            return "bio.telemetry";
+        }
+        if (streamId.startsWith("camera_provider.")) {
+            return "camera.projection";
+        }
+        if (streamId.startsWith("shell_helper.")) {
+            return "shell.helper";
+        }
+        if (streamId.startsWith("transport.") || streamId.startsWith("q2q_relay.")) {
+            return "transport.sessions";
+        }
+        if (streamId.startsWith("video_lab.")) {
+            return "video.lab";
+        }
+        if (streamId.startsWith("osc:") || "osc".equals(kind)) {
+            return "osc.ingress";
+        }
+        return "diagnostics.broker";
+    }
+
+    private static String moduleKindForStream(String streamId, String kind) {
+        String moduleId = moduleIdForStream(streamId, kind);
+        if ("bio.breath_assessment".equals(moduleId)) {
+            return "processor";
+        }
+        if ("control.kiosk".equals(moduleId) || "shell.helper".equals(moduleId)) {
+            return "control_adapter";
+        }
+        if ("transport.sessions".equals(moduleId) || "osc.ingress".equals(moduleId)) {
+            return "bridge";
+        }
+        if ("diagnostics.broker".equals(moduleId)
+            || "diagnostics.clock".equals(moduleId)
+            || "video.lab".equals(moduleId)) {
+            return "diagnostic";
+        }
+        return "provider";
+    }
+
     private static String providerLabel(String providerId) {
+        if ("diagnostics-provider".equals(providerId)) {
+            return "Broker diagnostics";
+        }
         if ("bio-provider".equals(providerId)) {
             return "Bio provider";
+        }
+        if ("breath-assessment-provider".equals(providerId)) {
+            return "Breath assessment";
         }
         if ("video-provider".equals(providerId)) {
             return "Video provider";
@@ -943,12 +1238,21 @@ final class BrokerState {
         if ("control-provider".equals(providerId)) {
             return "Control provider";
         }
+        if ("shell-helper-provider".equals(providerId)) {
+            return "Shell helper";
+        }
+        if ("osc-provider".equals(providerId)) {
+            return "OSC ingress";
+        }
         return providerId;
     }
 
     private static String providerSensitivity(String providerId) {
         if ("bio-provider".equals(providerId)) {
             return "physiology";
+        }
+        if ("breath-assessment-provider".equals(providerId)) {
+            return "derived_physiology";
         }
         if ("control-provider".equals(providerId)) {
             return "restricted";
