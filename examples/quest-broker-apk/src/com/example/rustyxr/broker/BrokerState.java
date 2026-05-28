@@ -118,6 +118,7 @@ final class BrokerState {
         supportedCommands.put("clock.health");
         supportedCommands.put("clock.compare_openxr");
         supportedCommands.put("clock.sync_probe");
+        supportedCommands.put("lsl.capture_string");
         supportedCommands.put("kiosk.get_status");
         supportedCommands.put("polar.get_status");
         supportedCommands.put("polar.start");
@@ -229,6 +230,7 @@ final class BrokerState {
         capabilities.put("broker.clock.stamp.v1");
         capabilities.put("broker.clock.correlation.v1");
         capabilities.put("broker.clock.sync_probe.v1");
+        capabilities.put("lsl.string_capture.v1");
         capabilities.put("rusty_kiosk.control_plane.status.v1");
         capabilities.put("rusty.xr.kiosk.command_run_record.v1");
         capabilities.put("bio.polar_hr.android_ble.v1");

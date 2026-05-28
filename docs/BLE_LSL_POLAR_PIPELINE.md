@@ -82,6 +82,21 @@ LSL discovery usually requires both devices to be on the same reachable network
 with multicast discovery and firewall rules permitting the LSL process. This is
 an app/deployment concern, not a core crate dependency.
 
+The Quest broker proof mirrors broker `bio:` stream events to the native LSL
+string outlet when the APK is built with Android `liblsl`. The mirrored samples
+use the same JSON stream-event envelope as WebSocket subscribers, with
+`lsl_mirror=true` and `subscription_id="lsl:broker"`. This keeps Polar PMD
+ownership on the Quest while allowing a Windows companion to measure receive
+cadence and LSL clock-corrected arrival timing for `bio:polar_hr_rr`,
+`bio:polar_acc`, and derived `bio:breath` events.
+
+The same proof APK also exposes a diagnostic `lsl.capture_string` broker
+command when native `liblsl` is packaged. It resolves a named LSL string stream,
+captures matching JSON records for a bounded interval, and returns Quest-side
+receive timestamps plus LSL time-correction data. This is intended for
+Windows-owned PMD tests where the Quest must observe forwarded records without
+opening the Polar PMD connection itself.
+
 ### Broker Bio Diagnostic Path
 
 Use this when validating broker consumers before a native Bluetooth adapter or a

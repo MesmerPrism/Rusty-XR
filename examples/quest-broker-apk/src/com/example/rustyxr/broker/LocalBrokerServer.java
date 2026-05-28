@@ -146,6 +146,8 @@ final class LocalBrokerServer implements Closeable {
             return 0;
         }
 
+        publishBioStreamEventToLsl(stream, sequenceId, receiveUnixNs, payload);
+
         int sent = 0;
         synchronized (websocketClients) {
             WebSocketClientConnection[] snapshot = websocketClients.toArray(new WebSocketClientConnection[0]);
@@ -180,6 +182,36 @@ final class LocalBrokerServer implements Closeable {
             }
         }
         return sent;
+    }
+
+    private void publishBioStreamEventToLsl(String stream, long sequenceId, long receiveUnixNs, JSONObject payload) {
+        if (publisher == null || !publisher.isLslAvailable() || !shouldMirrorStreamEventToLsl(stream)) {
+            return;
+        }
+
+        try {
+            JSONObject event = new JSONObject();
+            event.put("type", "stream_event");
+            event.put("schema", "rusty.xr.broker.stream_event.v1");
+            event.put("stream", stream);
+            event.put("subscription_id", "lsl:broker");
+            event.put("sequence_id", sequenceId);
+            JSONObject clockStamp = state.clockStampJson();
+            event.put("broker_time_unix_ns", clockStamp.optLong("event_unix_ns", receiveUnixNs));
+            event.put(
+                "broker_time_elapsed_ns",
+                clockStamp.optLong("event_elapsed_realtime_ns", SystemClock.elapsedRealtimeNanos()));
+            event.put("clock_stamp", clockStamp);
+            event.put("lsl_mirror", true);
+            event.put("payload", payload);
+            publisher.publish(event);
+        } catch (Exception ex) {
+            Log.w(BrokerService.TAG, "LSL stream event mirror failed: " + ex.getMessage());
+        }
+    }
+
+    private static boolean shouldMirrorStreamEventToLsl(String stream) {
+        return stream != null && stream.startsWith("bio:");
     }
 
     private void acceptLoop() {
@@ -503,6 +535,13 @@ final class LocalBrokerServer implements Closeable {
             JSONObject result = new JSONObject();
             result.put("probe", state.clockSyncProbeJson(message.optJSONObject("params")));
             return commandAck(requestId, command, true, "clock_sync_probe", result);
+        }
+
+        if ("lsl.capture_string".equals(command)) {
+            state.acceptedCommands.incrementAndGet();
+            JSONObject result = new JSONObject();
+            result.put("capture", NativeLslStringInletDiagnostics.capture(message.optJSONObject("params")));
+            return commandAck(requestId, command, true, "lsl_string_capture", result);
         }
 
         if ("kiosk.get_status".equals(command)) {
