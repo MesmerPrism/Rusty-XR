@@ -907,14 +907,22 @@ outside-projection region with the border policy:
 - transparent or underlay borders should not change the actual projection
   coordinates.
 
-In this workflow, `projectionBorderPolicy` is the projection exterior fill
+In this workflow, `projectionBorderPolicy` is the raw projection exterior fill
 policy: it controls the `surface_minus_feed` region inside the submitted
-projection surface. That exterior fill is part of the projection-surface
-witness, even when the current fill is solid red. It is separate from
-diagnostic guide borders, fiducials, source-validity overlays, and source-sampling
-witnesses. A `solid-red` parity run should have no cyan/yellow guide overlays;
-if those guides are visible, treat the run as diagnostic-overlay evidence
-rather than hard-mask footprint evidence.
+projection surface when no effect layer consumes that exterior. That raw
+exterior fill is part of the projection-surface witness, even when the current
+fill is solid red. It is separate from diagnostic guide borders, fiducials,
+source-validity overlays, source-sampling witnesses, and effect-run debug
+regions. A `solid-red` raw parity run should have no cyan/yellow guide
+overlays; if those guides are visible, treat the run as diagnostic-overlay
+evidence rather than hard-mask footprint evidence.
+
+For `processingLayer=peripheral-stretch`, do not use the solid-red exterior as
+a raw footprint measurement. In target-local metadata runs, the coherent core
+is the resolved target footprint and the effect exterior is the visible render
+surface outside that target footprint. Analyzer summaries should classify those
+runs as `effect-run`, with `borderRegionSemantics` set to
+`visible-render-surface-minus-target-footprint`.
 
 Reject mixed evidence: a `solid-red` run with feedback-colored, feathered, or
 camera-sampled border pixels is a border-policy failure, not a valid projection

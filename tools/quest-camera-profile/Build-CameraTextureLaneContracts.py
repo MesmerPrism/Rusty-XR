@@ -25,6 +25,7 @@ HWB_SOURCE_MARKER = "Rusty XR HWB source metadata"
 HWB_IMPORT_MARKER = "Rusty XR Vulkan imported camera hardware buffer"
 HWB_RECEIVED_MARKER = "Rusty XR received headset camera GPU buffer frame"
 HWB_FINAL_MARKER = "Rusty XR final projection status"
+HWB_CAMERA_PATH_CONFIG_MARKER = "Rusty XR camera path config"
 OES_CONTRACT_MARKER = "Rusty XR OpenXR GLES projection contract"
 OES_STARTUP_MARKER = "Rusty XR OpenXR GLES projection border policy="
 OES_TRANSFORM_MARKER = "Rusty XR SurfaceTexture OES transform matrix"
@@ -103,7 +104,10 @@ def iter_log_files(root: Path) -> list[Path]:
 
 
 def parse_marker_fields(text: str) -> dict[str, str]:
-    return {key: value.strip("'\"") for key, value in KV_RE.findall(text)}
+    fields: dict[str, str] = {}
+    for key, value in KV_RE.findall(text):
+        fields.setdefault(key, value.strip("'\""))
+    return fields
 
 
 def nonempty_text(value: Any) -> str | None:
@@ -1030,6 +1034,8 @@ def scan_line(line: str, state: ScanState) -> None:
         state.update_hwb(parse_marker_fields(line.split(HWB_RECEIVED_MARKER, 1)[1]))
     elif HWB_FINAL_MARKER in line:
         state.update_hwb(parse_marker_fields(line.split(HWB_FINAL_MARKER, 1)[1]))
+    elif HWB_CAMERA_PATH_CONFIG_MARKER in line:
+        state.update_hwb(parse_marker_fields(line.split(HWB_CAMERA_PATH_CONFIG_MARKER, 1)[1]))
 
     if OES_CONTRACT_MARKER in line:
         fields = parse_marker_fields(line.split(OES_CONTRACT_MARKER, 1)[1])
@@ -1323,6 +1329,11 @@ def run(root: Path, out_dir: Path | None) -> tuple[list[dict[str, Any]], dict[st
 
 
 def self_test() -> None:
+    if parse_marker_fields("borderRegionSemantics=target-footprint borderRegionSemantics=legacy")[
+        "borderRegionSemantics"
+    ] != "target-footprint":
+        raise AssertionError("marker parser did not preserve the first canonical duplicate key")
+
     sample_log = "\n".join(
         [
             "Rusty XR HWB source metadata frame=7 schema=rusty.xr.hwb-source-metadata.v1 phase=source-metadata status=ok sourceUvContract=screen_to_camera_content_uv_to_hardware_buffer_sampler projectionMetadataReady=true source=headset-camera2 sourceMode=direct-camera2 contentWidth=1280 contentHeight=1280 sourceVisibleUvRect=0.0,0.0,1.0,1.0",

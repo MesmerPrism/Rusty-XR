@@ -194,12 +194,16 @@ Keep source kind, processing layer, and projection exterior fill independent:
 - `processingLayer=blur` selects the content processing applied inside the
   valid feed footprint;
 - `projectionBorderPolicy` selects the `surface_minus_feed` exterior fill for
-  the submitted projection surface.
+  the submitted projection surface in raw/blur footprint evidence runs;
+- `processingLayer=peripheral-stretch` is an effect run, not a raw mask
+  measurement. For metadata-backed target-local runs, the coherent core is the
+  resolved target footprint and the effect exterior is the visible render
+  surface outside that target footprint.
 
 The solid-red fill is not a diagnostic guide border. It is the current hard
-matte for pixels outside the camera-feed footprint. Fiducials and source-sampling
-witness overlays are separate diagnostic modes and should not be present in
-solid-red parity runs.
+matte for pixels outside the camera-feed footprint when no exterior effect
+consumes that region. Fiducials and source-sampling witness overlays are
+separate diagnostic modes and should not be present in solid-red parity runs.
 
 ## Public Control Map
 
