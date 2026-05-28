@@ -537,10 +537,14 @@ The current world-canvas reference aligned to native passthrough is
 which keeps the direct stereo GPU Camera2 profile but uses
 `projectionDepthMeters=1.434085`, `cameraPreviewFovYDegrees=69.763084`,
 `cameraPreviewOffsetYMeters=-0.168832`, and
-`cameraRawOverlayOverscan=1.0`. Launch it through the catalog profile or an
-equivalent full runtime-profile launcher; a minimal geometry-only `am start`
-can fall back to the slow CPU diagnostic mono path and is not a clean
-alignment reference.
+`cameraRawOverlayOverscan=1.0`.
+The no-extras standalone launch now uses the direct stereo GPU Camera2
+world-canvas target-local stretch profile by default: broker off,
+MediaProjection off, `processingLayer=peripheral-stretch`,
+`cameraSourceSamplingMode=target-local-raster`, and
+`projectionTargetJoystickControls=offset-scale`. Use catalog runtime profiles
+when a validation run needs to select an older CPU diagnostic, broker, raw,
+homography, or MediaProjection setup explicitly.
 When intrinsics or pose metadata is missing, this example logs the fallback
 reason and remains a GPU-buffer probe.
 If a profile supplies an estimated calibration pose, diagnostics say

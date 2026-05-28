@@ -36,20 +36,20 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final long DEFAULT_CAMERA_START_DELAY_MS = 0;
     private static final int DEFAULT_CAMERA_SIZE = 1280;
     private static final int DEFAULT_CAMERA_MAX_DIMENSION = 1920;
-    private static final int DEFAULT_CAMERA_CPU_UPLOAD_HZ = 4;
-    private static final int DEFAULT_CAMERA_TARGET_FPS = 0;
+    private static final int DEFAULT_CAMERA_CPU_UPLOAD_HZ = 0;
+    private static final int DEFAULT_CAMERA_TARGET_FPS = 72;
     private static final int DEFAULT_CAMERA_FPS_MIN = 0;
     private static final int DEFAULT_CAMERA_FPS_MAX = 0;
     private static final int DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES = 8;
     private static final String DEFAULT_CAMERA_ACQUISITION = "java-camera2";
-    private static final String DEFAULT_CAMERA_TIER = "cpu-diagnostic-flat-copy";
-    private static final String DEFAULT_CAMERA_STEREO_LAYOUT = "mono";
-    private static final boolean DEFAULT_CAMERA_ALLOW_CPU_FALLBACK = true;
+    private static final String DEFAULT_CAMERA_TIER = "gpu-projected";
+    private static final String DEFAULT_CAMERA_STEREO_LAYOUT = "separate";
+    private static final boolean DEFAULT_CAMERA_ALLOW_CPU_FALLBACK = false;
     private static final float DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES = 92.0f;
-    private static final float DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES = 60.0f;
-    private static final float DEFAULT_CAMERA_PREVIEW_OFFSET_Y_METERS = 0.0f;
+    private static final float DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES = 69.763084f;
+    private static final float DEFAULT_CAMERA_PREVIEW_OFFSET_Y_METERS = -0.168832f;
     private static final float DEFAULT_CAMERA_PROJECTION_SCALE = 1.0f;
-    private static final float DEFAULT_CAMERA_PROJECTION_DEPTH_METERS = 1.0f;
+    private static final float DEFAULT_CAMERA_PROJECTION_DEPTH_METERS = 1.434085f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_SCALE_UV = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_X_UV = 0.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_Y_UV = 0.0f;
@@ -62,17 +62,22 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final float DEFAULT_PROJECTION_TARGET_OFFSET_X_UV = 0.0f;
     private static final float DEFAULT_PROJECTION_TARGET_OFFSET_Y_UV = 0.0f;
     private static final float DEFAULT_PROJECTION_TARGET_SCALE = 1.0f;
-    private static final String DEFAULT_PROJECTION_TARGET_JOYSTICK_CONTROLS = "off";
+    private static final String DEFAULT_PROJECTION_TARGET_JOYSTICK_CONTROLS = "offset-scale";
     private static final String DEFAULT_CAMERA_PROJECTION_ALPHA_MODE = "fixed";
     private static final float DEFAULT_CAMERA_PROJECTION_ALPHA_SCALE = 1.0f;
     private static final float DEFAULT_CAMERA_PROJECTION_ALPHA_BIAS = 0.0f;
-    private static final float DEFAULT_CAMERA_RAW_OVERLAY_OVERSCAN = 1.06f;
+    private static final float DEFAULT_CAMERA_RAW_OVERLAY_OVERSCAN = 1.0f;
     private static final float DEFAULT_CAMERA_FULL_VIEW_OVERLAY_OVERSCAN = 2.10f;
     private static final float DEFAULT_CAMERA_EDGE_FADE = 0.12f;
-    private static final String DEFAULT_CAMERA_PROJECTION_MODE = "display-screen-homography";
-    private static final String DEFAULT_CAMERA_PIPELINE_PRESET = "manual";
+    private static final String DEFAULT_CAMERA_PROJECTION_MODE = "world-canvas";
+    private static final String DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE = "full-frame-diagnostic";
+    private static final String DEFAULT_CAMERA_SOURCE_SAMPLING_MODE = "target-local-raster";
+    private static final String DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT = "";
+    private static final String DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT = "0.171875;0.21875;0.75;0.65625";
+    private static final String DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT = "0.078125;0.21875;0.75;0.671875";
+    private static final String DEFAULT_CAMERA_PIPELINE_PRESET = "raw-projection-unorm";
     private static final String DEFAULT_CAMERA_PROJECTION_EFFECT_MODE = "raw-projection";
-    private static final String DEFAULT_PROCESSING_LAYER = "raw";
+    private static final String DEFAULT_PROCESSING_LAYER = "peripheral-stretch";
     private static final String DEFAULT_PERIPHERAL_STRETCH_MODE = "edge-stretch";
     private static final float DEFAULT_PERIPHERAL_STRETCH_CORE_SCALE = 1.0f;
     private static final float DEFAULT_PERIPHERAL_STRETCH_EDGE_INSET_UV = 0.015f;
@@ -107,8 +112,8 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final boolean DEFAULT_CAMERA_TEXTURE_FLIP_X = false;
     private static final boolean DEFAULT_CAMERA_TEXTURE_FLIP_Y = false;
     private static final boolean DEFAULT_CAMERA_TEXTURE_MIRROR = false;
-    private static final String DEFAULT_CAMERA_TEXTURE_TRANSFORM_SOURCE = "default";
-    private static final String DEFAULT_CAMERA_TEXTURE_TRANSFORM_REASON = "unspecified";
+    private static final String DEFAULT_CAMERA_TEXTURE_TRANSFORM_SOURCE = "public-quest-direct-world-canvas-target-local-stretch-joystick";
+    private static final String DEFAULT_CAMERA_TEXTURE_TRANSFORM_REASON = "Direct Camera2 target-local world-canvas standalone default applies runtime target-footprint joystick offset and scale after source metadata so peripheral stretch grows as the target footprint shrinks.";
     private static final String DEFAULT_CAMERA_SOURCE_EYE_MAPPING = "left-right";
     private static final String DEFAULT_CAMERA_ORIENTATION_DIAGNOSTIC_MODE = "off";
     private static final float DEFAULT_XR_RENDER_SCALE = 1.0f;
@@ -657,19 +662,19 @@ public final class CompositeLayerActivity extends NativeActivity {
             intExtra("rustyxr.cameraStereoImageReaderMaxImages", DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_PROJECTION_GEOMETRY_PROFILE,
-            stringExtra("rustyxr.cameraProjectionGeometryProfile", "full-frame-diagnostic"));
+            stringExtra("rustyxr.cameraProjectionGeometryProfile", DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_SOURCE_SAMPLING_MODE,
-            stringExtra("rustyxr.cameraSourceSamplingMode", ""));
+            stringExtra("rustyxr.cameraSourceSamplingMode", DEFAULT_CAMERA_SOURCE_SAMPLING_MODE));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_TARGET_SCREEN_UV_RECT,
-            stringExtra("rustyxr.cameraTargetScreenUvRect", ""));
+            stringExtra("rustyxr.cameraTargetScreenUvRect", DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_LEFT_TARGET_SCREEN_UV_RECT,
-            stringExtra("rustyxr.cameraLeftTargetScreenUvRect", ""));
+            stringExtra("rustyxr.cameraLeftTargetScreenUvRect", DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_RIGHT_TARGET_SCREEN_UV_RECT,
-            stringExtra("rustyxr.cameraRightTargetScreenUvRect", ""));
+            stringExtra("rustyxr.cameraRightTargetScreenUvRect", DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT));
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_CAMERA_TIER, cameraTier());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_STEREO_LAYOUT, cameraStereoLayout());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_ALLOW_CPU_FALLBACK, allowCpuFallback());
@@ -835,16 +840,16 @@ public final class CompositeLayerActivity extends NativeActivity {
                     DEFAULT_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE)),
             stringExtra(
                 "rustyxr.brokerH264SourceSamplingMode",
-                stringExtra("rustyxr.cameraSourceSamplingMode", "")),
+                stringExtra("rustyxr.cameraSourceSamplingMode", DEFAULT_CAMERA_SOURCE_SAMPLING_MODE)),
             stringExtra(
                 "rustyxr.brokerH264TargetScreenUvRect",
-                stringExtra("rustyxr.cameraTargetScreenUvRect", "")),
+                stringExtra("rustyxr.cameraTargetScreenUvRect", DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT)),
             stringExtra(
                 "rustyxr.brokerH264LeftTargetScreenUvRect",
-                stringExtra("rustyxr.cameraLeftTargetScreenUvRect", "")),
+                stringExtra("rustyxr.cameraLeftTargetScreenUvRect", DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT)),
             stringExtra(
                 "rustyxr.brokerH264RightTargetScreenUvRect",
-                stringExtra("rustyxr.cameraRightTargetScreenUvRect", "")),
+                stringExtra("rustyxr.cameraRightTargetScreenUvRect", DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT)),
             booleanExtra("rustyxr.brokerH264LiveDecode", DEFAULT_BROKER_H264_LIVE_DECODE),
             booleanExtra("rustyxr.brokerH264ByteIdentityProbe", DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE),
             stringExtra("rustyxr.brokerH264StereoPairingMode", DEFAULT_BROKER_H264_STEREO_PAIRING_MODE),
