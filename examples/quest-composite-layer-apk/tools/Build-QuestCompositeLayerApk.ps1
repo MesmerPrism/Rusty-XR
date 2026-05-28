@@ -195,7 +195,11 @@ if (-not (Test-Path $nativeLibrary)) {
     throw "Rust native library was not found: $nativeLibrary"
 }
 $abiRoot = Join-Path $packageRoot 'lib\arm64-v8a'
-Copy-Item -LiteralPath $nativeLibrary -Destination (Join-Path $abiRoot 'librusty_xr_quest_composite_native.so')
+$namedNativeLibrary = Join-Path $abiRoot 'librusty_xr_quest_composite_native.so'
+Copy-Item -LiteralPath $nativeLibrary -Destination $namedNativeLibrary
+# Keep a libmain.so alias for launcher paths or platform builds that still use
+# NativeActivity's default library name before reading the activity metadata.
+Copy-Item -LiteralPath $nativeLibrary -Destination (Join-Path $abiRoot 'libmain.so')
 Copy-Item -LiteralPath $openXrLoader -Destination (Join-Path $abiRoot 'libopenxr_loader.so')
 Copy-Item -LiteralPath $libCpp -Destination (Join-Path $abiRoot 'libc++_shared.so')
 

@@ -87,6 +87,9 @@
             android:exported="true"
             android:label="Rusty XR Composite"
             android:targetActivity=".CompositeLayerActivity">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="rusty_xr_quest_composite_native" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
