@@ -40,6 +40,7 @@ final class PolarPmdProtocol {
     private static final int SETTING_TYPE_RESOLUTION = 0x01;
     private static final int SETTING_TYPE_RANGE = 0x02;
     private static final int PMD_HEADER_SIZE = 10;
+    private static final int ECG_BYTES_PER_UNCOMPRESSED_SAMPLE = 3;
     private static final int ACC_BYTES_PER_UNCOMPRESSED_SAMPLE = 6;
 
     private PolarPmdProtocol() {
@@ -57,6 +58,21 @@ final class PolarPmdProtocol {
             0x01,
             (byte) (rangeG & 0xff),
             (byte) ((rangeG >> 8) & 0xff),
+            (byte) SETTING_TYPE_SAMPLE_RATE,
+            0x01,
+            (byte) (sampleRate & 0xff),
+            (byte) ((sampleRate >> 8) & 0xff),
+            (byte) SETTING_TYPE_RESOLUTION,
+            0x01,
+            (byte) (resolution & 0xff),
+            (byte) ((resolution >> 8) & 0xff)
+        };
+    }
+
+    static byte[] buildStartEcgRequest(int sampleRate, int resolution) {
+        return new byte[] {
+            OPCODE_START_STREAM,
+            MEASUREMENT_TYPE_ECG,
             (byte) SETTING_TYPE_SAMPLE_RATE,
             0x01,
             (byte) (sampleRate & 0xff),
@@ -121,6 +137,29 @@ final class PolarPmdProtocol {
         return new AccFrame(readTimestampNs(bytes), samples, compressed || frameTypeBase != 0x01);
     }
 
+    static EcgFrame decodeEcgFrame(byte[] bytes) {
+        if (bytes == null || bytes.length < PMD_HEADER_SIZE || bytes[0] != MEASUREMENT_TYPE_ECG) {
+            return null;
+        }
+
+        int frameType = bytes[9] & 0xff;
+        boolean compressed = (frameType & 0x80) != 0;
+        if (compressed || (frameType & 0x7f) != 0x00) {
+            return null;
+        }
+
+        int payloadLength = bytes.length - PMD_HEADER_SIZE;
+        if (payloadLength <= 0 || payloadLength % ECG_BYTES_PER_UNCOMPRESSED_SAMPLE != 0) {
+            return null;
+        }
+
+        List<Integer> samples = new ArrayList<>();
+        for (int offset = PMD_HEADER_SIZE; offset + 2 < bytes.length; offset += ECG_BYTES_PER_UNCOMPRESSED_SAMPLE) {
+            samples.add(Integer.valueOf(readInt24Le(bytes, offset)));
+        }
+        return samples.isEmpty() ? null : new EcgFrame(readTimestampNs(bytes), samples, frameType);
+    }
+
     static JSONObject accFramePayload(byte[] rawBytes, AccFrame frame, String deviceAddress, String deviceName) throws Exception {
         long nowUnixNs = unixNowNs();
         JSONObject payload = new JSONObject();
@@ -155,6 +194,45 @@ final class PolarPmdProtocol {
         decoded.put("first_z_mg", first.zMg);
         decoded.put("sample_count", frame.samples.size());
         decoded.put("compressed", frame.compressed);
+        payload.put("decoded", decoded);
+        return payload;
+    }
+
+    static JSONObject ecgFramePayload(byte[] rawBytes, EcgFrame frame, String deviceAddress, String deviceName) throws Exception {
+        long nowUnixNs = unixNowNs();
+        JSONObject payload = new JSONObject();
+        payload.put("schema", "rusty.xr.polar.ecg_pmd.v1");
+        payload.put("stream_id", "bio:polar_ecg");
+        payload.put("source", "android_ble_pmd");
+        payload.put("device_address", deviceAddress != null ? deviceAddress : "");
+        payload.put("device_name", deviceName != null ? deviceName : "");
+        payload.put("sensor_timestamp_ns", frame.sensorTimestampNs);
+        payload.put("sample_time_unix_ns", nowUnixNs);
+        payload.put("sample_time_elapsed_ns", android.os.SystemClock.elapsedRealtimeNanos());
+        payload.put("sample_count", frame.samplesMicrovolts.size());
+        payload.put("frame_type", frame.frameType);
+        payload.put("payload_base64", Base64.encodeToString(rawBytes, Base64.NO_WRAP));
+        payload.put("payload_size_bytes", rawBytes != null ? rawBytes.length : 0);
+
+        JSONArray samples = new JSONArray();
+        int min = Integer.MAX_VALUE;
+        int max = Integer.MIN_VALUE;
+        long sum = 0L;
+        for (int i = 0; i < frame.samplesMicrovolts.size(); i++) {
+            int sample = frame.samplesMicrovolts.get(i).intValue();
+            samples.put(sample);
+            min = Math.min(min, sample);
+            max = Math.max(max, sample);
+            sum += sample;
+        }
+        payload.put("samples_microvolts", samples);
+
+        JSONObject decoded = new JSONObject();
+        decoded.put("sample_count", frame.samplesMicrovolts.size());
+        decoded.put("first_microvolts", frame.samplesMicrovolts.get(0).intValue());
+        decoded.put("min_microvolts", min);
+        decoded.put("max_microvolts", max);
+        decoded.put("mean_microvolts", sum / (double) frame.samplesMicrovolts.size());
         payload.put("decoded", decoded);
         return payload;
     }
@@ -273,6 +351,16 @@ final class PolarPmdProtocol {
         return (short) raw;
     }
 
+    private static int readInt24Le(byte[] bytes, int offset) {
+        int raw = (bytes[offset] & 0xff)
+            | ((bytes[offset + 1] & 0xff) << 8)
+            | ((bytes[offset + 2] & 0xff) << 16);
+        if ((raw & 0x00800000) != 0) {
+            raw |= 0xff000000;
+        }
+        return raw;
+    }
+
     private static int clampInt16(int value) {
         return Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, value));
     }
@@ -368,6 +456,18 @@ final class PolarPmdProtocol {
             this.sensorTimestampNs = sensorTimestampNs;
             this.samples = samples;
             this.compressed = compressed;
+        }
+    }
+
+    static final class EcgFrame {
+        final long sensorTimestampNs;
+        final List<Integer> samplesMicrovolts;
+        final int frameType;
+
+        private EcgFrame(long sensorTimestampNs, List<Integer> samplesMicrovolts, int frameType) {
+            this.sensorTimestampNs = sensorTimestampNs;
+            this.samplesMicrovolts = samplesMicrovolts;
+            this.frameType = frameType;
         }
     }
 

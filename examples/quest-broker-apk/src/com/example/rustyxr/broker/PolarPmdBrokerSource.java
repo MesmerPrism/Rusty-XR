@@ -34,6 +34,10 @@ import java.util.concurrent.TimeUnit;
 
 final class PolarPmdBrokerSource implements Closeable {
     static final String STATUS_SCHEMA = "rusty.xr.bio.polar_pmd.status.v1";
+    static final String PMD_STREAM_ACC = "acc";
+    static final String PMD_STREAM_ECG = "ecg";
+    static final String PMD_STREAM_ACC_ID = "bio:polar_acc";
+    static final String PMD_STREAM_ECG_ID = "bio:polar_ecg";
     private static final String PUBLISHER_CLIENT_ID = "broker_polar_pmd";
     private static final long DEFAULT_SCAN_TIMEOUT_MS = 30_000L;
     private static final long MIN_SCAN_TIMEOUT_MS = 3_000L;
@@ -61,9 +65,13 @@ final class PolarPmdBrokerSource implements Closeable {
     private BluetoothGatt gatt;
     private PmdGattCallback callback;
     private BluetoothGattCharacteristic controlPoint;
-    private boolean accStreamStarted;
+    private boolean pmdStreamStarted;
+    private byte activeMeasurementType = PolarPmdProtocol.MEASUREMENT_TYPE_ACC;
     private String requestedDeviceAddress = "";
     private long requestedScanTimeoutMs = DEFAULT_SCAN_TIMEOUT_MS;
+    private String requestedPmdStream = PMD_STREAM_ACC;
+    private int requestedAccSampleRateHz = 200;
+    private boolean requestedHighConnectionPriority;
     private String statusState = "idle";
     private boolean enabled;
     private String deviceAddress = "";
@@ -75,6 +83,8 @@ final class PolarPmdBrokerSource implements Closeable {
     private int negotiatedMtu;
     private long accFrameCount;
     private long accSampleCount;
+    private long ecgFrameCount;
+    private long ecgSampleCount;
     private long malformedFrameCount;
     private long latestFrameUnixNs;
     private long latestFrameElapsedNs;
@@ -97,13 +107,25 @@ final class PolarPmdBrokerSource implements Closeable {
     }
 
     JSONObject start(String deviceAddress, long scanTimeoutMs) throws Exception {
+        return start(deviceAddress, scanTimeoutMs, PMD_STREAM_ACC, false, 200);
+    }
+
+    JSONObject start(
+        String deviceAddress,
+        long scanTimeoutMs,
+        String pmdStream,
+        boolean requestHighConnectionPriority,
+        int accSampleRateHz) throws Exception {
         synchronized (lock) {
             requestedDeviceAddress = deviceAddress != null ? deviceAddress.trim() : "";
             requestedScanTimeoutMs = clampScanTimeout(scanTimeoutMs);
+            requestedPmdStream = normalizePmdStream(pmdStream);
+            requestedAccSampleRateHz = normalizeAccSampleRate(accSampleRateHz);
+            requestedHighConnectionPriority = requestHighConnectionPriority;
             enabled = true;
             stopRequested = false;
-            deviceAddress = "";
-            deviceName = "";
+            this.deviceAddress = "";
+            this.deviceName = "";
             rssi = Integer.MIN_VALUE;
             heartRateServiceVisible = false;
             pmdServiceVisible = false;
@@ -111,6 +133,8 @@ final class PolarPmdBrokerSource implements Closeable {
             negotiatedMtu = 0;
             accFrameCount = 0L;
             accSampleCount = 0L;
+            ecgFrameCount = 0L;
+            ecgSampleCount = 0L;
             malformedFrameCount = 0L;
             latestFrameUnixNs = 0L;
             latestFrameElapsedNs = 0L;
@@ -124,6 +148,7 @@ final class PolarPmdBrokerSource implements Closeable {
             controlResponses = new JSONArray();
             settings = new JSONArray();
             notes = new JSONArray();
+            activeMeasurementType = measurementTypeForStream(requestedPmdStream);
             if (workerThread != null && workerThread.isAlive()) {
                 statusState = "streaming".equals(statusState) ? statusState : "starting";
                 publishStatusLocked();
@@ -187,6 +212,16 @@ final class PolarPmdBrokerSource implements Closeable {
         BluetoothGatt localGatt = null;
         PmdGattCallback localCallback = null;
         BluetoothGattCharacteristic localControlPoint = null;
+        String streamKind;
+        int accSampleRateHz;
+        boolean highConnectionPriority;
+        byte measurementType;
+        synchronized (lock) {
+            streamKind = requestedPmdStream;
+            accSampleRateHz = requestedAccSampleRateHz;
+            highConnectionPriority = requestedHighConnectionPriority;
+            measurementType = activeMeasurementType;
+        }
         try {
             updateState("checking_permissions");
             List<String> missing = missingBluetoothPermissions();
@@ -267,6 +302,10 @@ final class PolarPmdBrokerSource implements Closeable {
                 return;
             }
 
+            if (highConnectionPriority) {
+                requestHighConnectionPriority(localGatt);
+            }
+
             updateState("negotiating_mtu");
             Integer mtu = requestMtu(localGatt, localCallback);
             if (mtu != null && mtu.intValue() > 0) {
@@ -335,23 +374,27 @@ final class PolarPmdBrokerSource implements Closeable {
                 localGatt,
                 localCallback,
                 localControlPoint,
-                PolarPmdProtocol.buildGetSettingsRequest(PolarPmdProtocol.MEASUREMENT_TYPE_ACC),
+                PolarPmdProtocol.buildGetSettingsRequest(measurementType),
                 PolarPmdProtocol.OPCODE_GET_SETTINGS,
-                PolarPmdProtocol.MEASUREMENT_TYPE_ACC);
+                measurementType);
             PolarPmdProtocol.SettingsSummary settingsSummary = PolarPmdProtocol.parseSettingsResponse(settingsResponse);
             if (settingsSummary != null) {
                 addSettings(settingsSummary.toJson());
             }
 
             updateState("starting_stream");
+            byte[] startCommand = PolarPmdProtocol.MEASUREMENT_TYPE_ECG == measurementType
+                ? PolarPmdProtocol.buildStartEcgRequest(130, 14)
+                : PolarPmdProtocol.buildStartAccRequest(accSampleRateHz, 16, 8);
             sendPmdCommand(
                 localGatt,
                 localCallback,
                 localControlPoint,
-                PolarPmdProtocol.buildStartAccRequest(200, 16, 8),
+                startCommand,
                 PolarPmdProtocol.OPCODE_START_STREAM,
-                PolarPmdProtocol.MEASUREMENT_TYPE_ACC);
-            accStreamStarted = true;
+                measurementType);
+            pmdStreamStarted = true;
+            addNote("Started Polar PMD " + streamKind + " stream.");
             updateState("streaming");
 
             while (!stopRequested) {
@@ -370,17 +413,17 @@ final class PolarPmdBrokerSource implements Closeable {
             } catch (Exception ignored) {
             }
         } finally {
-            if (accStreamStarted && localGatt != null && localCallback != null && localControlPoint != null) {
+            if (pmdStreamStarted && localGatt != null && localCallback != null && localControlPoint != null) {
                 try {
                     sendPmdCommand(
                         localGatt,
                         localCallback,
                         localControlPoint,
-                        PolarPmdProtocol.buildStopRequest(PolarPmdProtocol.MEASUREMENT_TYPE_ACC),
+                        PolarPmdProtocol.buildStopRequest(measurementType),
                         PolarPmdProtocol.OPCODE_STOP_STREAM,
-                        PolarPmdProtocol.MEASUREMENT_TYPE_ACC);
+                        measurementType);
                 } catch (Exception ex) {
-                    addNote("ACC stop command failed: " + ex.getMessage());
+                    addNote(streamKind.toUpperCase(java.util.Locale.ROOT) + " stop command failed: " + ex.getMessage());
                 }
             }
 
@@ -407,7 +450,7 @@ final class PolarPmdBrokerSource implements Closeable {
                 gatt = null;
                 callback = null;
                 controlPoint = null;
-                accStreamStarted = false;
+                pmdStreamStarted = false;
                 workerThread = null;
                 publishStatusLocked();
             }
@@ -507,6 +550,24 @@ final class PolarPmdBrokerSource implements Closeable {
             addNote("MTU negotiation timed out; continuing with Android's current MTU.");
         }
         return mtu;
+    }
+
+    private void requestHighConnectionPriority(BluetoothGatt localGatt) {
+        if (localGatt == null) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            addNote("Android BLE connection-priority request is unavailable on this API level.");
+            return;
+        }
+        try {
+            boolean started = localGatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
+            addNote(started
+                ? "Requested Android high BLE connection priority for Polar PMD diagnostics."
+                : "Android refused to start high BLE connection-priority request.");
+        } catch (Exception ex) {
+            addNote("Android high BLE connection-priority request failed: " + ex.getMessage());
+        }
     }
 
     private int discoverServices(BluetoothGatt localGatt, PmdGattCallback localCallback) throws Exception {
@@ -617,7 +678,14 @@ final class PolarPmdBrokerSource implements Closeable {
     }
 
     private void handlePmdData(byte[] value) {
-        if (value == null || value.length == 0 || value[0] != PolarPmdProtocol.MEASUREMENT_TYPE_ACC) {
+        if (value == null || value.length == 0) {
+            return;
+        }
+        if (value[0] == PolarPmdProtocol.MEASUREMENT_TYPE_ECG) {
+            handleEcgData(value);
+            return;
+        }
+        if (value[0] != PolarPmdProtocol.MEASUREMENT_TYPE_ACC) {
             return;
         }
 
@@ -672,6 +740,51 @@ final class PolarPmdBrokerSource implements Closeable {
                 publishStatusLocked();
             }
             Log.w(BrokerService.TAG, "Polar PMD ACC publish failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    private void handleEcgData(byte[] value) {
+        PolarPmdProtocol.EcgFrame frame = PolarPmdProtocol.decodeEcgFrame(value);
+        if (frame == null) {
+            synchronized (lock) {
+                malformedFrameCount++;
+                lastError = "Ignored malformed ECG PMD frame length=" + value.length + ".";
+                publishStatusLocked();
+            }
+            return;
+        }
+
+        long sequence;
+        String address;
+        String name;
+        synchronized (lock) {
+            ecgFrameCount++;
+            ecgSampleCount += frame.samplesMicrovolts.size();
+            latestFrameUnixNs = System.currentTimeMillis() * 1_000_000L;
+            latestFrameElapsedNs = SystemClock.elapsedRealtimeNanos();
+            latestSensorTimestampNs = frame.sensorTimestampNs;
+            latestSampleCount = frame.samplesMicrovolts.size();
+            sequence = ecgFrameCount;
+            address = deviceAddress;
+            name = deviceName;
+            publishStatusLocked();
+        }
+
+        try {
+            JSONObject payload = PolarPmdProtocol.ecgFramePayload(value, frame, address, name);
+            server.publishLocalStreamEvent(PMD_STREAM_ECG_ID, sequence, payload, PUBLISHER_CLIENT_ID);
+            if (sequence <= 3L || sequence % 30L == 0L) {
+                Log.i(
+                    BrokerService.TAG,
+                    "Polar PMD ECG frame=" + sequence
+                        + " samples=" + frame.samplesMicrovolts.size());
+            }
+        } catch (Exception ex) {
+            synchronized (lock) {
+                lastError = "ECG publish failed: " + ex.getMessage();
+                publishStatusLocked();
+            }
+            Log.w(BrokerService.TAG, "Polar PMD ECG publish failed: " + ex.getMessage(), ex);
         }
     }
 
@@ -748,6 +861,11 @@ final class PolarPmdBrokerSource implements Closeable {
         status.put("enabled", enabled);
         status.put("state", statusState);
         status.put("input_stream", BreathAssessmentState.POLAR_INPUT_STREAM);
+        status.put("requested_pmd_stream", requestedPmdStream);
+        status.put("active_pmd_stream", streamForMeasurementType(activeMeasurementType));
+        status.put("active_measurement_type", activeMeasurementType & 0xff);
+        status.put("requested_acc_sample_rate_hz", requestedAccSampleRateHz);
+        status.put("requested_high_connection_priority", requestedHighConnectionPriority);
         status.put("output_stream", BreathAssessmentState.OUTPUT_STREAM);
         status.put("requested_device_address", requestedDeviceAddress);
         status.put("scan_timeout_ms", requestedScanTimeoutMs);
@@ -766,6 +884,8 @@ final class PolarPmdBrokerSource implements Closeable {
         }
         status.put("acc_frame_count", accFrameCount);
         status.put("acc_sample_count", accSampleCount);
+        status.put("ecg_frame_count", ecgFrameCount);
+        status.put("ecg_sample_count", ecgSampleCount);
         status.put("malformed_frame_count", malformedFrameCount);
         status.put("latest_frame_unix_ns", latestFrameUnixNs);
         status.put("latest_frame_elapsed_ns", latestFrameElapsedNs);
@@ -1000,6 +1120,31 @@ final class PolarPmdBrokerSource implements Closeable {
     private static long clampScanTimeout(long value) {
         long requested = value > 0L ? value : DEFAULT_SCAN_TIMEOUT_MS;
         return Math.max(MIN_SCAN_TIMEOUT_MS, Math.min(MAX_SCAN_TIMEOUT_MS, requested));
+    }
+
+    private static String normalizePmdStream(String value) {
+        String normalized = value != null ? value.trim().toLowerCase(java.util.Locale.ROOT) : "";
+        if ("ecg".equals(normalized) || "bio:polar_ecg".equals(normalized) || "polar_ecg".equals(normalized)) {
+            return PMD_STREAM_ECG;
+        }
+        return PMD_STREAM_ACC;
+    }
+
+    private static int normalizeAccSampleRate(int value) {
+        if (value == 25 || value == 50 || value == 100 || value == 200) {
+            return value;
+        }
+        return 200;
+    }
+
+    private static byte measurementTypeForStream(String pmdStream) {
+        return PMD_STREAM_ECG.equals(normalizePmdStream(pmdStream))
+            ? PolarPmdProtocol.MEASUREMENT_TYPE_ECG
+            : PolarPmdProtocol.MEASUREMENT_TYPE_ACC;
+    }
+
+    private static String streamForMeasurementType(byte measurementType) {
+        return measurementType == PolarPmdProtocol.MEASUREMENT_TYPE_ECG ? PMD_STREAM_ECG : PMD_STREAM_ACC;
     }
 
     private static String join(List<String> values, String delimiter) {

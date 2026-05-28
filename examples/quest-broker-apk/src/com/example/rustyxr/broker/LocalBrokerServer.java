@@ -1764,8 +1764,12 @@ final class LocalBrokerServer implements Closeable {
 
         String deviceAddress = polarDeviceAddress(params);
         long scanTimeoutMs = polarScanTimeoutMs(params);
+        String pmdStream = polarPmdStream(params);
+        boolean highPriority = optBooleanParam(params, "high_connection_priority", "highConnectionPriority", false)
+            || optBooleanParam(params, "android_high_connection_priority", "androidHighConnectionPriority", false);
+        int accSampleRateHz = optIntParam(params, "acc_sample_rate_hz", "accSampleRateHz", 200);
 
-        JSONObject status = source.start(deviceAddress, scanTimeoutMs);
+        JSONObject status = source.start(deviceAddress, scanTimeoutMs, pmdStream, highPriority, accSampleRateHz);
         state.acceptedCommands.incrementAndGet();
         JSONObject result = new JSONObject();
         result.put("status", status);
@@ -1794,6 +1798,10 @@ final class LocalBrokerServer implements Closeable {
         boolean includePmd = optBooleanParam(params, "include_pmd", "includePmd", false);
         String deviceAddress = polarDeviceAddress(params);
         long scanTimeoutMs = polarScanTimeoutMs(params);
+        String pmdStream = polarPmdStream(params);
+        boolean highPriority = optBooleanParam(params, "high_connection_priority", "highConnectionPriority", false)
+            || optBooleanParam(params, "android_high_connection_priority", "androidHighConnectionPriority", false);
+        int accSampleRateHz = optIntParam(params, "acc_sample_rate_hz", "accSampleRateHz", 200);
 
         JSONObject result = new JSONObject();
         int started = 0;
@@ -1812,13 +1820,16 @@ final class LocalBrokerServer implements Closeable {
             if (source == null) {
                 result.put("pmd_error", "Polar PMD source is not attached to this broker.");
             } else {
-                result.put("pmd", source.start(deviceAddress, scanTimeoutMs));
+                result.put("pmd", source.start(deviceAddress, scanTimeoutMs, pmdStream, highPriority, accSampleRateHz));
                 started++;
             }
         }
 
         result.put("include_hr", includeHeartRate);
         result.put("include_pmd", includePmd);
+        result.put("pmd_stream", pmdStream);
+        result.put("acc_sample_rate_hz", accSampleRateHz);
+        result.put("high_connection_priority", highPriority);
         result.put("pmd_default", "disabled unless include_pmd is true");
         if (started == 0) {
             state.rejectedCommands.incrementAndGet();
@@ -1922,6 +1933,20 @@ final class LocalBrokerServer implements Closeable {
         return scanTimeoutMs;
     }
 
+    private static String polarPmdStream(JSONObject params) {
+        if (params == null) {
+            return PolarPmdBrokerSource.PMD_STREAM_ACC;
+        }
+        String stream = params.optString("pmd_stream", "");
+        if (stream.trim().length() == 0) {
+            stream = params.optString("pmdStream", "");
+        }
+        if (stream.trim().length() == 0) {
+            stream = params.optString("measurement", "");
+        }
+        return stream.trim().length() == 0 ? PolarPmdBrokerSource.PMD_STREAM_ACC : stream;
+    }
+
     private static boolean optBooleanParam(
         JSONObject params,
         String snakeName,
@@ -1935,6 +1960,23 @@ final class LocalBrokerServer implements Closeable {
         }
         if (params.has(camelName)) {
             return params.optBoolean(camelName, defaultValue);
+        }
+        return defaultValue;
+    }
+
+    private static int optIntParam(
+        JSONObject params,
+        String snakeName,
+        String camelName,
+        int defaultValue) {
+        if (params == null) {
+            return defaultValue;
+        }
+        if (params.has(snakeName)) {
+            return params.optInt(snakeName, defaultValue);
+        }
+        if (params.has(camelName)) {
+            return params.optInt(camelName, defaultValue);
         }
         return defaultValue;
     }

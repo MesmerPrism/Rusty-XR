@@ -1322,7 +1322,8 @@ final class BrokerState {
     }
 
     synchronized boolean hasPolarPmdFrames() {
-        return polarPmdStatus.optLong("acc_frame_count", 0L) > 0L;
+        return polarPmdStatus.optLong("acc_frame_count", 0L) > 0L
+            || polarPmdStatus.optLong("ecg_frame_count", 0L) > 0L;
     }
 
     JSONObject configureBreathAssessment(JSONObject params) throws Exception {
@@ -1413,9 +1414,14 @@ final class BrokerState {
             status.put("enabled", false);
             status.put("state", "idle");
             status.put("input_stream", BreathAssessmentState.POLAR_INPUT_STREAM);
+            status.put("requested_pmd_stream", PolarPmdBrokerSource.PMD_STREAM_ACC);
+            status.put("active_pmd_stream", PolarPmdBrokerSource.PMD_STREAM_ACC);
+            status.put("active_measurement_type", PolarPmdProtocol.MEASUREMENT_TYPE_ACC & 0xff);
             status.put("output_stream", BreathAssessmentState.OUTPUT_STREAM);
             status.put("acc_frame_count", 0L);
             status.put("acc_sample_count", 0L);
+            status.put("ecg_frame_count", 0L);
+            status.put("ecg_sample_count", 0L);
             status.put("malformed_frame_count", 0L);
             status.put("last_error", "");
         } catch (Exception ignored) {

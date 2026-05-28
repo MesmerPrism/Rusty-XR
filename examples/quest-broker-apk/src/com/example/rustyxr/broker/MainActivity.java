@@ -1446,10 +1446,13 @@ public final class MainActivity extends Activity {
             if (polarPmd.has("negotiated_mtu")) {
                 builder.append("mtu           ").append(polarPmd.optInt("negotiated_mtu", 0)).append('\n');
             }
+            builder.append("pmd stream    ").append(polarPmd.optString("active_pmd_stream", "acc")).append('\n');
             builder.append("scan reports  ").append(polarPmd.optLong("scan_report_count", 0L)).append('\n');
             builder.append("ignored scan  ").append(polarPmd.optLong("ignored_scan_report_count", 0L)).append('\n');
             builder.append("acc frames    ").append(polarPmd.optLong("acc_frame_count", 0L)).append('\n');
             builder.append("acc samples   ").append(polarPmd.optLong("acc_sample_count", 0L)).append('\n');
+            builder.append("ecg frames    ").append(polarPmd.optLong("ecg_frame_count", 0L)).append('\n');
+            builder.append("ecg samples   ").append(polarPmd.optLong("ecg_sample_count", 0L)).append('\n');
             String missing = polarPmd.optString("missing_permissions", "");
             if (missing.length() > 0) {
                 builder.append("permissions   ").append(missing).append('\n');
@@ -2247,8 +2250,11 @@ public final class MainActivity extends Activity {
             if (polarPmd.has("negotiated_mtu")) {
                 builder.append("mtu           ").append(polarPmd.optInt("negotiated_mtu", 0)).append('\n');
             }
+            builder.append("pmd stream    ").append(polarPmd.optString("active_pmd_stream", "acc")).append('\n');
             builder.append("acc frames    ").append(polarPmd.optLong("acc_frame_count", 0L)).append('\n');
             builder.append("acc samples   ").append(polarPmd.optLong("acc_sample_count", 0L)).append('\n');
+            builder.append("ecg frames    ").append(polarPmd.optLong("ecg_frame_count", 0L)).append('\n');
+            builder.append("ecg samples   ").append(polarPmd.optLong("ecg_sample_count", 0L)).append('\n');
             builder.append("malformed     ").append(polarPmd.optLong("malformed_frame_count", 0L)).append('\n');
             builder.append("scan reports  ").append(polarPmd.optLong("scan_report_count", 0L)).append('\n');
             builder.append("ignored scan  ").append(polarPmd.optLong("ignored_scan_report_count", 0L)).append('\n');
