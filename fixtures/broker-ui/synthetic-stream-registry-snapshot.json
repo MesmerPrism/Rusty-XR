@@ -54,7 +54,9 @@
       "recommended_rate_hz": 10.0,
       "rate_class": "low_rate_telemetry",
       "data_sensitivity": "diagnostic",
-      "retention_policy": "rolling_window"
+      "retention_policy": "rolling_window",
+      "ui_subscription_policy": "auto_subscribe_low_rate",
+      "chart_policy": "low_rate_direct"
     },
     {
       "stream_id": "synthetic:wave",
@@ -75,7 +77,9 @@
       "recommended_rate_hz": 30.0,
       "rate_class": "low_rate_telemetry",
       "data_sensitivity": "public",
-      "retention_policy": "rolling_window"
+      "retention_policy": "rolling_window",
+      "ui_subscription_policy": "auto_subscribe_low_rate",
+      "chart_policy": "low_rate_direct"
     },
     {
       "stream_id": "bio:heart",
@@ -96,7 +100,9 @@
       "recommended_rate_hz": 1.0,
       "rate_class": "low_rate_telemetry",
       "data_sensitivity": "physiology",
-      "retention_policy": "rolling_window"
+      "retention_policy": "rolling_window",
+      "ui_subscription_policy": "auto_subscribe_low_rate",
+      "chart_policy": "low_rate_direct"
     },
     {
       "stream_id": "bio:breath",
@@ -117,7 +123,9 @@
       "recommended_rate_hz": 15.0,
       "rate_class": "low_rate_telemetry",
       "data_sensitivity": "derived_physiology",
-      "retention_policy": "rolling_window"
+      "retention_policy": "rolling_window",
+      "ui_subscription_policy": "auto_subscribe_low_rate",
+      "chart_policy": "low_rate_direct"
     },
     {
       "stream_id": "video_lab.metric_sample",
@@ -145,7 +153,9 @@
       "recommended_rate_hz": 15.0,
       "rate_class": "low_rate_telemetry",
       "data_sensitivity": "diagnostic",
-      "retention_policy": "rolling_window"
+      "retention_policy": "rolling_window",
+      "ui_subscription_policy": "auto_subscribe_low_rate",
+      "chart_policy": "low_rate_direct"
     }
   ],
   "adapters": [

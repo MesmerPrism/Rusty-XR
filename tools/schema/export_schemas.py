@@ -671,6 +671,14 @@ def schemas() -> dict[str, dict]:
         "BrokerStreamRetentionPolicy",
         ["none", "rolling_window", "session_replay", "downstream_owned"],
     )
+    broker_ui_subscription_policy = enum(
+        "BrokerUiSubscriptionPolicy",
+        ["manual_only", "auto_subscribe_low_rate", "auto_subscribe_when_selected", "never_subscribe_from_ui"],
+    )
+    broker_chart_policy = enum(
+        "BrokerChartPolicy",
+        ["not_chartable", "low_rate_direct", "downsample_required", "dedicated_view_required"],
+    )
     broker_registry_node_state = enum(
         "BrokerRegistryNodeState",
         ["starting", "active", "idle", "stopped", "degraded", "failed", "unknown"],
@@ -920,7 +928,22 @@ def schemas() -> dict[str, dict]:
             "rate_class": broker_stream_rate_class,
             "data_sensitivity": broker_data_sensitivity,
             "retention_policy": broker_stream_retention_policy,
+            "ui_subscription_policy": broker_ui_subscription_policy,
+            "chart_policy": broker_chart_policy,
         },
+        required=[
+            "stream_id",
+            "label",
+            "provider_id",
+            "stream_kind",
+            "payload_kind",
+            "payload_schema",
+            "metrics",
+            "recommended_rate_hz",
+            "rate_class",
+            "data_sensitivity",
+            "retention_policy",
+        ],
     )
     broker_stream_provider_descriptor = obj(
         "BrokerStreamProviderDescriptor",

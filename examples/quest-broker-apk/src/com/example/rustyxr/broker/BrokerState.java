@@ -376,6 +376,8 @@ final class BrokerState {
             descriptor.put("rate_class", rateClassForStream(streamId, kind));
             descriptor.put("data_sensitivity", dataSensitivityForStream(streamId, kind));
             descriptor.put("retention_policy", retentionPolicyForStream(streamId, kind));
+            descriptor.put("ui_subscription_policy", uiSubscriptionPolicyForStream(streamId, kind));
+            descriptor.put("chart_policy", chartPolicyForStream(streamId, kind));
             registeredStreams.put(descriptor);
         }
 
@@ -590,6 +592,42 @@ final class BrokerState {
             return "none";
         }
         return "rolling_window";
+    }
+
+    private static String uiSubscriptionPolicyForStream(String streamId, String kind) {
+        String rateClass = rateClassForStream(streamId, kind);
+        String retentionPolicy = retentionPolicyForStream(streamId, kind);
+        if ("downstream_owned".equals(retentionPolicy)
+            || "media".equals(rateClass)
+            || "burst".equals(rateClass)
+            || streamId.contains("h264")) {
+            return "never_subscribe_from_ui";
+        }
+        if ("low_rate_telemetry".equals(rateClass)) {
+            return "auto_subscribe_low_rate";
+        }
+        if ("frame_rate_telemetry".equals(rateClass)) {
+            return "auto_subscribe_when_selected";
+        }
+        return "manual_only";
+    }
+
+    private static String chartPolicyForStream(String streamId, String kind) {
+        String rateClass = rateClassForStream(streamId, kind);
+        String retentionPolicy = retentionPolicyForStream(streamId, kind);
+        if ("downstream_owned".equals(retentionPolicy)
+            || "media".equals(rateClass)
+            || "burst".equals(rateClass)
+            || streamId.contains("h264")) {
+            return "dedicated_view_required";
+        }
+        if ("low_rate_telemetry".equals(rateClass)) {
+            return "low_rate_direct";
+        }
+        if ("frame_rate_telemetry".equals(rateClass)) {
+            return "downsample_required";
+        }
+        return "not_chartable";
     }
 
     private static JSONArray metricsForStream(String streamId) throws Exception {

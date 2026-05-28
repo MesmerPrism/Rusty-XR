@@ -75,6 +75,58 @@ impl BrokerStreamRetentionPolicy {
     }
 }
 
+/// Whether a UI may subscribe to a stream without an explicit operator choice.
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(rename_all = "snake_case")
+)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BrokerUiSubscriptionPolicy {
+    #[default]
+    ManualOnly,
+    AutoSubscribeLowRate,
+    AutoSubscribeWhenSelected,
+    NeverSubscribeFromUi,
+}
+
+impl BrokerUiSubscriptionPolicy {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ManualOnly => "manual_only",
+            Self::AutoSubscribeLowRate => "auto_subscribe_low_rate",
+            Self::AutoSubscribeWhenSelected => "auto_subscribe_when_selected",
+            Self::NeverSubscribeFromUi => "never_subscribe_from_ui",
+        }
+    }
+}
+
+/// How a UI should treat a stream's numeric metrics for x/y charts.
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(rename_all = "snake_case")
+)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BrokerChartPolicy {
+    #[default]
+    NotChartable,
+    LowRateDirect,
+    DownsampleRequired,
+    DedicatedViewRequired,
+}
+
+impl BrokerChartPolicy {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotChartable => "not_chartable",
+            Self::LowRateDirect => "low_rate_direct",
+            Self::DownsampleRequired => "downsample_required",
+            Self::DedicatedViewRequired => "dedicated_view_required",
+        }
+    }
+}
+
 /// Shared lifecycle state for registry nodes.
 #[cfg_attr(
     feature = "serde",
@@ -437,6 +489,10 @@ pub struct BrokerRegisteredStreamDescriptor {
     pub rate_class: BrokerStreamRateClass,
     pub data_sensitivity: BrokerDataSensitivity,
     pub retention_policy: BrokerStreamRetentionPolicy,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ui_subscription_policy: BrokerUiSubscriptionPolicy,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub chart_policy: BrokerChartPolicy,
 }
 
 impl BrokerRegisteredStreamDescriptor {
@@ -460,6 +516,8 @@ impl BrokerRegisteredStreamDescriptor {
             rate_class: BrokerStreamRateClass::Unknown,
             data_sensitivity,
             retention_policy: BrokerStreamRetentionPolicy::None,
+            ui_subscription_policy: BrokerUiSubscriptionPolicy::ManualOnly,
+            chart_policy: BrokerChartPolicy::NotChartable,
         }
     }
 
@@ -486,7 +544,8 @@ impl BrokerRegisteredStreamDescriptor {
         )
         .with_provider_id(manifest.source_id.clone())
         .with_rate_class(rate_class)
-        .with_retention_policy(retention_policy);
+        .with_retention_policy(retention_policy)
+        .with_inferred_ui_policies();
         descriptor.recommended_rate_hz = manifest.recommended_rate_hz;
         descriptor
     }
@@ -516,6 +575,27 @@ impl BrokerRegisteredStreamDescriptor {
         retention_policy: BrokerStreamRetentionPolicy,
     ) -> Self {
         self.retention_policy = retention_policy;
+        self
+    }
+
+    pub const fn with_ui_subscription_policy(
+        mut self,
+        ui_subscription_policy: BrokerUiSubscriptionPolicy,
+    ) -> Self {
+        self.ui_subscription_policy = ui_subscription_policy;
+        self
+    }
+
+    pub const fn with_chart_policy(mut self, chart_policy: BrokerChartPolicy) -> Self {
+        self.chart_policy = chart_policy;
+        self
+    }
+
+    pub fn with_inferred_ui_policies(mut self) -> Self {
+        self.ui_subscription_policy =
+            infer_ui_subscription_policy(self.payload_kind, self.rate_class, self.retention_policy);
+        self.chart_policy =
+            infer_chart_policy(self.payload_kind, self.rate_class, self.retention_policy);
         self
     }
 
@@ -557,31 +637,15 @@ impl BrokerRegisteredStreamDescriptor {
     pub fn is_chartable(&self) -> bool {
         !self.metrics.is_empty()
             && matches!(
-                self.payload_kind,
-                BrokerPayloadKind::Json | BrokerPayloadKind::Text | BrokerPayloadKind::Custom
-            )
-            && matches!(
-                self.rate_class,
-                BrokerStreamRateClass::LowRateTelemetry
-                    | BrokerStreamRateClass::FrameRateTelemetry
-                    | BrokerStreamRateClass::Unknown
-            )
-            && !matches!(
-                self.retention_policy,
-                BrokerStreamRetentionPolicy::DownstreamOwned
+                self.chart_policy,
+                BrokerChartPolicy::LowRateDirect | BrokerChartPolicy::DownsampleRequired
             )
     }
 
     pub fn is_ui_auto_subscribe_candidate(&self) -> bool {
         matches!(
-            self.payload_kind,
-            BrokerPayloadKind::Json | BrokerPayloadKind::Text | BrokerPayloadKind::Custom
-        ) && !matches!(
-            self.rate_class,
-            BrokerStreamRateClass::Media | BrokerStreamRateClass::Burst
-        ) && !matches!(
-            self.retention_policy,
-            BrokerStreamRetentionPolicy::DownstreamOwned
+            self.ui_subscription_policy,
+            BrokerUiSubscriptionPolicy::AutoSubscribeLowRate
         )
     }
 }
@@ -857,13 +921,74 @@ fn infer_rate_class(manifest: &BrokerStreamManifest) -> BrokerStreamRateClass {
     }
 }
 
+fn infer_ui_subscription_policy(
+    payload_kind: BrokerPayloadKind,
+    rate_class: BrokerStreamRateClass,
+    retention_policy: BrokerStreamRetentionPolicy,
+) -> BrokerUiSubscriptionPolicy {
+    if !supports_direct_ui_payload(payload_kind)
+        || matches!(
+            retention_policy,
+            BrokerStreamRetentionPolicy::DownstreamOwned
+        )
+    {
+        return BrokerUiSubscriptionPolicy::NeverSubscribeFromUi;
+    }
+    match rate_class {
+        BrokerStreamRateClass::LowRateTelemetry => BrokerUiSubscriptionPolicy::AutoSubscribeLowRate,
+        BrokerStreamRateClass::FrameRateTelemetry => {
+            BrokerUiSubscriptionPolicy::AutoSubscribeWhenSelected
+        }
+        BrokerStreamRateClass::Media | BrokerStreamRateClass::Burst => {
+            BrokerUiSubscriptionPolicy::NeverSubscribeFromUi
+        }
+        BrokerStreamRateClass::MetadataOnly | BrokerStreamRateClass::Unknown => {
+            BrokerUiSubscriptionPolicy::ManualOnly
+        }
+    }
+}
+
+fn infer_chart_policy(
+    payload_kind: BrokerPayloadKind,
+    rate_class: BrokerStreamRateClass,
+    retention_policy: BrokerStreamRetentionPolicy,
+) -> BrokerChartPolicy {
+    if !supports_direct_ui_payload(payload_kind) {
+        return BrokerChartPolicy::DedicatedViewRequired;
+    }
+    if matches!(
+        retention_policy,
+        BrokerStreamRetentionPolicy::DownstreamOwned
+    ) {
+        return BrokerChartPolicy::DedicatedViewRequired;
+    }
+    match rate_class {
+        BrokerStreamRateClass::LowRateTelemetry => BrokerChartPolicy::LowRateDirect,
+        BrokerStreamRateClass::FrameRateTelemetry => BrokerChartPolicy::DownsampleRequired,
+        BrokerStreamRateClass::Media | BrokerStreamRateClass::Burst => {
+            BrokerChartPolicy::DedicatedViewRequired
+        }
+        BrokerStreamRateClass::MetadataOnly | BrokerStreamRateClass::Unknown => {
+            BrokerChartPolicy::NotChartable
+        }
+    }
+}
+
+fn supports_direct_ui_payload(payload_kind: BrokerPayloadKind) -> bool {
+    matches!(
+        payload_kind,
+        BrokerPayloadKind::Json | BrokerPayloadKind::Text | BrokerPayloadKind::Custom
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        BrokerCommandClientDescriptor, BrokerRegisteredStreamDescriptor, BrokerRegistryNodeState,
-        BrokerStreamMetricDescriptor, BrokerStreamProviderDescriptor, BrokerStreamRateClass,
-        BrokerStreamRegistrySnapshot, BrokerStreamRetentionPolicy,
-        BrokerStreamSubscriberDescriptor, BROKER_STREAM_REGISTRY_SNAPSHOT_SCHEMA,
+        BrokerChartPolicy, BrokerCommandClientDescriptor, BrokerRegisteredStreamDescriptor,
+        BrokerRegistryNodeState, BrokerStreamMetricDescriptor, BrokerStreamProviderDescriptor,
+        BrokerStreamRateClass, BrokerStreamRegistrySnapshot, BrokerStreamRetentionPolicy,
+        BrokerStreamSubscriberDescriptor, BrokerUiSubscriptionPolicy,
+        BROKER_STREAM_REGISTRY_SNAPSHOT_SCHEMA,
     };
     use crate::{
         BrokerControlLease, BrokerControlScope, BrokerDataSensitivity, BrokerPayloadKind,
@@ -885,7 +1010,8 @@ mod tests {
         .with_metric(BrokerStreamMetricDescriptor::new("volume01", "Volume").with_range(0.0, 1.0))
         .with_recommended_rate_hz(15.0)
         .with_rate_class(BrokerStreamRateClass::LowRateTelemetry)
-        .with_retention_policy(BrokerStreamRetentionPolicy::RollingWindow);
+        .with_retention_policy(BrokerStreamRetentionPolicy::RollingWindow)
+        .with_inferred_ui_policies();
         let scope = BrokerControlScope::new("runtime.bio", "runtime.bio");
         let lease = BrokerControlLease::new("lease-1", "client-1", scope, 5);
         let snapshot = BrokerStreamRegistrySnapshot::new("broker", 5)
@@ -961,7 +1087,85 @@ mod tests {
                 .rate_class,
             BrokerStreamRateClass::Media
         );
+        assert_eq!(
+            snapshot
+                .stream("synthetic:wave")
+                .expect("synthetic stream expected")
+                .ui_subscription_policy,
+            BrokerUiSubscriptionPolicy::AutoSubscribeLowRate
+        );
+        assert_eq!(
+            snapshot
+                .stream("camera.left.h264")
+                .expect("camera stream expected")
+                .chart_policy,
+            BrokerChartPolicy::DedicatedViewRequired
+        );
         assert!(snapshot.summary_line().contains("2 stream"));
+    }
+
+    #[test]
+    fn explicit_ui_policies_separate_charting_from_auto_subscribe() {
+        let low_rate = BrokerRegisteredStreamDescriptor::new(
+            "bio:breath",
+            "Breath",
+            BrokerStreamKind::Bio,
+            BrokerPayloadKind::Json,
+            "rusty.xr.bio.breath.v1",
+            BrokerDataSensitivity::DerivedPhysiology,
+        )
+        .with_metric(BrokerStreamMetricDescriptor::new("volume01", "Volume"))
+        .with_rate_class(BrokerStreamRateClass::LowRateTelemetry)
+        .with_retention_policy(BrokerStreamRetentionPolicy::RollingWindow)
+        .with_inferred_ui_policies();
+        let frame_rate = BrokerRegisteredStreamDescriptor::new(
+            "bio:polar_acc",
+            "Polar ACC",
+            BrokerStreamKind::Bio,
+            BrokerPayloadKind::Json,
+            "rusty.xr.bio.polar_acc.v1",
+            BrokerDataSensitivity::Physiology,
+        )
+        .with_metric(BrokerStreamMetricDescriptor::new(
+            "acc_magnitude_g",
+            "ACC Magnitude",
+        ))
+        .with_rate_class(BrokerStreamRateClass::FrameRateTelemetry)
+        .with_retention_policy(BrokerStreamRetentionPolicy::RollingWindow)
+        .with_inferred_ui_policies();
+        let unknown_rate = BrokerRegisteredStreamDescriptor::new(
+            "custom:opaque",
+            "Opaque",
+            BrokerStreamKind::Custom,
+            BrokerPayloadKind::Json,
+            "rusty.xr.custom.opaque.v1",
+            BrokerDataSensitivity::Unknown,
+        )
+        .with_metric(BrokerStreamMetricDescriptor::new("value", "Value"))
+        .with_rate_class(BrokerStreamRateClass::Unknown)
+        .with_retention_policy(BrokerStreamRetentionPolicy::None)
+        .with_inferred_ui_policies();
+        let snapshot = BrokerStreamRegistrySnapshot::new("broker", 1)
+            .with_stream(low_rate)
+            .with_stream(frame_rate)
+            .with_stream(unknown_rate);
+
+        assert_eq!(snapshot.chartable_streams().len(), 2);
+        assert_eq!(snapshot.auto_subscribe_stream_ids(), vec!["bio:breath"]);
+        assert_eq!(
+            snapshot
+                .stream("bio:polar_acc")
+                .expect("frame-rate stream expected")
+                .ui_subscription_policy,
+            BrokerUiSubscriptionPolicy::AutoSubscribeWhenSelected
+        );
+        assert_eq!(
+            snapshot
+                .stream("bio:polar_acc")
+                .expect("frame-rate stream expected")
+                .chart_policy,
+            BrokerChartPolicy::DownsampleRequired
+        );
     }
 
     #[cfg(feature = "serde")]
@@ -977,7 +1181,9 @@ mod tests {
                 BrokerDataSensitivity::Diagnostic,
             )
             .with_metric(BrokerStreamMetricDescriptor::new("latency_ms", "Latency").with_unit("ms"))
-            .with_rate_class(BrokerStreamRateClass::LowRateTelemetry),
+            .with_rate_class(BrokerStreamRateClass::LowRateTelemetry)
+            .with_retention_policy(BrokerStreamRetentionPolicy::RollingWindow)
+            .with_inferred_ui_policies(),
         );
 
         let encoded = serde_json::to_string(&snapshot).expect("registry should serialize");
@@ -1005,6 +1211,9 @@ mod tests {
         assert_eq!(snapshot.chartable_streams().len(), 5);
         assert_eq!(snapshot.chartable_metric_count(), 6);
         assert_eq!(snapshot.auto_subscribe_stream_ids().len(), 5);
+        assert!(snapshot.streams.iter().all(|stream| {
+            stream.ui_subscription_policy == BrokerUiSubscriptionPolicy::AutoSubscribeLowRate
+        }));
         assert_eq!(snapshot.active_leases.len(), 0);
     }
 }

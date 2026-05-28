@@ -45,11 +45,15 @@ descriptor/topology matching.
 
 Telemetry charts bind to stream ids and metric names from the stream registry.
 Low-rate telemetry can be retained in local UI history. High-rate or media-like
-streams should use the registry `rate_class` and `retention_policy` fields to
-decide whether a UI should draw, downsample, or refuse a direct chart.
-The public registry helpers expose this same distinction through chartable
-streams and UI auto-subscribe candidates so clients do not need to duplicate
-basic media-vs-telemetry filtering rules.
+streams should advertise explicit `ui_subscription_policy` and `chart_policy`
+fields instead of relying only on inferred `rate_class` and `retention_policy`.
+The public registry helpers expose this distinction through chartable streams
+and UI auto-subscribe candidates. `AutoSubscribeLowRate` is the only policy that
+enters the default auto-subscribe set; `AutoSubscribeWhenSelected`,
+`ManualOnly`, and `NeverSubscribeFromUi` require an explicit UI decision.
+Likewise, `LowRateDirect` and `DownsampleRequired` can enter chart catalogs,
+`DedicatedViewRequired` keeps specialized streams out of generic charts, and
+`NotChartable` keeps unknown or metadata-only streams out.
 
 ## Registry Snapshot Entrypoints
 
