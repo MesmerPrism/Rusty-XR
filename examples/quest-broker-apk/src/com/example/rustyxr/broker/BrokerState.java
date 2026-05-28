@@ -413,7 +413,7 @@ final class BrokerState {
         JSONObject snapshot = new JSONObject();
         snapshot.put("schema", STREAM_REGISTRY_SNAPSHOT_SCHEMA);
         snapshot.put("broker_id", "quest-broker-example");
-        snapshot.put("revision", streamRegistryRevision());
+        snapshot.put("revision", streamRegistrySemanticRevision());
         snapshot.put("captured_elapsed_ns", SystemClock.elapsedRealtimeNanos());
         snapshot.put("providers", providers);
         snapshot.put("streams", registeredStreams);
@@ -433,10 +433,8 @@ final class BrokerState {
         return stream;
     }
 
-    private long streamRegistryRevision() {
+    private long streamRegistrySemanticRevision() {
         return 1L
-            + acceptedCommands.get()
-            + rejectedCommands.get()
             + publishedStreamEvents.get()
             + videoLabMetricSamples.get()
             + videoLabEncodedStreamManifests.get()

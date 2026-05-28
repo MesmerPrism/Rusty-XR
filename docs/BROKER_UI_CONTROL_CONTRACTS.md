@@ -42,7 +42,9 @@ Brokers can expose `BrokerStreamRegistrySnapshot` through the read-only
 `/stream_registry/snapshot` HTTP path. Both surfaces should return the same
 schema id, broker id, revision, providers, streams, adapters, subscribers,
 command clients, and active leases. A UI may render this topology without
-receiving mutation authority.
+receiving mutation authority. The registry `revision` is a topology and stream
+state witness; read-only status, capability, stream-list, or registry queries
+should not advance it merely because a command counter changed.
 
 ## Public Fixtures
 
