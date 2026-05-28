@@ -10,8 +10,13 @@ lifecycles stay outside the model crate.
   primitives that a Makepad, web, companion, or command-line surface can render.
 - `BrokerTelemetryChartDescriptor` describes a stream metric that can be drawn
   on an x/y chart without hard-coding a UI framework.
+- `BrokerModuleManifest` and `BrokerModuleRuntimeState` describe optional
+  broker-managed providers, processors, sinks, bridges, control adapters,
+  diagnostics, and supervisors without loading code or binding the broker core
+  to a runtime dependency.
 - `BrokerStreamRegistrySnapshot` describes providers, streams, adapters,
-  subscribers, command clients, and active leases at one broker revision.
+  modules, subscribers, command clients, and active leases at one broker
+  revision.
 - `BrokerCommandAuthorityRequirement`, `BrokerControlScope`,
   `BrokerCommandPrecondition`, `BrokerControlLeaseRequest`,
   `BrokerControlLeaseRelease`, and `BrokerControlLease` describe the authority
@@ -22,6 +27,33 @@ lifecycles stay outside the model crate.
 The contracts deliberately do not grant authority. A broker implementation must
 still validate role, capability, lease, revision, expiry, holder identity, and
 operator-confirmation rules at command execution time.
+
+## Module Manifests
+
+Module manifests are discovery data. They advertise a module id, module kind,
+provided streams, consumed streams, accepted commands, permissions, external
+tools, platform support, resource locks, timestamp behavior, clock policy, data
+sensitivity, retention, UI subscription policy, chart policy, health metrics,
+failure policy, and optional panel descriptors.
+
+The module taxonomy is:
+
+- `provider`: produces streams or metadata.
+- `processor`: consumes streams and produces derived streams.
+- `sink`: records, exports, or forwards selected streams.
+- `bridge`: maps broker streams or commands to an external protocol.
+- `control_adapter`: exposes bounded command/control integrations.
+- `diagnostic`: reports health, timing, or validation status.
+- `supervisor`: watches lifecycle, recovery, or policy state.
+
+These contracts are schema-only. Dynamic plugin loading, adapter process
+management, native SDKs, protocol sockets, media codecs, and high-rate payload
+transport stay outside `rusty-xr-broker-model`. A manifest may describe those
+requirements, but it does not make them core dependencies.
+
+Module ids should be stable lowercase dotted ids such as `synthetic.wave` or
+`diagnostics.clock`. Keep platform as manifest metadata instead of encoding a
+host into the id unless the behavior itself is platform-specific.
 
 ## UI Rules
 
@@ -91,17 +123,25 @@ Likewise, `LowRateDirect` and `DownsampleRequired` can enter chart catalogs,
 Brokers can expose `BrokerStreamRegistrySnapshot` through the read-only
 `stream_registry.snapshot` command and the optional
 `/stream_registry/snapshot` HTTP path. Both surfaces should return the same
-schema id, broker id, revision, providers, streams, adapters, subscribers,
-command clients, and active leases. A UI may render this topology without
-receiving mutation authority. The registry `revision` is a topology and stream
-state witness; read-only status, capability, stream-list, or registry queries
-should not advance it merely because a command counter changed.
+schema id, broker id, revision, modules, providers, streams, adapters,
+subscribers, command clients, and active leases. A UI may render this topology
+without receiving mutation authority. The registry `revision` is a topology and
+stream state witness; read-only status, capability, stream-list, or registry
+queries should not advance it merely because a command counter changed.
+
+Registry providers, streams, and adapters may carry `module_id` and
+`module_kind` links. Those links let UI clients group streams by provider,
+processor, diagnostic, bridge, sink, supervisor, or control adapter while still
+using stream ids as the data-plane handles.
 
 ## Public Fixtures
 
 Synthetic fixtures live under `fixtures/broker-ui`:
 
 - `synthetic-panel-descriptor.json`
+- `synthetic-module-manifest.json`
+- `synthetic-module-runtime-state.json`
+- `synthetic-module-registry-snapshot.json`
 - `synthetic-stream-registry-snapshot.json`
 
 They are intentionally generic. Downstream apps can keep app-specific package

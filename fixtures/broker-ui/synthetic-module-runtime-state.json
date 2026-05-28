@@ -1,0 +1,40 @@
+{
+  "schema": "rusty.xr.broker.module_runtime_state.v1",
+  "module_id": "synthetic.wave",
+  "module_kind": "provider",
+  "lifecycle_state": "active",
+  "revision": 5,
+  "last_transition_elapsed_ns": 900000000,
+  "provided_stream_ids": [
+    "synthetic:wave"
+  ],
+  "consumed_stream_ids": [],
+  "active_resource_locks": [
+    {
+      "resource_id": "stream:synthetic:wave",
+      "label": "Synthetic wave stream",
+      "exclusive": false,
+      "lease_scope": {
+        "schema": "rusty.xr.broker.control_scope.v1",
+        "scope_id": "runtime.synthetic",
+        "command_scope": "runtime.synthetic",
+        "resource_id": "synthetic:wave"
+      },
+      "notes": [
+        "Runtime state mirrors the manifest ownership lock."
+      ]
+    }
+  ],
+  "health_metrics": [
+    {
+      "metric": "samples_emitted",
+      "label": "Samples emitted",
+      "unit": null,
+      "healthy_min": 1.0,
+      "healthy_max": null,
+      "observed_value": 120.0,
+      "state": "healthy"
+    }
+  ],
+  "issue_codes": []
+}

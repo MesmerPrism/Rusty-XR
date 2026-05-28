@@ -12,6 +12,9 @@ from typing import Any
 
 FIXTURE_SCHEMAS = {
     "fixtures/broker-ui/synthetic-panel-descriptor.json": "broker-panel-descriptor-document.schema.json",
+    "fixtures/broker-ui/synthetic-module-manifest.json": "broker-module-manifest.schema.json",
+    "fixtures/broker-ui/synthetic-module-runtime-state.json": "broker-module-runtime-state.schema.json",
+    "fixtures/broker-ui/synthetic-module-registry-snapshot.json": "broker-stream-registry-snapshot.schema.json",
     "fixtures/broker-ui/synthetic-stream-registry-snapshot.json": "broker-stream-registry-snapshot.schema.json",
 }
 

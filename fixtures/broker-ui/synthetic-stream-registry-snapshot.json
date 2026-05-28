@@ -3,10 +3,141 @@
   "broker_id": "synthetic-broker",
   "revision": 5,
   "captured_elapsed_ns": 1000000000,
+  "modules": [
+    {
+      "schema": "rusty.xr.broker.module_runtime_state.v1",
+      "module_id": "diagnostics.latency",
+      "module_kind": "diagnostic",
+      "lifecycle_state": "active",
+      "revision": 5,
+      "last_transition_elapsed_ns": 900000000,
+      "provided_stream_ids": [
+        "latency:sample"
+      ],
+      "consumed_stream_ids": [],
+      "active_resource_locks": [],
+      "health_metrics": [
+        {
+          "metric": "samples_emitted",
+          "label": "Samples emitted",
+          "unit": null,
+          "healthy_min": 1.0,
+          "healthy_max": null,
+          "observed_value": 32.0,
+          "state": "healthy"
+        }
+      ],
+      "issue_codes": []
+    },
+    {
+      "schema": "rusty.xr.broker.module_runtime_state.v1",
+      "module_id": "synthetic.wave",
+      "module_kind": "provider",
+      "lifecycle_state": "active",
+      "revision": 5,
+      "last_transition_elapsed_ns": 900000000,
+      "provided_stream_ids": [
+        "synthetic:wave"
+      ],
+      "consumed_stream_ids": [],
+      "active_resource_locks": [],
+      "health_metrics": [
+        {
+          "metric": "samples_emitted",
+          "label": "Samples emitted",
+          "unit": null,
+          "healthy_min": 1.0,
+          "healthy_max": null,
+          "observed_value": 120.0,
+          "state": "healthy"
+        }
+      ],
+      "issue_codes": []
+    },
+    {
+      "schema": "rusty.xr.broker.module_runtime_state.v1",
+      "module_id": "bio.synthetic",
+      "module_kind": "provider",
+      "lifecycle_state": "active",
+      "revision": 5,
+      "last_transition_elapsed_ns": 900000000,
+      "provided_stream_ids": [
+        "bio:heart"
+      ],
+      "consumed_stream_ids": [],
+      "active_resource_locks": [],
+      "health_metrics": [
+        {
+          "metric": "samples_emitted",
+          "label": "Samples emitted",
+          "unit": null,
+          "healthy_min": 1.0,
+          "healthy_max": null,
+          "observed_value": 16.0,
+          "state": "healthy"
+        }
+      ],
+      "issue_codes": []
+    },
+    {
+      "schema": "rusty.xr.broker.module_runtime_state.v1",
+      "module_id": "breath.synthetic",
+      "module_kind": "processor",
+      "lifecycle_state": "active",
+      "revision": 5,
+      "last_transition_elapsed_ns": 900000000,
+      "provided_stream_ids": [
+        "bio:breath"
+      ],
+      "consumed_stream_ids": [
+        "bio:heart"
+      ],
+      "active_resource_locks": [],
+      "health_metrics": [
+        {
+          "metric": "input_freshness_ms",
+          "label": "Input freshness",
+          "unit": "ms",
+          "healthy_min": 0.0,
+          "healthy_max": 250.0,
+          "observed_value": 66.0,
+          "state": "healthy"
+        }
+      ],
+      "issue_codes": []
+    },
+    {
+      "schema": "rusty.xr.broker.module_runtime_state.v1",
+      "module_id": "diagnostics.video_lab",
+      "module_kind": "diagnostic",
+      "lifecycle_state": "idle",
+      "revision": 5,
+      "last_transition_elapsed_ns": 850000000,
+      "provided_stream_ids": [
+        "video_lab.metric_sample"
+      ],
+      "consumed_stream_ids": [],
+      "active_resource_locks": [],
+      "health_metrics": [
+        {
+          "metric": "last_frame_age_ms",
+          "label": "Last frame age",
+          "unit": "ms",
+          "healthy_min": 0.0,
+          "healthy_max": 250.0,
+          "observed_value": null,
+          "state": "unknown"
+        }
+      ],
+      "issue_codes": []
+    }
+  ],
   "providers": [
     {
       "provider_id": "broker-provider",
       "label": "Broker diagnostics provider",
+      "module_id": "diagnostics.latency",
+      "module_kind": "diagnostic",
       "state": "active",
       "data_sensitivity": "diagnostic",
       "stream_ids": [
@@ -17,6 +148,8 @@
     {
       "provider_id": "bio-provider",
       "label": "Bio provider",
+      "module_id": "bio.synthetic",
+      "module_kind": "provider",
       "state": "active",
       "data_sensitivity": "derived_physiology",
       "stream_ids": [
@@ -27,6 +160,8 @@
     {
       "provider_id": "video-provider",
       "label": "Video diagnostics provider",
+      "module_id": "diagnostics.video_lab",
+      "module_kind": "diagnostic",
       "state": "idle",
       "data_sensitivity": "diagnostic",
       "stream_ids": [
@@ -39,6 +174,8 @@
       "stream_id": "latency:sample",
       "label": "Latency Sample",
       "provider_id": "broker-provider",
+      "module_id": "diagnostics.latency",
+      "module_kind": "diagnostic",
       "stream_kind": "Telemetry",
       "payload_kind": "Json",
       "payload_schema": "rusty.xr.broker.latency_sample.v1",
@@ -62,6 +199,8 @@
       "stream_id": "synthetic:wave",
       "label": "Synthetic Wave",
       "provider_id": "broker-provider",
+      "module_id": "synthetic.wave",
+      "module_kind": "provider",
       "stream_kind": "Synthetic",
       "payload_kind": "Json",
       "payload_schema": "rusty.xr.synthetic.wave.v1",
@@ -85,6 +224,8 @@
       "stream_id": "bio:heart",
       "label": "Heart Telemetry",
       "provider_id": "bio-provider",
+      "module_id": "bio.synthetic",
+      "module_kind": "provider",
       "stream_kind": "Bio",
       "payload_kind": "Json",
       "payload_schema": "rusty.xr.bio.heart.v1",
@@ -108,6 +249,8 @@
       "stream_id": "bio:breath",
       "label": "Breath",
       "provider_id": "bio-provider",
+      "module_id": "breath.synthetic",
+      "module_kind": "processor",
       "stream_kind": "Bio",
       "payload_kind": "Json",
       "payload_schema": "rusty.xr.bio.breath.v1",
@@ -131,6 +274,8 @@
       "stream_id": "video_lab.metric_sample",
       "label": "Video Lab Metrics",
       "provider_id": "video-provider",
+      "module_id": "diagnostics.video_lab",
+      "module_kind": "diagnostic",
       "stream_kind": "Telemetry",
       "payload_kind": "Json",
       "payload_schema": "rusty.xr.video_lab.metric_sample.v1",
@@ -162,6 +307,8 @@
     {
       "adapter_id": "breath-assessment",
       "label": "Breath assessment adapter",
+      "module_id": "breath.synthetic",
+      "module_kind": "processor",
       "state": "active",
       "input_stream_ids": [
         "bio:heart"
@@ -173,6 +320,8 @@
     {
       "adapter_id": "video-lab-metrics",
       "label": "Video lab metrics adapter",
+      "module_id": "diagnostics.video_lab",
+      "module_kind": "diagnostic",
       "state": "idle",
       "input_stream_ids": [],
       "output_stream_ids": [

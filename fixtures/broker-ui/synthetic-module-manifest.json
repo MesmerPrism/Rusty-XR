@@ -1,0 +1,127 @@
+{
+  "schema": "rusty.xr.broker.module_manifest.v1",
+  "module_id": "synthetic.wave",
+  "module_kind": "provider",
+  "label": "Synthetic wave provider",
+  "version": "0.1.0",
+  "provided_streams": [
+    {
+      "stream_id": "synthetic:wave",
+      "label": "Synthetic Wave",
+      "stream_kind": "Synthetic",
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.synthetic.wave.v1",
+      "required": false,
+      "recommended_rate_hz": 30.0,
+      "rate_class": "low_rate_telemetry",
+      "data_sensitivity": "public",
+      "retention_policy": "rolling_window",
+      "ui_subscription_policy": "auto_subscribe_low_rate",
+      "chart_policy": "low_rate_direct"
+    }
+  ],
+  "consumed_streams": [],
+  "accepted_commands": [
+    {
+      "command": "synthetic.wave.get_status",
+      "label": "Get synthetic wave status",
+      "authority": {
+        "schema": "rusty.xr.broker.command_authority_requirement.v1",
+        "command": "synthetic.wave.get_status",
+        "command_scope": "runtime.synthetic",
+        "mutation_class": "read_only",
+        "required_capability": null,
+        "required_capabilities": [],
+        "required_role": null,
+        "allowed_roles": [],
+        "lease_required": false,
+        "required_lease_scope": null,
+        "required_revision": null,
+        "revision_required": false,
+        "operator_confirm_required": false
+      },
+      "notes": [
+        "Read-only status command for synthetic fixture validation."
+      ]
+    }
+  ],
+  "required_permissions": [
+    {
+      "permission_id": "broker.synthetic.read",
+      "label": "Read synthetic status",
+      "requirement_kind": "broker_capability",
+      "required": true,
+      "operator_message": "Allows read-only synthetic status queries."
+    }
+  ],
+  "required_external_tools": [],
+  "platform_support": [
+    {
+      "platform": "any",
+      "supported": true,
+      "required_features": [],
+      "notes": [
+        "Pure broker fixture with no native runtime dependency."
+      ]
+    }
+  ],
+  "resource_locks": [
+    {
+      "resource_id": "stream:synthetic:wave",
+      "label": "Synthetic wave stream",
+      "exclusive": false,
+      "lease_scope": {
+        "schema": "rusty.xr.broker.control_scope.v1",
+        "scope_id": "runtime.synthetic",
+        "command_scope": "runtime.synthetic",
+        "resource_id": "synthetic:wave"
+      },
+      "notes": [
+        "The stream lock documents ownership; this fixture has no mutating control path."
+      ]
+    }
+  ],
+  "timestamp_behavior": {
+    "source_timestamp_domain": "ElapsedRealtime",
+    "source_timestamp_required": false,
+    "broker_receive_timestamp_required": true,
+    "preserves_source_timestamps": true,
+    "emits_chunk_timestamps": false,
+    "max_clock_error_ns": 1000000
+  },
+  "clock_policy": {
+    "broker_clock_domain": "ElapsedRealtime",
+    "correlation_required": false,
+    "allowed_source_domains": [
+      "ElapsedRealtime"
+    ],
+    "clock_health_required": true
+  },
+  "data_sensitivity": "public",
+  "retention_policy": "rolling_window",
+  "ui_subscription_policy": "auto_subscribe_low_rate",
+  "chart_policy": "low_rate_direct",
+  "health_metrics": [
+    {
+      "metric": "samples_emitted",
+      "label": "Samples emitted",
+      "unit": null,
+      "healthy_min": 1.0,
+      "healthy_max": null,
+      "observed_value": null,
+      "state": "unknown"
+    }
+  ],
+  "failure_policy": {
+    "action": "report_only",
+    "max_restart_attempts": null,
+    "restart_cooldown_elapsed_ns": null,
+    "notes": [
+      "Synthetic fixture failures should be reported without implying runtime restart behavior."
+    ]
+  },
+  "panel_descriptors": [],
+  "notes": [
+    "Schema-only public fixture; no dynamic loading or external protocol runtime is implied."
+  ]
+}

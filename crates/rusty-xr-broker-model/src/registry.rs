@@ -1,14 +1,16 @@
 //! Broker stream registry and topology snapshot contracts.
 //!
-//! The registry snapshot gives UI hosts a framework-neutral view of providers,
-//! streams, adapters, subscribers, command clients, and active leases.
+//! The registry snapshot gives UI hosts a framework-neutral view of modules,
+//! providers, streams, adapters, subscribers, command clients, and active
+//! leases.
 
 use std::collections::BTreeMap;
 
 use crate::{
-    BrokerControlLease, BrokerDataSensitivity, BrokerPayloadKind, BrokerReliabilityClass,
-    BrokerStatus, BrokerStreamKind, BrokerStreamManifest, BrokerTransportKind, STREAM_BIO_BREATH,
-    STREAM_BIO_HEART, STREAM_LATENCY_SAMPLE, STREAM_SYNTHETIC_WAVE,
+    BrokerControlLease, BrokerDataSensitivity, BrokerModuleKind, BrokerModuleRuntimeState,
+    BrokerPayloadKind, BrokerReliabilityClass, BrokerStatus, BrokerStreamKind,
+    BrokerStreamManifest, BrokerTransportKind, STREAM_BIO_BREATH, STREAM_BIO_HEART,
+    STREAM_LATENCY_SAMPLE, STREAM_SYNTHETIC_WAVE,
 };
 
 /// Versioned JSON schema id for broker stream registry snapshots.
@@ -166,6 +168,8 @@ pub struct BrokerStreamRegistrySnapshot {
     pub broker_id: String,
     pub revision: u64,
     pub captured_elapsed_ns: Option<u64>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub modules: Vec<BrokerModuleRuntimeState>,
     pub providers: Vec<BrokerStreamProviderDescriptor>,
     pub streams: Vec<BrokerRegisteredStreamDescriptor>,
     pub adapters: Vec<BrokerStreamAdapterDescriptor>,
@@ -181,6 +185,7 @@ impl BrokerStreamRegistrySnapshot {
             broker_id: broker_id.into(),
             revision,
             captured_elapsed_ns: None,
+            modules: Vec::new(),
             providers: Vec::new(),
             streams: Vec::new(),
             adapters: Vec::new(),
@@ -223,6 +228,11 @@ impl BrokerStreamRegistrySnapshot {
         self
     }
 
+    pub fn with_module(mut self, module: BrokerModuleRuntimeState) -> Self {
+        self.modules.push(module);
+        self
+    }
+
     pub fn with_provider(mut self, provider: BrokerStreamProviderDescriptor) -> Self {
         self.providers.push(provider);
         self
@@ -257,6 +267,19 @@ impl BrokerStreamRegistrySnapshot {
         self.streams
             .iter()
             .find(|stream| stream.stream_id == stream_id)
+    }
+
+    pub fn module(&self, module_id: &str) -> Option<&BrokerModuleRuntimeState> {
+        self.modules
+            .iter()
+            .find(|module| module.module_id == module_id)
+    }
+
+    pub fn modules_by_kind(&self, module_kind: BrokerModuleKind) -> Vec<&BrokerModuleRuntimeState> {
+        self.modules
+            .iter()
+            .filter(|module| module.module_kind == module_kind)
+            .collect()
     }
 
     pub fn subscriber(&self, subscriber_id: &str) -> Option<&BrokerStreamSubscriberDescriptor> {
@@ -308,9 +331,10 @@ impl BrokerStreamRegistrySnapshot {
 
     pub fn summary_line(&self) -> String {
         format!(
-            "{} rev {} / {} provider(s) / {} stream(s) / {} adapter(s) / {} subscriber(s) / {} command client(s) / {} active lease(s)",
+            "{} rev {} / {} module(s) / {} provider(s) / {} stream(s) / {} adapter(s) / {} subscriber(s) / {} command client(s) / {} active lease(s)",
             self.broker_id,
             self.revision,
+            self.modules.len(),
             self.providers.len(),
             self.streams.len(),
             self.adapters.len(),
@@ -318,6 +342,17 @@ impl BrokerStreamRegistrySnapshot {
             self.command_clients.len(),
             self.active_leases.len()
         )
+    }
+
+    pub fn modules_line(&self) -> String {
+        if self.modules.is_empty() {
+            return "no modules".to_string();
+        }
+        self.modules
+            .iter()
+            .map(BrokerModuleRuntimeState::line)
+            .collect::<Vec<_>>()
+            .join(" / ")
     }
 
     pub fn providers_line(&self) -> String {
@@ -394,9 +429,17 @@ impl BrokerStreamRegistrySnapshot {
             .collect()
     }
 
+    pub fn streams_for_module(&self, module_id: &str) -> Vec<&BrokerRegisteredStreamDescriptor> {
+        self.streams
+            .iter()
+            .filter(|stream| stream.module_id.as_deref() == Some(module_id))
+            .collect()
+    }
+
     pub fn is_valid(&self) -> bool {
         self.schema == BROKER_STREAM_REGISTRY_SNAPSHOT_SCHEMA
             && !self.broker_id.trim().is_empty()
+            && self.modules.iter().all(BrokerModuleRuntimeState::is_valid)
             && self
                 .providers
                 .iter()
@@ -418,6 +461,32 @@ impl BrokerStreamRegistrySnapshot {
                 .iter()
                 .all(BrokerCommandClientDescriptor::is_valid)
             && self.active_leases.iter().all(BrokerControlLease::is_valid)
+            && self.module_links_are_valid()
+    }
+
+    fn module_links_are_valid(&self) -> bool {
+        if self.modules.is_empty() {
+            return true;
+        }
+        self.providers.iter().all(|provider| {
+            provider
+                .module_id
+                .as_deref()
+                .map(|module_id| self.module(module_id).is_some())
+                .unwrap_or(true)
+        }) && self.streams.iter().all(|stream| {
+            stream
+                .module_id
+                .as_deref()
+                .map(|module_id| self.module(module_id).is_some())
+                .unwrap_or(true)
+        }) && self.adapters.iter().all(|adapter| {
+            adapter
+                .module_id
+                .as_deref()
+                .map(|module_id| self.module(module_id).is_some())
+                .unwrap_or(true)
+        })
     }
 }
 
@@ -427,6 +496,8 @@ impl BrokerStreamRegistrySnapshot {
 pub struct BrokerStreamProviderDescriptor {
     pub provider_id: String,
     pub label: String,
+    pub module_id: Option<String>,
+    pub module_kind: Option<BrokerModuleKind>,
     pub state: BrokerRegistryNodeState,
     pub data_sensitivity: BrokerDataSensitivity,
     pub stream_ids: Vec<String>,
@@ -441,6 +512,8 @@ impl BrokerStreamProviderDescriptor {
         Self {
             provider_id: provider_id.into(),
             label: label.into(),
+            module_id: None,
+            module_kind: None,
             state: BrokerRegistryNodeState::Unknown,
             data_sensitivity,
             stream_ids: Vec::new(),
@@ -457,17 +530,42 @@ impl BrokerStreamProviderDescriptor {
         self
     }
 
+    pub fn with_module(
+        mut self,
+        module_id: impl Into<String>,
+        module_kind: BrokerModuleKind,
+    ) -> Self {
+        self.module_id = Some(module_id.into());
+        self.module_kind = Some(module_kind);
+        self
+    }
+
     pub fn is_valid(&self) -> bool {
         non_empty(&self.provider_id)
             && non_empty(&self.label)
+            && module_link_is_valid(self.module_id.as_deref(), self.module_kind)
             && self.stream_ids.iter().all(|stream_id| non_empty(stream_id))
     }
 
     pub fn line(&self) -> String {
+        let module = self
+            .module_id
+            .as_deref()
+            .map(|module_id| {
+                format!(
+                    " / module {}:{}",
+                    self.module_kind
+                        .map(BrokerModuleKind::as_str)
+                        .unwrap_or("unknown"),
+                    module_id
+                )
+            })
+            .unwrap_or_default();
         format!(
-            "{} / {} / {} stream(s) / {}",
+            "{} / {}{} / {} stream(s) / {}",
             self.label,
             self.provider_id,
+            module,
             self.stream_ids.len(),
             self.state.as_str()
         )
@@ -481,6 +579,8 @@ pub struct BrokerRegisteredStreamDescriptor {
     pub stream_id: String,
     pub label: String,
     pub provider_id: Option<String>,
+    pub module_id: Option<String>,
+    pub module_kind: Option<BrokerModuleKind>,
     pub stream_kind: BrokerStreamKind,
     pub payload_kind: BrokerPayloadKind,
     pub payload_schema: String,
@@ -508,6 +608,8 @@ impl BrokerRegisteredStreamDescriptor {
             stream_id: stream_id.into(),
             label: label.into(),
             provider_id: None,
+            module_id: None,
+            module_kind: None,
             stream_kind,
             payload_kind,
             payload_schema: payload_schema.into(),
@@ -552,6 +654,16 @@ impl BrokerRegisteredStreamDescriptor {
 
     pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
         self.provider_id = Some(provider_id.into());
+        self
+    }
+
+    pub fn with_module(
+        mut self,
+        module_id: impl Into<String>,
+        module_kind: BrokerModuleKind,
+    ) -> Self {
+        self.module_id = Some(module_id.into());
+        self.module_kind = Some(module_kind);
         self
     }
 
@@ -603,6 +715,7 @@ impl BrokerRegisteredStreamDescriptor {
         non_empty(&self.stream_id)
             && non_empty(&self.label)
             && self.provider_id.as_deref().map(non_empty).unwrap_or(true)
+            && module_link_is_valid(self.module_id.as_deref(), self.module_kind)
             && non_empty(&self.payload_schema)
             && self
                 .recommended_rate_hz
@@ -708,6 +821,8 @@ impl BrokerStreamMetricDescriptor {
 pub struct BrokerStreamAdapterDescriptor {
     pub adapter_id: String,
     pub label: String,
+    pub module_id: Option<String>,
+    pub module_kind: Option<BrokerModuleKind>,
     pub state: BrokerRegistryNodeState,
     pub input_stream_ids: Vec<String>,
     pub output_stream_ids: Vec<String>,
@@ -718,6 +833,8 @@ impl BrokerStreamAdapterDescriptor {
         Self {
             adapter_id: adapter_id.into(),
             label: label.into(),
+            module_id: None,
+            module_kind: None,
             state: BrokerRegistryNodeState::Unknown,
             input_stream_ids: Vec::new(),
             output_stream_ids: Vec::new(),
@@ -739,9 +856,20 @@ impl BrokerStreamAdapterDescriptor {
         self
     }
 
+    pub fn with_module(
+        mut self,
+        module_id: impl Into<String>,
+        module_kind: BrokerModuleKind,
+    ) -> Self {
+        self.module_id = Some(module_id.into());
+        self.module_kind = Some(module_kind);
+        self
+    }
+
     pub fn is_valid(&self) -> bool {
         non_empty(&self.adapter_id)
             && non_empty(&self.label)
+            && module_link_is_valid(self.module_id.as_deref(), self.module_kind)
             && self
                 .input_stream_ids
                 .iter()
@@ -860,6 +988,14 @@ impl BrokerCommandClientDescriptor {
 
 fn non_empty(value: &str) -> bool {
     !value.trim().is_empty()
+}
+
+fn module_link_is_valid(module_id: Option<&str>, module_kind: Option<BrokerModuleKind>) -> bool {
+    match (module_id, module_kind) {
+        (Some(module_id), Some(_)) => non_empty(module_id),
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 fn infer_stream_kind(stream_id: &str, payload_kind: BrokerPayloadKind) -> BrokerStreamKind {
@@ -991,7 +1127,8 @@ mod tests {
         BROKER_STREAM_REGISTRY_SNAPSHOT_SCHEMA,
     };
     use crate::{
-        BrokerControlLease, BrokerControlScope, BrokerDataSensitivity, BrokerPayloadKind,
+        BrokerControlLease, BrokerControlScope, BrokerDataSensitivity, BrokerModuleKind,
+        BrokerModuleLifecycleState, BrokerModuleRuntimeState, BrokerPayloadKind,
         BrokerReliabilityClass, BrokerStatus, BrokerStreamKind, BrokerStreamManifest,
         BrokerTransportKind, SYNTHETIC_WAVE_PAYLOAD_SCHEMA,
     };
@@ -1007,6 +1144,7 @@ mod tests {
             BrokerDataSensitivity::DerivedPhysiology,
         )
         .with_provider_id("bio-provider")
+        .with_module("breath.synthetic", BrokerModuleKind::Processor)
         .with_metric(BrokerStreamMetricDescriptor::new("volume01", "Volume").with_range(0.0, 1.0))
         .with_recommended_rate_hz(15.0)
         .with_rate_class(BrokerStreamRateClass::LowRateTelemetry)
@@ -1015,12 +1153,21 @@ mod tests {
         let scope = BrokerControlScope::new("runtime.bio", "runtime.bio");
         let lease = BrokerControlLease::new("lease-1", "client-1", scope, 5);
         let snapshot = BrokerStreamRegistrySnapshot::new("broker", 5)
+            .with_module(
+                BrokerModuleRuntimeState::new(
+                    "breath.synthetic",
+                    BrokerModuleKind::Processor,
+                    BrokerModuleLifecycleState::Active,
+                )
+                .with_provided_stream_id("bio:breath"),
+            )
             .with_provider(
                 BrokerStreamProviderDescriptor::new(
                     "bio-provider",
                     "Bio provider",
                     BrokerDataSensitivity::DerivedPhysiology,
                 )
+                .with_module("breath.synthetic", BrokerModuleKind::Processor)
                 .with_state(BrokerRegistryNodeState::Active)
                 .with_stream_id("bio:breath"),
             )
@@ -1042,9 +1189,15 @@ mod tests {
 
         assert!(snapshot.is_valid());
         assert_eq!(snapshot.schema, BROKER_STREAM_REGISTRY_SNAPSHOT_SCHEMA);
+        assert_eq!(
+            snapshot.modules_by_kind(BrokerModuleKind::Processor).len(),
+            1
+        );
         assert!(snapshot.stream("bio:breath").is_some());
+        assert_eq!(snapshot.streams_for_module("breath.synthetic").len(), 1);
         assert_eq!(snapshot.streams_for_provider("bio-provider").len(), 1);
         assert_eq!(snapshot.active_leases.len(), 1);
+        assert!(snapshot.modules_line().contains("breath.synthetic"));
         assert!(snapshot.summary_line().contains("1 active lease"));
         assert!(snapshot.providers_line().contains("Bio provider"));
         assert!(snapshot.streams_line().contains("bio:breath"));
@@ -1204,10 +1357,16 @@ mod tests {
 
         assert!(snapshot.is_valid());
         assert_eq!(snapshot.broker_id, "synthetic-broker");
+        assert_eq!(snapshot.modules.len(), 5);
+        assert_eq!(
+            snapshot.modules_by_kind(BrokerModuleKind::Provider).len(),
+            2
+        );
         assert_eq!(snapshot.providers.len(), 3);
         assert_eq!(snapshot.streams.len(), 5);
         assert_eq!(snapshot.adapters.len(), 2);
         assert!(snapshot.stream("bio:breath").is_some());
+        assert_eq!(snapshot.streams_for_module("breath.synthetic").len(), 1);
         assert_eq!(snapshot.chartable_streams().len(), 5);
         assert_eq!(snapshot.chartable_metric_count(), 6);
         assert_eq!(snapshot.auto_subscribe_stream_ids().len(), 5);
@@ -1215,5 +1374,20 @@ mod tests {
             stream.ui_subscription_policy == BrokerUiSubscriptionPolicy::AutoSubscribeLowRate
         }));
         assert_eq!(snapshot.active_leases.len(), 0);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn public_module_registry_fixture_deserializes() {
+        let snapshot: BrokerStreamRegistrySnapshot = serde_json::from_str(include_str!(
+            "../../../fixtures/broker-ui/synthetic-module-registry-snapshot.json"
+        ))
+        .expect("public module registry fixture should deserialize");
+
+        assert!(snapshot.is_valid());
+        assert_eq!(snapshot.modules.len(), 1);
+        assert!(snapshot.module("synthetic.wave").is_some());
+        assert_eq!(snapshot.streams_for_module("synthetic.wave").len(), 1);
+        assert!(snapshot.modules_line().contains("synthetic.wave"));
     }
 }

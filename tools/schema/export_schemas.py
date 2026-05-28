@@ -683,6 +683,58 @@ def schemas() -> dict[str, dict]:
         "BrokerRegistryNodeState",
         ["starting", "active", "idle", "stopped", "degraded", "failed", "unknown"],
     )
+    broker_module_kind = enum(
+        "BrokerModuleKind",
+        ["provider", "processor", "sink", "bridge", "control_adapter", "diagnostic", "supervisor"],
+    )
+    broker_module_lifecycle_state = enum(
+        "BrokerModuleLifecycleState",
+        [
+            "discovered",
+            "configured",
+            "starting",
+            "active",
+            "idle",
+            "degraded",
+            "failed",
+            "stopping",
+            "stopped",
+            "unavailable",
+        ],
+    )
+    broker_module_permission_kind = enum(
+        "BrokerModulePermissionKind",
+        [
+            "broker_capability",
+            "operator_approval",
+            "android_permission",
+            "device_permission",
+            "network_access",
+            "file_system_access",
+            "external_credential",
+            "pairing_token",
+            "unknown",
+        ],
+    )
+    broker_module_platform = enum(
+        "BrokerModulePlatform",
+        ["any", "android", "quest", "windows", "macos", "linux", "web", "external_sidecar", "unknown"],
+    )
+    broker_module_failure_action = enum(
+        "BrokerModuleFailureAction",
+        [
+            "report_only",
+            "degrade_streams",
+            "disable_module",
+            "restart_module",
+            "stop_session",
+            "operator_intervention_required",
+        ],
+    )
+    broker_module_health_state = enum(
+        "BrokerModuleHealthState",
+        ["healthy", "warning", "critical", "unavailable", "unknown"],
+    )
     broker_host_authority_role = enum(
         "BrokerHostAuthorityRole",
         [
@@ -970,6 +1022,155 @@ def schemas() -> dict[str, dict]:
             "panels": array(broker_panel_descriptor),
         },
     )
+    broker_module_stream_binding = obj(
+        "BrokerModuleStreamBinding",
+        {
+            "stream_id": string(),
+            "label": string(),
+            "stream_kind": broker_stream_kind,
+            "payload_kind": broker_payload_kind,
+            "payload_schema": string(),
+            "required": boolean(),
+            "recommended_rate_hz": {"type": ["number", "null"], "exclusiveMinimum": 0},
+            "rate_class": broker_stream_rate_class,
+            "data_sensitivity": broker_data_sensitivity,
+            "retention_policy": broker_stream_retention_policy,
+            "ui_subscription_policy": broker_ui_subscription_policy,
+            "chart_policy": broker_chart_policy,
+        },
+    )
+    broker_module_command_descriptor = obj(
+        "BrokerModuleCommandDescriptor",
+        {
+            "command": string(),
+            "label": string(),
+            "authority": broker_command_authority_requirement,
+            "notes": array(string()),
+        },
+    )
+    broker_module_permission_requirement = obj(
+        "BrokerModulePermissionRequirement",
+        {
+            "permission_id": string(),
+            "label": string(),
+            "requirement_kind": broker_module_permission_kind,
+            "required": boolean(),
+            "operator_message": nullable_string(),
+        },
+    )
+    broker_module_external_tool_requirement = obj(
+        "BrokerModuleExternalToolRequirement",
+        {
+            "tool_id": string(),
+            "label": string(),
+            "version_requirement": nullable_string(),
+            "user_supplied": boolean(),
+            "required": boolean(),
+        },
+    )
+    broker_module_resource_lock = obj(
+        "BrokerModuleResourceLock",
+        {
+            "resource_id": string(),
+            "label": string(),
+            "exclusive": boolean(),
+            "lease_scope": {"oneOf": [broker_control_scope, {"type": "null"}]},
+            "notes": array(string()),
+        },
+    )
+    broker_module_platform_support = obj(
+        "BrokerModulePlatformSupport",
+        {
+            "platform": broker_module_platform,
+            "supported": boolean(),
+            "required_features": array(string()),
+            "notes": array(string()),
+        },
+    )
+    broker_module_timestamp_behavior = obj(
+        "BrokerModuleTimestampBehavior",
+        {
+            "source_timestamp_domain": broker_timestamp_domain,
+            "source_timestamp_required": boolean(),
+            "broker_receive_timestamp_required": boolean(),
+            "preserves_source_timestamps": boolean(),
+            "emits_chunk_timestamps": boolean(),
+            "max_clock_error_ns": {"type": ["integer", "null"], "minimum": 1},
+        },
+    )
+    broker_module_clock_policy = obj(
+        "BrokerModuleClockPolicy",
+        {
+            "broker_clock_domain": broker_timestamp_domain,
+            "correlation_required": boolean(),
+            "allowed_source_domains": array(broker_timestamp_domain),
+            "clock_health_required": boolean(),
+        },
+    )
+    broker_module_health_metric = obj(
+        "BrokerModuleHealthMetric",
+        {
+            "metric": string(),
+            "label": string(),
+            "unit": nullable_string(),
+            "healthy_min": {"type": ["number", "null"]},
+            "healthy_max": {"type": ["number", "null"]},
+            "observed_value": {"type": ["number", "null"]},
+            "state": broker_module_health_state,
+        },
+    )
+    broker_module_failure_policy = obj(
+        "BrokerModuleFailurePolicy",
+        {
+            "action": broker_module_failure_action,
+            "max_restart_attempts": {"type": ["integer", "null"], "minimum": 0},
+            "restart_cooldown_elapsed_ns": {"type": ["integer", "null"], "minimum": 1},
+            "notes": array(string()),
+        },
+    )
+    broker_module_manifest = obj(
+        "BrokerModuleManifest",
+        {
+            "schema": {"const": "rusty.xr.broker.module_manifest.v1"},
+            "module_id": string(),
+            "module_kind": broker_module_kind,
+            "label": string(),
+            "version": string(),
+            "provided_streams": array(broker_module_stream_binding),
+            "consumed_streams": array(broker_module_stream_binding),
+            "accepted_commands": array(broker_module_command_descriptor),
+            "required_permissions": array(broker_module_permission_requirement),
+            "required_external_tools": array(broker_module_external_tool_requirement),
+            "platform_support": array(broker_module_platform_support),
+            "resource_locks": array(broker_module_resource_lock),
+            "timestamp_behavior": broker_module_timestamp_behavior,
+            "clock_policy": broker_module_clock_policy,
+            "data_sensitivity": broker_data_sensitivity,
+            "retention_policy": broker_stream_retention_policy,
+            "ui_subscription_policy": broker_ui_subscription_policy,
+            "chart_policy": broker_chart_policy,
+            "health_metrics": array(broker_module_health_metric),
+            "failure_policy": broker_module_failure_policy,
+            "panel_descriptors": array(broker_panel_descriptor),
+            "notes": array(string()),
+        },
+    )
+    broker_module_runtime_state = obj(
+        "BrokerModuleRuntimeState",
+        {
+            "schema": {"const": "rusty.xr.broker.module_runtime_state.v1"},
+            "module_id": string(),
+            "module_kind": broker_module_kind,
+            "lifecycle_state": broker_module_lifecycle_state,
+            "revision": integer(0),
+            "last_transition_elapsed_ns": {"type": ["integer", "null"], "minimum": 1},
+            "provided_stream_ids": array(string()),
+            "consumed_stream_ids": array(string()),
+            "active_resource_locks": array(broker_module_resource_lock),
+            "health_metrics": array(broker_module_health_metric),
+            "issue_codes": array(string()),
+        },
+    )
     broker_stream_metric_descriptor = obj(
         "BrokerStreamMetricDescriptor",
         {
@@ -986,6 +1187,8 @@ def schemas() -> dict[str, dict]:
             "stream_id": string(),
             "label": string(),
             "provider_id": nullable_string(),
+            "module_id": nullable_string(),
+            "module_kind": {"oneOf": [broker_module_kind, {"type": "null"}]},
             "stream_kind": broker_stream_kind,
             "payload_kind": broker_payload_kind,
             "payload_schema": string(),
@@ -1016,20 +1219,26 @@ def schemas() -> dict[str, dict]:
         {
             "provider_id": string(),
             "label": string(),
+            "module_id": nullable_string(),
+            "module_kind": {"oneOf": [broker_module_kind, {"type": "null"}]},
             "state": broker_registry_node_state,
             "data_sensitivity": broker_data_sensitivity,
             "stream_ids": array(string()),
         },
+        required=["provider_id", "label", "state", "data_sensitivity", "stream_ids"],
     )
     broker_stream_adapter_descriptor = obj(
         "BrokerStreamAdapterDescriptor",
         {
             "adapter_id": string(),
             "label": string(),
+            "module_id": nullable_string(),
+            "module_kind": {"oneOf": [broker_module_kind, {"type": "null"}]},
             "state": broker_registry_node_state,
             "input_stream_ids": array(string()),
             "output_stream_ids": array(string()),
         },
+        required=["adapter_id", "label", "state", "input_stream_ids", "output_stream_ids"],
     )
     broker_stream_subscriber_descriptor = obj(
         "BrokerStreamSubscriberDescriptor",
@@ -1056,6 +1265,7 @@ def schemas() -> dict[str, dict]:
             "broker_id": string(),
             "revision": integer(0),
             "captured_elapsed_ns": {"type": ["integer", "null"], "minimum": 0},
+            "modules": array(broker_module_runtime_state),
             "providers": array(broker_stream_provider_descriptor),
             "streams": array(broker_registered_stream_descriptor),
             "adapters": array(broker_stream_adapter_descriptor),
@@ -3023,6 +3233,8 @@ def schemas() -> dict[str, dict]:
         "broker-panel-descriptor.schema.json": broker_panel_descriptor,
         "broker-panel-descriptor-document.schema.json": broker_panel_descriptor_document,
         "broker-telemetry-chart-descriptor.schema.json": broker_telemetry_chart_descriptor,
+        "broker-module-manifest.schema.json": broker_module_manifest,
+        "broker-module-runtime-state.schema.json": broker_module_runtime_state,
         "broker-stream-registry-snapshot.schema.json": broker_stream_registry_snapshot,
         "broker-host-manifest.schema.json": broker_host_manifest,
         "broker-stream-manifest.schema.json": broker_stream_manifest,

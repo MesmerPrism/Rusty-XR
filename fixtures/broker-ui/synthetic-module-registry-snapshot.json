@@ -1,0 +1,96 @@
+{
+  "schema": "rusty.xr.broker.stream_registry_snapshot.v1",
+  "broker_id": "synthetic-broker",
+  "revision": 5,
+  "captured_elapsed_ns": 1000000000,
+  "modules": [
+    {
+      "schema": "rusty.xr.broker.module_runtime_state.v1",
+      "module_id": "synthetic.wave",
+      "module_kind": "provider",
+      "lifecycle_state": "active",
+      "revision": 5,
+      "last_transition_elapsed_ns": 900000000,
+      "provided_stream_ids": [
+        "synthetic:wave"
+      ],
+      "consumed_stream_ids": [],
+      "active_resource_locks": [],
+      "health_metrics": [
+        {
+          "metric": "samples_emitted",
+          "label": "Samples emitted",
+          "unit": null,
+          "healthy_min": 1.0,
+          "healthy_max": null,
+          "observed_value": 120.0,
+          "state": "healthy"
+        }
+      ],
+      "issue_codes": []
+    }
+  ],
+  "providers": [
+    {
+      "provider_id": "synthetic-provider",
+      "label": "Synthetic provider",
+      "module_id": "synthetic.wave",
+      "module_kind": "provider",
+      "state": "active",
+      "data_sensitivity": "public",
+      "stream_ids": [
+        "synthetic:wave"
+      ]
+    }
+  ],
+  "streams": [
+    {
+      "stream_id": "synthetic:wave",
+      "label": "Synthetic Wave",
+      "provider_id": "synthetic-provider",
+      "module_id": "synthetic.wave",
+      "module_kind": "provider",
+      "stream_kind": "Synthetic",
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.synthetic.wave.v1",
+      "metrics": [
+        {
+          "metric": "value01",
+          "label": "Value",
+          "unit": null,
+          "min_value": 0.0,
+          "max_value": 1.0
+        }
+      ],
+      "recommended_rate_hz": 30.0,
+      "rate_class": "low_rate_telemetry",
+      "data_sensitivity": "public",
+      "retention_policy": "rolling_window",
+      "ui_subscription_policy": "auto_subscribe_low_rate",
+      "chart_policy": "low_rate_direct"
+    }
+  ],
+  "adapters": [],
+  "subscribers": [
+    {
+      "subscriber_id": "inspector",
+      "label": "Inspector",
+      "transport": "WebSocket",
+      "stream_ids": [
+        "synthetic:wave"
+      ]
+    }
+  ],
+  "command_clients": [
+    {
+      "client_id": "inspector",
+      "label": "Inspector",
+      "command_scopes": [
+        "session.lifecycle",
+        "runtime.synthetic"
+      ],
+      "held_lease_ids": []
+    }
+  ],
+  "active_leases": []
+}
