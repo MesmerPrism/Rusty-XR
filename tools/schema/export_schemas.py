@@ -833,6 +833,13 @@ def schemas() -> dict[str, dict]:
             "required_capability": nullable_string(),
             "lease_required": boolean(),
         },
+        required=[
+            "kind",
+            "id",
+            "label",
+            "command",
+            "command_scope",
+        ],
     )
     broker_panel_widget_stream_list = obj(
         "BrokerPanelWidgetStreamList",
@@ -895,6 +902,13 @@ def schemas() -> dict[str, dict]:
             "lease_required": boolean(),
             "widgets": array(broker_panel_widget),
         },
+        required=[
+            "id",
+            "title",
+            "kind",
+            "data_sensitivity",
+            "command_scope",
+        ],
     )
     broker_panel_descriptor_document = obj(
         "BrokerPanelDescriptorDocument",

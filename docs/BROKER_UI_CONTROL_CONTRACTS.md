@@ -84,5 +84,6 @@ Recommended checks for this contract surface:
 ```powershell
 cargo test -p rusty-xr-broker-model --features serde
 python tools/schema/export_schemas.py --check
+python tools/schema/check_broker_ui_fixtures.py --repo-root .
 python tools/boundary-scan/rusty_xr_boundary_scan.py --repo-root .
 ```

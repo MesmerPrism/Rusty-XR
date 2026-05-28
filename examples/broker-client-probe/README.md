@@ -12,6 +12,7 @@ dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- bro
 cargo run -p rusty-xr-broker-client-probe -- status
 cargo run -p rusty-xr-broker-client-probe -- streams
 cargo run -p rusty-xr-broker-client-probe -- registry
+cargo run -p rusty-xr-broker-client-probe -- registry-http
 cargo run -p rusty-xr-broker-client-probe -- camera-provider
 cargo run -p rusty-xr-broker-client-probe -- projection-profile
 cargo run -p rusty-xr-broker-client-probe -- app-camera-probe
@@ -42,6 +43,8 @@ Commands:
 - `streams`: send `list_streams` over WebSocket.
 - `registry`: send `stream_registry.snapshot` and print the broker topology
   snapshot.
+- `registry-http`: read `GET /stream_registry/snapshot` and print the broker
+  topology snapshot.
 - `camera-provider`: send `camera_provider.get_status`.
 - `projection-profile`: send `camera_provider.get_projection_profile`.
 - `app-camera-probe`: send `camera_provider.run_app_camera_probe`; the broker

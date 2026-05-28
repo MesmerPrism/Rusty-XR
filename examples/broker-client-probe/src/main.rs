@@ -1,7 +1,7 @@
 use rusty_xr_broker_model::{
     BROKER_COMMAND_SCHEMA, BROKER_LATENCY_SAMPLE_SCHEMA, BROKER_STREAM_REGISTRY_SNAPSHOT_COMMAND,
-    BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA, BROKER_TRANSPORT_SESSION_OFFER_SCHEMA,
-    STREAM_LATENCY_SAMPLE,
+    BROKER_STREAM_REGISTRY_SNAPSHOT_HTTP_PATH, BROKER_TRANSPORT_SECURITY_POLICY_SCHEMA,
+    BROKER_TRANSPORT_SESSION_OFFER_SCHEMA, STREAM_LATENCY_SAMPLE,
 };
 use serde_json::{json, Value};
 use std::env;
@@ -41,6 +41,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 None,
             )?;
             print_messages(&response);
+        }
+        "registry-http" => {
+            println!("{}", http_registry_snapshot(&options.host, options.port)?);
         }
         "camera-provider" => {
             let response = send_command(
@@ -290,7 +293,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         _ => {
             return Err(format!(
-                "unknown command '{}'; use status, capabilities, streams, registry, camera-provider, projection-profile, app-camera-probe, synthetic-h264-stream, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
+                "unknown command '{}'; use status, capabilities, streams, registry, registry-http, camera-provider, projection-profile, app-camera-probe, synthetic-h264-stream, app-camera-h264-decode-probe, shell-helper-status, shell-helper-report-stub, video-lab-status, video-lab-scorecard, video-manifest-stub, video-sample-meta-stub, video-metric-stub, h264-proxy-probe, transport-capabilities, transport-create-session, transport-list-sessions, transport-get-session, transport-close-session, subscribe, open-ui, close-ui, or sample",
                 options.command
             )
             .into());
@@ -301,18 +304,35 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn http_status(host: &str, port: u16) -> io::Result<String> {
+    http_get_body(host, port, "/status")
+}
+
+fn http_registry_snapshot(host: &str, port: u16) -> io::Result<String> {
+    http_get_body(host, port, BROKER_STREAM_REGISTRY_SNAPSHOT_HTTP_PATH)
+}
+
+fn http_get_body(host: &str, port: u16, path: &str) -> io::Result<String> {
     let mut stream = TcpStream::connect((host, port))?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-    write!(
-        stream,
-        "GET /status HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
-    )?;
+    stream.write_all(build_http_get_request(host, port, path)?.as_bytes())?;
     let mut response = String::new();
     stream.read_to_string(&mut response)?;
     let (_, body) = response
         .split_once("\r\n\r\n")
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "HTTP response had no body"))?;
     Ok(body.to_string())
+}
+
+fn build_http_get_request(host: &str, port: u16, path: &str) -> io::Result<String> {
+    if !path.starts_with('/') || path.contains('\r') || path.contains('\n') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid HTTP path: {path}"),
+        ));
+    }
+    Ok(format!(
+        "GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
+    ))
 }
 
 fn send_command(
@@ -871,6 +891,17 @@ mod tests {
         assert_eq!(command["command"], "subscribe");
         assert_eq!(command["client_id"], CLIENT_ID);
         assert_eq!(command["params"]["stream"], STREAM_LATENCY_SAMPLE);
+    }
+
+    #[test]
+    fn registry_http_request_uses_public_path_constant() {
+        let request =
+            build_http_get_request("127.0.0.1", 8765, BROKER_STREAM_REGISTRY_SNAPSHOT_HTTP_PATH)
+                .expect("registry request should build");
+
+        assert!(request.starts_with("GET /stream_registry/snapshot HTTP/1.1"));
+        assert!(request.contains("Host: 127.0.0.1:8765"));
+        assert!(build_http_get_request("127.0.0.1", 8765, "bad-path").is_err());
     }
 
     #[test]
