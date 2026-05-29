@@ -131,12 +131,26 @@ Public diagnostics should therefore separate these signals:
 - `camera_ready`: Camera2/PCA frame counters advance and visible ROIs or an
   operator witness confirm live camera content.
 
+Use explicit failure labels when these layers diverge. For example,
+`display_awake_not_xr_ready` means the screen, ADB path, or app launch path may
+work while tracking or camera services are still unavailable. A protected
+system prompt or sensor-lock surface should be recorded as a system-readiness
+blocker, not as target-app or camera-pipeline evidence. If the headset appears
+awake but the tracking/camera indicator is off, hands/controllers do not track,
+or provider evidence shows no camera clients, recover the XR runtime first and
+rerun the camera stage.
+
 Provider tools should preserve power, stay-awake, and proximity state by
 default. `hzdb device proximity`, `configure-testing`, `adb shell svc power
 stayon`, sensor-lock overrides, and automatic restore commands are
 `DeviceSetting` operations: require explicit run intent and log the previous and
 final states. A camera run that needs such a change should say so up front; a
 run that only needs observation should use passive readback.
+
+Host-launched shell-helper watchdogs are developer tools, not headset boot
+services. They should be treated as lost after a headset reboot. Restart the
+helper from an authorized host and re-check `display_ready`, `tracking_ready`,
+and `camera_ready` before using post-reboot camera results.
 
 When camera readiness is uncertain, start with a direct Camera2/HWB profile,
 then move to broker-camera, SurfaceTexture/OES, CPU-YUV, or other codec lanes.

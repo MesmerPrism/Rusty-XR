@@ -34,6 +34,13 @@ launched. This is the useful no-PC-attached mode: start the broker from the
 headset, start the watchdog from the Diagnostics page, then continue the
 session without an attached host.
 
+Treat visible or foreground startup as the normal path. Modern Android can
+block foreground-service starts from background receivers, including some boot
+or alarm-style flows, so public tests should not assume that a sideloaded APK
+can silently restart the watchdog after reboot. A launcher, broker console,
+notification, or other user-visible app state is the reliable activation model
+for this public slice.
+
 It does not replace ADB shell helpers. Android documents ADB as a client/server
 tool where the client runs on the development machine and `adbd` runs on the
 device; commands are issued from the workstation-side client:
@@ -49,6 +56,12 @@ The watchdog is best-effort while the app process and foreground service are
 alive. It cannot run while the headset is powered off. After a full reboot, the
 broker app must be launched again by the user, an app-owned launch path, or
 developer tooling before the watchdog can resume.
+
+Watchdog status is low-rate device-health evidence. It can show that the app
+process, foreground service, wake lock, battery, network, and idle-state
+samplers are alive, but it is not proof that hand/controller tracking, camera
+capture, high-rate media, or an OpenXR session are ready. Camera and media tests
+should keep separate readiness signals for those paths.
 
 The broker targets Android foreground-service rules. Android 12 and newer limit
 foreground-service starts from background apps, and Android 15 adds additional

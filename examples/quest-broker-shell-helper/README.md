@@ -191,6 +191,12 @@ watchdog repairs a state first, the shell helper only observes the desired
 state; if the shell helper repairs it first, the external watchdog's next
 passive readback also observes the desired state.
 
+The helper is not reboot-persistent. A headset reboot kills the shell-side
+process and any active proximity watchdog. After reboot, restart the helper from
+the authorized host and re-check the target run's readiness gates. Wakefulness,
+display power, and virtual proximity are useful power-state evidence, but they
+do not prove that the XR runtime, tracking, camera, or media pipeline is ready.
+
 The stop path writes a device-local stop marker for the shell helper and reports
 the helper disconnected. Restoring normal wear-sensor behavior is a separate
 operator action through `hzdb proximity normal`, the WPF **Proximity On /
@@ -202,7 +208,10 @@ watchdog has stopped.
 This helper is Developer Mode / ADB tooling. The installed broker APK does not
 inherit shell privileges. Do not describe this as a normal app permission or a
 store-style runtime capability. A normal headset APK also cannot start this
-helper by itself; an external authorized ADB host must push/start it. For the
+helper by itself; an external authorized ADB host must push/start it. If a
+protected system prompt, sensor-lock surface, or post-reboot tracking/camera
+limbo is foregrounded, clear that condition first and rerun the validation
+stage instead of treating launch or camera failure as helper evidence. For the
 general launcher boundary, see
 [`docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md`](../../docs/QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md).
 For Store-style, SideQuest/GitHub, lab, enterprise, Developer Mode, and Wi-Fi

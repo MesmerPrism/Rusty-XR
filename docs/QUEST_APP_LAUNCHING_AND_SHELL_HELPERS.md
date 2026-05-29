@@ -35,7 +35,7 @@ normal headset launcher APK
 optional ADB shell helper
   -> started externally by a PC or phone companion through authorized ADB
   -> provides enhanced package/launch/diagnostic operations
-  -> disappears when the helper process or ADB workflow ends
+  -> disappears when the helper process, ADB workflow, or headset reboot ends
 ```
 
 ## Normal App Launching
@@ -111,6 +111,12 @@ helper can add:
 These are Developer Mode capabilities. They require the user to enable and
 authorize ADB debugging, and they require an external ADB host such as a PC,
 phone companion, or developer terminal.
+
+Treat helper state as session-scoped. After headset reboot, restart the helper
+from the external host and verify the run-specific readiness gates again.
+Power-state signals such as wakefulness, display power, or virtual proximity
+are not enough to prove OpenXR tracking, camera capture, or media-stream
+readiness.
 
 The headset app cannot start this helper by itself:
 
