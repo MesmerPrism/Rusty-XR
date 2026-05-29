@@ -1,0 +1,164 @@
+{
+  "schema": "rusty.xr.broker.interactive_media_route_manifest.v1",
+  "route_id": "media.synthetic.h264",
+  "label": "Synthetic H264 into XR app",
+  "direction": "into_xr_app",
+  "route_scope": {
+    "schema": "rusty.xr.broker.control_scope.v1",
+    "scope_id": "media.synthetic",
+    "command_scope": "media.synthetic",
+    "resource_id": "route:media.synthetic.h264"
+  },
+  "module_id": "video.lab",
+  "source_stream_ids": [
+    "video_lab.encoded_stream_manifest"
+  ],
+  "output_stream_ids": [
+    "video_lab.encoded_sample_metadata"
+  ],
+  "planes": [
+    {
+      "plane": "control",
+      "owner": "broker",
+      "transport": "WebSocket",
+      "stream_id": null,
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.broker.command.v1",
+      "high_rate": false,
+      "json_control_path": true,
+      "data_sensitivity": "diagnostic",
+      "max_payload_bytes": null,
+      "notes": [
+        "Commands negotiate route setup and report low-rate state only."
+      ]
+    },
+    {
+      "plane": "media_data",
+      "owner": "external_sidecar",
+      "transport": "AdbForwardedTcp",
+      "stream_id": "video_lab.encoded_sample_metadata",
+      "payload_kind": "H264",
+      "payload_schema": "rusty.xr.video_lab.binary_stream.v1",
+      "high_rate": true,
+      "json_control_path": false,
+      "data_sensitivity": "diagnostic",
+      "max_payload_bytes": 1048576,
+      "notes": [
+        "High-rate encoded bytes use a binary lane, not JSON commands."
+      ]
+    },
+    {
+      "plane": "render_adoption",
+      "owner": "active_xr_app",
+      "transport": "MetadataOnly",
+      "stream_id": null,
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.broker.media_adoption_state.v1",
+      "high_rate": false,
+      "json_control_path": false,
+      "data_sensitivity": "diagnostic",
+      "max_payload_bytes": null,
+      "notes": [
+        "The active XR app owns decode, texture import, projection, and submit."
+      ]
+    },
+    {
+      "plane": "feedback",
+      "owner": "active_xr_app",
+      "transport": "WebSocket",
+      "stream_id": "video_lab.metric_sample",
+      "payload_kind": "Json",
+      "payload_schema": "rusty.xr.broker.media_feedback_sample.v1",
+      "high_rate": false,
+      "json_control_path": false,
+      "data_sensitivity": "diagnostic",
+      "max_payload_bytes": null,
+      "notes": [
+        "Feedback is low-rate route health and scorecard telemetry."
+      ]
+    }
+  ],
+  "latency_budget": {
+    "target_end_to_end_ms": 45.0,
+    "max_capture_to_encode_ms": 8.0,
+    "max_network_transit_ms": 12.0,
+    "max_receive_to_decode_ms": 8.0,
+    "max_decode_to_texture_ms": 6.0,
+    "max_texture_to_submit_ms": 5.0,
+    "max_jitter_buffer_ms": 6.0
+  },
+  "frame_adoption": {
+    "resource_owner": "active_xr_app",
+    "queue_policy": "reuse_latest",
+    "prediction_policy": "none",
+    "max_in_flight_frames": 3,
+    "max_frame_age_ms": 50.0,
+    "allow_stale_frame_reuse": true,
+    "release_after_submit": true,
+    "keyframe_required_before_decode": true,
+    "notes": [
+      "Active XR app owns texture adoption and OpenXR submission."
+    ]
+  },
+  "backends": [
+    {
+      "backend_id": "android.mediacodec.surface",
+      "label": "Android MediaCodec surface",
+      "tier": "hardware",
+      "transport": "AdbForwardedTcp",
+      "codec": "H264",
+      "selected": true,
+      "fallback_priority": 0,
+      "fallback_of": null,
+      "user_supplied_dependency": false,
+      "dependency_label": null,
+      "rejection_reason": null,
+      "notes": [
+        "Uses platform codec APIs supplied by the app shell."
+      ]
+    },
+    {
+      "backend_id": "bytebuffer.reference",
+      "label": "Byte-buffer reference decoder",
+      "tier": "reference",
+      "transport": "MetadataOnly",
+      "codec": "H264",
+      "selected": false,
+      "fallback_priority": 1,
+      "fallback_of": "android.mediacodec.surface",
+      "user_supplied_dependency": false,
+      "dependency_label": null,
+      "rejection_reason": null,
+      "notes": [
+        "Reference lane for diagnostics, not the production texture path."
+      ]
+    }
+  ],
+  "feedback_stream_ids": [
+    "video_lab.metric_sample"
+  ],
+  "required_consents": [
+    "not_required"
+  ],
+  "data_sensitivity": "diagnostic",
+  "command_authority": [
+    {
+      "schema": "rusty.xr.broker.command_authority_requirement.v1",
+      "command": "media.route.get_status",
+      "command_scope": "media.synthetic",
+      "mutation_class": "read_only",
+      "required_capability": null,
+      "required_capabilities": [],
+      "required_role": null,
+      "allowed_roles": [],
+      "lease_required": false,
+      "required_lease_scope": null,
+      "required_revision": null,
+      "revision_required": false,
+      "operator_confirm_required": false
+    }
+  ],
+  "notes": [
+    "Schema-only public fixture; no runtime media backend is loaded by this manifest."
+  ]
+}

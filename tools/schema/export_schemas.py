@@ -581,6 +581,65 @@ def schemas() -> dict[str, dict]:
         "BrokerCodecId",
         ["H264", "H265", "Av1", "RawLuma8", "RawRgba8", "Opus", "PcmF32", "Json", "Custom"],
     )
+    broker_interactive_media_plane = enum(
+        "BrokerInteractiveMediaPlane",
+        ["control", "media_data", "render_adoption", "feedback"],
+    )
+    broker_interactive_media_route_direction = enum(
+        "BrokerInteractiveMediaRouteDirection",
+        ["into_xr_app", "out_of_xr_app", "bidirectional", "loopback", "metadata_only"],
+    )
+    broker_media_resource_owner = enum(
+        "BrokerMediaResourceOwner",
+        ["broker", "active_xr_app", "external_sidecar", "runtime", "operator", "unknown"],
+    )
+    broker_media_backend_tier = enum(
+        "BrokerMediaBackendTier",
+        ["reference", "optimized", "hardware", "external"],
+    )
+    broker_media_consent_requirement = enum(
+        "BrokerMediaConsentRequirement",
+        [
+            "not_required",
+            "runtime_permission",
+            "media_projection_consent",
+            "operator_approval",
+            "external_pairing",
+            "unknown",
+        ],
+    )
+    broker_media_queue_policy = enum(
+        "BrokerMediaQueuePolicy",
+        ["drop_oldest", "drop_newest", "reuse_latest", "block_producer", "bounded_burst", "unknown"],
+    )
+    broker_media_prediction_policy = enum(
+        "BrokerMediaPredictionPolicy",
+        ["none", "timestamp_extrapolation", "reprojection_hint", "app_owned", "unknown"],
+    )
+    broker_interactive_media_route_lifecycle_state = enum(
+        "BrokerInteractiveMediaRouteLifecycleState",
+        ["planned", "negotiating", "starting", "streaming", "draining", "stopped", "degraded", "failed"],
+    )
+    broker_media_frame_lifecycle_state = enum(
+        "BrokerMediaFrameLifecycleState",
+        [
+            "unknown",
+            "captured",
+            "encoded_packet_queued",
+            "packet_sent",
+            "packet_received",
+            "decoder_input_queued",
+            "decoded_frame_ready",
+            "texture_imported",
+            "xr_submitted",
+            "presented_estimate",
+            "dropped",
+        ],
+    )
+    broker_media_score_verdict = enum(
+        "BrokerMediaScoreVerdict",
+        ["pass", "warning", "fail", "unknown"],
+    )
     broker_stream_direction = enum(
         "BrokerStreamDirection",
         ["ProducerToConsumer", "ConsumerToProducer", "Bidirectional", "MetadataOnly"],
@@ -1168,6 +1227,160 @@ def schemas() -> dict[str, dict]:
             "consumed_stream_ids": array(string()),
             "active_resource_locks": array(broker_module_resource_lock),
             "health_metrics": array(broker_module_health_metric),
+            "issue_codes": array(string()),
+        },
+    )
+    broker_interactive_media_plane_descriptor = obj(
+        "BrokerInteractiveMediaPlaneDescriptor",
+        {
+            "plane": broker_interactive_media_plane,
+            "owner": broker_media_resource_owner,
+            "transport": broker_transport_kind,
+            "stream_id": nullable_string(),
+            "payload_kind": broker_payload_kind,
+            "payload_schema": string(),
+            "high_rate": boolean(),
+            "json_control_path": boolean(),
+            "data_sensitivity": broker_data_sensitivity,
+            "max_payload_bytes": {"type": ["integer", "null"], "minimum": 1},
+            "notes": array(string()),
+        },
+    )
+    broker_media_latency_budget = obj(
+        "BrokerMediaLatencyBudget",
+        {
+            "target_end_to_end_ms": {"type": "number", "minimum": 0},
+            "max_capture_to_encode_ms": {"type": ["number", "null"], "minimum": 0},
+            "max_network_transit_ms": {"type": ["number", "null"], "minimum": 0},
+            "max_receive_to_decode_ms": {"type": ["number", "null"], "minimum": 0},
+            "max_decode_to_texture_ms": {"type": ["number", "null"], "minimum": 0},
+            "max_texture_to_submit_ms": {"type": ["number", "null"], "minimum": 0},
+            "max_jitter_buffer_ms": {"type": ["number", "null"], "minimum": 0},
+        },
+    )
+    broker_frame_adoption_policy = obj(
+        "BrokerFrameAdoptionPolicy",
+        {
+            "resource_owner": broker_media_resource_owner,
+            "queue_policy": broker_media_queue_policy,
+            "prediction_policy": broker_media_prediction_policy,
+            "max_in_flight_frames": integer(1),
+            "max_frame_age_ms": {"type": ["number", "null"], "minimum": 0},
+            "allow_stale_frame_reuse": boolean(),
+            "release_after_submit": boolean(),
+            "keyframe_required_before_decode": boolean(),
+            "notes": array(string()),
+        },
+    )
+    broker_media_backend_manifest = obj(
+        "BrokerMediaBackendManifest",
+        {
+            "backend_id": string(),
+            "label": string(),
+            "tier": broker_media_backend_tier,
+            "transport": broker_transport_kind,
+            "codec": {"oneOf": [broker_codec_id, {"type": "null"}]},
+            "selected": boolean(),
+            "fallback_priority": integer(0),
+            "fallback_of": nullable_string(),
+            "user_supplied_dependency": boolean(),
+            "dependency_label": nullable_string(),
+            "rejection_reason": nullable_string(),
+            "notes": array(string()),
+        },
+    )
+    broker_interactive_media_route_manifest = obj(
+        "BrokerInteractiveMediaRouteManifest",
+        {
+            "schema": {"const": "rusty.xr.broker.interactive_media_route_manifest.v1"},
+            "route_id": string(),
+            "label": string(),
+            "direction": broker_interactive_media_route_direction,
+            "route_scope": broker_control_scope,
+            "module_id": nullable_string(),
+            "source_stream_ids": array(string()),
+            "output_stream_ids": array(string()),
+            "planes": array(broker_interactive_media_plane_descriptor),
+            "latency_budget": broker_media_latency_budget,
+            "frame_adoption": broker_frame_adoption_policy,
+            "backends": array(broker_media_backend_manifest),
+            "feedback_stream_ids": array(string()),
+            "required_consents": array(broker_media_consent_requirement),
+            "data_sensitivity": broker_data_sensitivity,
+            "command_authority": array(broker_command_authority_requirement),
+            "notes": array(string()),
+        },
+    )
+    broker_interactive_media_plane_state = obj(
+        "BrokerInteractiveMediaPlaneState",
+        {
+            "plane": broker_interactive_media_plane,
+            "lifecycle_state": broker_interactive_media_route_lifecycle_state,
+            "latest_frame_state": broker_media_frame_lifecycle_state,
+            "queue_depth": integer(0),
+            "dropped_count": integer(0),
+            "reused_frame_count": integer(0),
+            "latest_sequence_number": {"type": ["integer", "null"], "minimum": 0},
+            "issue_codes": array(string()),
+        },
+    )
+    broker_media_feedback_sample = obj(
+        "BrokerMediaFeedbackSample",
+        {
+            "schema": {"const": "rusty.xr.broker.media_feedback_sample.v1"},
+            "route_id": string(),
+            "session_id": string(),
+            "measured_elapsed_ns": integer(0),
+            "stream_id": nullable_string(),
+            "source_timestamp_domain": broker_timestamp_domain,
+            "rtt_ms": {"type": ["number", "null"], "minimum": 0},
+            "jitter_ms": {"type": ["number", "null"], "minimum": 0},
+            "packet_loss01": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+            "frame_age_ms": {"type": ["number", "null"], "minimum": 0},
+            "queue_depth": integer(0),
+            "dropped_frames": integer(0),
+            "reused_frames": integer(0),
+            "delivered_frames": integer(0),
+            "issue_codes": array(string()),
+        },
+    )
+    broker_media_pipeline_scorecard = obj(
+        "BrokerMediaPipelineScorecard",
+        {
+            "schema": {"const": "rusty.xr.broker.media_pipeline_scorecard.v1"},
+            "route_id": string(),
+            "session_id": string(),
+            "window_start_elapsed_ns": integer(0),
+            "window_end_elapsed_ns": integer(0),
+            "target_latency_ms": {"type": ["number", "null"], "minimum": 0},
+            "observed_p50_latency_ms": {"type": ["number", "null"], "minimum": 0},
+            "observed_p95_latency_ms": {"type": ["number", "null"], "minimum": 0},
+            "delivered_frame_count": integer(0),
+            "dropped_frame_count": integer(0),
+            "reused_frame_count": integer(0),
+            "keyframe_wait_count": integer(0),
+            "decoder_stall_count": integer(0),
+            "texture_import_failure_count": integer(0),
+            "xr_submit_miss_count": integer(0),
+            "score01": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+            "verdict": broker_media_score_verdict,
+            "notes": array(string()),
+        },
+    )
+    broker_interactive_media_route_runtime_state = obj(
+        "BrokerInteractiveMediaRouteRuntimeState",
+        {
+            "schema": {"const": "rusty.xr.broker.interactive_media_route_runtime_state.v1"},
+            "route_id": string(),
+            "session_id": string(),
+            "lifecycle_state": broker_interactive_media_route_lifecycle_state,
+            "revision": integer(0),
+            "selected_backend_id": nullable_string(),
+            "started_elapsed_ns": {"type": ["integer", "null"], "minimum": 0},
+            "last_update_elapsed_ns": {"type": ["integer", "null"], "minimum": 0},
+            "plane_states": array(broker_interactive_media_plane_state),
+            "feedback_sample": {"oneOf": [broker_media_feedback_sample, {"type": "null"}]},
+            "scorecard": {"oneOf": [broker_media_pipeline_scorecard, {"type": "null"}]},
             "issue_codes": array(string()),
         },
     )
@@ -3235,6 +3448,10 @@ def schemas() -> dict[str, dict]:
         "broker-telemetry-chart-descriptor.schema.json": broker_telemetry_chart_descriptor,
         "broker-module-manifest.schema.json": broker_module_manifest,
         "broker-module-runtime-state.schema.json": broker_module_runtime_state,
+        "broker-interactive-media-route-manifest.schema.json": broker_interactive_media_route_manifest,
+        "broker-interactive-media-route-runtime-state.schema.json": broker_interactive_media_route_runtime_state,
+        "broker-media-feedback-sample.schema.json": broker_media_feedback_sample,
+        "broker-media-pipeline-scorecard.schema.json": broker_media_pipeline_scorecard,
         "broker-stream-registry-snapshot.schema.json": broker_stream_registry_snapshot,
         "broker-host-manifest.schema.json": broker_host_manifest,
         "broker-stream-manifest.schema.json": broker_stream_manifest,

@@ -1,0 +1,17 @@
+{
+  "schema": "rusty.xr.broker.media_feedback_sample.v1",
+  "route_id": "media.synthetic.h264",
+  "session_id": "session-001",
+  "measured_elapsed_ns": 1000000,
+  "stream_id": "video_lab.metric_sample",
+  "source_timestamp_domain": "ElapsedRealtime",
+  "rtt_ms": 18.0,
+  "jitter_ms": 2.0,
+  "packet_loss01": 0.02,
+  "frame_age_ms": 22.5,
+  "queue_depth": 1,
+  "dropped_frames": 2,
+  "reused_frames": 4,
+  "delivered_frames": 120,
+  "issue_codes": []
+}

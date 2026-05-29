@@ -1,0 +1,92 @@
+{
+  "schema": "rusty.xr.broker.interactive_media_route_runtime_state.v1",
+  "route_id": "media.synthetic.h264",
+  "session_id": "session-001",
+  "lifecycle_state": "streaming",
+  "revision": 8,
+  "selected_backend_id": "android.mediacodec.surface",
+  "started_elapsed_ns": 900000,
+  "last_update_elapsed_ns": 2000000,
+  "plane_states": [
+    {
+      "plane": "control",
+      "lifecycle_state": "streaming",
+      "latest_frame_state": "packet_received",
+      "queue_depth": 0,
+      "dropped_count": 0,
+      "reused_frame_count": 0,
+      "latest_sequence_number": null,
+      "issue_codes": []
+    },
+    {
+      "plane": "media_data",
+      "lifecycle_state": "streaming",
+      "latest_frame_state": "packet_received",
+      "queue_depth": 1,
+      "dropped_count": 1,
+      "reused_frame_count": 0,
+      "latest_sequence_number": 90,
+      "issue_codes": []
+    },
+    {
+      "plane": "render_adoption",
+      "lifecycle_state": "streaming",
+      "latest_frame_state": "xr_submitted",
+      "queue_depth": 1,
+      "dropped_count": 0,
+      "reused_frame_count": 2,
+      "latest_sequence_number": 90,
+      "issue_codes": []
+    },
+    {
+      "plane": "feedback",
+      "lifecycle_state": "streaming",
+      "latest_frame_state": "presented_estimate",
+      "queue_depth": 0,
+      "dropped_count": 0,
+      "reused_frame_count": 0,
+      "latest_sequence_number": 90,
+      "issue_codes": []
+    }
+  ],
+  "feedback_sample": {
+    "schema": "rusty.xr.broker.media_feedback_sample.v1",
+    "route_id": "media.synthetic.h264",
+    "session_id": "session-001",
+    "measured_elapsed_ns": 1000000,
+    "stream_id": "video_lab.metric_sample",
+    "source_timestamp_domain": "ElapsedRealtime",
+    "rtt_ms": null,
+    "jitter_ms": 2.0,
+    "packet_loss01": 0.0,
+    "frame_age_ms": 22.5,
+    "queue_depth": 1,
+    "dropped_frames": 1,
+    "reused_frames": 2,
+    "delivered_frames": 90,
+    "issue_codes": []
+  },
+  "scorecard": {
+    "schema": "rusty.xr.broker.media_pipeline_scorecard.v1",
+    "route_id": "media.synthetic.h264",
+    "session_id": "session-001",
+    "window_start_elapsed_ns": 1000000,
+    "window_end_elapsed_ns": 2000000,
+    "target_latency_ms": 45.0,
+    "observed_p50_latency_ms": 31.0,
+    "observed_p95_latency_ms": 44.0,
+    "delivered_frame_count": 90,
+    "dropped_frame_count": 1,
+    "reused_frame_count": 2,
+    "keyframe_wait_count": 0,
+    "decoder_stall_count": 0,
+    "texture_import_failure_count": 0,
+    "xr_submit_miss_count": 0,
+    "score01": 0.92,
+    "verdict": "pass",
+    "notes": [
+      "Synthetic scorecard covers the contract shape only."
+    ]
+  },
+  "issue_codes": []
+}

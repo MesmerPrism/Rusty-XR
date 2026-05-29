@@ -54,6 +54,9 @@ Public core may contain:
 - timing and network-quality metrics
 - security-policy descriptors
 - adapter-neutral endpoint metadata
+- interactive media route manifests, runtime state, feedback samples, and
+  scorecards that keep control, media data, render/adoption, and feedback
+  responsibilities explicit
 - provider-neutral Quest development tool descriptors such as `hzdb`/ADB/MCP
   capability manifests, operation safety classes, docs/API search result
   shapes, and trace/session report metadata

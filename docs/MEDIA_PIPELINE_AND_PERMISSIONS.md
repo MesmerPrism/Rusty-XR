@@ -509,6 +509,15 @@ artifacts produced by the profile harness and writes `scorecard.md` plus
 [QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md](QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md)
 for the matrix lanes, reject rules, and current findings.
 
+### Interactive Media Route Contracts
+
+The schema-only broker contract for this split is documented in
+[INTERACTIVE_MEDIA_ROUTE_POLICY.md](INTERACTIVE_MEDIA_ROUTE_POLICY.md). It
+models a route as four separate planes: control, media data, render/adoption,
+and feedback. The broker may negotiate and observe the route, while the active
+XR app owns decode/import/projection/submission and high-rate payload bytes
+stay off JSON command/event paths.
+
 ### Low-Latency Transport Control/Data Split
 
 Low-latency media work should keep session control, high-rate payload bytes,

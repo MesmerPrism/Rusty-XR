@@ -74,6 +74,9 @@ before reading chronological plans or investigation logs.
 - [Broker host manifests](BROKER_HOST_MANIFESTS.md): deployment manifest for
   broker host role, endpoint visibility, security policy, clock domain, and
   session-manifest expectations.
+- [Interactive media route policy](INTERACTIVE_MEDIA_ROUTE_POLICY.md):
+  schema-only broker contracts for control, media data, render/adoption, and
+  feedback planes without media runtime dependencies.
 
 ## Validation
 

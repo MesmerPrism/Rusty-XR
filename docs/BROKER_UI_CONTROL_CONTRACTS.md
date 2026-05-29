@@ -14,6 +14,11 @@ lifecycles stay outside the model crate.
   broker-managed providers, processors, sinks, bridges, control adapters,
   diagnostics, and supervisors without loading code or binding the broker core
   to a runtime dependency.
+- `BrokerInteractiveMediaRouteManifest`,
+  `BrokerInteractiveMediaRouteRuntimeState`, `BrokerMediaFeedbackSample`, and
+  `BrokerMediaPipelineScorecard` describe low-latency media route setup,
+  runtime state, feedback, and comparison windows without routing media payloads
+  through JSON or binding broker core to a codec/runtime backend.
 - `BrokerStreamRegistrySnapshot` describes providers, streams, adapters,
   modules, subscribers, command clients, and active leases at one broker
   revision.
@@ -140,6 +145,12 @@ shape on both `GET /stream_registry/snapshot` and the
 module visibility does not imply plugin loading, media-payload routing through
 JSON, or permission to execute mutating commands.
 
+Interactive media route manifests follow the same rule. They may describe
+control, media data, render/adoption, and feedback planes for a low-latency
+route, but the active XR app still owns decode/import/projection/submission and
+high-rate bytes stay on a data plane outside broker JSON commands. See
+[INTERACTIVE_MEDIA_ROUTE_POLICY.md](INTERACTIVE_MEDIA_ROUTE_POLICY.md).
+
 For operator or CI smoke checks against a reachable broker, the public Rust
 client probe can parse either entrypoint and validate module links against
 `BrokerStreamRegistrySnapshot`:
@@ -167,6 +178,10 @@ Synthetic fixtures live under `fixtures/broker-ui`:
 - `synthetic-panel-descriptor.json`
 - `synthetic-module-manifest.json`
 - `synthetic-module-runtime-state.json`
+- `synthetic-interactive-media-route-manifest.json`
+- `synthetic-interactive-media-route-runtime-state.json`
+- `synthetic-media-feedback-sample.json`
+- `synthetic-media-pipeline-scorecard.json`
 - `synthetic-module-registry-snapshot.json`
 - `synthetic-stream-registry-snapshot.json`
 

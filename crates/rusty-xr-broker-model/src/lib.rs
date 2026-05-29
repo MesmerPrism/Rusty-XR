@@ -4,11 +4,11 @@
 //! manifests, sample headers, timing stamps, drop counters, diagnostic binary
 //! video headers, camera/source capabilities, H.264 stream invariants,
 //! broker-described UI panels, stream registry snapshots, host manifests,
-//! broker module manifests, lease-aware command authority contracts, and
-//! negotiated transport lanes. It also models broker-owned clock snapshots,
-//! stamps, health, and correlation reports. It does not open sockets, depend on
-//! Android, or implement a Unity, Makepad, OpenXR, LSL, OSC, ZeroMQ, or video
-//! backend.
+//! broker module manifests, interactive media route manifests, lease-aware
+//! command authority contracts, and negotiated transport lanes. It also models
+//! broker-owned clock snapshots, stamps, health, and correlation reports. It
+//! does not open sockets, depend on Android, or implement a Unity, Makepad,
+//! OpenXR, LSL, OSC, ZeroMQ, WebRTC, RTSP/RTP, SRT, NDI, or video backend.
 //!
 //! Enable the `serde` feature when these public contracts need to cross
 //! process boundaries.
@@ -32,12 +32,14 @@
 
 pub mod control;
 pub mod host;
+pub mod media;
 pub mod module;
 pub mod panel;
 pub mod registry;
 
 pub use control::*;
 pub use host::*;
+pub use media::*;
 pub use module::*;
 pub use panel::*;
 pub use registry::*;

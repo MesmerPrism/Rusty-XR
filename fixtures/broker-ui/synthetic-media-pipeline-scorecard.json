@@ -1,0 +1,22 @@
+{
+  "schema": "rusty.xr.broker.media_pipeline_scorecard.v1",
+  "route_id": "media.synthetic.h264",
+  "session_id": "session-001",
+  "window_start_elapsed_ns": 1000000,
+  "window_end_elapsed_ns": 2000000,
+  "target_latency_ms": 45.0,
+  "observed_p50_latency_ms": 31.0,
+  "observed_p95_latency_ms": 44.0,
+  "delivered_frame_count": 90,
+  "dropped_frame_count": 1,
+  "reused_frame_count": 2,
+  "keyframe_wait_count": 0,
+  "decoder_stall_count": 0,
+  "texture_import_failure_count": 0,
+  "xr_submit_miss_count": 0,
+  "score01": 0.92,
+  "verdict": "pass",
+  "notes": [
+    "Synthetic scorecard covers the contract shape only."
+  ]
+}

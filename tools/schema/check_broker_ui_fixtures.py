@@ -14,6 +14,10 @@ FIXTURE_SCHEMAS = {
     "fixtures/broker-ui/synthetic-panel-descriptor.json": "broker-panel-descriptor-document.schema.json",
     "fixtures/broker-ui/synthetic-module-manifest.json": "broker-module-manifest.schema.json",
     "fixtures/broker-ui/synthetic-module-runtime-state.json": "broker-module-runtime-state.schema.json",
+    "fixtures/broker-ui/synthetic-interactive-media-route-manifest.json": "broker-interactive-media-route-manifest.schema.json",
+    "fixtures/broker-ui/synthetic-interactive-media-route-runtime-state.json": "broker-interactive-media-route-runtime-state.schema.json",
+    "fixtures/broker-ui/synthetic-media-feedback-sample.json": "broker-media-feedback-sample.schema.json",
+    "fixtures/broker-ui/synthetic-media-pipeline-scorecard.json": "broker-media-pipeline-scorecard.schema.json",
     "fixtures/broker-ui/synthetic-module-registry-snapshot.json": "broker-stream-registry-snapshot.schema.json",
     "fixtures/broker-ui/synthetic-stream-registry-snapshot.json": "broker-stream-registry-snapshot.schema.json",
 }

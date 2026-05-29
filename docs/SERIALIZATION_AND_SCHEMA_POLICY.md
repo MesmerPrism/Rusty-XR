@@ -81,8 +81,9 @@ The initial export covers:
   headers, stream events, replay records, synthetic wave samples, session
   manifests, clock snapshots, clock stamps, clock correlations, clock health,
   clock sync probes, broker panel descriptors, stream registry snapshots,
-  control scopes, control leases, command preconditions, and command authority
-  requirements.
+  interactive media route manifests/runtime state, media feedback samples,
+  media pipeline scorecards, control scopes, control leases, command
+  preconditions, and command authority requirements.
 - Eye screen-gaze points, XR gaze rays, screen AOI hits, and derived processor
   events.
 - Developer-home panel descriptors, home session state, launcher entries,
