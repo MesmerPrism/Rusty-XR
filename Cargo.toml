@@ -16,6 +16,7 @@ members = [
     "crates/rusty-xr-depth-model",
     "crates/rusty-xr-sdf",
     "crates/rusty-xr-particles",
+    "examples/broker-registry-simulator",
     "examples/quest-minimal-apk/native",
     "examples/quest-composite-layer-apk/native",
     "examples/quest-gl-openxr-video-stack-apk/native",

@@ -56,6 +56,7 @@ cargo run -p rusty-xr-particles --example hand_mesh_dynamic_collider
 cargo run -p rusty-xr-particles --example hand_mesh_sdf_attraction
 cargo run -p rusty-xr-quest-diagnostics --example quest_provider_snapshot
 cargo test -p rusty-xr-broker-client-probe
+cargo test -p rusty-xr-broker-registry-simulator
 cargo test --locked --manifest-path examples\makepad-camera-shell\Cargo.toml
 ```
 

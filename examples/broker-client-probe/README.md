@@ -42,6 +42,14 @@ cargo run -p rusty-xr-broker-client-probe -- open-ui
 cargo run -p rusty-xr-broker-client-probe -- close-ui
 ```
 
+For source-only module registry testing without a live broker, start the public
+registry simulator in another shell:
+
+```powershell
+cargo run -p rusty-xr-broker-registry-simulator -- --profile degraded
+cargo run -p rusty-xr-broker-client-probe -- registry-summary
+```
+
 Commands:
 
 - `status`: read `GET /status`.

@@ -149,6 +149,17 @@ cargo run -p rusty-xr-broker-client-probe -- registry-summary
 cargo run -p rusty-xr-broker-client-probe -- registry-http-summary
 ```
 
+When no live broker is available, the public registry simulator serves the same
+read-only registry surfaces from synthetic fixtures:
+
+```powershell
+cargo run -p rusty-xr-broker-registry-simulator -- --profile degraded
+```
+
+Use it for UI/client module-health and topology tests only. It does not load
+modules, start adapter processes, open protocol sockets, or route high-rate
+payloads.
+
 ## Public Fixtures
 
 Synthetic fixtures live under `fixtures/broker-ui`:
@@ -170,6 +181,7 @@ Recommended checks for this contract surface:
 ```powershell
 cargo test -p rusty-xr-broker-model --features serde
 cargo test -p rusty-xr-broker-client-probe
+cargo test -p rusty-xr-broker-registry-simulator
 python tools/schema/export_schemas.py --check
 python tools/schema/check_broker_ui_fixtures.py --repo-root .
 python tools/boundary-scan/rusty_xr_boundary_scan.py --repo-root .

@@ -1,0 +1,14 @@
+[package]
+name = "rusty-xr-broker-registry-simulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rusty-xr-broker-model = { path = "../../crates/rusty-xr-broker-model", features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
