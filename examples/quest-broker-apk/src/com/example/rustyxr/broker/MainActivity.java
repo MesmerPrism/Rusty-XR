@@ -55,6 +55,7 @@ public final class MainActivity extends Activity {
     private static final long DEFAULT_STATUS_REFRESH_MS = 2_000L;
     private static final long POLAR_STATUS_REFRESH_MS = 500L;
     private static final long EXPERIMENT_STATUS_REFRESH_MS = 1_000L;
+    private static final long DEFAULT_DEVICE_WATCHDOG_INTERVAL_MS = 30_000L;
     private static final String DEFAULT_EXPERIMENT_TARGET_PACKAGE = "io.github.mesmerprism.rustyxr.makepad.camera";
     private static final String DEFAULT_EXPERIMENT_TARGET_ACTIVITY = "";
     private static final int DEFAULT_EXPERIMENT_LAUNCH_GUARD_TIMEOUT_MS = 20_000;
@@ -525,7 +526,7 @@ public final class MainActivity extends Activity {
         } else if ("Experiment".equals(currentPage)) {
             renderExperimentPage(status);
         } else if ("Diagnostics".equals(currentPage)) {
-            showTextPage(buildDiagnostics(status));
+            renderDiagnosticsPage(status);
         } else {
             showTextPage(buildDashboard(status));
         }
@@ -1655,6 +1656,100 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void renderDiagnosticsPage(final JSONObject status) {
+        final int previousScrollY = pageScroll != null ? pageScroll.getScrollY() : 0;
+        pagePanel.removeAllViews();
+
+        JSONObject watchdog = status != null ? status.optJSONObject("deviceWatchdog") : null;
+        long currentIntervalMs = watchdog != null
+            ? watchdog.optLong("interval_ms", DEFAULT_DEVICE_WATCHDOG_INTERVAL_MS)
+            : DEFAULT_DEVICE_WATCHDOG_INTERVAL_MS;
+        if (currentIntervalMs <= 0L) {
+            currentIntervalMs = DEFAULT_DEVICE_WATCHDOG_INTERVAL_MS;
+        }
+
+        addSectionTitle("DEVICE WATCHDOG");
+
+        TextView watchdogText = textView(14, false, TEXT);
+        watchdogText.setTypeface(Typeface.MONOSPACE);
+        watchdogText.setLineSpacing(0f, 1.08f);
+        watchdogText.setText(buildDeviceWatchdogStatus(status));
+        pagePanel.addView(watchdogText, matchWrapParams(0, 0, 0, 12));
+
+        final EditText intervalEdit = editText("Sample interval ms", Long.toString(currentIntervalMs));
+        intervalEdit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        pagePanel.addView(intervalEdit, matchWrapParams(0, 0, 0, 10));
+
+        LinearLayout firstRow = row();
+        Button startButton = actionButton("Start");
+        startButton.setTextColor(Color.rgb(7, 24, 18));
+        startButton.setBackground(panelBackground(ACCENT_STRONG, 12, ACCENT_STRONG));
+        startButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startDeviceWatchdogFromConsole(parseDeviceWatchdogIntervalMs(intervalEdit.getText().toString()), false);
+            }
+        });
+        firstRow.addView(startButton);
+
+        Button wakeLockButton = actionButton("Start + Wake Lock");
+        wakeLockButton.setTextColor(WARN);
+        wakeLockButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startDeviceWatchdogFromConsole(parseDeviceWatchdogIntervalMs(intervalEdit.getText().toString()), true);
+            }
+        });
+        firstRow.addView(wakeLockButton, wrapParams(10, 0, 0, 0));
+
+        Button stopButton = actionButton("Stop");
+        stopButton.setTextColor(WARN);
+        stopButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                stopDeviceWatchdogFromConsole();
+            }
+        });
+        firstRow.addView(stopButton, wrapParams(10, 0, 0, 0));
+        pagePanel.addView(firstRow, matchWrapParams(0, 0, 0, 10));
+
+        LinearLayout secondRow = row();
+        Button markerButton = actionButton("Mark");
+        markerButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                markDeviceWatchdogFromConsole();
+            }
+        });
+        secondRow.addView(markerButton);
+
+        Button refreshButton = actionButton("Refresh");
+        refreshButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                refreshDeviceWatchdogFromConsole();
+            }
+        });
+        secondRow.addView(refreshButton, wrapParams(10, 0, 0, 0));
+        pagePanel.addView(secondRow, matchWrapParams(0, 0, 0, 14));
+
+        addSectionTitle("BROKER DIAGNOSTICS");
+        TextView diagnosticsText = textView(14, false, TEXT);
+        diagnosticsText.setTypeface(Typeface.MONOSPACE);
+        diagnosticsText.setLineSpacing(0f, 1.08f);
+        diagnosticsText.setText(buildDiagnostics(status));
+        pagePanel.addView(diagnosticsText, matchWrapParams(0, 0, 0, 0));
+
+        if (pageScroll != null) {
+            pageScroll.post(new Runnable() {
+                @Override
+                public void run() {
+                    pageScroll.setScrollY(previousScrollY);
+                }
+            });
+        }
+    }
+
     private void startPolarPmdFromConsole(final String deviceAddress, final long scanTimeoutMs) {
         List<String> missingPermissions = missingPolarRuntimePermissions();
         if (!missingPermissions.isEmpty()) {
@@ -1680,6 +1775,45 @@ public final class MainActivity extends Activity {
             @Override
             public JSONObject run() throws Exception {
                 return BrokerService.stopPolarPmdFromConsole();
+            }
+        });
+    }
+
+    private void refreshDeviceWatchdogFromConsole() {
+        runBrokerConsoleAction("Refreshing watchdog status", new BrokerConsoleAction() {
+            @Override
+            public JSONObject run() throws Exception {
+                return BrokerService.getDeviceWatchdogStatusFromConsole();
+            }
+        });
+    }
+
+    private void startDeviceWatchdogFromConsole(final long intervalMs, final boolean wakeLock) {
+        startBrokerService(getIntent());
+        runBrokerConsoleAction(wakeLock ? "Starting watchdog with wake lock" : "Starting watchdog", new BrokerConsoleAction() {
+            @Override
+            public JSONObject run() throws Exception {
+                return BrokerService.startDeviceWatchdogFromConsole(intervalMs, wakeLock);
+            }
+        });
+    }
+
+    private void stopDeviceWatchdogFromConsole() {
+        startBrokerService(getIntent());
+        runBrokerConsoleAction("Stopping watchdog", new BrokerConsoleAction() {
+            @Override
+            public JSONObject run() throws Exception {
+                return BrokerService.stopDeviceWatchdogFromConsole();
+            }
+        });
+    }
+
+    private void markDeviceWatchdogFromConsole() {
+        startBrokerService(getIntent());
+        runBrokerConsoleAction("Recording watchdog marker", new BrokerConsoleAction() {
+            @Override
+            public JSONObject run() throws Exception {
+                return BrokerService.markDeviceWatchdogFromConsole("console_marker");
             }
         });
     }
@@ -1751,6 +1885,9 @@ public final class MainActivity extends Activity {
             return POLAR_STATUS_REFRESH_MS;
         }
         if ("Experiment".equals(currentPage) && !isEditingText()) {
+            return EXPERIMENT_STATUS_REFRESH_MS;
+        }
+        if ("Diagnostics".equals(currentPage) && !isEditingText()) {
             return EXPERIMENT_STATUS_REFRESH_MS;
         }
         return DEFAULT_STATUS_REFRESH_MS;
@@ -2014,6 +2151,7 @@ public final class MainActivity extends Activity {
         JSONObject polarPmd = status.optJSONObject("polarPmd");
         JSONObject breathAssessment = status.optJSONObject("breathAssessment");
         JSONObject videoLab = status.optJSONObject("videoLab");
+        JSONObject deviceWatchdog = status.optJSONObject("deviceWatchdog");
         JSONObject clock = status.optJSONObject("clock");
         builder.append("TRANSPORTS\n");
         builder.append("Clock        ").append(clock != null ? clock.optString("health", "unknown") : "unknown").append('\n');
@@ -2025,10 +2163,24 @@ public final class MainActivity extends Activity {
         builder.append("Polar PMD     ").append(polarPmd != null ? polarPmd.optString("state", "unknown") : "not reported").append('\n');
         builder.append("Breath        ").append(breathAssessment != null ? breathAssessment.optString("state", "unknown") : "not reported").append('\n');
         builder.append("Video lab     ").append(videoLab != null ? videoLab.optString("state", "unknown") : "not reported").append('\n');
+        builder.append("Watchdog      ").append(deviceWatchdog != null && deviceWatchdog.optBoolean("running") ? "running" : "idle").append('\n');
         builder.append('\n');
         builder.append("Use Polar to start broker-owned Polar PMD before launching a target XR app.\n");
         builder.append("Use Return to XR App to close this console while the broker service keeps running.");
         return builder.toString();
+    }
+
+    private long parseDeviceWatchdogIntervalMs(String raw) {
+        if (raw == null || raw.trim().length() == 0) {
+            return DEFAULT_DEVICE_WATCHDOG_INTERVAL_MS;
+        }
+
+        try {
+            long parsed = Long.parseLong(raw.trim());
+            return parsed > 0L ? parsed : DEFAULT_DEVICE_WATCHDOG_INTERVAL_MS;
+        } catch (NumberFormatException ex) {
+            return DEFAULT_DEVICE_WATCHDOG_INTERVAL_MS;
+        }
     }
 
     private String buildClock(JSONObject status) {
@@ -2167,6 +2319,73 @@ public final class MainActivity extends Activity {
         builder.append("}\n\n");
         builder.append("Use command \"close_ui\" to close this console from the XR app without starting any target app.\n\n");
         builder.append("The broker service remains active after the console returns to the background.");
+        return builder.toString();
+    }
+
+    private String buildDeviceWatchdogStatus(JSONObject status) {
+        StringBuilder builder = new StringBuilder(700);
+        JSONObject watchdog = status != null ? status.optJSONObject("deviceWatchdog") : null;
+        if (watchdog == null) {
+            builder.append("state         unavailable\n");
+            return builder.toString();
+        }
+
+        builder.append("running       ").append(watchdog.optBoolean("running")).append('\n');
+        builder.append("run id        ").append(watchdog.optString("run_id", "")).append('\n');
+        builder.append("interval ms   ").append(watchdog.optLong("interval_ms", 0L)).append('\n');
+        builder.append("uptime ms     ").append(watchdog.optLong("uptime_ms", 0L)).append('\n');
+        builder.append("samples       ").append(watchdog.optLong("sample_count", 0L)).append('\n');
+        builder.append("wake request  ").append(watchdog.optBoolean("wake_lock_requested")).append('\n');
+        builder.append("wake held     ").append(watchdog.optBoolean("wake_lock_held")).append('\n');
+        builder.append("max bytes     ").append(watchdog.optLong("max_log_bytes", 0L)).append('\n');
+        builder.append("log path      ").append(watchdog.optString("log_path", "")).append('\n');
+        String stopReason = watchdog.optString("stop_reason", "");
+        if (stopReason.length() > 0) {
+            builder.append("stop reason   ").append(stopReason).append('\n');
+        }
+        String lastError = watchdog.optString("last_error", "");
+        if (lastError.length() > 0) {
+            builder.append("last error    ").append(lastError).append('\n');
+        }
+
+        JSONObject sample = watchdog.optJSONObject("latest_sample");
+        JSONObject power = sample != null ? sample.optJSONObject("power") : null;
+        JSONObject battery = sample != null ? sample.optJSONObject("battery") : null;
+        JSONObject network = sample != null ? sample.optJSONObject("network") : null;
+        if (power != null || battery != null || network != null) {
+            builder.append('\n').append("latest sample\n");
+        }
+        if (power != null) {
+            builder.append("interactive   ").append(power.optBoolean("interactive")).append('\n');
+            builder.append("idle mode     ").append(power.optBoolean("device_idle_mode")).append('\n');
+            builder.append("power save    ").append(power.optBoolean("power_save_mode")).append('\n');
+            if (power.has("thermal_status_label")) {
+                builder.append("thermal       ").append(power.optString("thermal_status_label", "")).append('\n');
+            }
+        }
+        if (battery != null) {
+            if (battery.has("percent")) {
+                builder.append("battery       ")
+                    .append(String.format(Locale.ROOT, "%.1f", battery.optDouble("percent", 0.0d)))
+                    .append("%\n");
+            }
+            builder.append("plugged       ").append(battery.optInt("plugged", -1)).append('\n');
+        }
+        if (network != null) {
+            builder.append("network       ").append(network.optBoolean("connected")).append('\n');
+            builder.append("validated     ").append(network.optBoolean("validated")).append('\n');
+            if (network.has("wifi_rssi_dbm")) {
+                builder.append("wifi rssi     ").append(network.optInt("wifi_rssi_dbm", 0)).append(" dBm\n");
+            }
+        }
+
+        JSONArray limitations = watchdog.optJSONArray("limitations");
+        if (limitations != null && limitations.length() > 0) {
+            builder.append('\n').append("limitations\n");
+            for (int i = 0; i < limitations.length(); i++) {
+                builder.append("- ").append(limitations.optString(i)).append('\n');
+            }
+        }
         return builder.toString();
     }
 

@@ -28,11 +28,13 @@ public final class BrokerService extends Service {
     private OscIngressServer oscIngressServer;
     private PolarPmdBrokerSource polarPmdSource;
     private PolarHeartRateBrokerSource polarHeartRateSource;
+    private DeviceWatchdog deviceWatchdog;
 
     @Override
     public void onCreate() {
         super.onCreate();
         state = new BrokerState();
+        deviceWatchdog = new DeviceWatchdog(getApplicationContext(), state);
         startForegroundServiceNotification();
         Log.i(TAG, "Broker service created");
     }
@@ -43,6 +45,7 @@ public final class BrokerService extends Service {
             BrokerRuntimeConfig config = BrokerRuntimeConfig.fromIntent(intent);
             publisher = CompositeLatencyPublisher.create(config);
             server = new LocalBrokerServer(DEFAULT_PORT, state, publisher, getApplicationContext(), config.brokerBindHost);
+            server.setDeviceWatchdog(deviceWatchdog);
             oscIngressServer = OscIngressServer.createOrNull(config, state, server);
             server.setOscIngressServer(oscIngressServer);
             polarPmdSource = new PolarPmdBrokerSource(getApplicationContext(), state, server);
@@ -58,6 +61,9 @@ public final class BrokerService extends Service {
                 } catch (Exception ex) {
                     Log.e(TAG, "Polar PMD source failed to start: " + ex.getMessage(), ex);
                 }
+            }
+            if (deviceWatchdog != null) {
+                deviceWatchdog.restoreIfDesired();
             }
         } else if (intent != null && intent.getExtras() != null && intent.getExtras().size() > 0) {
             BrokerRuntimeConfig config = BrokerRuntimeConfig.fromIntent(intent);
@@ -114,6 +120,10 @@ public final class BrokerService extends Service {
             publisher.close();
         }
         publisher = null;
+
+        if (deviceWatchdog != null) {
+            deviceWatchdog.shutdownForServiceDestroy();
+        }
 
         clearConsoleReadyService();
 
@@ -198,6 +208,42 @@ public final class BrokerService extends Service {
         return service.getExperimentControlFromConsoleInternal();
     }
 
+    static JSONObject getDeviceWatchdogStatusFromConsole() throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("device_watchdog.get_status", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.getDeviceWatchdogStatusFromConsoleInternal();
+    }
+
+    static JSONObject startDeviceWatchdogFromConsole(long intervalMs, boolean wakeLock) throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("device_watchdog.start", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.startDeviceWatchdogFromConsoleInternal(intervalMs, wakeLock);
+    }
+
+    static JSONObject stopDeviceWatchdogFromConsole() throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("device_watchdog.stop", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.stopDeviceWatchdogFromConsoleInternal();
+    }
+
+    static JSONObject markDeviceWatchdogFromConsole(String label) throws Exception {
+        BrokerService service = waitForConsoleReadyService();
+        if (service == null) {
+            return consoleError("device_watchdog.mark", "broker_service_unavailable", "Broker service is not active yet.");
+        }
+
+        return service.markDeviceWatchdogFromConsoleInternal(label);
+    }
+
     static JSONObject configureExperimentControlFromConsole(JSONObject params) throws Exception {
         BrokerService service = waitForConsoleReadyService();
         if (service == null) {
@@ -220,6 +266,68 @@ public final class BrokerService extends Service {
 
         state.acceptedCommands.incrementAndGet();
         return consoleAck("polar_pmd.get_status", true, "polar_pmd_status", status);
+    }
+
+    private JSONObject getDeviceWatchdogStatusFromConsoleInternal() throws Exception {
+        if (deviceWatchdog == null) {
+            if (state != null) {
+                state.rejectedCommands.incrementAndGet();
+            }
+            return consoleError("device_watchdog.get_status", "device_watchdog_unavailable", "Device watchdog is not initialized.");
+        }
+
+        JSONObject status = deviceWatchdog.statusJson();
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("device_watchdog.get_status", true, "device_watchdog_status", status);
+    }
+
+    private JSONObject startDeviceWatchdogFromConsoleInternal(long intervalMs, boolean wakeLock) throws Exception {
+        if (deviceWatchdog == null) {
+            if (state != null) {
+                state.rejectedCommands.incrementAndGet();
+            }
+            return consoleError("device_watchdog.start", "device_watchdog_unavailable", "Device watchdog is not initialized.");
+        }
+
+        JSONObject params = new JSONObject();
+        params.put("interval_ms", intervalMs > 0L ? intervalMs : 30_000L);
+        params.put("wake_lock", wakeLock);
+        JSONObject status = deviceWatchdog.start(params);
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("device_watchdog.start", true, "device_watchdog_started", status);
+    }
+
+    private JSONObject stopDeviceWatchdogFromConsoleInternal() throws Exception {
+        if (deviceWatchdog == null) {
+            if (state != null) {
+                state.rejectedCommands.incrementAndGet();
+            }
+            return consoleError("device_watchdog.stop", "device_watchdog_unavailable", "Device watchdog is not initialized.");
+        }
+
+        JSONObject status = deviceWatchdog.stop("console_stop");
+        state.acceptedCommands.incrementAndGet();
+        return consoleAck("device_watchdog.stop", true, "device_watchdog_stopped", status);
+    }
+
+    private JSONObject markDeviceWatchdogFromConsoleInternal(String label) throws Exception {
+        if (deviceWatchdog == null) {
+            if (state != null) {
+                state.rejectedCommands.incrementAndGet();
+            }
+            return consoleError("device_watchdog.mark", "device_watchdog_unavailable", "Device watchdog is not initialized.");
+        }
+
+        JSONObject params = new JSONObject();
+        params.put("label", label != null && label.length() > 0 ? label : "console_marker");
+        try {
+            JSONObject status = deviceWatchdog.mark(params);
+            state.acceptedCommands.incrementAndGet();
+            return consoleAck("device_watchdog.mark", true, "device_watchdog_marker_recorded", status);
+        } catch (Exception ex) {
+            state.rejectedCommands.incrementAndGet();
+            return consoleError("device_watchdog.mark", "device_watchdog_mark_failed", ex.getMessage());
+        }
     }
 
     private JSONObject startPolarPmdFromConsoleInternal(String deviceAddress, long scanTimeoutMs) throws Exception {

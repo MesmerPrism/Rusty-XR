@@ -63,6 +63,7 @@ final class BrokerState {
     private final ClockCore clock = new ClockCore();
     private JSONObject polarHeartRateStatus = defaultPolarHeartRateStatus();
     private JSONObject polarPmdStatus = defaultPolarPmdStatus();
+    private JSONObject deviceWatchdogStatus = defaultDeviceWatchdogStatus();
 
     JSONObject toStatusJson(LatencyPublisher publisher, OscIngressServer oscIngressServer) throws Exception {
         JSONObject status = new JSONObject();
@@ -86,6 +87,7 @@ final class BrokerState {
         status.put("polarPmd", polarPmdStatusJson());
         status.put("breathAssessment", breathAssessment.toStatusJson());
         status.put("videoLab", videoLabStatusJson());
+        status.put("deviceWatchdog", deviceWatchdogStatusJson());
         status.put("transportSessions", transportSessions.statusJson());
         status.put("q2qRelay", BrokerQ2QRelayClientSession.statusJson(null));
         status.put("clock", clock.statusJson());
@@ -137,6 +139,10 @@ final class BrokerState {
         supportedCommands.put("breath_assessment.configure");
         supportedCommands.put("breath_assessment.reset");
         supportedCommands.put("breath_assessment.submit_controller_pose");
+        supportedCommands.put("device_watchdog.get_status");
+        supportedCommands.put("device_watchdog.start");
+        supportedCommands.put("device_watchdog.stop");
+        supportedCommands.put("device_watchdog.mark");
         supportedCommands.put("set_polar_breath_params");
         supportedCommands.put("polar_breath_calibrate_begin");
         supportedCommands.put("polar_breath_calibrate_reset");
@@ -237,6 +243,9 @@ final class BrokerState {
         capabilities.put("broker.clock.correlation.v1");
         capabilities.put("broker.clock.sync_probe.v1");
         capabilities.put("lsl.string_capture.v1");
+        capabilities.put("broker.device_watchdog.control.v1");
+        capabilities.put("rusty.xr.device_watchdog.status.v1");
+        capabilities.put("rusty.xr.device_watchdog.sample_log.v1");
         capabilities.put("rusty_kiosk.control_plane.status.v1");
         capabilities.put("rusty.xr.kiosk.command_run_record.v1");
         capabilities.put("bio.polar_hr.android_ble.v1");
@@ -309,6 +318,7 @@ final class BrokerState {
         streams.put(streamJson("clock:health", "clock", "Clock health, wall-clock jump, and discontinuity events.", true));
         streams.put(streamJson("clock:correlation", "clock", "Timestamp-domain correlation updates.", true));
         streams.put(streamJson("clock:openxr_frame", "clock", "OpenXR predicted-display timing samples when an immersive Rusty XR session publishes them.", false));
+        streams.put(streamJson("device_watchdog.status", "diagnostic", "On-device broker watchdog status and retention-limited sample log metadata.", deviceWatchdogStatus.optBoolean("running", false)));
         streams.put(streamJson("kiosk:control_plane", "control", "Rusty Kiosk phase, surface-intent, helper, and command evidence.", true));
         streams.put(streamJson("latency:sample", "latency", "WebSocket latency samples accepted by the broker.", true));
         streams.put(streamJson("bio:polar_hr_rr", "bio", "Synthetic, adapter-published, or direct Android BLE Polar heart-rate/RR events.", true));
@@ -457,6 +467,7 @@ final class BrokerState {
             "runtime.bio",
             "runtime.visuals",
             "camera.preview",
+            "diagnostics.watchdog",
             "transport.session"));
         commandClient.put("held_lease_ids", activeControlLeaseIds());
 
@@ -625,6 +636,10 @@ final class BrokerState {
         boolean videoLabActive = videoLabMetricSamples.get() > 0
             || videoLabEncodedStreamManifests.get() > 0
             || videoLabEncodedSampleMetadata.get() > 0;
+        boolean deviceWatchdogRunning = deviceWatchdogStatus.optBoolean("running", false);
+        boolean deviceWatchdogObserved = deviceWatchdogRunning
+            || deviceWatchdogStatus.optLong("sample_count", 0L) > 0L
+            || deviceWatchdogStatus.optString("stop_reason", "").length() > 0;
         boolean transportActive = transportSessions.createdCount() > 0
             || transportSessions.closedCount() > 0
             || transportSessions.failedCount() > 0;
@@ -640,6 +655,17 @@ final class BrokerState {
             new JSONArray()
                 .put(healthMetricJson("accepted_latency_samples", "Accepted latency samples", null, 0.0, null, acceptedLatencySamples.get(), "healthy"))
                 .put(healthMetricJson("published_stream_events", "Published stream events", null, 0.0, null, publishedStreamEvents.get(), "healthy")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
+            "diagnostics.device_watchdog",
+            "diagnostic",
+            deviceWatchdogRunning ? "active" : "idle",
+            revision,
+            providedStreamIdsForModule(streams, "diagnostics.device_watchdog"),
+            new JSONArray(),
+            new JSONArray()
+                .put(healthMetricJson("sample_count", "Watchdog samples", null, 0.0, null, deviceWatchdogStatus.optLong("sample_count", 0L), deviceWatchdogObserved ? "healthy" : "unknown"))
+                .put(healthMetricJson("wake_lock_held", "Wake lock held", null, 0.0, 1.0, deviceWatchdogStatus.optBoolean("wake_lock_held", false) ? 1.0 : 0.0, "unknown")),
             new JSONArray()));
         modules.put(moduleRuntimeState(
             "diagnostics.clock",
@@ -796,6 +822,8 @@ final class BrokerState {
             + videoLabMetricSamples.get()
             + videoLabEncodedStreamManifests.get()
             + videoLabEncodedSampleMetadata.get()
+            + deviceWatchdogStatus.optLong("sample_count", 0L)
+            + (deviceWatchdogStatus.optBoolean("running", false) ? 1L : 0L)
             + transportSessions.createdCount()
             + transportSessions.closedCount()
             + transportSessions.failedCount()
@@ -1130,6 +1158,9 @@ final class BrokerState {
         if ("diagnostics.clock".equals(moduleId)) {
             return "clock-provider";
         }
+        if ("diagnostics.device_watchdog".equals(moduleId)) {
+            return "device-watchdog-provider";
+        }
         if ("control.kiosk".equals(moduleId)) {
             return "control-provider";
         }
@@ -1166,6 +1197,9 @@ final class BrokerState {
         }
         if (streamId.startsWith("broker:") || streamId.startsWith("latency:")) {
             return "diagnostics.broker";
+        }
+        if (streamId.startsWith("device_watchdog.")) {
+            return "diagnostics.device_watchdog";
         }
         if (streamId.startsWith("kiosk:") || "experiment.control".equals(streamId) || "control".equals(kind)) {
             return "control.kiosk";
@@ -1207,6 +1241,7 @@ final class BrokerState {
         }
         if ("diagnostics.broker".equals(moduleId)
             || "diagnostics.clock".equals(moduleId)
+            || "diagnostics.device_watchdog".equals(moduleId)
             || "video.lab".equals(moduleId)) {
             return "diagnostic";
         }
@@ -1231,6 +1266,9 @@ final class BrokerState {
         }
         if ("clock-provider".equals(providerId)) {
             return "Clock provider";
+        }
+        if ("device-watchdog-provider".equals(providerId)) {
+            return "Device watchdog";
         }
         if ("transport-provider".equals(providerId)) {
             return "Transport provider";
@@ -1273,7 +1311,7 @@ final class BrokerState {
         if ("xr".equals(kind)) {
             return "XrInput";
         }
-        if ("clock".equals(kind) || "latency".equals(kind) || "status".equals(kind)) {
+        if ("clock".equals(kind) || "latency".equals(kind) || "status".equals(kind) || "diagnostic".equals(kind)) {
             return "Telemetry";
         }
         return "Custom";
@@ -1299,6 +1337,9 @@ final class BrokerState {
         if ("video_lab.metric_sample".equals(streamId)) {
             return "rusty.xr.video_lab.metric_sample.v1";
         }
+        if ("device_watchdog.status".equals(streamId)) {
+            return "rusty.xr.device_watchdog.status.v1";
+        }
         if (streamId.contains("h264")) {
             return "rusty.xr.video_lab.binary_stream.v1";
         }
@@ -1311,6 +1352,9 @@ final class BrokerState {
         }
         if ("video_lab.metric_sample".equals(streamId)) {
             return 30.0;
+        }
+        if ("device_watchdog.status".equals(streamId)) {
+            return 0.033;
         }
         if ("bio:polar_acc".equals(streamId)) {
             return 52.0;
@@ -1331,7 +1375,11 @@ final class BrokerState {
         if (streamId.contains("encoded_stream_manifest") || streamId.contains("encoded_sample_metadata")) {
             return "metadata_only";
         }
-        if ("bio".equals(kind) || "clock".equals(kind) || "latency".equals(kind) || "video_lab.metric_sample".equals(streamId)) {
+        if ("device_watchdog.status".equals(streamId)
+            || "bio".equals(kind)
+            || "clock".equals(kind)
+            || "latency".equals(kind)
+            || "video_lab.metric_sample".equals(streamId)) {
             return "low_rate_telemetry";
         }
         return "unknown";
@@ -1356,6 +1404,9 @@ final class BrokerState {
         }
         if ("unknown".equals(rateClassForStream(streamId, kind))) {
             return "none";
+        }
+        if ("device_watchdog.status".equals(streamId)) {
+            return "rolling_file";
         }
         return "rolling_window";
     }
@@ -1411,6 +1462,9 @@ final class BrokerState {
         } else if ("video_lab.metric_sample".equals(streamId)) {
             metrics.put(metricJson("frame_age_ms", "Frame age", "ms", JSONObject.NULL, JSONObject.NULL));
             metrics.put(metricJson("latency_ms", "Latency", "ms", JSONObject.NULL, JSONObject.NULL));
+        } else if ("device_watchdog.status".equals(streamId)) {
+            metrics.put(metricJson("sample_count", "Samples", JSONObject.NULL, 0.0, JSONObject.NULL));
+            metrics.put(metricJson("uptime_ms", "Uptime", "ms", 0.0, JSONObject.NULL));
         }
         return metrics;
     }
@@ -1767,6 +1821,14 @@ final class BrokerState {
             || polarPmdStatus.optLong("ecg_frame_count", 0L) > 0L;
     }
 
+    synchronized void updateDeviceWatchdogStatus(JSONObject status) throws Exception {
+        deviceWatchdogStatus = status == null ? defaultDeviceWatchdogStatus() : new JSONObject(status.toString());
+    }
+
+    synchronized JSONObject deviceWatchdogStatusJson() throws Exception {
+        return new JSONObject(deviceWatchdogStatus.toString());
+    }
+
     JSONObject configureBreathAssessment(JSONObject params) throws Exception {
         return breathAssessment.configure(params);
     }
@@ -1865,6 +1927,35 @@ final class BrokerState {
             status.put("ecg_sample_count", 0L);
             status.put("malformed_frame_count", 0L);
             status.put("last_error", "");
+        } catch (Exception ignored) {
+        }
+        return status;
+    }
+
+    private static JSONObject defaultDeviceWatchdogStatus() {
+        JSONObject status = new JSONObject();
+        try {
+            status.put("schema", DeviceWatchdog.STATUS_SCHEMA);
+            status.put("running", false);
+            status.put("run_id", "");
+            status.put("interval_ms", 30_000L);
+            status.put("started_unix_ms", 0L);
+            status.put("started_elapsed_ms", 0L);
+            status.put("uptime_ms", 0L);
+            status.put("sample_count", 0L);
+            status.put("log_path", "");
+            status.put("wake_lock_requested", false);
+            status.put("wake_lock_held", false);
+            status.put("max_log_bytes", 8L * 1024L * 1024L);
+            status.put("last_error", "");
+            status.put("stop_reason", "");
+            status.put("latest_sample", new JSONObject());
+            JSONArray limitations = new JSONArray();
+            limitations.put("normal_app_uid_not_android_shell");
+            limitations.put("requires_broker_or_activity_launch_after_full_reboot");
+            limitations.put("sleep_and_doze_policy_is_platform_owned");
+            limitations.put("powered_off_device_cannot_run_watchdog");
+            status.put("limitations", limitations);
         } catch (Exception ignored) {
         }
         return status;

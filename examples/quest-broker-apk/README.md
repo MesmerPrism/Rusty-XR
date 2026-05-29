@@ -44,6 +44,7 @@ owning decode, Vulkan import, projection, and OpenXR layer submission itself.
 - Video-lab metric stream ID: `video_lab.metric_sample`
 - Video-lab encoded stream manifest ID: `video_lab.encoded_stream_manifest`
 - Video-lab encoded sample metadata ID: `video_lab.encoded_sample_metadata`
+- Device watchdog status stream ID: `device_watchdog.status`
 
 The broker control socket binds to loopback by default. For LAN control
 experiments, start the broker with `rustyxr.brokerLanEnabled=true`; optionally
@@ -124,6 +125,10 @@ or an operator visual witness before accepting the run as camera-ready.
 - `breath_assessment.configure`
 - `breath_assessment.reset`
 - `breath_assessment.submit_controller_pose`
+- `device_watchdog.get_status`
+- `device_watchdog.start`
+- `device_watchdog.stop`
+- `device_watchdog.mark`
 - `set_polar_breath_params`
 - `polar_breath_calibrate_begin`
 - `polar_breath_calibrate_reset`
@@ -400,6 +405,16 @@ runtime properties, and reactively relaunches either the broker console or a
 target app after Meta shell takes focus. This is recovery after focus loss, not
 a pre-emptive Home-button intercept, and it should not be used to dismiss
 Guardian, permission, package-installer, or safety UI.
+
+The broker APK also includes a normal app-owned on-device watchdog for sessions
+where an external ADB host cannot remain attached. It samples low-rate
+power/battery/network/memory/storage/thermal state, writes bounded JSONL logs
+under the app's files directory, appears as `diagnostics.device_watchdog` in the
+stream registry, and is controlled from the Diagnostics page or
+`device_watchdog.*` commands. This watchdog is not an Android `shell` process
+and does not replace ADB-launched helpers; after a full reboot, the broker app
+must be launched again before it can run. See
+[`docs/QUEST_ON_DEVICE_WATCHDOG.md`](../../docs/QUEST_ON_DEVICE_WATCHDOG.md).
 
 For target launches that might strand the headset while projection tuning is
 still unstable, use the `launch_target_guard` mode. In that mode the shell

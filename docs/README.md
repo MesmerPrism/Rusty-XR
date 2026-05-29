@@ -99,6 +99,8 @@ before reading chronological plans or investigation logs.
   purpose, placement, style, and compositor-access boundaries.
 - [Quest app launching and shell helpers](QUEST_APP_LAUNCHING_AND_SHELL_HELPERS.md):
   normal app launches, shell helpers, and package visibility.
+- [Quest on-device watchdog](QUEST_ON_DEVICE_WATCHDOG.md): broker-owned
+  device-health watchdog, ADB boundary, and sleep/reboot limits.
 - [Quest distribution and ADB boundary](QUEST_DISTRIBUTION_AND_ADB_BOUNDARY.md):
   Store-style apps, developer builds, ADB hosts, Wi-Fi ADB, and shell helpers.
 - [Quest tracking access boundary](QUEST_TRACKING_ACCESS_BOUNDARY.md):

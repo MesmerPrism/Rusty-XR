@@ -44,6 +44,7 @@ final class LocalBrokerServer implements Closeable {
     private Thread acceptThread;
     private volatile PolarPmdBrokerSource polarPmdSource;
     private volatile PolarHeartRateBrokerSource polarHeartRateSource;
+    private volatile DeviceWatchdog deviceWatchdog;
 
     LocalBrokerServer(int port, BrokerState state, LatencyPublisher publisher, Context context) {
         this(port, state, publisher, context, "127.0.0.1");
@@ -77,6 +78,10 @@ final class LocalBrokerServer implements Closeable {
 
     void setPolarHeartRateSource(PolarHeartRateBrokerSource polarHeartRateSource) {
         this.polarHeartRateSource = polarHeartRateSource;
+    }
+
+    void setDeviceWatchdog(DeviceWatchdog deviceWatchdog) {
+        this.deviceWatchdog = deviceWatchdog;
     }
 
     void start() throws IOException {
@@ -667,6 +672,22 @@ final class LocalBrokerServer implements Closeable {
 
         if ("breath_assessment.submit_controller_pose".equals(command)) {
             return submitControllerBreathPose(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("device_watchdog.get_status".equals(command)) {
+            return getDeviceWatchdogStatus(requestId, command);
+        }
+
+        if ("device_watchdog.start".equals(command)) {
+            return startDeviceWatchdog(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("device_watchdog.stop".equals(command)) {
+            return stopDeviceWatchdog(requestId, command, message.optJSONObject("params"));
+        }
+
+        if ("device_watchdog.mark".equals(command)) {
+            return markDeviceWatchdog(requestId, command, message.optJSONObject("params"));
         }
 
         if ("camera_provider.get_status".equals(command)) {
@@ -1800,6 +1821,78 @@ final class LocalBrokerServer implements Closeable {
         JSONObject result = new JSONObject();
         result.put("status", status);
         return commandAck(requestId, command, true, "polar_pmd_stopping", result);
+    }
+
+    private JSONObject getDeviceWatchdogStatus(String requestId, String command) throws Exception {
+        DeviceWatchdog watchdog = deviceWatchdog;
+        if (watchdog == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "device_watchdog_unavailable", "Device watchdog is not attached to this broker.");
+        }
+
+        JSONObject result = new JSONObject();
+        result.put("status", watchdog.statusJson());
+        state.acceptedCommands.incrementAndGet();
+        return commandAck(requestId, command, true, "device_watchdog_status", result);
+    }
+
+    private JSONObject startDeviceWatchdog(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        DeviceWatchdog watchdog = deviceWatchdog;
+        if (watchdog == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "device_watchdog_unavailable", "Device watchdog is not attached to this broker.");
+        }
+
+        try {
+            JSONObject result = new JSONObject();
+            result.put("status", watchdog.start(params != null ? params : new JSONObject()));
+            state.acceptedCommands.incrementAndGet();
+            return commandAck(requestId, command, true, "device_watchdog_started", result);
+        } catch (Exception ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "device_watchdog_start_failed", safeMessage(ex));
+        }
+    }
+
+    private JSONObject stopDeviceWatchdog(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        DeviceWatchdog watchdog = deviceWatchdog;
+        if (watchdog == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "device_watchdog_unavailable", "Device watchdog is not attached to this broker.");
+        }
+
+        String reason = params != null ? params.optString("reason", "websocket_stop") : "websocket_stop";
+        JSONObject result = new JSONObject();
+        result.put("status", watchdog.stop(reason));
+        state.acceptedCommands.incrementAndGet();
+        return commandAck(requestId, command, true, "device_watchdog_stopped", result);
+    }
+
+    private JSONObject markDeviceWatchdog(
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        DeviceWatchdog watchdog = deviceWatchdog;
+        if (watchdog == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "device_watchdog_unavailable", "Device watchdog is not attached to this broker.");
+        }
+
+        try {
+            JSONObject result = new JSONObject();
+            result.put("status", watchdog.mark(params));
+            state.acceptedCommands.incrementAndGet();
+            return commandAck(requestId, command, true, "device_watchdog_marker_recorded", result);
+        } catch (Exception ex) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "device_watchdog_mark_failed", safeMessage(ex));
+        }
     }
 
     private JSONObject startPolar(
