@@ -45,6 +45,8 @@ param(
     [int]$BrokerH264FrameRateHz = 50,
     [int]$BrokerH264StreamTimeoutMs = 60000,
     [int]$BrokerH264DecodeTimeoutMs = 20000,
+    [switch]$RequireBrokerH264StereoProjection,
+    [int]$BrokerH264MinimumPerEyeTextureUpdates = 1,
     [ValidateSet("solid-red", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("raw", "blur", "peripheral-stretch")]
@@ -130,6 +132,9 @@ if ($FreshnessRequiredUniqueHashes -lt 1) {
 }
 if ($FreshnessRequiredUniqueHashes -gt $FreshnessFrames) {
     throw "FreshnessRequiredUniqueHashes cannot exceed FreshnessFrames."
+}
+if ($BrokerH264MinimumPerEyeTextureUpdates -lt 1) {
+    throw "BrokerH264MinimumPerEyeTextureUpdates must be at least 1."
 }
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
 $projectionPropertyHygieneHelper = Join-Path $repoRoot "tools\quest-camera-profile\ProjectionPropertyHygiene.ps1"
@@ -887,6 +892,7 @@ function Capture-LaunchState {
     }
     $pairedCameraFrameCadenceCount = @($log | Select-String -SimpleMatch "pairedLeftRightCameraFrames=true").Count
     $alignedProjectionCadenceCount = @($log | Select-String -SimpleMatch "alignedProjection=true").Count
+    $projectionMappingReadyCadenceCount = @($log | Select-String -SimpleMatch "projectionMappingReady=true").Count
     $leftTextureUpdateMax = 0
     $rightTextureUpdateMax = 0
     foreach ($line in @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_CADENCE" | ForEach-Object { $_.Line })) {
@@ -1014,6 +1020,7 @@ function Capture-LaunchState {
         brokerH264RightTextureUpdateMax = $rightTextureUpdateMax
         pairedCameraFrameCadenceMarkerCount = $pairedCameraFrameCadenceCount
         alignedProjectionCadenceMarkerCount = $alignedProjectionCadenceCount
+        projectionMappingReadyCadenceMarkerCount = $projectionMappingReadyCadenceCount
         brokerH264StereoProofMarkerCount = @($log | Select-String -SimpleMatch "cpuUploadPath=broker-h264-mediacodec-cpu-yuv").Count
         brokerH264SyntheticSourceMarkerCount = @($log | Select-String -SimpleMatch "sourceBindingMode=broker-h264-synthetic-stereo-stream").Count
         projectionHomographyReadyMarkerCount = @($log | Select-String -SimpleMatch "projectionHomographyReady=true").Count
@@ -1472,6 +1479,30 @@ if ($readyAttempt -and $metaPerfStaleStatus -eq "stale") {
 elseif ($readyAttempt -and $metaPerfStaleStatus -eq "tool-failed") {
     $metaPerfStaleGateFailures += "Meta performance stale analysis tool failed"
 }
+$brokerH264StereoProjectionGateFailures = @()
+$brokerH264ModeEnabled = [bool]($UseBrokerH264Camera -or $UseBrokerH264Synthetic)
+$brokerH264StereoProjectionAttempt = if ($finalAttempt) { $finalAttempt } else { $readyAttempt }
+if ($brokerH264StereoProjectionAttempt -and $RequireBrokerH264StereoProjection -and $brokerH264ModeEnabled) {
+    $leftTextureUpdateMax = [int]$brokerH264StereoProjectionAttempt.brokerH264LeftTextureUpdateMax
+    $rightTextureUpdateMax = [int]$brokerH264StereoProjectionAttempt.brokerH264RightTextureUpdateMax
+    $pairedMarkerCount = [int]$brokerH264StereoProjectionAttempt.pairedCameraFrameCadenceMarkerCount
+    $projectionMappingReadyCount = [int]$brokerH264StereoProjectionAttempt.projectionMappingReadyCadenceMarkerCount
+    if (-not [bool]$brokerH264StereoProjectionAttempt.brokerH264DecodedTextureReady) {
+        $brokerH264StereoProjectionGateFailures += "broker H.264 decoded texture was not marked ready"
+    }
+    if ($leftTextureUpdateMax -lt $BrokerH264MinimumPerEyeTextureUpdates) {
+        $brokerH264StereoProjectionGateFailures += "left texture update max $leftTextureUpdateMax below required $BrokerH264MinimumPerEyeTextureUpdates"
+    }
+    if ($rightTextureUpdateMax -lt $BrokerH264MinimumPerEyeTextureUpdates) {
+        $brokerH264StereoProjectionGateFailures += "right texture update max $rightTextureUpdateMax below required $BrokerH264MinimumPerEyeTextureUpdates"
+    }
+    if ($pairedMarkerCount -lt 1) {
+        $brokerH264StereoProjectionGateFailures += "no pairedLeftRightCameraFrames=true cadence marker"
+    }
+    if ($projectionMappingReadyCount -lt 1) {
+        $brokerH264StereoProjectionGateFailures += "no projectionMappingReady=true cadence marker"
+    }
+}
 $resolvedBrokerH264ProjectionGeometryProfile = if ($BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) {
     $BrokerH264ProjectionGeometryProfile.Trim()
 }
@@ -1608,6 +1639,12 @@ $summary = [ordered]@{
     metaPerfStaleStatus = $metaPerfStaleStatus
     metaPerfStaleGateFailureCount = $metaPerfStaleGateFailures.Count
     metaPerfStaleGateFailures = $metaPerfStaleGateFailures
+    brokerH264StereoProjectionRequired = [bool]$RequireBrokerH264StereoProjection
+    brokerH264MinimumPerEyeTextureUpdates = $BrokerH264MinimumPerEyeTextureUpdates
+    brokerH264StereoProjectionStatus = if (-not $RequireBrokerH264StereoProjection -or -not $brokerH264ModeEnabled -or -not $brokerH264StereoProjectionAttempt) { "skipped" } elseif ($brokerH264StereoProjectionGateFailures.Count -eq 0) { "ok" } else { "failed" }
+    brokerH264StereoProjectionAttemptLabel = if ($brokerH264StereoProjectionAttempt) { $brokerH264StereoProjectionAttempt.label } else { "none" }
+    brokerH264StereoProjectionGateFailureCount = $brokerH264StereoProjectionGateFailures.Count
+    brokerH264StereoProjectionGateFailures = $brokerH264StereoProjectionGateFailures
     metaPerfStaleAnalysis = $metaPerfStaleAnalysis
     makepadFrameFlow = $metaPerfStaleAnalysis.makepadFrameFlow
     cameraTextureLaneAnalysis = $cameraTextureLaneAnalysis
@@ -1624,4 +1661,7 @@ if ($freshnessGateFailures.Count -gt 0) {
 }
 if ($metaPerfStaleGateFailures.Count -gt 0) {
     throw "meta performance stale gate failed: $($metaPerfStaleGateFailures -join '; ')"
+}
+if ($brokerH264StereoProjectionGateFailures.Count -gt 0) {
+    throw "broker H.264 stereo projection gate failed: $($brokerH264StereoProjectionGateFailures -join '; ')"
 }

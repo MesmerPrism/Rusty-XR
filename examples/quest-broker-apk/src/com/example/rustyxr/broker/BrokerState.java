@@ -321,6 +321,7 @@ final class BrokerState {
         streams.put(streamJson("device_watchdog.status", "diagnostic", "On-device broker watchdog status and retention-limited sample log metadata.", deviceWatchdogStatus.optBoolean("running", false)));
         streams.put(streamJson("kiosk:control_plane", "control", "Rusty Kiosk phase, surface-intent, helper, and command evidence.", true));
         streams.put(streamJson("latency:sample", "latency", "WebSocket latency samples accepted by the broker.", true));
+        streams.put(streamJson("diagnostics:termux_python", "diagnostic", "External Linux/Python sidecar feedback samples accepted by the broker.", publishedStreamEvents.get() > 0));
         streams.put(streamJson("bio:polar_hr_rr", "bio", "Synthetic, adapter-published, or direct Android BLE Polar heart-rate/RR events.", true));
         streams.put(streamJson("bio:polar_ecg", "bio", "Synthetic or adapter-published Polar-compatible ECG frame events.", true));
         streams.put(streamJson(
@@ -657,6 +658,15 @@ final class BrokerState {
                 .put(healthMetricJson("published_stream_events", "Published stream events", null, 0.0, null, publishedStreamEvents.get(), "healthy")),
             new JSONArray()));
         modules.put(moduleRuntimeState(
+            "termux.linux_sidecar",
+            "processor",
+            publishedStreamEvents.get() > 0 ? "active" : "idle",
+            revision,
+            providedStreamIdsForModule(streams, "termux.linux_sidecar"),
+            jsonArrayOf("bio:polar_acc"),
+            new JSONArray().put(healthMetricJson("feedback_samples", "Published feedback samples", null, 0.0, null, publishedStreamEvents.get(), publishedStreamEvents.get() > 0 ? "healthy" : "unknown")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
             "diagnostics.device_watchdog",
             "diagnostic",
             deviceWatchdogRunning ? "active" : "idle",
@@ -686,13 +696,24 @@ final class BrokerState {
             new JSONArray().put(healthMetricJson("console_open_requests", "Console open requests", null, 0.0, null, brokerConsoleOpenRequests.get(), "healthy")),
             new JSONArray()));
         modules.put(moduleRuntimeState(
+            "polar.communication",
+            "provider",
+            "active",
+            revision,
+            providedStreamIdsForModule(streams, "polar.communication"),
+            new JSONArray(),
+            new JSONArray()
+                .put(healthMetricJson("polar_streams", "Polar communication streams", null, 1.0, null, providedStreamIdsForModule(streams, "polar.communication").length(), "healthy"))
+                .put(healthMetricJson("published_stream_events", "Published stream events", null, 0.0, null, publishedStreamEvents.get(), "healthy")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
             "bio.telemetry",
             "provider",
             "active",
             revision,
             providedStreamIdsForModule(streams, "bio.telemetry"),
             new JSONArray(),
-            new JSONArray().put(healthMetricJson("bio_streams", "Bio input streams", null, 1.0, null, providedStreamIdsForModule(streams, "bio.telemetry").length(), "healthy")),
+            new JSONArray().put(healthMetricJson("bio_streams", "Non-Polar bio input streams", null, 0.0, null, providedStreamIdsForModule(streams, "bio.telemetry").length(), "healthy")),
             new JSONArray()));
         modules.put(moduleRuntimeState(
             "bio.breath_assessment",
@@ -1164,6 +1185,12 @@ final class BrokerState {
         if ("control.kiosk".equals(moduleId)) {
             return "control-provider";
         }
+        if ("termux.linux_sidecar".equals(moduleId)) {
+            return "termux-provider";
+        }
+        if ("polar.communication".equals(moduleId)) {
+            return "polar-provider";
+        }
         if ("bio.telemetry".equals(moduleId)) {
             return "bio-provider";
         }
@@ -1198,6 +1225,9 @@ final class BrokerState {
         if (streamId.startsWith("broker:") || streamId.startsWith("latency:")) {
             return "diagnostics.broker";
         }
+        if ("diagnostics:termux_python".equals(streamId)) {
+            return "termux.linux_sidecar";
+        }
         if (streamId.startsWith("device_watchdog.")) {
             return "diagnostics.device_watchdog";
         }
@@ -1206,6 +1236,11 @@ final class BrokerState {
         }
         if ("bio:breath".equals(streamId)) {
             return "bio.breath_assessment";
+        }
+        if ("bio:polar_hr_rr".equals(streamId)
+            || "bio:polar_acc".equals(streamId)
+            || "bio:polar_ecg".equals(streamId)) {
+            return "polar.communication";
         }
         if (streamId.startsWith("bio:") || streamId.startsWith("xr:")) {
             return "bio.telemetry";
@@ -1233,6 +1268,9 @@ final class BrokerState {
         if ("bio.breath_assessment".equals(moduleId)) {
             return "processor";
         }
+        if ("termux.linux_sidecar".equals(moduleId)) {
+            return "processor";
+        }
         if ("control.kiosk".equals(moduleId) || "shell.helper".equals(moduleId)) {
             return "control_adapter";
         }
@@ -1255,6 +1293,9 @@ final class BrokerState {
         if ("bio-provider".equals(providerId)) {
             return "Bio provider";
         }
+        if ("polar-provider".equals(providerId)) {
+            return "Polar communication";
+        }
         if ("breath-assessment-provider".equals(providerId)) {
             return "Breath assessment";
         }
@@ -1276,6 +1317,9 @@ final class BrokerState {
         if ("control-provider".equals(providerId)) {
             return "Control provider";
         }
+        if ("termux-provider".equals(providerId)) {
+            return "Termux Linux sidecar";
+        }
         if ("shell-helper-provider".equals(providerId)) {
             return "Shell helper";
         }
@@ -1288,6 +1332,12 @@ final class BrokerState {
     private static String providerSensitivity(String providerId) {
         if ("bio-provider".equals(providerId)) {
             return "physiology";
+        }
+        if ("polar-provider".equals(providerId)) {
+            return "physiology";
+        }
+        if ("termux-provider".equals(providerId)) {
+            return "diagnostic";
         }
         if ("breath-assessment-provider".equals(providerId)) {
             return "derived_physiology";
