@@ -164,6 +164,15 @@ for users.
 An app that refreshes Wi-Fi ADB through special settings permissions still
 needed an earlier ADB grant. It does not bootstrap ADB from nothing.
 
+A recent normal-helper probe tightened this boundary: an installed debug
+helper could be launched, pre-granted `WRITE_SECURE_SETTINGS` by an authorized
+ADB host, and receive `BOOT_COMPLETED` after reboot, but writing the public
+debugging settings did not restore classic `adb tcpip` transport, and app-UID
+property changes such as adbd TCP properties were blocked. Treat pre-granted
+helpers as visible status or diagnostics surfaces unless a specific target OS
+release proves an official wireless-debugging route. The reliable
+post-reboot route remains an external/user-authorized ADB bootstrap.
+
 ## Browser Download Boundary
 
 A browser-hosted file or normal downloaded APK cannot legitimately bootstrap

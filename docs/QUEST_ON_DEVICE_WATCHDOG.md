@@ -50,6 +50,12 @@ So a normal broker APK should not claim that it can spawn or become an Android
 `shell` user by itself. Shell-helper watchdogs remain externally launched
 developer-mode tools.
 
+Likewise, a pre-granted normal helper should not be positioned as a reboot
+Wi-Fi ADB restarter. In lab validation, a helper could receive
+`BOOT_COMPLETED` and write app-local status, but settings writes did not reopen
+classic ADB TCP after reboot and app-UID adbd property changes were blocked.
+That is enough for visible diagnostics, not enough for shell lease recovery.
+
 ## Sleep And Reboot Boundary
 
 The watchdog is best-effort while the app process and foreground service are

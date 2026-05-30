@@ -118,6 +118,14 @@ Power-state signals such as wakefulness, display power, or virtual proximity
 are not enough to prove OpenXR tracking, camera capture, or media-stream
 readiness.
 
+A normal installed helper APK can still be useful for visible app-owned boot
+or status evidence. A public-safe lab probe showed that a launched helper could
+receive `BOOT_COMPLETED` and record app-local diagnostics after an earlier ADB
+session granted debugging-related settings permission. That did not make the
+helper Android `shell`, did not restore classic Wi-Fi ADB after reboot, and
+did not allow app-UID adbd property changes. Keep this kind of helper in the
+status/diagnostics tier, not the shell-helper tier.
+
 The headset app cannot start this helper by itself:
 
 ```text
