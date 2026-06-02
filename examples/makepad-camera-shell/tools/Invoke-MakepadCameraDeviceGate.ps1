@@ -60,10 +60,10 @@ param(
     [double]$PeripheralStretchEdgeInsetUv = 0.015,
     [double]$PeripheralStretchMaxInsetUv = 0.14,
     [double]$PeripheralStretchCurve = 1.6,
-    [double]$PeripheralStretchInnerBlendUv = 0.0,
+    [double]$PeripheralStretchInnerBlendUv = 0.040,
     [double]$PeripheralStretchBlendCurve = 1.6,
     [ValidateSet("off", "target-inner-band")]
-    [string]$PeripheralStretchBlendMode = "off",
+    [string]$PeripheralStretchBlendMode = "target-inner-band",
     [ValidateSet("target-footprint")]
     [string]$PeripheralStretchCornerMode = "target-footprint",
     [ValidateSet("off", "regions", "sample-uv")]

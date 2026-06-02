@@ -3,12 +3,11 @@ use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
 use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 
 pub(crate) const DEFAULT_PROFILE: &str = "makepad-stereo-projection-pair-probe";
-pub(crate) const DEFAULT_TRANSPORT: &str = "makepad-s109-red-projection-border-passthrough-off";
+pub(crate) const DEFAULT_TRANSPORT: &str = "makepad-direct-hwb-target-inner-band-stretch";
 pub(crate) const DEFAULT_CAMERA_TIER: &str = "native-camera2-makepad-stereo-vulkan-import-probe";
 pub(crate) const DEFAULT_CAMERA_PROJECTION_MODE: &str = "display-screen-homography";
 pub(crate) const DEFAULT_COMPARISON_BASELINE: &str = "custom-apk-camera-stereo-gpu-composite";
-pub(crate) const DEFAULT_SYNTHETIC_SCENE: &str =
-    "camera-panel-s118-projected-footprint-red-border-passthrough-off";
+pub(crate) const DEFAULT_SYNTHETIC_SCENE: &str = "camera-panel-target-inner-band-stretch-border";
 pub(crate) const DEFAULT_ACQUISITION_PROFILE: &str =
     "bounded-camera2-private-plus-makepad-paired-import-probe";
 pub(crate) const DEFAULT_PROJECTION_SCALE: f64 = 1.0;

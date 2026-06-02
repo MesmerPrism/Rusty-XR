@@ -453,9 +453,9 @@ impl Default for MakepadPeripheralStretchConfig {
             edge_inset_uv: 0.015,
             max_inset_uv: 0.14,
             curve: 1.6,
-            inner_blend_uv: 0.0,
+            inner_blend_uv: 0.040,
             blend_curve: 1.6,
-            blend_mode: MakepadPeripheralStretchBlendMode::Off,
+            blend_mode: MakepadPeripheralStretchBlendMode::TargetInnerBand,
             corner_mode: MakepadPeripheralStretchCornerMode::TargetFootprint,
             debug: MakepadPeripheralStretchDebug::Off,
         }
@@ -511,26 +511,34 @@ impl MakepadPeripheralStretchConfig {
     }
 
     pub(crate) fn marker_fields(self, processing_layer: MakepadProcessingLayer) -> String {
+        let consumes_projection_exterior = processing_layer.consumes_projection_exterior();
+        let transition_active = !matches!(self.blend_mode, MakepadPeripheralStretchBlendMode::Off)
+            && self.inner_blend_uv > 0.0001;
         let (core_region, transition_region, transition_space, transition_semantics) =
-            if matches!(self.blend_mode, MakepadPeripheralStretchBlendMode::Off)
-                || self.inner_blend_uv <= 0.0001
-            {
-                (
-                    "target-footprint",
-                    "off",
-                    "off",
-                    "hard-edge-preblend-reference",
-                )
-            } else {
+            if transition_active {
                 (
                     "target-footprint-minus-inner-transition-band",
                     "target-footprint-inner-edge-band",
                     "target-local-raster-uv",
                     "canonical-sample-to-stretch-sample-remap",
                 )
+            } else {
+                (
+                    "target-footprint",
+                    "off",
+                    "off",
+                    "hard-edge-preblend-reference",
+                )
             };
+        let projection_exterior_mode = if consumes_projection_exterior && transition_active {
+            "target-edge-stretch-with-inner-band-blend"
+        } else if consumes_projection_exterior {
+            "target-edge-stretch-hard-edge"
+        } else {
+            "projection-border-policy-fallback"
+        };
         format!(
-            "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchInnerBlendUv={:.3} peripheralStretchBlendCurve={:.3} peripheralStretchBlendMode={} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion={} peripheralStretchTransitionRegion={} peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace={} peripheralStretchTransitionSemantics={} peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample",
+            "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchInnerBlendUv={:.3} peripheralStretchBlendCurve={:.3} peripheralStretchBlendMode={} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchActive={} peripheralStretchTransitionActive={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion={} peripheralStretchTransitionRegion={} peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace={} peripheralStretchTransitionSemantics={} peripheralStretchProjectionExteriorMode={} peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample peripheralStretchReference=pure-hwb-target-inner-band",
             self.mode.stable_id(),
             self.core_scale,
             self.edge_inset_uv,
@@ -541,11 +549,14 @@ impl MakepadPeripheralStretchConfig {
             self.blend_mode.stable_id(),
             self.corner_mode.stable_id(),
             self.debug.stable_id(),
-            processing_layer.consumes_projection_exterior(),
+            processing_layer == MakepadProcessingLayer::PeripheralStretch,
+            transition_active,
+            consumes_projection_exterior,
             core_region,
             transition_region,
             transition_space,
             transition_semantics,
+            projection_exterior_mode,
         )
     }
 }
@@ -617,7 +628,38 @@ pub(crate) fn makepad_blur_radius_px() -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::MakepadProjectionSampleMode;
+    use super::{
+        MakepadPeripheralStretchBlendMode, MakepadPeripheralStretchConfig, MakepadProcessingLayer,
+        MakepadProjectionSampleMode,
+    };
+
+    #[test]
+    fn peripheral_stretch_default_matches_pure_hwb_target_inner_band_reference() {
+        let config = MakepadPeripheralStretchConfig::default();
+
+        assert_eq!(config.inner_blend_uv, 0.040);
+        assert_eq!(
+            config.blend_mode,
+            MakepadPeripheralStretchBlendMode::TargetInnerBand
+        );
+
+        let fields = config.marker_fields(MakepadProcessingLayer::PeripheralStretch);
+
+        assert!(fields.contains("peripheralStretchInnerBlendUv=0.040"));
+        assert!(fields.contains("peripheralStretchBlendMode=target-inner-band"));
+        assert!(fields.contains("peripheralStretchActive=true"));
+        assert!(fields.contains("peripheralStretchTransitionActive=true"));
+        assert!(fields.contains("peripheralStretchConsumesProjectionExterior=true"));
+        assert!(fields
+            .contains("peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band"));
+        assert!(
+            fields.contains("peripheralStretchTransitionRegion=target-footprint-inner-edge-band")
+        );
+        assert!(fields.contains(
+            "peripheralStretchProjectionExteriorMode=target-edge-stretch-with-inner-band-blend"
+        ));
+        assert!(fields.contains("peripheralStretchReference=pure-hwb-target-inner-band"));
+    }
 
     #[test]
     fn solid_no_texture_is_solid_shader_without_camera_binding() {

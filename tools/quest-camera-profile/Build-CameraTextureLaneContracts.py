@@ -491,6 +491,10 @@ def projection_effect_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "peripheral_stretch_blend_mode": nonempty_text(fields.get("peripheralStretchBlendMode")),
         "peripheral_stretch_corner_mode": nonempty_text(fields.get("peripheralStretchCornerMode")),
         "peripheral_stretch_debug": nonempty_text(fields.get("peripheralStretchDebug")),
+        "peripheral_stretch_active": parse_bool(fields.get("peripheralStretchActive")),
+        "peripheral_stretch_transition_active": parse_bool(
+            fields.get("peripheralStretchTransitionActive")
+        ),
         "peripheral_stretch_core_region": nonempty_text(fields.get("peripheralStretchCoreRegion")),
         "peripheral_stretch_transition_region": nonempty_text(
             fields.get("peripheralStretchTransitionRegion")
@@ -505,6 +509,10 @@ def projection_effect_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "peripheral_stretch_consumes_projection_exterior": parse_bool(
             fields.get("peripheralStretchConsumesProjectionExterior")
         ),
+        "peripheral_stretch_projection_exterior_mode": nonempty_text(
+            fields.get("peripheralStretchProjectionExteriorMode")
+        ),
+        "peripheral_stretch_reference": nonempty_text(fields.get("peripheralStretchReference")),
         "projection_target_offset_x_uv": parse_float(fields.get("projectionTargetOffsetXUv")),
         "projection_target_offset_y_uv": parse_float(fields.get("projectionTargetOffsetYUv")),
         "projection_target_scale": parse_float(fields.get("projectionTargetScale")),
@@ -1081,6 +1089,8 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
         ("peripheralStretchBlendMode", "peripheral_stretch_blend_mode", nonempty_text),
         ("peripheralStretchCornerMode", "peripheral_stretch_corner_mode", nonempty_text),
         ("peripheralStretchDebug", "peripheral_stretch_debug", nonempty_text),
+        ("peripheralStretchActive", "peripheral_stretch_active", parse_bool),
+        ("peripheralStretchTransitionActive", "peripheral_stretch_transition_active", parse_bool),
         ("peripheralStretchCoreRegion", "peripheral_stretch_core_region", nonempty_text),
         ("peripheralStretchTransitionRegion", "peripheral_stretch_transition_region", nonempty_text),
         ("peripheralStretchExteriorRegion", "peripheral_stretch_exterior_region", nonempty_text),
@@ -1092,6 +1102,12 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
         ),
         ("peripheralStretchBorderSource", "peripheral_stretch_border_source", nonempty_text),
         ("peripheralStretchExteriorSource", "peripheral_stretch_exterior_source", nonempty_text),
+        (
+            "peripheralStretchProjectionExteriorMode",
+            "peripheral_stretch_projection_exterior_mode",
+            nonempty_text,
+        ),
+        ("peripheralStretchReference", "peripheral_stretch_reference", nonempty_text),
         ("projectionTargetOffsetXUv", "projection_target_offset_x_uv", parse_float),
         ("projectionTargetOffsetYUv", "projection_target_offset_y_uv", parse_float),
         ("projectionTargetScale", "projection_target_scale", parse_float),
@@ -1187,10 +1203,18 @@ def scan_line(line: str, state: ScanState) -> None:
     if MAKEPAD_STEREO_PROJECTION_MARKER in line:
         fields = parse_marker_fields(line.split(MAKEPAD_STEREO_PROJECTION_MARKER, 1)[1])
         phase = str(fields.get("phase") or "")
-        if phase in {"draw-vars-bound", "visible-panel-bound", "visible-panel-draw"}:
+        if phase in {
+            "draw-vars-bound",
+            "visible-panel-bound",
+            "visible-panel-draw",
+            "horizontal-alignment-hotload",
+            "complete",
+        }:
             path = makepad_path_from_fields_or_context(fields, state.makepad_global_fields)
             if path:
                 state.update_makepad(path, fields)
+            else:
+                state.update_makepad_global(fields)
     if MAKEPAD_DESCRIPTOR_MARKER in line:
         fields = parse_marker_fields(line.split(MAKEPAD_DESCRIPTOR_MARKER, 1)[1])
         state.update_makepad("direct-camera-hardware-buffer-external", fields)
@@ -1320,6 +1344,8 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
             "blend_mode": projection.get("peripheral_stretch_blend_mode"),
             "corner_mode": projection.get("peripheral_stretch_corner_mode"),
             "debug": projection.get("peripheral_stretch_debug"),
+            "active": projection.get("peripheral_stretch_active"),
+            "transition_active": projection.get("peripheral_stretch_transition_active"),
             "core_region": projection.get("peripheral_stretch_core_region"),
             "transition_region": projection.get("peripheral_stretch_transition_region"),
             "exterior_region": projection.get("peripheral_stretch_exterior_region"),
@@ -1330,6 +1356,10 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
             "consumes_projection_exterior": projection.get(
                 "peripheral_stretch_consumes_projection_exterior"
             ),
+            "projection_exterior_mode": projection.get(
+                "peripheral_stretch_projection_exterior_mode"
+            ),
+            "reference": projection.get("peripheral_stretch_reference"),
         },
         "projection_target": {
             "offset_x_uv": projection.get("projection_target_offset_x_uv"),
@@ -1519,6 +1549,11 @@ def self_test() -> None:
                     "actual": "0.04",
                 },
                 {
+                    "property": "debug.rustyxr.peripheral.stretch.blend.mode",
+                    "expected": "target-inner-band",
+                    "actual": "target-inner-band",
+                },
+                {
                     "property": "debug.rustyxr.peripheral.stretch.blend.curve",
                     "expected": "1.6",
                     "actual": "1.6",
@@ -1597,6 +1632,10 @@ def self_test() -> None:
             raise AssertionError("summary did not expose processing layer")
         if summary["run_config"]["peripheral_stretch_mode"] != "edge-stretch":
             raise AssertionError("summary did not expose peripheral stretch mode")
+        if summary["run_config"]["peripheral_stretch_inner_blend_uv"] != 0.04:
+            raise AssertionError("summary did not expose peripheral stretch inner blend")
+        if summary["run_config"]["peripheral_stretch_blend_mode"] != "target-inner-band":
+            raise AssertionError("summary did not expose peripheral stretch blend mode")
         if summary["run_config"]["peripheral_stretch_corner_mode"] != "target-footprint":
             raise AssertionError("summary did not expose peripheral stretch corner mode")
         if summary["processing_run_kind_counts"].get("raw-mask-footprint") != 4:
@@ -1617,6 +1656,10 @@ def self_test() -> None:
             raise AssertionError("summary did not apply projection sample mode context")
         if cpu_summary["peripheral_stretch"]["mode"] != "edge-stretch":
             raise AssertionError("summary did not apply peripheral stretch mode context")
+        if cpu_summary["peripheral_stretch"]["inner_blend_uv"] != 0.04:
+            raise AssertionError("summary did not apply peripheral stretch inner blend context")
+        if cpu_summary["peripheral_stretch"]["blend_mode"] != "target-inner-band":
+            raise AssertionError("summary did not apply peripheral stretch blend mode context")
         if cpu_summary["peripheral_stretch"]["corner_mode"] != "target-footprint":
             raise AssertionError("summary did not apply peripheral stretch corner mode context")
         if cpu_summary["camera_texture_binding"] is not False:
@@ -1646,6 +1689,40 @@ def self_test() -> None:
         for name in ("camera-texture-lane-contracts.jsonl", "camera-texture-lane-contract-summary.json"):
             if not (out_dir / name).exists():
                 raise AssertionError(f"missing output artifact {name}")
+
+    stretch_log = "\n".join(
+        [
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left cameraTexturePath=direct-camera-hardware-buffer-external textureImportPath=makepad-camera-hardware-buffer-vulkan-import descriptorShape=combined-immutable-sampler-ycbcr-conversion cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280",
+            "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=horizontal-alignment-hotload status=applied projectionBorderPolicy=solid-red processingLayer=peripheral-stretch projectionSampleMode=camera peripheralStretchMode=edge-stretch peripheralStretchCoreScale=1.000 peripheralStretchEdgeInsetUv=0.015 peripheralStretchMaxInsetUv=0.140 peripheralStretchCurve=1.600 peripheralStretchInnerBlendUv=0.040 peripheralStretchBlendCurve=1.600 peripheralStretchBlendMode=target-inner-band peripheralStretchCornerMode=target-footprint peripheralStretchDebug=off peripheralStretchActive=true peripheralStretchTransitionActive=true peripheralStretchConsumesProjectionExterior=true peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchProjectionExteriorMode=target-edge-stretch-with-inner-band-blend peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample peripheralStretchReference=pure-hwb-target-inner-band",
+        ]
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "logcat.txt").write_text(stretch_log, encoding="utf-8")
+        _records, stretch_summary, _out_dir = run(root, None)
+        stretch_lane = stretch_summary["lane_summaries"]["makepad-hwb-external-direct-camera2-raw"]
+        stretch_fields = stretch_lane["peripheral_stretch"]
+        if stretch_lane["processing_layer"] != "peripheral-stretch":
+            raise AssertionError("stretch marker did not override Makepad processing layer")
+        if stretch_lane["processing_run_kind"] != "effect-run":
+            raise AssertionError("stretch marker did not classify Makepad effect run")
+        if stretch_fields["active"] is not True:
+            raise AssertionError("stretch marker did not propagate active flag")
+        if stretch_fields["transition_active"] is not True:
+            raise AssertionError("stretch marker did not propagate transition flag")
+        if stretch_fields["consumes_projection_exterior"] is not True:
+            raise AssertionError("stretch marker did not propagate projection exterior consumption")
+        if stretch_fields["core_region"] != "target-footprint-minus-inner-transition-band":
+            raise AssertionError("stretch marker did not propagate core region")
+        if stretch_fields["transition_region"] != "target-footprint-inner-edge-band":
+            raise AssertionError("stretch marker did not propagate transition region")
+        if (
+            stretch_fields["projection_exterior_mode"]
+            != "target-edge-stretch-with-inner-band-blend"
+        ):
+            raise AssertionError("stretch marker did not propagate projection exterior mode")
+        if stretch_fields["reference"] != "pure-hwb-target-inner-band":
+            raise AssertionError("stretch marker did not propagate reference label")
 
 
 def main() -> int:
