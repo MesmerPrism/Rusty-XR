@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "rusty.xr.android-build-manifest.v1",
+  "exampleId": "quest-mic-pipe-sentinel",
+  "artifactKind": "apk",
+  "artifact": {
+    "kind": "apk",
+    "outputPath": "build/outputs/rusty-xr-quest-mic-pipe-sentinel-debug.apk",
+    "catalogPath": "catalog/rusty-xr-quest-mic-pipe-sentinel.catalog.json"
+  },
+  "android": {
+    "manifestPath": "AndroidManifest.xml",
+    "packageName": "com.example.rustyxr.micpipe",
+    "minSdk": 29,
+    "targetSdk": 35,
+    "abi": "arm64-v8a",
+    "permissions": [
+      "android.permission.INTERNET",
+      "android.permission.RECORD_AUDIO",
+      "android.permission.FOREGROUND_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+      "android.permission.POST_NOTIFICATIONS"
+    ],
+    "features": [
+      "android.hardware.microphone"
+    ]
+  },
+  "sourceInputs": [
+    {
+      "label": "PowerShell build helper",
+      "kind": "script",
+      "path": "tools/Build-QuestMicPipeSentinelApk.ps1",
+      "required": true
+    },
+    {
+      "label": "Android manifest",
+      "kind": "android-manifest",
+      "path": "AndroidManifest.xml",
+      "required": true
+    },
+    {
+      "label": "Java activity and service sources",
+      "kind": "java-source",
+      "glob": "src/**/*.java",
+      "required": true
+    },
+    {
+      "label": "Termux WAV receiver",
+      "kind": "python-script",
+      "path": "tools/mic_recv_wav.py",
+      "required": true
+    },
+    {
+      "label": "Quest app catalog",
+      "kind": "quest-app-catalog",
+      "path": "catalog/rusty-xr-quest-mic-pipe-sentinel.catalog.json",
+      "required": true
+    }
+  ],
+  "externalInputs": [
+    {
+      "label": "Android SDK",
+      "kind": "android-sdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "OpenJDK",
+      "kind": "jdk",
+      "providedBy": "Android tooling installation or cargo-makepad Android toolchain"
+    },
+    {
+      "label": "Termux Python",
+      "kind": "python-runtime",
+      "providedBy": "Termux package installation on the device"
+    },
+    {
+      "label": "Debug signing key",
+      "kind": "keystore",
+      "providedBy": "Generated locally by the build helper or replacement package tool"
+    }
+  ],
+  "generatedOutputs": [
+    {
+      "label": "Unsigned APK",
+      "kind": "apk",
+      "path": "build/rusty-xr-quest-mic-pipe-sentinel-unsigned.apk"
+    },
+    {
+      "label": "Aligned APK",
+      "kind": "apk",
+      "path": "build/rusty-xr-quest-mic-pipe-sentinel-aligned.apk"
+    },
+    {
+      "label": "Signed debug APK",
+      "kind": "apk",
+      "path": "build/outputs/rusty-xr-quest-mic-pipe-sentinel-debug.apk"
+    },
+    {
+      "label": "Compiled Java classes",
+      "kind": "directory",
+      "path": "build/classes"
+    },
+    {
+      "label": "Dex output",
+      "kind": "directory",
+      "path": "build/dex"
+    }
+  ],
+  "capabilities": [
+    "visible-user-started-microphone-session",
+    "foreground-service-type-microphone",
+    "audiorecord-pcm16",
+    "localhost-termux-pcm-stream",
+    "jsonl-evidence-logs",
+    "runtime-profile-intent-extras"
+  ]
+}

@@ -1,0 +1,52 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.rustyxr.micpipe">
+
+    <uses-sdk
+        android:minSdkVersion="29"
+        android:targetSdkVersion="35" />
+
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="true" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+
+    <application
+        android:allowBackup="false"
+        android:debuggable="true"
+        android:extractNativeLibs="true"
+        android:label="Mic Pipe Sentinel"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MicPanelActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:resizeableActivity="true"
+            android:screenOrientation="landscape">
+            <layout
+                android:defaultHeight="720dp"
+                android:defaultWidth="1080dp"
+                android:minHeight="540dp"
+                android:minWidth="720dp" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="com.oculus.intent.category.2D" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".MicCaptureService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+    </application>
+</manifest>

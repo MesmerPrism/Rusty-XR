@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "rusty.xr.quest-app-catalog.v1",
+  "apps": [
+    {
+      "id": "rusty-xr-quest-mic-pipe-sentinel",
+      "label": "Rusty XR Mic Pipe Sentinel",
+      "packageName": "com.example.rustyxr.micpipe",
+      "activityName": ".MicPanelActivity",
+      "apkFile": "../build/outputs/rusty-xr-quest-mic-pipe-sentinel-debug.apk",
+      "description": "Visible user-started microphone foreground-service sentinel that streams 16 kHz mono PCM16 to a localhost Termux receiver. Build it locally; APK bytes are ignored and not committed."
+    }
+  ],
+  "deviceProfiles": [
+    {
+      "id": "mic-pipe-smoke-test",
+      "label": "Mic pipe smoke test",
+      "properties": [
+        {
+          "key": "debug.oculus.cpuLevel",
+          "value": "2"
+        },
+        {
+          "key": "debug.oculus.gpuLevel",
+          "value": "2"
+        }
+      ],
+      "description": "Short Quest verification profile for a visible microphone session and localhost PCM transport."
+    }
+  ],
+  "runtimeProfiles": [
+    {
+      "id": "mic-pipe-localhost-termux",
+      "label": "Mic pipe to localhost Termux",
+      "values": {
+        "rustyxr.example": "quest-mic-pipe-sentinel",
+        "rustyxr.micPipe.host": "127.0.0.1",
+        "rustyxr.micPipe.port": "34567",
+        "rustyxr.micPipe.sampleRateHz": "16000",
+        "rustyxr.micPipe.encoding": "pcm_s16le"
+      },
+      "description": "Launches the visible panel for a user-started microphone session. Start the Termux receiver before pressing Start in the panel."
+    }
+  ]
+}

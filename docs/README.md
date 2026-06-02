@@ -34,6 +34,9 @@ before reading chronological plans or investigation logs.
   larger OpenXR/Vulkan diagnostic example.
 - [Broker sidecar APK](../examples/quest-broker-apk/README.md): broker
   status, stream, clock, launcher, and diagnostic sidecar example.
+- [Mic Pipe Sentinel](../examples/quest-mic-pipe-sentinel/README.md):
+  visible user-started microphone foreground-service proof that streams
+  PCM16 to a localhost Termux receiver.
 - [Broker shell helper](../examples/quest-broker-shell-helper/README.md):
   source-only Developer Mode shell-helper example.
 - [Broker client probe](../examples/broker-client-probe/README.md):
@@ -105,6 +108,9 @@ before reading chronological plans or investigation logs.
   Store-style apps, developer builds, ADB hosts, Wi-Fi ADB, and shell helpers.
 - [Quest tracking access boundary](QUEST_TRACKING_ACCESS_BOUNDARY.md):
   foreground OpenXR pose sampling, Android sensor limits, and ADB diagnostics.
+- [Quest mic pipe sentinel](QUEST_MIC_PIPE_SENTINEL.md): visible microphone
+  foreground-service route, localhost Termux receiver, and audio evidence
+  ladder before broker integration.
 - [Quest streaming diagnostics workflow](QUEST_STREAMING_DIAGNOSTICS_WORKFLOW.md):
   diagnostic streaming scorecards and projection paths.
 - [Quest stereo alignment workflow](QUEST_STEREO_ALIGNMENT_WORKFLOW.md):

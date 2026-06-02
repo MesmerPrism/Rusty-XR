@@ -27,11 +27,34 @@ Keep these sources separate:
 - OSC control/sensor datagrams: app-owned live command or sensor packets over
   UDP. They are not media frames and should be mapped into typed app state
   before driving rendering or simulation.
+- Microphone input: user-consented app microphone capture through Android
+  `AudioRecord`. For speech-session experiments, start from a visible panel and
+  a microphone foreground service, then stream PCM to a local receiver for an
+  audio oracle. Do not conflate this with capturing other apps' audio output or
+  hidden background microphone startup.
 
 Public Rusty XR crates should model metadata, timestamps, frame descriptors,
 runtime counters, control packets, and stream status. The Android app shell
 owns the actual MediaProjection, Camera2, OpenXR, Vulkan, encoder, socket, or
 ADB integration.
+
+### Microphone Session Shape
+
+The public mic-pipe sentinel uses Android microphone input as a normal app
+capability:
+
+- visible 2D panel requests `RECORD_AUDIO`;
+- foreground service declares `foregroundServiceType="microphone"`;
+- `AudioRecord` captures `VOICE_RECOGNITION` source at 16 kHz mono PCM16;
+- raw PCM is streamed to a localhost Termux receiver;
+- Android logs record permission, foreground-service state, recording state,
+  bytes read, RMS, connection state, and callback silencing;
+- Termux logs byte count and recent dBFS while writing a WAV.
+
+Treat Termux's non-silent WAV evidence as the hard oracle. A running service or
+`AudioRecord` state is supporting evidence, not proof that usable speech is
+available. Background-start and reboot behavior belong in negative-control
+tests; the baseline product posture is a visible, user-started speech session.
 
 ### Native Passthrough Style Shape
 
