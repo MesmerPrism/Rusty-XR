@@ -98,6 +98,7 @@ that explicit in the command:
 powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
   -UseWindowsHost `
   -SdkPath <windows-host-sdk> `
+  -JavaHome <jdk-root> `
   -MakepadSourceRoot <makepad-fork-checkout> `
   -DisplaySourceEyeMapping display-left-from-left-source
 ```
@@ -120,13 +121,32 @@ executable names from the selected `--sdk-path`.
 
 Use `-MakepadSourceRoot` or `RUSTY_XR_MAKEPAD_SOURCE_ROOT` for Makepad local
 evidence builds. The wrapper requires that source root by default, selects the
-fork checkout's `tools/cargo_makepad` tool, and patches the app's Makepad
-dependency to the same checkout for that build. The committed lockfile remains
-the default host Rust dependency pin. The current Makepad evidence default is
-`display-left-from-left-source`; pass `-DisplaySourceEyeMapping` explicitly in
-captured build commands so source-eye mapping cannot drift between runs. Use
-`-NoPatchMakepadXrFromSource` only for an intentional upstream or
-pinned-dependency comparison.
+fork checkout's release `tools/cargo_makepad` tool, and patches the app's
+Makepad dependency to the same checkout for that build. The committed lockfile
+remains the default host Rust dependency pin. The wrapper prefers explicit
+`-JavaHome` and `RUSTY_XR_ANDROID_JDK_ROOT` before ambient `JAVA_HOME`, so pass
+the selected JDK root in captured evidence commands when possible. The current
+Makepad evidence default is `display-left-from-left-source`; pass
+`-DisplaySourceEyeMapping` explicitly in captured build commands so source-eye
+mapping cannot drift between runs. Use `-NoPatchMakepadXrFromSource` only for
+an intentional upstream or pinned-dependency comparison.
+
+When source patching is active, the wrapper uses a stable ignored patch
+`CARGO_HOME` below
+`examples/makepad-camera-shell/target/makepad-patch-cargo-home/<host>` instead
+of a per-run temporary home. That preserves Cargo source identity for
+consecutive no-change builds. Use `-UseTemporaryPatchCargoHome` only when
+diagnosing patch-home behavior. The maintained Makepad fork also keeps the
+generated Android wrapper manifest and generated patched lockfile stable when
+their inputs have not changed. A healthy warm no-change build should have no
+`Adding ...` lockfile churn and no `Compiling ...` dependency lines; the
+remaining time is APK packaging.
+
+The wrapper enables `MAKEPAD_ANDROID_TIMINGS=1` unless the caller already set
+that variable. Timed Makepad packager lines are emitted as
+`MAKEPAD_ANDROID_TIMING phase=<name> status=<ok|failed> duration_ms=<n>`. Use
+those markers to separate Rust cache misses from Java/dex, native-library
+bundling, asset/resource staging, zipalign, and signing cost.
 
 For the public Makepad comparison example, run the Makepad build from
 `examples/makepad-camera-shell` and pass Android options before the

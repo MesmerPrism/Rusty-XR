@@ -5,10 +5,13 @@ param(
     [string]$CargoPackage = "rusty-xr-makepad-camera-shell",
     [ValidateSet("display-left-from-left-source", "display-left-from-right-source")]
     [string]$DisplaySourceEyeMapping = "display-left-from-left-source",
+    [string]$JavaHome,
+    [string]$PatchCargoHome,
     [string]$WslDistro,
     [string]$MakepadSourceRoot,
     [switch]$PatchMakepadXrFromSource,
     [switch]$NoPatchMakepadXrFromSource,
+    [switch]$UseTemporaryPatchCargoHome,
     [switch]$UseWindowsHost
 )
 
@@ -95,9 +98,16 @@ function Resolve-BuildToolsVersion {
 function Resolve-JavaHome {
     param(
         [Parameter(Mandatory = $true)][string]$SdkRoot,
-        [ValidateSet("windows", "linux")][string]$HostKind
+        [ValidateSet("windows", "linux")][string]$HostKind,
+        [string]$ExplicitJavaHome
     )
     $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitJavaHome)) {
+        $candidates += $ExplicitJavaHome
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:RUSTY_XR_ANDROID_JDK_ROOT)) {
+        $candidates += $env:RUSTY_XR_ANDROID_JDK_ROOT
+    }
     if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
         $candidates += $env:JAVA_HOME
     }
@@ -163,7 +173,8 @@ function Resolve-ClangApiLevel {
 function Assert-MakepadAndroidSdkProfile {
     param(
         [Parameter(Mandatory = $true)][string]$SdkPath,
-        [ValidateSet("windows", "linux")][string]$HostKind
+        [ValidateSet("windows", "linux")][string]$HostKind,
+        [string]$JavaHome
     )
     $sdkRoot = (Resolve-Path -LiteralPath $SdkPath).Path
     $platform = Resolve-AndroidPlatformName -SdkRoot $sdkRoot
@@ -191,7 +202,7 @@ function Assert-MakepadAndroidSdkProfile {
         }
     }
 
-    $javaHome = Resolve-JavaHome -SdkRoot $sdkRoot -HostKind $HostKind
+    $javaHome = Resolve-JavaHome -SdkRoot $sdkRoot -HostKind $HostKind -ExplicitJavaHome $JavaHome
     $ndkPrebuiltRoot = Resolve-NdkPrebuiltRoot -SdkRoot $sdkRoot -HostKind $HostKind
     $compilerApi = Resolve-ClangApiLevel -NdkPrebuiltRoot $ndkPrebuiltRoot -HostKind $HostKind -PlatformApi $platformApi
     $clangName = "aarch64-linux-android$compilerApi-clang"
@@ -256,6 +267,46 @@ function Add-CargoCacheLinks {
     }
 }
 
+function Set-TextIfChanged {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Value
+    )
+    if ((Test-Path -LiteralPath $Path) -and ((Get-Content -LiteralPath $Path -Raw) -eq $Value)) {
+        return
+    }
+    Set-Content -Path $Path -Value $Value -Encoding UTF8
+}
+
+function Resolve-PatchCargoHome {
+    param(
+        [string]$RequestedPath,
+        [ValidateSet("windows", "linux")][string]$HostKind,
+        [switch]$Temporary
+    )
+    if ($Temporary) {
+        return [pscustomobject]@{
+            Path = Join-Path ([System.IO.Path]::GetTempPath()) "rusty-xr-makepad-cargo-$([guid]::NewGuid().ToString('N'))"
+            Temporary = $true
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
+        $path = if ([System.IO.Path]::IsPathRooted($RequestedPath)) {
+            $RequestedPath
+        } else {
+            Join-Path $exampleRoot $RequestedPath
+        }
+        return [pscustomobject]@{
+            Path = $path
+            Temporary = $false
+        }
+    }
+    return [pscustomobject]@{
+        Path = Join-Path $exampleRoot "target\makepad-patch-cargo-home\$HostKind"
+        Temporary = $false
+    }
+}
+
 function New-MakepadPatchConfigText {
     param(
         [Parameter(Mandatory = $true)]
@@ -300,6 +351,18 @@ function Restore-FileSnapshot {
         [Parameter(Mandatory = $true)]$Snapshot
     )
     if ($Snapshot.Exists) {
+        if (Test-Path -LiteralPath $Path) {
+            $existing = [System.IO.File]::ReadAllBytes($Path)
+            $same = $existing.Length -eq $Snapshot.Bytes.Length
+            for ($i = 0; $same -and $i -lt $existing.Length; $i++) {
+                if ($existing[$i] -ne $Snapshot.Bytes[$i]) {
+                    $same = $false
+                }
+            }
+            if ($same) {
+                return
+            }
+        }
         [System.IO.File]::WriteAllBytes($Path, [byte[]]$Snapshot.Bytes)
     } elseif (Test-Path -LiteralPath $Path) {
         Remove-Item -LiteralPath $Path -Force
@@ -493,7 +556,7 @@ if ([string]::IsNullOrWhiteSpace($SdkPath)) {
     }
 }
 
-$sdkProfile = Assert-MakepadAndroidSdkProfile -SdkPath $SdkPath -HostKind $hostKind
+$sdkProfile = Assert-MakepadAndroidSdkProfile -SdkPath $SdkPath -HostKind $hostKind -JavaHome $JavaHome
 $SdkPath = $sdkProfile.SdkRoot
 Write-Host ("Makepad Android SDK profile: host={0} sdk={1} platform={2} buildTools={3} compilerApi={4} java={5} ndkPrebuilt={6}" -f `
     $sdkProfile.HostKind, $sdkProfile.SdkRoot, $sdkProfile.Platform, $sdkProfile.BuildToolsVersion, $sdkProfile.CompilerApi, $sdkProfile.JavaHome, $sdkProfile.NdkPrebuiltRoot)
@@ -518,7 +581,9 @@ if ($UseWindowsHost) {
     $oldAndroidApiLevel = $env:ANDROID_API_LEVEL
     $oldAndroidBuildToolsVersion = $env:ANDROID_BUILD_TOOLS_VERSION
     $oldMakepadAndroidSdk = $env:MAKEPAD_ANDROID_SDK
+    $oldMakepadAndroidTimings = $env:MAKEPAD_ANDROID_TIMINGS
     $patchCargoHome = $null
+    $patchCargoHomeIsTemporary = $false
     $cargoExitCode = 0
     $cargoMakepadArgs = @()
     $cargoLockPath = Join-Path $exampleRoot "Cargo.lock"
@@ -536,19 +601,24 @@ if ($UseWindowsHost) {
     $env:ANDROID_API_LEVEL = [string]$sdkProfile.CompilerApi
     $env:ANDROID_BUILD_TOOLS_VERSION = $sdkProfile.BuildToolsVersion
     $env:MAKEPAD_ANDROID_SDK = $sdkProfile.SdkRoot
+    $env:MAKEPAD_ANDROID_TIMINGS = Select-FirstNonEmpty @($oldMakepadAndroidTimings, "1")
     try {
         if ($patchMakepadXrFromSourceEffective) {
-            $patchCargoHome = Join-Path ([System.IO.Path]::GetTempPath()) "rusty-xr-makepad-cargo-$([guid]::NewGuid().ToString('N'))"
+            $patchHome = Resolve-PatchCargoHome -RequestedPath $PatchCargoHome -HostKind $hostKind -Temporary:$UseTemporaryPatchCargoHome
+            $patchCargoHome = $patchHome.Path
+            $patchCargoHomeIsTemporary = [bool]$patchHome.Temporary
             New-Item -ItemType Directory -Force -Path $patchCargoHome | Out-Null
             Add-CargoCacheLinks -PatchCargoHome $patchCargoHome -ExistingCargoHome (Resolve-DefaultCargoHome)
-            Set-Content -Path (Join-Path $patchCargoHome "config.toml") `
-                -Value (New-MakepadPatchConfigText -SourceRoot $MakepadSourceRoot) `
-                -Encoding UTF8
+            Set-TextIfChanged -Path (Join-Path $patchCargoHome "config.toml") `
+                -Value (New-MakepadPatchConfigText -SourceRoot $MakepadSourceRoot)
+
+            Write-Host ("Makepad patch Cargo home: {0} temporary={1}" -f $patchCargoHome, $patchCargoHomeIsTemporary)
             $env:CARGO_HOME = $patchCargoHome
         }
         if ($MakepadSourceRoot) {
             $cargoMakepadArgs += @(
                 "run",
+                "--release",
                 "--manifest-path",
                 (Join-Path $MakepadSourceRoot "tools\cargo_makepad\Cargo.toml"),
                 "--"
@@ -595,7 +665,8 @@ if ($UseWindowsHost) {
             @{ Name = "ANDROID_SDK_VERSION"; Value = $oldAndroidSdkVersion },
             @{ Name = "ANDROID_API_LEVEL"; Value = $oldAndroidApiLevel },
             @{ Name = "ANDROID_BUILD_TOOLS_VERSION"; Value = $oldAndroidBuildToolsVersion },
-            @{ Name = "MAKEPAD_ANDROID_SDK"; Value = $oldMakepadAndroidSdk }
+            @{ Name = "MAKEPAD_ANDROID_SDK"; Value = $oldMakepadAndroidSdk },
+            @{ Name = "MAKEPAD_ANDROID_TIMINGS"; Value = $oldMakepadAndroidTimings }
         )) {
             if ($null -eq $restore.Value) {
                 Remove-Item "Env:\$($restore.Name)" -ErrorAction SilentlyContinue
@@ -603,7 +674,7 @@ if ($UseWindowsHost) {
                 Set-Item -Path "Env:\$($restore.Name)" -Value $restore.Value
             }
         }
-        if ($patchCargoHome) {
+        if ($patchCargoHome -and $patchCargoHomeIsTemporary) {
             Remove-Item -LiteralPath $patchCargoHome -Recurse -Force -ErrorAction SilentlyContinue
         }
         if ($cargoLockSnapshot) {
@@ -635,7 +706,7 @@ if ($patchMakepadXrFromSourceEffective) {
 $cargoCommandParts = @()
 if ($MakepadSourceRoot) {
     $makepadToolManifestWsl = Convert-ToWslPath -Path (Join-Path $MakepadSourceRoot "tools\cargo_makepad\Cargo.toml")
-    $cargoCommandParts += "cargo run --manifest-path=$(Quote-Bash $makepadToolManifestWsl) -- android"
+    $cargoCommandParts += "cargo run --release --manifest-path=$(Quote-Bash $makepadToolManifestWsl) -- android"
 } else {
     $cargoCommandParts += 'cargo makepad android'
 }
@@ -682,6 +753,7 @@ $commandParts += @(
     "export ANDROID_API_LEVEL=$(Quote-Bash ([string]$sdkProfile.CompilerApi))",
     "export ANDROID_BUILD_TOOLS_VERSION=$(Quote-Bash $sdkProfile.BuildToolsVersion)",
     "export RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING=$(Quote-Bash $DisplaySourceEyeMapping)",
+    "export MAKEPAD_ANDROID_TIMINGS=$(Quote-Bash (Select-FirstNonEmpty @($env:MAKEPAD_ANDROID_TIMINGS, '1')))",
     "cd $(Quote-Bash $exampleRootWsl)",
     $cargoCommand
 )

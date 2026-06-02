@@ -120,7 +120,9 @@ passed for a deliberate installed-tool or pinned-dependency comparison:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Build-MakepadStereoAlignmentApk.ps1 `
+  -UseWindowsHost `
   -SdkPath <host-matched-sdk> `
+  -JavaHome <jdk-root> `
   -MakepadSourceRoot <makepad-fork-checkout>
 ```
 
@@ -132,6 +134,20 @@ Use `-UseWindowsHost` when the selected SDK is a Windows-host SDK. Without that
 switch, the wrapper expects a WSL/Linux-host SDK and a Linux NDK prebuilt. A
 path being reachable from WSL is not enough; the SDK must contain tools for the
 host that runs `cargo-makepad`.
+
+For consecutive evidence builds with `-MakepadSourceRoot`, the wrapper uses the
+fork checkout's release `cargo-makepad` tool and a stable ignored patch
+`CARGO_HOME` under `target/makepad-patch-cargo-home/<host>`. That keeps Cargo
+source identity stable between no-change APK builds while still patching the
+app's Makepad dependency to the same source checkout. Use
+`-UseTemporaryPatchCargoHome` only when intentionally reproducing old
+per-run-patch-home behavior.
+
+The wrapper turns on Makepad Android phase timings by default through
+`MAKEPAD_ANDROID_TIMINGS=1`. Warm no-change builds should show no `Adding ...`
+lockfile churn and no dependency `Compiling ...` lines; inspect
+`MAKEPAD_ANDROID_TIMING` markers when the remaining APK packaging steps still
+take longer than expected.
 
 For repeatable Rusty XR evidence builds, record which host lane built the APK.
 If a clean WSL/Linux-host rerun still fails while Makepad removes a missing
