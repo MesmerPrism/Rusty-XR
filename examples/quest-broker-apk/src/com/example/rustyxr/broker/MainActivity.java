@@ -8,10 +8,12 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -42,6 +44,8 @@ import java.util.List;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
+    static final String EXTRA_CONSOLE_PAGE = "rustyxr.consolePage";
+    static final String EXTRA_INITIAL_PAGE = "rustyxr.initialPage";
     private static final int BACKGROUND = Color.rgb(9, 12, 14);
     private static final int PANEL = Color.rgb(20, 26, 30);
     private static final int PANEL_ALT = Color.rgb(27, 36, 42);
@@ -60,7 +64,7 @@ public final class MainActivity extends Activity {
     private static final String DEFAULT_EXPERIMENT_TARGET_ACTIVITY = "";
     private static final int DEFAULT_EXPERIMENT_LAUNCH_GUARD_TIMEOUT_MS = 20_000;
     private static final boolean DEFAULT_EXPERIMENT_LAUNCH_GUARD_PREVIEW_TIMEOUT_ENABLED = false;
-    private static final String[] PAGES = { "Dashboard", "Clock", "Experiment", "Polar", "Launcher", "Streams", "Commands", "Diagnostics" };
+    private static final String[] PAGES = { "Dashboard", "Clock", "System", "Experiment", "Polar", "Launcher", "Streams", "Commands", "Diagnostics" };
     private static volatile WeakReference<MainActivity> activeActivity = new WeakReference<>(null);
     private static volatile boolean activeActivityResumed;
 
@@ -140,6 +144,7 @@ public final class MainActivity extends Activity {
         selectedLauncherListId = launcherStore.selectedListIdOrDefault(selectedLauncherListId);
         setContentView(buildConsoleLayout());
         updateLaunchSubtitle(getIntent());
+        applyRequestedPage(getIntent());
         renderCurrentPage();
     }
 
@@ -150,6 +155,7 @@ public final class MainActivity extends Activity {
         setIntent(intent);
         startBrokerService(intent);
         updateLaunchSubtitle(intent);
+        applyRequestedPage(intent);
         refreshStatus();
     }
 
@@ -521,6 +527,8 @@ public final class MainActivity extends Activity {
             showTextPage(buildCommands(status));
         } else if ("Clock".equals(currentPage)) {
             showTextPage(buildClock(status));
+        } else if ("System".equals(currentPage)) {
+            renderSystemPage(status);
         } else if ("Polar".equals(currentPage)) {
             renderPolarPage(status);
         } else if ("Experiment".equals(currentPage)) {
@@ -731,6 +739,149 @@ public final class MainActivity extends Activity {
             });
             resultRow.addView(launchButton, wrapParams(10, 0, 0, 0));
             pagePanel.addView(resultRow, matchWrapParams(0, 0, 0, 8));
+        }
+    }
+
+    private void applyRequestedPage(Intent launchIntent) {
+        if (launchIntent == null) {
+            return;
+        }
+
+        String requestedPage = launchIntent.getStringExtra(EXTRA_CONSOLE_PAGE);
+        if (TextUtils.isEmpty(requestedPage)) {
+            requestedPage = launchIntent.getStringExtra(EXTRA_INITIAL_PAGE);
+        }
+
+        String page = normalizePageName(requestedPage);
+        if (!TextUtils.isEmpty(page)) {
+            currentPage = page;
+        }
+    }
+
+    private static String normalizePageName(String value) {
+        if (TextUtils.isEmpty(value)) {
+            return "";
+        }
+
+        String normalized = value.trim();
+        for (int i = 0; i < PAGES.length; i++) {
+            if (PAGES[i].equalsIgnoreCase(normalized)) {
+                return PAGES[i];
+            }
+        }
+        return "";
+    }
+
+    private void renderSystemPage(final JSONObject status) {
+        final int previousScrollY = pageScroll != null ? pageScroll.getScrollY() : 0;
+        pagePanel.removeAllViews();
+
+        addSectionTitle("SYSTEM SURFACE");
+        addBodyText("This console is a normal Horizon OS 2D app panel. Home/Menu, system overlays, permissions, and managed-device policy remain system-owned.");
+
+        TextView statusText = textView(14, false, TEXT);
+        statusText.setTypeface(Typeface.MONOSPACE);
+        statusText.setLineSpacing(0f, 1.08f);
+        statusText.setText(buildSystemSurfaceStatus(status));
+        pagePanel.addView(statusText, matchWrapParams(0, 0, 0, 14));
+
+        addSectionTitle("SYSTEM SHORTCUTS");
+        addBodyText("These buttons request standard Android settings activities. Availability and final presentation are device-build dependent.");
+
+        LinearLayout firstRow = row();
+        Button settingsButton = actionButton("Settings");
+        settingsButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                openSystemSettings("Settings", Settings.ACTION_SETTINGS);
+            }
+        });
+        firstRow.addView(settingsButton);
+
+        Button wifiButton = actionButton("Wi-Fi");
+        wifiButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                openSystemSettings("Wi-Fi", Settings.ACTION_WIFI_SETTINGS);
+            }
+        });
+        firstRow.addView(wifiButton, wrapParams(10, 0, 0, 0));
+
+        Button bluetoothButton = actionButton("Bluetooth");
+        bluetoothButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                openSystemSettings("Bluetooth", Settings.ACTION_BLUETOOTH_SETTINGS);
+            }
+        });
+        firstRow.addView(bluetoothButton, wrapParams(10, 0, 0, 0));
+        pagePanel.addView(firstRow, matchWrapParams(0, 0, 0, 10));
+
+        LinearLayout secondRow = row();
+        Button appInfoButton = actionButton("App Info");
+        appInfoButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                openBrokerAppDetails();
+            }
+        });
+        secondRow.addView(appInfoButton);
+
+        Button closeButton = actionButton("Close Console");
+        closeButton.setTextColor(WARN);
+        closeButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                closeConsole("system_page_close_console");
+            }
+        });
+        secondRow.addView(closeButton, wrapParams(10, 0, 0, 0));
+        pagePanel.addView(secondRow, matchWrapParams(0, 0, 0, 14));
+
+        addSectionTitle("FOCUS CONTROL");
+        addBodyText("These controls update broker experiment state only. Helper-side focus recovery is reactive and requires an authorized shell helper.");
+
+        LinearLayout focusRow = row();
+        Button observeButton = actionButton("Observe");
+        observeButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                experimentMode = "observe";
+                applyExperimentControl("broker", experimentMode, false, false);
+            }
+        });
+        focusRow.addView(observeButton);
+
+        Button brokerButton = actionButton("Broker Focus");
+        brokerButton.setTextColor(Color.rgb(7, 24, 18));
+        brokerButton.setBackground(panelBackground(ACCENT_STRONG, 12, ACCENT_STRONG));
+        brokerButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                applyExperimentControl("broker", null, false, false);
+            }
+        });
+        focusRow.addView(brokerButton, wrapParams(10, 0, 0, 0));
+
+        Button offButton = actionButton("Control Off");
+        offButton.setTextColor(WARN);
+        offButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                experimentMode = "off";
+                applyExperimentControl("broker", experimentMode, false, false);
+            }
+        });
+        focusRow.addView(offButton, wrapParams(10, 0, 0, 0));
+        pagePanel.addView(focusRow, matchWrapParams(0, 0, 0, 14));
+
+        if (pageScroll != null) {
+            pageScroll.post(new Runnable() {
+                @Override
+                public void run() {
+                    pageScroll.setScrollY(previousScrollY);
+                }
+            });
         }
     }
 
@@ -1146,6 +1297,38 @@ public final class MainActivity extends Activity {
         } catch (ActivityNotFoundException | SecurityException ex) {
             showLaunchToast("Target launch failed: " + ex.getMessage());
             Log.w(BrokerService.TAG, "Experiment target launch failed: " + ex.getMessage());
+        }
+    }
+
+    private void openSystemSettings(String label, String action) {
+        if (TextUtils.isEmpty(action)) {
+            showLaunchToast("Missing settings action");
+            return;
+        }
+
+        Intent intent = new Intent(action);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(intent);
+            showLaunchToast(label + " requested");
+            Log.i(BrokerService.TAG, "System settings shortcut requested: " + action);
+        } catch (ActivityNotFoundException | SecurityException ex) {
+            showLaunchToast(label + " unavailable: " + ex.getMessage());
+            Log.w(BrokerService.TAG, "System settings shortcut failed for " + action + ": " + ex.getMessage());
+        }
+    }
+
+    private void openBrokerAppDetails() {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        intent.setData(Uri.fromParts("package", getPackageName(), null));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(intent);
+            showLaunchToast("App info requested");
+            Log.i(BrokerService.TAG, "Broker app info shortcut requested");
+        } catch (ActivityNotFoundException | SecurityException ex) {
+            showLaunchToast("App info unavailable: " + ex.getMessage());
+            Log.w(BrokerService.TAG, "Broker app info shortcut failed: " + ex.getMessage());
         }
     }
 
@@ -1887,6 +2070,9 @@ public final class MainActivity extends Activity {
         if ("Experiment".equals(currentPage) && !isEditingText()) {
             return EXPERIMENT_STATUS_REFRESH_MS;
         }
+        if ("System".equals(currentPage) && !isEditingText()) {
+            return EXPERIMENT_STATUS_REFRESH_MS;
+        }
         if ("Diagnostics".equals(currentPage) && !isEditingText()) {
             return EXPERIMENT_STATUS_REFRESH_MS;
         }
@@ -2099,6 +2285,86 @@ public final class MainActivity extends Activity {
 
     private void showLaunchToast(String message) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    private String buildSystemSurfaceStatus(JSONObject status) {
+        StringBuilder builder = new StringBuilder(1200);
+        builder.append("SYSTEM SURFACE\n\n");
+
+        JSONObject kiosk = status != null ? status.optJSONObject("rustyKiosk") : null;
+        if (kiosk == null) {
+            builder.append("Rusty Kiosk status is not reported yet.\n\n");
+        } else {
+            builder.append("phase         ").append(kiosk.optString("phase", "unknown")).append('\n');
+            builder.append("surface       ").append(kiosk.optString("surface_intent", "unknown")).append('\n');
+            builder.append("panel visible ").append(kiosk.optBoolean("broker_panel_visible")).append('\n');
+            builder.append("active panel  ").append(kiosk.optString("active_panel", "")).append('\n');
+            builder.append("foreground    ").append(kiosk.optString("foreground_package", "")).append('\n');
+            builder.append("activity      ").append(kiosk.optString("foreground_activity", "")).append('\n');
+            builder.append("meta menu     ").append(kiosk.optBoolean("meta_menu_active")).append('\n');
+            builder.append("clock epoch   ").append(kiosk.optString("clock_epoch_id", "")).append('\n');
+            JSONArray limitations = kiosk.optJSONArray("limitations");
+            if (limitations != null && limitations.length() > 0) {
+                builder.append("limits\n");
+                for (int i = 0; i < limitations.length(); i++) {
+                    builder.append("- ").append(limitations.optString(i)).append('\n');
+                }
+            }
+            builder.append('\n');
+        }
+
+        JSONObject shellHelper = status != null ? status.optJSONObject("shellHelper") : null;
+        builder.append("HELPER\n");
+        builder.append("connected     ").append(shellHelper != null && shellHelper.optBoolean("connected")).append('\n');
+        if (shellHelper != null) {
+            builder.append("version       ").append(shellHelper.optString("helper_version", "")).append('\n');
+            builder.append("uid           ").append(shellHelper.optString("uid", "")).append('\n');
+            builder.append("requires adb  ").append(shellHelper.optBoolean("requires_adb_authorization")).append('\n');
+            builder.append("broker shell  ").append(shellHelper.optBoolean("normal_broker_apk_is_shell")).append('\n');
+        }
+
+        JSONObject control = experimentControlStatus(status);
+        builder.append('\n');
+        builder.append("FOCUS CONTROL\n");
+        if (control == null) {
+            builder.append("state         unavailable\n");
+        } else {
+            builder.append("enabled       ").append(control.optBoolean("enabled")).append('\n');
+            builder.append("mode          ").append(control.optString("mode", "")).append('\n');
+            builder.append("desired focus ").append(control.optString("desired_focus", "")).append('\n');
+            builder.append("target        ").append(control.optString("target_component", "")).append('\n');
+            JSONObject helperStatus = control.optJSONObject("helper_status");
+            if (helperStatus != null && helperStatus.length() > 0) {
+                builder.append("helper fg     ").append(helperStatus.optString("foreground_package", "")).append('\n');
+                builder.append("last action   ").append(helperStatus.optString("last_action", "")).append('\n');
+            }
+        }
+
+        JSONObject watchdog = status != null ? status.optJSONObject("deviceWatchdog") : null;
+        builder.append('\n');
+        builder.append("WATCHDOG\n");
+        if (watchdog == null) {
+            builder.append("state         unavailable\n");
+        } else {
+            builder.append("running       ").append(watchdog.optBoolean("running")).append('\n');
+            builder.append("samples       ").append(watchdog.optLong("sample_count", 0L)).append('\n');
+            builder.append("wake request  ").append(watchdog.optBoolean("wake_lock_requested")).append('\n');
+            builder.append("wake held     ").append(watchdog.optBoolean("wake_lock_held")).append('\n');
+        }
+
+        JSONObject clock = status != null ? status.optJSONObject("clock") : null;
+        builder.append('\n');
+        builder.append("CLOCK\n");
+        builder.append("health        ").append(clock != null ? clock.optString("health", "unknown") : "unknown").append('\n');
+        builder.append("epoch         ").append(clock != null ? clock.optString("clock_epoch_id", "") : "").append('\n');
+
+        builder.append('\n');
+        builder.append("BOUNDARY\n");
+        builder.append("- Broker console is a normal 2D app panel, not Android Home.\n");
+        builder.append("- Home/Menu, Guardian, permission prompts, and system overlays are system-owned.\n");
+        builder.append("- Shell-helper focus recovery is reactive; it does not preempt physical Home/Menu.\n");
+        builder.append("- Settings shortcuts use public Android intents and may be ignored or remapped by the device build.");
+        return builder.toString();
     }
 
     private String buildDashboard(JSONObject status) {

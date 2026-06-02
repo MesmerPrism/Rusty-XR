@@ -24,6 +24,34 @@ decision. The custom Rusty XR menu is the default operator surface; entering
 Meta Home/Menu/settings should be an explicit, logged intent unless the test is
 about raw Meta shell behavior.
 
+## Observed Quest Affordances And Limits
+
+Recent Quest validation tightened the public boundary for developer-home work:
+
+- A normal sideloaded APK can provide a useful broker/developer-home surface,
+  launch visible front-door activities, and expose documented settings
+  shortcuts.
+- A normal app's exported HOME-candidate activity can appear in resolver-style
+  queries without becoming the platform Home/Menu route. Do not treat that as
+  evidence that the physical Home/Menu button will select the app.
+- On the tested Quest policy path, Android can report HOME role availability
+  and create a request intent without granting HOME ownership to a normal
+  sideloaded candidate; treat a canceled role request as a negative result, not
+  as a pending default.
+- Physical Home/Menu routing remains platform-owned unless a separate,
+  deliberate role/default-owner path is proven for the target device policy.
+- Rusty XR should therefore default to the visible broker/custom menu path for
+  local development, and treat role/default HOME experiments as separate,
+  rollback-planned validation.
+- Android settings shortcuts are front doors. They request public Android or
+  OEM settings surfaces; Horizon OS decides the final panel and focus behavior.
+
+The public broker example now reflects this split by exposing a service-start
+catalog target for automation and a visible console target for inspection. The
+`broker-console-system-page` runtime profile opens the console directly on the
+System page without claiming Home/Menu interception or managed-device kiosk
+policy.
+
 ## Layered Shape
 
 Use four separate layers:

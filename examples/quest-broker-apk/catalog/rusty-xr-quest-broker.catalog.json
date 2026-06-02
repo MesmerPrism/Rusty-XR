@@ -8,6 +8,14 @@
       "activityName": ".BrokerStartActivity",
       "apkFile": "../build/outputs/rusty-xr-quest-broker-debug.apk",
       "description": "Public sidecar broker proof-of-concept APK for localhost WebSocket samples, optional LSL forwarding, optional OSC UDP egress, and OSC-to-WebSocket drive events. Catalog launches use a no-display service starter; the visible console remains available from the headset launcher."
+    },
+    {
+      "id": "rusty-xr-quest-broker-console",
+      "label": "Rusty XR Quest Broker Console",
+      "packageName": "com.example.rustyxr.broker",
+      "activityName": ".MainActivity",
+      "apkFile": "../build/outputs/rusty-xr-quest-broker-debug.apk",
+      "description": "Visible 2D broker console entrypoint for headset-local inspection and controls. Use it when a catalog launch should present the console instead of only starting the broker service."
     }
   ],
   "deviceProfiles": [
@@ -66,6 +74,15 @@
         "rustyxr.oscIngressAddress": "/rusty-xr/drive/radius"
       },
       "description": "Listens for laptop OSC values at /rusty-xr/drive/radius and rebroadcasts accepted values to localhost WebSocket clients as osc_drive JSON events."
+    },
+    {
+      "id": "broker-console-system-page",
+      "label": "Broker console System page",
+      "values": {
+        "rustyxr.example": "quest-broker-apk",
+        "rustyxr.consolePage": "System"
+      },
+      "description": "Opens the visible broker console directly on the System page for operator inspection of broker status and normal Android settings shortcuts. This profile does not request Home/Menu interception or managed-device kiosk policy."
     }
   ]
 }

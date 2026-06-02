@@ -19,6 +19,8 @@ final class BreathAssessmentState {
     static final String OUTPUT_STREAM = "bio:breath";
     static final String POLAR_INPUT_STREAM = "bio:polar_acc";
     static final String CONTROLLER_INPUT_STREAM = "xr:controller_pose";
+    static final String MANIFOLD_OBJECT_POSE_STREAM = "stream.motion.object_pose";
+    static final String MANIFOLD_OBJECT_POSE_TOPIC = "motion:object_pose";
     static final String POLAR_SOURCE = "polar_acc";
     static final String CONTROLLER_SOURCE = "controller_pose";
 
@@ -42,7 +44,13 @@ final class BreathAssessmentState {
         status.put("enabled", true);
         status.put("output_stream", OUTPUT_STREAM);
         status.put("supported_sources", arrayOf(POLAR_SOURCE, CONTROLLER_SOURCE));
-        status.put("input_streams", arrayOf(POLAR_INPUT_STREAM, CONTROLLER_INPUT_STREAM));
+        status.put(
+            "input_streams",
+            arrayOf(
+                POLAR_INPUT_STREAM,
+                CONTROLLER_INPUT_STREAM,
+                MANIFOLD_OBJECT_POSE_STREAM,
+                MANIFOLD_OBJECT_POSE_TOPIC));
         status.put("accepted_polar_frames", polarAcceptedFrames);
         status.put("accepted_controller_samples", controllerAcceptedSamples);
         status.put("emitted_assessments", emittedAssessments);
@@ -185,7 +193,7 @@ final class BreathAssessmentState {
         if (POLAR_INPUT_STREAM.equals(stream)) {
             return processPolarAccPayload(payload, sequence, receiveUnixNs, receiveElapsedNs);
         }
-        if (CONTROLLER_INPUT_STREAM.equals(stream)) {
+        if (isControllerPoseStream(stream)) {
             return processControllerPose(payload, sequence, receiveUnixNs, receiveElapsedNs);
         }
         return null;
@@ -564,10 +572,16 @@ final class BreathAssessmentState {
         if ("polar".equals(normalized) || POLAR_INPUT_STREAM.equals(normalized)) {
             return POLAR_SOURCE;
         }
-        if ("controller".equals(normalized) || "xr_controller_pose".equals(normalized) || CONTROLLER_INPUT_STREAM.equals(normalized)) {
+        if ("controller".equals(normalized) || "xr_controller_pose".equals(normalized) || isControllerPoseStream(normalized)) {
             return CONTROLLER_SOURCE;
         }
         return normalized;
+    }
+
+    private static boolean isControllerPoseStream(String stream) {
+        return CONTROLLER_INPUT_STREAM.equals(stream)
+            || MANIFOLD_OBJECT_POSE_STREAM.equals(stream)
+            || MANIFOLD_OBJECT_POSE_TOPIC.equals(stream);
     }
 
     private static boolean appliesTo(String requested, String source) {

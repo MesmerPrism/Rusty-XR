@@ -142,6 +142,13 @@ ordinary Android permissions and APIs, such as its own UI, its own local
 storage, loopback sockets, and normal front-door app launches where package
 visibility permits.
 
+A debug helper boot receiver can be used as a normal-app launch coordinator
+after the helper has been launched once and is not stopped: it may receive
+`BOOT_COMPLETED`, hold an app wake lock for a bounded diagnostic window, and
+start broker or XR activities through normal Android launch APIs. That does not
+give it shell authority. It cannot enable Wi-Fi ADB, set virtual proximity,
+force a mounted state, or keep an off-face headset awake indefinitely.
+
 ## Wi-Fi ADB Boundary
 
 Wi-Fi ADB is a transport for an ADB relationship that already exists. The
@@ -172,6 +179,11 @@ property changes such as adbd TCP properties were blocked. Treat pre-granted
 helpers as visible status or diagnostics surfaces unless a specific target OS
 release proves an official wireless-debugging route. The reliable
 post-reboot route remains an external/user-authorized ADB bootstrap.
+
+Once an external host has re-enabled Wi-Fi ADB after reboot, an on-device
+Linux/Termux ADB client can use that authorized transport while it remains
+active. Classify this as an externally leased shell session, not as Termux or a
+normal APK bootstrapping ADB authority by itself.
 
 ## Browser Download Boundary
 

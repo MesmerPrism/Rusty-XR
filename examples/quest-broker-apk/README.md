@@ -195,9 +195,11 @@ the Polar PMD ACC `payload_base64` frame or simpler JSON `samples_mg`,
 `acc_mg`, `acc_g`, or x/y/z fields, then emits an assessment payload with
 `schema=rusty.xr.bio.breath.v1`, `source=polar_acc`, `volume01`, `state`,
 `state01`, `tracking01`, calibration flags, quality, and broker timing fields.
-The same output stream is used for controller motion. Thin XR adapters can
-run inside the active XR app and either publish controller samples on
-`xr:controller_pose` through `publish_stream_event`, or use
+The same output stream is used for object/controller motion. Thin XR adapters
+can run inside the active XR app and publish source-agnostic pose samples on
+`stream.motion.object_pose` through `publish_stream_event`. The legacy
+`xr:controller_pose` stream remains accepted for older diagnostic clients.
+Adapters can also use
 `breath_assessment.submit_controller_pose` for a request/ack latency path:
 
 ```json
@@ -453,11 +455,50 @@ verifies platform decoder consumption with byte-buffer output only.
 Decode-to-texture and XR layer submission remain separate client/provider work.
 
 XR clients can bring the 2D broker console to the foreground by sending the
-`open_ui` broker command. The console has Dashboard, Experiment, Polar,
-Launcher, Streams, Commands, and Diagnostics pages plus a `Return to XR App`
-button. The button and the `close_ui` broker command both finish only the
-broker console Activity while leaving the broker foreground service running;
-they do not start or relaunch a target app.
+`open_ui` broker command. The console has Dashboard, Clock, System, Experiment,
+Polar, Launcher, Streams, Commands, and Diagnostics pages plus a
+`Return to XR App` button. The button and the `close_ui` broker command both
+finish only the broker console Activity while leaving the broker foreground
+service running; they do not start or relaunch a target app.
+
+The `System` page is the headset-local boundary surface for normal-app broker
+mode. It shows Rusty Kiosk status, foreground/focus-control state, shell-helper
+connectivity, watchdog state, and broker clock health, then exposes standard
+Android settings shortcuts for Settings, Wi-Fi, Bluetooth, and this broker
+app's App Info page. These shortcuts request public Android settings
+activities; Horizon OS decides whether and how to present them. The page also
+offers Observe, Broker Focus, and Control Off buttons that update broker
+experiment state only. They are not a Home/Menu intercept, a default-Home
+selection path, or a managed-device kiosk policy.
+
+For validation, treat the System page as a normal app panel. Prefer broker
+`/status`, `/kiosk/status`, `/clock/health`, foreground readback, and a
+capture-method-labeled screenshot over assuming that a single UI-tree dump has
+the whole surface. Horizon shell placeholders or settings panels can coexist
+with a healthy broker service; classify settings transitions as intentional
+only when a logged shortcut or operator request caused them.
+
+Developer tools can open a specific console page without touch-navigation by
+passing `rustyxr.consolePage` or the compatibility alias `rustyxr.initialPage`
+to `.MainActivity`:
+
+```powershell
+adb shell am start -n com.example.rustyxr.broker/.MainActivity --es rustyxr.consolePage System
+```
+
+The `open_ui` broker command also accepts an optional `params.page` value:
+
+```json
+{
+  "type": "command",
+  "schema": "rusty.xr.broker.command.v1",
+  "request_id": "system-page-001",
+  "command": "open_ui",
+  "params": {
+    "page": "System"
+  }
+}
+```
 
 The `Experiment` page is a headset-local manual tuning surface. It stores a
 target package/activity, a focus-guardian mode, and the public Makepad camera
@@ -572,19 +613,31 @@ examples/quest-broker-apk/catalog/rusty-xr-quest-broker.catalog.json
 Use `broker-latency-websocket-lsl` for the basic localhost API and optional LSL
 path. Use `broker-osc-drive-ingress` when a laptop sends OSC control values to
 the headset and a Unity-side client consumes the resulting WebSocket
-`osc_drive` or subscribed `stream_event` events.
+`osc_drive` or subscribed `stream_event` events. Use
+`broker-console-system-page` with the `rusty-xr-quest-broker-console` app target
+when a Companion or catalog launch should open the visible console directly on
+the System page.
 
-Catalog launches target `.BrokerStartActivity`, a no-display activity that
-starts the foreground broker service and exits. This is the intended long-term
-automation path, not a crash workaround: on Horizon OS the visible console is a
-2D panel, and shell focus may return to a Horizon placeholder or another
-foreground XR app while the broker service remains healthy. Catalog validation
-should therefore check the broker process/service and localhost API rather than
-expecting `.MainActivity` to own foreground focus.
+The source catalog exposes two broker targets. `rusty-xr-quest-broker` targets
+`.BrokerStartActivity`, a no-display activity that starts the foreground broker
+service and exits. This is the intended long-term automation path, not a crash
+workaround: on Horizon OS the visible console is a 2D panel, and shell focus
+may return to a Horizon placeholder or another foreground XR app while the
+broker service remains healthy. Catalog validation should therefore check the
+broker process/service and localhost API rather than expecting `.MainActivity`
+to own foreground focus.
 
-The visible console remains available from the headset launcher through
-`.MainActivity`. It also starts the same foreground service path, but it is
-for human inspection and control rather than sidecar launch automation.
+`rusty-xr-quest-broker-console` targets `.MainActivity` for human inspection
+and headset-local controls. It starts the same foreground service path and can
+consume the `broker-console-system-page` runtime profile to begin on the System
+page without touch-navigation.
+
+Companion catalog launch for the visible System page from the Rusty XR source
+repo root:
+
+```powershell
+dotnet run --project ..\Rusty-XR-Companion-Apps\src\RustyXr.Companion.Cli -- catalog launch --path .\examples\quest-broker-apk\catalog\rusty-xr-quest-broker.catalog.json --app rusty-xr-quest-broker-console --serial <serial> --runtime-profile broker-console-system-page
+```
 
 Runtime OSC ingress can also be configured over the broker WebSocket command
 API, which lets comparison tools start the listener without restarting the

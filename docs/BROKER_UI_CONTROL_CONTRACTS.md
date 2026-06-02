@@ -62,6 +62,14 @@ host into the id unless the behavior itself is platform-specific.
 
 ## UI Rules
 
+UI controls are not the primary test interface. A broker button, panel action,
+or menu item should map to an agent-addressable command surface first: a simple
+development CLI, broker HTTP/WebSocket command, Companion command, or gated MCP
+operation depending on the feature's maturity and safety class. The UI handler
+should call the same command implementation as the non-UI route, so agents can
+validate behavior through structured commands while manual headset testing
+focuses on usability, permission prompts, layout, focus, and platform input.
+
 Panel descriptors are safe to expose to read-only clients when their advertised
 data sensitivity and command scopes match the client capability set. A command
 button that is not read-only must be lease-aware before a client treats it as

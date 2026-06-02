@@ -197,6 +197,14 @@ the authorized host and re-check the target run's readiness gates. Wakefulness,
 display power, and virtual proximity are useful power-state evidence, but they
 do not prove that the XR runtime, tracking, camera, or media pipeline is ready.
 
+A normal APK boot receiver or app wake-lock helper can complement this path by
+recording boot diagnostics or launching broker/XR activities through normal app
+APIs after the package has been launched once. It cannot replace the shell
+helper for off-face proximity or shell-side stay-awake enforcement. If an
+authorized host re-establishes Wi-Fi ADB after reboot, an on-device Linux ADB
+client can continue issuing shell commands under that lease, but the lease is
+still externally/user authorized.
+
 The stop path writes a device-local stop marker for the shell helper and reports
 the helper disconnected. Restoring normal wear-sensor behavior is a separate
 operator action through `hzdb proximity normal`, the WPF **Proximity On /

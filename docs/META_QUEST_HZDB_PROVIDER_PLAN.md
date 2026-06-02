@@ -152,6 +152,15 @@ services. They should be treated as lost after a headset reboot. Restart the
 helper from an authorized host and re-check `display_ready`, `tracking_ready`,
 and `camera_ready` before using post-reboot camera results.
 
+Boot-autostart probes should be classified separately from XR readiness. A
+normal debug helper can receive `BOOT_COMPLETED`, hold a bounded app wake lock,
+launch a broker, and then launch an XR activity when app-visible broker status
+is ready. That proves only `app_launch_ready`. It does not force Quest
+proximity/mounted state, keep an off-face headset awake beyond platform policy,
+or recover shell-helper authority after reboot. Provider readiness should keep
+`sys.hmt.mounted`, power wakefulness, virtual proximity, tracking, and camera
+frame counters as distinct evidence fields.
+
 When camera readiness is uncertain, start with a direct Camera2/HWB profile,
 then move to broker-camera, SurfaceTexture/OES, CPU-YUV, or other codec lanes.
 Do not use broker clock health, app foreground, screenshots, or passthrough
@@ -324,6 +333,29 @@ During headset runs:
 
 This lets Rusty Kiosk improve Quest signal mapping over time while keeping
 Meta shell behavior, ADB behavior, and broker behavior distinguishable.
+
+### Current Affordance Notes
+
+Use these public-safe limits when interpreting provider evidence:
+
+- A visible broker console is an app-owned operator surface. It can open a
+  specific page through launch extras or broker commands, but it is still a
+  normal app Activity.
+- The broker System page may request documented Android settings intents such
+  as general Settings, Wi-Fi, Bluetooth, or App Info. Classify the resulting
+  Meta settings panel as `meta_panel_intentional` only when the run goal or
+  operator action explicitly requested that transition.
+- A normal app HOME-candidate or developer-home surface is not proof of
+  physical Home/Menu routing. Treat Home/Menu transitions as platform-owned
+  unless a separate role/default-owner validation proves otherwise for the
+  target device policy.
+- HOME role availability and request-intent creation are not enough to prove
+  ownership. If a visible request-role flow returns canceled and the app still
+  does not hold HOME, keep reboot/force-stop survival gates closed.
+- When a panel launch is ambiguous, prefer broker `/status`, `/kiosk/status`,
+  `/clock/health`, foreground state, and capture-method-labeled screenshots
+  over a single UI-tree dump. Horizon shell placeholder or system-panel windows
+  can coexist with a healthy broker service.
 
 ### Command Goals
 

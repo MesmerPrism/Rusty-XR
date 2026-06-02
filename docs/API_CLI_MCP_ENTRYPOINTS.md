@@ -5,6 +5,22 @@ tool. The project should expose stable Rust APIs first, schemas and source
 examples second, CLIs for operator workflows third, and MCP only behind the same
 safety and audit rules.
 
+## Agent-Addressable UI Rule
+
+UI controls should be views over an agent-addressable command surface. During
+development, a small CLI or launch-extra wrapper is enough; product features
+can later move the same operation behind broker HTTP/WebSocket APIs, Companion,
+or MCP. Agents should not need UI tree dumps, coordinate taps, or visual button
+clicking to prove that a control works.
+
+When adding a button, menu item, or panel action:
+
+- define the command name, inputs, safety class, and evidence row first;
+- make the UI handler and CLI/API/MCP route call the same implementation path;
+- keep manual headset testing focused on permission prompts, usability, focus,
+  layout, and platform-specific input behavior;
+- record rejections and precondition failures in machine-readable output.
+
 ## Current Entrypoint Layers
 
 | Layer | Owned by this repo | Purpose | Machine-readable surface |

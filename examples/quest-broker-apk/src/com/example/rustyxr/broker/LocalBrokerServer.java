@@ -847,7 +847,7 @@ final class LocalBrokerServer implements Closeable {
         if ("open_ui".equals(command) ||
             "broker_console_open".equals(command) ||
             "ui.open".equals(command)) {
-            return openBrokerConsole(connection, requestId, command);
+            return openBrokerConsole(connection, requestId, command, message.optJSONObject("params"));
         }
 
         if ("close_ui".equals(command) ||
@@ -2390,12 +2390,14 @@ final class LocalBrokerServer implements Closeable {
     private JSONObject openBrokerConsole(
         WebSocketClientConnection connection,
         String requestId,
-        String command) throws Exception {
+        String command,
+        JSONObject params) throws Exception {
         if (context == null) {
             state.rejectedCommands.incrementAndGet();
             return commandError(requestId, command, "missing_context", "Broker context is not available.");
         }
 
+        String page = params != null ? params.optString("page", "") : "";
         Intent intent = new Intent(context, MainActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
@@ -2404,6 +2406,9 @@ final class LocalBrokerServer implements Closeable {
         intent.putExtra("rustyxr.requestId", requestId != null ? requestId : "");
         intent.putExtra("rustyxr.clientId", connection != null ? connection.clientId : "");
         intent.putExtra("rustyxr.appPackage", connection != null ? connection.appPackage : "");
+        if (page.length() > 0) {
+            intent.putExtra(MainActivity.EXTRA_CONSOLE_PAGE, page);
+        }
         context.startActivity(intent);
 
         state.acceptedCommands.incrementAndGet();
@@ -2411,6 +2416,9 @@ final class LocalBrokerServer implements Closeable {
         JSONObject result = new JSONObject();
         result.put("activity", "broker_console");
         result.put("open_requests", requests);
+        if (page.length() > 0) {
+            result.put("requested_page", page);
+        }
         result.put("return_command", "Use the console Return to XR App button.");
         Log.i(BrokerService.TAG, "Broker console opened by command from client=" +
             (connection != null ? connection.clientId : ""));

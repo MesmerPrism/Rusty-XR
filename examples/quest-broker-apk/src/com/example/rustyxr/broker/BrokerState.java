@@ -259,6 +259,8 @@ final class BrokerState {
         capabilities.put("broker.console.activity");
         capabilities.put("broker.console.return_to_previous_app");
         capabilities.put("broker.console.close_command");
+        capabilities.put("broker.console.initial_page.v1");
+        capabilities.put("broker.system_panel.shortcuts.v1");
         capabilities.put("broker.launcher.local_lists.v1");
         capabilities.put("broker.launcher.package_manager_launch.v1");
         capabilities.put("broker.experiment_control.v1");
@@ -330,7 +332,8 @@ final class BrokerState {
             "Synthetic, adapter-published, or direct Android BLE Polar PMD accelerometer frame events.",
             true));
         streams.put(streamJson("bio:breath", "bio", "Diagnostic breath volume/state assessments produced from supported motion sources.", breathAssessment.hasAssessments()));
-        streams.put(streamJson("xr:controller_pose", "xr", "Adapter-published controller pose samples accepted for broker-side breath assessment.", true));
+        streams.put(streamJson("stream.motion.object_pose", "motion", "Source-agnostic object pose samples accepted for motion-derived breath assessment.", true));
+        streams.put(streamJson("xr:controller_pose", "xr", "Legacy adapter-published controller pose samples accepted for broker-side breath assessment.", true));
         streams.put(streamJson("camera_provider.status", "camera", "Projection metadata provider status and limitations.", true));
         streams.put(streamJson("camera_provider.projection_profile", "camera", "Projection profile changes for XR clients that render their own layers.", true));
         streams.put(streamJson("camera_provider.visual_acceptance", "camera", "Operator visual-acceptance markers for projection profiles.", true));
@@ -442,7 +445,7 @@ final class BrokerState {
         breathAdapter.put("module_id", "bio.breath_assessment");
         breathAdapter.put("module_kind", "processor");
         breathAdapter.put("state", breathAssessment.hasAssessments() ? "active" : "idle");
-        breathAdapter.put("input_stream_ids", jsonArrayOf("bio:polar_acc", "xr:controller_pose"));
+        breathAdapter.put("input_stream_ids", jsonArrayOf("bio:polar_acc", "stream.motion.object_pose", "xr:controller_pose"));
         breathAdapter.put("output_stream_ids", jsonArrayOf("bio:breath"));
 
         JSONObject videoAdapter = new JSONObject();
@@ -716,12 +719,21 @@ final class BrokerState {
             new JSONArray().put(healthMetricJson("bio_streams", "Non-Polar bio input streams", null, 0.0, null, providedStreamIdsForModule(streams, "bio.telemetry").length(), "healthy")),
             new JSONArray()));
         modules.put(moduleRuntimeState(
+            "motion.telemetry",
+            "provider",
+            "active",
+            revision,
+            providedStreamIdsForModule(streams, "motion.telemetry"),
+            new JSONArray(),
+            new JSONArray().put(healthMetricJson("motion_streams", "Object motion input streams", null, 0.0, null, providedStreamIdsForModule(streams, "motion.telemetry").length(), "healthy")),
+            new JSONArray()));
+        modules.put(moduleRuntimeState(
             "bio.breath_assessment",
             "processor",
             breathActive ? "active" : "idle",
             revision,
             providedStreamIdsForModule(streams, "bio.breath_assessment"),
-            jsonArrayOf("bio:polar_acc", "xr:controller_pose"),
+            jsonArrayOf("bio:polar_acc", "stream.motion.object_pose", "xr:controller_pose"),
             new JSONArray().put(healthMetricJson("assessment_available", "Assessment available", null, 0.0, 1.0, breathActive ? 1.0 : 0.0, breathActive ? "healthy" : "unknown")),
             new JSONArray()));
         modules.put(moduleRuntimeState(
@@ -1194,6 +1206,9 @@ final class BrokerState {
         if ("bio.telemetry".equals(moduleId)) {
             return "bio-provider";
         }
+        if ("motion.telemetry".equals(moduleId)) {
+            return "motion-provider";
+        }
         if ("bio.breath_assessment".equals(moduleId)) {
             return "breath-assessment-provider";
         }
@@ -1241,6 +1256,9 @@ final class BrokerState {
             || "bio:polar_acc".equals(streamId)
             || "bio:polar_ecg".equals(streamId)) {
             return "polar.communication";
+        }
+        if (streamId.startsWith("stream.motion.") || streamId.startsWith("motion:") || "motion".equals(kind)) {
+            return "motion.telemetry";
         }
         if (streamId.startsWith("bio:") || streamId.startsWith("xr:")) {
             return "bio.telemetry";
@@ -1293,6 +1311,9 @@ final class BrokerState {
         if ("bio-provider".equals(providerId)) {
             return "Bio provider";
         }
+        if ("motion-provider".equals(providerId)) {
+            return "Motion provider";
+        }
         if ("polar-provider".equals(providerId)) {
             return "Polar communication";
         }
@@ -1333,6 +1354,9 @@ final class BrokerState {
         if ("bio-provider".equals(providerId)) {
             return "physiology";
         }
+        if ("motion-provider".equals(providerId)) {
+            return "body_motion";
+        }
         if ("polar-provider".equals(providerId)) {
             return "physiology";
         }
@@ -1351,6 +1375,9 @@ final class BrokerState {
     private static String streamKindForStream(String streamId, String kind) {
         if ("bio".equals(kind)) {
             return "Bio";
+        }
+        if ("motion".equals(kind)) {
+            return "Motion";
         }
         if ("video".equals(kind) || streamId.contains("h264")) {
             return "Media";
@@ -1384,6 +1411,9 @@ final class BrokerState {
         if ("bio:polar_acc".equals(streamId)) {
             return "rusty.xr.bio.polar_acc.v1";
         }
+        if ("stream.motion.object_pose".equals(streamId) || "motion:object_pose".equals(streamId)) {
+            return "rusty.manifold.motion.object_pose.sample.v1";
+        }
         if ("video_lab.metric_sample".equals(streamId)) {
             return "rusty.xr.video_lab.metric_sample.v1";
         }
@@ -1399,6 +1429,9 @@ final class BrokerState {
     private static Object recommendedRateForStream(String streamId, String kind) {
         if ("clock:openxr_frame".equals(streamId) || "xr".equals(kind)) {
             return 72.0;
+        }
+        if ("stream.motion.object_pose".equals(streamId) || "motion:object_pose".equals(streamId) || "motion".equals(kind)) {
+            return 20.0;
         }
         if ("video_lab.metric_sample".equals(streamId)) {
             return 30.0;
@@ -1419,7 +1452,12 @@ final class BrokerState {
         if (streamId.contains("h264")) {
             return "media";
         }
-        if ("clock:openxr_frame".equals(streamId) || "bio:polar_acc".equals(streamId) || "xr".equals(kind)) {
+        if ("clock:openxr_frame".equals(streamId)
+            || "bio:polar_acc".equals(streamId)
+            || "stream.motion.object_pose".equals(streamId)
+            || "motion:object_pose".equals(streamId)
+            || "motion".equals(kind)
+            || "xr".equals(kind)) {
             return "frame_rate_telemetry";
         }
         if (streamId.contains("encoded_stream_manifest") || streamId.contains("encoded_sample_metadata")) {
@@ -1441,6 +1479,9 @@ final class BrokerState {
         }
         if ("bio".equals(kind)) {
             return "physiology";
+        }
+        if ("motion".equals(kind)) {
+            return "body_motion";
         }
         if ("control".equals(kind)) {
             return "restricted";
@@ -1506,6 +1547,9 @@ final class BrokerState {
             metrics.put(metricJson("mean_rr_ms", "Mean RR", "ms", JSONObject.NULL, JSONObject.NULL));
         } else if ("bio:polar_acc".equals(streamId)) {
             metrics.put(metricJson("acc_magnitude_g", "Acceleration magnitude", "g", JSONObject.NULL, JSONObject.NULL));
+        } else if ("stream.motion.object_pose".equals(streamId) || "motion:object_pose".equals(streamId)) {
+            metrics.put(metricJson("position_m", "Position", "m", JSONObject.NULL, JSONObject.NULL));
+            metrics.put(metricJson("quality01", "Quality", JSONObject.NULL, 0.0, 1.0));
         } else if ("bio:breath".equals(streamId)) {
             metrics.put(metricJson("volume01", "Volume", JSONObject.NULL, 0.0, 1.0));
             metrics.put(metricJson("quality01", "Quality", JSONObject.NULL, 0.0, 1.0));
