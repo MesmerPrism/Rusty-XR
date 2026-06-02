@@ -380,7 +380,7 @@ fn makepad_projection_runtime_config_defaults() -> rxrc::RuntimeConfig {
     set_projection_manifest_float(
         &mut config,
         rxrc::KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
-        0.0,
+        f64::from(TARGET_PROJECTION_PREVIEW_OFFSET_Y_METERS),
         rxrc::RuntimeConfigSource::Default,
     );
     set_projection_manifest_float(

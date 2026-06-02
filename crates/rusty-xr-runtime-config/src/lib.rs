@@ -642,7 +642,7 @@ pub const PROJECTION_RUNTIME_KEY_DEFINITIONS: &[RuntimeKeyDefinition] = &[
         KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
         ProjectionRuntimeKeyOwner::TargetFootprint,
         RuntimeValueKind::Text,
-        "OpenXR controller target-footprint control mode.",
+        "OpenXR controller target-footprint control mode: off, offset-scale, or horizontal-offset.",
     ),
     projection_key(
         KEY_PROJECTION_TARGET_BREATH_CONTROLS,

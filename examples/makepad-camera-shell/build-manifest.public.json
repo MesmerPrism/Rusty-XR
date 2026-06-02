@@ -18,6 +18,7 @@
     "permissions": [
       "org.khronos.openxr.permission.OPENXR",
       "org.khronos.openxr.permission.OPENXR_SYSTEM",
+      "android.permission.INTERNET",
       "android.permission.CAMERA",
       "horizonos.permission.HEADSET_CAMERA"
     ],
@@ -133,6 +134,9 @@
     "makepad-projection-border-policy-toggle",
     "makepad-native-passthrough-underlay-toggle",
     "broker-h264-mediacodec-cpu-yuv-stereo",
+    "makepad-xr-controller-pose-provider",
+    "manifold-object-pose-stream-publish",
+    "makepad-projection-target-joystick-scale",
     "synthetic-camera-status-log",
     "synthetic-stereo-comparison-log",
     "camera2-metadata-log",

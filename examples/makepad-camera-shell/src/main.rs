@@ -5,6 +5,7 @@ mod acamera_sys;
 #[cfg(target_os = "android")]
 mod android_camera_probe;
 mod camera_texture_path;
+mod manifold_pose_publisher;
 mod projection_geometry;
 mod projection_runtime;
 mod projection_settings;
@@ -77,6 +78,9 @@ use makepad_widgets::makepad_platform::{
 };
 use makepad_widgets::*;
 use makepad_xr::scene::{xr_widget_world_transform, XrNode};
+use manifold_pose_publisher::{
+    ManifoldPosePublisher, ManifoldPosePublisherConfig, ManifoldPoseSample,
+};
 use rusty_xr_camera_model::{Rect2, SourceSamplingMode};
 use rusty_xr_runtime_config::RuntimeConfig;
 use source_sampling::{
@@ -1291,6 +1295,24 @@ pub struct App {
     #[rust]
     #[allow(dead_code)]
     projection_content_mapping_mode: f32,
+    #[rust]
+    manifold_pose_publisher: Option<ManifoldPosePublisher>,
+    #[rust]
+    manifold_pose_last_publish_time: f64,
+    #[rust]
+    manifold_pose_next_sequence_id: u64,
+    #[rust]
+    manifold_pose_published_count: u64,
+    #[rust]
+    manifold_pose_dropped_count: u64,
+    #[rust]
+    projection_target_joystick_scale_ready: bool,
+    #[rust]
+    projection_target_joystick_scale: f32,
+    #[rust]
+    projection_target_joystick_last_time: f64,
+    #[rust]
+    projection_target_joystick_last_log_frame: u64,
     #[rust]
     cadence_next_frame: Option<NextFrame>,
     #[rust]
@@ -2862,6 +2884,246 @@ impl App {
         emit_marker_line(&makepad_cadence_start_marker_line(CADENCE_SAMPLE_SECONDS));
     }
 
+    fn manifold_pose_publisher_config() -> ManifoldPosePublisherConfig {
+        ManifoldPosePublisherConfig {
+            enabled: hotload_bool(
+                KEY_MANIFOLD_POSE_PUBLISH_ENABLED,
+                DEFAULT_MANIFOLD_POSE_PUBLISH_ENABLED,
+            ),
+            broker_host: hotload_text(KEY_MANIFOLD_BROKER_HOST, DEFAULT_MANIFOLD_BROKER_HOST),
+            broker_port: hotload_u16(
+                KEY_MANIFOLD_BROKER_PORT,
+                DEFAULT_MANIFOLD_BROKER_PORT,
+                1,
+                u16::MAX,
+            ),
+            stream_id: hotload_text(KEY_MANIFOLD_POSE_STREAM, DEFAULT_MANIFOLD_POSE_STREAM),
+            source_id: hotload_text(KEY_MANIFOLD_POSE_SOURCE, DEFAULT_MANIFOLD_POSE_SOURCE),
+            controller: Self::normalized_manifold_pose_controller(&hotload_text(
+                KEY_MANIFOLD_POSE_CONTROLLER,
+                DEFAULT_MANIFOLD_POSE_CONTROLLER,
+            )),
+            pose_kind: Self::normalized_manifold_pose_kind(&hotload_text(
+                KEY_MANIFOLD_POSE_KIND,
+                DEFAULT_MANIFOLD_POSE_KIND,
+            )),
+            sample_hz: hotload_f32(
+                KEY_MANIFOLD_POSE_SAMPLE_HZ,
+                DEFAULT_MANIFOLD_POSE_SAMPLE_HZ,
+                1.0,
+                120.0,
+            ),
+            connect_timeout_ms: hotload_u32(
+                KEY_MANIFOLD_POSE_CONNECT_TIMEOUT_MS,
+                DEFAULT_MANIFOLD_POSE_CONNECT_TIMEOUT_MS,
+                50,
+                5_000,
+            ) as u64,
+        }
+    }
+
+    fn normalized_manifold_pose_controller(value: &str) -> String {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "left" => "left".to_string(),
+            _ => "right".to_string(),
+        }
+    }
+
+    fn normalized_manifold_pose_kind(value: &str) -> String {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "aim" => "aim".to_string(),
+            _ => "grip".to_string(),
+        }
+    }
+
+    fn projection_target_joystick_controls_enabled() -> bool {
+        makepad_projection_target_joystick_controls_enabled_from_value(&hotload_text(
+            KEY_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+            DEFAULT_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+        ))
+    }
+
+    fn handle_projection_target_joystick(&mut self, cx: &mut Cx, update: &XrUpdateEvent) {
+        if !Self::projection_target_joystick_controls_enabled() {
+            self.projection_target_joystick_scale_ready = false;
+            self.projection_target_joystick_last_time = 0.0;
+            return;
+        }
+
+        let state = update.state.as_ref();
+        let now_seconds = state.time.max(0.0);
+        if !self.projection_target_joystick_scale_ready {
+            let tuning = self.current_horizontal_alignment_tuning();
+            self.projection_target_joystick_scale =
+                ((tuning.projection_area_scale_x + tuning.projection_area_scale_y) * 0.5)
+                    .clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE);
+            self.projection_target_joystick_scale_ready = true;
+            self.projection_target_joystick_last_time = now_seconds;
+            Self::emit_stereo_projection_marker(&format!(
+                "phase=projection-target-controller status=active source=makepad-xr-actions referenceSource=quest-composite-layer-apk projectionTargetJoystickControls=offset-scale controls=rightStickY:projectionAreaScale,rightA:resetScale coordinateSpace=display-eye-screen-uv projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4}",
+                self.projection_target_joystick_scale,
+                tuning.projection_area_scale_x,
+                tuning.projection_area_scale_y,
+            ));
+        }
+
+        let dt_seconds = if self.projection_target_joystick_last_time > 0.0 {
+            (now_seconds - self.projection_target_joystick_last_time).clamp(0.0, 0.1) as f32
+        } else {
+            0.0
+        };
+        self.projection_target_joystick_last_time = now_seconds;
+
+        let mut changed = false;
+        let mut reset = false;
+        if update.clicked_a() {
+            self.projection_target_joystick_scale = 1.0;
+            changed = true;
+            reset = true;
+        }
+        if state.right_controller.active() {
+            if let Some(next_scale) = makepad_projection_target_scale_step(
+                self.projection_target_joystick_scale,
+                state.right_controller.stick.y,
+                dt_seconds,
+            ) {
+                if (next_scale - self.projection_target_joystick_scale).abs() > 0.0001 {
+                    self.projection_target_joystick_scale = next_scale;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return;
+        }
+
+        let mut tuning = self.current_horizontal_alignment_tuning();
+        tuning.projection_area_scale_x = self.projection_target_joystick_scale;
+        tuning.projection_area_scale_y = self.projection_target_joystick_scale;
+        self.projection_area_scale_x = tuning.projection_area_scale_x;
+        self.projection_area_scale_y = tuning.projection_area_scale_y;
+        let panel_bound = self.apply_horizontal_alignment_tuning_to_panel(cx, tuning);
+        let frame = self.cadence_xr_update_count;
+        if reset
+            || self.projection_target_joystick_last_log_frame == 0
+            || frame.saturating_sub(self.projection_target_joystick_last_log_frame) >= 30
+        {
+            Self::emit_stereo_projection_marker(&format!(
+                "phase=projection-target-tuning status=ok source=controller referenceSource=quest-composite-layer-apk changed={} reset={} projectionTargetJoystickControls=offset-scale projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} rightStickY={:.4} panelBound={}",
+                changed,
+                reset,
+                self.projection_target_joystick_scale,
+                tuning.projection_area_scale_x,
+                tuning.projection_area_scale_y,
+                state.right_controller.stick.y,
+                panel_bound,
+            ));
+            self.projection_target_joystick_last_log_frame = frame;
+        }
+    }
+
+    fn handle_manifold_pose_publish(&mut self, update: &XrUpdateEvent) {
+        let config = Self::manifold_pose_publisher_config();
+        if !config.enabled {
+            self.manifold_pose_publisher = None;
+            return;
+        }
+
+        let state = update.state.as_ref();
+        let now_seconds = state.time.max(0.0);
+        if self.manifold_pose_last_publish_time > 0.0
+            && now_seconds - self.manifold_pose_last_publish_time < config.interval_seconds()
+        {
+            return;
+        }
+        self.manifold_pose_last_publish_time = now_seconds;
+
+        if self
+            .manifold_pose_publisher
+            .as_ref()
+            .is_none_or(|publisher| publisher.config() != &config)
+        {
+            emit_marker_line(&format!(
+                "RUSTY_XR_MAKEPAD_CONTROLLER_POSE_PROVIDER schema=rusty.xr.makepad-controller-pose-provider.v1 phase=configure status=ready stream={} source={} controller={} poseKind={} brokerHost={} brokerPort={} sampleHz={:.3} providerBoundary=stream.motion.object_pose sourceAgnostic=true controllerSpecificEstimator=false",
+                marker_token(&config.stream_id),
+                marker_token(&config.source_id),
+                marker_token(&config.controller),
+                marker_token(&config.pose_kind),
+                marker_token(&config.broker_host),
+                config.broker_port,
+                config.sample_hz,
+            ));
+            self.manifold_pose_publisher = Some(ManifoldPosePublisher::new(config.clone()));
+        }
+
+        let controller = if config.controller == "left" {
+            &state.left_controller
+        } else {
+            &state.right_controller
+        };
+        let pose = if config.pose_kind == "aim" {
+            controller.aim_pose
+        } else {
+            controller.grip_pose
+        };
+        let position = [pose.position.x, pose.position.y, pose.position.z];
+        let orientation = [
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w,
+        ];
+        let pose_is_finite = position.iter().all(|value| value.is_finite())
+            && orientation.iter().all(|value| value.is_finite());
+        let active = controller.active();
+        let tracked = active && pose_is_finite;
+
+        self.manifold_pose_next_sequence_id = self.manifold_pose_next_sequence_id.saturating_add(1);
+        let sequence_id = self.manifold_pose_next_sequence_id;
+        let sample = ManifoldPoseSample {
+            sequence_id,
+            sample_time_unix_ns: ManifoldPoseSample::now_unix_ns(),
+            xr_predicted_display_time_ns: (state.time * 1_000_000_000.0).round() as i64,
+            controller: config.controller.clone(),
+            pose_kind: config.pose_kind.clone(),
+            active,
+            tracked,
+            position_m: position,
+            orientation_xyzw: orientation,
+        };
+        let queued = self
+            .manifold_pose_publisher
+            .as_ref()
+            .is_some_and(|publisher| publisher.publish(sample));
+        if queued {
+            self.manifold_pose_published_count =
+                self.manifold_pose_published_count.saturating_add(1);
+        } else {
+            self.manifold_pose_dropped_count = self.manifold_pose_dropped_count.saturating_add(1);
+        }
+        if !queued
+            || self.manifold_pose_published_count == 1
+            || self.manifold_pose_published_count % 120 == 0
+        {
+            emit_marker_line(&format!(
+                "RUSTY_XR_MAKEPAD_CONTROLLER_POSE_PROVIDER schema=rusty.xr.makepad-controller-pose-provider.v1 phase=sample status={} stream={} sequenceId={} controller={} poseKind={} active={} tracked={} queued={} published={} dropped={} positionM={:.5},{:.5},{:.5}",
+                if queued { "queued" } else { "dropped" },
+                marker_token(&config.stream_id),
+                sequence_id,
+                marker_token(&config.controller),
+                marker_token(&config.pose_kind),
+                active,
+                tracked,
+                queued,
+                self.manifold_pose_published_count,
+                self.manifold_pose_dropped_count,
+                position[0],
+                position[1],
+                position[2],
+            ));
+        }
+    }
+
     #[cfg(target_os = "android")]
     fn update_runtime_xr_projection(&mut self, update: &XrUpdateEvent) {
         let state = update.state.as_ref();
@@ -3275,7 +3537,13 @@ impl App {
     }
 
     fn refresh_horizontal_alignment_tuning(&mut self, cx: &mut Cx) {
-        let tuning = Self::horizontal_alignment_tuning();
+        let mut tuning = Self::horizontal_alignment_tuning();
+        if Self::projection_target_joystick_controls_enabled()
+            && self.projection_target_joystick_scale_ready
+        {
+            tuning.projection_area_scale_x = self.projection_target_joystick_scale;
+            tuning.projection_area_scale_y = self.projection_target_joystick_scale;
+        }
         let changed = !self.horizontal_alignment_tuning_ready
             || (self.horizontal_alignment_strength - tuning.strength).abs() > 0.0001
             || (self.manual_horizontal_offset_left_uv - tuning.left_offset_uv).abs() > 0.0001
@@ -3400,6 +3668,8 @@ impl App {
         match event {
             Event::XrUpdate(_update) => {
                 self.cadence_xr_update_count = self.cadence_xr_update_count.saturating_add(1);
+                self.handle_manifold_pose_publish(_update);
+                self.handle_projection_target_joystick(cx, _update);
                 #[cfg(target_os = "android")]
                 self.update_runtime_xr_projection(_update);
             }
@@ -6161,5 +6431,75 @@ fn rate_hz(count: u64, seconds: f64) -> f64 {
         0.0
     } else {
         count as f64 / seconds
+    }
+}
+
+fn makepad_projection_target_joystick_controls_enabled_from_value(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().replace('_', "-").as_str(),
+        "offset-scale"
+            | "target-offset-scale"
+            | "projection-target"
+            | "target-footprint"
+            | "joystick-offset-scale"
+            | "on"
+            | "true"
+            | "1"
+            | "enabled"
+    )
+}
+
+fn makepad_projection_target_deadzone_axis(value: f32) -> f32 {
+    if value.abs() <= PROJECTION_TARGET_JOYSTICK_DEADZONE {
+        0.0
+    } else {
+        value.clamp(-1.0, 1.0)
+    }
+}
+
+fn makepad_projection_target_scale_step(
+    current_scale: f32,
+    makepad_right_stick_y: f32,
+    dt_seconds: f32,
+) -> Option<f32> {
+    let scale_axis = makepad_projection_target_deadzone_axis(-makepad_right_stick_y);
+    if scale_axis == 0.0 {
+        return None;
+    }
+    Some(
+        (current_scale + scale_axis * PROJECTION_TARGET_SCALE_RATE_PER_SECOND * dt_seconds)
+            .clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE),
+    )
+}
+
+#[cfg(test)]
+mod projection_target_joystick_tests {
+    use super::*;
+
+    #[test]
+    fn joystick_controls_parse_hwb_offset_scale_aliases() {
+        assert!(makepad_projection_target_joystick_controls_enabled_from_value(
+            "offset-scale"
+        ));
+        assert!(makepad_projection_target_joystick_controls_enabled_from_value(
+            "joystick_offset_scale"
+        ));
+        assert!(!makepad_projection_target_joystick_controls_enabled_from_value(
+            "off"
+        ));
+    }
+
+    #[test]
+    fn right_stick_up_grows_projection_target_scale() {
+        let next = makepad_projection_target_scale_step(1.0, -1.0, 0.1)
+            .expect("upward stick should produce a scale step");
+        assert!(next > 1.0);
+    }
+
+    #[test]
+    fn right_stick_down_shrinks_projection_target_scale() {
+        let next = makepad_projection_target_scale_step(1.0, 1.0, 0.1)
+            .expect("downward stick should produce a scale step");
+        assert!(next < 1.0);
     }
 }

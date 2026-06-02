@@ -79,6 +79,17 @@ fork-patch policy are documented in
   input lane for comparing transport, projection-stage, and multilayer
   processing costs without relying on a physical camera scene. A zero-copy
   surface-texture route remains a separate performance target.
+- The current source can publish live XR controller pose samples from Makepad
+  `XrUpdate` as the generic Manifold stream `stream.motion.object_pose`. This
+  provider is opt-in through runtime properties and leaves projected-motion
+  breath estimation outside the XR app; the app only samples controller
+  `grip_pose` or `aim_pose` and publishes object-pose payloads to the local
+  broker/Manifold command route.
+- The Makepad projection shell mirrors the direct HWB composite profile's
+  target-footprint joystick behavior: `offset-scale` maps right stick Y to the
+  projection-area scale, with stick up growing the footprint and stick down
+  shrinking it. The shader path remains Makepad-owned and uses the same
+  peripheral stretch inner blend fields as the HWB reference profile.
 
 ## Build
 
@@ -249,6 +260,29 @@ camera permissions before the measurement window:
 adb -s <quest-serial> shell pm grant <public-example-package> android.permission.CAMERA
 adb -s <quest-serial> shell pm grant <public-example-package> horizonos.permission.HEADSET_CAMERA
 ```
+
+For projected-motion breath calibration, enable the controller pose provider
+before launching the Makepad XR activity. The default target is the local broker
+on `127.0.0.1:8765`, publishing `stream.motion.object_pose` at 20 Hz from the
+right controller grip pose:
+
+```powershell
+adb -s <quest-serial> shell setprop debug.rustyxr.manifold.pose.publish.enabled true
+adb -s <quest-serial> shell setprop debug.rustyxr.manifold.pose.stream stream.motion.object_pose
+adb -s <quest-serial> shell setprop debug.rustyxr.manifold.pose.controller right
+adb -s <quest-serial> shell setprop debug.rustyxr.manifold.pose.kind grip
+adb -s <quest-serial> shell setprop debug.rustyxr.manifold.pose.sample.hz 20
+```
+
+The projection-target joystick scale control is on by default for the current
+calibration profile and can be made explicit with:
+
+```powershell
+adb -s <quest-serial> shell setprop debug.rustyxr.makepad.projection.target.joystick.controls offset-scale
+```
+
+Use `off` for comparison captures where controller input must not affect the
+projection area scale.
 
 MediaProjection is different: it still requires the headset consent flow for
 each capture session. A launcher can prepare install, launch, and ordinary

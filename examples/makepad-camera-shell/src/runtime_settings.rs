@@ -12,7 +12,7 @@ pub(crate) const DEFAULT_SYNTHETIC_SCENE: &str =
 pub(crate) const DEFAULT_ACQUISITION_PROFILE: &str =
     "bounded-camera2-private-plus-makepad-paired-import-probe";
 pub(crate) const DEFAULT_PROJECTION_SCALE: f64 = 1.0;
-pub(crate) const DEFAULT_PROJECTION_DEPTH_METERS: f64 = 1.0;
+pub(crate) const DEFAULT_PROJECTION_DEPTH_METERS: f64 = 1.434085;
 pub(crate) const DEFAULT_XR_RENDER_SCALE: f64 = 1.0;
 pub(crate) const DEFAULT_BROKER_H264_ENABLED: bool = false;
 pub(crate) const DEFAULT_BROKER_H264_HOST: &str = "127.0.0.1";
@@ -23,7 +23,7 @@ pub(crate) const DEFAULT_BROKER_H264_SOURCE_MODE: &str = "broker-synthetic";
 pub(crate) const DEFAULT_BROKER_H264_SYNTHETIC_PATTERN: &str = "diagnostic-grid";
 pub(crate) const DEFAULT_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE: &str =
     "head-anchored-virtual-camera";
-pub(crate) const DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE: &str = "full-frame-diagnostic";
+pub(crate) const DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE: &str = "camera-projection";
 pub(crate) const DEFAULT_BROKER_H264_LEFT_CAMERA_ID: &str = "";
 pub(crate) const DEFAULT_BROKER_H264_RIGHT_CAMERA_ID: &str = "";
 pub(crate) const DEFAULT_BROKER_H264_WIDTH: u32 = 1280;
@@ -36,7 +36,17 @@ pub(crate) const DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS: u32 = 10_000;
 pub(crate) const DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS: u32 = 30_000;
 pub(crate) const DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS: u32 = 20_000;
 pub(crate) const DEFAULT_BROKER_H264_LIVE_STREAM: bool = true;
-pub(crate) const DEFAULT_MAKEPAD_DIRECT_CAMERA_HARDWARE_BUFFER_EXTERNAL: bool = false;
+pub(crate) const DEFAULT_MAKEPAD_DIRECT_CAMERA_HARDWARE_BUFFER_EXTERNAL: bool = true;
+pub(crate) const DEFAULT_MANIFOLD_POSE_PUBLISH_ENABLED: bool = false;
+pub(crate) const DEFAULT_MANIFOLD_POSE_STREAM: &str = "stream.motion.object_pose";
+pub(crate) const DEFAULT_MANIFOLD_POSE_SOURCE: &str = "provider.makepad_xr.controller_pose";
+pub(crate) const DEFAULT_MANIFOLD_POSE_CONTROLLER: &str = "right";
+pub(crate) const DEFAULT_MANIFOLD_POSE_KIND: &str = "grip";
+pub(crate) const DEFAULT_MANIFOLD_BROKER_HOST: &str = "127.0.0.1";
+pub(crate) const DEFAULT_MANIFOLD_BROKER_PORT: u16 = 8765;
+pub(crate) const DEFAULT_MANIFOLD_POSE_SAMPLE_HZ: f32 = 20.0;
+pub(crate) const DEFAULT_MANIFOLD_POSE_CONNECT_TIMEOUT_MS: u32 = 250;
+pub(crate) const DEFAULT_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS: &str = "offset-scale";
 pub(crate) const SUPPRESS_LIVE_CAMERA_SAMPLING: bool = false;
 pub(crate) const FORCE_FULL_SURFACE_LIVE_CAMERA_UV: bool = false;
 pub(crate) const FORCE_IN_SURFACE_CAMERA_WINDOW: bool = true;
@@ -63,8 +73,9 @@ pub(crate) const TARGET_DISPLAY_EYE_OFFSET_METERS: f32 = 0.032;
 pub(crate) const TARGET_DISPLAY_FOV_Y_DEGREES: f32 = 92.0;
 pub(crate) const TARGET_DISPLAY_ASPECT: f32 = 1.0;
 pub(crate) const TARGET_PROJECTION_DEPTH_METERS: f32 = DEFAULT_PROJECTION_DEPTH_METERS as f32;
-pub(crate) const TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES: f32 = 60.0;
-pub(crate) const TARGET_PROJECTION_RAW_OVERSCAN: f32 = 1.06;
+pub(crate) const TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES: f32 = 69.763084;
+pub(crate) const TARGET_PROJECTION_PREVIEW_OFFSET_Y_METERS: f32 = -0.168832;
+pub(crate) const TARGET_PROJECTION_RAW_OVERSCAN: f32 = 1.0;
 pub(crate) const FRAME_RASTER_TOP_LEFT_Y_DOWN: &str = "top-left-origin-y-down";
 pub(crate) const FRAME_RASTER_BOTTOM_LEFT_Y_UP: &str = "bottom-left-origin-y-up";
 pub(crate) const IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY: [[f32; 3]; 3] =
@@ -76,6 +87,10 @@ pub(crate) const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 pub(crate) const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
 pub(crate) const PAIRED_IMPORT_MAX_WAITS: usize = 10;
 pub(crate) const CADENCE_SAMPLE_SECONDS: f64 = 5.0;
+pub(crate) const PROJECTION_TARGET_JOYSTICK_DEADZONE: f32 = 0.18;
+pub(crate) const PROJECTION_TARGET_SCALE_RATE_PER_SECOND: f32 = 0.45;
+pub(crate) const PROJECTION_TARGET_MIN_SCALE: f32 = 0.20;
+pub(crate) const PROJECTION_TARGET_MAX_SCALE: f32 = 1.25;
 // S25 showed this diagnostic can reintroduce app-process GPU page faults on Quest.
 pub(crate) const NATIVE_VIDEO_WIDGET_SURFACE_DIAGNOSTIC: bool = false;
 pub(crate) const NATIVE_VIDEO_WIDGET_RETRY_SECONDS: f64 = 0.5;
@@ -179,6 +194,17 @@ pub(crate) const KEY_MAKEPAD_BROKER_H264_STREAM_TIMEOUT_MS: &str =
 pub(crate) const KEY_MAKEPAD_BROKER_H264_DECODE_TIMEOUT_MS: &str =
     "makepad_broker_h264_decode_timeout_ms";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_LIVE_STREAM: &str = "makepad_broker_h264_live_stream";
+pub(crate) const KEY_MANIFOLD_POSE_PUBLISH_ENABLED: &str = "manifold_pose_publish_enabled";
+pub(crate) const KEY_MANIFOLD_POSE_STREAM: &str = "manifold_pose_stream";
+pub(crate) const KEY_MANIFOLD_POSE_SOURCE: &str = "manifold_pose_source";
+pub(crate) const KEY_MANIFOLD_POSE_CONTROLLER: &str = "manifold_pose_controller";
+pub(crate) const KEY_MANIFOLD_POSE_KIND: &str = "manifold_pose_kind";
+pub(crate) const KEY_MANIFOLD_BROKER_HOST: &str = "manifold_broker_host";
+pub(crate) const KEY_MANIFOLD_BROKER_PORT: &str = "manifold_broker_port";
+pub(crate) const KEY_MANIFOLD_POSE_SAMPLE_HZ: &str = "manifold_pose_sample_hz";
+pub(crate) const KEY_MANIFOLD_POSE_CONNECT_TIMEOUT_MS: &str = "manifold_pose_connect_timeout_ms";
+pub(crate) const KEY_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS: &str =
+    "makepad_projection_target_joystick_controls";
 
 pub(crate) fn makepad_runtime_config() -> RuntimeConfig {
     let mut config = RuntimeConfig::new();
@@ -266,7 +292,7 @@ pub(crate) fn makepad_runtime_config() -> RuntimeConfig {
         startup_signed_f64(
             KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
             "RUSTY_XR_CAMERA_PREVIEW_OFFSET_Y_METERS",
-            0.0,
+            TARGET_PROJECTION_PREVIEW_OFFSET_Y_METERS as f64,
         ),
         RuntimeConfigSource::Environment,
     );

@@ -453,9 +453,9 @@ impl Default for MakepadPeripheralStretchConfig {
             edge_inset_uv: 0.015,
             max_inset_uv: 0.14,
             curve: 1.6,
-            inner_blend_uv: 0.040,
+            inner_blend_uv: 0.0,
             blend_curve: 1.6,
-            blend_mode: MakepadPeripheralStretchBlendMode::TargetInnerBand,
+            blend_mode: MakepadPeripheralStretchBlendMode::Off,
             corner_mode: MakepadPeripheralStretchCornerMode::TargetFootprint,
             debug: MakepadPeripheralStretchDebug::Off,
         }
@@ -511,8 +511,26 @@ impl MakepadPeripheralStretchConfig {
     }
 
     pub(crate) fn marker_fields(self, processing_layer: MakepadProcessingLayer) -> String {
+        let (core_region, transition_region, transition_space, transition_semantics) =
+            if matches!(self.blend_mode, MakepadPeripheralStretchBlendMode::Off)
+                || self.inner_blend_uv <= 0.0001
+            {
+                (
+                    "target-footprint",
+                    "off",
+                    "off",
+                    "hard-edge-preblend-reference",
+                )
+            } else {
+                (
+                    "target-footprint-minus-inner-transition-band",
+                    "target-footprint-inner-edge-band",
+                    "target-local-raster-uv",
+                    "canonical-sample-to-stretch-sample-remap",
+                )
+            };
         format!(
-            "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchInnerBlendUv={:.3} peripheralStretchBlendCurve={:.3} peripheralStretchBlendMode={} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample",
+            "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchInnerBlendUv={:.3} peripheralStretchBlendCurve={:.3} peripheralStretchBlendMode={} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion={} peripheralStretchTransitionRegion={} peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace={} peripheralStretchTransitionSemantics={} peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample",
             self.mode.stable_id(),
             self.core_scale,
             self.edge_inset_uv,
@@ -524,6 +542,10 @@ impl MakepadPeripheralStretchConfig {
             self.corner_mode.stable_id(),
             self.debug.stable_id(),
             processing_layer.consumes_projection_exterior(),
+            core_region,
+            transition_region,
+            transition_space,
+            transition_semantics,
         )
     }
 }
@@ -701,7 +723,7 @@ pub(crate) fn makepad_projection_preview_offset_y_meters() -> f32 {
     if makepad_projection_runtime_resolution_enabled() {
         return makepad_current_projection_runtime_float(
             rxrc::KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
-            0.0,
+            TARGET_PROJECTION_PREVIEW_OFFSET_Y_METERS,
             -2.0,
             2.0,
         );
@@ -710,7 +732,12 @@ pub(crate) fn makepad_projection_preview_offset_y_meters() -> f32 {
 }
 
 fn makepad_legacy_projection_preview_offset_y_meters() -> f32 {
-    hotload_f32(KEY_CAMERA_PREVIEW_OFFSET_Y_METERS, 0.0, -2.0, 2.0)
+    hotload_f32(
+        KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
+        TARGET_PROJECTION_PREVIEW_OFFSET_Y_METERS,
+        -2.0,
+        2.0,
+    )
 }
 
 pub(crate) fn makepad_projection_raw_overscan() -> f32 {
