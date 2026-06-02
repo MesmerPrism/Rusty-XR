@@ -367,8 +367,9 @@ changes the screen/projection-area mapping. Both must be recorded separately.
 The Makepad clipping trace starts at `debug.rustyxr.projection.scale` and
 `debug.rustyxr.makepad.projection.area.*`, then continues through
 `projection_area_screen_uv`, `screen_to_camera`, and `projection_area_mask`.
-The standalone Makepad device gate now defaults projection and XR render scale
-to `1.0`; scaled runs must opt in.
+The standalone Makepad device gate keeps projection scale at `1.0` while using
+`rustyxr.xrRenderScale=0.90` for the accepted target-local HWB performance
+lane; full-resolution `1.0` render-scale runs are explicit stress runs.
 
 The analyzer now emits a cross-lane parity check. A run can have usable
 projection-mapping records and still fail `cross-lane-valid-projection-footprint`

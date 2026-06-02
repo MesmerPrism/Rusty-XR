@@ -78,12 +78,12 @@ param(
     [double]$CameraPreviewFovYDegrees = 69.763084,
     [double]$CameraPreviewOffsetYMeters = -0.168832,
     [double]$CameraRawOverlayOverscan = 1.0,
-    [double]$XrRenderScale = 1.0,
+    [double]$XrRenderScale = 0.90,
     [double]$XrDisplayRefreshHz = 72.0,
     [ValidateRange(0, 5)]
-    [int]$OculusCpuLevel = 3,
+    [int]$OculusCpuLevel = 4,
     [ValidateRange(0, 5)]
-    [int]$OculusGpuLevel = 3,
+    [int]$OculusGpuLevel = 4,
     [ValidateRange(0, 4)]
     [int]$OculusFoveationLevel = 0,
     [ValidateSet("true", "false")]

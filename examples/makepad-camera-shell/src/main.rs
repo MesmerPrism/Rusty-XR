@@ -382,6 +382,30 @@ script_mod! {
             return mix(left_uv, right_uv, display_eye_selector);
         }
 
+        mapped_source_uv_for_content_mode: fn(
+            projection_screen_uv: vec2f,
+            target_local_uv: vec2f,
+            display_eye_selector: float,
+            target_local_mapping: float
+        ) -> vec2f {
+            if target_local_mapping > 0.5 {
+                return target_local_uv;
+            }
+            return self.source_screen_camera_uv(projection_screen_uv, display_eye_selector);
+        }
+
+        surface_uv_for_content_mode: fn(
+            projection_screen_uv: vec2f,
+            target_local_uv: vec2f,
+            display_eye_selector: float,
+            target_local_mapping: float
+        ) -> vec2f {
+            if target_local_mapping > 0.5 {
+                return target_local_uv;
+            }
+            return self.screen_surface_uv(projection_screen_uv, display_eye_selector);
+        }
+
         projection_area_screen_base_uv: fn(coord: vec2f) -> vec2f {
             let scale = max(
                 vec2(self.projection_area_scale_x, self.projection_area_scale_y),
@@ -849,6 +873,25 @@ script_mod! {
             return clamp(sample_uv, bounded_min_uv, bounded_max_uv);
         }
 
+        projection_area_stretch_domain_uv: fn(
+            canonical_uv: vec2f,
+            display_eye_selector: float,
+            domain_min_uv: vec2f,
+            domain_max_uv: vec2f,
+            stretch_weight: float
+        ) -> vec2f {
+            if stretch_weight <= 0.0001 {
+                return canonical_uv;
+            }
+            return self.projection_area_rect_edge_uv(
+                canonical_uv,
+                display_eye_selector,
+                domain_min_uv,
+                domain_max_uv,
+                1.0
+            );
+        }
+
         peripheral_stretch_active: fn() -> float {
             return step(1.5, self.processing_layer);
         }
@@ -948,7 +991,7 @@ script_mod! {
                     display_eye_selector
                 );
             let projection_area_mask =
-                self.projection_area_mask(canonical_projection_area_domain_uv, display_eye_selector);
+                1.0 - step(0.0001, signed_distance_uv);
             let peripheral_stretch_active = self.peripheral_stretch_active();
             let stretch_weight =
                 peripheral_stretch_active *
@@ -967,12 +1010,12 @@ script_mod! {
                 vec2(0.5, 0.5) - projection_area_scale * 0.5 - projection_area_offset;
             let projection_area_domain_max_uv =
                 vec2(0.5, 0.5) + projection_area_scale * 0.5 - projection_area_offset;
-            let stretch_projection_area_domain_uv = self.projection_area_rect_edge_uv(
+            let stretch_projection_area_domain_uv = self.projection_area_stretch_domain_uv(
                 canonical_projection_area_domain_uv,
                 display_eye_selector,
                 projection_area_domain_min_uv,
                 projection_area_domain_max_uv,
-                step(0.0001, stretch_weight)
+                stretch_weight
             );
             let projection_area_domain_uv = mix(
                 canonical_projection_area_domain_uv,
@@ -989,14 +1032,14 @@ script_mod! {
                     projection_area_domain_uv,
                     full_frame_projection_area_mapping
                 );
-            let projected_uv = self.source_screen_camera_uv(
-                projection_screen_uv,
-                display_eye_selector
-            );
             let projection_area_content_uv =
                 self.projection_area_content_uv(projection_area_domain_uv, display_eye_selector);
-            let mapped_source_uv_unclamped =
-                mix(projected_uv, projection_area_content_uv, full_frame_projection_area_mapping);
+            let mapped_source_uv_unclamped = self.mapped_source_uv_for_content_mode(
+                projection_screen_uv,
+                projection_area_content_uv,
+                display_eye_selector,
+                full_frame_projection_area_mapping
+            );
             let source_uv_stretchable =
                 step(abs(mapped_source_uv_unclamped.x), 65536.0) *
                 step(abs(mapped_source_uv_unclamped.y), 65536.0);
@@ -1037,9 +1080,10 @@ script_mod! {
                     0.0,
                     1.0
                 );
-            let surface_uv = mix(
-                self.screen_surface_uv(projection_screen_uv_base_adjusted, display_eye_selector),
+            let surface_uv = self.surface_uv_for_content_mode(
+                projection_screen_uv_base_adjusted,
                 projection_area_content_uv,
+                display_eye_selector,
                 full_frame_projection_area_mapping
             );
             let fallback_seed_uv =

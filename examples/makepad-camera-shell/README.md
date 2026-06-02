@@ -735,6 +735,12 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   hardware-buffer warning class separately from GPU-fault counters, and include
   screenshot or headset-cast visual review so a marker-only pass cannot be
   mistaken for projection parity.
+- Current target-local HWB stretch performance envelope: the metadata-backed
+  Makepad path is render-deadline bound at full XR render scale. Keep the
+  device gate default at Quest CPU/GPU level `4` / `4` and
+  `rustyxr.xrRenderScale=0.90` for the accepted visual/performance lane.
+  Use CPU/GPU level `3` / `3` or `rustyxr.xrRenderScale=1.0` only as explicit
+  stress/full-resolution runs.
 - Current S92 performance comparison: the public fast target held about
   `72.9/72Hz` with zero numeric `Tear` / `Stale`, low app-process CPU, paired
   GPU buffers, and `cpuUploadCount=0`. Makepad S91 held about `90.5/90Hz` with
