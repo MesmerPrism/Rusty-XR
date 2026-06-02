@@ -117,6 +117,7 @@ final class BrokerState {
         supportedCommands.put("unsubscribe");
         supportedCommands.put("configure_osc_ingress");
         supportedCommands.put("publish_stream_event");
+        supportedCommands.put("breath_feedback.received");
         supportedCommands.put("clock.status");
         supportedCommands.put("clock.now");
         supportedCommands.put("clock.domains");

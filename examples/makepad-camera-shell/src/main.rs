@@ -1310,6 +1310,8 @@ pub struct App {
     #[rust]
     manifold_breath_feedback_subscriber: Option<ManifoldBreathFeedbackSubscriber>,
     #[rust]
+    manifold_breath_feedback_config_marker: Option<String>,
+    #[rust]
     projection_target_joystick_scale_ready: bool,
     #[rust]
     projection_target_joystick_scale: f32,
@@ -2956,6 +2958,36 @@ impl App {
         }
     }
 
+    fn manifold_breath_feedback_config_marker_line(
+        config: &ManifoldBreathFeedbackConfig,
+    ) -> String {
+        let status = if config.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        format!(
+            "RUSTY_XR_MAKEPAD_BREATH_FEEDBACK_CONFIG schema=rusty.xr.makepad-breath-feedback-config.v1 phase=hotload status={} enabled={} enabledRaw={} stream={} streamRaw={} receiver={} receiverRaw={} brokerHost={} brokerHostRaw={} brokerPort={} brokerPortRaw={} connectTimeoutMs={} connectTimeoutRaw={} flagsOwner=hostessctl.record_values",
+            status,
+            config.enabled,
+            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_ENABLED)),
+            marker_token(&config.stream_id),
+            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_STREAM)),
+            marker_token(&config.receiver_id),
+            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_RECEIVER)),
+            marker_token(&config.broker_host),
+            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BROKER_HOST)),
+            config.broker_port,
+            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BROKER_PORT)),
+            config.connect_timeout_ms,
+            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS)),
+        )
+    }
+
+    fn runtime_marker_value(key: &'static str) -> String {
+        runtime_property_value(key).unwrap_or_else(|| "default".to_string())
+    }
+
     fn normalized_manifold_pose_controller(value: &str) -> String {
         match value.trim().to_ascii_lowercase().as_str() {
             "left" => "left".to_string(),
@@ -3058,6 +3090,15 @@ impl App {
 
     fn handle_manifold_breath_feedback_subscription(&mut self) {
         let config = Self::manifold_breath_feedback_config();
+        let config_marker = Self::manifold_breath_feedback_config_marker_line(&config);
+        if self
+            .manifold_breath_feedback_config_marker
+            .as_ref()
+            .is_none_or(|previous| previous != &config_marker)
+        {
+            emit_marker_line(&config_marker);
+            self.manifold_breath_feedback_config_marker = Some(config_marker);
+        }
         if !config.enabled {
             self.manifold_breath_feedback_subscriber = None;
             return;
@@ -5971,6 +6012,24 @@ mod tests {
     }
 
     #[test]
+    fn breath_feedback_config_marker_exposes_resolved_subscriber_config() {
+        let mut config = ManifoldBreathFeedbackConfig::default();
+        config.enabled = true;
+        config.broker_port = 18765;
+
+        let marker = App::manifold_breath_feedback_config_marker_line(&config);
+
+        assert!(marker.contains("RUSTY_XR_MAKEPAD_BREATH_FEEDBACK_CONFIG"));
+        assert!(marker.contains("status=enabled"));
+        assert!(marker.contains("enabled=true"));
+        assert!(marker.contains("enabledRaw=default"));
+        assert!(marker.contains("stream=stream.breath.feedback_state"));
+        assert!(marker.contains("receiver=app.makepad_camera_shell.breath_feedback"));
+        assert!(marker.contains("brokerPort=18765"));
+        assert!(marker.contains("flagsOwner=hostessctl.record_values"));
+    }
+
+    #[test]
     fn parses_makepad_descriptor_camera_id_token() {
         assert_eq!(
             camera_id_from_makepad_desc_name("Back Camera cameraId=50").as_deref(),
@@ -6536,15 +6595,11 @@ mod projection_target_joystick_tests {
 
     #[test]
     fn joystick_controls_parse_hwb_offset_scale_aliases() {
-        assert!(makepad_projection_target_joystick_controls_enabled_from_value(
-            "offset-scale"
-        ));
-        assert!(makepad_projection_target_joystick_controls_enabled_from_value(
-            "joystick_offset_scale"
-        ));
-        assert!(!makepad_projection_target_joystick_controls_enabled_from_value(
-            "off"
-        ));
+        assert!(makepad_projection_target_joystick_controls_enabled_from_value("offset-scale"));
+        assert!(
+            makepad_projection_target_joystick_controls_enabled_from_value("joystick_offset_scale")
+        );
+        assert!(!makepad_projection_target_joystick_controls_enabled_from_value("off"));
     }
 
     #[test]

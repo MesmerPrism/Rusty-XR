@@ -597,6 +597,10 @@ final class LocalBrokerServer implements Closeable {
             return publishStreamEvent(connection, requestId, command, message.optJSONObject("params"));
         }
 
+        if ("breath_feedback.received".equals(command)) {
+            return recordBreathFeedbackReceipt(connection, requestId, command, message.optJSONObject("params"));
+        }
+
         if ("polar.get_status".equals(command)) {
             state.acceptedCommands.incrementAndGet();
             JSONObject result = new JSONObject();
@@ -2216,6 +2220,72 @@ final class LocalBrokerServer implements Closeable {
             connection != null ? connection.clientId : "");
         state.acceptedCommands.incrementAndGet();
         return commandAck(requestId, command, true, "stream_event_published", result);
+    }
+
+    private JSONObject recordBreathFeedbackReceipt(
+        WebSocketClientConnection connection,
+        String requestId,
+        String command,
+        JSONObject params) throws Exception {
+        if (params == null) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_params", "Command requires params.");
+        }
+
+        String receivedStream = params.optString("received_stream", "").trim();
+        if (receivedStream.length() == 0) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_received_stream", "Command requires params.received_stream.");
+        }
+
+        long receivedSequenceId = params.optLong("received_sequence_id", 0L);
+        if (receivedSequenceId <= 0L) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "missing_received_sequence_id", "Command requires a positive params.received_sequence_id.");
+        }
+
+        if (!params.optBoolean("acknowledged", false)) {
+            state.rejectedCommands.incrementAndGet();
+            return commandError(requestId, command, "receipt_not_acknowledged", "Command requires params.acknowledged=true.");
+        }
+
+        String receiver = params.optString("receiver", "");
+        if (receiver.length() == 0 && connection != null) {
+            receiver = connection.clientId;
+        }
+
+        JSONObject receipt = new JSONObject();
+        String schema = params.optString("schema", "rusty.manifold.breath.feedback_receipt.v1");
+        if (schema.length() == 0) {
+            schema = "rusty.manifold.breath.feedback_receipt.v1";
+        }
+        receipt.put("schema", schema);
+        receipt.put("received_stream", receivedStream);
+        receipt.put("received_sequence_id", receivedSequenceId);
+        receipt.put("received_sample_time_unix_ns", params.optLong("received_sample_time_unix_ns", 0L));
+        receipt.put("receiver", receiver);
+        receipt.put("acknowledged", true);
+        if (params.has("volume01")) {
+            receipt.put("volume01", params.optDouble("volume01"));
+        }
+        if (params.has("phase")) {
+            receipt.put("phase", params.optString("phase", ""));
+        }
+        if (params.has("quality")) {
+            receipt.put("quality", params.optString("quality", ""));
+        }
+        if (params.has("payload_hash")) {
+            receipt.put("payload_hash", params.optString("payload_hash", ""));
+        }
+
+        JSONObject result = publishLocalStreamEvent(
+            "stream.breath.feedback_receipt",
+            receivedSequenceId,
+            receipt,
+            connection != null ? connection.clientId : "");
+        result.put("receipt", receipt);
+        state.acceptedCommands.incrementAndGet();
+        return commandAck(requestId, command, true, "breath_feedback_receipt_recorded", result);
     }
 
     JSONObject publishLocalStreamEvent(
