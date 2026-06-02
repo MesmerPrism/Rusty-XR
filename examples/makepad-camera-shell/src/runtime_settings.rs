@@ -46,6 +46,11 @@ pub(crate) const DEFAULT_MANIFOLD_BROKER_HOST: &str = "127.0.0.1";
 pub(crate) const DEFAULT_MANIFOLD_BROKER_PORT: u16 = 8765;
 pub(crate) const DEFAULT_MANIFOLD_POSE_SAMPLE_HZ: f32 = 20.0;
 pub(crate) const DEFAULT_MANIFOLD_POSE_CONNECT_TIMEOUT_MS: u32 = 250;
+pub(crate) const DEFAULT_MANIFOLD_BREATH_FEEDBACK_ENABLED: bool = false;
+pub(crate) const DEFAULT_MANIFOLD_BREATH_FEEDBACK_STREAM: &str = "stream.breath.feedback_state";
+pub(crate) const DEFAULT_MANIFOLD_BREATH_FEEDBACK_RECEIVER: &str =
+    "app.makepad_camera_shell.breath_feedback";
+pub(crate) const DEFAULT_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS: u32 = 250;
 pub(crate) const DEFAULT_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS: &str = "offset-scale";
 pub(crate) const SUPPRESS_LIVE_CAMERA_SAMPLING: bool = false;
 pub(crate) const FORCE_FULL_SURFACE_LIVE_CAMERA_UV: bool = false;
@@ -203,6 +208,11 @@ pub(crate) const KEY_MANIFOLD_BROKER_HOST: &str = "manifold_broker_host";
 pub(crate) const KEY_MANIFOLD_BROKER_PORT: &str = "manifold_broker_port";
 pub(crate) const KEY_MANIFOLD_POSE_SAMPLE_HZ: &str = "manifold_pose_sample_hz";
 pub(crate) const KEY_MANIFOLD_POSE_CONNECT_TIMEOUT_MS: &str = "manifold_pose_connect_timeout_ms";
+pub(crate) const KEY_MANIFOLD_BREATH_FEEDBACK_ENABLED: &str = "manifold_breath_feedback_enabled";
+pub(crate) const KEY_MANIFOLD_BREATH_FEEDBACK_STREAM: &str = "manifold_breath_feedback_stream";
+pub(crate) const KEY_MANIFOLD_BREATH_FEEDBACK_RECEIVER: &str = "manifold_breath_feedback_receiver";
+pub(crate) const KEY_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS: &str =
+    "manifold_breath_feedback_connect_timeout_ms";
 pub(crate) const KEY_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS: &str =
     "makepad_projection_target_joystick_controls";
 

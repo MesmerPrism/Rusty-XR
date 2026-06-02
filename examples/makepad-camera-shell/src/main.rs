@@ -5,6 +5,7 @@ mod acamera_sys;
 #[cfg(target_os = "android")]
 mod android_camera_probe;
 mod camera_texture_path;
+mod manifold_breath_feedback;
 mod manifold_pose_publisher;
 mod projection_geometry;
 mod projection_runtime;
@@ -78,6 +79,7 @@ use makepad_widgets::makepad_platform::{
 };
 use makepad_widgets::*;
 use makepad_xr::scene::{xr_widget_world_transform, XrNode};
+use manifold_breath_feedback::{ManifoldBreathFeedbackConfig, ManifoldBreathFeedbackSubscriber};
 use manifold_pose_publisher::{
     ManifoldPosePublisher, ManifoldPosePublisherConfig, ManifoldPoseSample,
 };
@@ -1305,6 +1307,8 @@ pub struct App {
     manifold_pose_published_count: u64,
     #[rust]
     manifold_pose_dropped_count: u64,
+    #[rust]
+    manifold_breath_feedback_subscriber: Option<ManifoldBreathFeedbackSubscriber>,
     #[rust]
     projection_target_joystick_scale_ready: bool,
     #[rust]
@@ -2922,6 +2926,36 @@ impl App {
         }
     }
 
+    fn manifold_breath_feedback_config() -> ManifoldBreathFeedbackConfig {
+        ManifoldBreathFeedbackConfig {
+            enabled: hotload_bool(
+                KEY_MANIFOLD_BREATH_FEEDBACK_ENABLED,
+                DEFAULT_MANIFOLD_BREATH_FEEDBACK_ENABLED,
+            ),
+            broker_host: hotload_text(KEY_MANIFOLD_BROKER_HOST, DEFAULT_MANIFOLD_BROKER_HOST),
+            broker_port: hotload_u16(
+                KEY_MANIFOLD_BROKER_PORT,
+                DEFAULT_MANIFOLD_BROKER_PORT,
+                1,
+                u16::MAX,
+            ),
+            stream_id: hotload_text(
+                KEY_MANIFOLD_BREATH_FEEDBACK_STREAM,
+                DEFAULT_MANIFOLD_BREATH_FEEDBACK_STREAM,
+            ),
+            receiver_id: hotload_text(
+                KEY_MANIFOLD_BREATH_FEEDBACK_RECEIVER,
+                DEFAULT_MANIFOLD_BREATH_FEEDBACK_RECEIVER,
+            ),
+            connect_timeout_ms: hotload_u32(
+                KEY_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS,
+                DEFAULT_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS,
+                50,
+                5_000,
+            ) as u64,
+        }
+    }
+
     fn normalized_manifold_pose_controller(value: &str) -> String {
         match value.trim().to_ascii_lowercase().as_str() {
             "left" => "left".to_string(),
@@ -3019,6 +3053,29 @@ impl App {
                 panel_bound,
             ));
             self.projection_target_joystick_last_log_frame = frame;
+        }
+    }
+
+    fn handle_manifold_breath_feedback_subscription(&mut self) {
+        let config = Self::manifold_breath_feedback_config();
+        if !config.enabled {
+            self.manifold_breath_feedback_subscriber = None;
+            return;
+        }
+        if self
+            .manifold_breath_feedback_subscriber
+            .as_ref()
+            .is_none_or(|subscriber| subscriber.config() != &config)
+        {
+            emit_marker_line(&format!(
+                "RUSTY_XR_MAKEPAD_BREATH_FEEDBACK_SUBSCRIBER schema=rusty.xr.makepad-breath-feedback-subscriber.v1 phase=subscribe status=ready stream={} receiver={} brokerHost={} brokerPort={} subscribeCommand=subscribe receiptCommand=breath_feedback.received receiptSchema=rusty.manifold.breath.feedback_receipt.v1",
+                marker_token(&config.stream_id),
+                marker_token(&config.receiver_id),
+                marker_token(&config.broker_host),
+                config.broker_port,
+            ));
+            self.manifold_breath_feedback_subscriber =
+                Some(ManifoldBreathFeedbackSubscriber::new(config));
         }
     }
 
@@ -3668,6 +3725,7 @@ impl App {
         match event {
             Event::XrUpdate(_update) => {
                 self.cadence_xr_update_count = self.cadence_xr_update_count.saturating_add(1);
+                self.handle_manifold_breath_feedback_subscription();
                 self.handle_manifold_pose_publish(_update);
                 self.handle_projection_target_joystick(cx, _update);
                 #[cfg(target_os = "android")]
