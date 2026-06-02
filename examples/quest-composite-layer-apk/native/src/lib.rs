@@ -653,6 +653,7 @@ pub(crate) enum ProjectionTargetJoystickControls {
     #[default]
     Off,
     OffsetScale,
+    HorizontalOffset,
 }
 
 impl ProjectionTargetJoystickControls {
@@ -668,6 +669,12 @@ impl ProjectionTargetJoystickControls {
             | "true"
             | "1"
             | "enabled" => Some(Self::OffsetScale),
+            "horizontal-offset"
+            | "horizontal"
+            | "x-offset"
+            | "offset-x"
+            | "left-stick-x"
+            | "joystick-horizontal-offset" => Some(Self::HorizontalOffset),
             _ => None,
         }
     }
@@ -676,11 +683,16 @@ impl ProjectionTargetJoystickControls {
         match self {
             Self::Off => "off",
             Self::OffsetScale => "offset-scale",
+            Self::HorizontalOffset => "horizontal-offset",
         }
     }
 
     pub(crate) const fn enabled(self) -> bool {
-        matches!(self, Self::OffsetScale)
+        !matches!(self, Self::Off)
+    }
+
+    pub(crate) const fn horizontal_only(self) -> bool {
+        matches!(self, Self::HorizontalOffset)
     }
 }
 
@@ -5547,6 +5559,20 @@ mod tests {
         assert!(EnvironmentDepthMode::SceneParticleMap.particle_overlay());
         assert!(EnvironmentDepthMode::SceneParticleMap.scene_particle_map());
         assert!(!EnvironmentDepthMode::SceneParticleMap.mesh_overlay());
+    }
+
+    #[test]
+    fn projection_target_joystick_controls_parse_horizontal_offset_mode() {
+        assert_eq!(
+            ProjectionTargetJoystickControls::parse("horizontal-offset"),
+            Some(ProjectionTargetJoystickControls::HorizontalOffset)
+        );
+        assert_eq!(
+            ProjectionTargetJoystickControls::parse("left-stick-x"),
+            Some(ProjectionTargetJoystickControls::HorizontalOffset)
+        );
+        assert!(ProjectionTargetJoystickControls::HorizontalOffset.enabled());
+        assert!(ProjectionTargetJoystickControls::HorizontalOffset.horizontal_only());
     }
 
     #[test]

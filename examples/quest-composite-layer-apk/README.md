@@ -545,6 +545,14 @@ MediaProjection off, `processingLayer=peripheral-stretch`,
 `projectionTargetJoystickControls=offset-scale`. Use catalog runtime profiles
 when a validation run needs to select an older CPU diagnostic, broker, raw,
 homography, or MediaProjection setup explicitly.
+Use `camera-stereo-gpu-composite-custom-target-local-stretch-horizontal-calibration`
+for a narrow custom-projection calibration pass where the camera feed remains in
+target-local raster space and only left thumbstick X changes
+`projectionTargetOffsetXUv`. The app writes the live value to
+`files/projection-target-controller-tuning.json` and also logs it as
+`projectionTargetOffsetXUv=...`, so a tester can adjust the horizontal target
+footprint in-headset and report the final UV offset without changing scale or
+vertical placement.
 Use `camera-stereo-gpu-composite-world-canvas-target-local-stretch-breath`
 when the broker is already publishing `bio:breath`: that profile disables
 joystick target tuning and maps the broker payload's `volume01` field onto

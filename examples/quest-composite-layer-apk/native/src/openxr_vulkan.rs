@@ -16,7 +16,8 @@ use crate::{
     },
     CameraAlignmentTuningUpdate, EnvironmentDepthMode, HandParticleMode, HeadsetCameraFrame,
     HeadsetCameraGpuFrame, OpenXrPassthroughProbeMode, OpenXrPassthroughStyleMode,
-    ProjectionTargetControlUpdate, RuntimeConfig, StereoGpuCameraFrame,
+    ProjectionTargetControlUpdate, ProjectionTargetJoystickControls, RuntimeConfig,
+    StereoGpuCameraFrame,
 };
 use android_activity::{InputStatus, MainEvent, PollEvent};
 use ash::vk::{self, Handle};
@@ -471,6 +472,19 @@ impl CameraAlignmentTuningState {
         let Some(path) = self.output_path.as_ref() else {
             return;
         };
+        let (left_y_control, right_y_control, reset_control) = if self.mode.horizontal_only() {
+            (
+                "ignored in horizontal-offset mode",
+                "ignored in horizontal-offset mode",
+                "reset horizontal offset",
+            )
+        } else {
+            (
+                "projectionTargetOffsetYUv, inverted so up moves target up",
+                "projectionTargetScale; up grows, down shrinks",
+                "reset offset and scale",
+            )
+        };
         let json = format!(
             concat!(
                 "{{\n",
@@ -525,6 +539,7 @@ impl CameraAlignmentTuningState {
 }
 
 struct ProjectionTargetJoystickState {
+    mode: ProjectionTargetJoystickControls,
     offset_x_uv: f32,
     offset_y_uv: f32,
     scale: f32,
@@ -536,6 +551,7 @@ struct ProjectionTargetJoystickState {
 
 impl ProjectionTargetJoystickState {
     fn new(config: &RuntimeConfig, output_path: Option<PathBuf>) -> Self {
+        let mode = config.projection_target_joystick_controls;
         if let Some(path) = output_path.as_ref() {
             log_info(format!(
                 "Rusty XR projection-target controller readout file={}",
@@ -546,10 +562,17 @@ impl ProjectionTargetJoystickState {
                 "Rusty XR projection-target controller has no app data path for readout file",
             );
         }
-        log_info(
-            "Rusty XR projection-target controller active controls=leftStick:targetOffsetUv,rightStickY:targetScale,rightA:reset coordinateSpace=display-eye-screen-uv yConvention=stickUpMovesTargetUp",
-        );
+        if mode.horizontal_only() {
+            log_info(
+                "Rusty XR projection-target controller active controls=leftStickX:targetOffsetXUv,rightA:resetHorizontal coordinateSpace=display-eye-screen-uv",
+            );
+        } else {
+            log_info(
+                "Rusty XR projection-target controller active controls=leftStick:targetOffsetUv,rightStickY:targetScale,rightA:reset coordinateSpace=display-eye-screen-uv yConvention=stickUpMovesTargetUp",
+            );
+        }
         Self {
+            mode,
             offset_x_uv: config.projection_target_offset_x_uv.clamp(-0.5, 0.5),
             offset_y_uv: config.projection_target_offset_y_uv.clamp(-0.5, 0.5),
             scale: config
@@ -572,6 +595,7 @@ impl ProjectionTargetJoystickState {
     ) {
         let dt = dt_seconds.clamp(0.0, 0.1);
         let mut changed = false;
+        let horizontal_only = self.mode.horizontal_only();
         if left.active {
             let x_axis = projection_target_deadzone_axis(left.x);
             let y_axis = projection_target_deadzone_axis(left.y);
@@ -581,14 +605,14 @@ impl ProjectionTargetJoystickState {
                     .clamp(-0.5, 0.5);
                 changed = true;
             }
-            if y_axis != 0.0 {
+            if !horizontal_only && y_axis != 0.0 {
                 self.offset_y_uv = (self.offset_y_uv
                     - y_axis * PROJECTION_TARGET_OFFSET_RATE_UV_PER_SECOND * dt)
                     .clamp(-0.5, 0.5);
                 changed = true;
             }
         }
-        if right.active {
+        if !horizontal_only && right.active {
             let scale_axis = projection_target_deadzone_axis(right.y);
             if scale_axis != 0.0 {
                 self.scale = (self.scale
@@ -602,8 +626,10 @@ impl ProjectionTargetJoystickState {
         self.right_primary_was_pressed = primary_pressed;
         if reset {
             self.offset_x_uv = 0.0;
-            self.offset_y_uv = 0.0;
-            self.scale = 1.0;
+            if !horizontal_only {
+                self.offset_y_uv = 0.0;
+                self.scale = 1.0;
+            }
             changed = true;
         }
 
@@ -636,10 +662,11 @@ impl ProjectionTargetJoystickState {
                 .unwrap_or(true);
         if should_log {
             log_info(format!(
-                "Rusty XR projection-target tuning source=controller frame={} changed={} reset={} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} readoutFile={}",
+                "Rusty XR projection-target tuning source=controller frame={} changed={} reset={} projectionTargetJoystickControls={} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} readoutFile={}",
                 frame_count,
                 changed,
                 reset,
+                self.mode.stable_id(),
                 self.offset_x_uv,
                 self.offset_y_uv,
                 self.scale,
@@ -663,22 +690,29 @@ impl ProjectionTargetJoystickState {
                 "  \"source\": \"openxr-actions\",\n",
                 "  \"frame\": {},\n",
                 "  \"updatedUnixMs\": {},\n",
+                "  \"projectionTargetJoystickControls\": \"{}\",\n",
+                "  \"horizontalOnly\": {},\n",
                 "  \"projectionTargetOffsetXUv\": {:.6},\n",
                 "  \"projectionTargetOffsetYUv\": {:.6},\n",
                 "  \"projectionTargetScale\": {:.6},\n",
                 "  \"controls\": {{\n",
                 "    \"leftJoystickX\": \"projectionTargetOffsetXUv\",\n",
-                "    \"leftJoystickY\": \"projectionTargetOffsetYUv, inverted so up moves target up\",\n",
-                "    \"rightJoystickY\": \"projectionTargetScale; up grows, down shrinks\",\n",
-                "    \"rightPrimaryButton\": \"reset offset and scale\"\n",
+                "    \"leftJoystickY\": \"{}\",\n",
+                "    \"rightJoystickY\": \"{}\",\n",
+                "    \"rightPrimaryButton\": \"{}\"\n",
                 "  }}\n",
                 "}}\n"
             ),
             frame_count,
             now_unix_ms(),
+            self.mode.stable_id(),
+            self.mode.horizontal_only(),
             self.offset_x_uv,
             self.offset_y_uv,
-            self.scale
+            self.scale,
+            left_y_control,
+            right_y_control,
+            reset_control
         );
         if let Some(parent) = path.parent() {
             if let Err(error) = std::fs::create_dir_all(parent) {
@@ -6549,22 +6583,22 @@ impl OpenXrHandMeshParticleSource {
                 .unwrap_or_else(|error| {
                     if frame_count == 0 || frame_count.is_multiple_of(120) {
                         log_error(format!(
-                            "Rusty XR OpenXR left hand mesh particle update failed: {error}"
-                        ));
-                    }
-                    LiveHandMeshUpdateStatus::NoSnapshot
-                })
+                        "Rusty XR OpenXR left hand mesh particle update failed: {error}"
+                    ));
+                }
+                LiveHandMeshUpdateStatus::NoSnapshot
+            })
         });
         let right_status = self.right.as_mut().map(|hand| {
             hand.update(reference_space, predicted_display_time, frame_count)
                 .unwrap_or_else(|error| {
                     if frame_count == 0 || frame_count.is_multiple_of(120) {
                         log_error(format!(
-                            "Rusty XR OpenXR right hand mesh particle update failed: {error}"
-                        ));
-                    }
-                    LiveHandMeshUpdateStatus::NoSnapshot
-                })
+                        "Rusty XR OpenXR right hand mesh particle update failed: {error}"
+                    ));
+                }
+                LiveHandMeshUpdateStatus::NoSnapshot
+            })
         });
         let left_renderable = hand_update_status_renders(left_status);
         let right_renderable = hand_update_status_renders(right_status);
