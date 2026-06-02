@@ -33,6 +33,11 @@ param(
     [string]$CameraProjectionMode = "display-screen-homography",
     [ValidateSet("full-frame-diagnostic", "camera-projection")]
     [string]$CameraProjectionGeometryProfile = "camera-projection",
+    [ValidateSet("target-local-raster", "screen-to-camera-homography")]
+    [string]$CameraSourceSamplingMode = "target-local-raster",
+    [string]$CameraTargetScreenUvRect = "",
+    [string]$CameraLeftTargetScreenUvRect = "0.171875;0.21875;0.75;0.65625",
+    [string]$CameraRightTargetScreenUvRect = "0.078125;0.21875;0.75;0.671875",
     [ValidateSet("head-anchored-virtual-camera", "camera-matched", "full-frame-diagnostic")]
     [string]$BrokerH264SyntheticProjectionProfile = "head-anchored-virtual-camera",
     [string]$BrokerH264LeftCameraId = "",
@@ -89,6 +94,11 @@ param(
     [double]$ProjectionAreaOffsetYUv = 0.0,
     [double]$ProjectionAreaScaleX = 1.0,
     [double]$ProjectionAreaScaleY = 1.0,
+    [double]$ProjectionTargetOffsetXUv = 0.0,
+    [double]$ProjectionTargetOffsetYUv = 0.0,
+    [double]$ProjectionTargetScale = 1.0,
+    [ValidateSet("off", "offset-scale")]
+    [string]$ProjectionTargetJoystickControls = "offset-scale",
     [double]$ProjectionAreaRadiusXUv = 0.5,
     [double]$ProjectionAreaRadiusYUv = 0.5,
     [double]$ProjectionAreaCornerRadiusUv = 0.0,
@@ -121,6 +131,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProjectionAreaScaleMin = 0.01
+$ProjectionAreaScaleMax = 10.0
 if ($FreshnessFrames -lt 1) {
     throw "FreshnessFrames must be at least 1."
 }
@@ -135,6 +147,21 @@ if ($FreshnessRequiredUniqueHashes -gt $FreshnessFrames) {
 }
 if ($BrokerH264MinimumPerEyeTextureUpdates -lt 1) {
     throw "BrokerH264MinimumPerEyeTextureUpdates must be at least 1."
+}
+if ([double]::IsNaN($ProjectionTargetScale) -or [double]::IsInfinity($ProjectionTargetScale) -or $ProjectionTargetScale -lt 0.05 -or $ProjectionTargetScale -gt 1.50) {
+    throw "ProjectionTargetScale must be finite and within [0.05, 1.50]; got $ProjectionTargetScale"
+}
+if ([double]::IsNaN($ProjectionAreaScaleX) -or [double]::IsInfinity($ProjectionAreaScaleX) -or $ProjectionAreaScaleX -lt $ProjectionAreaScaleMin -or $ProjectionAreaScaleX -gt $ProjectionAreaScaleMax) {
+    throw "ProjectionAreaScaleX must be finite and within [$ProjectionAreaScaleMin, $ProjectionAreaScaleMax]; got $ProjectionAreaScaleX"
+}
+if ([double]::IsNaN($ProjectionAreaScaleY) -or [double]::IsInfinity($ProjectionAreaScaleY) -or $ProjectionAreaScaleY -lt $ProjectionAreaScaleMin -or $ProjectionAreaScaleY -gt $ProjectionAreaScaleMax) {
+    throw "ProjectionAreaScaleY must be finite and within [$ProjectionAreaScaleMin, $ProjectionAreaScaleMax]; got $ProjectionAreaScaleY"
+}
+if ([double]::IsNaN($ProjectionTargetOffsetXUv) -or [double]::IsInfinity($ProjectionTargetOffsetXUv) -or $ProjectionTargetOffsetXUv -lt -0.5 -or $ProjectionTargetOffsetXUv -gt 0.5) {
+    throw "ProjectionTargetOffsetXUv must be finite and within [-0.5, 0.5]; got $ProjectionTargetOffsetXUv"
+}
+if ([double]::IsNaN($ProjectionTargetOffsetYUv) -or [double]::IsInfinity($ProjectionTargetOffsetYUv) -or $ProjectionTargetOffsetYUv -lt -0.5 -or $ProjectionTargetOffsetYUv -gt 0.5) {
+    throw "ProjectionTargetOffsetYUv must be finite and within [-0.5, 0.5]; got $ProjectionTargetOffsetYUv"
 }
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
 $projectionPropertyHygieneHelper = Join-Path $repoRoot "tools\quest-camera-profile\ProjectionPropertyHygiene.ps1"
@@ -277,6 +304,22 @@ function Parse-DoubleInvariant {
 function Format-InvariantDouble {
     param([double]$Value)
     return $Value.ToString("0.######", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function ConvertTo-AndroidShellSingleQuoted {
+    param([string]$Value)
+    $escaped = $Value.Replace("'", "'\''")
+    return "'$escaped'"
+}
+
+function Set-AdbProperty {
+    param(
+        [string]$Name,
+        [object]$Value
+    )
+    $valueText = [string]$Value
+    $quotedValue = ConvertTo-AndroidShellSingleQuoted -Value $valueText
+    Invoke-Adb -Arguments @("shell", "setprop $Name $quotedValue") | Out-Null
 }
 
 function Add-GateTimingRecord {
@@ -590,7 +633,7 @@ function Set-MakepadOculusPerformanceProfile {
     }
 
     foreach ($entry in $props.GetEnumerator()) {
-        Invoke-Adb -Arguments @("shell", "setprop", $entry.Key, [string]$entry.Value) | Out-Null
+        Set-AdbProperty -Name $entry.Key -Value $entry.Value
     }
 
     $readback = foreach ($entry in $props.GetEnumerator()) {
@@ -663,7 +706,7 @@ function Set-MakepadBrokerH264Profile {
     }
 
     foreach ($entry in $props.GetEnumerator()) {
-        Invoke-Adb -Arguments @("shell", "setprop", $entry.Key, [string]$entry.Value) | Out-Null
+        Set-AdbProperty -Name $entry.Key -Value $entry.Value
     }
 
     $readback = foreach ($entry in $props.GetEnumerator()) {
@@ -725,7 +768,16 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.peripheral.stretch.debug" = $PeripheralStretchDebug
         "debug.rustyxr.makepad.direct.camera.hardware.buffer.external" = $directHardwareBufferExternal
         "debug.rustyxr.camera.projection.mode" = $CameraProjectionMode
+        "debug.rustyxr.camera.projection.geometry.profile" = $CameraProjectionGeometryProfile
         "debug.rustyxr.makepad.camera.projection.geometry.profile" = $CameraProjectionGeometryProfile
+        "debug.rustyxr.camera.source.sampling.mode" = $CameraSourceSamplingMode
+        "debug.rustyxr.makepad.camera.source.sampling.mode" = $CameraSourceSamplingMode
+        "debug.rustyxr.camera.target.screen.uv.rect" = $CameraTargetScreenUvRect
+        "debug.rustyxr.camera.left.target.screen.uv.rect" = $CameraLeftTargetScreenUvRect
+        "debug.rustyxr.camera.right.target.screen.uv.rect" = $CameraRightTargetScreenUvRect
+        "debug.rustyxr.makepad.camera.target.screen.uv.rect" = $CameraTargetScreenUvRect
+        "debug.rustyxr.makepad.camera.left.target.screen.uv.rect" = $CameraLeftTargetScreenUvRect
+        "debug.rustyxr.makepad.camera.right.target.screen.uv.rect" = $CameraRightTargetScreenUvRect
         "debug.rustyxr.projection.scale" = (Format-InvariantDouble -Value $ProjectionScale)
         "debug.rustyxr.projection.depth.meters" = (Format-InvariantDouble -Value $ProjectionDepthMeters)
         "debug.rustyxr.camera.preview.fov.y.degrees" = (Format-InvariantDouble -Value $previewFovYDegrees)
@@ -738,6 +790,11 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyxr.projection.area.offset.y.uv" = (Format-InvariantDouble -Value $offsetVerticalUv)
         "debug.rustyxr.projection.area.scale.x" = (Format-InvariantDouble -Value $ProjectionAreaScaleX)
         "debug.rustyxr.projection.area.scale.y" = (Format-InvariantDouble -Value $ProjectionAreaScaleY)
+        "debug.rustyxr.projection.target.offset.x.uv" = (Format-InvariantDouble -Value $ProjectionTargetOffsetXUv)
+        "debug.rustyxr.projection.target.offset.y.uv" = (Format-InvariantDouble -Value $ProjectionTargetOffsetYUv)
+        "debug.rustyxr.projection.target.scale" = (Format-InvariantDouble -Value $ProjectionTargetScale)
+        "debug.rustyxr.projection.target.joystick.controls" = $ProjectionTargetJoystickControls
+        "debug.rustyxr.makepad.projection.target.joystick.controls" = $ProjectionTargetJoystickControls
         "debug.rustyxr.projection.area.radius.x.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusXUv)
         "debug.rustyxr.projection.area.radius.y.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusYUv)
         "debug.rustyxr.projection.area.corner.radius.uv" = (Format-InvariantDouble -Value $ProjectionAreaCornerRadiusUv)
@@ -751,7 +808,7 @@ function Set-MakepadProjectionTargetProfile {
     }
 
     foreach ($entry in $props.GetEnumerator()) {
-        Invoke-Adb -Arguments @("shell", "setprop", $entry.Key, [string]$entry.Value) | Out-Null
+        Set-AdbProperty -Name $entry.Key -Value $entry.Value
     }
 
     $readback = foreach ($entry in $props.GetEnumerator()) {
@@ -1547,6 +1604,10 @@ $summary = [ordered]@{
     brokerH264SourceMode = if ($UseBrokerH264Camera) { "broker-camera" } elseif ($UseBrokerH264Synthetic) { "broker-synthetic" } else { "disabled" }
     cameraProjectionMode = $CameraProjectionMode
     cameraProjectionGeometryProfile = $CameraProjectionGeometryProfile
+    cameraSourceSamplingMode = $CameraSourceSamplingMode
+    cameraTargetScreenUvRect = $CameraTargetScreenUvRect
+    cameraLeftTargetScreenUvRect = $CameraLeftTargetScreenUvRect
+    cameraRightTargetScreenUvRect = $CameraRightTargetScreenUvRect
     brokerH264ProjectionGeometryProfile = $resolvedBrokerH264ProjectionGeometryProfile
     brokerH264SyntheticProjectionProfile = $resolvedBrokerH264SyntheticProjectionProfile
     projectionBorderPolicy = $ProjectionBorderPolicy
@@ -1560,6 +1621,10 @@ $summary = [ordered]@{
     oculusPerformanceProfile = $oculusPerformanceProfile
     projectionAreaOpacity = $ProjectionAreaOpacity
     projectionBorderOpacity = $ProjectionBorderOpacity
+    projectionTargetOffsetXUv = [double]$ProjectionTargetOffsetXUv
+    projectionTargetOffsetYUv = [double]$ProjectionTargetOffsetYUv
+    projectionTargetScale = [double]$ProjectionTargetScale
+    projectionTargetJoystickControls = $ProjectionTargetJoystickControls
     projectionAlphaMode = $ProjectionAlphaMode
     projectionAlphaScale = $ProjectionAlphaScale
     projectionAlphaBias = $ProjectionAlphaBias
@@ -1620,10 +1685,18 @@ $summary = [ordered]@{
         peripheralStretchBlendMode = $PeripheralStretchBlendMode
         peripheralStretchCornerMode = $PeripheralStretchCornerMode
         peripheralStretchDebug = $PeripheralStretchDebug
+        projectionTargetOffsetXUv = [double]$ProjectionTargetOffsetXUv
+        projectionTargetOffsetYUv = [double]$ProjectionTargetOffsetYUv
+        projectionTargetScale = [double]$ProjectionTargetScale
+        projectionTargetJoystickControls = $ProjectionTargetJoystickControls
         projectionAreaDiagnostic = [double]$ProjectionAreaDiagnostic
         directCameraTexturePath = $DirectCameraTexturePath
         cameraProjectionMode = $CameraProjectionMode
         cameraProjectionGeometryProfile = $CameraProjectionGeometryProfile
+        cameraSourceSamplingMode = $CameraSourceSamplingMode
+        cameraTargetScreenUvRect = $CameraTargetScreenUvRect
+        cameraLeftTargetScreenUvRect = $CameraLeftTargetScreenUvRect
+        cameraRightTargetScreenUvRect = $CameraRightTargetScreenUvRect
         useResolvedProjectionRuntime = [bool]$UseResolvedProjectionRuntime
         sampleSeconds = $SampleSeconds
         useFixedSampleWindow = [bool]$UseFixedSampleWindow

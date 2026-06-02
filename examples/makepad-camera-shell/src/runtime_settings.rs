@@ -23,6 +23,7 @@ pub(crate) const DEFAULT_BROKER_H264_SYNTHETIC_PATTERN: &str = "diagnostic-grid"
 pub(crate) const DEFAULT_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE: &str =
     "head-anchored-virtual-camera";
 pub(crate) const DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE: &str = "camera-projection";
+pub(crate) const DEFAULT_CAMERA_SOURCE_SAMPLING_MODE: &str = "target-local-raster";
 pub(crate) const DEFAULT_BROKER_H264_LEFT_CAMERA_ID: &str = "";
 pub(crate) const DEFAULT_BROKER_H264_RIGHT_CAMERA_ID: &str = "";
 pub(crate) const DEFAULT_BROKER_H264_WIDTH: u32 = 1280;
@@ -66,6 +67,13 @@ pub(crate) const TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV: f32 = 0.0;
 pub(crate) const TARGET_PROJECTION_AREA_OFFSET_VERTICAL_UV: f32 = 0.0;
 pub(crate) const TARGET_PROJECTION_AREA_SCALE_X: f32 = 1.0;
 pub(crate) const TARGET_PROJECTION_AREA_SCALE_Y: f32 = 1.0;
+pub(crate) const TARGET_PROJECTION_TARGET_OFFSET_X_UV: f32 = 0.0;
+pub(crate) const TARGET_PROJECTION_TARGET_OFFSET_Y_UV: f32 = 0.0;
+pub(crate) const TARGET_PROJECTION_TARGET_SCALE: f32 = 1.0;
+pub(crate) const DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT: &str = "";
+pub(crate) const DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT: &str = "0.171875;0.21875;0.75;0.65625";
+pub(crate) const DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT: &str =
+    "0.078125;0.21875;0.75;0.671875";
 pub(crate) const TARGET_PROJECTION_AREA_RADIUS_X_UV: f32 = 0.5;
 pub(crate) const TARGET_PROJECTION_AREA_RADIUS_Y_UV: f32 = 0.5;
 pub(crate) const TARGET_PROJECTION_AREA_CORNER_RADIUS_UV: f32 = 0.0;
@@ -92,9 +100,12 @@ pub(crate) const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
 pub(crate) const PAIRED_IMPORT_MAX_WAITS: usize = 10;
 pub(crate) const CADENCE_SAMPLE_SECONDS: f64 = 5.0;
 pub(crate) const PROJECTION_TARGET_JOYSTICK_DEADZONE: f32 = 0.18;
+pub(crate) const PROJECTION_TARGET_OFFSET_RATE_UV_PER_SECOND: f32 = 0.28;
 pub(crate) const PROJECTION_TARGET_SCALE_RATE_PER_SECOND: f32 = 0.45;
-pub(crate) const PROJECTION_TARGET_MIN_SCALE: f32 = 0.20;
-pub(crate) const PROJECTION_TARGET_MAX_SCALE: f32 = 1.25;
+pub(crate) const PROJECTION_AREA_MIN_SCALE: f32 = 0.01;
+pub(crate) const PROJECTION_AREA_MAX_SCALE: f32 = 10.00;
+pub(crate) const PROJECTION_TARGET_MIN_SCALE: f32 = 0.05;
+pub(crate) const PROJECTION_TARGET_MAX_SCALE: f32 = 1.50;
 // S25 showed this diagnostic can reintroduce app-process GPU page faults on Quest.
 pub(crate) const NATIVE_VIDEO_WIDGET_SURFACE_DIAGNOSTIC: bool = false;
 pub(crate) const NATIVE_VIDEO_WIDGET_RETRY_SECONDS: f64 = 0.5;
@@ -179,8 +190,23 @@ pub(crate) const KEY_MAKEPAD_BROKER_H264_PROJECTION_GEOMETRY_PROFILE: &str =
     "makepad_broker_h264_projection_geometry_profile";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE: &str =
     "makepad_broker_h264_synthetic_projection_profile";
+pub(crate) const KEY_CAMERA_PROJECTION_GEOMETRY_PROFILE: &str =
+    "camera_projection_geometry_profile";
 pub(crate) const KEY_MAKEPAD_CAMERA_PROJECTION_GEOMETRY_PROFILE: &str =
     "makepad_camera_projection_geometry_profile";
+pub(crate) const KEY_CAMERA_SOURCE_SAMPLING_MODE: &str = "camera_source_sampling_mode";
+pub(crate) const KEY_MAKEPAD_CAMERA_SOURCE_SAMPLING_MODE: &str =
+    "makepad_camera_source_sampling_mode";
+pub(crate) const KEY_CAMERA_TARGET_SCREEN_UV_RECT: &str = "camera_target_screen_uv_rect";
+pub(crate) const KEY_CAMERA_LEFT_TARGET_SCREEN_UV_RECT: &str = "camera_left_target_screen_uv_rect";
+pub(crate) const KEY_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT: &str =
+    "camera_right_target_screen_uv_rect";
+pub(crate) const KEY_MAKEPAD_CAMERA_TARGET_SCREEN_UV_RECT: &str =
+    "makepad_camera_target_screen_uv_rect";
+pub(crate) const KEY_MAKEPAD_CAMERA_LEFT_TARGET_SCREEN_UV_RECT: &str =
+    "makepad_camera_left_target_screen_uv_rect";
+pub(crate) const KEY_MAKEPAD_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT: &str =
+    "makepad_camera_right_target_screen_uv_rect";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_LEFT_CAMERA_ID: &str =
     "makepad_broker_h264_left_camera_id";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_RIGHT_CAMERA_ID: &str =

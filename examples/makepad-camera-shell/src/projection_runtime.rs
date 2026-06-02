@@ -195,25 +195,46 @@ pub(super) fn makepad_horizontal_alignment_tuning_from_resolution(
     let uniform_scale = makepad_projection_runtime_optional_float(
         resolution,
         rxrc::KEY_PROJECTION_AREA_SCALE_UV,
-        0.5,
-        1.5,
+        PROJECTION_AREA_MIN_SCALE,
+        PROJECTION_AREA_MAX_SCALE,
     );
     tuning.projection_area_scale_x = makepad_projection_runtime_optional_float(
         resolution,
         rxrc::KEY_PROJECTION_AREA_SCALE_X,
-        0.5,
-        1.5,
+        PROJECTION_AREA_MIN_SCALE,
+        PROJECTION_AREA_MAX_SCALE,
     )
     .or(uniform_scale)
     .unwrap_or(tuning.projection_area_scale_x);
     tuning.projection_area_scale_y = makepad_projection_runtime_optional_float(
         resolution,
         rxrc::KEY_PROJECTION_AREA_SCALE_Y,
-        0.5,
-        1.5,
+        PROJECTION_AREA_MIN_SCALE,
+        PROJECTION_AREA_MAX_SCALE,
     )
     .or(uniform_scale)
     .unwrap_or(tuning.projection_area_scale_y);
+    tuning.projection_target_offset_x_uv = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_X_UV,
+        tuning.projection_target_offset_x_uv,
+        -0.5,
+        0.5,
+    );
+    tuning.projection_target_offset_y_uv = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_Y_UV,
+        tuning.projection_target_offset_y_uv,
+        -0.5,
+        0.5,
+    );
+    tuning.projection_target_scale = makepad_projection_runtime_float(
+        resolution,
+        rxrc::KEY_PROJECTION_TARGET_SCALE,
+        tuning.projection_target_scale,
+        PROJECTION_TARGET_MIN_SCALE,
+        PROJECTION_TARGET_MAX_SCALE,
+    );
     tuning.projection_area_radius_x_uv = makepad_projection_runtime_float(
         resolution,
         rxrc::KEY_PROJECTION_AREA_RADIUS_X_UV,
@@ -417,6 +438,24 @@ fn makepad_projection_runtime_config_defaults() -> rxrc::RuntimeConfig {
         &mut config,
         rxrc::KEY_PROJECTION_AREA_SCALE_Y,
         f64::from(TARGET_PROJECTION_AREA_SCALE_Y),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_X_UV,
+        f64::from(TARGET_PROJECTION_TARGET_OFFSET_X_UV),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_Y_UV,
+        f64::from(TARGET_PROJECTION_TARGET_OFFSET_Y_UV),
+        rxrc::RuntimeConfigSource::Default,
+    );
+    set_projection_manifest_float(
+        &mut config,
+        rxrc::KEY_PROJECTION_TARGET_SCALE,
+        f64::from(TARGET_PROJECTION_TARGET_SCALE),
         rxrc::RuntimeConfigSource::Default,
     );
     set_projection_manifest_float(
@@ -635,6 +674,24 @@ fn makepad_projection_runtime_config_effective(
     );
     set_projection_manifest_float(
         &mut manifest,
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_X_UV,
+        f64::from(tuning.projection_target_offset_x_uv),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_Y_UV,
+        f64::from(tuning.projection_target_offset_y_uv),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
+        rxrc::KEY_PROJECTION_TARGET_SCALE,
+        f64::from(tuning.projection_target_scale),
+        rxrc::RuntimeConfigSource::AndroidProperty,
+    );
+    set_projection_manifest_float(
+        &mut manifest,
         rxrc::KEY_PROJECTION_AREA_RADIUS_X_UV,
         f64::from(tuning.projection_area_radius_x_uv),
         rxrc::RuntimeConfigSource::AndroidProperty,
@@ -786,6 +843,10 @@ fn makepad_projection_alias_records() -> Vec<rxrc::RuntimeKeyAliasRecord> {
         "debug.rustyxr.projection.area.offset.y.uv",
         "debug.rustyxr.projection.area.scale.x",
         "debug.rustyxr.projection.area.scale.y",
+        "debug.rustyxr.projection.target.offset.x.uv",
+        "debug.rustyxr.projection.target.offset.y.uv",
+        "debug.rustyxr.projection.target.scale",
+        "debug.rustyxr.projection.target.joystick.controls",
         "debug.rustyxr.projection.area.radius.x.uv",
         "debug.rustyxr.projection.area.radius.y.uv",
         "debug.rustyxr.projection.area.corner.radius.uv",

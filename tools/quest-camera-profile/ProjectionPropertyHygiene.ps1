@@ -1,6 +1,11 @@
 function Get-RustyXrProjectionPropertyHygieneKeys {
     return @(
         "debug.rustyxr.camera.projection.mode",
+        "debug.rustyxr.camera.projection.geometry.profile",
+        "debug.rustyxr.camera.source.sampling.mode",
+        "debug.rustyxr.camera.target.screen.uv.rect",
+        "debug.rustyxr.camera.left.target.screen.uv.rect",
+        "debug.rustyxr.camera.right.target.screen.uv.rect",
         "debug.rustyxr.projection.geometry.profile",
         "debug.rustyxr.projection.scale",
         "debug.rustyxr.projection.depth.meters",
@@ -23,6 +28,10 @@ function Get-RustyXrProjectionPropertyHygieneKeys {
         "debug.rustyxr.projection.area.opacity",
         "debug.rustyxr.projection.border.opacity",
         "debug.rustyxr.projection.border.policy",
+        "debug.rustyxr.projection.target.offset.x.uv",
+        "debug.rustyxr.projection.target.offset.y.uv",
+        "debug.rustyxr.projection.target.scale",
+        "debug.rustyxr.projection.target.joystick.controls",
         "debug.rustyxr.processing.layer",
         "debug.rustyxr.camera.blur.radius.px",
         "debug.rustyxr.peripheral.stretch.mode",
@@ -48,6 +57,10 @@ function Get-RustyXrProjectionPropertyHygieneKeys {
         "debug.rustyxr.xr.render.scale",
         "debug.rustyxr.xr.display.refresh.rate.hz",
         "debug.rustyxr.makepad.camera.projection.geometry.profile",
+        "debug.rustyxr.makepad.camera.source.sampling.mode",
+        "debug.rustyxr.makepad.camera.target.screen.uv.rect",
+        "debug.rustyxr.makepad.camera.left.target.screen.uv.rect",
+        "debug.rustyxr.makepad.camera.right.target.screen.uv.rect",
         "debug.rustyxr.makepad.broker.h264.enabled",
         "debug.rustyxr.makepad.broker.h264.host",
         "debug.rustyxr.makepad.broker.h264.broker.port",
@@ -96,7 +109,8 @@ function Get-RustyXrProjectionPropertyHygieneKeys {
         "debug.rustyxr.makepad.projection.area.radius.y.uv",
         "debug.rustyxr.makepad.projection.area.corner.radius.uv",
         "debug.rustyxr.makepad.projection.area.keystone.x",
-        "debug.rustyxr.makepad.projection.area.bow.x"
+        "debug.rustyxr.makepad.projection.area.bow.x",
+        "debug.rustyxr.makepad.projection.target.joystick.controls"
     )
 }
 

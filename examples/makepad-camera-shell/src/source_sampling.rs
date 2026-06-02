@@ -196,7 +196,7 @@ impl<'a> MakepadSourceSamplingHandoff<'a> {
         } else if self.full_frame_diagnostic {
             "full-frame-stimulus-to-surface-homography"
         } else {
-            "camera-projection-homography"
+            "screen-to-camera-homography"
         }
     }
 
@@ -546,7 +546,7 @@ mod tests {
         assert!(fields.contains("sourceSamplingMode=screen-to-camera-homography"));
         assert!(fields.contains("sourceSampleTransformApplied=false"));
         assert!(fields.contains("sourceColorTransformApplied=false"));
-        assert!(fields.contains("projectionContentMappingMode=camera-projection-homography"));
+        assert!(fields.contains("projectionContentMappingMode=screen-to-camera-homography"));
         assert!(fields.contains("sourceEyeMapping=display-left-from-left-source"));
     }
 

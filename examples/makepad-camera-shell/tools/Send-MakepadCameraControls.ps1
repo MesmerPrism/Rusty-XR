@@ -36,6 +36,11 @@ param(
     [double]$ProjectionAreaVerticalUv = [double]::NaN,
     [double]$ProjectionAreaScaleX = [double]::NaN,
     [double]$ProjectionAreaScaleY = [double]::NaN,
+    [double]$ProjectionTargetOffsetXUv = [double]::NaN,
+    [double]$ProjectionTargetOffsetYUv = [double]::NaN,
+    [double]$ProjectionTargetScale = [double]::NaN,
+    [ValidateSet("", "off", "offset-scale")]
+    [string]$ProjectionTargetJoystickControls = "",
     [double]$ProjectionAreaRadiusXUv = [double]::NaN,
     [double]$ProjectionAreaRadiusYUv = [double]::NaN,
     [double]$ProjectionAreaCornerRadiusUv = [double]::NaN,
@@ -51,6 +56,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$ProjectionAreaScaleMin = 0.01
+$ProjectionAreaScaleMax = 10.0
 
 function Invoke-Adb {
     param([string[]]$Arguments)
@@ -121,6 +129,11 @@ $properties = [ordered]@{
     ProjectionAreaOffsetYUv = "debug.rustyxr.projection.area.offset.y.uv"
     ProjectionAreaScaleX = "debug.rustyxr.projection.area.scale.x"
     ProjectionAreaScaleY = "debug.rustyxr.projection.area.scale.y"
+    ProjectionTargetOffsetXUv = "debug.rustyxr.projection.target.offset.x.uv"
+    ProjectionTargetOffsetYUv = "debug.rustyxr.projection.target.offset.y.uv"
+    ProjectionTargetScale = "debug.rustyxr.projection.target.scale"
+    ProjectionTargetJoystickControls = "debug.rustyxr.projection.target.joystick.controls"
+    ProjectionTargetJoystickControlsLegacy = "debug.rustyxr.makepad.projection.target.joystick.controls"
     ProjectionAreaRadiusXUv = "debug.rustyxr.projection.area.radius.x.uv"
     ProjectionAreaRadiusYUv = "debug.rustyxr.projection.area.radius.y.uv"
     ProjectionAreaCornerRadiusUv = "debug.rustyxr.projection.area.corner.radius.uv"
@@ -160,6 +173,10 @@ if ($Reset) {
     $ProjectionAreaVerticalUv = 0.0
     $ProjectionAreaScaleX = 1.0
     $ProjectionAreaScaleY = 1.0
+    $ProjectionTargetOffsetXUv = 0.0
+    $ProjectionTargetOffsetYUv = 0.0
+    $ProjectionTargetScale = 1.0
+    $ProjectionTargetJoystickControls = "offset-scale"
     $ProjectionAreaRadiusXUv = 0.5
     $ProjectionAreaRadiusYUv = 0.5
     $ProjectionAreaCornerRadiusUv = 0.0
@@ -196,8 +213,11 @@ Assert-Range -Name "ProjectionAreaDiagnostic" -Value $ProjectionAreaDiagnostic -
 Assert-Range -Name "ProjectionAreaLeftUv" -Value $ProjectionAreaLeftUv -Min -0.5 -Max 0.5
 Assert-Range -Name "ProjectionAreaRightUv" -Value $ProjectionAreaRightUv -Min -0.5 -Max 0.5
 Assert-Range -Name "ProjectionAreaVerticalUv" -Value $ProjectionAreaVerticalUv -Min -0.5 -Max 0.5
-Assert-Range -Name "ProjectionAreaScaleX" -Value $ProjectionAreaScaleX -Min 0.5 -Max 1.5
-Assert-Range -Name "ProjectionAreaScaleY" -Value $ProjectionAreaScaleY -Min 0.5 -Max 1.5
+Assert-Range -Name "ProjectionAreaScaleX" -Value $ProjectionAreaScaleX -Min $ProjectionAreaScaleMin -Max $ProjectionAreaScaleMax
+Assert-Range -Name "ProjectionAreaScaleY" -Value $ProjectionAreaScaleY -Min $ProjectionAreaScaleMin -Max $ProjectionAreaScaleMax
+Assert-Range -Name "ProjectionTargetOffsetXUv" -Value $ProjectionTargetOffsetXUv -Min -0.5 -Max 0.5
+Assert-Range -Name "ProjectionTargetOffsetYUv" -Value $ProjectionTargetOffsetYUv -Min -0.5 -Max 0.5
+Assert-Range -Name "ProjectionTargetScale" -Value $ProjectionTargetScale -Min 0.05 -Max 1.50
 Assert-Range -Name "ProjectionAreaRadiusXUv" -Value $ProjectionAreaRadiusXUv -Min 0.05 -Max 0.5
 Assert-Range -Name "ProjectionAreaRadiusYUv" -Value $ProjectionAreaRadiusYUv -Min 0.05 -Max 0.5
 Assert-Range -Name "ProjectionAreaCornerRadiusUv" -Value $ProjectionAreaCornerRadiusUv -Min 0.0 -Max 0.5
@@ -299,6 +319,19 @@ if (-not [double]::IsNaN($ProjectionAreaScaleX)) {
 }
 if (-not [double]::IsNaN($ProjectionAreaScaleY)) {
     Set-Prop -Name $properties.ProjectionAreaScaleY -Value $ProjectionAreaScaleY
+}
+if (-not [double]::IsNaN($ProjectionTargetOffsetXUv)) {
+    Set-Prop -Name $properties.ProjectionTargetOffsetXUv -Value $ProjectionTargetOffsetXUv
+}
+if (-not [double]::IsNaN($ProjectionTargetOffsetYUv)) {
+    Set-Prop -Name $properties.ProjectionTargetOffsetYUv -Value $ProjectionTargetOffsetYUv
+}
+if (-not [double]::IsNaN($ProjectionTargetScale)) {
+    Set-Prop -Name $properties.ProjectionTargetScale -Value $ProjectionTargetScale
+}
+if ($ProjectionTargetJoystickControls) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionTargetJoystickControls, $ProjectionTargetJoystickControls)
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionTargetJoystickControlsLegacy, $ProjectionTargetJoystickControls)
 }
 if (-not [double]::IsNaN($ProjectionAreaRadiusXUv)) {
     Set-Prop -Name $properties.ProjectionAreaRadiusXUv -Value $ProjectionAreaRadiusXUv

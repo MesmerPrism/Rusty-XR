@@ -538,7 +538,7 @@ impl MakepadPeripheralStretchConfig {
             "projection-border-policy-fallback"
         };
         format!(
-            "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchInnerBlendUv={:.3} peripheralStretchBlendCurve={:.3} peripheralStretchBlendMode={} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchActive={} peripheralStretchTransitionActive={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion={} peripheralStretchTransitionRegion={} peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace={} peripheralStretchTransitionSemantics={} peripheralStretchProjectionExteriorMode={} peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample peripheralStretchReference=pure-hwb-target-inner-band",
+            "peripheralStretchMode={} peripheralStretchCoreScale={:.3} peripheralStretchEdgeInsetUv={:.3} peripheralStretchMaxInsetUv={:.3} peripheralStretchCurve={:.3} peripheralStretchInnerBlendUv={:.3} peripheralStretchBlendCurve={:.3} peripheralStretchBlendMode={} peripheralStretchCornerMode={} peripheralStretchDebug={} peripheralStretchActive={} peripheralStretchTransitionActive={} peripheralStretchConsumesProjectionExterior={} peripheralStretchCoreRegion={} peripheralStretchTransitionRegion={} peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace={} peripheralStretchTransitionSemantics={} peripheralStretchProjectionExteriorMode={} peripheralStretchMapping=mirrored-curved-target-footprint peripheralStretchDistanceCurve=mirrored-border-smoothstep-swirl peripheralStretchBorderSource=mirrored-projection-edge-trail peripheralStretchExteriorSource=curved-target-edge-sample peripheralStretchBlendSemantics=curved-sample-blends-through-inner-band peripheralStretchTargetLocalRasterRegionModel=projection-area-plus-single-border-region peripheralStretchSourceInvalidRegion=screen-to-camera-homography-only peripheralStretchSourceInvalidFallback=screen-to-camera-homography-clamped-source-edge-sample peripheralStretchSourceInvalidConsumesSolidRed=false peripheralStretchReference=pure-hwb-target-local-raster-curved-inner-band",
             self.mode.stable_id(),
             self.core_scale,
             self.edge_inset_uv,
@@ -658,7 +658,21 @@ mod tests {
         assert!(fields.contains(
             "peripheralStretchProjectionExteriorMode=target-edge-stretch-with-inner-band-blend"
         ));
-        assert!(fields.contains("peripheralStretchReference=pure-hwb-target-inner-band"));
+        assert!(fields.contains("peripheralStretchMapping=mirrored-curved-target-footprint"));
+        assert!(fields.contains("peripheralStretchDistanceCurve=mirrored-border-smoothstep-swirl"));
+        assert!(fields
+            .contains("peripheralStretchBlendSemantics=curved-sample-blends-through-inner-band"));
+        assert!(
+            fields.contains("peripheralStretchTargetLocalRasterRegionModel=projection-area-plus-single-border-region")
+        );
+        assert!(fields
+            .contains("peripheralStretchSourceInvalidRegion=screen-to-camera-homography-only"));
+        assert!(fields.contains(
+            "peripheralStretchSourceInvalidFallback=screen-to-camera-homography-clamped-source-edge-sample"
+        ));
+        assert!(fields.contains("peripheralStretchSourceInvalidConsumesSolidRed=false"));
+        assert!(fields
+            .contains("peripheralStretchReference=pure-hwb-target-local-raster-curved-inner-band"));
     }
 
     #[test]

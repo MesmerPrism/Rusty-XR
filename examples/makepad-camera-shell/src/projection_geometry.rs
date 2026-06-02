@@ -18,25 +18,31 @@ use std::ffi::CString;
 use super::source_metadata::{
     broker_pair_content_geometry_marker_fields, BrokerH264ProjectionMetadata,
 };
+use super::source_metadata::{
+    makepad_runtime_target_screen_footprint_pair, target_screen_uv_rect_token,
+};
 #[cfg(target_os = "android")]
 use super::Camera2StereoPlan;
 use super::{
-    hotload_bool, hotload_f32, makepad_current_source_color_contract_fields,
-    makepad_projection_depth_meters, makepad_projection_panel_geometry,
-    makepad_projection_preview_fov_y_degrees, makepad_projection_preview_offset_y_meters,
-    makepad_projection_raw_overscan, marker_token, App, HorizontalAlignmentTuning,
-    MakepadCameraPair, MakepadPeripheralStretchBlendMode, MakepadPeripheralStretchConfig,
-    MakepadPeripheralStretchCornerMode, MakepadPeripheralStretchDebug,
-    MakepadPeripheralStretchMode, MakepadProcessingLayer, MakepadProjectionAlphaMode,
-    MakepadProjectionBorderPolicy, MakepadProjectionSampleMode,
-    KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED, KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV,
-    KEY_MAKEPAD_PROJECTION_AREA_OFFSET_RIGHT_UV, KEY_MAKEPAD_PROJECTION_AREA_OFFSET_VERTICAL_UV,
-    KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV, KEY_MAKEPAD_PROJECTION_AREA_RADIUS_Y_UV,
-    KEY_MAKEPAD_PROJECTION_AREA_SCALE_X, KEY_MAKEPAD_PROJECTION_AREA_SCALE_Y,
-    SOURCE_VALID_FOOTPRINT_GRID, TARGET_DISPLAY_ASPECT, TARGET_PROJECTION_AREA_OFFSET_LEFT_UV,
-    TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV, TARGET_PROJECTION_AREA_OFFSET_VERTICAL_UV,
-    TARGET_PROJECTION_AREA_RADIUS_X_UV, TARGET_PROJECTION_AREA_RADIUS_Y_UV,
-    TARGET_PROJECTION_AREA_SCALE_X, TARGET_PROJECTION_AREA_SCALE_Y,
+    hotload_bool, hotload_f32, hotload_text_any, makepad_camera_projection_mode_is_world_canvas,
+    makepad_current_source_color_contract_fields, makepad_projection_depth_meters,
+    makepad_projection_panel_geometry, makepad_projection_preview_fov_y_degrees,
+    makepad_projection_preview_offset_y_meters, makepad_projection_raw_overscan, marker_token, App,
+    HorizontalAlignmentTuning, MakepadCameraPair, MakepadPeripheralStretchBlendMode,
+    MakepadPeripheralStretchConfig, MakepadPeripheralStretchCornerMode,
+    MakepadPeripheralStretchDebug, MakepadPeripheralStretchMode, MakepadProcessingLayer,
+    MakepadProjectionAlphaMode, MakepadProjectionBorderPolicy, MakepadProjectionSampleMode,
+    DEFAULT_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS, KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED,
+    KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV, KEY_MAKEPAD_PROJECTION_AREA_OFFSET_RIGHT_UV,
+    KEY_MAKEPAD_PROJECTION_AREA_OFFSET_VERTICAL_UV, KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV,
+    KEY_MAKEPAD_PROJECTION_AREA_RADIUS_Y_UV, KEY_MAKEPAD_PROJECTION_AREA_SCALE_X,
+    KEY_MAKEPAD_PROJECTION_AREA_SCALE_Y, KEY_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+    PROJECTION_AREA_MAX_SCALE, PROJECTION_AREA_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE,
+    PROJECTION_TARGET_MIN_SCALE, SOURCE_VALID_FOOTPRINT_GRID, TARGET_DISPLAY_ASPECT,
+    TARGET_PROJECTION_AREA_OFFSET_LEFT_UV, TARGET_PROJECTION_AREA_OFFSET_RIGHT_UV,
+    TARGET_PROJECTION_AREA_OFFSET_VERTICAL_UV, TARGET_PROJECTION_AREA_RADIUS_X_UV,
+    TARGET_PROJECTION_AREA_RADIUS_Y_UV, TARGET_PROJECTION_AREA_SCALE_X,
+    TARGET_PROJECTION_AREA_SCALE_Y,
 };
 #[cfg(target_os = "android")]
 use crate::acamera_sys::ACAMERA_LENS_FACING_BACK;
@@ -937,7 +943,7 @@ impl MakepadOpenXrProjectionContract {
 
 pub(crate) fn projection_homography_marker_fields(pair: &MakepadCameraPair) -> String {
     format!(
-        "projectionHomographyReady={} runtimeXrViewStateReady={} sourceBindingMode={} projectionGeometryProfile={} geometry_profile={} displayLeftCameraId={} displayRightCameraId={} makepadLeftCameraId={} makepadRightCameraId={} sourceRasterOriginPolicy=explicit-broker-raster-or-camera2-import sourceRasterUvCorrectionStage=projection-plan-for-broker-top-left-raster projectionAreaTransformStage=pre_homography_screen_uv projectionAreaWarpParity=diagnostic_only contentUvRect=0,0,1,1 cpuUploadRect=0,0,{},{} cpuUploadStride=not-exposed {} leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} {} {}",
+        "projectionHomographyReady={} runtimeXrViewStateReady={} sourceBindingMode={} projectionGeometryProfile={} geometry_profile={} displayLeftCameraId={} displayRightCameraId={} makepadLeftCameraId={} makepadRightCameraId={} sourceRasterOriginPolicy=explicit-broker-raster-or-camera2-import sourceRasterUvCorrectionStage=projection-plan-for-broker-top-left-raster projectionAreaTransformStage=pre_homography_screen_uv projectionAreaWarpParity=diagnostic_only contentUvRect=0,0,1,1 cpuUploadRect=0,0,{},{} cpuUploadStride=not-exposed {} leftSurfaceToCameraH={} rightSurfaceToCameraH={} leftSurfaceToScreenH={} rightSurfaceToScreenH={} leftScreenToCameraH={} rightScreenToCameraH={} leftScreenToSurfaceH={} rightScreenToSurfaceH={} {} {} {}",
         pair.projection_homography_ready,
         pair.runtime_xr_view_state_ready,
         pair.source_binding_mode,
@@ -959,7 +965,8 @@ pub(crate) fn projection_homography_marker_fields(pair: &MakepadCameraPair) -> S
         homography_token(pair.left_screen_to_surface_h),
         homography_token(pair.right_screen_to_surface_h),
         expected_source_valid_footprint_marker_fields(pair),
-        makepad_projection_target_marker_fields()
+        makepad_projection_target_marker_fields(),
+        pair.target_footprint.marker_fields()
     )
 }
 
@@ -2004,8 +2011,8 @@ fn projection_area_screen_uv_rect(
     scale_x: f32,
     scale_y: f32,
 ) -> [f32; 4] {
-    let scale_x = scale_x.clamp(0.05, 4.0);
-    let scale_y = scale_y.clamp(0.05, 4.0);
+    let scale_x = scale_x.clamp(PROJECTION_AREA_MIN_SCALE, PROJECTION_AREA_MAX_SCALE);
+    let scale_y = scale_y.clamp(PROJECTION_AREA_MIN_SCALE, PROJECTION_AREA_MAX_SCALE);
     let radius_x = radius_x_uv.clamp(0.05, 0.5);
     let radius_y = radius_y_uv.clamp(0.05, 0.5);
     let center_x = 0.5 + offset_x_uv.clamp(-0.5, 0.5) / scale_x;
@@ -2018,16 +2025,55 @@ fn projection_area_screen_uv_rect(
     ]
 }
 
-fn projection_area_center_uv(
-    offset_x_uv: f32,
-    offset_y_uv: f32,
+fn projection_area_source_to_screen_gain_uv(
+    radius_x_uv: f32,
+    radius_y_uv: f32,
     scale_x: f32,
     scale_y: f32,
 ) -> [f32; 2] {
     [
-        0.5 + offset_x_uv.clamp(-0.5, 0.5) / scale_x.clamp(0.05, 4.0),
-        0.5 + offset_y_uv.clamp(-0.5, 0.5) / scale_y.clamp(0.05, 4.0),
+        (radius_x_uv.clamp(0.001, 0.5) * 2.0)
+            / scale_x.clamp(PROJECTION_AREA_MIN_SCALE, PROJECTION_AREA_MAX_SCALE),
+        (radius_y_uv.clamp(0.001, 0.5) * 2.0)
+            / scale_y.clamp(PROJECTION_AREA_MIN_SCALE, PROJECTION_AREA_MAX_SCALE),
     ]
+}
+
+fn target_screen_rect_center_uv(rect: Rect2) -> [f32; 2] {
+    [
+        rect.origin.x + rect.size.x * 0.5,
+        rect.origin.y + rect.size.y * 0.5,
+    ]
+}
+
+fn target_screen_rect_radius_uv(rect: Rect2) -> [f32; 2] {
+    [
+        (rect.size.x * 0.5).clamp(0.001, 0.5),
+        (rect.size.y * 0.5).clamp(0.001, 0.5),
+    ]
+}
+
+fn target_screen_rect_with_runtime_adjustment(
+    rect: Rect2,
+    offset_x_uv: f32,
+    offset_y_uv: f32,
+    scale: f32,
+) -> [f32; 4] {
+    let center = target_screen_rect_center_uv(rect);
+    let radius = target_screen_rect_radius_uv(rect);
+    let scale = scale.clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE);
+    let resolved_radius_x = (radius[0] * scale).clamp(0.001, 0.5);
+    let resolved_radius_y = (radius[1] * scale).clamp(0.001, 0.5);
+    [
+        center[0] + offset_x_uv.clamp(-0.5, 0.5) - resolved_radius_x,
+        center[1] + offset_y_uv.clamp(-0.5, 0.5) - resolved_radius_y,
+        resolved_radius_x * 2.0,
+        resolved_radius_y * 2.0,
+    ]
+}
+
+fn target_screen_rect_center_from_xywh(rect: [f32; 4]) -> [f32; 2] {
+    [rect[0] + rect[2] * 0.5, rect[1] + rect[3] * 0.5]
 }
 
 fn makepad_peripheral_stretch_config_from_tuning(
@@ -2069,6 +2115,17 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
     let preview_offset_y_meters = makepad_projection_preview_offset_y_meters();
     let raw_overscan = makepad_projection_raw_overscan();
     let panel_geometry = makepad_projection_panel_geometry();
+    let world_canvas = makepad_camera_projection_mode_is_world_canvas();
+    let projection_canvas_mode = if world_canvas {
+        "full-target-canvas-quad"
+    } else {
+        "fullscreen-collapsed-surface"
+    };
+    let projection_surface_aspect_contract = if world_canvas {
+        "full_target_canvas_aspect"
+    } else {
+        "content_frame_aspect_not_display_eye_fov"
+    };
     let native_projection_area_left_uv = tuning.projection_area_offset_left_uv;
     let native_projection_area_right_uv = tuning.projection_area_offset_right_uv;
     let native_projection_area_vertical_uv = tuning.projection_area_offset_vertical_uv;
@@ -2077,40 +2134,56 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
     let projection_area_offset_y_uv = native_projection_area_vertical_uv;
     let projection_area_scale_x = tuning.projection_area_scale_x;
     let projection_area_scale_y = tuning.projection_area_scale_y;
+    let projection_target_offset_x_uv = tuning.projection_target_offset_x_uv;
+    let projection_target_offset_y_uv = tuning.projection_target_offset_y_uv;
+    let projection_target_scale = tuning.projection_target_scale;
+    let target_footprint = makepad_runtime_target_screen_footprint_pair();
+    let left_target_radius = target_screen_rect_radius_uv(target_footprint.left_rect);
+    let right_target_radius = target_screen_rect_radius_uv(target_footprint.right_rect);
+    let left_target_center = target_screen_rect_center_uv(target_footprint.left_rect);
+    let right_target_center = target_screen_rect_center_uv(target_footprint.right_rect);
     let projection_area_radius_x_uv = tuning.projection_area_radius_x_uv;
     let projection_area_radius_y_uv = tuning.projection_area_radius_y_uv;
+    let projection_target_radius_x_uv = (((left_target_radius[0] + right_target_radius[0]) * 0.5)
+        * projection_target_scale)
+        .clamp(0.001, 0.5);
+    let projection_target_radius_y_uv = (((left_target_radius[1] + right_target_radius[1]) * 0.5)
+        * projection_target_scale)
+        .clamp(0.001, 0.5);
     let projection_area_corner_radius_uv = tuning.projection_area_corner_radius_uv;
-    let left_projection_area_rect = projection_area_screen_uv_rect(
-        projection_area_left_offset_x_uv,
-        projection_area_offset_y_uv,
-        projection_area_radius_x_uv,
-        projection_area_radius_y_uv,
-        projection_area_scale_x,
-        projection_area_scale_y,
+    let left_projection_area_rect = target_screen_rect_with_runtime_adjustment(
+        target_footprint.left_rect,
+        projection_target_offset_x_uv,
+        projection_target_offset_y_uv,
+        projection_target_scale,
     );
-    let right_projection_area_rect = projection_area_screen_uv_rect(
-        projection_area_right_offset_x_uv,
-        projection_area_offset_y_uv,
-        projection_area_radius_x_uv,
-        projection_area_radius_y_uv,
-        projection_area_scale_x,
-        projection_area_scale_y,
+    let right_projection_area_rect = target_screen_rect_with_runtime_adjustment(
+        target_footprint.right_rect,
+        projection_target_offset_x_uv,
+        projection_target_offset_y_uv,
+        projection_target_scale,
     );
-    let left_projection_area_center = projection_area_center_uv(
-        projection_area_left_offset_x_uv,
-        projection_area_offset_y_uv,
-        projection_area_scale_x,
-        projection_area_scale_y,
-    );
-    let right_projection_area_center = projection_area_center_uv(
-        projection_area_right_offset_x_uv,
-        projection_area_offset_y_uv,
+    let left_projection_area_center =
+        target_screen_rect_center_from_xywh(left_projection_area_rect);
+    let right_projection_area_center =
+        target_screen_rect_center_from_xywh(right_projection_area_rect);
+    let left_projection_area_offset_response = [
+        left_projection_area_center[0] - left_target_center[0],
+        left_projection_area_center[1] - left_target_center[1],
+    ];
+    let right_projection_area_offset_response = [
+        right_projection_area_center[0] - right_target_center[0],
+        right_projection_area_center[1] - right_target_center[1],
+    ];
+    let projection_area_source_to_screen_gain = projection_area_source_to_screen_gain_uv(
+        projection_target_radius_x_uv,
+        projection_target_radius_y_uv,
         projection_area_scale_x,
         projection_area_scale_y,
     );
     let source_color_contract = makepad_current_source_color_contract_fields();
     format!(
-        "nativePassthroughRequested={} projectionBorderPolicy={} passthroughUnderlay={} projectionDepthMeters={:.3} panelTargetDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} panelTargetAspect={:.3} panelTargetWidthMeters={:.3} panelTargetHeightMeters={:.3} panelTargetCenterYMeters={:.3} panelTargetZMeters={:.3} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} processingLayer={} blurRadiusPx={:.2} {} {} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionAreaTargetSource=renderer-authored projectionAreaTargetStage=projection_area_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh projectionAreaOffsetConvention=positive-x-right-positive-y-down surfaceCoverageSource=renderer-authored surfaceCoverageSemantics=panel-covers-target-fov feedPlacementSource=renderer-authored feedPlacementSemantics=video_content_inside_panel borderRegionSemantics=visible-render-surface-minus-target-footprint borderFillPolicy={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv",
+        "nativePassthroughRequested={} projectionBorderPolicy={} passthroughUnderlay={} projectionDepthMeters={:.3} panelTargetDepthMeters={:.3} cameraPreviewFovYDegrees={:.3} cameraPreviewOffsetYMeters={:.3} cameraRawOverlayOverscan={:.3} panelTargetAspect={:.3} panelTargetWidthMeters={:.3} panelTargetHeightMeters={:.3} panelTargetCenterYMeters={:.3} panelTargetZMeters={:.3} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} processingLayer={} blurRadiusPx={:.2} {} {} projectionAreaLeftOffsetXUv={:.4} projectionAreaRightOffsetXUv={:.4} projectionAreaOffsetYUv={:.4} makepadNativeProjectionAreaLeftUv={:.4} makepadNativeProjectionAreaRightUv={:.4} makepadNativeProjectionAreaVerticalUv={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} projectionAreaRadiusXUv={:.4} projectionAreaRadiusYUv={:.4} projectionTargetRadiusXUv={:.4} projectionTargetRadiusYUv={:.4} projectionAreaCornerRadiusUv={:.4} projectionTargetJoystickControls={} projectionAreaScaleControlRole=diagnostic-canvas-scale-runtime-property projectionTargetScaleControlRole=reference-target-footprint-runtime-adjustment projectionTargetControlCoordinateSpace=display-eye-screen-uv projectionTargetControlSemantics=runtime_adjustment_applied_after_source_metadata projectionCanvasMode={} projectionCanvasSampleRows=makepad-runtime-source-sampling-marker projectionCanvasIndicator=none projectionSurfaceAspectContract={} projectionAreaTargetSource=target-screen-metadata projectionAreaTargetStage=target_footprint_mapping projectionAreaTargetCoordinateSpace=display-eye-screen-uv projectionAreaTargetRectSemantics=xywh targetFootprintSchema={} leftTargetScreenUvRect={} rightTargetScreenUvRect={} targetClipPolicy=clip-to-visible-eye targetFootprintMetadataSource={} targetFootprintDefault={} resolvedTargetFootprintSource=target-screen-metadata-plus-runtime-adjustment targetFootprintSourceSamplingDomain=target-local-raster effectBoundary=target-footprint projectionAreaOffsetConvention=positive-x-right-positive-y-down projectionAreaOffsetResponseCoordinateSpace=display-eye-screen-uv projectionAreaOffsetResponseModel=screen_uv_delta_equals_offset_uv projectionAreaShaderScreenBaseFormula=screenBase=(surfaceUv-0.5)*projectionAreaScaleUv+0.5 projectionAreaFullFrameContentFormula=contentUv=(targetLocalDomainUv-(0.5-targetRadiusUv))/(2*targetRadiusUv) projectionAreaSourceToScreenGainUv={} leftProjectionAreaSourceToScreenGainUv={} rightProjectionAreaSourceToScreenGainUv={} surfaceCoverageSource=target-screen-metadata surfaceCoverageSemantics=visible-render-surface-covers-target-fov feedPlacementSource=target-screen-metadata feedPlacementSemantics=video_content_inside_target_footprint borderRegionSemantics=visible-render-surface-minus-target-footprint sourceInvalidSemantics=homography-path-only-target-local-stretch-clamps-edge-sample borderFillPolicy={} leftProjectionAreaOffsetResponseUv={} rightProjectionAreaOffsetResponseUv={} leftProjectionAreaScreenUvRect={} rightProjectionAreaScreenUvRect={} leftFeedPlacementScreenUvRect={} rightFeedPlacementScreenUvRect={} leftProjectionAreaCenterUv={} rightProjectionAreaCenterUv={} rendererSurfaceUvOrigin=makepad-renderer-surface-uv displayScreenUvOrigin=top-left-origin-y-down displayScreenUvNormalization=renderer-v-flip-to-display-screen-uv",
         native_passthrough,
         policy.stable_id(),
         policy.wants_native_passthrough(),
@@ -2141,10 +2214,38 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
         native_projection_area_vertical_uv,
         projection_area_scale_x,
         projection_area_scale_y,
+        projection_target_offset_x_uv,
+        projection_target_offset_y_uv,
+        projection_target_scale,
         projection_area_radius_x_uv,
         projection_area_radius_y_uv,
+        projection_target_radius_x_uv,
+        projection_target_radius_y_uv,
         projection_area_corner_radius_uv,
+        marker_token(&hotload_text_any(
+            &[
+                rusty_xr_runtime_config::KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+                KEY_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+            ],
+            DEFAULT_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+        )),
+        projection_canvas_mode,
+        projection_surface_aspect_contract,
+        rusty_xr_camera_model::TARGET_SCREEN_FOOTPRINT_SCHEMA,
+        target_screen_uv_rect_token(target_footprint.left_rect),
+        target_screen_uv_rect_token(target_footprint.right_rect),
+        if target_footprint.from_metadata {
+            "makepad-target-screen-uv-runtime-or-stream"
+        } else {
+            "renderer-authored-fallback"
+        },
+        target_footprint.defaulted,
+        screen_uv_vec2_token(projection_area_source_to_screen_gain),
+        screen_uv_vec2_token(projection_area_source_to_screen_gain),
+        screen_uv_vec2_token(projection_area_source_to_screen_gain),
         policy.shared_fill_policy_id(),
+        screen_uv_vec2_token(left_projection_area_offset_response),
+        screen_uv_vec2_token(right_projection_area_offset_response),
         screen_uv_rect_token(left_projection_area_rect),
         screen_uv_rect_token(right_projection_area_rect),
         screen_uv_rect_token(left_projection_area_rect),
@@ -2253,7 +2354,10 @@ mod tests {
         assert!(line.contains(
             "projectionDepthMeters=1.25 panelTargetDepthMeters=1.25 panelTargetPreviewFovYDegrees=63.000 panelTargetPreviewOffsetYMeters=-0.020 panelTargetRawOverscan=1.070"
         ));
-        assert!(line.contains("projectionAreaTargetSource=renderer-authored"));
+        assert!(line.contains("projectionAreaTargetSource=target-screen-metadata"));
+        assert!(line.contains(
+            "resolvedTargetFootprintSource=target-screen-metadata-plus-runtime-adjustment"
+        ));
         assert!(line.ends_with("visualInspection=required visualReleaseAccepted=false"));
     }
 
@@ -2515,7 +2619,8 @@ mod tests {
         ));
         assert!(line.contains("pairedLeftRightGpuBuffers=false alignedProjection=false"));
         assert!(line.contains("makepadForkBranch=branch makepadForkCommit=commit"));
-        assert!(line.contains("projectionAreaTargetSource=renderer-authored"));
+        assert!(line.contains("projectionAreaTargetSource=target-screen-metadata"));
+        assert!(line.contains("targetFootprintSourceSamplingDomain=target-local-raster"));
         assert!(line.contains(
             "horizontalAlignmentStrength=0.750 manualLeftUv=-0.1250 manualRightUv=0.1250 manualVerticalUv=0.0500 contentUvScale=1.6000"
         ));

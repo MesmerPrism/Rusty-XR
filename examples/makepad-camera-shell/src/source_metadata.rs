@@ -1,11 +1,20 @@
 use crate::camera_texture_path::MakepadCameraTexturePath;
 use crate::makepad_widgets::makepad_platform::event::video_playback::VideoTextureUpdateMetadata;
-use rusty_xr_camera_model::{rect_xywh, uv_rect_token, Rect2, SourceSamplingMode, Vec2};
+use rusty_xr_camera_model::{
+    rect_xywh, target_footprint_debug_region_marker_fields, uv_rect_token, Rect2,
+    SourceSamplingMode, Vec2, TARGET_SCREEN_FOOTPRINT_SCHEMA,
+};
 use serde_json::Value as JsonValue;
 
 use super::{
-    marker_token, MakepadCameraPair, DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE,
-    FRAME_RASTER_TOP_LEFT_Y_DOWN,
+    hotload_text_any, marker_token, MakepadCameraPair, DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT,
+    DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE, DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT,
+    DEFAULT_CAMERA_SOURCE_SAMPLING_MODE, DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT,
+    FRAME_RASTER_TOP_LEFT_Y_DOWN, KEY_CAMERA_LEFT_TARGET_SCREEN_UV_RECT,
+    KEY_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT, KEY_CAMERA_SOURCE_SAMPLING_MODE,
+    KEY_CAMERA_TARGET_SCREEN_UV_RECT, KEY_MAKEPAD_CAMERA_LEFT_TARGET_SCREEN_UV_RECT,
+    KEY_MAKEPAD_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT, KEY_MAKEPAD_CAMERA_SOURCE_SAMPLING_MODE,
+    KEY_MAKEPAD_CAMERA_TARGET_SCREEN_UV_RECT,
 };
 
 pub(crate) fn aspect_ratio_u32(width: u32, height: u32) -> f64 {
@@ -14,6 +23,130 @@ pub(crate) fn aspect_ratio_u32(width: u32, height: u32) -> f64 {
     } else {
         1.0
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MakepadTargetScreenFootprintPair {
+    pub(crate) left_rect: Rect2,
+    pub(crate) right_rect: Rect2,
+    pub(crate) from_metadata: bool,
+    pub(crate) defaulted: bool,
+}
+
+impl MakepadTargetScreenFootprintPair {
+    pub(crate) fn marker_fields(self) -> String {
+        format!(
+            "targetFootprintSchema={} targetCoordinateSpace=display-eye-screen-uv leftTargetScreenUvRect={} rightTargetScreenUvRect={} targetClipPolicy=clip-to-visible-eye targetFootprintMetadataSource={} targetFootprintDefault={} effectBoundary=target-footprint borderRegionSemantics=visible-render-surface-minus-target-footprint sourceInvalidSemantics=homography-path-only-target-local-stretch-clamps-edge-sample {}",
+            TARGET_SCREEN_FOOTPRINT_SCHEMA,
+            target_screen_uv_rect_token(self.left_rect),
+            target_screen_uv_rect_token(self.right_rect),
+            if self.from_metadata {
+                "makepad-direct-camera-target-screen-uv-runtime"
+            } else {
+                "renderer-authored-fallback"
+            },
+            self.defaulted,
+            target_footprint_debug_region_marker_fields(),
+        )
+    }
+}
+
+pub(crate) fn makepad_default_target_screen_uv_rect(left: bool) -> Rect2 {
+    let default = if left {
+        DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT
+    } else {
+        DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT
+    };
+    parse_uv_rect_xywh_text(default).unwrap_or(Rect2::UNIT)
+}
+
+pub(crate) fn makepad_runtime_target_screen_footprint_pair() -> MakepadTargetScreenFootprintPair {
+    let shared_text = hotload_text_any(
+        &[
+            KEY_CAMERA_TARGET_SCREEN_UV_RECT,
+            KEY_MAKEPAD_CAMERA_TARGET_SCREEN_UV_RECT,
+        ],
+        DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT,
+    );
+    let left_default_text = if shared_text.is_empty() {
+        DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT
+    } else {
+        shared_text.as_str()
+    };
+    let right_default_text = if shared_text.is_empty() {
+        DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT
+    } else {
+        shared_text.as_str()
+    };
+    let left_text = hotload_text_any(
+        &[
+            KEY_CAMERA_LEFT_TARGET_SCREEN_UV_RECT,
+            KEY_MAKEPAD_CAMERA_LEFT_TARGET_SCREEN_UV_RECT,
+        ],
+        left_default_text,
+    );
+    let right_text = hotload_text_any(
+        &[
+            KEY_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT,
+            KEY_MAKEPAD_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT,
+        ],
+        right_default_text,
+    );
+    let left_rect = parse_uv_rect_xywh_text(&left_text)
+        .unwrap_or_else(|| makepad_default_target_screen_uv_rect(true));
+    let right_rect = parse_uv_rect_xywh_text(&right_text)
+        .unwrap_or_else(|| makepad_default_target_screen_uv_rect(false));
+    MakepadTargetScreenFootprintPair {
+        left_rect,
+        right_rect,
+        from_metadata: true,
+        defaulted: shared_text.is_empty()
+            && left_text == DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT
+            && right_text == DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT,
+    }
+}
+
+pub(crate) fn makepad_runtime_camera_source_sampling_mode() -> SourceSamplingMode {
+    SourceSamplingMode::parse(&hotload_text_any(
+        &[
+            KEY_CAMERA_SOURCE_SAMPLING_MODE,
+            KEY_MAKEPAD_CAMERA_SOURCE_SAMPLING_MODE,
+        ],
+        DEFAULT_CAMERA_SOURCE_SAMPLING_MODE,
+    ))
+    .unwrap_or(SourceSamplingMode::TargetLocalRaster)
+}
+
+pub(crate) fn parse_uv_rect_xywh_text(text: &str) -> Option<Rect2> {
+    let parts: Vec<f32> = text
+        .split(|character| matches!(character, ',' | ';' | ' ' | '\t'))
+        .filter(|part| !part.trim().is_empty())
+        .filter_map(|part| part.trim().parse::<f32>().ok())
+        .collect();
+    if parts.len() != 4 {
+        return None;
+    }
+    let rect = Rect2::new(Vec2::new(parts[0], parts[1]), Vec2::new(parts[2], parts[3]));
+    target_screen_rect_is_valid(rect).then_some(rect)
+}
+
+pub(crate) fn target_screen_uv_rect_token(rect: Rect2) -> String {
+    uv_rect_token(rect_xywh(rect))
+}
+
+fn optional_target_screen_uv_rect_token(rect: Option<Rect2>) -> String {
+    rect.map(target_screen_uv_rect_token)
+        .unwrap_or_else(|| "missing".to_string())
+}
+
+fn target_screen_rect_is_valid(rect: Rect2) -> bool {
+    rect.is_valid()
+        && rect.size.x > 0.0
+        && rect.size.y > 0.0
+        && rect.origin.x >= 0.0
+        && rect.origin.y >= 0.0
+        && rect.max().x <= 1.0
+        && rect.max().y <= 1.0
 }
 
 fn source_sampling_mode_from_metadata(
@@ -631,6 +764,12 @@ pub(crate) struct BrokerH264ProjectionMetadata {
     pub(crate) content_geometry_metadata_source: String,
     pub(crate) content_geometry_default: bool,
     pub(crate) source_valid_uv_rect: Rect2,
+    pub(crate) target_footprint_schema: Option<String>,
+    pub(crate) target_coordinate_space: String,
+    pub(crate) target_screen_uv_rect: Option<Rect2>,
+    pub(crate) target_clip_policy: String,
+    pub(crate) target_footprint_metadata_source: String,
+    pub(crate) target_footprint_default: bool,
     pub(crate) projection_metadata_ready: bool,
     pub(crate) delivered_width: u32,
     pub(crate) delivered_height: u32,
@@ -849,6 +988,27 @@ impl BrokerH264ProjectionMetadata {
             &["sourceValidUvRect", "contentUvRect", "stimulusUvRect"],
         )
         .unwrap_or(Rect2::UNIT);
+        let target_footprint_schema =
+            json_string_any(object, &["targetFootprintSchema"]).map(str::to_string);
+        let target_coordinate_space = json_string_any(object, &["targetCoordinateSpace"])
+            .unwrap_or("display-eye-screen-uv")
+            .to_string();
+        let target_screen_uv_rect =
+            json_rect2_xywh_any(object, &["targetScreenUvRect", "targetUvRect"]);
+        let target_clip_policy = json_string_any(object, &["targetClipPolicy"])
+            .unwrap_or("clip-to-visible-eye")
+            .to_string();
+        let target_footprint_metadata_source =
+            json_string_any(object, &["targetFootprintMetadataSource"])
+                .unwrap_or("missing")
+                .to_string();
+        let explicit_target_footprint = target_footprint_schema.is_some()
+            || target_screen_uv_rect.is_some()
+            || object.contains_key("targetCoordinateSpace")
+            || object.contains_key("targetClipPolicy")
+            || object.contains_key("targetFootprintMetadataSource");
+        let target_footprint_default = !explicit_target_footprint
+            || json_bool_any(object, &["targetFootprintDefault"]).unwrap_or(false);
         let intrinsics = parse_broker_intrinsics(object.get("intrinsics"));
         let intrinsics_domain = parse_broker_pixel_domain(object.get("intrinsicsDomain"));
         let active_array_domain = parse_broker_pixel_domain(object.get("activeArrayDomain"));
@@ -887,6 +1047,12 @@ impl BrokerH264ProjectionMetadata {
             content_geometry_metadata_source,
             content_geometry_default,
             source_valid_uv_rect,
+            target_footprint_schema,
+            target_coordinate_space,
+            target_screen_uv_rect,
+            target_clip_policy,
+            target_footprint_metadata_source,
+            target_footprint_default,
             projection_metadata_ready,
             delivered_width,
             delivered_height,
@@ -1335,21 +1501,28 @@ pub(crate) fn direct_camera2_content_geometry_marker_fields(
     let content_height = u32::try_from(height).unwrap_or(0);
     let projection_geometry_profile =
         normalize_direct_camera_projection_geometry_profile(projection_geometry_profile);
-    let content_mapping_intent = match projection_geometry_profile.as_str() {
-        "full-frame-diagnostic" => "target-local-raster",
-        "camera-projection" => "map-camera-frame-through-screen-to-camera-homography",
-        _ => "unsupported-direct-camera-projection-geometry-profile",
+    let source_sampling_mode = makepad_runtime_camera_source_sampling_mode();
+    let content_mapping_intent = if source_sampling_mode.uses_target_local_raster() {
+        "target-local-raster"
+    } else {
+        match projection_geometry_profile.as_str() {
+            "full-frame-diagnostic" => "target-local-raster",
+            "camera-projection" => "map-camera-frame-through-screen-to-camera-homography",
+            _ => "unsupported-direct-camera-projection-geometry-profile",
+        }
     };
     let content_geometry = StereoContentGeometryRecord::direct_camera2(
         content_width,
         content_height,
         content_mapping_intent,
     );
+    let target_footprint = makepad_runtime_target_screen_footprint_pair();
     format!(
-        "projectionGeometryProfile={} geometry_profile={} {}",
+        "projectionGeometryProfile={} geometry_profile={} {} {}",
         projection_geometry_profile,
         projection_geometry_profile,
         content_geometry.marker_fields(),
+        target_footprint.marker_fields(),
     )
 }
 
@@ -1363,7 +1536,7 @@ pub(crate) fn stream_header_metadata_marker_fields(
 ) -> String {
     let content_geometry = ContentGeometryRecord::from_broker_metadata(metadata);
     format!(
-        "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} projectionGeometryProfile={} geometry_profile={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} sourceSamplingMode={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+        "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} projectionGeometryProfile={} geometry_profile={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} sourceSamplingMode={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} targetFootprintSchema={} targetCoordinateSpace={} targetScreenUvRect={} targetClipPolicy={} targetFootprintMetadataSource={} targetFootprintDefault={} effectBoundary=target-footprint importPlan=broker-h264-stereo-mediacodec-yuv-texture",
         side_label,
         metadata.metadata_bytes,
         marker_token(&metadata.camera_id),
@@ -1399,6 +1572,17 @@ pub(crate) fn stream_header_metadata_marker_fields(
         marker_token(&content_geometry.metadata_source),
         content_geometry.metadata_default,
         uv_rect_token(rect_xywh(metadata.source_valid_uv_rect)),
+        marker_token(
+            metadata
+                .target_footprint_schema
+                .as_deref()
+                .unwrap_or(TARGET_SCREEN_FOOTPRINT_SCHEMA)
+        ),
+        marker_token(&metadata.target_coordinate_space),
+        optional_target_screen_uv_rect_token(metadata.target_screen_uv_rect),
+        marker_token(&metadata.target_clip_policy),
+        marker_token(&metadata.target_footprint_metadata_source),
+        metadata.target_footprint_default,
     )
 }
 
@@ -1437,15 +1621,7 @@ fn json_rect2_xywh_any(
 ) -> Option<Rect2> {
     keys.iter()
         .find_map(|key| json_rect2_xywh(object.get(*key)))
-        .filter(|rect| {
-            rect.is_valid()
-                && rect.size.x > 0.0
-                && rect.size.y > 0.0
-                && rect.origin.x >= 0.0
-                && rect.origin.y >= 0.0
-                && rect.max().x <= 1.0
-                && rect.max().y <= 1.0
-        })
+        .filter(|rect| target_screen_rect_is_valid(*rect))
 }
 
 fn json_rect2_xywh(value: Option<&JsonValue>) -> Option<Rect2> {
@@ -1469,19 +1645,7 @@ fn json_rect2_xywh(value: Option<&JsonValue>) -> Option<Rect2> {
         let height = json_f32_field_any(object, &["height", "h"])?;
         return Some(Rect2::new(Vec2::new(x, y), Vec2::new(width, height)));
     }
-    let text = value.as_str()?;
-    let parts: Vec<f32> = text
-        .split(',')
-        .filter_map(|part| part.trim().parse::<f32>().ok())
-        .collect();
-    if parts.len() == 4 {
-        Some(Rect2::new(
-            Vec2::new(parts[0], parts[1]),
-            Vec2::new(parts[2], parts[3]),
-        ))
-    } else {
-        None
-    }
+    parse_uv_rect_xywh_text(value.as_str()?)
 }
 
 fn json_f32_value(value: Option<&JsonValue>) -> Option<f32> {
@@ -1577,10 +1741,19 @@ mod tests {
         let fields =
             direct_camera2_content_geometry_marker_fields(1280, 720, "camera2-platform-unprofiled");
 
-        assert_eq!(
-            fields,
-            "projectionGeometryProfile=camera-projection geometry_profile=camera-projection leftContentKind=camera-frame rightContentKind=camera-frame leftContentWidth=1280 leftContentHeight=720 rightContentWidth=1280 rightContentHeight=720 leftContentAspectRatio=1.777778 rightContentAspectRatio=1.777778 leftDesiredDisplayAspectRatio=1.777778 rightDesiredDisplayAspectRatio=1.777778 leftDesiredProjectionAspectRatio=1.777778 rightDesiredProjectionAspectRatio=1.777778 leftContentCoordinateSpace=normalized-uv rightContentCoordinateSpace=normalized-uv leftContentOrigin=top-left rightContentOrigin=top-left leftContentXAxis=right rightContentXAxis=right leftContentYAxis=down rightContentYAxis=down leftContentMappingIntent=map-camera-frame-through-screen-to-camera-homography rightContentMappingIntent=map-camera-frame-through-screen-to-camera-homography leftSourceSamplingMode=screen-to-camera-homography rightSourceSamplingMode=screen-to-camera-homography leftContentGeometryMetadataSource=makepad-direct-camera2-import rightContentGeometryMetadataSource=makepad-direct-camera2-import leftContentGeometryDefault=false rightContentGeometryDefault=false contentGeometryFallbackReason=none"
+        assert!(fields.contains(
+            "projectionGeometryProfile=camera-projection geometry_profile=camera-projection"
+        ));
+        assert!(fields.contains("leftContentKind=camera-frame rightContentKind=camera-frame"));
+        assert!(
+            fields.contains("leftContentMappingIntent=target-local-raster rightContentMappingIntent=target-local-raster")
         );
+        assert!(
+            fields.contains("leftSourceSamplingMode=target-local-raster rightSourceSamplingMode=target-local-raster")
+        );
+        assert!(fields.contains("targetFootprintSchema=rusty.xr.target_screen_footprint.v1"));
+        assert!(fields.contains("leftTargetScreenUvRect=0.171875,0.218750,0.750000,0.656250"));
+        assert!(fields.contains("rightTargetScreenUvRect=0.078125,0.218750,0.750000,0.671875"));
     }
 
     #[test]

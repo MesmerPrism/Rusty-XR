@@ -143,6 +143,16 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
             "debug.rustyxr.makepad.xr.render.scale": "xrRenderScale",
             "debug.rustyxr.camera.blur.radius.px": "blurRadiusPx",
             "debug.rustyxr.makepad.blur.radius.px": "blurRadiusPx",
+            "debug.rustyxr.camera.projection.geometry.profile": "cameraProjectionGeometryProfile",
+            "debug.rustyxr.makepad.camera.projection.geometry.profile": "cameraProjectionGeometryProfile",
+            "debug.rustyxr.camera.source.sampling.mode": "cameraSourceSamplingMode",
+            "debug.rustyxr.makepad.camera.source.sampling.mode": "cameraSourceSamplingMode",
+            "debug.rustyxr.camera.target.screen.uv.rect": "cameraTargetScreenUvRect",
+            "debug.rustyxr.camera.left.target.screen.uv.rect": "cameraLeftTargetScreenUvRect",
+            "debug.rustyxr.camera.right.target.screen.uv.rect": "cameraRightTargetScreenUvRect",
+            "debug.rustyxr.makepad.camera.target.screen.uv.rect": "cameraTargetScreenUvRect",
+            "debug.rustyxr.makepad.camera.left.target.screen.uv.rect": "cameraLeftTargetScreenUvRect",
+            "debug.rustyxr.makepad.camera.right.target.screen.uv.rect": "cameraRightTargetScreenUvRect",
             "debug.rustyxr.peripheral.stretch.mode": "peripheralStretchMode",
             "debug.rustyxr.peripheral.stretch.core.scale": "peripheralStretchCoreScale",
             "debug.rustyxr.peripheral.stretch.edge.inset.uv": "peripheralStretchEdgeInsetUv",
@@ -153,6 +163,11 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
             "debug.rustyxr.peripheral.stretch.blend.mode": "peripheralStretchBlendMode",
             "debug.rustyxr.peripheral.stretch.corner.mode": "peripheralStretchCornerMode",
             "debug.rustyxr.peripheral.stretch.debug": "peripheralStretchDebug",
+            "debug.rustyxr.projection.target.offset.x.uv": "projectionTargetOffsetXUv",
+            "debug.rustyxr.projection.target.offset.y.uv": "projectionTargetOffsetYUv",
+            "debug.rustyxr.projection.target.scale": "projectionTargetScale",
+            "debug.rustyxr.projection.target.joystick.controls": "projectionTargetJoystickControls",
+            "debug.rustyxr.makepad.projection.target.joystick.controls": "projectionTargetJoystickControls",
         }
         for item in props:
             if not isinstance(item, dict):
@@ -506,6 +521,17 @@ def projection_effect_fields(fields: dict[str, Any]) -> dict[str, Any]:
         ),
         "peripheral_stretch_border_source": nonempty_text(fields.get("peripheralStretchBorderSource")),
         "peripheral_stretch_exterior_source": nonempty_text(fields.get("peripheralStretchExteriorSource")),
+        "peripheral_stretch_mapping": nonempty_text(fields.get("peripheralStretchMapping")),
+        "peripheral_stretch_distance_curve": nonempty_text(fields.get("peripheralStretchDistanceCurve")),
+        "peripheral_stretch_source_invalid_region": nonempty_text(
+            fields.get("peripheralStretchSourceInvalidRegion")
+        ),
+        "peripheral_stretch_source_invalid_fallback": nonempty_text(
+            fields.get("peripheralStretchSourceInvalidFallback")
+        ),
+        "peripheral_stretch_source_invalid_consumes_solid_red": parse_bool(
+            fields.get("peripheralStretchSourceInvalidConsumesSolidRed")
+        ),
         "peripheral_stretch_consumes_projection_exterior": parse_bool(
             fields.get("peripheralStretchConsumesProjectionExterior")
         ),
@@ -517,6 +543,14 @@ def projection_effect_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "projection_target_offset_y_uv": parse_float(fields.get("projectionTargetOffsetYUv")),
         "projection_target_scale": parse_float(fields.get("projectionTargetScale")),
         "projection_target_joystick_controls": nonempty_text(fields.get("projectionTargetJoystickControls")),
+        "projection_area_scale_control_role": (
+            nonempty_text(fields.get("ProjectionAreaScaleControlRole"))
+            or nonempty_text(fields.get("projectionAreaScaleControlRole"))
+        ),
+        "projection_target_scale_control_role": (
+            nonempty_text(fields.get("ProjectionTargetScaleControlRole"))
+            or nonempty_text(fields.get("projectionTargetScaleControlRole"))
+        ),
     }
 
 
@@ -1102,6 +1136,23 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
         ),
         ("peripheralStretchBorderSource", "peripheral_stretch_border_source", nonempty_text),
         ("peripheralStretchExteriorSource", "peripheral_stretch_exterior_source", nonempty_text),
+        ("peripheralStretchMapping", "peripheral_stretch_mapping", nonempty_text),
+        ("peripheralStretchDistanceCurve", "peripheral_stretch_distance_curve", nonempty_text),
+        (
+            "peripheralStretchSourceInvalidRegion",
+            "peripheral_stretch_source_invalid_region",
+            nonempty_text,
+        ),
+        (
+            "peripheralStretchSourceInvalidFallback",
+            "peripheral_stretch_source_invalid_fallback",
+            nonempty_text,
+        ),
+        (
+            "peripheralStretchSourceInvalidConsumesSolidRed",
+            "peripheral_stretch_source_invalid_consumes_solid_red",
+            parse_bool,
+        ),
         (
             "peripheralStretchProjectionExteriorMode",
             "peripheral_stretch_projection_exterior_mode",
@@ -1112,6 +1163,8 @@ def apply_run_context_fallbacks(record: dict[str, Any], context_fields: dict[str
         ("projectionTargetOffsetYUv", "projection_target_offset_y_uv", parse_float),
         ("projectionTargetScale", "projection_target_scale", parse_float),
         ("projectionTargetJoystickControls", "projection_target_joystick_controls", nonempty_text),
+        ("projectionAreaScaleControlRole", "projection_area_scale_control_role", nonempty_text),
+        ("projectionTargetScaleControlRole", "projection_target_scale_control_role", nonempty_text),
     ):
         if projection.get(projection_key) is not None:
             continue
@@ -1287,6 +1340,12 @@ def build_run_config_summary(context_fields: dict[str, Any]) -> dict[str, Any]:
         "projection_target_joystick_controls": nonempty_text(
             context_fields.get("projectionTargetJoystickControls")
         ),
+        "projection_area_scale_control_role": nonempty_text(
+            context_fields.get("projectionAreaScaleControlRole")
+        ),
+        "projection_target_scale_control_role": nonempty_text(
+            context_fields.get("projectionTargetScaleControlRole")
+        ),
         "peripheral_stretch_mode": nonempty_text(context_fields.get("peripheralStretchMode")),
         "peripheral_stretch_core_scale": parse_float(context_fields.get("peripheralStretchCoreScale")),
         "peripheral_stretch_edge_inset_uv": parse_float(
@@ -1301,6 +1360,19 @@ def build_run_config_summary(context_fields: dict[str, Any]) -> dict[str, Any]:
         "peripheral_stretch_blend_mode": nonempty_text(context_fields.get("peripheralStretchBlendMode")),
         "peripheral_stretch_corner_mode": nonempty_text(context_fields.get("peripheralStretchCornerMode")),
         "peripheral_stretch_debug": nonempty_text(context_fields.get("peripheralStretchDebug")),
+        "peripheral_stretch_mapping": nonempty_text(context_fields.get("peripheralStretchMapping")),
+        "peripheral_stretch_distance_curve": nonempty_text(
+            context_fields.get("peripheralStretchDistanceCurve")
+        ),
+        "peripheral_stretch_source_invalid_region": nonempty_text(
+            context_fields.get("peripheralStretchSourceInvalidRegion")
+        ),
+        "peripheral_stretch_source_invalid_fallback": nonempty_text(
+            context_fields.get("peripheralStretchSourceInvalidFallback")
+        ),
+        "peripheral_stretch_source_invalid_consumes_solid_red": parse_bool(
+            context_fields.get("peripheralStretchSourceInvalidConsumesSolidRed")
+        ),
     }
 
 
@@ -1353,6 +1425,17 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
             "transition_semantics": projection.get("peripheral_stretch_transition_semantics"),
             "border_source": projection.get("peripheral_stretch_border_source"),
             "exterior_source": projection.get("peripheral_stretch_exterior_source"),
+            "mapping": projection.get("peripheral_stretch_mapping"),
+            "distance_curve": projection.get("peripheral_stretch_distance_curve"),
+            "source_invalid_region": projection.get(
+                "peripheral_stretch_source_invalid_region"
+            ),
+            "source_invalid_fallback": projection.get(
+                "peripheral_stretch_source_invalid_fallback"
+            ),
+            "source_invalid_consumes_solid_red": projection.get(
+                "peripheral_stretch_source_invalid_consumes_solid_red"
+            ),
             "consumes_projection_exterior": projection.get(
                 "peripheral_stretch_consumes_projection_exterior"
             ),
@@ -1366,6 +1449,8 @@ def build_lane_summary(record: dict[str, Any]) -> dict[str, Any]:
             "offset_y_uv": projection.get("projection_target_offset_y_uv"),
             "scale": projection.get("projection_target_scale"),
             "joystick_controls": projection.get("projection_target_joystick_controls"),
+            "area_scale_control_role": projection.get("projection_area_scale_control_role"),
+            "target_scale_control_role": projection.get("projection_target_scale_control_role"),
         },
         "projection_sample_mode": projection.get("projection_sample_mode", "unknown"),
         "camera_texture_binding": projection.get("camera_texture_binding"),
@@ -1563,6 +1648,26 @@ def self_test() -> None:
                     "expected": "target-footprint",
                     "actual": "target-footprint",
                 },
+                {
+                    "property": "debug.rustyxr.projection.target.offset.x.uv",
+                    "expected": "0.05",
+                    "actual": "0.05",
+                },
+                {
+                    "property": "debug.rustyxr.projection.target.offset.y.uv",
+                    "expected": "-0.03",
+                    "actual": "-0.03",
+                },
+                {
+                    "property": "debug.rustyxr.projection.target.scale",
+                    "expected": "0.85",
+                    "actual": "0.85",
+                },
+                {
+                    "property": "debug.rustyxr.projection.target.joystick.controls",
+                    "expected": "offset-scale",
+                    "actual": "offset-scale",
+                },
             ],
         )
         records, summary, out_dir = run(root, None)
@@ -1638,6 +1743,14 @@ def self_test() -> None:
             raise AssertionError("summary did not expose peripheral stretch blend mode")
         if summary["run_config"]["peripheral_stretch_corner_mode"] != "target-footprint":
             raise AssertionError("summary did not expose peripheral stretch corner mode")
+        if summary["run_config"]["projection_target_offset_x_uv"] != 0.05:
+            raise AssertionError("summary did not expose target offset X")
+        if summary["run_config"]["projection_target_offset_y_uv"] != -0.03:
+            raise AssertionError("summary did not expose target offset Y")
+        if summary["run_config"]["projection_target_scale"] != 0.85:
+            raise AssertionError("summary did not expose target scale")
+        if summary["run_config"]["projection_target_joystick_controls"] != "offset-scale":
+            raise AssertionError("summary did not expose target joystick controls")
         if summary["processing_run_kind_counts"].get("raw-mask-footprint") != 4:
             raise AssertionError("summary did not classify raw runs as raw-mask-footprint")
         fallback_record = {
@@ -1693,7 +1806,7 @@ def self_test() -> None:
     stretch_log = "\n".join(
         [
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left cameraTexturePath=direct-camera-hardware-buffer-external textureImportPath=makepad-camera-hardware-buffer-vulkan-import descriptorShape=combined-immutable-sampler-ycbcr-conversion cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280",
-            "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=horizontal-alignment-hotload status=applied projectionBorderPolicy=solid-red processingLayer=peripheral-stretch projectionSampleMode=camera peripheralStretchMode=edge-stretch peripheralStretchCoreScale=1.000 peripheralStretchEdgeInsetUv=0.015 peripheralStretchMaxInsetUv=0.140 peripheralStretchCurve=1.600 peripheralStretchInnerBlendUv=0.040 peripheralStretchBlendCurve=1.600 peripheralStretchBlendMode=target-inner-band peripheralStretchCornerMode=target-footprint peripheralStretchDebug=off peripheralStretchActive=true peripheralStretchTransitionActive=true peripheralStretchConsumesProjectionExterior=true peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchProjectionExteriorMode=target-edge-stretch-with-inner-band-blend peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample peripheralStretchReference=pure-hwb-target-inner-band",
+            "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=horizontal-alignment-hotload status=applied projectionBorderPolicy=solid-red processingLayer=peripheral-stretch projectionSampleMode=camera peripheralStretchMode=edge-stretch peripheralStretchCoreScale=1.000 peripheralStretchEdgeInsetUv=0.015 peripheralStretchMaxInsetUv=0.140 peripheralStretchCurve=1.600 peripheralStretchInnerBlendUv=0.040 peripheralStretchBlendCurve=1.600 peripheralStretchBlendMode=target-inner-band peripheralStretchCornerMode=target-footprint peripheralStretchDebug=off peripheralStretchActive=true peripheralStretchTransitionActive=true peripheralStretchConsumesProjectionExterior=true peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchProjectionExteriorMode=target-edge-stretch-with-inner-band-blend peripheralStretchMapping=mirrored-curved-target-footprint peripheralStretchDistanceCurve=mirrored-border-smoothstep-swirl peripheralStretchBorderSource=mirrored-projection-edge-trail peripheralStretchExteriorSource=curved-target-edge-sample peripheralStretchBlendSemantics=curved-sample-blends-through-inner-band peripheralStretchTargetLocalRasterRegionModel=projection-area-plus-single-border-region peripheralStretchSourceInvalidRegion=screen-to-camera-homography-only peripheralStretchSourceInvalidFallback=screen-to-camera-homography-clamped-source-edge-sample peripheralStretchSourceInvalidConsumesSolidRed=false peripheralStretchReference=pure-hwb-target-local-raster-curved-inner-band",
         ]
     )
     with tempfile.TemporaryDirectory() as tmp:
@@ -1721,7 +1834,20 @@ def self_test() -> None:
             != "target-edge-stretch-with-inner-band-blend"
         ):
             raise AssertionError("stretch marker did not propagate projection exterior mode")
-        if stretch_fields["reference"] != "pure-hwb-target-inner-band":
+        if stretch_fields["mapping"] != "mirrored-curved-target-footprint":
+            raise AssertionError("stretch marker did not propagate curved mapping")
+        if stretch_fields["distance_curve"] != "mirrored-border-smoothstep-swirl":
+            raise AssertionError("stretch marker did not propagate distance curve")
+        if (
+            stretch_fields["source_invalid_fallback"]
+            != "screen-to-camera-homography-clamped-source-edge-sample"
+        ):
+            raise AssertionError("stretch marker did not propagate source-invalid fallback")
+        if stretch_fields["source_invalid_region"] != "screen-to-camera-homography-only":
+            raise AssertionError("stretch marker did not propagate source-invalid region policy")
+        if stretch_fields["source_invalid_consumes_solid_red"] is not False:
+            raise AssertionError("stretch marker did not propagate source-invalid red consumption")
+        if stretch_fields["reference"] != "pure-hwb-target-local-raster-curved-inner-band":
             raise AssertionError("stretch marker did not propagate reference label")
 
 

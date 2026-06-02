@@ -37,6 +37,7 @@ use projection_runtime::{
 };
 use projection_settings::*;
 use runtime_settings::*;
+use rusty_xr_runtime_config as rxrc;
 #[cfg(target_os = "android")]
 use source_metadata::{
     broker_projection_plan_decision, BrokerProjectionPlanDecision, BrokerProjectionPlanKind,
@@ -61,10 +62,11 @@ use source_metadata::{
     makepad_hardware_buffer_import_timer_fired_marker_fields,
     makepad_hardware_buffer_import_yuv_textures_ready_broker_marker_fields,
     makepad_hardware_buffer_import_yuv_textures_ready_single_stream_marker_fields,
+    makepad_runtime_camera_source_sampling_mode, makepad_runtime_target_screen_footprint_pair,
     makepad_stream_header_metadata_error_marker_fields,
     makepad_stream_header_metadata_ignored_marker_fields,
     normalize_direct_camera_projection_geometry_profile, stream_header_metadata_marker_fields,
-    BrokerH264ProjectionMetadata, MakepadContentGeometrySource,
+    BrokerH264ProjectionMetadata, MakepadContentGeometrySource, MakepadTargetScreenFootprintPair,
 };
 
 use makepad_widgets::makepad_platform::{
@@ -83,7 +85,7 @@ use manifold_breath_feedback::{ManifoldBreathFeedbackConfig, ManifoldBreathFeedb
 use manifold_pose_publisher::{
     ManifoldPosePublisher, ManifoldPosePublisherConfig, ManifoldPoseSample,
 };
-use rusty_xr_camera_model::{Rect2, SourceSamplingMode};
+use rusty_xr_camera_model::{Rect2, SourceSamplingMode, Vec2};
 use rusty_xr_runtime_config::RuntimeConfig;
 use source_sampling::{
     makepad_cadence_sample_marker_line, makepad_cadence_start_marker_line,
@@ -142,108 +144,115 @@ script_mod! {
         right_tex_y: texture_2d(float)
         right_tex_u: texture_2d(float)
         right_tex_v: texture_2d(float)
-        left_projection_h00: 1.0
-        left_projection_h01: 0.0
-        left_projection_h02: 0.0
-        left_projection_h10: 0.0
-        left_projection_h11: 1.0
-        left_projection_h12: 0.0
-        left_projection_h20: 0.0
-        left_projection_h21: 0.0
-        left_projection_h22: 1.0
-        right_projection_h00: 1.0
-        right_projection_h01: 0.0
-        right_projection_h02: 0.0
-        right_projection_h10: 0.0
-        right_projection_h11: 1.0
-        right_projection_h12: 0.0
-        right_projection_h20: 0.0
-        right_projection_h21: 0.0
-        right_projection_h22: 1.0
-        left_screen_to_camera_h00: 1.0
-        left_screen_to_camera_h01: 0.0
-        left_screen_to_camera_h02: 0.0
-        left_screen_to_camera_h10: 0.0
-        left_screen_to_camera_h11: 1.0
-        left_screen_to_camera_h12: 0.0
-        left_screen_to_camera_h20: 0.0
-        left_screen_to_camera_h21: 0.0
-        left_screen_to_camera_h22: 1.0
-        right_screen_to_camera_h00: 1.0
-        right_screen_to_camera_h01: 0.0
-        right_screen_to_camera_h02: 0.0
-        right_screen_to_camera_h10: 0.0
-        right_screen_to_camera_h11: 1.0
-        right_screen_to_camera_h12: 0.0
-        right_screen_to_camera_h20: 0.0
-        right_screen_to_camera_h21: 0.0
-        right_screen_to_camera_h22: 1.0
-        left_screen_to_surface_h00: 1.0
-        left_screen_to_surface_h01: 0.0
-        left_screen_to_surface_h02: 0.0
-        left_screen_to_surface_h10: 0.0
-        left_screen_to_surface_h11: 1.0
-        left_screen_to_surface_h12: 0.0
-        left_screen_to_surface_h20: 0.0
-        left_screen_to_surface_h21: 0.0
-        left_screen_to_surface_h22: 1.0
-        right_screen_to_surface_h00: 1.0
-        right_screen_to_surface_h01: 0.0
-        right_screen_to_surface_h02: 0.0
-        right_screen_to_surface_h10: 0.0
-        right_screen_to_surface_h11: 1.0
-        right_screen_to_surface_h12: 0.0
-        right_screen_to_surface_h20: 0.0
-        right_screen_to_surface_h21: 0.0
-        right_screen_to_surface_h22: 1.0
-        content_uv_scale: 1.60
-        display_eye_offset_meters: 0.032
-        display_fov_y_degrees: 92.0
-        display_aspect: 1.0
-        projection_depth_meters: 1.0
-        projection_preview_offset_y_meters: 0.0
-        projection_preview_fov_y_degrees: 60.0
-        projection_raw_overscan: 1.06
-        suppress_live_camera_sampling: 1.0
-        force_full_surface_live_camera_uv: 1.0
-        force_in_surface_camera_window: 1.0
-        projection_border_opacity: 1.0
-        projection_border_policy: 0.0
-        processing_layer: 0.0
-        projection_sample_mode: 0.0
-        blur_radius_px: 2.0
-        peripheral_stretch_core_scale: 1.0
-        peripheral_stretch_edge_inset_uv: 0.015
-        peripheral_stretch_max_inset_uv: 0.14
-        peripheral_stretch_curve: 1.6
-        peripheral_stretch_inner_blend_uv: 0.040
-        peripheral_stretch_blend_curve: 1.6
-        peripheral_stretch_blend_mode: 1.0
-        peripheral_stretch_debug: 0.0
-        projection_area_diagnostic: 0.0
-        projection_area_offset_left_uv: 0.0
-        projection_area_offset_right_uv: 0.0
-        projection_area_offset_vertical_uv: 0.0
-        projection_area_scale_x: 1.0
-        projection_area_scale_y: 1.0
-        projection_area_radius_x_uv: 0.5
-        projection_area_radius_y_uv: 0.5
-        projection_area_corner_radius_uv: 0.0
-        projection_area_keystone_x: 0.0
-        projection_area_bow_x: 0.0
-        projection_area_opacity: 1.0
-        projection_alpha_mode: 0.0
-        projection_alpha_scale: 1.0
-        projection_alpha_bias: 0.0
-        source_sample_y_flip: 0.0
-        projection_content_mapping_mode: 0.0
-        display_source_eye_swap: 0.0
-        manual_vertical_offset_uv: 0.0
+        left_projection_h00: uniform(1.0)
+        left_projection_h01: uniform(0.0)
+        left_projection_h02: uniform(0.0)
+        left_projection_h10: uniform(0.0)
+        left_projection_h11: uniform(1.0)
+        left_projection_h12: uniform(0.0)
+        left_projection_h20: uniform(0.0)
+        left_projection_h21: uniform(0.0)
+        left_projection_h22: uniform(1.0)
+        right_projection_h00: uniform(1.0)
+        right_projection_h01: uniform(0.0)
+        right_projection_h02: uniform(0.0)
+        right_projection_h10: uniform(0.0)
+        right_projection_h11: uniform(1.0)
+        right_projection_h12: uniform(0.0)
+        right_projection_h20: uniform(0.0)
+        right_projection_h21: uniform(0.0)
+        right_projection_h22: uniform(1.0)
+        left_screen_to_camera_h00: uniform(1.0)
+        left_screen_to_camera_h01: uniform(0.0)
+        left_screen_to_camera_h02: uniform(0.0)
+        left_screen_to_camera_h10: uniform(0.0)
+        left_screen_to_camera_h11: uniform(1.0)
+        left_screen_to_camera_h12: uniform(0.0)
+        left_screen_to_camera_h20: uniform(0.0)
+        left_screen_to_camera_h21: uniform(0.0)
+        left_screen_to_camera_h22: uniform(1.0)
+        right_screen_to_camera_h00: uniform(1.0)
+        right_screen_to_camera_h01: uniform(0.0)
+        right_screen_to_camera_h02: uniform(0.0)
+        right_screen_to_camera_h10: uniform(0.0)
+        right_screen_to_camera_h11: uniform(1.0)
+        right_screen_to_camera_h12: uniform(0.0)
+        right_screen_to_camera_h20: uniform(0.0)
+        right_screen_to_camera_h21: uniform(0.0)
+        right_screen_to_camera_h22: uniform(1.0)
+        left_screen_to_surface_h00: uniform(1.0)
+        left_screen_to_surface_h01: uniform(0.0)
+        left_screen_to_surface_h02: uniform(0.0)
+        left_screen_to_surface_h10: uniform(0.0)
+        left_screen_to_surface_h11: uniform(1.0)
+        left_screen_to_surface_h12: uniform(0.0)
+        left_screen_to_surface_h20: uniform(0.0)
+        left_screen_to_surface_h21: uniform(0.0)
+        left_screen_to_surface_h22: uniform(1.0)
+        right_screen_to_surface_h00: uniform(1.0)
+        right_screen_to_surface_h01: uniform(0.0)
+        right_screen_to_surface_h02: uniform(0.0)
+        right_screen_to_surface_h10: uniform(0.0)
+        right_screen_to_surface_h11: uniform(1.0)
+        right_screen_to_surface_h12: uniform(0.0)
+        right_screen_to_surface_h20: uniform(0.0)
+        right_screen_to_surface_h21: uniform(0.0)
+        right_screen_to_surface_h22: uniform(1.0)
+        content_uv_scale: uniform(1.60)
+        display_eye_offset_meters: uniform(0.032)
+        display_fov_y_degrees: uniform(92.0)
+        display_aspect: uniform(1.0)
+        projection_depth_meters: uniform(1.0)
+        projection_preview_offset_y_meters: uniform(0.0)
+        projection_preview_fov_y_degrees: uniform(60.0)
+        projection_raw_overscan: uniform(1.06)
+        suppress_live_camera_sampling: uniform(1.0)
+        force_full_surface_live_camera_uv: uniform(1.0)
+        force_in_surface_camera_window: uniform(1.0)
+        projection_border_opacity: uniform(1.0)
+        projection_border_policy: uniform(0.0)
+        processing_layer: uniform(0.0)
+        projection_sample_mode: uniform(0.0)
+        blur_radius_px: uniform(2.0)
+        peripheral_stretch_core_scale: uniform(1.0)
+        peripheral_stretch_edge_inset_uv: uniform(0.015)
+        peripheral_stretch_max_inset_uv: uniform(0.14)
+        peripheral_stretch_curve: uniform(1.6)
+        peripheral_stretch_inner_blend_uv: uniform(0.040)
+        peripheral_stretch_blend_curve: uniform(1.6)
+        peripheral_stretch_blend_mode: uniform(1.0)
+        peripheral_stretch_debug: uniform(0.0)
+        projection_area_diagnostic: uniform(0.0)
+        projection_area_offset_left_uv: uniform(0.0)
+        projection_area_offset_right_uv: uniform(0.0)
+        projection_area_offset_vertical_uv: uniform(0.0)
+        projection_area_scale_x: uniform(1.0)
+        projection_area_scale_y: uniform(1.0)
+        projection_target_runtime: uniform(vec4(0.0, 0.0, 1.0, 0.0))
+        left_projection_area_offset_radius_uv: uniform(vec4(0.0, 0.0, 0.5, 0.5))
+        right_projection_area_offset_radius_uv: uniform(vec4(0.0, 0.0, 0.5, 0.5))
+        projection_area_radius_x_uv: uniform(0.5)
+        projection_area_radius_y_uv: uniform(0.5)
+        projection_area_corner_radius_uv: uniform(0.0)
+        projection_area_keystone_x: uniform(0.0)
+        projection_area_bow_x: uniform(0.0)
+        projection_area_opacity: uniform(1.0)
+        projection_alpha_mode: uniform(0.0)
+        projection_alpha_scale: uniform(1.0)
+        projection_alpha_bias: uniform(0.0)
+        source_sample_y_flip: uniform(0.0)
+        projection_content_mapping_mode: uniform(0.0)
+        display_source_eye_swap: uniform(0.0)
+        manual_vertical_offset_uv: uniform(0.0)
+        camera_ready: uniform(1.0)
+        yuv_mode: uniform(1.0)
+        yuv_matrix: uniform(1.0)
+        yuv_biplanar: uniform(0.0)
         v_uv: varying(vec2f)
 
-        cube_size: vec3(1.0, 1.0, 1.0)
-        cube_pos: vec3(0.0, 0.0, 0.0)
-        depth_clip: 0.0
+        cube_size: uniform(vec3(1.0, 1.0, 1.0))
+        cube_pos: uniform(vec3(0.0, 0.0, 0.0))
+        depth_clip: uniform(0.0)
 
         get_size: fn() {
             return self.cube_size
@@ -255,9 +264,10 @@ script_mod! {
 
         vertex: fn() {
             let screen_uv = clamp(self.geom.pos, vec2(0.0, 0.0), vec2(1.0, 1.0));
+            let instance_marker = self.makepad_instance_marker * 0.0;
             self.world = vec4(screen_uv.x, screen_uv.y, 0.0, 1.0);
             self.v_uv = screen_uv;
-            self.vertex_pos = vec4(screen_uv.x * 2.0 - 1.0, screen_uv.y * 2.0 - 1.0, 0.0, 1.0);
+            self.vertex_pos = vec4(screen_uv.x * 2.0 - 1.0, screen_uv.y * 2.0 - 1.0, instance_marker, 1.0);
         }
 
         active_eye_is_right: fn() -> float {
@@ -372,24 +382,41 @@ script_mod! {
             return mix(left_uv, right_uv, display_eye_selector);
         }
 
-        projection_area_screen_uv: fn(coord: vec2f, display_eye_selector: float) -> vec2f {
-            let offset_x = mix(
+        projection_area_screen_base_uv: fn(coord: vec2f) -> vec2f {
+            let scale = max(
+                vec2(self.projection_area_scale_x, self.projection_area_scale_y),
+                vec2(0.01, 0.01)
+            );
+            return (coord - vec2(0.5, 0.5)) * scale + vec2(0.5, 0.5);
+        }
+
+        projection_area_offset_uv: fn(display_eye_selector: float) -> vec2f {
+            let metadata = step(0.5, self.projection_target_runtime.w);
+            let fallback_x = mix(
                 self.projection_area_offset_left_uv,
                 self.projection_area_offset_right_uv,
                 display_eye_selector
             );
-            let scale = max(
-                vec2(self.projection_area_scale_x, self.projection_area_scale_y),
-                vec2(0.05, 0.05)
+            let metadata_x = mix(
+                self.left_projection_area_offset_radius_uv.x,
+                self.right_projection_area_offset_radius_uv.x,
+                display_eye_selector
             );
-            let scaled = (coord - vec2(0.5, 0.5)) * scale + vec2(0.5, 0.5);
-            let y = clamp(scaled.y, 0.0, 1.0);
-            let keystone_x = clamp(self.projection_area_keystone_x, -0.45, 0.45);
-            let bow_x = clamp(self.projection_area_bow_x, -0.25, 0.25);
-            let midpoint_bow = 4.0 * y * (1.0 - y);
-            let x_scale = max(0.05, 1.0 + keystone_x * (1.0 - 2.0 * y) + bow_x * midpoint_bow);
-            let keystoned = vec2((scaled.x - 0.5) * x_scale + 0.5, scaled.y);
-            return keystoned + vec2(offset_x, self.projection_area_offset_vertical_uv);
+            let metadata_y = mix(
+                self.left_projection_area_offset_radius_uv.y,
+                self.right_projection_area_offset_radius_uv.y,
+                display_eye_selector
+            );
+            let base_offset = vec2(
+                mix(fallback_x, metadata_x, metadata),
+                mix(self.projection_area_offset_vertical_uv, metadata_y, metadata)
+            );
+            return clamp(
+                base_offset +
+                self.projection_target_runtime.xy,
+                vec2(-0.5, -0.5),
+                vec2(0.5, 0.5)
+            );
         }
 
         clamp_border_seed_uv: fn(seed_uv: vec2f) -> vec2f {
@@ -714,22 +741,49 @@ script_mod! {
             return clamp(border * inside, 0.0, 1.0);
         }
 
-        projection_area_mask: fn(area_uv: vec2f) -> float {
-            let signed_distance = self.target_footprint_signed_distance_uv(area_uv);
+        projection_area_mask: fn(area_uv: vec2f, display_eye_selector: float) -> float {
+            let signed_distance = self.target_footprint_signed_distance_uv(area_uv, display_eye_selector);
             return 1.0 - step(0.0001, signed_distance);
         }
 
-        target_footprint_signed_distance_uv: fn(area_uv: vec2f) -> float {
-            let half_size = max(
-                vec2(self.projection_area_radius_x_uv, self.projection_area_radius_y_uv),
-                vec2(0.05, 0.05)
+        projection_area_half_size_uv: fn(display_eye_selector: float) -> vec2f {
+            let metadata = step(0.5, self.projection_target_runtime.w);
+            let fallback_radius = vec2(
+                self.projection_area_radius_x_uv,
+                self.projection_area_radius_y_uv
             );
+            let metadata_radius = vec2(
+                mix(
+                    self.left_projection_area_offset_radius_uv.z,
+                    self.right_projection_area_offset_radius_uv.z,
+                    display_eye_selector
+                ),
+                mix(
+                    self.left_projection_area_offset_radius_uv.w,
+                    self.right_projection_area_offset_radius_uv.w,
+                    display_eye_selector
+                )
+            );
+            let radius = mix(fallback_radius, metadata_radius, metadata);
+            let target_scale = clamp(self.projection_target_runtime.z, 0.05, 1.50);
+            return clamp(radius * target_scale, vec2(0.001, 0.001), vec2(0.50, 0.50));
+        }
+
+        projection_area_content_uv: fn(area_uv: vec2f, display_eye_selector: float) -> vec2f {
+            let half_size = self.projection_area_half_size_uv(display_eye_selector);
+            return (area_uv - (vec2(0.5, 0.5) - half_size)) /
+                max(half_size * 2.0, vec2(0.001, 0.001));
+        }
+
+        target_footprint_signed_distance_uv: fn(area_uv: vec2f, display_eye_selector: float) -> float {
+            let center = vec2(0.5, 0.5);
+            let half_size = self.projection_area_half_size_uv(display_eye_selector);
             let corner_radius = clamp(
                 self.projection_area_corner_radius_uv,
                 0.0,
                 min(half_size.x, half_size.y) - 0.001
             );
-            let q = abs(area_uv - vec2(0.5, 0.5)) - (half_size - vec2(corner_radius, corner_radius));
+            let q = abs(area_uv - center) - (half_size - vec2(corner_radius, corner_radius));
             let outside = length(max(q, vec2(0.0, 0.0)));
             let inside = min(max(q.x, q.y), 0.0);
             return outside + inside - corner_radius;
@@ -737,19 +791,51 @@ script_mod! {
 
         projection_area_rect_edge_uv: fn(
             canonical_uv: vec2f,
+            display_eye_selector: float,
             domain_min_uv: vec2f,
             domain_max_uv: vec2f,
             force_edge_sample: float
         ) -> vec2f {
-            let domain_size = max(domain_max_uv - domain_min_uv, vec2(0.001, 0.001));
-            let center = (domain_min_uv + domain_max_uv) * 0.5;
-            let half_size = domain_size * 0.5;
-            let normalized = (canonical_uv - center) / half_size;
+            let center = vec2(0.5, 0.5);
+            let half_size = self.projection_area_half_size_uv(display_eye_selector);
+            let core_scale = clamp(self.peripheral_stretch_core_scale, 0.05, 1.0);
+            let core_half_size = max(half_size * core_scale, vec2(0.001, 0.001));
+            let normalized = (canonical_uv - center) / core_half_size;
             let edge_distance = max(max(abs(normalized.x), abs(normalized.y)), 0.0001);
+            if edge_distance <= 1.0 && force_edge_sample <= 0.5 {
+                return canonical_uv;
+            }
+            let effective_edge_distance =
+                mix(edge_distance, max(edge_distance, 1.0), clamp(force_edge_sample, 0.0, 1.0));
             let edge_normalized = normalized / edge_distance;
-            let edge_uv = center + edge_normalized * half_size;
-            let interior_reach = max(1.0 - edge_distance, 0.0);
-            let exterior_reach = max(edge_distance - 1.0, 0.0001);
+            let edge_direction_uv = edge_normalized * core_half_size;
+            let bounded_min_uv = min(domain_min_uv, domain_max_uv);
+            let bounded_max_uv = max(domain_min_uv, domain_max_uv);
+            let default_reach = 1000000.0;
+            let positive_x_reach =
+                (bounded_max_uv.x - center.x) / max(edge_direction_uv.x, 0.0001);
+            let negative_x_reach =
+                (bounded_min_uv.x - center.x) / min(edge_direction_uv.x, -0.0001);
+            let reach_x = mix(
+                default_reach,
+                mix(negative_x_reach, positive_x_reach, step(0.0, edge_direction_uv.x)),
+                step(0.0001, abs(edge_direction_uv.x))
+            );
+            let positive_y_reach =
+                (bounded_max_uv.y - center.y) / max(edge_direction_uv.y, 0.0001);
+            let negative_y_reach =
+                (bounded_min_uv.y - center.y) / min(edge_direction_uv.y, -0.0001);
+            let reach_y = mix(
+                default_reach,
+                mix(negative_y_reach, positive_y_reach, step(0.0, edge_direction_uv.y)),
+                step(0.0001, abs(edge_direction_uv.y))
+            );
+            let exterior_reach = max(min(reach_x, reach_y) - 1.0, 0.0001);
+            let exterior_t = smoothstep(
+                0.0,
+                1.0,
+                clamp((effective_edge_distance - 1.0) / exterior_reach, 0.0, 1.0)
+            );
             let edge_inset = clamp(self.peripheral_stretch_edge_inset_uv, 0.0, 0.49);
             let max_inset = clamp(
                 self.peripheral_stretch_max_inset_uv,
@@ -757,18 +843,10 @@ script_mod! {
                 0.49
             );
             let curve = clamp(self.peripheral_stretch_curve, 0.25, 6.0);
-            let core_scale = clamp(self.peripheral_stretch_core_scale, 0.05, 1.0);
-            let core_inset = (1.0 - core_scale) * 0.5;
-            let reach = mix(interior_reach, exterior_reach, step(1.0, edge_distance));
-            let normalized_reach = clamp(reach / max(max_inset - edge_inset, 0.0001), 0.0, 1.0);
-            let inset = mix(edge_inset, max_inset, pow(normalized_reach, curve)) + core_inset;
-            let edge_direction = edge_normalized;
-            let inset_uv = vec2(
-                mix(0.0, inset, step(0.0001, abs(edge_direction.x))),
-                mix(0.0, inset, step(0.0001, abs(edge_direction.y)))
-            );
-            let remapped = clamp(edge_uv, domain_min_uv + inset_uv, domain_max_uv - inset_uv);
-            return mix(canonical_uv, remapped, clamp(force_edge_sample, 0.0, 1.0));
+            let inset = mix(edge_inset, max_inset, pow(exterior_t, curve));
+            let sample_half_size = max(core_half_size - vec2(inset, inset), vec2(0.001, 0.001));
+            let sample_uv = center + edge_normalized * sample_half_size;
+            return clamp(sample_uv, bounded_min_uv, bounded_max_uv);
         }
 
         peripheral_stretch_active: fn() -> float {
@@ -790,32 +868,6 @@ script_mod! {
             }
             let t = smoothstep(-inner_blend, 0.0, signed_distance_uv);
             return pow(t, blend_curve);
-        }
-
-        projection_area_edge_mask: fn(area_uv: vec2f) -> float {
-            let half_size = max(
-                vec2(self.projection_area_radius_x_uv, self.projection_area_radius_y_uv),
-                vec2(0.05, 0.05)
-            );
-            let corner_radius = clamp(
-                self.projection_area_corner_radius_uv,
-                0.0,
-                min(half_size.x, half_size.y) - 0.001
-            );
-            let q = abs(area_uv - vec2(0.5, 0.5)) - (half_size - vec2(corner_radius, corner_radius));
-            let outside = length(max(q, vec2(0.0, 0.0)));
-            let inside = min(max(q.x, q.y), 0.0);
-            let signed_distance = outside + inside - corner_radius;
-            return 1.0 - step(0.012, abs(signed_distance));
-        }
-
-        projection_area_content_uv: fn(area_uv: vec2f) -> vec2f {
-            let half_size = max(
-                vec2(self.projection_area_radius_x_uv, self.projection_area_radius_y_uv),
-                vec2(0.05, 0.05)
-            );
-            return (area_uv - (vec2(0.5, 0.5) - half_size)) /
-                max(half_size * 2.0, vec2(0.001, 0.001));
         }
 
         diagnostic_domain_edge_mask: fn(coord: vec2f, width: float, pad: float) -> float {
@@ -884,11 +936,19 @@ script_mod! {
             let proof_guide = 0.0;
             let eye_selector = self.source_eye_selector();
             let display_eye_selector = self.active_eye_is_right();
-            let canonical_projection_screen_uv =
-                self.projection_area_screen_uv(full_view_uv, display_eye_selector);
+            let projection_screen_uv_base =
+                self.projection_area_screen_base_uv(full_view_uv);
+            let projection_area_offset =
+                self.projection_area_offset_uv(display_eye_selector);
+            let canonical_projection_area_domain_uv =
+                projection_screen_uv_base - projection_area_offset;
             let signed_distance_uv =
-                self.target_footprint_signed_distance_uv(canonical_projection_screen_uv);
-            let projection_area_mask = self.projection_area_mask(canonical_projection_screen_uv);
+                self.target_footprint_signed_distance_uv(
+                    canonical_projection_area_domain_uv,
+                    display_eye_selector
+                );
+            let projection_area_mask =
+                self.projection_area_mask(canonical_projection_area_domain_uv, display_eye_selector);
             let peripheral_stretch_active = self.peripheral_stretch_active();
             let stretch_weight =
                 peripheral_stretch_active *
@@ -899,44 +959,86 @@ script_mod! {
                 peripheral_stretch_active *
                 projection_area_mask *
                 step(0.0001, stretch_weight);
-            let stretch_effect_region =
+            let target_stretch_effect_region =
                 clamp(max(stretch_exterior, target_transition_band), 0.0, 1.0);
-            let projection_area_offset_x = mix(
-                self.projection_area_offset_left_uv,
-                self.projection_area_offset_right_uv,
-                display_eye_selector
-            );
             let projection_area_scale =
-                max(vec2(self.projection_area_scale_x, self.projection_area_scale_y), vec2(0.05, 0.05));
-            let projection_area_offset =
-                vec2(projection_area_offset_x, self.projection_area_offset_vertical_uv);
+                max(vec2(self.projection_area_scale_x, self.projection_area_scale_y), vec2(0.01, 0.01));
             let projection_area_domain_min_uv =
-                vec2(0.5, 0.5) - projection_area_scale * 0.5 + projection_area_offset;
+                vec2(0.5, 0.5) - projection_area_scale * 0.5 - projection_area_offset;
             let projection_area_domain_max_uv =
-                vec2(0.5, 0.5) + projection_area_scale * 0.5 + projection_area_offset;
-            let stretched_projection_screen_uv = self.projection_area_rect_edge_uv(
-                canonical_projection_screen_uv,
+                vec2(0.5, 0.5) + projection_area_scale * 0.5 - projection_area_offset;
+            let stretch_projection_area_domain_uv = self.projection_area_rect_edge_uv(
+                canonical_projection_area_domain_uv,
+                display_eye_selector,
                 projection_area_domain_min_uv,
                 projection_area_domain_max_uv,
-                1.0
+                step(0.0001, stretch_weight)
             );
+            let projection_area_domain_uv = mix(
+                canonical_projection_area_domain_uv,
+                stretch_projection_area_domain_uv,
+                clamp(stretch_weight, 0.0, 1.0) * target_stretch_effect_region
+            );
+            let projection_screen_uv_base_adjusted =
+                projection_area_domain_uv + projection_area_offset;
+            let full_frame_projection_area_mapping =
+                step(0.5, self.projection_content_mapping_mode);
             let projection_screen_uv =
-                mix(canonical_projection_screen_uv, stretched_projection_screen_uv, clamp(stretch_weight, 0.0, 1.0));
+                mix(
+                    projection_screen_uv_base_adjusted,
+                    projection_area_domain_uv,
+                    full_frame_projection_area_mapping
+                );
             let projected_uv = self.source_screen_camera_uv(
                 projection_screen_uv,
                 display_eye_selector
             );
-            let full_frame_projection_area_mapping =
-                step(0.5, self.projection_content_mapping_mode);
             let projection_area_content_uv =
-                self.projection_area_content_uv(projection_screen_uv);
-            let mapped_source_uv =
+                self.projection_area_content_uv(projection_area_domain_uv, display_eye_selector);
+            let mapped_source_uv_unclamped =
                 mix(projected_uv, projection_area_content_uv, full_frame_projection_area_mapping);
-            let source_uv_valid = self.uv_valid(mapped_source_uv);
+            let source_uv_stretchable =
+                step(abs(mapped_source_uv_unclamped.x), 65536.0) *
+                step(abs(mapped_source_uv_unclamped.y), 65536.0);
+            let target_local_stretch_region =
+                full_frame_projection_area_mapping * target_stretch_effect_region;
+            let mapped_source_uv = mix(
+                mapped_source_uv_unclamped,
+                clamp(mapped_source_uv_unclamped, vec2(0.0001, 0.0001), vec2(0.9999, 0.9999)),
+                target_local_stretch_region
+            );
+            let source_uv_valid_raw = self.uv_valid(mapped_source_uv);
+            let source_uv_valid =
+                mix(source_uv_valid_raw, source_uv_stretchable, target_local_stretch_region);
+            let homography_source_invalid_stretch_region =
+                (1.0 - full_frame_projection_area_mapping) *
+                target_stretch_effect_region *
+                (1.0 - source_uv_valid) *
+                source_uv_stretchable;
+            let target_local_projection_valid =
+                source_uv_valid *
+                clamp(max(projection_area_mask, target_stretch_effect_region), 0.0, 1.0);
+            let homography_projection_valid =
+                max(
+                    mix(
+                        source_uv_valid * projection_area_mask,
+                        source_uv_valid,
+                        target_stretch_effect_region
+                    ),
+                    homography_source_invalid_stretch_region
+                );
             let projection_valid =
-                mix(source_uv_valid * projection_area_mask, source_uv_valid, stretch_effect_region);
+                clamp(
+                    mix(
+                        homography_projection_valid,
+                        target_local_projection_valid,
+                        full_frame_projection_area_mapping
+                    ),
+                    0.0,
+                    1.0
+                );
             let surface_uv = mix(
-                self.screen_surface_uv(projection_screen_uv, display_eye_selector),
+                self.screen_surface_uv(projection_screen_uv_base_adjusted, display_eye_selector),
                 projection_area_content_uv,
                 full_frame_projection_area_mapping
             );
@@ -984,18 +1086,29 @@ script_mod! {
                     step(self.peripheral_stretch_debug, 1.5);
                 if peripheral_stretch_active > 0.5 &&
                     self.peripheral_stretch_debug > 1.5 &&
-                    stretch_effect_region > 0.5 &&
+                    target_stretch_effect_region > 0.5 &&
                     camera_window_valid > 0.5
                 {
                     let sample_debug =
-                        vec3(window_sample_uv.x, window_sample_uv.y, 0.25 + 0.5 * target_transition_band);
+                        vec3(
+                            window_sample_uv.x,
+                            window_sample_uv.y,
+                            0.25 +
+                                0.35 * target_transition_band +
+                                0.35 * homography_source_invalid_stretch_region
+                        );
                     return vec4(sample_debug.x, sample_debug.y, sample_debug.z, 1.0);
                 }
                 let transition_tint = mix(camera_rgb, vec3(0.96, 1.0, 0.08), 0.42);
                 let exterior_tint = mix(camera_rgb, vec3(0.0, 0.88, 1.0), 0.48);
+                let source_invalid_tint = mix(camera_rgb, vec3(0.06, 1.0, 0.34), 0.40);
                 let region_rgb =
                     mix(
-                        mix(camera_rgb, exterior_tint, stretch_exterior),
+                        mix(
+                            mix(camera_rgb, exterior_tint, stretch_exterior),
+                            source_invalid_tint,
+                            homography_source_invalid_stretch_region
+                        ),
                         transition_tint,
                         target_transition_band
                     );
@@ -1018,59 +1131,6 @@ script_mod! {
                 self.sample_or_solid_camera_rgb(live_sample_uv, eye_selector) * mix(0.12, 1.0, live_projection_valid);
             let guided_direct = mix(direct_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
             return vec4(guided_direct.x, guided_direct.y, guided_direct.z, 1.0);
-
-            let half_selector = step(0.5, panel_uv.x);
-            let source_uv = vec2(mix(panel_uv.x * 2.0, (panel_uv.x - 0.5) * 2.0, half_selector), panel_uv.y);
-            let left_uv = clamp(self.rotate_uv(source_uv, self.left_rotation_steps), vec2(0.0, 0.0), vec2(1.0, 1.0));
-            let right_uv = clamp(self.rotate_uv(source_uv, self.right_rotation_steps), vec2(0.0, 0.0), vec2(1.0, 1.0));
-            let left_proof_tint = vec3(0.02, 0.42, 1.0);
-            let right_proof_tint = vec3(1.0, 0.06, 0.06);
-            let proof_tint = mix(left_proof_tint, right_proof_tint, half_selector);
-
-            if self.camera_ready <= 0.5 {
-                let waiting = vec3(0.015, 0.020, 0.024);
-                let guided_waiting = mix(waiting, vec3(1.0, 1.0, 1.0), proof_guide);
-                return vec4(guided_waiting.x, guided_waiting.y, guided_waiting.z, 1.0);
-            }
-
-            let guide = proof_guide * self.alignment_guide;
-            if self.diagnostic_solid > 0.5 {
-                let left_color = vec3(0.02 + 0.28 * source_uv.x, 0.72 + 0.20 * source_uv.y, 0.95);
-                let right_color = vec3(0.95, 0.10 + 0.24 * source_uv.y, 0.70 + 0.18 * source_uv.x);
-                let diagnostic = mix(left_color, right_color, half_selector);
-                let guided_diagnostic = mix(diagnostic, vec3(1.0, 1.0, 1.0), guide);
-                return vec4(guided_diagnostic.x, guided_diagnostic.y, guided_diagnostic.z, 1.0);
-            }
-
-            let left_external_sample = self.left_camera_texture.sample_video(left_uv).xyz;
-            let right_external_sample = self.right_camera_texture.sample_video(right_uv).xyz;
-            let left_luma_sample = self.left_tex_y.sample(left_uv).x;
-            let right_luma_sample = self.right_tex_y.sample(right_uv).x;
-            let left_yuv_sample = self.sample_left_yuv(left_uv);
-            let right_yuv_sample = self.sample_right_yuv(right_uv);
-            if self.texture_probe_mode > 1.5 {
-                let bypass_rgb = vec3(0.42, 0.42, 0.42);
-                let guided_bypass = mix(bypass_rgb, vec3(0.98, 0.98, 0.92), guide);
-                return vec4(guided_bypass.x, guided_bypass.y, guided_bypass.z, 1.0);
-            }
-            if self.texture_probe_mode > 0.5 {
-                let luma = mix(left_luma_sample, right_luma_sample, half_selector);
-                let luma_visual = clamp(luma * 8.0, 0.0, 1.0);
-                let luma_rgb = vec3(luma_visual, luma_visual, luma_visual);
-                let guided_luma = mix(luma_rgb, vec3(0.98, 0.98, 0.92), guide);
-                return vec4(guided_luma.x, guided_luma.y, guided_luma.z, 1.0);
-            }
-            let left_sample = mix(left_external_sample, left_yuv_sample, self.yuv_mode);
-            let right_sample = mix(right_external_sample, right_yuv_sample, self.yuv_mode);
-            let sample = mix(left_sample, right_sample, half_selector);
-            let rgb = vec3(
-                clamp(sample.x * self.exposure, 0.0, 1.0),
-                clamp(sample.y * self.exposure, 0.0, 1.0),
-                clamp(sample.z * self.exposure, 0.0, 1.0)
-            );
-            let tinted = mix(rgb, proof_tint, self.proof_tint_strength);
-            let guided = mix(tinted, vec3(0.98, 0.98, 0.92), guide);
-            return vec4(guided.x, guided.y, guided.z, 1.0);
         }
 
         fragment: fn() {
@@ -1277,6 +1337,12 @@ pub struct App {
     #[rust]
     projection_area_scale_y: f32,
     #[rust]
+    projection_target_offset_x_uv: f32,
+    #[rust]
+    projection_target_offset_y_uv: f32,
+    #[rust]
+    projection_target_scale: f32,
+    #[rust]
     projection_area_radius_x_uv: f32,
     #[rust]
     projection_area_radius_y_uv: f32,
@@ -1313,6 +1379,10 @@ pub struct App {
     manifold_breath_feedback_config_marker: Option<String>,
     #[rust]
     projection_target_joystick_scale_ready: bool,
+    #[rust]
+    projection_target_joystick_offset_x_uv: f32,
+    #[rust]
+    projection_target_joystick_offset_y_uv: f32,
     #[rust]
     projection_target_joystick_scale: f32,
     #[rust]
@@ -1356,236 +1426,244 @@ pub struct App {
 #[derive(Script, ScriptHook, Debug)]
 #[repr(C)]
 pub struct DrawMakepadStereoCameraPanel {
+    #[rust(vec3(1.0, 1.0, 1.0))]
+    pub cube_size: Vec3f,
+    #[rust(vec3(0.0, 0.0, 0.0))]
+    pub cube_pos: Vec3f,
+    #[rust(0.0_f32)]
+    pub depth_clip: f32,
+    #[rust(1.0_f32)]
+    pub camera_ready: f32,
+    #[rust(0.0_f32)]
+    pub left_rotation_steps: f32,
+    #[rust(0.0_f32)]
+    pub right_rotation_steps: f32,
+    #[rust(1.0_f32)]
+    pub exposure: f32,
+    #[rust(0.0_f32)]
+    pub diagnostic_solid: f32,
+    #[rust(0.0_f32)]
+    pub alignment_guide: f32,
+    #[rust(1.0_f32)]
+    pub yuv_mode: f32,
+    #[rust(1.0_f32)]
+    pub yuv_matrix: f32,
+    #[rust(0.0_f32)]
+    pub yuv_biplanar: f32,
+    #[rust(2.0_f32)]
+    pub texture_probe_mode: f32,
+    #[rust(0.0_f32)]
+    pub proof_tint_strength: f32,
+    #[rust(1.9811321_f32)]
+    pub content_uv_scale: f32,
+    #[rust(0.032_f32)]
+    pub display_eye_offset_meters: f32,
+    #[rust(92.0_f32)]
+    pub display_fov_y_degrees: f32,
+    #[rust(1.0_f32)]
+    pub display_aspect: f32,
+    #[rust(0.75_f32)]
+    pub projection_depth_meters: f32,
+    #[rust(0.0_f32)]
+    pub projection_preview_offset_y_meters: f32,
+    #[rust(60.0_f32)]
+    pub projection_preview_fov_y_degrees: f32,
+    #[rust(1.06_f32)]
+    pub projection_raw_overscan: f32,
+    #[rust(1.0_f32)]
+    pub suppress_live_camera_sampling: f32,
+    #[rust(1.0_f32)]
+    pub force_full_surface_live_camera_uv: f32,
+    #[rust(1.0_f32)]
+    pub force_in_surface_camera_window: f32,
+    #[rust(1.0_f32)]
+    pub projection_border_opacity: f32,
+    #[rust(0.0_f32)]
+    pub projection_border_policy: f32,
+    #[rust(0.0_f32)]
+    pub processing_layer: f32,
+    #[rust(0.0_f32)]
+    pub projection_sample_mode: f32,
+    #[rust(2.0_f32)]
+    pub blur_radius_px: f32,
+    #[rust(1.0_f32)]
+    pub peripheral_stretch_core_scale: f32,
+    #[rust(0.015_f32)]
+    pub peripheral_stretch_edge_inset_uv: f32,
+    #[rust(0.14_f32)]
+    pub peripheral_stretch_max_inset_uv: f32,
+    #[rust(1.6_f32)]
+    pub peripheral_stretch_curve: f32,
+    #[rust(0.040_f32)]
+    pub peripheral_stretch_inner_blend_uv: f32,
+    #[rust(1.6_f32)]
+    pub peripheral_stretch_blend_curve: f32,
+    #[rust(1.0_f32)]
+    pub peripheral_stretch_blend_mode: f32,
+    #[rust(0.0_f32)]
+    pub peripheral_stretch_debug: f32,
+    #[rust(0.0_f32)]
+    pub projection_area_diagnostic: f32,
+    #[rust(0.0_f32)]
+    pub projection_area_offset_left_uv: f32,
+    #[rust(0.0_f32)]
+    pub projection_area_offset_right_uv: f32,
+    #[rust(0.0_f32)]
+    pub projection_area_offset_vertical_uv: f32,
+    #[rust(1.0_f32)]
+    pub projection_area_scale_x: f32,
+    #[rust(1.0_f32)]
+    pub projection_area_scale_y: f32,
+    #[rust(vec4(0.0, 0.0, 1.0, 0.0))]
+    pub projection_target_runtime: Vec4f,
+    #[rust(vec4(0.0, 0.0, 0.5, 0.5))]
+    pub left_projection_area_offset_radius_uv: Vec4f,
+    #[rust(vec4(0.0, 0.0, 0.5, 0.5))]
+    pub right_projection_area_offset_radius_uv: Vec4f,
+    #[rust(0.5_f32)]
+    pub projection_area_radius_x_uv: f32,
+    #[rust(0.5_f32)]
+    pub projection_area_radius_y_uv: f32,
+    #[rust(0.0_f32)]
+    pub projection_area_corner_radius_uv: f32,
+    #[rust(0.0_f32)]
+    pub projection_area_keystone_x: f32,
+    #[rust(0.0_f32)]
+    pub projection_area_bow_x: f32,
+    #[rust(1.0_f32)]
+    pub projection_area_opacity: f32,
+    #[rust(0.0_f32)]
+    pub projection_alpha_mode: f32,
+    #[rust(1.0_f32)]
+    pub projection_alpha_scale: f32,
+    #[rust(0.0_f32)]
+    pub projection_alpha_bias: f32,
+    #[rust(1.0_f32)]
+    pub source_sample_y_flip: f32,
+    #[rust(0.0_f32)]
+    pub projection_content_mapping_mode: f32,
+    #[rust(1.0_f32)]
+    pub display_source_eye_swap: f32,
+    #[rust(1.0_f32)]
+    pub horizontal_alignment_strength: f32,
+    #[rust(0.0_f32)]
+    pub manual_horizontal_offset_left_uv: f32,
+    #[rust(0.0_f32)]
+    pub manual_horizontal_offset_right_uv: f32,
+    #[rust(0.0_f32)]
+    pub manual_vertical_offset_uv: f32,
+    #[rust(1.0_f32)]
+    pub left_projection_h00: f32,
+    #[rust(0.0_f32)]
+    pub left_projection_h01: f32,
+    #[rust(0.0_f32)]
+    pub left_projection_h02: f32,
+    #[rust(0.0_f32)]
+    pub left_projection_h10: f32,
+    #[rust(1.0_f32)]
+    pub left_projection_h11: f32,
+    #[rust(0.0_f32)]
+    pub left_projection_h12: f32,
+    #[rust(0.0_f32)]
+    pub left_projection_h20: f32,
+    #[rust(0.0_f32)]
+    pub left_projection_h21: f32,
+    #[rust(1.0_f32)]
+    pub left_projection_h22: f32,
+    #[rust(1.0_f32)]
+    pub right_projection_h00: f32,
+    #[rust(0.0_f32)]
+    pub right_projection_h01: f32,
+    #[rust(0.0_f32)]
+    pub right_projection_h02: f32,
+    #[rust(0.0_f32)]
+    pub right_projection_h10: f32,
+    #[rust(1.0_f32)]
+    pub right_projection_h11: f32,
+    #[rust(0.0_f32)]
+    pub right_projection_h12: f32,
+    #[rust(0.0_f32)]
+    pub right_projection_h20: f32,
+    #[rust(0.0_f32)]
+    pub right_projection_h21: f32,
+    #[rust(1.0_f32)]
+    pub right_projection_h22: f32,
+    #[rust(1.0_f32)]
+    pub left_screen_to_camera_h00: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_camera_h01: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_camera_h02: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_camera_h10: f32,
+    #[rust(1.0_f32)]
+    pub left_screen_to_camera_h11: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_camera_h12: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_camera_h20: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_camera_h21: f32,
+    #[rust(1.0_f32)]
+    pub left_screen_to_camera_h22: f32,
+    #[rust(1.0_f32)]
+    pub right_screen_to_camera_h00: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_camera_h01: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_camera_h02: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_camera_h10: f32,
+    #[rust(1.0_f32)]
+    pub right_screen_to_camera_h11: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_camera_h12: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_camera_h20: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_camera_h21: f32,
+    #[rust(1.0_f32)]
+    pub right_screen_to_camera_h22: f32,
+    #[rust(1.0_f32)]
+    pub left_screen_to_surface_h00: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_surface_h01: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_surface_h02: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_surface_h10: f32,
+    #[rust(1.0_f32)]
+    pub left_screen_to_surface_h11: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_surface_h12: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_surface_h20: f32,
+    #[rust(0.0_f32)]
+    pub left_screen_to_surface_h21: f32,
+    #[rust(1.0_f32)]
+    pub left_screen_to_surface_h22: f32,
+    #[rust(1.0_f32)]
+    pub right_screen_to_surface_h00: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_surface_h01: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_surface_h02: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_surface_h10: f32,
+    #[rust(1.0_f32)]
+    pub right_screen_to_surface_h11: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_surface_h12: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_surface_h20: f32,
+    #[rust(0.0_f32)]
+    pub right_screen_to_surface_h21: f32,
+    #[rust(1.0_f32)]
+    pub right_screen_to_surface_h22: f32,
     #[deref]
     pub draw_vars: DrawVars,
-    #[live(vec3(1.0, 1.0, 1.0))]
-    pub cube_size: Vec3f,
-    #[live(vec3(0.0, 0.0, 0.0))]
-    pub cube_pos: Vec3f,
     #[live(0.0_f32)]
-    pub depth_clip: f32,
-    #[live(1.0_f32)]
-    pub camera_ready: f32,
-    #[live(0.0_f32)]
-    pub left_rotation_steps: f32,
-    #[live(0.0_f32)]
-    pub right_rotation_steps: f32,
-    #[live(1.0_f32)]
-    pub exposure: f32,
-    #[live(0.0_f32)]
-    pub diagnostic_solid: f32,
-    #[live(0.0_f32)]
-    pub alignment_guide: f32,
-    #[live(1.0_f32)]
-    pub yuv_mode: f32,
-    #[live(1.0_f32)]
-    pub yuv_matrix: f32,
-    #[live(0.0_f32)]
-    pub yuv_biplanar: f32,
-    #[live(2.0_f32)]
-    pub texture_probe_mode: f32,
-    #[live(0.0_f32)]
-    pub proof_tint_strength: f32,
-    #[live(1.9811321_f32)]
-    pub content_uv_scale: f32,
-    #[live(0.032_f32)]
-    pub display_eye_offset_meters: f32,
-    #[live(92.0_f32)]
-    pub display_fov_y_degrees: f32,
-    #[live(1.0_f32)]
-    pub display_aspect: f32,
-    #[live(0.75_f32)]
-    pub projection_depth_meters: f32,
-    #[live(0.0_f32)]
-    pub projection_preview_offset_y_meters: f32,
-    #[live(60.0_f32)]
-    pub projection_preview_fov_y_degrees: f32,
-    #[live(1.06_f32)]
-    pub projection_raw_overscan: f32,
-    #[live(1.0_f32)]
-    pub suppress_live_camera_sampling: f32,
-    #[live(1.0_f32)]
-    pub force_full_surface_live_camera_uv: f32,
-    #[live(1.0_f32)]
-    pub force_in_surface_camera_window: f32,
-    #[live(1.0_f32)]
-    pub projection_border_opacity: f32,
-    #[live(0.0_f32)]
-    pub projection_border_policy: f32,
-    #[live(0.0_f32)]
-    pub processing_layer: f32,
-    #[live(0.0_f32)]
-    pub projection_sample_mode: f32,
-    #[live(2.0_f32)]
-    pub blur_radius_px: f32,
-    #[live(1.0_f32)]
-    pub peripheral_stretch_core_scale: f32,
-    #[live(0.015_f32)]
-    pub peripheral_stretch_edge_inset_uv: f32,
-    #[live(0.14_f32)]
-    pub peripheral_stretch_max_inset_uv: f32,
-    #[live(1.6_f32)]
-    pub peripheral_stretch_curve: f32,
-    #[live(0.040_f32)]
-    pub peripheral_stretch_inner_blend_uv: f32,
-    #[live(1.6_f32)]
-    pub peripheral_stretch_blend_curve: f32,
-    #[live(1.0_f32)]
-    pub peripheral_stretch_blend_mode: f32,
-    #[live(0.0_f32)]
-    pub peripheral_stretch_debug: f32,
-    #[live(0.0_f32)]
-    pub projection_area_diagnostic: f32,
-    #[live(0.0_f32)]
-    pub projection_area_offset_left_uv: f32,
-    #[live(0.0_f32)]
-    pub projection_area_offset_right_uv: f32,
-    #[live(0.0_f32)]
-    pub projection_area_offset_vertical_uv: f32,
-    #[live(1.0_f32)]
-    pub projection_area_scale_x: f32,
-    #[live(1.0_f32)]
-    pub projection_area_scale_y: f32,
-    #[live(0.5_f32)]
-    pub projection_area_radius_x_uv: f32,
-    #[live(0.5_f32)]
-    pub projection_area_radius_y_uv: f32,
-    #[live(0.0_f32)]
-    pub projection_area_corner_radius_uv: f32,
-    #[live(0.0_f32)]
-    pub projection_area_keystone_x: f32,
-    #[live(0.0_f32)]
-    pub projection_area_bow_x: f32,
-    #[live(1.0_f32)]
-    pub projection_area_opacity: f32,
-    #[live(0.0_f32)]
-    pub projection_alpha_mode: f32,
-    #[live(1.0_f32)]
-    pub projection_alpha_scale: f32,
-    #[live(0.0_f32)]
-    pub projection_alpha_bias: f32,
-    #[live(1.0_f32)]
-    pub source_sample_y_flip: f32,
-    #[live(0.0_f32)]
-    pub projection_content_mapping_mode: f32,
-    #[live(1.0_f32)]
-    pub display_source_eye_swap: f32,
-    #[live(1.0_f32)]
-    pub horizontal_alignment_strength: f32,
-    #[live(0.0_f32)]
-    pub manual_horizontal_offset_left_uv: f32,
-    #[live(0.0_f32)]
-    pub manual_horizontal_offset_right_uv: f32,
-    #[live(0.0_f32)]
-    pub manual_vertical_offset_uv: f32,
-    #[live(1.0_f32)]
-    pub left_projection_h00: f32,
-    #[live(0.0_f32)]
-    pub left_projection_h01: f32,
-    #[live(0.0_f32)]
-    pub left_projection_h02: f32,
-    #[live(0.0_f32)]
-    pub left_projection_h10: f32,
-    #[live(1.0_f32)]
-    pub left_projection_h11: f32,
-    #[live(0.0_f32)]
-    pub left_projection_h12: f32,
-    #[live(0.0_f32)]
-    pub left_projection_h20: f32,
-    #[live(0.0_f32)]
-    pub left_projection_h21: f32,
-    #[live(1.0_f32)]
-    pub left_projection_h22: f32,
-    #[live(1.0_f32)]
-    pub right_projection_h00: f32,
-    #[live(0.0_f32)]
-    pub right_projection_h01: f32,
-    #[live(0.0_f32)]
-    pub right_projection_h02: f32,
-    #[live(0.0_f32)]
-    pub right_projection_h10: f32,
-    #[live(1.0_f32)]
-    pub right_projection_h11: f32,
-    #[live(0.0_f32)]
-    pub right_projection_h12: f32,
-    #[live(0.0_f32)]
-    pub right_projection_h20: f32,
-    #[live(0.0_f32)]
-    pub right_projection_h21: f32,
-    #[live(1.0_f32)]
-    pub right_projection_h22: f32,
-    #[live(1.0_f32)]
-    pub left_screen_to_camera_h00: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_camera_h01: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_camera_h02: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_camera_h10: f32,
-    #[live(1.0_f32)]
-    pub left_screen_to_camera_h11: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_camera_h12: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_camera_h20: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_camera_h21: f32,
-    #[live(1.0_f32)]
-    pub left_screen_to_camera_h22: f32,
-    #[live(1.0_f32)]
-    pub right_screen_to_camera_h00: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_camera_h01: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_camera_h02: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_camera_h10: f32,
-    #[live(1.0_f32)]
-    pub right_screen_to_camera_h11: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_camera_h12: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_camera_h20: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_camera_h21: f32,
-    #[live(1.0_f32)]
-    pub right_screen_to_camera_h22: f32,
-    #[live(1.0_f32)]
-    pub left_screen_to_surface_h00: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_surface_h01: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_surface_h02: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_surface_h10: f32,
-    #[live(1.0_f32)]
-    pub left_screen_to_surface_h11: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_surface_h12: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_surface_h20: f32,
-    #[live(0.0_f32)]
-    pub left_screen_to_surface_h21: f32,
-    #[live(1.0_f32)]
-    pub left_screen_to_surface_h22: f32,
-    #[live(1.0_f32)]
-    pub right_screen_to_surface_h00: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_surface_h01: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_surface_h02: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_surface_h10: f32,
-    #[live(1.0_f32)]
-    pub right_screen_to_surface_h11: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_surface_h12: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_surface_h20: f32,
-    #[live(0.0_f32)]
-    pub right_screen_to_surface_h21: f32,
-    #[live(1.0_f32)]
-    pub right_screen_to_surface_h22: f32,
+    pub makepad_instance_marker: f32,
 }
 
 impl DrawMakepadStereoCameraPanel {
@@ -1693,6 +1771,9 @@ struct HorizontalAlignmentTuning {
     projection_area_offset_vertical_uv: f32,
     projection_area_scale_x: f32,
     projection_area_scale_y: f32,
+    projection_target_offset_x_uv: f32,
+    projection_target_offset_y_uv: f32,
+    projection_target_scale: f32,
     projection_area_radius_x_uv: f32,
     projection_area_radius_y_uv: f32,
     projection_area_corner_radius_uv: f32,
@@ -1732,6 +1813,9 @@ impl Default for HorizontalAlignmentTuning {
             projection_area_offset_vertical_uv: TARGET_PROJECTION_AREA_OFFSET_VERTICAL_UV,
             projection_area_scale_x: TARGET_PROJECTION_AREA_SCALE_X,
             projection_area_scale_y: TARGET_PROJECTION_AREA_SCALE_Y,
+            projection_target_offset_x_uv: makepad_projection_target_offset_x_uv(),
+            projection_target_offset_y_uv: makepad_projection_target_offset_y_uv(),
+            projection_target_scale: makepad_projection_target_scale(),
             projection_area_radius_x_uv: TARGET_PROJECTION_AREA_RADIUS_X_UV,
             projection_area_radius_y_uv: TARGET_PROJECTION_AREA_RADIUS_Y_UV,
             projection_area_corner_radius_uv: TARGET_PROJECTION_AREA_CORNER_RADIUS_UV,
@@ -1751,6 +1835,21 @@ impl MakepadStereoCameraPanel {
         self.size = geometry.size();
         self.node.set_implicit_physics_size(self.size);
         self.node.set_pos(cx, geometry.pos());
+    }
+
+    fn set_panel_uniform_f32(&mut self, cx: &mut Cx, id: LiveId, value: f32) {
+        self.draw_panel.draw_vars.set_uniform(cx, id, &[value]);
+        self.draw_panel
+            .draw_vars
+            .set_uniform_on_area(cx, id, &[value]);
+    }
+
+    fn set_panel_uniform_vec4f(&mut self, cx: &mut Cx, id: LiveId, value: Vec4f) {
+        let values = [value.x, value.y, value.z, value.w];
+        self.draw_panel.draw_vars.set_uniform(cx, id, &values);
+        self.draw_panel
+            .draw_vars
+            .set_uniform_on_area(cx, id, &values);
     }
 
     fn synthetic_luma_probe_texture(&mut self, cx: &mut Cx) -> Texture {
@@ -1929,6 +2028,12 @@ impl MakepadStereoCameraPanel {
             TARGET_PROJECTION_AREA_OFFSET_VERTICAL_UV;
         self.draw_panel.projection_area_scale_x = TARGET_PROJECTION_AREA_SCALE_X;
         self.draw_panel.projection_area_scale_y = TARGET_PROJECTION_AREA_SCALE_Y;
+        self.draw_panel.projection_target_runtime = Vec4f {
+            x: makepad_projection_target_offset_x_uv(),
+            y: makepad_projection_target_offset_y_uv(),
+            z: makepad_projection_target_scale(),
+            w: self.draw_panel.projection_target_runtime.w,
+        };
         self.draw_panel.projection_area_radius_x_uv = TARGET_PROJECTION_AREA_RADIUS_X_UV;
         self.draw_panel.projection_area_radius_y_uv = TARGET_PROJECTION_AREA_RADIUS_Y_UV;
         self.draw_panel.projection_area_corner_radius_uv = TARGET_PROJECTION_AREA_CORNER_RADIUS_UV;
@@ -1938,142 +2043,70 @@ impl MakepadStereoCameraPanel {
         self.draw_panel.projection_alpha_mode = MakepadProjectionAlphaMode::current().shader_code();
         self.draw_panel.projection_alpha_scale = makepad_projection_alpha_scale();
         self.draw_panel.projection_alpha_bias = makepad_projection_alpha_bias();
+        self.set_target_footprint(cx, makepad_runtime_target_screen_footprint_pair());
         self.set_horizontal_alignment_tuning(cx, App::horizontal_alignment_tuning());
         self.draw_panel.camera_ready = 1.0;
         self.draw_panel.texture_probe_mode = 2.0;
         self.draw_panel.draw_vars.redraw(cx);
-        self.draw_panel
-            .draw_vars
-            .set_instance_on_area(cx, live_id!(camera_ready), &[1.0]);
-        self.draw_panel
-            .draw_vars
-            .set_uniform_on_area(cx, live_id!(camera_ready), &[1.0]);
-        self.draw_panel.draw_vars.set_instance_on_area(
-            cx,
-            live_id!(yuv_mode),
-            &[self.draw_panel.yuv_mode],
-        );
-        self.draw_panel.draw_vars.set_uniform_on_area(
-            cx,
-            live_id!(yuv_mode),
-            &[self.draw_panel.yuv_mode],
-        );
-        self.draw_panel
-            .draw_vars
-            .set_instance_on_area(cx, live_id!(proof_tint_strength), &[0.0]);
-        self.draw_panel
-            .draw_vars
-            .set_uniform_on_area(cx, live_id!(proof_tint_strength), &[0.0]);
-        self.draw_panel
-            .draw_vars
-            .set_instance_on_area(cx, live_id!(texture_probe_mode), &[2.0]);
-        self.draw_panel
-            .draw_vars
-            .set_uniform_on_area(cx, live_id!(texture_probe_mode), &[2.0]);
+        self.set_panel_uniform_f32(cx, live_id!(camera_ready), 1.0);
+        self.set_panel_uniform_f32(cx, live_id!(yuv_mode), self.draw_panel.yuv_mode);
+        self.set_panel_uniform_f32(cx, live_id!(proof_tint_strength), 0.0);
+        self.set_panel_uniform_f32(cx, live_id!(texture_probe_mode), 2.0);
         let suppress_live_camera_sampling = if SUPPRESS_LIVE_CAMERA_SAMPLING {
             1.0
         } else {
             0.0
         };
-        self.draw_panel.draw_vars.set_instance_on_area(
+        self.set_panel_uniform_f32(
             cx,
             live_id!(suppress_live_camera_sampling),
-            &[suppress_live_camera_sampling],
-        );
-        self.draw_panel.draw_vars.set_uniform_on_area(
-            cx,
-            live_id!(suppress_live_camera_sampling),
-            &[suppress_live_camera_sampling],
+            suppress_live_camera_sampling,
         );
         let force_full_surface_live_camera_uv = if FORCE_FULL_SURFACE_LIVE_CAMERA_UV {
             1.0
         } else {
             0.0
         };
-        self.draw_panel.draw_vars.set_instance_on_area(
+        self.set_panel_uniform_f32(
             cx,
             live_id!(force_full_surface_live_camera_uv),
-            &[force_full_surface_live_camera_uv],
-        );
-        self.draw_panel.draw_vars.set_uniform_on_area(
-            cx,
-            live_id!(force_full_surface_live_camera_uv),
-            &[force_full_surface_live_camera_uv],
+            force_full_surface_live_camera_uv,
         );
         let force_in_surface_camera_window = if FORCE_IN_SURFACE_CAMERA_WINDOW {
             1.0
         } else {
             0.0
         };
-        self.draw_panel.draw_vars.set_instance_on_area(
+        self.set_panel_uniform_f32(
             cx,
             live_id!(force_in_surface_camera_window),
-            &[force_in_surface_camera_window],
+            force_in_surface_camera_window,
         );
-        self.draw_panel.draw_vars.set_uniform_on_area(
-            cx,
-            live_id!(force_in_surface_camera_window),
-            &[force_in_surface_camera_window],
-        );
-        self.draw_panel.draw_vars.set_instance_on_area(
+        self.set_panel_uniform_f32(
             cx,
             live_id!(projection_border_opacity),
-            &[TARGET_PROJECTION_BORDER_OPACITY],
+            TARGET_PROJECTION_BORDER_OPACITY,
         );
-        self.draw_panel.draw_vars.set_uniform_on_area(
-            cx,
-            live_id!(projection_border_opacity),
-            &[TARGET_PROJECTION_BORDER_OPACITY],
-        );
-        self.draw_panel.draw_vars.set_instance_on_area(
+        self.set_panel_uniform_f32(
             cx,
             live_id!(projection_border_policy),
-            &[self.draw_panel.projection_border_policy],
+            self.draw_panel.projection_border_policy,
         );
-        self.draw_panel.draw_vars.set_uniform_on_area(
-            cx,
-            live_id!(projection_border_policy),
-            &[self.draw_panel.projection_border_policy],
-        );
-        self.draw_panel.draw_vars.set_instance_on_area(
+        self.set_panel_uniform_f32(
             cx,
             live_id!(processing_layer),
-            &[self.draw_panel.processing_layer],
+            self.draw_panel.processing_layer,
         );
-        self.draw_panel.draw_vars.set_uniform_on_area(
-            cx,
-            live_id!(processing_layer),
-            &[self.draw_panel.processing_layer],
-        );
-        self.draw_panel.draw_vars.set_instance_on_area(
+        self.set_panel_uniform_f32(
             cx,
             live_id!(projection_sample_mode),
-            &[self.draw_panel.projection_sample_mode],
+            self.draw_panel.projection_sample_mode,
         );
-        self.draw_panel.draw_vars.set_uniform_on_area(
-            cx,
-            live_id!(projection_sample_mode),
-            &[self.draw_panel.projection_sample_mode],
-        );
-        self.draw_panel.draw_vars.set_instance_on_area(
-            cx,
-            live_id!(blur_radius_px),
-            &[self.draw_panel.blur_radius_px],
-        );
-        self.draw_panel.draw_vars.set_uniform_on_area(
-            cx,
-            live_id!(blur_radius_px),
-            &[self.draw_panel.blur_radius_px],
-        );
-        self.draw_panel.draw_vars.set_instance_on_area(
+        self.set_panel_uniform_f32(cx, live_id!(blur_radius_px), self.draw_panel.blur_radius_px);
+        self.set_panel_uniform_f32(
             cx,
             live_id!(projection_area_diagnostic),
-            &[TARGET_PROJECTION_AREA_DIAGNOSTIC],
-        );
-        self.draw_panel.draw_vars.set_uniform_on_area(
-            cx,
-            live_id!(projection_area_diagnostic),
-            &[TARGET_PROJECTION_AREA_DIAGNOSTIC],
+            TARGET_PROJECTION_AREA_DIAGNOSTIC,
         );
         for (id, value) in [
             (
@@ -2200,14 +2233,7 @@ impl MakepadStereoCameraPanel {
                 self.draw_panel.projection_raw_overscan,
             ),
         ] {
-            self.draw_panel.draw_vars.set_dyn_instance(cx, id, &[value]);
-            self.draw_panel.draw_vars.set_uniform(cx, id, &[value]);
-            self.draw_panel
-                .draw_vars
-                .set_instance_on_area(cx, id, &[value]);
-            self.draw_panel
-                .draw_vars
-                .set_uniform_on_area(cx, id, &[value]);
+            self.set_panel_uniform_f32(cx, id, value);
         }
         for (id, value) in [
             (
@@ -2355,14 +2381,7 @@ impl MakepadStereoCameraPanel {
                 right_screen_to_camera_h[2][2],
             ),
         ] {
-            self.draw_panel.draw_vars.set_dyn_instance(cx, id, &[value]);
-            self.draw_panel.draw_vars.set_uniform(cx, id, &[value]);
-            self.draw_panel
-                .draw_vars
-                .set_instance_on_area(cx, id, &[value]);
-            self.draw_panel
-                .draw_vars
-                .set_uniform_on_area(cx, id, &[value]);
+            self.set_panel_uniform_f32(cx, id, value);
         }
         for (id, value) in [
             (
@@ -2438,16 +2457,44 @@ impl MakepadStereoCameraPanel {
                 right_screen_to_surface_h[2][2],
             ),
         ] {
-            self.draw_panel.draw_vars.set_dyn_instance(cx, id, &[value]);
-            self.draw_panel.draw_vars.set_uniform(cx, id, &[value]);
-            self.draw_panel
-                .draw_vars
-                .set_instance_on_area(cx, id, &[value]);
-            self.draw_panel
-                .draw_vars
-                .set_uniform_on_area(cx, id, &[value]);
+            self.set_panel_uniform_f32(cx, id, value);
         }
         self.camera_ready = true;
+        self.node.redraw(cx);
+    }
+
+    fn set_target_footprint(&mut self, cx: &mut Cx, target: MakepadTargetScreenFootprintPair) {
+        let push = MakepadTargetFootprintPush::from_pair(target);
+        self.draw_panel.projection_target_runtime.w = push.from_metadata;
+        self.draw_panel.left_projection_area_offset_radius_uv = Vec4f {
+            x: push.left_offset_x_uv,
+            y: push.left_offset_y_uv,
+            z: push.left_radius_x_uv,
+            w: push.left_radius_y_uv,
+        };
+        self.draw_panel.right_projection_area_offset_radius_uv = Vec4f {
+            x: push.right_offset_x_uv,
+            y: push.right_offset_y_uv,
+            z: push.right_radius_x_uv,
+            w: push.right_radius_y_uv,
+        };
+        for (id, value) in [
+            (
+                live_id!(projection_target_runtime),
+                self.draw_panel.projection_target_runtime,
+            ),
+            (
+                live_id!(left_projection_area_offset_radius_uv),
+                self.draw_panel.left_projection_area_offset_radius_uv,
+            ),
+            (
+                live_id!(right_projection_area_offset_radius_uv),
+                self.draw_panel.right_projection_area_offset_radius_uv,
+            ),
+        ] {
+            self.set_panel_uniform_vec4f(cx, id, value);
+        }
+        self.draw_panel.draw_vars.redraw(cx);
         self.node.redraw(cx);
     }
 
@@ -2478,6 +2525,12 @@ impl MakepadStereoCameraPanel {
             tuning.projection_area_offset_vertical_uv;
         self.draw_panel.projection_area_scale_x = tuning.projection_area_scale_x;
         self.draw_panel.projection_area_scale_y = tuning.projection_area_scale_y;
+        self.draw_panel.projection_target_runtime = Vec4f {
+            x: tuning.projection_target_offset_x_uv,
+            y: tuning.projection_target_offset_y_uv,
+            z: tuning.projection_target_scale,
+            w: self.draw_panel.projection_target_runtime.w,
+        };
         self.draw_panel.projection_area_radius_x_uv = tuning.projection_area_radius_x_uv;
         self.draw_panel.projection_area_radius_y_uv = tuning.projection_area_radius_y_uv;
         self.draw_panel.projection_area_corner_radius_uv = tuning.projection_area_corner_radius_uv;
@@ -2609,15 +2662,14 @@ impl MakepadStereoCameraPanel {
                 tuning.projection_alpha_bias,
             ),
         ] {
-            self.draw_panel.draw_vars.set_dyn_instance(cx, id, &[value]);
-            self.draw_panel.draw_vars.set_uniform(cx, id, &[value]);
-            self.draw_panel
-                .draw_vars
-                .set_instance_on_area(cx, id, &[value]);
-            self.draw_panel
-                .draw_vars
-                .set_uniform_on_area(cx, id, &[value]);
+            self.set_panel_uniform_f32(cx, id, value);
         }
+        let projection_target_runtime = self.draw_panel.projection_target_runtime;
+        self.set_panel_uniform_vec4f(
+            cx,
+            live_id!(projection_target_runtime),
+            projection_target_runtime,
+        );
         self.draw_panel.draw_vars.redraw(cx);
     }
 }
@@ -2749,11 +2801,11 @@ impl App {
     }
 
     fn direct_camera_projection_geometry_profile() -> String {
-        if makepad_camera_projection_mode_is_world_canvas() {
-            return "full-frame-diagnostic".to_string();
-        }
-        normalize_direct_camera_projection_geometry_profile(&hotload_text(
-            KEY_MAKEPAD_CAMERA_PROJECTION_GEOMETRY_PROFILE,
+        normalize_direct_camera_projection_geometry_profile(&hotload_text_any(
+            &[
+                KEY_CAMERA_PROJECTION_GEOMETRY_PROFILE,
+                KEY_MAKEPAD_CAMERA_PROJECTION_GEOMETRY_PROFILE,
+            ],
             DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE,
         ))
     }
@@ -3002,9 +3054,16 @@ impl App {
         }
     }
 
+    fn projection_target_scale() -> f32 {
+        makepad_projection_target_scale()
+    }
+
     fn projection_target_joystick_controls_enabled() -> bool {
-        makepad_projection_target_joystick_controls_enabled_from_value(&hotload_text(
-            KEY_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+        makepad_projection_target_joystick_controls_enabled_from_value(&hotload_text_any(
+            &[
+                rxrc::KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+                KEY_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+            ],
             DEFAULT_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
         ))
     }
@@ -3020,14 +3079,24 @@ impl App {
         let now_seconds = state.time.max(0.0);
         if !self.projection_target_joystick_scale_ready {
             let tuning = self.current_horizontal_alignment_tuning();
-            self.projection_target_joystick_scale =
-                ((tuning.projection_area_scale_x + tuning.projection_area_scale_y) * 0.5)
-                    .clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE);
+            self.projection_target_joystick_offset_x_uv =
+                tuning.projection_target_offset_x_uv.clamp(-0.5, 0.5);
+            self.projection_target_joystick_offset_y_uv =
+                tuning.projection_target_offset_y_uv.clamp(-0.5, 0.5);
+            self.projection_target_joystick_scale = tuning
+                .projection_target_scale
+                .clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE);
             self.projection_target_joystick_scale_ready = true;
             self.projection_target_joystick_last_time = now_seconds;
             Self::emit_stereo_projection_marker(&format!(
-                "phase=projection-target-controller status=active source=makepad-xr-actions referenceSource=quest-composite-layer-apk projectionTargetJoystickControls=offset-scale controls=rightStickY:projectionAreaScale,rightA:resetScale coordinateSpace=display-eye-screen-uv projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4}",
-                self.projection_target_joystick_scale,
+                "phase=projection-target-controller status=active source=makepad-xr-actions referenceSource=quest-composite-layer-apk projectionTargetJoystickControls=offset-scale controls=leftStick:projectionTargetOffsetUv,rightStickY:projectionTargetScale,rightA:resetOffsetAndProjectionTargetScale coordinateSpace=display-eye-screen-uv yConvention=stickUpMovesTargetUp projectionAreaScaleControlRole=diagnostic-canvas-scale-runtime-property projectionAreaScaleMin={:.4} projectionAreaScaleMax={:.4} projectionTargetScaleControlRole=reference-target-footprint-runtime-adjustment projectionTargetScaleMin={:.4} projectionTargetScaleMax={:.4} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4}",
+                PROJECTION_AREA_MIN_SCALE,
+                PROJECTION_AREA_MAX_SCALE,
+                PROJECTION_TARGET_MIN_SCALE,
+                PROJECTION_TARGET_MAX_SCALE,
+                self.projection_target_joystick_offset_x_uv,
+                self.projection_target_joystick_offset_y_uv,
+                tuning.projection_target_scale,
                 tuning.projection_area_scale_x,
                 tuning.projection_area_scale_y,
             ));
@@ -3043,9 +3112,35 @@ impl App {
         let mut changed = false;
         let mut reset = false;
         if update.clicked_a() {
+            self.projection_target_joystick_offset_x_uv = 0.0;
+            self.projection_target_joystick_offset_y_uv = 0.0;
             self.projection_target_joystick_scale = 1.0;
             changed = true;
             reset = true;
+        }
+        if state.left_controller.active() {
+            if let Some(next_offset_x) = makepad_projection_target_offset_step(
+                self.projection_target_joystick_offset_x_uv,
+                state.left_controller.stick.x,
+                dt_seconds,
+                false,
+            ) {
+                if (next_offset_x - self.projection_target_joystick_offset_x_uv).abs() > 0.0001 {
+                    self.projection_target_joystick_offset_x_uv = next_offset_x;
+                    changed = true;
+                }
+            }
+            if let Some(next_offset_y) = makepad_projection_target_offset_step(
+                self.projection_target_joystick_offset_y_uv,
+                state.left_controller.stick.y,
+                dt_seconds,
+                true,
+            ) {
+                if (next_offset_y - self.projection_target_joystick_offset_y_uv).abs() > 0.0001 {
+                    self.projection_target_joystick_offset_y_uv = next_offset_y;
+                    changed = true;
+                }
+            }
         }
         if state.right_controller.active() {
             if let Some(next_scale) = makepad_projection_target_scale_step(
@@ -3059,28 +3154,62 @@ impl App {
                 }
             }
         }
+        let frame = self.cadence_xr_update_count;
+        let should_sample_log = self.projection_target_joystick_last_log_frame == 0
+            || frame.saturating_sub(self.projection_target_joystick_last_log_frame) >= 60;
         if !changed {
+            if should_sample_log {
+                let tuning = self.current_horizontal_alignment_tuning();
+                Self::emit_stereo_projection_marker(&format!(
+                    "phase=projection-target-input status=sampled source=controller referenceSource=quest-composite-layer-apk changed=false projectionAreaScaleControlRole=diagnostic-canvas-scale-runtime-property projectionAreaScaleMin={:.4} projectionAreaScaleMax={:.4} projectionTargetScaleControlRole=reference-target-footprint-runtime-adjustment projectionTargetScaleMin={:.4} projectionTargetScaleMax={:.4} leftActive={} rightActive={} leftStickX={:.4} leftStickY={:.4} rightStickY={:.4} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4}",
+                    PROJECTION_AREA_MIN_SCALE,
+                    PROJECTION_AREA_MAX_SCALE,
+                    PROJECTION_TARGET_MIN_SCALE,
+                    PROJECTION_TARGET_MAX_SCALE,
+                    state.left_controller.active(),
+                    state.right_controller.active(),
+                    state.left_controller.stick.x,
+                    state.left_controller.stick.y,
+                    state.right_controller.stick.y,
+                    self.projection_target_joystick_offset_x_uv,
+                    self.projection_target_joystick_offset_y_uv,
+                    tuning.projection_target_scale,
+                    tuning.projection_area_scale_x,
+                    tuning.projection_area_scale_y,
+                ));
+                self.projection_target_joystick_last_log_frame = frame;
+            }
             return;
         }
 
         let mut tuning = self.current_horizontal_alignment_tuning();
-        tuning.projection_area_scale_x = self.projection_target_joystick_scale;
-        tuning.projection_area_scale_y = self.projection_target_joystick_scale;
-        self.projection_area_scale_x = tuning.projection_area_scale_x;
-        self.projection_area_scale_y = tuning.projection_area_scale_y;
+        tuning.projection_target_offset_x_uv = self.projection_target_joystick_offset_x_uv;
+        tuning.projection_target_offset_y_uv = self.projection_target_joystick_offset_y_uv;
+        tuning.projection_target_scale = self.projection_target_joystick_scale;
+        self.projection_target_offset_x_uv = tuning.projection_target_offset_x_uv;
+        self.projection_target_offset_y_uv = tuning.projection_target_offset_y_uv;
+        self.projection_target_scale = tuning.projection_target_scale;
         let panel_bound = self.apply_horizontal_alignment_tuning_to_panel(cx, tuning);
-        let frame = self.cadence_xr_update_count;
-        if reset
+        if changed
+            || reset
             || self.projection_target_joystick_last_log_frame == 0
             || frame.saturating_sub(self.projection_target_joystick_last_log_frame) >= 30
         {
             Self::emit_stereo_projection_marker(&format!(
-                "phase=projection-target-tuning status=ok source=controller referenceSource=quest-composite-layer-apk changed={} reset={} projectionTargetJoystickControls=offset-scale projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} rightStickY={:.4} panelBound={}",
+                "phase=projection-target-tuning status=ok source=controller referenceSource=quest-composite-layer-apk changed={} reset={} projectionTargetJoystickControls=offset-scale projectionAreaScaleControlRole=diagnostic-canvas-scale-runtime-property projectionAreaScaleMin={:.4} projectionAreaScaleMax={:.4} projectionTargetScaleControlRole=reference-target-footprint-runtime-adjustment projectionTargetScaleMin={:.4} projectionTargetScaleMax={:.4} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} leftStickX={:.4} leftStickY={:.4} rightStickY={:.4} panelBound={}",
                 changed,
                 reset,
-                self.projection_target_joystick_scale,
+                PROJECTION_AREA_MIN_SCALE,
+                PROJECTION_AREA_MAX_SCALE,
+                PROJECTION_TARGET_MIN_SCALE,
+                PROJECTION_TARGET_MAX_SCALE,
+                self.projection_target_joystick_offset_x_uv,
+                self.projection_target_joystick_offset_y_uv,
+                tuning.projection_target_scale,
                 tuning.projection_area_scale_x,
                 tuning.projection_area_scale_y,
+                state.left_controller.stick.x,
+                state.left_controller.stick.y,
                 state.right_controller.stick.y,
                 panel_bound,
             ));
@@ -3512,15 +3641,18 @@ impl App {
         let projection_area_scale_x = hotload_f32(
             KEY_MAKEPAD_PROJECTION_AREA_SCALE_X,
             TARGET_PROJECTION_AREA_SCALE_X,
-            0.5,
-            1.5,
+            PROJECTION_AREA_MIN_SCALE,
+            PROJECTION_AREA_MAX_SCALE,
         );
         let projection_area_scale_y = hotload_f32(
             KEY_MAKEPAD_PROJECTION_AREA_SCALE_Y,
             TARGET_PROJECTION_AREA_SCALE_Y,
-            0.5,
-            1.5,
+            PROJECTION_AREA_MIN_SCALE,
+            PROJECTION_AREA_MAX_SCALE,
         );
+        let projection_target_offset_x_uv = makepad_projection_target_offset_x_uv();
+        let projection_target_offset_y_uv = makepad_projection_target_offset_y_uv();
+        let projection_target_scale = Self::projection_target_scale();
         let projection_area_radius_x_uv = hotload_f32(
             KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV,
             TARGET_PROJECTION_AREA_RADIUS_X_UV,
@@ -3580,6 +3712,9 @@ impl App {
             projection_area_offset_vertical_uv,
             projection_area_scale_x,
             projection_area_scale_y,
+            projection_target_offset_x_uv,
+            projection_target_offset_y_uv,
+            projection_target_scale,
             projection_area_radius_x_uv,
             projection_area_radius_y_uv,
             projection_area_corner_radius_uv,
@@ -3619,6 +3754,9 @@ impl App {
                 projection_area_offset_vertical_uv: self.projection_area_offset_vertical_uv,
                 projection_area_scale_x: self.projection_area_scale_x,
                 projection_area_scale_y: self.projection_area_scale_y,
+                projection_target_offset_x_uv: self.projection_target_offset_x_uv,
+                projection_target_offset_y_uv: self.projection_target_offset_y_uv,
+                projection_target_scale: self.projection_target_scale,
                 projection_area_radius_x_uv: self.projection_area_radius_x_uv,
                 projection_area_radius_y_uv: self.projection_area_radius_y_uv,
                 projection_area_corner_radius_uv: self.projection_area_corner_radius_uv,
@@ -3639,8 +3777,9 @@ impl App {
         if Self::projection_target_joystick_controls_enabled()
             && self.projection_target_joystick_scale_ready
         {
-            tuning.projection_area_scale_x = self.projection_target_joystick_scale;
-            tuning.projection_area_scale_y = self.projection_target_joystick_scale;
+            tuning.projection_target_offset_x_uv = self.projection_target_joystick_offset_x_uv;
+            tuning.projection_target_offset_y_uv = self.projection_target_joystick_offset_y_uv;
+            tuning.projection_target_scale = self.projection_target_joystick_scale;
         }
         let changed = !self.horizontal_alignment_tuning_ready
             || (self.horizontal_alignment_strength - tuning.strength).abs() > 0.0001
@@ -3682,6 +3821,11 @@ impl App {
                 > 0.0001
             || (self.projection_area_scale_x - tuning.projection_area_scale_x).abs() > 0.0001
             || (self.projection_area_scale_y - tuning.projection_area_scale_y).abs() > 0.0001
+            || (self.projection_target_offset_x_uv - tuning.projection_target_offset_x_uv).abs()
+                > 0.0001
+            || (self.projection_target_offset_y_uv - tuning.projection_target_offset_y_uv).abs()
+                > 0.0001
+            || (self.projection_target_scale - tuning.projection_target_scale).abs() > 0.0001
             || (self.projection_area_radius_x_uv - tuning.projection_area_radius_x_uv).abs()
                 > 0.0001
             || (self.projection_area_radius_y_uv - tuning.projection_area_radius_y_uv).abs()
@@ -3724,6 +3868,9 @@ impl App {
         self.projection_area_offset_vertical_uv = tuning.projection_area_offset_vertical_uv;
         self.projection_area_scale_x = tuning.projection_area_scale_x;
         self.projection_area_scale_y = tuning.projection_area_scale_y;
+        self.projection_target_offset_x_uv = tuning.projection_target_offset_x_uv;
+        self.projection_target_offset_y_uv = tuning.projection_target_offset_y_uv;
+        self.projection_target_scale = tuning.projection_target_scale;
         self.projection_area_radius_x_uv = tuning.projection_area_radius_x_uv;
         self.projection_area_radius_y_uv = tuning.projection_area_radius_y_uv;
         self.projection_area_corner_radius_uv = tuning.projection_area_corner_radius_uv;
@@ -4921,10 +5068,8 @@ impl App {
                 }
                 _ => SourceSamplingMode::TargetLocalRaster,
             }
-        } else if pair.projection_geometry_profile == "camera-projection" {
-            SourceSamplingMode::ScreenToCameraHomography
         } else {
-            SourceSamplingMode::TargetLocalRaster
+            makepad_runtime_camera_source_sampling_mode()
         };
         let full_frame_diagnostic = source_sampling_mode.uses_target_local_raster();
         let projection_content_mapping_mode = if source_sampling_mode.uses_target_local_raster() {
@@ -5010,6 +5155,7 @@ impl App {
             source_sample_y_flip,
             projection_content_mapping_mode,
         );
+        panel.set_target_footprint(cx, pair.target_footprint);
         panel.set_horizontal_alignment_tuning(cx, self.current_horizontal_alignment_tuning());
         self.camera_projection_textures_bound = true;
         self.camera_projection_paired_textures_bound = !single_stream_visual_proof;
@@ -5490,6 +5636,53 @@ impl MakepadCameraYuvTextures {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct MakepadTargetFootprintPush {
+    from_metadata: f32,
+    left_offset_x_uv: f32,
+    left_offset_y_uv: f32,
+    right_offset_x_uv: f32,
+    right_offset_y_uv: f32,
+    left_radius_x_uv: f32,
+    left_radius_y_uv: f32,
+    right_radius_x_uv: f32,
+    right_radius_y_uv: f32,
+}
+
+impl MakepadTargetFootprintPush {
+    fn from_pair(pair: MakepadTargetScreenFootprintPair) -> Self {
+        let (left_offset, left_radius) = target_footprint_rect_push(pair.left_rect);
+        let (right_offset, right_radius) = target_footprint_rect_push(pair.right_rect);
+        Self {
+            from_metadata: if pair.from_metadata { 1.0 } else { 0.0 },
+            left_offset_x_uv: left_offset.x,
+            left_offset_y_uv: left_offset.y,
+            right_offset_x_uv: right_offset.x,
+            right_offset_y_uv: right_offset.y,
+            left_radius_x_uv: left_radius.x,
+            left_radius_y_uv: left_radius.y,
+            right_radius_x_uv: right_radius.x,
+            right_radius_y_uv: right_radius.y,
+        }
+    }
+}
+
+fn target_footprint_rect_push(rect: Rect2) -> (Vec2, Vec2) {
+    let center = Vec2::new(
+        rect.origin.x + rect.size.x * 0.5,
+        rect.origin.y + rect.size.y * 0.5,
+    );
+    let offset = Vec2::new(
+        (center.x - 0.5).clamp(-0.5, 0.5),
+        (center.y - 0.5).clamp(-0.5, 0.5),
+    );
+    let radius = Vec2::new(
+        (rect.size.x * 0.5).clamp(0.001, 0.5),
+        (rect.size.y * 0.5).clamp(0.001, 0.5),
+    );
+    (offset, radius)
+}
+
 #[derive(Clone)]
 struct MakepadCameraPair {
     left: MakepadCameraChoice,
@@ -5511,6 +5704,7 @@ struct MakepadCameraPair {
     right_screen_to_surface_h: [[f32; 3]; 3],
     left_source_valid_uv_rect: Rect2,
     right_source_valid_uv_rect: Rect2,
+    target_footprint: MakepadTargetScreenFootprintPair,
     projection_homography_ready: bool,
     runtime_xr_view_state_ready: bool,
     openxr_contract: MakepadOpenXrProjectionContract,
@@ -5558,6 +5752,7 @@ impl MakepadCameraPair {
             right_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             left_source_valid_uv_rect: Rect2::UNIT,
             right_source_valid_uv_rect: Rect2::UNIT,
+            target_footprint: makepad_runtime_target_screen_footprint_pair(),
             projection_homography_ready: false,
             runtime_xr_view_state_ready: false,
             openxr_contract: MakepadOpenXrProjectionContract::missing(),
@@ -5612,6 +5807,7 @@ impl MakepadCameraPair {
             right_screen_to_surface_h: plan.right_screen_to_surface_h,
             left_source_valid_uv_rect: Rect2::UNIT,
             right_source_valid_uv_rect: Rect2::UNIT,
+            target_footprint: makepad_runtime_target_screen_footprint_pair(),
             projection_homography_ready: plan.projection_homography_ready,
             runtime_xr_view_state_ready: plan.runtime_xr_view_state_ready,
             openxr_contract: plan.openxr_contract.clone(),
@@ -5688,6 +5884,7 @@ impl MakepadCameraPair {
             right_screen_to_surface_h: IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY,
             left_source_valid_uv_rect: Rect2::UNIT,
             right_source_valid_uv_rect: Rect2::UNIT,
+            target_footprint: makepad_runtime_target_screen_footprint_pair(),
             projection_homography_ready: false,
             runtime_xr_view_state_ready: false,
             openxr_contract: MakepadOpenXrProjectionContract::missing(),
@@ -5726,6 +5923,19 @@ impl MakepadCameraPair {
         self.right_screen_to_surface_h = plan.right_screen_to_surface_h;
         self.left_source_valid_uv_rect = left_metadata.source_valid_uv_rect;
         self.right_source_valid_uv_rect = right_metadata.source_valid_uv_rect;
+        self.target_footprint = match (
+            left_metadata.target_screen_uv_rect,
+            right_metadata.target_screen_uv_rect,
+        ) {
+            (Some(left_rect), Some(right_rect)) => MakepadTargetScreenFootprintPair {
+                left_rect,
+                right_rect,
+                from_metadata: true,
+                defaulted: left_metadata.target_footprint_default
+                    && right_metadata.target_footprint_default,
+            },
+            _ => makepad_runtime_target_screen_footprint_pair(),
+        };
         self.projection_homography_ready = plan.projection_homography_ready;
         self.runtime_xr_view_state_ready = plan.runtime_xr_view_state_ready;
         self.openxr_contract = plan.openxr_contract.clone();
@@ -6566,12 +6776,56 @@ fn makepad_projection_target_joystick_controls_enabled_from_value(value: &str) -
     )
 }
 
+fn makepad_projection_target_scale() -> f32 {
+    hotload_f32(
+        rxrc::KEY_PROJECTION_TARGET_SCALE,
+        TARGET_PROJECTION_TARGET_SCALE,
+        PROJECTION_TARGET_MIN_SCALE,
+        PROJECTION_TARGET_MAX_SCALE,
+    )
+}
+
+fn makepad_projection_target_offset_x_uv() -> f32 {
+    hotload_f32(
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_X_UV,
+        TARGET_PROJECTION_TARGET_OFFSET_X_UV,
+        -0.5,
+        0.5,
+    )
+}
+
+fn makepad_projection_target_offset_y_uv() -> f32 {
+    hotload_f32(
+        rxrc::KEY_PROJECTION_TARGET_OFFSET_Y_UV,
+        TARGET_PROJECTION_TARGET_OFFSET_Y_UV,
+        -0.5,
+        0.5,
+    )
+}
+
 fn makepad_projection_target_deadzone_axis(value: f32) -> f32 {
     if value.abs() <= PROJECTION_TARGET_JOYSTICK_DEADZONE {
         0.0
     } else {
         value.clamp(-1.0, 1.0)
     }
+}
+
+fn makepad_projection_target_offset_step(
+    current_offset: f32,
+    axis: f32,
+    dt_seconds: f32,
+    y_axis: bool,
+) -> Option<f32> {
+    let axis = makepad_projection_target_deadzone_axis(axis);
+    if axis == 0.0 {
+        return None;
+    }
+    let direction = if y_axis { -axis } else { axis };
+    Some(
+        (current_offset + direction * PROJECTION_TARGET_OFFSET_RATE_UV_PER_SECOND * dt_seconds)
+            .clamp(-0.5, 0.5),
+    )
 }
 
 fn makepad_projection_target_scale_step(
@@ -6603,6 +6857,20 @@ mod projection_target_joystick_tests {
     }
 
     #[test]
+    fn left_stick_x_offsets_projection_target() {
+        let next = makepad_projection_target_offset_step(0.0, 1.0, 0.1, false)
+            .expect("rightward stick should produce an offset step");
+        assert!(next > 0.0);
+    }
+
+    #[test]
+    fn left_stick_up_offsets_projection_target_up_in_display_uv() {
+        let next = makepad_projection_target_offset_step(0.0, 1.0, 0.1, true)
+            .expect("upward reference stick should produce an offset step");
+        assert!(next < 0.0);
+    }
+
+    #[test]
     fn right_stick_up_grows_projection_target_scale() {
         let next = makepad_projection_target_scale_step(1.0, -1.0, 0.1)
             .expect("upward stick should produce a scale step");
@@ -6614,5 +6882,19 @@ mod projection_target_joystick_tests {
         let next = makepad_projection_target_scale_step(1.0, 1.0, 0.1)
             .expect("downward stick should produce a scale step");
         assert!(next < 1.0);
+    }
+
+    #[test]
+    fn right_stick_down_allows_minimal_projection_target_scale() {
+        let next = makepad_projection_target_scale_step(PROJECTION_TARGET_MIN_SCALE, 1.0, 1.0)
+            .expect("downward stick at the floor should still produce a clamped scale");
+        assert_eq!(next, PROJECTION_TARGET_MIN_SCALE);
+    }
+
+    #[test]
+    fn right_stick_up_allows_expanded_projection_target_scale_for_reference_zoom() {
+        let next = makepad_projection_target_scale_step(PROJECTION_TARGET_MAX_SCALE, -1.0, 1.0)
+            .expect("upward stick at the ceiling should still produce a clamped scale");
+        assert_eq!(next, PROJECTION_TARGET_MAX_SCALE);
     }
 }
