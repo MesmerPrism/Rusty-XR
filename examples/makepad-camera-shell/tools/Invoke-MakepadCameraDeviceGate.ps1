@@ -905,6 +905,10 @@ function Capture-LaunchState {
     }
     $projectionRuntimeManifestLines = @($log | Select-String -SimpleMatch "RUSTY_XR_PROJECTION_RUNTIME_MANIFEST" | ForEach-Object { $_.Line })
     $projectionRuntimeNumericTypeIssues = @(Get-ProjectionRuntimeNumericTypeIssues -LogLines $projectionRuntimeManifestLines)
+    $broadGpuFaultSignalPattern = "(?i)page fault|gpu.*fault|kgsl|iommu|CP_SQE|faulting"
+    $kernelGpuFaultPattern = "(?i)GPU PAGE FAULT|premature free|already freed|kgsl_iommu_print_fault|kgsl_mmu_pagefault_resume|CP_SQE|(?:read|write) translation fault"
+    $appKernelGpuFaultCount = @($appLog | Select-String -Pattern $kernelGpuFaultPattern).Count
+    $kernelGpuFaultCount = @($log | Select-String -Pattern $kernelGpuFaultPattern).Count
 
     $state = [ordered]@{
         label = $Label
@@ -924,8 +928,15 @@ function Capture-LaunchState {
         loadingSignalCount = $loadingSignals
         processId = $processId
         appLineCount = @($appLog).Count
-        appGpuFaultCount = @($appLog | Select-String -Pattern "(?i)page fault|gpu.*fault|kgsl|iommu|CP_SQE|faulting").Count
-        gpuFaultCount = @($log | Select-String -Pattern "(?i)page fault|gpu.*fault|kgsl|iommu|CP_SQE|faulting").Count
+        appGpuFaultCount = $appKernelGpuFaultCount
+        gpuFaultCount = $kernelGpuFaultCount
+        appKernelGpuFaultCount = $appKernelGpuFaultCount
+        kernelGpuFaultCount = $kernelGpuFaultCount
+        kernelGpuPageFaultCount = @($log | Select-String -SimpleMatch "GPU PAGE FAULT").Count
+        kernelGpuPrematureFreeCount = @($log | Select-String -SimpleMatch "premature free").Count
+        kernelGpuAlreadyFreedCount = @($log | Select-String -SimpleMatch "already freed").Count
+        appBroadGpuFaultSignalCount = @($appLog | Select-String -Pattern $broadGpuFaultSignalPattern).Count
+        broadGpuFaultSignalCount = @($log | Select-String -Pattern $broadGpuFaultSignalPattern).Count
         fatalCount = @($log | Select-String -Pattern "FATAL EXCEPTION|Fatal signal|signal 11|SIGSEGV|Abort message").Count
         hardwareBufferWarningCount = @($log | Select-String -Pattern "(?i)hardware.?buffer|AHardwareBuffer|GraphicBuffer\(w=4").Count
         projectionRuntimeManifestCount = $projectionRuntimeManifestLines.Count

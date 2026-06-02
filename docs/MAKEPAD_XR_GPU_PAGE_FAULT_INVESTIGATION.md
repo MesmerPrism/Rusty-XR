@@ -60,6 +60,18 @@ separately because paired Makepad camera imports and performance comparison
 work intentionally exercise Camera2 hardware buffers through Makepad/Vulkan
 textures.
 
+The later direct-camera HWB color-corrected path exposed a second, narrower
+resource-lifetime race. In that path, Makepad imported a new
+`AHardwareBuffer`-backed Vulkan image when a camera hardware-buffer pointer
+changed and destroyed the previous imported texture resource immediately. Quest
+kernel logs then reported app-process GPU page faults with adjacent
+`premature free` / already-freed surface lines. Deferring imported texture
+resource destruction until submitted GPU work has completed removed the strict
+kernel page-fault class in the current HWB camera shell. Broad diagnostic
+regexes can still false-match ordinary text such as `CPU&GPU` or "defaulting",
+so current gates also record strict kernel counters for `GPU PAGE FAULT`,
+`premature free`, `already freed`, `kgsl`, and `iommu`.
+
 ## Investigation Rules
 
 - Change one variable per attempt.
@@ -122,6 +134,7 @@ textures.
 | 40 | Rusty XR synthetic stereo Makepad shell rebuilt against the maintained fork state with Java activity, native bootstrap, and direct Android app markers | Makepad launcher and direct generated-XR activity | Short startup captures saw activity/bootstrap/app markers on both launch paths, including Vulkan ready and before main loop. Separate 90s liveness captures stayed alive with no app-process GPU page-fault or fatal lines; repeated small hardware-buffer warnings remained. | The marker route is working, the fork-state frame-fence patch stays clean in the Rusty XR synthetic stereo shell, and future validation should keep startup marker checks separate from longer fault-counter windows. |
 | 41 | Rusty XR Makepad shell rebuilt against the maintained fork state with Android NDK Camera2 metadata enumeration and bounded `PRIVATE` `AImageReader` acquisition | Makepad launcher and direct generated-XR activity | Short startup captures on both launch paths emitted activity/bootstrap/app markers, enumerated three Camera2 `PRIVATE` sources, selected a back-facing 1280x1280 source with intrinsics and pose metadata, acquired one hardware-buffer-backed frame, and completed with `status=ok`. Separate 90s liveness captures stayed alive with no app-process GPU page-fault or fatal lines. The small `AHardwareBuffer` 4x4 warning class remained visible and was counted separately. | Camera2 metadata and first-buffer acquisition work through the Makepad-generated Android shell. The next split is hardware-buffer import into the Makepad/Vulkan texture path, not projection parity. |
 | 42 | Rusty XR Makepad shell rebuilt with paired Makepad `VideoExternal` camera import and projection-mapping markers | Direct generated-XR activity | Short marker capture emitted startup, Camera2 metadata/acquisition, paired source enumeration, paired playback start, left/right prepared, left/right texture-updated, projection complete, and paired comparison markers. The completion marker reported `pairedLeftRightGpuBuffers=true`, `makepadVulkanImport=true`, `projectionMappingReady=true`, `alignedProjection=true`, `cpuUploadCount=0`, and `visualInspection=required`. App-process GPU page-fault and fatal counts were zero; the small hardware-buffer warning class remained visible. | Direct generated-XR path is ready for parity performance diagnostics against the custom stereo projection baseline. Keep normal launcher lifecycle, device awake-state/proximity, and small hardware-buffer warnings as separate counters. |
+| 43 | Rusty XR Makepad HWB camera shell rebuilt with the combined immutable-sampler YCbCr import path plus deferred Vulkan texture-resource retirement | Makepad launcher activity | The marked headset pass launched the generated XR activity, imported direct Camera2 hardware buffers through the Makepad Vulkan path, and recorded 89 `RUSTY_XR_MAKEPAD_VULKAN_RESOURCE_RETIRE` markers, 120 Vulkan import markers, and 3993 camera frame-flow markers in the final sample. Strict kernel counts stayed at zero for `GPU PAGE FAULT`, `premature free`, `already freed`, `kgsl`, and `iommu`. The existing Meta stale/FPS gate still failed separately. | The direct HWB page-fault noise was caused by imported texture resources being destroyed/released before all submitted GPU work that could sample them had completed. Deferring retirement by GPU-submit serial fixes that kernel-fault class in this sample. Treat HWB performance/stale behavior as the next separate renderer target, not as evidence that page faults remain. |
 
 ## Depth Path Comparison
 
@@ -200,6 +213,8 @@ than another broad renderer split:
   validate whether surface update/suspend need additional coverage
 - keep small hardware-buffer warning counts visible as Camera2 buffers are
   imported into Makepad/Vulkan textures
+- keep strict kernel page-fault counters separate from broad text scans because
+  ordinary log text such as "defaulting" can match historical broad regexes
 
 ## Open Isolation Questions
 
@@ -208,6 +223,8 @@ than another broad renderer split:
   launch/stop cycles?
 - Are the repeated small hardware-buffer warnings benign Makepad/Quest surface
   churn, or do they matter once Camera2 hardware-buffer import is introduced?
+- Why does the direct HWB path still trip the stale/FPS gate after the kernel
+  page-fault class is removed?
 - Does the same synchronization need to be applied to the out-of-date and
   surface-lost paths, or is the Quest/Horizon symptom specific to suboptimal
   acquire/present returns?
