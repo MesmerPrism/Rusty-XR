@@ -52,7 +52,9 @@ KNOWN_DESCRIPTOR_SHAPES = {
     "cpu-yuv-plane-textures",
     "hardware-buffer-yuv-plane-textures",
     "sampled-image-and-sampler",
+    "sampled-image-and-sampler-ycbcr-conversion",
     "combined-image-sampler",
+    "combined-immutable-sampler-ycbcr-conversion",
     "sampler-external-oes",
     "not-applicable",
 }
@@ -599,7 +601,8 @@ def makepad_path_from_fields_or_context(fields: dict[str, Any], context_fields: 
     return makepad_path_from_flow_path(str(context_fields.get("directCameraTexturePath") or ""))
 
 
-def makepad_color_status(path: str) -> tuple[str, str, str, str, str]:
+def makepad_color_status(path: str, fields: dict[str, Any] | None = None) -> tuple[str, str, str, str, str]:
+    fields = fields or {}
     if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}:
         return (
             "accepted-reference",
@@ -609,6 +612,17 @@ def makepad_color_status(path: str) -> tuple[str, str, str, str, str]:
             "yuv-plane-shader",
         )
     if path.startswith("direct-camera-hardware-buffer"):
+        effective_model = nonempty_text(fields.get("effectiveYcbcrModel"))
+        effective_range = nonempty_text(fields.get("effectiveYcbcrRange"))
+        conversion_mode = nonempty_text(fields.get("conversionMode"))
+        if effective_model is not None or effective_range is not None:
+            return (
+                "experimental-candidate",
+                "android-hardware-buffer-vulkan-sampler-ycbcr",
+                effective_model or "runtime-ycbcr-conversion",
+                effective_range or "runtime-defined",
+                conversion_mode or "vulkan-sampler-ycbcr",
+            )
         return (
             "experimental",
             "android-hardware-buffer-external-rgb",
@@ -887,7 +901,7 @@ def build_oes_contract(fields: dict[str, Any], transform_payload: dict[str, Any]
 
 
 def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
-    color_status, color_reference, matrix, color_range, transfer = makepad_color_status(path)
+    color_status, color_reference, matrix, color_range, transfer = makepad_color_status(path, fields)
     size = size_from_fields(fields)
     source_kind = normalized_source_kind(fields.get("sourceMode") or fields.get("source") or path)
     source_label = (
@@ -918,6 +932,23 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
         fields.get("shaderSampleLowering")
         or fields.get("shader_interface")
         or contract["resource"]["descriptor_shape"]
+    )
+    contract["resource"].update(
+        {
+            "sampler_binding_mode": nonempty_text(fields.get("samplerBindingMode")),
+            "sampler_binding_compliance": nonempty_text(fields.get("samplerBindingCompliance")),
+            "suggested_ycbcr_model": nonempty_text(fields.get("suggestedYcbcrModel")),
+            "suggested_ycbcr_range": nonempty_text(fields.get("suggestedYcbcrRange")),
+            "effective_ycbcr_model": nonempty_text(fields.get("effectiveYcbcrModel")),
+            "effective_ycbcr_range": nonempty_text(fields.get("effectiveYcbcrRange")),
+            "ycbcr_components": nonempty_text(fields.get("ycbcrComponents")),
+            "suggested_x_chroma_offset": nonempty_text(fields.get("suggestedXChromaOffset")),
+            "suggested_y_chroma_offset": nonempty_text(fields.get("suggestedYChromaOffset")),
+            "conversion_mode": nonempty_text(fields.get("conversionMode")),
+            "color_fix_attempt": nonempty_text(fields.get("colorFixAttempt")),
+            "combined_image_sampler": parse_bool(fields.get("combinedImageSampler")),
+            "immutable_sampler": parse_bool(fields.get("immutableSampler")),
+        }
     )
     contract["source"].update(
         {
@@ -1445,8 +1476,8 @@ def self_test() -> None:
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane eventResourcePath=cpu-yuv-planes descriptorShape=cpu-yuv-plane-textures cameraInputId=10 cameraFormatId=20 cameraFrameSeq=2 cameraTimestampNs=123 acquireTimeNs=111 uploadSeq=3 uploadTimeNs=456 textureUpdateSeq=3 textureWidth=1280 textureHeight=1280",
             "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=draw-vars-bound status=ok cameraReady=true yuvMode=false cameraTextureBinding=false projectionPanelDrawEnabled=false leftYuvTextureBound=false rightYuvTextureBound=false cameraTexturePath=direct-camera-cpu-yuv-plane",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=sampled-image-and-sampler cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false",
-            "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.xr.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=SAMPLED_IMAGE samplerDescriptorType=SAMPLER combinedImageSampler=false shaderSampleLowering=textureSampleLevel_separate_texture_sampler",
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=combined-immutable-sampler-ycbcr-conversion cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false suggestedYcbcrModel=YCBCR_IDENTITY suggestedYcbcrRange=ITU_FULL effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW ycbcrComponents=r,g,b,a suggestedXChromaOffset=COSITED_EVEN suggestedYChromaOffset=MIDPOINT conversionMode=forced-bt601-limited-cpuyuv-reference samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
+            "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.xr.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=COMBINED_IMAGE_SAMPLER samplerDescriptorType=COMBINED_IMAGE_SAMPLER combinedImageSampler=true immutableSampler=true samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW conversionMode=forced-bt601-limited-cpuyuv-reference shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
             "RUSTY_XR_MAKEPAD_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=xr-end-frame status=submitted renderPath=makepad-xr xrFrameSeq=9 shouldRender=true submitTimeNs=900 predictedDisplayTimeNs=1000 predictedDisplayPeriodNs=13888888 resultCode=0 layerCount=1",
         ]
     )
@@ -1520,9 +1551,36 @@ def self_test() -> None:
             raise AssertionError("Makepad CPU-YUV camera format id was not parsed")
         if (
             lanes["makepad-hwb-external-direct-camera2-raw"]["resource"]["descriptor_shape"]
-            != "sampled-image-and-sampler"
+            != "combined-immutable-sampler-ycbcr-conversion"
         ):
             raise AssertionError("Makepad HWB descriptor shape was not parsed")
+        if (
+            lanes["makepad-hwb-external-direct-camera2-raw"]["color"]["color_status"]
+            != "experimental-candidate"
+        ):
+            raise AssertionError("Makepad HWB color candidate status was not parsed")
+        if (
+            lanes["makepad-hwb-external-direct-camera2-raw"]["color"]["color_matrix"]
+            != "YCBCR_601"
+        ):
+            raise AssertionError("Makepad HWB effective YCbCr model was not parsed")
+        if (
+            lanes["makepad-hwb-external-direct-camera2-raw"]["color"]["color_range"]
+            != "ITU_NARROW"
+        ):
+            raise AssertionError("Makepad HWB effective YCbCr range was not parsed")
+        hwb_resource = lanes["makepad-hwb-external-direct-camera2-raw"]["resource"]
+        if hwb_resource["sampler_binding_compliance"] != "pure-hwb-reference-combined-immutable":
+            raise AssertionError("Makepad HWB sampler binding compliance was not parsed")
+        if hwb_resource["combined_image_sampler"] is not True:
+            raise AssertionError("Makepad HWB combined sampler flag was not parsed")
+        if hwb_resource["immutable_sampler"] is not True:
+            raise AssertionError("Makepad HWB immutable sampler flag was not parsed")
+        if (
+            hwb_resource["color_fix_attempt"]
+            != "hwb-external-combined-immutable-v4-default-sampler-remap"
+        ):
+            raise AssertionError("Makepad HWB color fix marker was not parsed")
         if lanes["makepad-hwb-external-direct-camera2-raw"]["timing"]["import_time_ns"] != 800:
             raise AssertionError("Makepad HWB event import time was not parsed")
         if lanes["gles-oes-direct-camera2-raw"]["timing"]["texture_update_sequence"] != 4:

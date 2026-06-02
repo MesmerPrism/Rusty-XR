@@ -201,6 +201,56 @@ fn video_texture_update_metadata_marker_fields(metadata: &VideoTextureUpdateMeta
     if let Some(value) = metadata.vulkan_external_format {
         fields.push(format!("vulkanExternalFormat={value}"));
     }
+    #[cfg(feature = "makepad-hwb-ycbcr-metadata")]
+    if let Some(ycbcr) = metadata.ycbcr_conversion.as_ref() {
+        fields.push(format!(
+            "suggestedYcbcrModel={}",
+            marker_token(&ycbcr.suggested_model)
+        ));
+        fields.push(format!(
+            "suggestedYcbcrRange={}",
+            marker_token(&ycbcr.suggested_range)
+        ));
+        fields.push(format!(
+            "effectiveYcbcrModel={}",
+            marker_token(&ycbcr.effective_model)
+        ));
+        fields.push(format!(
+            "effectiveYcbcrRange={}",
+            marker_token(&ycbcr.effective_range)
+        ));
+        fields.push(format!(
+            "ycbcrComponents={}",
+            marker_token(&ycbcr.components)
+        ));
+        fields.push(format!(
+            "suggestedXChromaOffset={}",
+            marker_token(&ycbcr.suggested_x_chroma_offset)
+        ));
+        fields.push(format!(
+            "suggestedYChromaOffset={}",
+            marker_token(&ycbcr.suggested_y_chroma_offset)
+        ));
+        fields.push(format!(
+            "conversionMode={}",
+            marker_token(&ycbcr.conversion_mode)
+        ));
+        fields.push(format!(
+            "samplerBindingMode={}",
+            marker_token(&ycbcr.sampler_binding_mode)
+        ));
+        fields.push(format!(
+            "samplerBindingCompliance={}",
+            marker_token(&ycbcr.sampler_binding_compliance)
+        ));
+        fields.push(format!(
+            "shaderSampleLowering={}",
+            marker_token(&ycbcr.shader_sample_lowering)
+        ));
+        fields.push(
+            "colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap".to_string(),
+        );
+    }
     if let Some(value) = metadata.resource_reused {
         fields.push(format!("resourceReused={value}"));
     }

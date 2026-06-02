@@ -32,7 +32,7 @@ param(
     [ValidateSet("display-screen-homography", "world-canvas")]
     [string]$CameraProjectionMode = "display-screen-homography",
     [ValidateSet("full-frame-diagnostic", "camera-projection")]
-    [string]$CameraProjectionGeometryProfile = "full-frame-diagnostic",
+    [string]$CameraProjectionGeometryProfile = "camera-projection",
     [ValidateSet("head-anchored-virtual-camera", "camera-matched", "full-frame-diagnostic")]
     [string]$BrokerH264SyntheticProjectionProfile = "head-anchored-virtual-camera",
     [string]$BrokerH264LeftCameraId = "",
@@ -50,7 +50,7 @@ param(
     [ValidateSet("solid-red", "passthrough-underlay")]
     [string]$ProjectionBorderPolicy = "solid-red",
     [ValidateSet("raw", "blur", "peripheral-stretch")]
-    [string]$ProcessingLayer = "raw",
+    [string]$ProcessingLayer = "peripheral-stretch",
     [ValidateSet("camera", "solid-color", "solid-no-texture", "clear-only")]
     [string]$ProjectionSampleMode = "camera",
     [double]$BlurRadiusPx = 2.0,
@@ -60,19 +60,19 @@ param(
     [double]$PeripheralStretchEdgeInsetUv = 0.015,
     [double]$PeripheralStretchMaxInsetUv = 0.14,
     [double]$PeripheralStretchCurve = 1.6,
-    [double]$PeripheralStretchInnerBlendUv = 0.040,
+    [double]$PeripheralStretchInnerBlendUv = 0.0,
     [double]$PeripheralStretchBlendCurve = 1.6,
     [ValidateSet("off", "target-inner-band")]
-    [string]$PeripheralStretchBlendMode = "target-inner-band",
+    [string]$PeripheralStretchBlendMode = "off",
     [ValidateSet("target-footprint")]
     [string]$PeripheralStretchCornerMode = "target-footprint",
     [ValidateSet("off", "regions", "sample-uv")]
     [string]$PeripheralStretchDebug = "off",
     [double]$ProjectionScale = 1.0,
-    [double]$ProjectionDepthMeters = 1.0,
-    [double]$CameraPreviewFovYDegrees = [double]::NaN,
-    [double]$CameraPreviewOffsetYMeters = [double]::NaN,
-    [double]$CameraRawOverlayOverscan = [double]::NaN,
+    [double]$ProjectionDepthMeters = 1.434085,
+    [double]$CameraPreviewFovYDegrees = 69.763084,
+    [double]$CameraPreviewOffsetYMeters = -0.168832,
+    [double]$CameraRawOverlayOverscan = 1.0,
     [double]$XrRenderScale = 1.0,
     [double]$XrDisplayRefreshHz = 72.0,
     [ValidateRange(0, 5)]
@@ -111,7 +111,7 @@ param(
     [ValidateSet("skip", "warn", "required")]
     [string]$ProjectionRuntimeReadback = "warn",
     [ValidateSet("cpu-yuv", "hardware-buffer-external")]
-    [string]$DirectCameraTexturePath = "cpu-yuv",
+    [string]$DirectCameraTexturePath = "hardware-buffer-external",
     [string[]]$PreLaunchForceStopPackages = @(
         "com.example.rustyxr.composite",
         "com.example.rustyxr.opengles"
@@ -1302,7 +1302,7 @@ $script:gateStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $script:gateTimingRecords = [System.Collections.Generic.List[object]]::new()
 $effectiveProjectionRuntimeReadback = if ($ProjectionRuntimeReadback -eq "warn" -and $UseResolvedProjectionRuntime) { "required" } else { $ProjectionRuntimeReadback }
 $directCameraColorStatus = if ($DirectCameraTexturePath -eq "hardware-buffer-external") {
-    "experimental-hardware-buffer-external-color-not-accepted"
+    "experimental-hardware-buffer-external-combined-immutable-default-sampler-ycbcr-candidate"
 } else {
     "accepted-cpu-yuv-reference"
 }

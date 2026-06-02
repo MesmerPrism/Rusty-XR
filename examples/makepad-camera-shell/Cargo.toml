@@ -8,6 +8,10 @@ description = "Makepad-first Quest shell for comparing Rusty XR camera workflow 
 repository = "https://github.com/MesmerPrism/Rusty-XR"
 build = "build.rs"
 
+[features]
+default = []
+makepad-hwb-ycbcr-metadata = []
+
 [dependencies]
 makepad-xr = { git = "https://github.com/MesmerPrism/makepad.git", branch = "rusty-xr/android-libstd-packaging", version = "1.0.0" }
 rusty-xr-camera-model = { path = "../../crates/rusty-xr-camera-model" }

@@ -566,7 +566,11 @@ if ($UseWindowsHost) {
             "--app-label=$AppLabel",
             "build"
         )
-        $cargoMakepadArgs += @("-p", $CargoPackage, "--release")
+        $cargoMakepadArgs += @("-p", $CargoPackage)
+        if ($patchMakepadXrFromSourceEffective) {
+            $cargoMakepadArgs += "--features=makepad-hwb-ycbcr-metadata"
+        }
+        $cargoMakepadArgs += "--release"
         & cargo @cargoMakepadArgs
         $cargoExitCode = $LASTEXITCODE
         if ($cargoExitCode -eq 0) {
@@ -646,9 +650,12 @@ $cargoCommandParts += @(
 )
 $cargoCommandParts += @(
     '-p',
-    (Quote-Bash $CargoPackage),
-    '--release'
+    (Quote-Bash $CargoPackage)
 )
+if ($patchMakepadXrFromSourceEffective) {
+    $cargoCommandParts += '--features=makepad-hwb-ycbcr-metadata'
+}
+$cargoCommandParts += '--release'
 $cargoCommand = $cargoCommandParts -join ' '
 $commandParts = @(
     'set -euo pipefail',

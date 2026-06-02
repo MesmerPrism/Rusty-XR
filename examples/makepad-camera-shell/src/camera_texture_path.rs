@@ -139,7 +139,7 @@ impl MakepadCameraTexturePath {
         match self {
             Self::DirectCpuYuvPlane | Self::BrokerH264CpuYuv => "accepted-cpu-yuv-reference",
             Self::DirectHardwareBufferExternal => {
-                "experimental-hardware-buffer-external-color-not-accepted"
+                "experimental-hardware-buffer-external-combined-immutable-default-sampler-ycbcr-candidate"
             }
             Self::DirectHardwareBufferYuvPlane => {
                 "experimental-hardware-buffer-yuv-plane-color-not-accepted"
@@ -174,7 +174,7 @@ mod tests {
         assert_eq!(path.cpu_upload_path(), "none");
         assert_eq!(
             path.visual_color_status(),
-            "experimental-hardware-buffer-external-color-not-accepted"
+            "experimental-hardware-buffer-external-combined-immutable-default-sampler-ycbcr-candidate"
         );
         assert!(path
             .marker_fields()
