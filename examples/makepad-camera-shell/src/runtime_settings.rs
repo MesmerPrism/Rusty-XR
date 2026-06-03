@@ -37,8 +37,7 @@ pub(crate) const DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS: u32 = 10_000;
 pub(crate) const DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS: u32 = 30_000;
 pub(crate) const DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS: u32 = 20_000;
 pub(crate) const DEFAULT_BROKER_H264_LIVE_STREAM: bool = true;
-pub(crate) const DEFAULT_BROKER_H264_STEREO_PAIR_ID: &str =
-    "makepad-broker-h264-stereo-camera";
+pub(crate) const DEFAULT_BROKER_H264_STEREO_PAIR_ID: &str = "makepad-broker-h264-stereo-camera";
 pub(crate) const DEFAULT_BROKER_H264_STEREO_PAIR_MAX_DELTA_NS: u32 = 25_000_000;
 pub(crate) const DEFAULT_MAKEPAD_DIRECT_CAMERA_HARDWARE_BUFFER_EXTERNAL: bool = true;
 pub(crate) const DEFAULT_MANIFOLD_POSE_PUBLISH_ENABLED: bool = false;
@@ -97,7 +96,7 @@ pub(crate) const FRAME_RASTER_BOTTOM_LEFT_Y_UP: &str = "bottom-left-origin-y-up"
 pub(crate) const IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY: [[f32; 3]; 3] =
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 pub(crate) const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
-pub(crate) const MAKEPAD_REV: &str = "032533b2f";
+pub(crate) const MAKEPAD_REV: &str = "f5b0c6f1b";
 pub(crate) const DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-left-source";
 pub(crate) const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 pub(crate) const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
