@@ -387,6 +387,10 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\I
   -BrokerH264FrameRateHz 50
 ```
 
+The 2026-06-03 direct/broker and YUV/HWB matrix, including the broker-side
+single-stream stereo-combine decision, is summarized in
+[`docs/broker-stereo-combine-plan-2026-06-03.md`](docs/broker-stereo-combine-plan-2026-06-03.md).
+
 For raw projection-area alignment, the Makepad target uses the same full-layer
 plus projected sub-area shape as the other public camera targets. The invalid
 projection region can be launched as an opaque solid-red diagnostic border or
